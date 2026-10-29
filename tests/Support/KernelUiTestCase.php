@@ -212,6 +212,29 @@ abstract class KernelUiTestCase extends MappingTestCase
         return $out;
     }
 
+    /**
+     * The tabs under the tab row's More (docs/decisions.md HV3: a section's set-up, import and specialist pages): label, link (null for a
+     * tab not built yet) and count, in order.
+     *
+     * @return list<array{label: string, href: ?string, count: int}>
+     */
+    protected static function moreTabs(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//main//details[contains(concat(" ", @class, " "), " tabs-more ")]//*[contains(concat(" ", @class, " "), " menu-item ")]') ?: [] as $t) {
+            /** @var \DOMElement $t */
+            $name = $xp->query('span[@class="menu-name"]', $t)->item(0);
+            $label = '';
+            foreach ($name?->childNodes ?? [] as $c) {
+                $label .= $c instanceof \DOMText ? $c->textContent : '';
+            }
+            $out[] = ['label' => trim($label), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
+                'count' => (int) self::visibleText($xp, $xp->query('.//span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0))];
+        }
+        return $out;
+    }
+
     /** @return list<string> the labels of the page's tabs (sectionTabs) */
     protected static function tabLabels(UiResponse $r): array
     {

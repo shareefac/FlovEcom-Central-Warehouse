@@ -29,8 +29,8 @@ namespace CW\Ui;
  *                           `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
  *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
- *   $cards($cards, $group, $tone, $id)   the task board: one row per task (job number, title, where, status, how many, "What happens:",
- *                           one button), under the group's title
+ *   $cards($cards, $notes)  Home's "Waiting for you": one row per task (its number in its colour, its name, one plain line, one button);
+ *                           $notes: the quieter rows of the notes
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
@@ -89,9 +89,8 @@ final class View
                 ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null): string
                 => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
-            // The task board (design v4): one group of rows, its title in its colour; $group null = no title.
-            'cards' => fn (array $cards, ?string $group = null, string $tone = 'info', string $id = 'tasks'): string
-                => $this->render('cards', ['list' => $cards, 'group' => $group, 'tone' => $tone, 'id' => $id]),
+            // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): one row per task; $notes: the notes after the jobs.
+            'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
             'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string
                 => Html::emptyState($title, $text, $href, $button),
         ];
@@ -139,7 +138,7 @@ final class View
         $f = $this->frame;
         $pagebar = is_array($f['pagebar'] ?? null) ? $f['pagebar'] : null;
         [$sentence, $line] = $intro !== null ? Words::introParts($intro, $look) : ['', $look !== null ? sprintf(Words::UI['look_only'], $look) : ''];
-        // On the Dashboard (no section, so no page bar) the create buttons are plain: its main action is the first job (DS5).
+        // Outside a section (no page bar) a create button is plain (DS5); Home has none: its main action is the first job (HV1).
         $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions'], 'main' => $pagebar !== null]) : '');
         return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $lede ?? $sentence, $more ?? $line, $tag,
             $chips, $aside, $meta, $actions)

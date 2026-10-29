@@ -236,8 +236,9 @@ final class ReviewController
     /**
      * Mapping › To review (U107): the store selector and, per store, one board group with a row per match strength (and the products
      * no computer check has suggested anything for yet): what waits for a person, the share of the group's products matched, the
-     * share of their 30-day units on matched products, and a button to the store's list of that strength. A total row per store.
-     * From Home's matching-progress counts (Queries::bandCounts, unproposed, coverage) and Queries::storeBands.
+     * share of their 30-day units on matched products, and a button to the store's list of that strength. A total row per store. Under
+     * them, every store's matched share of what it sold in 30 days and a year (HV5: the matching progress that was on Home). From
+     * Queries::bandCounts, unproposed, coverage and Queries::storeBands.
      */
     private function overview(Context $ctx): HtmlResponse
     {
@@ -284,9 +285,19 @@ final class ReviewController
                 'total' => ['waiting' => $waitingByStore[$sid]] + $all,
                 'products' => Html::url('/ui/review/store', ['channel' => $s['code']])];
         }
+        // How much of what each store sells is matched, in 30 days and a year (the matching progress Home showed until HV5): the store
+        // chosen, else every store.
+        $none = array_fill_keys(['listings', 'linked_listings', 'u30', 'l30', 'i30', 'u365', 'l365', 'i365'], 0);
+        $sold = [];
+        foreach ($stores as $s) {
+            if ($store === null || (int) $store['id'] === (int) $s['id']) {
+                $sold[] = ['channel' => $s] + (($coverage[(int) $s['id']] ?? []) + $none);
+            }
+        }
         return $ctx->page('mapping_overview', [
             'stores' => self::storeItems($stores, '/ui/review', [], $store['code'] ?? null, $waitingByStore, true),
             'groups' => $groups,
+            'coverage' => $sold,
             'button' => $me->canDecide() ? Words::QUEUE['open'] : Words::QUEUE['look'],
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
         ], 200, ['title' => Words::SEGMENT['review'], 'active' => 'review', 'notice' => $this->notice($ctx, null)]);

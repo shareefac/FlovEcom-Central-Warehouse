@@ -8,14 +8,17 @@ use CW\Auth\Permissions;
 
 /**
  * THE navigation map of the staff screens (owner's request of 8 Oct 2026: "sidebar name make professional and make related tabs";
- * design v3): seven sidebar sections, the tabs inside each, and the segmented filter inside a tab. The sidebar, the tab bar, the
- * segmented filter, the phone bar, Home's "What you can use" and the tests all read this map; no view names a page itself.
+ * design v3; the shorter menu of 29 Oct 2026, docs/decisions.md HV1-HV6): the sections, the tabs inside each and the segmented filter
+ * inside a tab. The sidebar, the tab bar, the segmented filter, the phone bar, the bell and the tests all read this map; no view names a
+ * page itself.
  *
- *   section => ['tabs' => [tab => tab], 'count'?: tab]        the sidebar item; its words are Words::SECTION and SECTION_DESC; `count`: the tab
- *                                                          whose count is the section's (an inbox of the others' records), else their sum
- *   tab     => ['pages' => list<page>, 'segments'?: true, 'keep'?: list<string>]   a tab; its name is Words::MENU[tab]; `keep`: the
- *                                                          query values (a store, `channel`) its segments carry from the current request
- *           |  ['soon' => true]                                a tab not built yet: drawn disabled with a "Soon" chip, never a link
+ *   section => ['tabs' => [tab => tab], 'count'?: tab, 'keep'?: list<string>]   its words are Words::SECTION and SECTION_DESC; `count`:
+ *                                                          the tab whose count is the section's (an inbox of the others' records), else
+ *                                                          their sum; `keep`: the query values (a store, `channel`) its tabs carry
+ *   tab     => ['pages' => list<page>, 'segments'?: true, 'keep'?: list<string>, 'more'?: true]   a tab; its name is Words::MENU[tab];
+ *                                                          `keep`: the query values its segments carry from the current request;
+ *                                                          `more`: a set-up, import or specialist page, drawn under the tab row's More
+ *           |  ['soon' => true, 'more'?: true]                 a tab not built yet: drawn disabled with a "Soon" chip, never a link
  *   page    => ['perm', 'path', 'query'?, 'match', 'badge'?, 'key'?, 'new'?]
  *
  * A page is one GET route: `perm` is exactly the permission the route checks (Ui\Kernel), so a link is shown to exactly the people
@@ -26,6 +29,9 @@ use CW\Auth\Permissions;
  * `{id}` is a number, a trailing `*` any rest, `?k=v` a query value; the most specific pattern wins (locate()). `badge` names a count
  * of Ui\Context::badges() (only what this person can act on). `new` is the page's create action, drawn as the toolbar's primary
  * button on that page: [perm, href, Words::NEW key].
+ *
+ * The sidebar (HV2) is not the map's order: Home, then "Every day" (DAILY: a tab or a whole section each, Words::NAV), then "More"
+ * (MORE: the other sections). The phone's bottom bar is Home, PHONE, then More (the whole sidebar).
  */
 final class Sections
 {
@@ -33,12 +39,31 @@ final class Sections
         'dashboard' => ['tabs' => [
             'home' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/', 'match' => ['/ui', '/ui/']]]],
         ]],
+        // Products (HV3): the warehouse's items; making them by hand, the families and the multipacks are set-up pages under the row's More.
         'products' => ['tabs' => [
             'cards' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/cards', 'match' => ['/ui/items/cards*', '/ui/items/{id}*', '/ui/search']]]],
+            'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],
+            // ---- Pack B (docs/decisions.md PB1-PB8): an item made by hand (Q10), product families (Q4), pre-packed multipacks and the pack
+            // links beside them (Q3). Families and pack items are read by everyone who sees products; the pack links are matching pages.
+            'add_item' => ['more' => true, 'pages' => [['perm' => 'items.create', 'path' => '/ui/items/new', 'match' => ['/ui/items/new*'],
+                'new' => ['perm' => 'items.create', 'href' => '/ui/items/new#new', 'label' => 'add_item']]]],
+            'families' => ['more' => true, 'pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/families', 'match' => ['/ui/items/families*'],
+                'new' => ['perm' => 'families.manage', 'href' => '/ui/items/families#new', 'label' => 'families']]]],
+            'multipacks' => ['more' => true, 'segments' => true, 'pages' => [
+                ['key' => 'packs', 'perm' => 'catalogue.view', 'path' => '/ui/items/packs', 'match' => ['/ui/items/packs', '/ui/items/packs/{id}*'],
+                    'new' => ['perm' => 'catalogue.edit', 'href' => '/ui/items/packs#new', 'label' => 'packs']],
+                ['key' => 'pack_links', 'perm' => 'linking.view', 'path' => '/ui/items/packs/links', 'match' => ['/ui/items/packs/links*']],
+            ]],
+            // ---- end of pack B
+        ]],
+        // Matching (HV3): how each store's products match the warehouse's items, out of Products (it had 11 tabs). The specialist pages
+        // (By Item, New Variants, Duplicates) are under the row's More.
+        'matching' => ['tabs' => [
             // Simple matching (docs/decisions.md SM6; the owner's request of 25 Oct 2026): the first of the matching tabs, for everyone with
             // linking.view; its choices and its Apply are routes of the people who may decide (Ui\Kernel).
             'simple_match' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/match', 'match' => ['/ui/match*']]]],
-            // To review opens the "By store" overview (U107); the store chosen there travels through the segments (`keep`, U106).
+            // To review opens the "By store" overview (U107), the matching progress (HV5); the store chosen there travels through the
+            // segments (`keep`, U106).
             'mapping' => ['segments' => true, 'keep' => ['channel'], 'pages' => [
                 ['key' => 'review', 'perm' => 'linking.view', 'path' => '/ui/review',
                     'match' => ['/ui/review', '/ui/review/listing/*', '/ui/review/decision/*', '/ui/review/bulk', '/ui/review/batches/*']],
@@ -50,31 +75,18 @@ final class Sections
             'store_products' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/store', 'match' => ['/ui/review/store*']]]],
             // Every warehouse product with its match on each store, its CSV and the picker of a website product for it (U113); the
             // preview and the batch page of a bulk action started there (U127: the apply's redirect says `from=item`).
-            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products',
+            'by_product' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products',
                 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item']]]],
             // One store's variants first seen in a period, its CSV, and the seed "Create as new items" on every store (U131).
-            'new_variants' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/new-variants', 'match' => ['/ui/review/new-variants*']]]],
-            'duplicates' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
+            'new_variants' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/new-variants', 'match' => ['/ui/review/new-variants*']]]],
+            'duplicates' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
                 'badge' => 'linking_duplicates']]],
-            'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],
-            // ---- Pack B (docs/decisions.md PB1-PB8): an item made by hand (Q10), product families (Q4), pre-packed multipacks and the pack
-            // links beside them (Q3). Families and pack items are read by everyone who sees products; the pack links are matching pages.
-            'add_item' => ['pages' => [['perm' => 'items.create', 'path' => '/ui/items/new', 'match' => ['/ui/items/new*'],
-                'new' => ['perm' => 'items.create', 'href' => '/ui/items/new#new', 'label' => 'add_item']]]],
-            'families' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/families', 'match' => ['/ui/items/families*'],
-                'new' => ['perm' => 'families.manage', 'href' => '/ui/items/families#new', 'label' => 'families']]]],
-            'multipacks' => ['segments' => true, 'pages' => [
-                ['key' => 'packs', 'perm' => 'catalogue.view', 'path' => '/ui/items/packs', 'match' => ['/ui/items/packs', '/ui/items/packs/{id}*'],
-                    'new' => ['perm' => 'catalogue.edit', 'href' => '/ui/items/packs#new', 'label' => 'packs']],
-                ['key' => 'pack_links', 'perm' => 'linking.view', 'path' => '/ui/items/packs/links', 'match' => ['/ui/items/packs/links*']],
-            ]],
-            // ---- end of pack B
         ]],
         // Overview and Movements: stock_balance and the stock ledger (the item page's own figures: catalogue.view). The stock records of
         // pack A1 (docs/decisions.md SO10): the people who read records (documents.view) see their lists; the create buttons are for the
         // people who keep them (doc.<TYPE>.post). The other account's room (VPG 2) is the Transfers tab's "Balance owed". Reservations
-        // (docs/decisions.md RS1): the stock kept for the stores' orders, read only, for the same people as Overview and Movements. Sales
-        // (pack D, PD1): each store's orders, dispatch and returns, read only, for the people who look at sales (sales.view).
+        // (docs/decisions.md RS1): the stock kept for the stores' orders, read only, for the same people as Overview and Movements. The
+        // hand-overs, transfers, reservations and repacks are specialist pages under the row's More (HV3).
         'stock' => ['tabs' => [
             'stock' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock', 'match' => ['/ui/stock']]]],
             'movements' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/movements', 'match' => ['/ui/stock/movements*']]]],
@@ -84,7 +96,7 @@ final class Sections
                 'badge' => 'stock_out_open', 'new' => ['perm' => 'doc.SOUT.post', 'href' => '/ui/stock/out#new', 'label' => 'stock_out']]]],
             // ---- Pack H (0038; docs/decisions.md PH13): hand-overs to sister shops, our shop units and trade customers (IM11), the
             // customers with their remembered prices, and what each owes us. The people who read records look (documents.view). ----
-            'handovers' => ['segments' => true, 'pages' => [
+            'handovers' => ['more' => true, 'segments' => true, 'pages' => [
                 ['key' => 'handovers', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers', 'match' => ['/ui/stock/handovers', '/ui/stock/handovers.csv',
                     '/ui/stock/handovers/{id}*'], 'new' => ['perm' => 'doc.TRD.post', 'href' => '/ui/stock/handovers#new', 'label' => 'handovers']],
                 ['key' => 'handover_customers', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers/customers', 'match' => ['/ui/stock/handovers/customers*'],
@@ -92,7 +104,7 @@ final class Sections
                 ['key' => 'handover_balances', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers/balances', 'match' => ['/ui/stock/handovers/balances*']],
             ]],
             // ---- end of pack H ----
-            'transfers' => ['segments' => true, 'pages' => [
+            'transfers' => ['more' => true, 'segments' => true, 'pages' => [
                 ['key' => 'transfers', 'perm' => 'documents.view', 'path' => '/ui/stock/transfers', 'match' => ['/ui/stock/transfers*'], 'badge' => 'transfers_open',
                     'new' => ['perm' => 'doc.TRF.post', 'href' => '/ui/stock/transfers#new', 'label' => 'transfers']],
                 ['key' => 'releases', 'perm' => 'documents.view', 'path' => '/ui/stock/releases', 'match' => ['/ui/stock/releases*'], 'badge' => 'releases_open',
@@ -110,18 +122,10 @@ final class Sections
                 ['key' => 'count_differences', 'perm' => 'documents.view', 'path' => '/ui/stock/counts/differences', 'match' => ['/ui/stock/counts/differences*'],
                     'badge' => 'counts_open'],
             ]],
-            'reservations' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/reservations', 'match' => ['/ui/stock/reservations*']]]],
-            // ---- Pack D (docs/decisions.md PD1, PD2): Sales, read only. Each store's orders (and one order's page), what waits to be
-            // sent, and what came back or was cancelled; the store chosen travels through the three segments (`keep`). ----
-            'sales' => ['segments' => true, 'keep' => ['channel'], 'pages' => [
-                ['key' => 'sales_orders', 'perm' => 'sales.view', 'path' => '/ui/stock/sales', 'match' => ['/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/{id}']],
-                ['key' => 'sales_dispatch', 'perm' => 'sales.view', 'path' => '/ui/stock/sales/dispatch', 'match' => ['/ui/stock/sales/dispatch*']],
-                ['key' => 'sales_returns', 'perm' => 'sales.view', 'path' => '/ui/stock/sales/returns', 'match' => ['/ui/stock/sales/returns*']],
-            ]],
-            // ---- end of pack D ----
-            'quality' => ['soon' => true],
+            'reservations' => ['more' => true, 'pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/reservations', 'match' => ['/ui/stock/reservations*']]]],
+            'quality' => ['soon' => true, 'more' => true],
             // ---- Pack B (PB9): a Repack breaks packs into singles or makes packs; documents.view reads, doc.RPK.post books.
-            'repack' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/repack', 'match' => ['/ui/stock/repack*'],
+            'repack' => ['more' => true, 'pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/repack', 'match' => ['/ui/stock/repack*'],
                 'new' => ['perm' => 'doc.RPK.post', 'href' => '/ui/stock/repack#new', 'label' => 'repack']]]],
         ]],
         'purchasing' => ['tabs' => [
@@ -172,6 +176,16 @@ final class Sections
                 'match' => ['/ui/purchasing/suppliers*', '/ui/purchasing/supplier-items*'],
                 'new' => ['perm' => 'suppliers.manage', 'href' => '/ui/purchasing/suppliers/new', 'label' => 'suppliers']]]],
         ]],
+        // ---- Pack D (docs/decisions.md PD1, PD2): Sales, read only, its own section since HV3 (it was a tab of Stock). Each store's orders
+        // (and one order's page), what waits to be sent, and what came back or was cancelled; the store chosen travels through the
+        // three tabs (the section's `keep`). ----
+        'sales' => ['keep' => ['channel'], 'tabs' => [
+            'sales_orders' => ['pages' => [['perm' => 'sales.view', 'path' => '/ui/stock/sales', 'match' => ['/ui/stock/sales', '/ui/stock/sales.csv',
+                '/ui/stock/sales/{id}']]]],
+            'sales_dispatch' => ['pages' => [['perm' => 'sales.view', 'path' => '/ui/stock/sales/dispatch', 'match' => ['/ui/stock/sales/dispatch*']]]],
+            'sales_returns' => ['pages' => [['perm' => 'sales.view', 'path' => '/ui/stock/sales/returns', 'match' => ['/ui/stock/sales/returns*']]]],
+        ]],
+        // ---- end of pack D ----
         'reports' => ['tabs' => [
             // ---- Pack E (docs/decisions.md PE1): the reports, read only, each with its CSV; Stock Value is money (values.view).
             'stock_by_store' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/stock-by-store', 'match' => ['/ui/reports/stock-by-store*']]]],
@@ -180,7 +194,7 @@ final class Sections
             'stock_value' => ['pages' => [['perm' => 'values.view', 'path' => '/ui/reports/stock-value', 'match' => ['/ui/reports/stock-value*']]]],
             'slow_stock' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/slow-stock', 'match' => ['/ui/reports/slow-stock*']]]],
             // ---- end Pack E
-            'audit' => ['pages' => [['perm' => 'audit.view', 'path' => '/ui/system/audit', 'match' => ['/ui/system/audit*']]]],
+            'audit' => ['more' => true, 'pages' => [['perm' => 'audit.view', 'path' => '/ui/system/audit', 'match' => ['/ui/system/audit*']]]],
         ]],
         // The section's count is its inbox's (`count`, docs/decisions.md AV10): every record the person may answer, counted once.
         'approvals' => ['count' => 'inbox', 'tabs' => [
@@ -224,9 +238,23 @@ final class Sections
         ]],
     ];
 
-    /** The phone's bottom bar: Dashboard, then the first PHONE_MAX of these the person has, then "More" (the whole sidebar). */
-    public const PHONE = ['products', 'stock', 'purchasing', 'approvals', 'reports', 'settings'];
-    public const PHONE_MAX = 3;
+    /**
+     * The sidebar's "Every day" group (HV2; HM_Home): entry => [section, tab]: a tab of a section (its first page the person may open,
+     * its count), or a whole section (null: its first tab, the section's count). Each only for the people who may open it.
+     */
+    public const DAILY = [
+        'goods_in' => ['purchasing', 'goods_in'],
+        'counts' => ['stock', 'counts'],
+        'approvals' => ['approvals', null],
+        'orders' => ['purchasing', 'orders'],
+        'products' => ['products', null],
+    ];
+    /** The sidebar's "More" group: the other sections, each linking to its first tab. */
+    public const MORE = ['stock', 'purchasing', 'sales', 'matching', 'reports', 'settings'];
+    /** The phone's bottom bar (HM_Phone): Home, these entries of the sidebar the person has, then "More" (the whole sidebar). */
+    public const PHONE = ['goods_in', 'counts', 'approvals'];
+    /** The icons of the sidebar's entries that are not named after their section (ico-<name>: the sprite's names have no underscore). */
+    public const ICON = ['home' => 'home', 'goods_in' => 'goods-in', 'counts' => 'counts', 'orders' => 'orders'];
 
     /**
      * Where a request belongs: the section, tab and page whose `match` fits the path (and query) best, or null (the password page,
@@ -290,7 +318,7 @@ final class Sections
      * in a section that has a live one.
      *
      * @param list<string> $roles
-     * @return array<string, array<string, array{soon: bool, segments: bool, pages: list<array<string, mixed>>}>> section => tab => tab
+     * @return array<string, array<string, array{soon: bool, segments: bool, more: bool, pages: list<array<string, mixed>>}>> section => tab => tab
      */
     public static function visible(array $roles): array
     {
@@ -299,8 +327,9 @@ final class Sections
             $tabs = [];
             $live = false;
             foreach ($section['tabs'] as $t => $tab) {
+                $more = ($tab['more'] ?? false) === true;
                 if (($tab['soon'] ?? false) === true) {
-                    $tabs[$t] = ['soon' => true, 'segments' => false, 'pages' => []];
+                    $tabs[$t] = ['soon' => true, 'segments' => false, 'more' => $more, 'pages' => []];
                     continue;
                 }
                 $pages = [];
@@ -310,7 +339,7 @@ final class Sections
                     }
                 }
                 if ($pages !== []) {
-                    $tabs[$t] = ['soon' => false, 'segments' => ($tab['segments'] ?? false) === true, 'pages' => $pages];
+                    $tabs[$t] = ['soon' => false, 'segments' => ($tab['segments'] ?? false) === true, 'more' => $more, 'pages' => $pages];
                     $live = true;
                 }
             }
@@ -322,8 +351,8 @@ final class Sections
     }
 
     /**
-     * The menu in the shape Home's "What you can use" reads (DashboardController): each section with its live tabs, each tab with
-     * the link of the first page the person may open. No roles, no menu.
+     * What a person may use, section by section in the map's order: each section with its live tabs, each tab with the link of the first
+     * page the person may open. No roles, no menu. (Home listed it as "What you can use" until HV1; the tests read who sees what here.)
      *
      * @param list<string> $roles
      * @return list<array{section: string, key: string, items: list<array{key: string, label: string, path: string, query: array<string, string>}>}>
@@ -353,72 +382,119 @@ final class Sections
 
     /**
      * Everything the layout draws around a page for this person (Context::frame):
-     *   nav       the sidebar: each section's label, link (its first tab's), count (the sum of its tabs' counts) and whether it is current
-     *   pagebar   for the current section when the person has it (Dashboard has none: its page title is the page's own): its label,
-     *             one-line description, the tabs (current one marked, counts, "Soon" ones without a link), whether it draws the buying flow
+     *   nav       the sidebar (HV2): Home, the "Every day" entries (DAILY), the "More" sections (MORE), each only when the person has it:
+     *             its key, group (home, daily, more), icon, label, link, count and whether it is current. ONE entry is current: the
+     *             daily entry of the page's tab, else the entry of the page's section. A daily tab's count is the tab's; a section's is
+     *             the sum of its tabs' but those with a daily entry of their own (counted there), or its inbox's (`count`, AV10)
+     *   pagebar   for the current section when the person has it (Home has none: its page title is the page's own): its label,
+     *             one-line description, the tabs of the row, the tabs under the row's More (`more`, HV3: never the current one, which
+     *             the row shows after its own; none when the person has no other tab), their count, whether it draws the buying flow
      *   segments  the current tab's segmented filter (two or more segments the person may open), or []
      *             A tab or segment is `here` when it is the current one and leads to the page shown (the same path): it is drawn without a
      *             link, so a click never reloads the page and loses what was typed (docs/decisions.md CV13); the current one of a record's
      *             page leads back to its list and stays a link.
      *   actions   the current page's create button the person may use (only on the page itself, not its detail pages), then the
-     *             section's other create actions they may use (under More beside the create button); on the Dashboard every create action they may use
-     *   phone     the bottom bar: Dashboard, up to PHONE_MAX sections, "More" (#menu)
+     *             section's other create actions they may use (under More beside the create button); none on Home (HV1)
+     *   phone     the bottom bar: Home, the PHONE entries the person has, "More" (#menu)
+     *   bell      the bell (HV4): Approvals › Waiting for you and its count, for the people who answer there; else null
      *
      * @param list<string> $roles
      * @param array<string, int> $badges Context::badges()
      * @param array<string, mixed> $query
-     * @return array{nav: list<array<string, mixed>>, pagebar: ?array<string, mixed>, segments: list<array<string, mixed>>, actions: list<array<string, string>>, phone: list<array<string, mixed>>, here: ?array{section: string, tab: string, page: string}}
+     * @return array{nav: list<array<string, mixed>>, pagebar: ?array<string, mixed>, segments: list<array<string, mixed>>, actions: list<array<string, string>>, phone: list<array<string, mixed>>, bell: ?array<string, mixed>, here: ?array{section: string, tab: string, page: string}}
      */
     public static function frame(array $roles, array $badges, string $path, array $query = []): array
     {
         $here = self::locate($path, $query);
         $visible = self::visible($roles);
-        $nav = [];
         $tabsOf = [];
         foreach ($visible as $s => $tabs) {
+            // The query values the section's tabs keep (Sales: the store), on its own pages only (a plain code: the pages check it).
+            $kept = $here !== null && $here['section'] === $s ? self::kept(self::MAP[$s]['keep'] ?? [], $query) : [];
             $list = [];
-            $total = 0;
             foreach ($tabs as $t => $tab) {
                 if ($tab['soon']) {
-                    $list[] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => null, 'query' => [], 'count' => 0, 'countWords' => '', 'current' => false, 'here' => false,
-                        'soon' => true];
+                    $list[$t] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => null, 'query' => [], 'count' => 0, 'countWords' => '', 'current' => false, 'here' => false,
+                        'soon' => true, 'more' => $tab['more']];
                     continue;
                 }
                 [$count, $words] = self::count($tab['pages'], $badges);
-                $total += $count;
                 $first = $tab['pages'][0];
                 $current = $here !== null && $here['section'] === $s && $here['tab'] === $t;
-                $list[] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => (string) $first['path'], 'query' => $first['query'] ?? [], 'count' => $count,
-                    'countWords' => $words, 'current' => $current, 'here' => $current && self::samePath($path, (string) $first['path']), 'soon' => false];
+                $list[$t] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => (string) $first['path'], 'query' => ($first['query'] ?? []) + $kept, 'count' => $count,
+                    'countWords' => $words, 'current' => $current, 'here' => $current && self::samePath($path, (string) $first['path']), 'soon' => false, 'more' => $tab['more']];
             }
             $tabsOf[$s] = $list;
-            // A section with an inbox counts the inbox only: its other tabs list the same records again (AV10).
-            $inbox = self::MAP[$s]['count'] ?? null;
-            if ($inbox !== null && isset($tabs[$inbox])) {
-                $total = (int) (array_column($list, 'count', 'key')[$inbox] ?? 0);
+        }
+
+        // The sidebar: Home, Every day, More. A daily tab is counted on its own entry, not again on its section's.
+        $entry = static function (string $key, string $group, string $s, string $label, array $tab, int $count, string $words): array {
+            return ['key' => $key, 'group' => $group, 'section' => $s, 'tab' => null, 'icon' => self::ICON[$key] ?? $key, 'label' => $label, 'href' => $tab['href'],
+                'query' => $tab['query'], 'count' => $count, 'countWords' => $words, 'current' => false];
+        };
+        $firstLive = static fn (array $list): array => array_values(array_filter($list, static fn (array $x): bool => !$x['soon']))[0];
+        $nav = [];
+        $ownEntry = [];
+        if (isset($tabsOf['dashboard'])) {
+            $nav[] = $entry('home', 'home', 'dashboard', Words::SECTION['dashboard'], $firstLive($tabsOf['dashboard']), 0, Words::BADGE['section']);
+        }
+        foreach (self::DAILY as $key => [$s, $t]) {
+            if ($t !== null) {
+                $tab = $tabsOf[$s][$t] ?? null;
+                if ($tab === null || $tab['soon']) {
+                    continue;
+                }
+                $nav[] = ['tab' => $t] + $entry($key, 'daily', $s, Words::NAV[$key], $tab, $tab['count'], $tab['countWords']);
+                $ownEntry[$s][$t] = true;
+            } elseif (isset($tabsOf[$s])) {
+                $nav[] = $entry($key, 'daily', $s, Words::NAV[$key], $firstLive($tabsOf[$s]), self::sectionCount($s, $tabsOf[$s], []), Words::BADGE['section']);
             }
-            $first = array_values(array_filter($list, static fn (array $x): bool => !$x['soon']))[0];
-            $nav[] = ['key' => $s, 'label' => Words::SECTION[$s], 'href' => $first['href'], 'query' => $first['query'], 'count' => $total,
-                'countWords' => Words::BADGE['section'], 'current' => $here !== null && $here['section'] === $s];
+        }
+        foreach (self::MORE as $s) {
+            if (isset($tabsOf[$s])) {
+                $nav[] = $entry($s, 'more', $s, Words::SECTION[$s], $firstLive($tabsOf[$s]), self::sectionCount($s, $tabsOf[$s], $ownEntry[$s] ?? []),
+                    Words::BADGE['section']);
+            }
+        }
+        // ONE current entry: the daily entry of the page's tab, else the entry of its section.
+        $mark = null;
+        foreach ($here === null ? [] : $nav as $i => $item) {
+            if ($item['section'] === $here['section'] && $item['tab'] === $here['tab']) {
+                $mark = $i;
+                break;
+            }
+            if ($item['section'] === $here['section'] && $item['tab'] === null) {
+                $mark ??= $i;
+            }
+        }
+        if ($mark !== null) {
+            $nav[$mark]['current'] = true;
         }
 
         $pagebar = null;
         $segments = [];
-        $actions = $here !== null && $here['section'] === 'dashboard' ? self::createActions($roles) : [];
+        $actions = [];
         if ($here !== null && isset($visible[$here['section']]) && $here['section'] !== 'dashboard') {
             $s = $here['section'];
-            $pagebar = ['key' => $s, 'label' => Words::SECTION[$s], 'desc' => Words::SECTION_DESC[$s], 'tabs' => $tabsOf[$s], 'flow' => $s === 'purchasing',
-                'tab' => Words::MENU[$here['tab']]];
+            // The row: the section's main tabs, then the current one when it is a More tab; More holds the rest (HV3). A person with no
+            // main tab of the section sees its other tabs in the row.
+            $all = array_values($tabsOf[$s]);
+            $main = array_values(array_filter($all, static fn (array $t): bool => !$t['more']));
+            $more = [];
+            if ($main !== []) {
+                $more = array_values(array_filter($all, static fn (array $t): bool => $t['more'] && !$t['current']));
+                $main = [...$main, ...array_values(array_filter($all, static fn (array $t): bool => $t['more'] && $t['current']))];
+                // A More of pages not built yet only is not drawn: nothing in it opens.
+                $more = array_filter($more, static fn (array $t): bool => !$t['soon']) === [] ? [] : $more;
+            } else {
+                $main = $all;
+            }
+            $pagebar = ['key' => $s, 'label' => Words::SECTION[$s], 'desc' => Words::SECTION_DESC[$s], 'tabs' => $main, 'more' => $more,
+                'moreCount' => (int) array_sum(array_column($more, 'count')), 'flow' => $s === 'purchasing', 'tab' => Words::MENU[$here['tab']]];
             $tab = $visible[$s][$here['tab']] ?? null;
             if ($tab !== null && $tab['segments'] && count($tab['pages']) > 1) {
                 // The query values the tab keeps (a store's code: a plain code only, the pages check it names a store).
-                $kept = [];
-                foreach (self::MAP[$s]['tabs'][$here['tab']]['keep'] ?? [] as $k) {
-                    $v = $query[$k] ?? null;
-                    if (is_string($v) && preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $v) === 1) {
-                        $kept[$k] = $v;
-                    }
-                }
+                $kept = self::kept(self::MAP[$s]['tabs'][$here['tab']]['keep'] ?? [], $query);
                 foreach ($tab['pages'] as $page) {
                     [$count, $words] = self::count([$page], $badges);
                     $segments[] = ['key' => (string) $page['key'], 'label' => Words::SEGMENT[$page['key']], 'href' => (string) $page['path'],
@@ -447,20 +523,58 @@ final class Sections
         }
 
         $phone = [];
-        if (isset($visible['dashboard'])) {
-            $byKey = array_column($nav, null, 'key');
-            $picked = ['dashboard'];
-            foreach (self::PHONE as $s) {
-                if (isset($byKey[$s]) && count($picked) <= self::PHONE_MAX) {
-                    $picked[] = $s;
+        $byKey = array_column($nav, null, 'key');
+        if (isset($byKey['home'])) {
+            foreach (['home', ...self::PHONE] as $key) {
+                if (isset($byKey[$key])) {
+                    $phone[] = $byKey[$key];
                 }
             }
-            foreach ($picked as $s) {
-                $phone[] = $byKey[$s];
-            }
-            $phone[] = ['key' => 'more', 'label' => Words::TAB['more'], 'href' => '#menu', 'query' => [], 'count' => 0, 'countWords' => '', 'current' => false];
+            $phone[] = ['key' => 'more', 'group' => 'more', 'section' => '', 'tab' => null, 'icon' => 'more', 'label' => Words::TAB['more'], 'href' => '#menu',
+                'query' => [], 'count' => 0, 'countWords' => '', 'current' => false];
         }
-        return ['nav' => $nav, 'pagebar' => $pagebar, 'segments' => $segments, 'actions' => $actions, 'phone' => $phone, 'here' => $here];
+        $inbox = $tabsOf['approvals']['inbox'] ?? null;
+        $bell = $inbox === null ? null : ['href' => $inbox['href'], 'query' => [], 'count' => $inbox['count'], 'countWords' => $inbox['countWords']];
+        return ['nav' => $nav, 'pagebar' => $pagebar, 'segments' => $segments, 'actions' => $actions, 'phone' => $phone, 'bell' => $bell, 'here' => $here];
+    }
+
+    /**
+     * A section's count on the sidebar: its inbox's when it names one (AV10: its other tabs list the same records again), else the sum of
+     * its tabs' but the ones counted on a daily entry of their own ($own).
+     *
+     * @param array<string, array<string, mixed>> $tabs the section's drawn tabs
+     * @param array<string, true> $own
+     */
+    private static function sectionCount(string $s, array $tabs, array $own): int
+    {
+        $inbox = self::MAP[$s]['count'] ?? null;
+        if ($inbox !== null && isset($tabs[$inbox])) {
+            return (int) $tabs[$inbox]['count'];
+        }
+        $sum = 0;
+        foreach ($tabs as $t => $tab) {
+            $sum += isset($own[$t]) ? 0 : (int) $tab['count'];
+        }
+        return $sum;
+    }
+
+    /**
+     * The query values a section or a tab keeps from the request (a store's code): a plain code only, the pages check it names a store.
+     *
+     * @param list<string> $keys
+     * @param array<string, mixed> $query
+     * @return array<string, string>
+     */
+    private static function kept(array $keys, array $query): array
+    {
+        $out = [];
+        foreach ($keys as $k) {
+            $v = $query[$k] ?? null;
+            if (is_string($v) && preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $v) === 1) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -485,51 +599,6 @@ final class Sections
             }
         }
         return [$sum, count($names) === 1 ? Words::BADGE[$names[0]] : Words::BADGE['section']];
-    }
-
-    /**
-     * Where a link leads, in the names of the navigation ("Products › Mapping › Spot check"; the Dashboard's task board), or ''
-     * for a link outside every section.
-     */
-    public static function where(string $href): string
-    {
-        $parts = parse_url($href);
-        $query = [];
-        parse_str((string) ($parts['query'] ?? ''), $query);
-        $here = self::locate((string) ($parts['path'] ?? ''), $query);
-        if ($here === null) {
-            return '';
-        }
-        $names = [Words::SECTION[$here['section']]];
-        if ($here['section'] !== 'dashboard') {
-            $names[] = Words::MENU[$here['tab']];
-            if ((self::MAP[$here['section']]['tabs'][$here['tab']]['segments'] ?? false) === true) {
-                $names[] = Words::SEGMENT[$here['page']];
-            }
-        }
-        return implode(' › ', $names);
-    }
-
-    /**
-     * Every create action the person may use, in the map's order (the Dashboard's create button and its More).
-     *
-     * @param list<string> $roles
-     * @return list<array{label: string, href: string}>
-     */
-    public static function createActions(array $roles): array
-    {
-        $out = [];
-        foreach (self::visible($roles) as $tabs) {
-            foreach ($tabs as $tab) {
-                foreach ($tab['pages'] as $page) {
-                    $new = $page['new'] ?? null;
-                    if ($new !== null && Permissions::can($roles, $new['perm'])) {
-                        $out[] = ['label' => Words::NEW[$new['label']], 'href' => (string) $new['href']];
-                    }
-                }
-            }
-        }
-        return $out;
     }
 
     /** Whether the roles may open a page: its permission, or any of its list of permissions. @param list<string> $roles @param string|list<string> $perm */

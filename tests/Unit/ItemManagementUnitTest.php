@@ -103,7 +103,7 @@ final class ItemManagementUnitTest extends TestCase
 
     public function testTheTabsSitInProductsAndStockWithNoNewSidebarItem(): void
     {
-        self::assertSame(['dashboard', 'products', 'stock', 'purchasing', 'reports', 'approvals', 'settings'], array_keys(Sections::MAP));
+        self::assertSame(['dashboard', 'products', 'matching', 'stock', 'purchasing', 'sales', 'reports', 'approvals', 'settings'], array_keys(Sections::MAP));
         self::assertSame(['add_item', 'families', 'multipacks'], array_slice(array_keys(Sections::MAP['products']['tabs']), -3));
         self::assertSame('repack', array_key_last(Sections::MAP['stock']['tabs']));
         self::assertSame(['section' => 'products', 'tab' => 'add_item', 'page' => 'add_item'], Sections::locate('/ui/items/new'));
@@ -125,7 +125,9 @@ final class ItemManagementUnitTest extends TestCase
         self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
         self::assertContains('Repack', $tabs(['warehouse'], 'stock'));
         self::assertNotContains('Repack', $tabs(['viewer'], 'stock'));
-        self::assertContains(['label' => Words::NEW['add_item'], 'href' => '/ui/items/new#new'], Sections::createActions(['stock_controller']));
+        self::assertContains(['label' => Words::NEW['add_item'], 'href' => '/ui/items/new#new'], Sections::frame(['stock_controller'], [], '/ui/items/new')['actions']);
+        self::assertSame([true, true, true], [Sections::MAP['products']['tabs']['add_item']['more'], Sections::MAP['products']['tabs']['families']['more'],
+            Sections::MAP['products']['tabs']['multipacks']['more']], 'set-up pages: under the row\'s More (docs/decisions.md HV3)');
     }
 
     public function testTheSettingsAndTheSwitchAreOnTheirPagesTheSwitchOffByDefault(): void

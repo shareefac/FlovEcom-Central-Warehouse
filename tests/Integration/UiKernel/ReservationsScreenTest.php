@@ -164,9 +164,10 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $this->page($web);
         self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', null], ['Sales', '/ui/stock/sales'], ['Quality', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
-            'Reservations keeps its place before Quality (still "Soon"); a viewer reads no stock records and no counts');
+            'under the row\'s More, in the row on its own page (HV3); a viewer reads no stock records and no counts');
+        self::assertSame([], self::moreTabs($page), 'nothing else a viewer opens: no More of Quality (still "Soon") alone');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['reservations'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringStartsWith(Words::PAGE_INTRO['reservations'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
@@ -178,12 +179,13 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
         self::assertSame([[Words::BULK['all_stores'], '', 0, true]], self::storeSeg($page), 'no store yet: only "All stores" (shown: no link, CV13)');
-        // The Dashboard lists the tab with its line; the stock records' people see it between their tabs.
-        $home = $web->get('/ui/');
-        self::assertContains(self::PATH, $home->hrefs());
-        self::assertStringContainsString(Words::MENU_HELP['reservations'], $home->text());
-        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Hand-overs', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality', 'Repack'],
-            self::tabLabels($this->page($this->signIn($this->uiUser('stock_controller')))));
+        // The other pages of Stock list it under More with its line; the stock records' people see it after their tabs on its own page.
+        $stock = $web->get('/ui/stock');
+        self::assertContains(self::PATH, $stock->hrefs());
+        self::assertStringContainsString(Words::MENU_HELP['reservations'], $stock->text());
+        $sc = $this->page($this->signIn($this->uiUser('stock_controller')));
+        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Adjustments', 'Counts', 'Reservations'], self::tabLabels($sc));
+        self::assertSame(['Hand-overs', 'Transfers', 'Quality', 'Repack'], array_column(self::moreTabs($sc), 'label'));
     }
 
     public function testTheBoardGroupsEveryStateNewestFirstWithTheFiguresAndTheStores(): void

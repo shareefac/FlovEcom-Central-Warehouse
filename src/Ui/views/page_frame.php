@@ -1,11 +1,16 @@
 <?php
 // Under a page's statement (View::head, design v5): the current section's tabs (a tab not built yet without a link; the tab of the page
-// shown, `here`, without one too, so a click never reloads the page and loses what was typed: docs/decisions.md CV13), the buying flow
+// shown, `here`, without one too, so a click never reloads the page and loses what was typed: docs/decisions.md CV13), the section's
+// set-up, import and specialist pages under the row's More (a <details>: no script needed; docs/decisions.md HV3), the buying flow
 // on Purchasing, the current tab's segments (a second row of the same tabs: docs/decisions.md DS2), and the strip that says which jobs
 // Admin switches off. The layout draws the same for a page whose template draws no statement.
 $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? []; $switchedOff = $switchedOff ?? null;
 ?>
 <?php if ($pagebar !== null): ?>
+<?php $more = $pagebar['more'] ?? []; ?>
+<?php if ($more !== []): ?>
+<div class="tabs-row">
+<?php endif; ?>
 <nav class="tabs" aria-label="<?= $e($pagebar['label']) ?>">
 <?php foreach ($pagebar['tabs'] as $tab): ?>
 <?php if ($tab['soon']): ?>
@@ -15,6 +20,21 @@ $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? [];
 <?php endif; ?>
 <?php endforeach; ?>
 </nav>
+<?php if ($more !== []): ?>
+<details class="more tabs-more">
+  <summary class="tab-more"><span><?= $word('UI', 'more') ?></span><span class="visually-hidden"> <?= $say('UI', 'more_tabs', $pagebar['label']) ?></span><?php if ($pagebar['moreCount'] > 0): ?><span class="count"><?= $n($pagebar['moreCount']) ?><span class="visually-hidden"> <?= $word('BADGE', 'section') ?></span></span><?php endif; ?></summary>
+  <div class="more-menu">
+<?php foreach ($more as $tab): ?>
+<?php if ($tab['soon']): ?>
+    <span class="menu-item soon" aria-disabled="true" title="<?= $word('UI', 'soon_title') ?>"><span class="menu-name"><?= $e($tab['label']) ?> <span class="count soon"><?= $word('UI', 'soon') ?></span></span></span>
+<?php else: ?>
+    <a class="menu-item" href="<?= $u($tab['href'], $tab['query']) ?>"><span class="menu-name"><?= $e($tab['label']) ?><?php if ($tab['count'] > 0): ?> <span class="count" title="<?= $n($tab['count']) ?> <?= $e($tab['countWords']) ?>"><?= $n($tab['count']) ?><span class="visually-hidden"> <?= $e($tab['countWords']) ?></span></span><?php endif; ?></span><span class="menu-sub"><?= $word('MENU_HELP', $tab['key']) ?></span></a>
+<?php endif; ?>
+<?php endforeach; ?>
+  </div>
+</details>
+</div>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ($flow !== null): ?>
 <ol class="flow" aria-label="<?= $word('FLOW', 'label') ?>">

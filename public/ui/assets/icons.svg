@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Central Warehouse icons (design v5): one 24 x 24 outline icon per column, each named by a <view> (icons.svg#name). app.css draws
      them as a mask in the text colour (.ico .ico-<name>), so a page holds no svg element. No style, no script, nothing external. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 24">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 24">
   <view id="dashboard" viewBox="0 0 24 24"/>
   <g transform="translate(0 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></g>
   <view id="products" viewBox="24 0 24 24"/>
@@ -50,4 +50,16 @@
   <g transform="translate(528 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></g>
   <view id="user" viewBox="552 0 24 24"/>
   <g transform="translate(552 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></g>
+  <view id="home" viewBox="576 0 24 24"/>
+  <g transform="translate(576 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11 12 3.5l8.5 7.5"/><path d="M5.5 9.5v10a1 1 0 0 0 1 1h4v-6h3v6h4a1 1 0 0 0 1-1v-10"/></g>
+  <view id="goods-in" viewBox="600 0 24 24"/>
+  <g transform="translate(600 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5h11v10h-11z"/><path d="M13.5 10h4l3 3v3.5h-7"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></g>
+  <view id="counts" viewBox="624 0 24 24"/>
+  <g transform="translate(624 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="16" rx="2"/><path d="M9 3.5h6v3H9z"/><path d="M9 11h6"/><path d="M9 15h4"/></g>
+  <view id="orders" viewBox="648 0 24 24"/>
+  <g transform="translate(648 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h8l3.5 3.5v13.5h-11.5z"/><path d="M14.5 3.5V7h3.5"/><path d="M9 12h6"/><path d="M9 16h6"/></g>
+  <view id="sales" viewBox="672 0 24 24"/>
+  <g transform="translate(672 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0z"/><circle cx="8" cy="8" r="1.4"/></g>
+  <view id="matching" viewBox="696 0 24 24"/>
+  <g transform="translate(696 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></g>
 </svg>

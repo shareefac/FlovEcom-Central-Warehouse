@@ -36,7 +36,8 @@ final class ReportsUnitTest extends TestCase
             self::assertArrayHasKey($tab, Words::PAGE_INTRO);
         }
         self::assertSame(['reports.view', 'values.view'], array_values(array_unique(ReportsController::PAGES)));
-        self::assertSame(array_keys(Sections::MAP), ['dashboard', 'products', 'stock', 'purchasing', 'reports', 'approvals', 'settings'], 'the seven sections');
+        self::assertSame(array_keys(Sections::MAP), ['dashboard', 'products', 'matching', 'stock', 'purchasing', 'sales', 'reports', 'approvals', 'settings'],
+            'the sections (Matching and Sales of their own since HV3)');
         // A buyer sees four reports and no money; a reviewer all five and the audit log; admin only the audit log.
         $visible = static fn (array $roles): array => array_keys(Sections::visible($roles)['reports'] ?? []);
         self::assertSame(['stock_by_store', 'sales_by_store', 'low_stock', 'slow_stock'], $visible(['buyer']));

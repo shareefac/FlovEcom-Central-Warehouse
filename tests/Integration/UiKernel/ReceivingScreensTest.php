@@ -104,7 +104,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $desk = $this->signIn($deskUser);
         $list = $desk->get('/ui/receiving');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Purchasing', 'Goods In'], [self::currentSection($list), self::currentTab($list)], 'Purchasing › Goods In');
+        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($list), self::currentTab($list)], 'Purchasing › Goods In: the sidebar\'s Goods in (HV2)');
         self::assertSame([['To receive', null, true], ['Checking', '/ui/receiving/bench', false], ['Issues', '/ui/receiving/incidents', false],
             ['Duty register', '/ui/receiving/duty', false], ['Arriving', '/ui/receiving/arriving', false]], // Pack J: Arriving
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($list)));
@@ -116,7 +116,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertContains('/ui/receiving/new', $list->hrefs());
         $start = $desk->get('/ui/receiving/new');
         self::assertSame(200, $start->status, $start->describe());
-        self::assertSame(['Purchasing', 'Goods In'], [self::currentSection($start), self::currentTab($start)], 'the start page keeps Goods In marked');
+        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($start), self::currentTab($start)], 'the start page keeps Goods In marked');
         $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $start->form('/ui/receiving');
         $r = $desk->post('/ui/receiving', $form);
         self::assertSame(303, $r->status, $r->describe());
@@ -199,7 +199,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(array_sum($benchCounts), $docs->decidableCount($benchUser['id'], ['goods_in', 'reviewer']));
         $reviewer = $this->signIn($otherReviewer);
         $shown = static function (\CW\Tests\Support\UiResponse $home): array {
-            $card = (new \DOMXPath($home->dom()))->evaluate('string(//*[@data-card="deliveries_check"]//p[@class="count"]/text()[1])');
+            $card = (new \DOMXPath($home->dom()))->evaluate('string(//*[@data-card="deliveries_check"]//span[@class="hm-n"])');
             return [self::nav($home)['Approvals']['count'] ?? 0, (int) trim((string) $card)];
         };
         $benchShown = $shown($bench->get('/ui/'));
@@ -416,7 +416,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
             ['file' => ['path' => $this->pdf(), 'name' => 'PLAIN-1.pdf']]);
         $draftTitle = Words::say('RECEIPT', 'title_draft', 'Plain Delivery Supplies');
         $card = static fn (UiResponse $home, string $key): ?int => ($c = (new \DOMXPath($home->dom()))->query("//*[@data-card='{$key}']")) !== false && $c->length > 0
-            ? (int) trim((string) (new \DOMXPath($home->dom()))->evaluate("string(//*[@data-card='{$key}']//p[@class='count']/text()[1])")) : null;
+            ? (int) trim((string) (new \DOMXPath($home->dom()))->evaluate("string(//*[@data-card='{$key}']//span[@class='hm-n'])")) : null;
 
         // Before the bench: the desk's editor, the bench's list and check, everyone else's look.
         foreach ([

@@ -121,8 +121,8 @@ final class ReviewEvidenceTest extends KernelUiTestCase
             ]],
         ]);
         $web = $this->signIn($this->uiUser('mapper'));
-        $dash = $web->get('/ui/');
-        self::assertStringContainsString(Words::BAND['Manual'] . ' ' . Words::BAND_HELP['Manual'] . ' 1 1', $dash->text(), 'Home\'s matching progress names the list');
+        $dash = $web->get('/ui/review');
+        self::assertStringContainsString(Words::BAND['Manual'] . ' 1', $dash->text(), 'the matching progress (Matching › Mapping, HV5) names the list');
         self::assertStringNotContainsString('Manual', $dash->text());
         $queue = $web->get('/ui/review', ['queue' => 'Manual']);
         self::assertSame(Words::BAND_TITLE['Manual'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'one name for the list (F154, F170)');
@@ -235,12 +235,11 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         self::assertStringStartsWith('/ui/review/listing/' . $l2 . '?', (string) $r->location());
         self::assertSame(['mapped', $a], [$this->link($l1)['status'], $this->link($l1)['sku_id']]);
 
-        // Merge suggestions between Vape and Go items are counted on Home, not queued: they have their own screen (M34).
+        // Merge suggestions between Vape and Go items are not queued: they have their own screen (M34), under Matching's More (HV3).
         $v1 = $this->listing($vpg, 'D1', $this->item('legacy', 0, 'Item A again'));
         $this->propose($v1, 'Manual', $a, ['lane' => 'vpg_duplicate'], false, 'dups');
-        $dash = $web->get('/ui/');
-        self::assertStringContainsString(sprintf(Words::HOME['duplicates'], '1') . ' ' . Words::HOME['duplicates_note'], $dash->text());
-        self::assertContains('/ui/review/duplicates', $dash->hrefs());
+        self::assertStringContainsString(Words::QUEUE['empty'], $web->get('/ui/review', ['queue' => 'Manual', 'channel' => 'vpg'])->text(), 'not in the Manual list');
+        self::assertContains('/ui/review/duplicates', $web->get('/ui/review')->hrefs());
     }
 
     // ---- helpers --------------------------------------------------------------------------------------

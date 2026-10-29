@@ -48,3 +48,6 @@
 </section>
 <?php endforeach; ?>
 <?php endif; ?>
+<?php if ($coverage !== []): ?>
+<?= $partial('matching_coverage', ['coverage' => $coverage]) ?>
+<?php endif; ?>

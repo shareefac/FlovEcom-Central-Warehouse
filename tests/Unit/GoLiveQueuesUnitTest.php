@@ -73,7 +73,7 @@ final class GoLiveQueuesUnitTest extends TestCase
         self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], array_column($tab['pages'], 'key'),
             'and the website bugs (0050, LP8)');
         self::assertSame(['approvals', 'store_queues', 'queue_modes'], array_values(Sections::locate('/ui/queues/modes')));
-        self::assertSame('Approvals › From the stores › Oversold', Sections::where('/ui/queues/oversold'));
+        self::assertSame(['approvals', 'store_queues', 'queue_oversold'], array_values(Sections::locate('/ui/queues/oversold')));
     }
 
     /** The queue pages take every word from Words (no word typed in a template), and every POST form carries the token. */

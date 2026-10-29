@@ -244,8 +244,9 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
         self::assertSame(Words::MENU['simple_match'], self::currentTab($page));
-        self::assertSame(['All Products', Words::MENU['simple_match'], 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'],
-            self::tabLabels($page), 'the first of the matching tabs; the old pages stay');
+        self::assertSame([Words::MENU['simple_match'], 'Mapping', 'Store Products'], self::tabLabels($page), 'the first tab of Matching (HV3); the old pages stay');
+        self::assertSame(['By Item', 'New Variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
+        self::assertSame('Matching', self::currentSection($page));
         $xp = self::xp($page);
         self::assertSame(Words::MENU['simple_match'], self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame(Words::PAGE_INTRO['simple_match'][0], self::squash($xp->evaluate('string(//header[contains(@class, "page-head")]//p[@class="lede"])')),

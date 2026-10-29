@@ -884,6 +884,27 @@ strip is `.doc-progress`, the movements a board with `td.doc-st`, the parts unde
 - Tests: `tests/Integration/UiKernel/ItemPageScreensTest.php`, `tests/Unit/ItemPageUnitTest.php`. In a kernel test the actions are
   `//div[contains(@class, "item-bar")]`, Count it's form is `$page->form('/ui/stock/counts')`, a tab's panel `//div[@id="t-<key>"]`.
 
+### Home and a shorter menu (`docs/decisions.md` HV1-HV8)
+
+The approved design (`HM_Home`, `HM_Phone`): Home is the person's jobs as rows and four figures; the sidebar is Home, "Every day", "More"; each
+section's set-up, import and specialist pages are under its tab row's More.
+
+| Path | What |
+|---|---|
+| `src/Ui/Sections.php` | `MAP` (sections `matching` and `sales` of their own; a tab's `'more' => true`; a section's `keep`), `DAILY` (entry => [section, tab or null]), `MORE`, `PHONE`, `ICON`; `frame()` returns the sidebar entries (`group`, `icon`, one `current`), the page bar's `tabs` and `more` (`moreCount`), the phone bar and `bell` |
+| `src/Ui/Controller/DashboardController.php` | `greeting()` (by the London hour), `row()` (a card's big number and what a screen reader hears) |
+| `src/Ui/DashboardTiles.php` | `ORDER`, `MAX`: the first four figures the person may see, nothing counted after them |
+| views `layout` (the sidebar's groups, the bell), `bell`, `page_frame` (`div.tabs-row` > `nav.tabs` + `details.more.tabs-more`), `home`, `home_find`, `cards` (the rows), `matching_coverage` (on `mapping_overview`) | |
+| `src/Ui/Words.php` | `SECTION` (Home, Matching, Sales), `NAV` (the groups and the daily names), `MENU_HELP` (the line under each page in the row's More), `HOME`, `TILE`, `UI bell`, `UI more_tabs` |
+
+- A new page: put it in its section's tab (or a new tab: `'more' => true` when it is set-up, import or specialist; its `MENU_HELP` line). A new
+  sidebar entry: `DAILY` or `MORE`, its word in `NAV` or `SECTION`, its icon in the sprite (and `ICON` when its name is not the section's).
+- Classes: `.side-label` (a group's heading), `.tabs-row`, `.tab-more`, `.menu-name`, `.menu-sub`; Home: `.hm-find`, `.hm-jobs`, `.hm-h`, `.hm-sub`,
+  `.hm-list` (`.hm-notes`), `.hm-row` (+ a tone), `.hm-n`, `.hm-text`, `.hm-t`, `.hm-d`, `.hm-lines`, `.hm-figs`, `.hm-fig` (`.hm-fig-t`, `.hm-fig-n`).
+- Tests: `tests/Unit/SectionsTest.php`, `tests/Integration/UiKernel/{Menus,HomeScreen}Test.php`. In a kernel test the sidebar is `self::nav()`
+  (label => href, count), the current entry `self::currentSection()`, a row's More `self::moreTabs()`, a Home row `//*[@data-card="<key>"]` (its
+  number `span.hm-n`, its count with the unit `span.hm-said`).
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

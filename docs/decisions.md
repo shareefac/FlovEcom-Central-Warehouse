@@ -13385,3 +13385,92 @@ once, inside the effect. The same key with another item is still refused.
 names its part (`data-tab`); the open tab has a hidden twin right after it (`a.tab.tab-back`, a link to `?tab=<open>`, never current). When a
 fragment shows another part, CSS shows that part's tab as open, hides the open tab and shows its twin in its place. `UiTemplatesTest` lets
 the twin (item page only, never current) hold its link; `CurrentTabs` passes (the twin is not current).
+
+## Home and a shorter menu (branch `home-menu`, 29 Oct 2026; HV1-HV8)
+
+The owner approved the Home screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups
+`HM_Home` and `HM_Phone`): Home is the list of jobs waiting for the person, biggest first, plus four figures; the menu keeps the daily pages in
+front and the rest under More. Built from main `5b8420a` in `/root/cw-hmone`, rebased on `67ba18e` (IV13-IV16). Layout, words and navigation
+only: no route, permission, service rule, form, FormOnce, CSRF or migration changed; every page keeps its address. Red first:
+`runs/hmone_red.log` (21 failures and errors on `5b8420a`). Code: `src/Ui/Sections.php` (the map, `DAILY`, `MORE`, `PHONE`, `ICON`, `frame()`),
+`src/Ui/Controller/DashboardController.php`, `src/Ui/DashboardTiles.php`, `src/Ui/Context.php`, `src/Ui/View.php`, `src/Ui/Words.php` (`SECTION`,
+`SECTION_DESC`, `NAV`, `MENU_HELP`, `HOME`, `TILE`, `UI bell`), views `layout`, `page_frame`, `home`, `cards`, `home_find`, `bell` (new),
+`matching_coverage` (new, from the removed `matching_progress`), `mapping_overview`; `public/ui/assets/app.css`, `icons.svg`.
+
+**HV1. Home (HM_Home, HM_Phone).** Top to bottom: today's date as the eyebrow, "Good morning, <first name>" (afternoon from noon, evening from
+6 pm, London time; the first word of the person's name) and ONE Find box on its right (the product search, `catalogue.view`; on a phone under
+the greeting); "Waiting for you": the existing task list of `Ui\HomeTasks` (the same cards, counts, permissions and order, RANK: what holds
+others up first) as rows: a 52 px square with the number in the task's colour (its tone: amber needs a look, red blocked, purple waiting for
+someone, blue, grey), the task's name, ONE plain line (the card's `text`) and ONE button; the first job's button is the page's main action
+(magenta), the others plain. A spot check shows "answered/of" (0/20); a task with no number shows "!", and a screen reader hears the number
+with its unit ("25 to confirm") or the task's state ("Needs you"). The notes (no job) follow under "Good to know", quieter (the tint, not the
+fill), their buttons plain; the staff and rule changes to look at keep their lines under the row (the security review's Y45: the reviewer
+reads them on Home). Then up to four small figures, each a link: the design v4 tiles in a new order (open purchase orders, units in stock,
+deliveries to receive, products, then matches to review and waiting for your approval, which the rows already count), the first four the
+person may see (`DashboardTiles::MAX`, `ORDER`; a figure after the fourth is never counted: no query). Removed from Home: the About box ("What
+is this system?", `Words::ABOUT`, and the help icon of the sidebar that opened it), the second menu ("What you can use"), the matching progress
+(HV5), the "Hello …, you work as …" line (the sidebar's person says the jobs), B's job numbers, "Start here", the "What happens:" line, the
+Where and Status columns, and the create buttons (each is on its own section's page; HM_Home draws none). "Coming later" stays when the
+person's jobs will use a screen not built yet. The page title (tab, phone bar) is "Home" (it was "Dashboard"; the h1 is now the greeting).
+The mockup's figures (orders sent today, out of stock, coming in this week, oversold today) are not built: the brief asks for existing ones.
+
+**HV2. The sidebar: Home, Every day, More.** Home; then a group "Every day": Goods in (Purchasing › Goods In), Counts (Stock › Counts),
+Approvals (the Approvals section: its first tab, the inbox for who answers there, AV1; History for the others), Purchase orders (Purchasing ›
+Purchase Orders), All products (the Products section); then "More": Stock, Purchasing, Sales, Matching, Reports, Settings (`Sections::DAILY`,
+`MORE`; the group names and the daily names in `Words::NAV`, sentence case as HM_Home writes them). Each entry only when the person may open
+it (a tab entry: that tab; a section entry: one of its tabs), so the permission filtering is the map's, unchanged. Each group is a list named
+by its heading (`aria-labelledby`). ONE entry is current: the daily entry of the page's tab (on its records too: a delivery, a count sheet, an
+order), else the entry of the page's section (a buyer on a Goods In page they may not open: Purchasing; a page of a section the person does not
+have: none). Counts: a daily tab counts its tab's badges; Approvals its inbox (AV10); a section the sum of its tabs' but those with a daily
+entry of their own, so one waiting thing is not counted twice in the sidebar (Purchasing no longer repeats Goods In's issues, Stock no longer
+the count differences). The owner's menu is 12 entries (was 7 sections over 46 tabs). Icons: the sprite gained
+home, goods-in, counts, orders, sales, matching (`Sections::ICON` for the entries not named after their section).
+
+**HV3. Matching and Sales are sections; the set-up, import and specialist pages are behind each section's own More.** Products had 11 tabs and
+its row ran off the page. The matching pages are the section Matching (Simple matching, Mapping, Store Products in the row; By Item, New
+Variants, Duplicates under More); Products keeps All Products and Barcodes in the row, Add Item, Families and Multipacks (set-up) under More.
+Sales (pack D) was a tab of Stock with three segments: it is a section whose three pages are its tabs (Store orders, Dispatch, Returns and
+cancels), and the store chosen travels through them as it did through the segments (the section's `keep`, a plain code only). Stock keeps
+Overview, Movements, Stock In, Stock Out, Adjustments, Counts in the row; Hand-overs, Transfers, Reservations, Quality (not built) and Repack
+under More. Reports: the Audit Log under More. Purchasing, Approvals and Settings keep every tab (Settings is the set-up section itself). A tab
+says so in the map (`'more' => true`). The row's More (`details.more.tabs-more`, after the scrolling row, so it is never scrolled away; no
+script needed, Esc and a click elsewhere close it as every More) lists each page the person may open with its count and its one line
+(`Words::MENU_HELP`, kept for this: it was Home's "What you can use"); the More button counts what waits under it. The page shown is never under
+More: on a More page that tab is drawn in the row after the row's own tabs, current and without a link (CV13). A person with no tab of the row
+sees the others in the row (admin's Reports: the Audit Log); a More of pages not built yet only is not drawn. Every page keeps its address and
+its route; `locate()` finds the same pages (detail pages and refused pages included) in their new section.
+
+**HV4. The bell leads to Approvals › Waiting for you.** It was a link to the Dashboard counting the sum of every sidebar count. Its
+destination and label now agree: it opens the inbox (`/ui/approvals`), its name is "Approvals: waiting for you", its number is the inbox's
+(`approvals_inbox`, the menu's Approvals count) with the badge's words for a screen reader. It is drawn only for the people who answer in the
+inbox (`Sections::may(InboxController::PERMS)`): a buyer, a viewer, admin and the auditor have none.
+
+**HV5. The matching progress is in Matching.** Home's "Matching progress" repeated the "By store" overview of Matching › Mapping › To review
+(U107: per store and list what waits, the matched share of the products and of the 30-day units, the products no computer check suggested
+anything for). Its one part the overview lacked, "How much of what we sell is matched" (30 days and a year, and the units sold on products
+marked ignore), is now under the overview's stores (`matching_coverage`, for the store chosen, else every store). The second-OK and duplicates
+notes are the Second approval segment's and the Duplicates tab's counts.
+
+**HV6. The phone.** The bottom bar is Home, Goods in, Counts, Approvals (each only when the person has it) and More (`#menu`, the whole sidebar,
+with no script). The current entry is the sidebar's; a page of a section under More marks none. The top bar keeps the find button, the bell
+(HV4) and the menu button (the menu without script needs it; HM_Phone draws the person's initials there instead).
+
+**HV7. Not done here, said here.** TP_Settings' vertical list of Settings' parts (a later wave: "settings and system" are last in the order of
+work). The canvas mockups' other pages are their own waves. `Sections::menu()` is no longer drawn (it was Home's second menu); the tests read
+who may use what from it. `Sections::where()` (the old task board's Where column) and `createActions()` (Home's create buttons) are removed.
+Not seen in a real browser (no browser here): check Home, the sidebar and a tab row's More at 375 px and 1,280 px.
+
+**HV8. Tests.** Red first (`runs/hmone_red.log`). `SectionsTest`: the map's sections, the daily entries and the More sections cover every
+section once; the sidebar of the owner, a buyer, admin and a matcher; the one current entry on 24 pages; counts not repeated; the bell for
+exactly the inbox's people; the tab rows and their More (Products, Matching, Stock, Reports, the row of a person with only More tabs, Sales'
+store through its tabs). `MenusTest`, `HomeScreenTest` (the head, the rows' numbers, the main button, the notes, the figures, the greeting by
+the hour), `UiTemplatesTest` (the sidebar's groups, the tab row's More, the bell's markup, the rows), `UiUnitTest` (the sprite's new icons),
+`WordsTest` (`NAV`), `UiReviewFlowTest` and `ReviewEvidenceTest` (the matching progress on the overview), and the section, tab and More of the
+pages that moved (`SalesScreensTest`, `CountsScreensTest`, `ReceivingScreensTest`, `ArrivalScreensTest`, `ItemCardScreensTest`,
+`ItemManagementScreensTest`, `KeySampleScreenTest`, `NewVariantsScreenTest`, `ByProductScreenTest`, `DuplicatesScreenTest`,
+`ReservationsScreenTest`, `ReportsScreenTest`, `PeopleScreenTest`, `SetItYourselfScreensTest`; `ItemManagementUnitTest`, `ReportsUnitTest`,
+`GoLiveQueuesUnitTest`). `KernelUiTestCase::moreTabs()` reads a row's More.
+
+*Tests* (29 Oct 2026, on the tree rebased on `67ba18e`): `tests/Unit` and `tests/Integration/UiKernel`: OK (1014 tests, 120214 assertions);
+the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui` (`UiAuthTest`,
+`UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/hmone_full.log`, `runs/hmone_ui.log`.

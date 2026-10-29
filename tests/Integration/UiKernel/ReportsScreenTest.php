@@ -53,8 +53,9 @@ final class ReportsScreenTest extends KernelUiTestCase
         $page = $rev->get('/ui/reports/stock-by-store');
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['Reports', Words::MENU['stock_by_store']], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([Words::MENU['stock_by_store'], Words::MENU['sales_by_store'], Words::MENU['low_stock'], Words::MENU['stock_value'], Words::MENU['slow_stock'],
-            Words::MENU['audit']], array_column(self::sectionTabs($page), 'label'));
+        self::assertSame([Words::MENU['stock_by_store'], Words::MENU['sales_by_store'], Words::MENU['low_stock'], Words::MENU['stock_value'], Words::MENU['slow_stock']],
+            array_column(self::sectionTabs($page), 'label'));
+        self::assertSame([Words::MENU['audit']], array_column(self::moreTabs($page), 'label'), 'the audit log under the row\'s More (HV3)');
         self::assertSame([null], array_values(array_filter(array_column(self::sectionTabs($page), 'href'), static fn (?string $h): bool => $h === null)),
             'every report is a real tab now: only the one shown has no link (CV13)');
         self::assertNull(self::sectionTabs($page)[0]['href'], 'the one shown');

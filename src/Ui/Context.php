@@ -60,7 +60,7 @@ final class Context
      * The pages that draw their own toolbar (design v4: the split create button, Search, Filter, Sort, Export in one row): they get
      * the page's create actions as `newActions` and the layout draws none.
      */
-    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts', 'stock_ops', 'stock_counts'];
+    public const OWN_TOOLBAR = ['purchase_orders', 'suppliers', 'receipts', 'stock_ops', 'stock_counts'];
     /** Badge (Sections::MAP) of a stock record's tab => its document type: the reviews and OKs of that kind this person may decide (pack A1). */
     public const STOCK_BADGES = ['stock_in_open' => 'SIN', 'stock_out_open' => 'SOUT', 'transfers_open' => 'TRF', 'releases_open' => 'REL', 'adjustments_open' => 'ADJ'];
 
@@ -282,7 +282,7 @@ final class Context
     /**
      * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
      * current section's page bar with its tabs (`pagebar`), the current tab's segmented filter (`segments`), the page's create button
-     * (`actions`), the buying flow on Purchasing (`flow`, Ui\FlowCounts), the phone's bottom bar (`tabs`), whether the find box is
+     * (`actions`), the buying flow on Purchasing (`flow`, Ui\FlowCounts), the phone's bottom bar (`tabs`), the bell (`bell`), whether the find box is
      * theirs (catalogue.view), the test-system strip and the strip that says which jobs Admin switches off. The current page is found
      * from the request's path (Sections::locate), so a detail page keeps its section and tab marked. During the forced password
      * change there is no menu, no bar and no find box (every link would lead back to the password page): only Sign out.
@@ -310,15 +310,10 @@ final class Context
             'flow' => $flow,
             'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
             'tabs' => $f['phone'],
+            'bell' => $f['bell'],
             'testSystem' => $this->testSystem,
             'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),
         ];
-    }
-
-    /** @return list<array{section: string, key: string, items: list<array<string, mixed>>}> the signed-in person's sections and tabs ([] when nobody) */
-    public function menu(): array
-    {
-        return $this->who === null ? [] : Sections::menu($this->who->roles);
     }
 
     /**

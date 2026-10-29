@@ -87,7 +87,6 @@ final class WordsTest extends TestCase
                 'accounts', 'settings', 'series',
                 'integrity',
                 'counts', 'count_sheets', 'count_differences',
-                'sales_orders', 'sales_dispatch', 'sales_returns', // the last three: pack D
                 // Pack F (PF5): Approvals › From the stores
                 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold',
                 // --- Pack G
@@ -115,6 +114,7 @@ final class WordsTest extends TestCase
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
             'TAB' => ['more'],
+            'NAV' => [...array_keys(Sections::DAILY), 'daily', 'more'], // the sidebar's groups and daily entries (docs/decisions.md HV2)
             'ERROR_TITLE' => ['400', '403', '404', '405', '409', '413', '422', '429', '500', '503'],
             'ERROR' => ['csrf', 'lead_only', 'not_found', 'method_not_allowed', 'too_large', 'form_truncated', 'bad_form_key', 'idempotency_key_reused',
                 'unavailable', 'busy', 'internal', 'unknown_staff', 'unknown_queue'],
@@ -740,14 +740,14 @@ final class WordsTest extends TestCase
         $texts = [...array_values(Words::BAND_HELP_RULES), ...array_values(Words::ARRIVAL_LEFT), Words::FLAG['rules_only'], Words::FLAG['arrival_warned'], Words::ONE_AT_A_TIME['on_arrival'],
             Words::BULK_SKIP['on_arrival'], Words::BY_ITEM_SKIP['on_arrival'], Words::QUEUE_SHOW['arrival'], ...array_map(static fn (string $r): string => Words::BAND_REASON[$r],
                 array_values(array_diff(\CW\Matching\ArrivalRules::REASONS, ['veto_on_key']))), Words::BAND_REASON['veto_on_key'], ...array_values($settings),
-            ...array_map(static fn (string $k): string => Words::SETTING_HELP[$k], array_keys($settings)), Words::HOME['not_checked_help'], Words::BY_ITEM_BULK['text_send_back']];
+            ...array_map(static fn (string $k): string => Words::SETTING_HELP[$k], array_keys($settings)), Words::BY_ITEM_BULK['text_send_back']];
         foreach ($texts as $text) {
             self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b|\blistings?\b|\bSKU\b/i', $text, $text);
             foreach (Words::SITE as $name) {
                 self::assertStringNotContainsStringIgnoringCase($name, $text, 'no store is named');
             }
         }
-        foreach ([Words::BULK_CONFIRM['send_back_text'], Words::BY_ITEM_BULK['text_send_back'], Words::HOME['not_checked_help']] as $text) {
+        foreach ([Words::BULK_CONFIRM['send_back_text'], Words::BY_ITEM_BULK['text_send_back'], Words::BY_STORE['unchecked_help']] as $text) {
             self::assertStringNotContainsString('which suggests again', $text);
             self::assertStringNotContainsString('Nothing to do now', $text);
         }

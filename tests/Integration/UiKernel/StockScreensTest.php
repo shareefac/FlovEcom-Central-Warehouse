@@ -44,9 +44,10 @@ final class StockScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/stock');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame(['Stock', 'Overview'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', null], ['Movements', '/ui/stock/movements'], ['Reservations', '/ui/stock/reservations'], ['Sales', '/ui/stock/sales'], ['Quality', null]],
-            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
-            'the tab not built yet is "Soon", never a link; a viewer reads no stock records and no counts (documents.view)');
+        self::assertSame([['Overview', null], ['Movements', '/ui/stock/movements']], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
+            'a viewer reads no stock records and no counts (documents.view)');
+        self::assertSame([['Reservations', '/ui/stock/reservations'], ['Quality', null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($page)),
+            'under the row\'s More (HV3); the tab not built yet is "Soon", never a link');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['stock'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringStartsWith(Words::PAGE_INTRO['stock'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));

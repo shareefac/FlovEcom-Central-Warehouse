@@ -259,7 +259,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $other = $this->item('legacy', 0, 'Other');
         $this->profiled($vpg, 'V1', ['barcodes' => ['4006381333931']], $other);
         (new BarcodeSync(self::$db))->run(Caller::system('sync_barcodes'), true);
-        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($web->get('/ui/'))['Products']);
+        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($web->get('/ui/'))['All products'], 'the sidebar\'s All products: the Products section (HV2)');
         self::assertSame(1, array_column(self::sectionTabs($web->get('/ui/items/barcodes')), 'count', 'label')['Barcodes'], 'Products › Barcodes: 1 to check');
     }
 
@@ -341,7 +341,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Products', 'All Products'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['All products', 'All Products'], [self::currentSection($list), self::currentTab($list)], 'the sidebar\'s All products (HV2)');
         // The row's link is the CW number and the name (the first word is the number).
         $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => (string) strtok(trim($a->textContent), ' '),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/a')));

@@ -36,7 +36,7 @@ final class UiTemplatesTest extends TestCase
     public function testThereAreTemplatesToCheck(): void
     {
         $names = array_keys(self::templates());
-        foreach (['layout', 'login', 'password', 'matching_progress', 'queue', 'listing', 'listing_form', 'listing_decide', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
+        foreach (['layout', 'login', 'password', 'matching_coverage', 'queue', 'listing', 'listing_form', 'listing_decide', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
             'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
             'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
@@ -54,6 +54,7 @@ final class UiTemplatesTest extends TestCase
             'listing_check', 'check_fold', // the lists' Check & match fold and its fragment (docs/decisions.md CM1)
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D
+            'home_find', 'bell', // Home's Find box and the bell (docs/decisions.md HV1, HV4)
             'page_frame'] as $t) { // design v5: what the statement draws under itself
             self::assertContains($t . '.php', $names);
         }
@@ -393,27 +394,33 @@ final class UiTemplatesTest extends TestCase
         $who = new StaffIdentity(7, 'b@test.invalid', 'Bea <b>', ['buyer', 'mapping_lead'], false, 'sid');
         $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $who]);
         $f = Sections::frame($who->roles, ['linking_pending' => 3], '/ui/review', ['queue' => 'pending']);
-        $html = $view->page('home', self::homeVars($who),
+        $html = $view->page('home', ['canFind' => true] + self::homeVars($who),
             ['title' => 'Home', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'], 'segments' => $f['segments'],
-                'actions' => $f['actions'], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
+                'actions' => $f['actions'], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'bell' => $f['bell'], 'testSystem' => false, 'switchedOff' => null]);
         $start = (int) strpos($html, '<nav class="side" id="menu" aria-label="Main">');
         self::assertGreaterThan(0, $start);
         $nav = substr($html, $start, (int) strpos($html, '</nav>', $start) - $start);
-        self::assertStringContainsString('<a class="nav-item" href="/ui/"><span class="ico ico-dashboard" aria-hidden="true"></span><span class="nav-label">Dashboard</span></a>', $nav);
-        self::assertStringContainsString('<a class="nav-item" href="/ui/items/cards" aria-current="page"><span class="ico ico-products" aria-hidden="true"></span>'
-            . '<span class="nav-label">Products</span><span class="count" title="3 waiting for you">3<span class="visually-hidden"> waiting for you</span></span></a>',
+        // The sidebar of HM_Home (docs/decisions.md HV2): Home, "Every day", "More", each a list named by its heading.
+        self::assertStringContainsString('<ul class="nav">' . "\n" . '      <li><a class="nav-item" href="/ui/"><span class="ico ico-home" aria-hidden="true"></span>'
+            . '<span class="nav-label">Home</span></a></li>' . "\n" . '    </ul>', $nav);
+        self::assertStringContainsString('<p class="side-label" id="nav-daily">Every day</p>' . "\n" . '    <ul class="nav" aria-labelledby="nav-daily">', $nav);
+        self::assertStringContainsString('<p class="side-label" id="nav-more">More</p>' . "\n" . '    <ul class="nav" aria-labelledby="nav-more">', $nav);
+        self::assertStringContainsString('<a class="nav-item" href="/ui/purchasing/orders"><span class="ico ico-orders" aria-hidden="true"></span><span class="nav-label">'
+            . 'Purchase orders</span></a>', $nav, 'a daily entry: a tab of a section');
+        self::assertStringContainsString('<a class="nav-item" href="/ui/match" aria-current="page"><span class="ico ico-matching" aria-hidden="true"></span>'
+            . '<span class="nav-label">Matching</span><span class="count" title="3 waiting for you">3<span class="visually-hidden"> waiting for you</span></span></a>',
             $nav, 'the current section, with what waits in it');
-        self::assertStringContainsString('<span class="nav-label">Purchasing</span>', $nav);
-        self::assertSame(7, substr_count($nav, 'class="nav-item"'), 'Dashboard, Products, Stock, Purchasing, Reports (pack E: the store reports), Approvals, Settings');
+        self::assertSame(['Home', 'Counts', 'Approvals', 'Purchase orders', 'All products', 'Stock', 'Purchasing', 'Sales', 'Matching', 'Reports', 'Settings'],
+            preg_match_all('#<span class="nav-label">([^<]*)</span>#', $nav, $labels) > 0 ? $labels[1] : [], 'a buyer\'s and matching lead\'s entries');
+        self::assertSame(1, substr_count($nav, 'aria-current="page"'), 'one current entry');
         self::assertStringNotContainsString('menu-group', $nav, 'no folding sections, no sub-items');
         self::assertStringContainsString('<span class="role">Buyer · Matching lead</span>', $nav, 'the jobs in words, not role codes');
         self::assertStringContainsString('href="/ui/password"', $nav, 'Change password at the bottom of the sidebar, in the person\'s menu');
         self::assertStringContainsString('<form class="signout" method="post" action="/ui/logout">', $nav);
         self::assertStringContainsString('<details class="user-menu">', $nav, 'the person\'s menu is a <details>: no script needed');
-        self::assertStringContainsString('<p class="side-label" aria-hidden="true">Menu</p>', $nav);
         self::assertStringContainsString('<a class="side-find" href="/ui/search">', $nav, 'the find link in the sidebar');
-        self::assertStringContainsString('<a class="icon-btn bell" href="/ui/"><span class="ico ico-bell" aria-hidden="true"></span><span class="visually-hidden">'
-            . Words::UI['bell'] . '</span><span class="bell-n">3</span></a>', $nav, 'the bell: everything waiting for this person, on the Dashboard');
+        self::assertStringNotContainsString('icon-btn bell', $html, 'no bell for who answers nothing in the inbox (HV4)');
+        self::assertStringNotContainsString('/ui/#about', $html, 'no help link to an About box Home no longer has (HV1)');
         self::assertStringContainsString('Bea &lt;b&gt;', $html);
         self::assertStringNotContainsString('buyer, mapping_lead', $html, 'no role codes in the frame');
         // The phone's top bar (before the sidebar; hidden from 700 px): the logo, the page's name, find, the bell, Menu.
@@ -422,21 +429,25 @@ final class UiTemplatesTest extends TestCase
         self::assertLessThan($start, $find);
         self::assertStringContainsString('<p class="appbar-page">Mapping</p>', $html, 'the top bar names the open tab');
         self::assertStringContainsString('<a class="icon-btn menu-btn" href="#menu" aria-controls="menu">', $html);
-        self::assertStringContainsString('<a class="icon-btn" href="/ui/#about"><span class="ico ico-help" aria-hidden="true"></span>', $html);
-        // The statement (design v5): the section as the eyebrow, the page's heading (its full stop is drawn), its sentence; then the
-        // section's tabs under it, inside the page.
+        // The statement (design v5; HM_Home): today's date as the eyebrow, the greeting (its full stop is drawn), the Find box on its right; then
+        // the section's tabs under it, inside the page.
         $head = substr($html, (int) strpos($html, '<header class="page-head">'));
         self::assertStringStartsWith('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">' . Html::e(Html::today()) . '</p><div class="ph-title"><h1>'
-            . '<span class="stmt stop">Dashboard</span></h1></div>', $head, 'the Dashboard\'s eyebrow is today\'s date');
-        self::assertStringContainsString('<p class="lede">' . Html::e(Words::PAGE_INTRO['home'][0]) . ' <span class="lede-more">', $head);
-        self::assertStringNotContainsString(Html::e(Words::SECTION_DESC['products']), $html, 'one sentence: the section\'s own line is gone');
-        $bar = substr($head, (int) strpos($head, '<nav class="tabs" aria-label="Products">'));
-        self::assertGreaterThan(0, strpos($head, '<nav class="tabs" aria-label="Products">'), 'the tabs come after the statement');
+            . '<span class="stmt stop">Good morning, Bea</span></h1></div></div><div class="ph-actions"><form class="hm-find" method="get" action="/ui/search" role="search">',
+            $head, 'Home\'s eyebrow is today\'s date; ONE Find box');
+        self::assertStringNotContainsString('<p class="lede">', substr($head, 0, (int) strpos($head, '</header>')), 'no sentence under the greeting');
+        self::assertStringNotContainsString(Html::e(Words::SECTION_DESC['matching']), $html, 'one sentence: the section\'s own line is gone');
+        $bar = substr($head, (int) strpos($head, '<div class="tabs-row">' . "\n" . '<nav class="tabs" aria-label="Matching">'));
+        self::assertGreaterThan(0, strpos($head, '<nav class="tabs" aria-label="Matching">'), 'the tabs come after the statement');
         // The tab and the segment of the page shown have no link (docs/decisions.md CV13: a click never reloads the page; a filter of the
         // page, here its queue, is still the page).
         self::assertStringContainsString('<a class="tab" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
             . '<span class="visually-hidden"> waiting for your second OK</span></span></a>', $bar, 'the current tab, with its count');
-        self::assertStringContainsString('<a class="tab" href="/ui/items/barcodes"><span>Barcodes</span></a>', $bar);
+        self::assertStringContainsString('<a class="tab" href="/ui/review/store"><span>Store Products</span></a>' . "\n" . '</nav>' . "\n"
+            . '<details class="more tabs-more">' . "\n" . '  <summary class="tab-more"><span>More</span><span class="visually-hidden"> pages of Matching</span></summary>', $bar,
+            'the specialist pages under the row\'s More (HV3): a <details>, no script needed');
+        self::assertStringContainsString('<a class="menu-item" href="/ui/review/products"><span class="menu-name">By Item</span><span class="menu-sub">'
+            . Html::e(Words::MENU_HELP['by_product']) . '</span></a>', $bar, 'each with its name and one line on what it is for');
         // The tab's segments: a second row of the same tabs (docs/decisions.md DS2: the black pills are gone).
         self::assertStringContainsString('<nav class="tabs seg" aria-label="Mapping">', $html);
         self::assertStringContainsString('<a class="tab" aria-current="page"><span>Second approval</span>', $html);
@@ -448,8 +459,10 @@ final class UiTemplatesTest extends TestCase
         // The phone's bottom bar (the owner's, kept in design v5) comes after the sidebar.
         $tabs = (int) strpos($html, '<nav class="tabbar" aria-label="Main tasks">');
         self::assertGreaterThan($start, $tabs);
-        self::assertStringContainsString('<a href="/ui/items/cards" aria-current="page"><span class="ico ico-products" aria-hidden="true"></span><span>Products</span>',
-            substr($html, $tabs), 'the Products tab is current');
+        self::assertStringContainsString('<a href="/ui/"><span class="ico ico-home" aria-hidden="true"></span><span>Home</span></a>' . "\n"
+            . '  <a href="/ui/stock/counts"><span class="ico ico-counts" aria-hidden="true"></span><span>Counts</span></a>' . "\n"
+            . '  <a href="/ui/documents"><span class="ico ico-approvals" aria-hidden="true"></span><span>Approvals</span></a>' . "\n",
+            substr($html, $tabs), 'HM_Phone: Home, Goods in (not a buyer\'s), Counts, Approvals; a page under More marks none');
         self::assertStringContainsString('<a href="#menu"><span class="ico ico-more" aria-hidden="true"></span><span>More</span></a>', substr($html, $tabs),
             'More opens the whole menu');
         self::assertStringNotContainsString('test-system', $html);
@@ -457,12 +470,20 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString('<svg', $html, 'the icons are the sprite drawn by the stylesheet: a page has no svg (UiSecurityTest::assertInert)');
         self::assertStringNotContainsString('class="frame-only"', $html, 'the page drew its statement, so the layout draws no frame of its own');
 
-        // A tab not built yet has no link; the page's create button leads to its form.
+        // A tab not built yet has no link (under the row's More); the page's create button leads to its form.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => [], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<span class="tab soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span>Quality</span>'
-            . '<span class="count soon">' . Words::UI['soon'] . '</span></span>', $html);
+        self::assertStringContainsString('<span class="menu-item soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span class="menu-name">Quality '
+            . '<span class="count soon">' . Words::UI['soon'] . '</span></span></span>', $html);
+        // The bell (HV4): to Approvals › Waiting for you, its name and its count the inbox's, on the phone's top bar and in the sidebar.
+        $f = Sections::frame(['stock_controller'], ['approvals_inbox' => 4], '/ui/stock');
+        $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
+            'segments' => [], 'actions' => [], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'bell' => $f['bell'], 'testSystem' => false, 'switchedOff' => null]);
+        $bell = '<a class="icon-btn bell" href="/ui/approvals" title="' . Words::UI['bell'] . '"><span class="ico ico-bell" aria-hidden="true"></span><span class="visually-hidden">'
+            . Words::UI['bell'] . '</span><span class="bell-n">4<span class="visually-hidden"> ' . Words::BADGE['approvals_inbox'] . '</span></span></a>';
+        self::assertSame(2, substr_count($html, $bell), 'the top bar\'s and the sidebar\'s');
+        self::assertStringContainsString('<span class="nav-label">Approvals</span><span class="count hot" title="4 waiting for you">4', $html, 'the menu\'s Approvals: the same count');
         $f = Sections::frame(['buyer'], [], '/ui/purchasing/orders');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => $f['actions'], 'flow' => [['n' => 1, 'key' => 'reorder', 'label' => 'Reorder', 'text' => 'x', 'href' => '/ui/purchasing/reorder',
@@ -496,7 +517,7 @@ final class UiTemplatesTest extends TestCase
             . 'Ask Fazil to take Admin off this account.', $html);
         self::assertStringContainsString('<details class="help"><summary aria-label="What does &quot;switched off&quot; mean?"', $html, 'with its "?"');
         self::assertStringContainsString('<span class="role">Admin · Matching lead (off) · Reviewer (off)</span>', $html);
-        self::assertStringNotContainsString('<nav class="tabs"', $html, 'the Dashboard has no tabs');
+        self::assertStringNotContainsString('<nav class="tabs"', $html, 'Home has no tabs');
 
 
         $none = new StaffIdentity(8, 'n@test.invalid', 'Nobody', [], false, 'sid');
@@ -819,9 +840,8 @@ final class UiTemplatesTest extends TestCase
     private static function homeVars(StaffIdentity $who): array
     {
         $home = HomeTasks::build($who->id, $who->roles, []);
-        return ['hello' => sprintf(Words::HOME['hello'], $who->displayName), 'myRoles' => $who->roles, 'tasks' => $home['jobs'], 'notes' => $home['notes'],
-            'summary' => null, 'aboutOpen' => true, 'about' => Words::ABOUT, 'progress' => null, 'uses' => [], 'later' => '', 'tiles' => [], 'canFind' => false,
-            'newActions' => []];
+        return ['greeting' => 'Good morning, Bea', 'tasks' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['jobs']),
+            'notes' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['notes']), 'figures' => [], 'canFind' => false, 'later' => ''];
     }
 
     /** Codex's sixth review of ui-v5: the layout prints its `body` as it is, so only View::page() draws it, never the $partial helper. */
@@ -863,25 +883,28 @@ final class UiTemplatesTest extends TestCase
     public function testTheWordHelpersEscapeAndDrawTheirParts(): void
     {
         $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => null]);
-        $list = [
-            ['job' => 1, 'hero' => true, 'tone' => 'needs', 'chip' => 'Needs you', 'title' => 'Check <20>', 'count' => 0, 'unit' => 'of 20 checked',
+        $list = array_map(\CW\Ui\Controller\DashboardController::row(...), [
+            ['key' => 'spot_check', 'job' => 1, 'hero' => true, 'tone' => 'needs', 'chip' => 'Needs you', 'title' => 'Check <20>', 'count' => 0, 'unit' => 'of 20 checked',
                 'progress' => [0, 20], 'text' => 'If all 20 are right, the rest are confirmed together.', 'what' => 'You see one at a time.',
                 'href' => '/ui/review/samples/1', 'button' => 'Check the next one'],
-            ['tone' => 'waiting', 'title' => 'Bulk link', 'quiet' => true],
-        ];
-        $html = $view->render('cards', ['list' => $list, 'group' => 'Ready <to> do', 'tone' => 't-primary', 'id' => 'g-ready']);
-        self::assertStringContainsString('<table class="stack board tasks t-primary">', $html, 'the task board (design v4)');
-        self::assertStringContainsString('<h3 class="grp-title t-primary"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-ready">Ready &lt;to&gt; do</button>'
-            . '<span class="grp-count">2 tasks</span></h3>', $html, 'the group title folds its rows');
-        self::assertSame(2, substr_count($html, '<tr class="task'));
-        self::assertStringContainsString('<p class="task-step">Job 1 <span class="start-tag">Start here</span></p>', $html, 'B\'s job number; the first is "Start here"');
-        self::assertStringContainsString('<h3>Check &lt;20&gt;</h3>', $html);
-        self::assertStringContainsString('<span class="chip needs">Needs you</span>', $html);
-        self::assertStringContainsString('<p class="task-what"><strong>What happens:</strong> You see one at a time.</p>', $html, 'B\'s "What happens:" line');
-        self::assertStringContainsString('<a class="btn sm primary" href="/ui/review/samples/1">Check the next one</a>', $html);
-        self::assertStringContainsString('<progress class="bar" value="0" max="20"', $html);
+            ['key' => 'bulk', 'tone' => 'waiting', 'chip' => 'Waiting', 'title' => 'Bulk link', 'quiet' => true],
+        ]);
+        // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): per task its number in its colour, its name, one plain line, one button.
+        $html = $view->render('cards', ['list' => $list, 'notes' => false]);
+        self::assertStringStartsWith('<ol class="hm-list">', $html);
+        self::assertSame(2, substr_count($html, '<li class="hm-row'));
+        self::assertStringContainsString('<li class="hm-row needs" data-card="spot_check">' . "\n" . '    <span class="hm-n" aria-hidden="true">0/20</span>', $html,
+            'the number in the task\'s colour: a spot check\'s answered and of');
+        self::assertStringContainsString('<h3 class="hm-t">Check &lt;20&gt;</h3>', $html);
+        self::assertStringContainsString('<p class="hm-d"><span class="visually-hidden"><span class="hm-said">0 of 20 checked</span>. </span>If all 20 are right, the rest are '
+            . 'confirmed together.</p>', $html, 'a screen reader hears the number with its unit; one plain line');
+        self::assertStringNotContainsString('You see one at a time.', $html, 'no "What happens:" line (HV1)');
+        self::assertStringContainsString('<a class="btn primary" href="/ui/review/samples/1">Check the next one</a>', $html, 'the first job: the page\'s main action');
+        self::assertStringContainsString('<span class="hm-n" aria-hidden="true">!</span>', $html, 'a task without a number');
+        self::assertStringContainsString('<span class="hm-said">Waiting</span>', $html, '... says its state');
         self::assertSame(1, substr_count($html, 'class="btn'), 'the second row has no button');
-        self::assertStringContainsString('<td class="c-status"><span class="chip needs">Needs you</span></td>', $html, 'the status fills its cell');
+        $notes = $view->render('cards', ['list' => [$list[1]], 'notes' => true]);
+        self::assertStringStartsWith('<ul class="hm-list hm-notes" aria-labelledby="notes-h">', $notes, 'the notes: a list under "Good to know"');
         self::assertSame('<span class="chip info">x &amp; y</span>', Html::chip('nonsense', 'x & y'), 'an unknown tone is info');
         $help = Html::help('how_sure', 'How sure');
         self::assertStringStartsWith('<details class="help"><summary aria-label="What does &quot;How sure&quot; mean?"', $help);
@@ -891,7 +914,7 @@ final class UiTemplatesTest extends TestCase
             . '<p><a class="btn" href="/ui/purchasing/suppliers/new">Add a supplier</a></p></div>', // plain: the page's main is its create button (DS5)
             Html::emptyState('No <orders>', 'Add a supplier first.', '/ui/purchasing/suppliers/new', 'Add a supplier'));
         self::assertSame('', Html::intro(''));
-        self::assertSame('<p class="lede">What is waiting for you today. Start with the top card.</p>', Html::intro(Words::intro('home')));
+        self::assertSame('<p class="lede">Choose a new password of at least 12 characters. You stay signed in here.</p>', Html::intro(Words::intro('password')));
     }
 
     /**

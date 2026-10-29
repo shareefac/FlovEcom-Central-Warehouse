@@ -610,7 +610,7 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         self::assertStringContainsString('Kim Stock', $text, 'the person added and reset');
         self::assertStringContainsString(Words::RULE['approvals.match_counted']['title'], $text, 'the rule made looser');
         self::assertStringNotContainsString(Words::RULE['approvals.staff_grant']['title'], $text, 'a stricter rule is not listed');
-        self::assertSame(5, (new \DOMXPath($home->dom()))->query('//*[@data-card="watch"]//ul[@class="task-lines"]/li')->length,
+        self::assertSame(5, (new \DOMXPath($home->dom()))->query('//*[@data-card="watch"]//ul[@class="hm-lines"]/li')->length,
             'Kim added and reset, the rule loosened, and the two accounts this test made on the server ("the server" added them)');
         self::assertStringContainsString(Words::WATCH['server'], $text);
         // The admin's Home has no such card (it is about them).

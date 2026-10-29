@@ -17,14 +17,15 @@ use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Controller\DashboardController;
 use CW\Ui\Words;
 
 /**
- * Home, "What needs doing" (plan §3, step 4; design A with B's parts), through the real /ui kernel as cw_app: the cards each
- * person gets from the real counts (HomeCounts), in order, with job numbers, one button each that opens the work, gone when
- * nothing waits; the owner's account with Admin gets only its own clash and never the spot check (its Matching lead job is off,
- * so it cannot answer); "What is this system?" open for a new person only; Matching progress for the linking jobs (look only for
- * those who cannot decide); What you can use; Coming later.
+ * Home (plan §3, step 4; the approved HM_Home and HM_Phone of 29 Oct 2026, docs/decisions.md HV1), through the real /ui kernel as
+ * cw_app: today's date, the greeting and one Find box; "Waiting for you", the rows each person gets from the real counts (HomeCounts),
+ * in order, each with its big number, its name, one plain line and one button that opens the work (the first one the page's main
+ * action), gone when nothing waits; the notes after them; the owner's account with Admin gets only its own clash and never the spot check
+ * (its Matching lead job is off, so it cannot answer); up to four small figures; no About box, no second menu, no matching progress.
  */
 final class HomeScreenTest extends KernelUiTestCase
 {
@@ -38,9 +39,10 @@ final class HomeScreenTest extends KernelUiTestCase
     }
 
     /**
-     * The task cards of a page, in order: key, job line, title, the big number (with its unit), button text and link, all text.
+     * The rows of "Waiting for you", in order: key, the big number drawn, title, what a screen reader hears for the number (the count with
+     * its unit), button text, link and whether it is the main one, whether it is a note, all text.
      *
-     * @return list<array{key: string, job: string, title: string, count: string, button: ?string, href: ?string, text: string}>
+     * @return list<array{key: string, big: string, title: string, count: string, button: ?string, href: ?string, main: bool, note: bool, text: string}>
      */
     private static function cardsOf(UiResponse $r): array
     {
@@ -50,12 +52,15 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($xp->query('//main//*[@data-card]') ?: [] as $li) {
             /** @var \DOMElement $li */
             $buttons = $xp->query('.//a[contains(concat(" ", @class, " "), " btn ")]', $li);
-            self::assertLessThanOrEqual(1, $buttons === false ? 0 : $buttons->length, 'one button per card');
+            self::assertLessThanOrEqual(1, $buttons === false ? 0 : $buttons->length, 'one button per row');
             $a = $buttons !== false && $buttons->length === 1 ? $buttons->item(0) : null;
-            $out[] = ['key' => $li->getAttribute('data-card'), 'job' => $norm((string) $xp->evaluate('string(.//p[@class="task-step"])', $li)),
-                'title' => $norm((string) $xp->evaluate('string(.//h3)', $li)), 'count' => $norm((string) $xp->evaluate('string(.//p[@class="count"])', $li)),
+            self::assertSame(1, $xp->query('.//h3', $li)->length, 'the job\'s name');
+            self::assertSame(1, $xp->query('.//p[@class="hm-d"]', $li)->length, 'one plain line');
+            $out[] = ['key' => $li->getAttribute('data-card'), 'big' => $norm((string) $xp->evaluate('string(.//span[@class="hm-n"])', $li)),
+                'title' => $norm((string) $xp->evaluate('string(.//h3)', $li)), 'count' => $norm((string) $xp->evaluate('string(.//span[@class="hm-said"])', $li)),
                 'button' => $a instanceof \DOMElement ? $norm($a->textContent) : null, 'href' => $a instanceof \DOMElement ? $a->getAttribute('href') : null,
-                'text' => $norm($li->textContent)];
+                'main' => $a instanceof \DOMElement && str_contains(' ' . $a->getAttribute('class') . ' ', ' primary '),
+                'note' => $xp->query('ancestor::ul[contains(@class, "hm-notes")]', $li)->length === 1, 'text' => $norm($li->textContent)];
         }
         return $out;
     }
@@ -76,13 +81,6 @@ final class HomeScreenTest extends KernelUiTestCase
         parse_str((string) parse_url($href, PHP_URL_QUERY), $query);
         /** @var array<string, string> $query */
         return $web->get((string) parse_url($href, PHP_URL_PATH), $query);
-    }
-
-    private static function aboutIsOpen(UiResponse $r): bool
-    {
-        $d = (new \DOMXPath($r->dom()))->query('//main//details[@id="about"]')?->item(0);
-        self::assertInstanceOf(\DOMElement::class, $d, '"What is this system?" is on Home');
-        return $d->hasAttribute('open');
     }
 
     /** A complete draft supplier made by $buyerId. @return array<string, mixed> */
@@ -133,16 +131,21 @@ final class HomeScreenTest extends KernelUiTestCase
         $web = $this->signIn($owner);
         $home = $web->get('/ui/');
         self::assertSame(200, $home->status, $home->describe());
-        self::assertSame('Dashboard', trim((string) (new \DOMXPath($home->dom()))->evaluate('string(//main//h1)')), 'the h1 matches the tab title (plan F031, F088)');
-        self::assertSame('Dashboard', self::currentSection($home));
-        self::assertStringContainsString('Hello Mapping_lead-reviewer 1. You work as: Matching lead · Reviewer.', $home->text());
-        self::assertStringContainsString(Words::HOME['needs'], $home->text());
+        $xp = new \DOMXPath($home->dom());
+        // The head of HM_Home: today's date, "Good morning, <first name>", one Find box.
+        self::assertSame(\CW\Ui\Html::today(), trim((string) $xp->evaluate('string(//main//p[@class="ph-eyebrow"])')));
+        self::assertMatchesRegularExpression('/^Good (morning|afternoon|evening), Mapping_lead-reviewer$/', trim((string) $xp->evaluate('string(//main//h1)')));
+        self::assertSame(1, $xp->query('//main//header[@class="page-head"]//form[@class="hm-find"]//input[@name="q"]')->length, 'the Find box beside the greeting');
+        self::assertSame('Home', self::currentSection($home));
+        self::assertSame('Home - Central Warehouse', trim((string) $xp->evaluate('string(//title)')));
+        self::assertSame(Words::HOME['needs'], trim((string) $xp->evaluate('string(//main//h2[@id="needs-h"])')));
         $cards = self::cardsOf($home);
         // What holds others up first (the company details, an approval), then the owner's own checks, then routine work.
         // Then a note (no job): the people this test added on the server in the last days (Y45, the reviewers' "to look at").
         self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'strong', 'watch'], array_column($cards, 'key'));
-        self::assertSame(['Job 1 Start here', 'Job 2', 'Job 3', 'Job 4', 'Job 5', 'Job 6', ''], array_column($cards, 'job'));
-        self::assertStringContainsString('6 jobs need you. Start with the top one.', $home->text());
+        self::assertSame([true, false, false, false, false, false, false], array_column($cards, 'main'), 'the first job\'s button is the page\'s main action');
+        self::assertSame([false, false, false, false, false, false, true], array_column($cards, 'note'), 'the note after the jobs');
+        self::assertSame(['!', '1', '0/20', '1', '1', '25'], array_slice(array_column($cards, 'big'), 0, 6), 'the big numbers: "!" where there is none');
         $by = self::byKey($cards);
         self::assertSame([Words::TASK['company_confirm']['button_missing'], '/ui/reference/company'], [$by['company_confirm']['button'], $by['company_confirm']['href']]);
         self::assertStringContainsString('Still missing: legal name', $by['company_confirm']['text']);
@@ -152,7 +155,7 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(['href' => '/ui/approvals', 'count' => 1], self::nav($home)['Approvals']);
         $first = $s['members'][0];
         self::assertSame('Spot check home-1: are these 20 matches right?', $by['spot_check']['title']);
-        self::assertSame('0 of 20 checked', $by['spot_check']['count']);
+        self::assertSame('0 of 20 checked', $by['spot_check']['count'], 'a screen reader hears the number with its unit');
         self::assertSame(['Check the next one (1 of 20)', '/ui/review/listing/' . $first['listing_id'] . '?sample=' . $sid],
             [$by['spot_check']['button'], $by['spot_check']['href']]);
         self::assertStringContainsString('If all 20 are right, about 4 more strong matches are confirmed together.', $by['spot_check']['text'],
@@ -160,27 +163,36 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(['1 to check', '/ui/review/samples/' . $sid . '#held'], [$by['set_aside']['count'], $by['set_aside']['href']]);
         self::assertSame(['1 group', '/ui/review/duplicates', Words::TASK['duplicates']['button']],
             [$by['duplicates']['count'], $by['duplicates']['href'], $by['duplicates']['button']]);
-        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($home)['Products'], 'the duplicates card and the sidebar\'s count agree');
+        self::assertSame(['href' => '/ui/match', 'count' => 1], self::nav($home)['Matching'], 'the duplicates card and the sidebar\'s count agree');
         self::assertSame([0, 1], [array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Mapping'],
             array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Duplicates']], '... and the Duplicates tab\'s');
+        self::assertSame(1, array_column(self::moreTabs($web->get('/ui/match')), 'count', 'label')['Duplicates'], '... under the row\'s More on the other pages');
         self::assertSame(['25 to confirm', '/ui/review?queue=Key'], [$by['strong']['count'], $by['strong']['href']]);
-        self::assertStringContainsString(Words::UI['what_happens'] . ' ' . Words::TASK['strong']['what'], $by['strong']['text'], 'B\'s "What happens:" line');
+        self::assertStringNotContainsString(Words::TASK['strong']['what'], $by['strong']['text'], 'one plain line: the "What happens:" line is gone (HV1)');
         self::assertStringContainsString('If your spot check home-1 passes, about 4 of them are confirmed together, so do the spot check first.', $by['strong']['text']);
+        self::assertGreaterThan(0, $xp->query('//main//*[@data-card="watch"]//ul[@class="hm-lines"]/li')->length, 'the changes to look at keep their lines (Y45)');
         // Each button opens its work.
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
         self::assertSame(1, (new \DOMXPath($web->get('/ui/review/samples/' . $sid)->dom()))->query('//section[@id="held"]')->length, 'the set-aside list\'s anchor');
-        self::assertTrue(self::aboutIsOpen($home), 'a new person sees "What is this system?" open');
-        self::assertStringContainsString(Words::ABOUT[0], $home->text());
-        self::assertStringContainsString(Words::HOME['progress'], $home->text(), 'Matching progress, under the cards');
-        self::assertStringNotContainsString(Words::HOME['look_match'], $home->text());
+        // No About box, no second menu, no matching progress (HV1): the progress is Matching › Mapping › To review's (HV5).
+        self::assertSame(0, $xp->query('//main//details[@id="about"] | //main//ul[@class="uses"] | //main//section[@class="progress-box"]')->length);
+        self::assertStringNotContainsString(Words::HOME['coverage'], $home->text());
+        self::assertStringContainsString(Words::HOME['coverage'], $web->get('/ui/review')->text());
+        // The small figures: the first four the owner may see.
+        self::assertSame(['orders', 'units', 'deliveries', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+            iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
+        self::assertSame(['/ui/purchasing/orders', '/ui/stock', '/ui/receiving', '/ui/items/cards'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
+        self::assertMatchesRegularExpression('/^[0-9,]+$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="products"]/span[@class="hm-fig-n"])')),
+            'each a number');
 
         // One answer: 1 of 20, and the button opens the next member.
         $form = $this->decideForm($web, $first['listing_id'], ['sample' => (string) $sid]);
         self::assertSame(303, $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', $form)->status);
         $by = self::byKey(self::cardsOf($web->get('/ui/')));
-        self::assertSame('1 of 20 checked', $by['spot_check']['count']);
+        self::assertSame(['1 of 20 checked', '1/20'], [$by['spot_check']['count'], $by['spot_check']['big']]);
         self::assertSame(['Check the next one (2 of 20)', '/ui/review/listing/' . $s['members'][1]['listing_id'] . '?sample=' . $sid],
             [$by['spot_check']['button'], $by['spot_check']['href']]);
         self::assertSame('24 to confirm', $by['strong']['count']);
@@ -195,10 +207,6 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertNotContains('spot_check', $keys);
         self::assertNotContains('set_aside', $keys);
         self::assertContains('strong', $keys);
-
-        // After 14 days "What is this system?" starts folded.
-        self::$db->exec('UPDATE staff_user SET created_at = NOW(6) - INTERVAL 15 DAY WHERE id = ?', [$owner['id']]);
-        self::assertFalse(self::aboutIsOpen($web->get('/ui/')));
     }
 
     /**
@@ -233,8 +241,8 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertStringNotContainsString('Ask Fazil to take Admin off this account', $cards[0]['text'], 'instead of repeating it');
         self::assertSame('/ui/people/' . $owner['id'], $cards[0]['href']);
         self::assertStringNotContainsString('second account', $home->text(), 'correction a');
-        self::assertStringContainsString(Words::HOME['look_match'], $home->text(), 'Matching progress: look only');
         self::assertSame(0, array_sum(array_column(self::nav($home), 'count')), 'no count: nothing this account may decide');
+        self::assertSame(0, (new \DOMXPath($home->dom()))->query('//a[contains(@class, "bell")]')->length, 'no bell: admin answers nothing in the inbox');
     }
 
     /** The admin: test accounts that can sign in, too few people who can approve work, and someone else's jobs switched off. */
@@ -262,11 +270,10 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertSame(['/ui/items/cards', '/ui/match', '/ui/review', '/ui/review/store', '/ui/review/products', '/ui/review/new-variants', '/ui/review/duplicates',
-            '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/reservations', '/ui/system/audit',
-            '/ui/reference/company', '/ui/reference/warehouses', '/ui/system/sites', '/ui/people', '/ui/reference/approvals', '/ui/reference/reasons',
-            '/ui/reference/settings'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($home->dom()))->query('//main//ul[@class="uses"]//a'))), 'What you can use: the admin\'s menu, in menu order');
+        self::assertSame(['1', '!', '!'], array_column($cards, 'big'), 'a row without a number shows "!"');
+        self::assertSame(['1 account', Words::HOME['needs_you'], Words::HOME['needs_you']], array_column($cards, 'count'), '... and a screen reader hears its state');
+        self::assertSame(['units', 'products', 'matches'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+            iterator_to_array((new \DOMXPath($home->dom()))->query('//main//section[contains(@class, "hm-figs")]/a'))), 'the figures the admin may see');
     }
 
     /** The buyer: orders not sent or not OK, drafts, a supplier not ready, and two notes (DO NOT SEND, old sales data). */
@@ -306,22 +313,26 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(200, $home->status, $home->describe());
         $cards = self::cardsOf($home);
         self::assertSame(['not_ok', 'not_sent', 'drafts', 'supplier_drafts', 'company_wait', 'old_sales'], array_column($cards, 'key'));
+        self::assertSame([false, false, false, false, true, true], array_column($cards, 'note'));
+        self::assertSame([true, false, false, false, false, false], array_column($cards, 'main'), 'a note\'s button is never the main one');
         $by = self::byKey($cards);
         self::assertSame(['1 order', '/ui/purchasing/orders?rejected=1'], [$by['not_ok']['count'], $by['not_ok']['href']]);
         self::assertSame(['2 orders', '/ui/purchasing/orders?state=approved'], [$by['not_sent']['count'], $by['not_sent']['href']]);
         self::assertSame(['1 draft', '/ui/purchasing/orders?state=draft'], [$by['drafts']['count'], $by['drafts']['href']], 'this buyer\'s own draft only');
         self::assertSame(['1 draft', '/ui/purchasing/suppliers?status=draft'], [$by['supplier_drafts']['count'], $by['supplier_drafts']['href']]);
-        self::assertSame(['', ''], [$by['company_wait']['job'], $by['old_sales']['job']], 'notes come after the jobs, without a number');
+        self::assertSame(['!', '!'], [$by['company_wait']['big'], $by['old_sales']['big']], 'notes come after the jobs, without a number');
+        self::assertSame([Words::HOME['waiting'], Words::HOME['out_of_date']], [$by['company_wait']['count'], $by['old_sales']['count']]);
         self::assertMatchesRegularExpression('/^Sales data is \d+ days old$/', $by['old_sales']['title']);
         self::assertSame('/ui/purchasing/sales-history', $by['old_sales']['href']);
         self::assertStringContainsString(Words::HOME['notes'], $home->text());
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'a buyer has no matching progress');
+        self::assertSame(['orders', 'units', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+            iterator_to_array((new \DOMXPath($home->dom()))->query('//main//section[contains(@class, "hm-figs")]/a'))), 'no Goods In for a buyer: three figures');
     }
 
-    /** Nothing waiting: the empty state says so; the warehouse looks at the matching progress; its counts are built (pack A2a), so nothing comes later. */
+    /** Nothing waiting: the empty state says so; its counts are built (pack A2a), so nothing comes later; the sidebar's Counts. */
     public function testNothingWaiting(): void
     {
         $web = $this->signIn($this->uiUser('warehouse'));
@@ -329,10 +340,25 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(200, $home->status, $home->describe());
         self::assertSame([], self::cardsOf($home));
         self::assertStringContainsString(Words::HOME['nothing'] . ' ' . Words::HOME['nothing_text'], $home->text());
-        self::assertStringContainsString(Words::HOME['look_match'], $home->text());
         self::assertStringNotContainsString(Words::UI['coming_later'], $home->text(), 'stock counts are built: nothing is coming later for the warehouse');
-        self::assertContains('/ui/stock/counts', $home->hrefs());
-        self::assertStringContainsString(Words::MENU_HELP['counts'], $home->text());
-        self::assertStringNotContainsString('jobs need you', $home->text());
+        self::assertSame(['href' => '/ui/stock/counts', 'count' => 0], self::nav($home)['Counts'], 'Every day: Counts');
+        self::assertSame(0, (new \DOMXPath($home->dom()))->query('//main//*[contains(@class, "btn") and contains(@class, "primary")]')->length,
+            'nothing waiting: no main button');
+    }
+
+    /** "Good morning" by the time of day in London, with the first word of the name; one row's number and what a screen reader hears. */
+    public function testTheGreetingAndARow(): void
+    {
+        $at = static fn (string $utc): \DateTimeImmutable => new \DateTimeImmutable($utc, new \DateTimeZone('UTC'));
+        self::assertSame('Good morning, Bea', DashboardController::greeting('Bea Smith', $at('2026-10-29 10:59:00')), '10:59 in London (GMT)');
+        self::assertSame('Good afternoon, Bea', DashboardController::greeting(' Bea  Smith ', $at('2026-10-29 12:00:00')));
+        self::assertSame('Good evening, Bea', DashboardController::greeting('Bea', $at('2026-10-29 18:00:00')));
+        self::assertSame('Good afternoon, Bea', DashboardController::greeting('Bea', $at('2026-07-01 16:59:00')), '17:59 in London (BST)');
+        self::assertSame('Good evening, Bea', DashboardController::greeting('Bea', $at('2026-07-01 17:00:00')), '18:00 in London (BST)');
+        self::assertSame(['1,250', '1,250 to confirm'], array_values(array_intersect_key(DashboardController::row(['key' => 'strong', 'count' => 1250,
+            'unit' => 'to confirm']), ['big' => 0, 'said' => 0])));
+        self::assertSame(['3/20', '3 of 20 checked'], array_values(array_intersect_key(DashboardController::row(['key' => 'spot_check', 'count' => 3,
+            'unit' => 'of 20 checked', 'progress' => [3, 20]]), ['big' => 0, 'said' => 0])));
+        self::assertSame(['!', 'Needs you'], array_values(array_intersect_key(DashboardController::row(['key' => 'reviewers', 'chip' => 'Needs you']), ['big' => 0, 'said' => 0])));
     }
 }

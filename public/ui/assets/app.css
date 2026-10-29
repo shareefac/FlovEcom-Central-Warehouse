@@ -180,30 +180,36 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: 24px 0; }
   -webkit-mask-position: center; mask-position: center; -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
-.ico-dashboard { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#dashboard"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#dashboard"); }
-.ico-products { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#products"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#products"); }
-.ico-stock { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#stock"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#stock"); }
-.ico-purchasing { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#purchasing"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#purchasing"); }
-.ico-reports { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#reports"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#reports"); }
-.ico-approvals { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#approvals"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#approvals"); }
-.ico-settings { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#settings"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#settings"); }
-.ico-search { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#search"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#search"); }
-.ico-key { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#key"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#key"); }
-.ico-signout { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#signout"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#signout"); }
-.ico-plus { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#plus"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#plus"); }
-.ico-help { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#help"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#help"); }
-.ico-filter { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#filter"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#filter"); }
-.ico-sort { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#sort"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#sort"); }
-.ico-export { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#export"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#export"); }
-.ico-menu { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#menu"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#menu"); }
-.ico-more { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#more"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#more"); }
-.ico-bell { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#bell"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#bell"); }
-.ico-close { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#close"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#close"); }
-.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-right"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-right"); }
-.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-left"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-left"); }
-.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-down"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#chevron-down"); }
-.ico-check { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#check"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#check"); }
-.ico-user { -webkit-mask-image: url("icons.svg?v=e35d9dfac3aecf75#user"); mask-image: url("icons.svg?v=e35d9dfac3aecf75#user"); }
+.ico-dashboard { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#dashboard"); mask-image: url("icons.svg?v=85946e439bad00db#dashboard"); }
+.ico-products { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#products"); mask-image: url("icons.svg?v=85946e439bad00db#products"); }
+.ico-stock { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#stock"); mask-image: url("icons.svg?v=85946e439bad00db#stock"); }
+.ico-purchasing { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#purchasing"); mask-image: url("icons.svg?v=85946e439bad00db#purchasing"); }
+.ico-reports { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#reports"); mask-image: url("icons.svg?v=85946e439bad00db#reports"); }
+.ico-approvals { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#approvals"); mask-image: url("icons.svg?v=85946e439bad00db#approvals"); }
+.ico-settings { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#settings"); mask-image: url("icons.svg?v=85946e439bad00db#settings"); }
+.ico-search { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#search"); mask-image: url("icons.svg?v=85946e439bad00db#search"); }
+.ico-key { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#key"); mask-image: url("icons.svg?v=85946e439bad00db#key"); }
+.ico-signout { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#signout"); mask-image: url("icons.svg?v=85946e439bad00db#signout"); }
+.ico-plus { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#plus"); mask-image: url("icons.svg?v=85946e439bad00db#plus"); }
+.ico-help { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#help"); mask-image: url("icons.svg?v=85946e439bad00db#help"); }
+.ico-filter { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#filter"); mask-image: url("icons.svg?v=85946e439bad00db#filter"); }
+.ico-sort { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#sort"); mask-image: url("icons.svg?v=85946e439bad00db#sort"); }
+.ico-export { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#export"); mask-image: url("icons.svg?v=85946e439bad00db#export"); }
+.ico-menu { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#menu"); mask-image: url("icons.svg?v=85946e439bad00db#menu"); }
+.ico-more { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#more"); mask-image: url("icons.svg?v=85946e439bad00db#more"); }
+.ico-bell { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#bell"); mask-image: url("icons.svg?v=85946e439bad00db#bell"); }
+.ico-close { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#close"); mask-image: url("icons.svg?v=85946e439bad00db#close"); }
+.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-right"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-right"); }
+.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-left"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-left"); }
+.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-down"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-down"); }
+.ico-check { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#check"); mask-image: url("icons.svg?v=85946e439bad00db#check"); }
+.ico-user { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#user"); mask-image: url("icons.svg?v=85946e439bad00db#user"); }
+.ico-home { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#home"); mask-image: url("icons.svg?v=85946e439bad00db#home"); }
+.ico-goods-in { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#goods-in"); mask-image: url("icons.svg?v=85946e439bad00db#goods-in"); }
+.ico-counts { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#counts"); mask-image: url("icons.svg?v=85946e439bad00db#counts"); }
+.ico-orders { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#orders"); mask-image: url("icons.svg?v=85946e439bad00db#orders"); }
+.ico-sales { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#sales"); mask-image: url("icons.svg?v=85946e439bad00db#sales"); }
+.ico-matching { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#matching"); mask-image: url("icons.svg?v=85946e439bad00db#matching"); }
 
 /* ---------- 3. Strips (the test system, every page) and toasts ---------- */
 .strip.test-system {
@@ -253,8 +259,9 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
   background: var(--accent); color: var(--on-fill); font: 600 11px/18px var(--font); text-align: center; box-shadow: 0 0 0 2px var(--card);
 }
 
-/* The sidebar: the logo and the bell, the find link, "MENU", the seven sections (icon, name, a count where something waits), the
-   person pinned to the bottom. The same markup is the phone's slide-in menu. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
+/* The sidebar: the logo and the bell, the find link, Home, the "Every day" entries and the "More" sections under their group names (the
+   approved HM_Home; docs/decisions.md HV2), each an icon, a name and a count where something waits; the person pinned to the bottom. The same
+   markup is the phone's slide-in menu. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
 .side { background: var(--card); display: flex; flex-direction: column; min-width: 0; }
 .side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; }
 .side-tools { display: flex; align-items: center; gap: 0; flex: none; }
@@ -269,7 +276,8 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 }
 .side-find:hover { color: var(--ink); border-color: var(--ink-faint); text-decoration: none; }
 .side-find .ico { width: 16px; height: 16px; }
-.side-label { margin: 22px 12px 8px; font: 600 11px/16px var(--font); letter-spacing: 2px; text-transform: uppercase; color: var(--accent); }
+.side-label { margin: 16px 12px 4px; font: 700 11px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.side-find + .nav, .side-top + .nav { margin-top: 16px; }
 .nav { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .nav li { margin: 0; }
 .nav-item {
@@ -333,7 +341,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
     border-right: 1px solid var(--hairline); scrollbar-width: thin;
   }
   .side-user { margin-top: auto; }
-  .nav { margin-bottom: 20px; }
+  .nav:last-of-type { margin-bottom: 20px; }
   body:has(.strip.test-system) .side { height: calc(100vh - 28px); top: 0; }
 }
 @media (min-width: 700px) and (max-width: 1023.98px) { :root { --gutter: 24px; } .work { padding-top: 24px; } }
@@ -371,7 +379,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
   .nav-item, .side-link { min-height: 48px; font-size: 15px; }
   .side-user { margin-top: 24px; }
 
-  /* The bottom bar the owner approved (Dashboard, three sections, More): white, a hairline above, the open one in the accent */
+  /* The bottom bar (HM_Phone: Home, Goods in, Counts, Approvals, More): white, a hairline above, the open one in the accent */
   html { scroll-padding-bottom: calc(var(--tabbar-h) + 32px); }
   .tabbar {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -462,6 +470,38 @@ a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .tab > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
 /* A tab's own mark: a match strength's colour key, a state's dot (the tone class on the tab gives the colour) */
 .tab > .key { flex: none; width: 12px; height: 12px; border-radius: 2px; background: var(--t-fill); }
+/* The section's set-up, import and specialist pages under the tab row's More (docs/decisions.md HV3): the row scrolls, More stays at its
+   end; More looks like a tab (the count of what waits under it), its menu each page's name, its count and one line on what it is for. A
+   <details> (no script; Esc or a click elsewhere closes it, app.js). On a phone the menu still opens under More, at the right. */
+.tabs-row { display: flex; align-items: flex-end; gap: 4px; margin: 0 0 24px; box-shadow: inset 0 -1px 0 var(--hairline); }
+.tabs-row > .tabs { flex: 0 1 auto; min-width: 0; margin: 0; box-shadow: none; }
+.page-head + .tabs-row, .frame-only > .tabs-row:first-child { margin-top: -8px; }
+.tabs-row + .tabs { margin-top: -16px; }
+details.tabs-more { flex: none; }
+.tab-more {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; cursor: pointer;
+  color: var(--ink-muted); font: 600 14px/20px var(--font); white-space: nowrap; border-bottom: 3px solid transparent;
+}
+.tab-more:hover { color: var(--ink); }
+details.tabs-more[open] > summary.tab-more { background: none; border-color: transparent; border-bottom-color: var(--accent); color: var(--accent-hover); }
+.tab-more > .count, .menu-name > .count {
+  flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--sf-grey); color: var(--ink-body); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.menu-name > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
+.tabs-more .menu-item { flex-direction: column; align-items: flex-start; gap: 2px; }
+.menu-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.menu-sub { color: var(--ink-muted); font: 400 12px/16px var(--font); }
+.tabs-more .menu-item.soon { color: var(--ink-faint); cursor: default; }
+.tabs-more .menu-item.soon:hover { background: none; color: var(--ink-faint); }
+@media (max-width: 639.98px) {
+  details.more.tabs-more { position: relative; }
+  details.more.tabs-more[open] { flex: none; }
+  .tabs-more > .more-menu {
+    position: absolute; right: 0; top: calc(100% + 6px); width: max-content; min-width: 220px; max-width: calc(100vw - 32px); margin: 0;
+    box-shadow: var(--shadow-float);
+  }
+}
 /* Tabs inside a card (the match strengths under their bar, a page's parts): the card's padding is the row's edge */
 .card > .tabs { margin: 12px 0 16px; }
 
@@ -1044,7 +1084,7 @@ details.help > :last-child:not(summary) { margin-bottom: 0; }
   html.js details.drawer[open]:not(.is-inline) > summary::before { display: none; }
   html.js details.drawer[open]:not(.is-inline) > summary::after {
     content: ""; flex: none; width: 20px; height: 20px; padding: 10px; border-radius: var(--r-10); background: var(--ink-muted);
-    -webkit-mask: url("icons.svg?v=e35d9dfac3aecf75#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=e35d9dfac3aecf75#close") center / 20px 20px no-repeat;
+    -webkit-mask: url("icons.svg?v=85946e439bad00db#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=85946e439bad00db#close") center / 20px 20px no-repeat;
   }
   html.js details.drawer[open]:not(.is-inline) > :not(summary) { margin-left: 24px; margin-right: 24px; }
   html.js details.drawer[open]:not(.is-inline) > summary + * { margin-top: 20px; }
@@ -1096,46 +1136,68 @@ td.meter meter { width: 80px; }
 .key.no { background: linear-gradient(var(--on-fill), var(--on-fill)) center / 60% 2px no-repeat, var(--st-red); border-color: var(--st-red); }
 .key.now { background: var(--accent); border-color: var(--accent); }
 
-/* ---------- 14. Home: the task board keeps its job number, "Start here" and "What happens:" line ---------- */
-table.tasks th.c-item { width: 40%; }
-table.tasks h3 { margin: 0; font: 600 14px/20px var(--font); color: var(--ink); }
-table.tasks .task-step { margin: 0 0 2px; color: var(--ink-muted); font: 500 12px/16px var(--font); }
-table.tasks .start-tag { margin-left: 6px; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-fill); font: 600 11px/16px var(--font); }
-table.tasks .text, table.tasks .task-what, table.tasks .task-lines { margin: 4px 0 0; color: var(--ink-muted); font: 400 12px/18px var(--font); max-width: 60ch; }
-table.tasks .task-what strong { color: var(--ink); font-weight: 600; }
-table.tasks td.where { color: var(--ink-muted); font: 400 12px/16px var(--font); }
-table.tasks p.count { margin: 0; font: 600 14px/20px var(--font); color: var(--ink); }
-table.tasks p.count small { font-size: 12px; font-weight: 400; color: var(--ink-muted); }
-table.tasks tr.hero > * { background: var(--row-selected); }
-table.tasks tr.quiet > * { background: var(--page-alt); }
-table.tasks .c-next .btn { white-space: nowrap; }
-.task-lines { padding-left: 16px; }
-.task-lines li { margin: 2px 0; overflow-wrap: anywhere; }
+/* ---------- 14. Home (the approved HM_Home and HM_Phone, 29 Oct 2026; docs/decisions.md HV1): the date and the greeting with one Find
+   box beside them; "Waiting for you", a card of rows (a 52 px square with the number in the task's colour, its name, one muted line, one
+   button); the notes after them, quieter; a card of up to four small figures. On a phone the Find box takes its row and a whole row opens
+   its task (its button's link covers the row). ---------- */
+.page-head:has(.hm-find) .ph-actions { flex: 0 1 380px; }
+.hm-find { position: relative; display: flex; align-items: center; width: 100%; margin: 0; }
+.hm-find > .ico { position: absolute; left: 14px; color: var(--ink-muted); pointer-events: none; }
+.hm-find > input { width: 100%; min-height: 44px; padding-left: 42px; border-radius: var(--r-12); font-size: 15px; }
+.hm-jobs, .hm-figs { padding: 0; overflow: hidden; margin: 0 0 22px; }
+.hm-h { margin: 0; padding: 16px 18px 4px; font: 700 16px/24px var(--font); color: var(--ink); }
+.card > h2.hm-h:first-child { margin: 0; }
+.hm-sub { margin: 0; padding: 14px 18px 2px; border-top: 1px solid var(--divider); font: 700 11px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.hm-jobs > .empty { margin: 8px 18px 18px; padding: 24px; }
+.hm-list { list-style: none; margin: 0; padding: 0; }
+.hm-row { display: flex; align-items: center; gap: 16px; margin: 0; padding: 14px 18px; border-top: 1px solid var(--divider); }
+.hm-list > .hm-row:first-child { border-top: 0; }
+.hm-n {
+  flex: none; display: grid; place-items: center; min-width: 52px; height: 52px; padding: 0 8px; border-radius: var(--r-12);
+  background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 700 20px/1 var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.hm-notes .hm-n { background: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--ink-body)); }
+.hm-text { flex: 1 1 auto; min-width: 0; }
+.hm-t { margin: 0; font: 600 14px/20px var(--font); color: var(--ink); overflow-wrap: anywhere; }
+.hm-d { margin: 2px 0 0; max-width: 75ch; color: var(--ink-muted); font: 400 13px/18px var(--font); }
+.hm-lines { margin: 4px 0 0; padding-left: 16px; color: var(--ink-muted); font: 400 12px/18px var(--font); }
+.hm-lines li { margin: 2px 0; overflow-wrap: anywhere; }
+.hm-row > .btn { flex: none; white-space: nowrap; }
+.hm-figs { display: flex; flex-wrap: wrap; }
+.hm-fig {
+  flex: 1 1 180px; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 16px 20px; border-right: 1px solid var(--hairline);
+  color: inherit; text-decoration: none;
+}
+.hm-fig:last-child { border-right: 0; }
+.hm-fig:hover { background: var(--page-alt); color: inherit; text-decoration: none; }
+.hm-fig-t { color: var(--ink-muted); font: 400 13px/18px var(--font); }
+.hm-fig-n { color: var(--ink); font: 700 24px/32px var(--font); font-variant-numeric: tabular-nums; }
+@media (max-width: 699.98px) {
+  .page-head:has(.hm-find) .ph-actions { flex: 1 1 100%; }
+  .hm-find > input { min-height: 48px; font-size: 16px; }
+  .hm-row { position: relative; gap: 14px; padding: 14px 16px; }
+  .hm-n { min-width: 46px; height: 46px; font-size: 18px; }
+  .hm-row > .btn { position: static; }
+  .hm-row > .btn::after { content: ""; position: absolute; inset: 0; }
+  .hm-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hm-fig { padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--divider); }
+  .hm-fig-n { font-size: 22px; line-height: 28px; }
+}
+.share-val { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.share-val meter { width: 80px; }
+/* Matching › Mapping › To review: how much of what each store sells is matched (HV5) */
+.coverage-box { margin: 8px 0 24px; }
+.coverage-box > .board-title { margin: 0 0 4px; }
+table.coverage th .hint { display: block; margin-top: 2px; max-width: 46ch; font-weight: 400; }
 .setup-code code { letter-spacing: .08em; }
+/* A board's foot and "+ Add" rows when the board is cards (a narrow page) */
 @container (max-width: 640px) {
   table.stack.board tr.grp-foot { background: var(--page-alt); }
   table.stack.board tr.grp-foot > * { background: none; }
   table.stack.board tr.grp-add { display: block; padding: 0; border-style: dashed; border-color: var(--accent); background: none; }
   table.stack.board tr.grp-add .add-item { display: flex; width: 100%; min-height: 44px; border: 0; }
-  table.stack tr.task > .c-head { grid-column: 1 / -1; }
-  table.tasks th.c-item { width: auto; }
   table.stack.board th.c-item { min-width: 0; }
-  table.stack.tasks tr.hero { border: 1.5px solid var(--accent); background: var(--row-selected); }
-  table.stack.tasks tr.hero > * { background: none; }
 }
-
-/* Home's other parts: "What is this system?", Matching progress, What you can use */
-details.about { padding: 0 20px; margin: 0 0 24px; border-radius: var(--r-14); }
-details.about > summary { min-height: 52px; font-size: 15px; }
-.about-body p { max-width: 68ch; }
-table.bands th .hint, table.coverage th .hint { display: block; margin-top: 2px; max-width: 46ch; font-weight: 400; }
-.share-val { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.share-val meter { width: 80px; }
-ul.uses { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; margin: 0 0 24px; padding: 0; list-style: none; }
-ul.uses li { margin: 0; padding: 12px 16px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12); }
-ul.uses a { display: inline-flex; align-items: center; min-height: 32px; font-weight: 600; color: var(--ink); text-decoration: none; }
-ul.uses a:hover { color: var(--accent-hover); text-decoration: underline; }
-ul.uses .hint { display: block; }
 
 /* ---------- 15. Decision pages: the answers say what they do; the safe one is marked ---------- */
 .decide-bar {

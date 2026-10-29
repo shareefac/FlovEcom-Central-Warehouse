@@ -124,7 +124,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $goodsIn = $this->signIn($this->uiUser('goods_in'));
         $list = $goodsIn->get(\CW\Ui\Controller\ArrivalsController::ARRIVING);
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Purchasing', 'Goods In'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($list), self::currentTab($list)]);
         self::assertStringContainsString($number, $list->text());
         self::assertStringContainsString('Screen Arrivals Ltd', $list->text());
         $r = $goodsIn->post('/ui/receiving/arriving/' . $x['id'] . '/receive', $list->form('/ui/receiving/arriving/' . $x['id'] . '/receive'));

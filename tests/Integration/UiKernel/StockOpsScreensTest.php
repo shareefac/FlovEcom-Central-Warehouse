@@ -59,9 +59,10 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/stock/in');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', null], ['Stock Out', '/ui/stock/out'],
-            ['Hand-overs', '/ui/stock/handovers'], ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
-            ['Sales', '/ui/stock/sales'], ['Quality', null], ['Repack', '/ui/stock/repack']],
+            ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)));
+        self::assertSame([['Hand-overs', '/ui/stock/handovers'], ['Transfers', '/ui/stock/transfers'], ['Reservations', '/ui/stock/reservations'], ['Quality', null],
+            ['Repack', '/ui/stock/repack']], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($page)), 'under the row\'s More (HV3)');
         self::assertSame(['Stock', 'Stock In'], [self::currentSection($page), self::currentTab($page)]);
         self::assertStringContainsString(Words::STOCK_KIND['in']['none'], $page->text());
         foreach (['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/transfers', '/ui/stock/releases', '/ui/stock/accounts'] as $path) {

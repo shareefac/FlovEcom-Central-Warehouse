@@ -1,62 +1,32 @@
-<?= $head(\CW\Ui\Words::HOME['title'], intro: 'home', more: $hello . ' ' . \CW\Ui\Words::UI['you_work_as'] . ' ' . \CW\Ui\Words::roles(array_values(array_map('strval', $myRoles))) . '.',
-    eyebrow: \CW\Ui\Html::today()) ?>
-<?php $newActions = $newActions ?? []; $tiles = $tiles ?? []; $canFind = $canFind ?? false; ?>
-<?php if ($canFind): ?>
-<form class="toolbar" method="get" action="/ui/search" role="search">
-  <?= $partial('split', ['actions' => $newActions, 'main' => false]) ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('UI', 'search_label') ?></label><input id="tb-q" type="search" name="q" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" autocomplete="off"></div>
-</form>
-<?php elseif ($newActions !== []): ?>
-<div class="toolbar"><?= $partial('split', ['actions' => $newActions, 'main' => false]) ?></div>
-<?php endif; ?>
-<?php if ($tiles !== []): ?>
+<?php
+// Home (the approved HM_Home and HM_Phone of 29 Oct 2026; docs/decisions.md HV1): today's date, the greeting and one Find box; "Waiting for
+// you", one row per task with its big number, its name, one plain line and one button (the first one the page's main action); then up to
+// four small figures. The menu is the sidebar's; the matching progress is Matching › Mapping's.
+$figures = $figures ?? []; $canFind = $canFind ?? false;
+?>
+<?= $head($greeting, eyebrow: \CW\Ui\Html::today(), side: $canFind ? $partial('home_find') : null) ?>
 
-<section class="home-tiles" aria-labelledby="tiles-h">
-  <h2 id="tiles-h" class="visually-hidden"><?= $word('HOME', 'tiles') ?></h2>
-  <div class="kpis-wrap"><ul class="kpis">
-<?php foreach ($tiles as $t): ?>
-    <li class="kpi" data-tile="<?= $e($t['key']) ?>"><p class="kpi-label"><?= $e($t['title']) ?></p><p class="kpi-value"><?= $n($t['value']) ?></p><p class="kpi-sub"><?= $e($t['sub']) ?></p><a class="kpi-link" href="<?= $e($t['href']) ?>"><?= $e($t['link']) ?></a></li>
-<?php endforeach; ?>
-  </ul></div>
-</section>
-<?php endif; ?>
-
-<section class="home-tasks" aria-labelledby="needs-h">
-  <div class="board-head"><h2 id="needs-h" class="board-title"><?= $word('HOME', 'needs') ?></h2><?php if ($summary !== null): ?><p class="board-note"><?= $e($summary) ?></p><?php endif; ?></div>
+<section class="card hm-jobs" aria-labelledby="needs-h">
+  <h2 id="needs-h" class="hm-h"><?= $word('HOME', 'needs') ?></h2>
 <?php if ($tasks === []): ?>
   <div class="empty">
     <p class="empty-title"><?= $word('HOME', 'nothing') ?></p>
     <p><?= $word('HOME', 'nothing_text') ?></p>
   </div>
 <?php else: ?>
-  <?= $cards($tasks, \CW\Ui\Words::HOME['ready'], 't-primary', 'g-ready') ?>
+  <?= $cards($tasks) ?>
 <?php endif; ?>
 <?php if ($notes !== []): ?>
-  <?= $cards($notes, \CW\Ui\Words::HOME['notes'], 'waiting', 'g-notes') ?>
+  <h3 class="hm-sub" id="notes-h"><?= $word('HOME', 'notes') ?></h3>
+  <?= $cards($notes, true) ?>
 <?php endif; ?>
 </section>
+<?php if ($figures !== []): ?>
 
-<details class="about fold" id="about"<?php if ($aboutOpen): ?> open<?php endif; ?>>
-  <summary><?= $word('HOME', 'about') ?></summary>
-  <div class="about-body">
-<?php foreach ($about as $line): ?>
-    <p><?= $e($line) ?></p>
+<section class="card hm-figs" aria-label="<?= $word('HOME', 'figures') ?>">
+<?php foreach ($figures as $f): ?>
+  <a class="hm-fig" href="<?= $e($f['href']) ?>" data-tile="<?= $e($f['key']) ?>"><span class="hm-fig-t"><?= $e($f['title']) ?></span><span class="hm-fig-n"><?= $n($f['value']) ?></span></a>
 <?php endforeach; ?>
-  </div>
-</details>
-<?php if ($progress !== null): ?>
-
-<?= $partial('matching_progress', $progress) ?>
-<?php endif; ?>
-<?php if ($uses !== []): ?>
-
-<section class="home-uses" aria-labelledby="uses-h">
-  <h2 id="uses-h"><?= $word('HOME', 'uses') ?></h2>
-  <ul class="uses">
-<?php foreach ($uses as $item): ?>
-    <li><a href="<?= $u($item['path'], $item['query']) ?>"><?= $e($item['label']) ?></a><?php if ($item['help'] !== ''): ?> <span class="hint"><?= $e($item['help']) ?></span><?php endif; ?></li>
-<?php endforeach; ?>
-  </ul>
 </section>
 <?php endif; ?>
 <?php if ($later !== ''): ?>

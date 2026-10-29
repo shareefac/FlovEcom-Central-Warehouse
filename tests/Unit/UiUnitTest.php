@@ -749,6 +749,9 @@ final class UiUnitTest extends TestCase
         foreach (\CW\Ui\Sections::MAP as $section => $_) {
             $used[] = $section; // the sidebar draws ico-<section>
         }
+        foreach (\CW\Ui\Sections::ICON as $icon) {
+            $used[] = $icon; // ... and its other entries' own (docs/decisions.md HV2)
+        }
         foreach (array_unique($used) as $name) {
             self::assertContains($name, $views, "ico-{$name}: a page names it, the sprite has it");
             self::assertStringContainsString('.ico-' . $name . ' { -webkit-mask-image: url("icons.svg?v=' . $version . '#' . $name . '")', $css, "ico-{$name}: its rule");

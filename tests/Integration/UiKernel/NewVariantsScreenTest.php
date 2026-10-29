@@ -233,9 +233,9 @@ final class NewVariantsScreenTest extends KernelUiTestCase
 
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['All Products', 'Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], self::tabLabels($page),
-            'the tab after By Item');
-        self::assertSame(['New Variants', 'Products'], [self::currentTab($page), self::currentSection($page)]);
+        self::assertSame(['Simple matching', 'Mapping', 'Store Products', 'New Variants'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
+        self::assertSame(['By Item', 'Duplicates'], array_column(self::moreTabs($page), 'label'), 'after By Item');
+        self::assertSame(['New Variants', 'Matching'], [self::currentTab($page), self::currentSection($page)]);
         self::assertSame([], self::segments($page), 'no segments');
         // The first store by name is chosen; the selector counts each store's variants first seen in the period, whatever their state.
         self::assertSame([['Alt Store', true, 3], ['Big Store', false, 1], ['Cee Store', false, 1]], self::storeSeg($page));

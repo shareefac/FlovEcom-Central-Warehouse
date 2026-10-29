@@ -41,10 +41,10 @@ final class UiReviewFlowTest extends UiTestCase
         $user = $this->uiUser('mapper');
         $web = $this->signIn($user);
 
-        // Home's matching progress counts what waits, and links into the list of the site.
-        $dash = $web->get('/ui/');
-        self::assertSame(['3', '3'], self::row($dash, Words::HOME['to_match'], Words::BAND['Key']));
-        self::assertSame(['1', '1'], self::row($dash, Words::HOME['to_match'], Words::BAND['Check']));
+        // The matching progress (Matching › Mapping › To review, HV5) counts what waits, and links into the list of the site.
+        $dash = $web->get('/ui/review');
+        self::assertSame('3', self::row($dash, 'VPG test site', Words::BAND['Key'])[0]);
+        self::assertSame('1', self::row($dash, 'VPG test site', Words::BAND['Check'])[0]);
         self::assertContains('/ui/review?queue=Key&channel=vpg', $dash->hrefs());
 
         // Best sellers first, and the Check listing (999 units) is not in the Key queue.
@@ -116,9 +116,9 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertContains('/ui/review/listing/' . $l100, $item->hrefs());
         self::assertNotContains('/ui/review/listing/' . $check, $item->hrefs(), 'only linked listings are on the item');
 
-        // Home has moved on.
-        $after = $web->get('/ui/');
-        self::assertSame(['0', '0'], self::row($after, Words::HOME['to_match'], Words::BAND['Key']));
+        // The matching progress has moved on.
+        $after = $web->get('/ui/review');
+        self::assertSame('0', self::row($after, 'VPG test site', Words::BAND['Key'])[0]);
         $cover = self::row($after, Words::HOME['coverage'], 'VPG test site');
         self::assertSame('4', $cover[0], 'four listings');
         self::assertSame('3', $cover[1], 'three of them linked');
@@ -237,7 +237,7 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertStringContainsString(Words::say('LISTING', 'h_note', 'Not a product: gift card'), $page->text(), 'the history shows why');
 
         // Ignored units stay in the total (the coverage is honest) and are shown on their own.
-        $cover = self::row($web->get('/ui/'), Words::HOME['coverage'], 'VPG test site');
+        $cover = self::row($web->get('/ui/review'), Words::HOME['coverage'], 'VPG test site'); // Matching › Mapping › To review (HV5)
         self::assertSame(['3', '1', '80', '75.0%', '800', '75.0%', '20'], $cover);
     }
 
@@ -480,9 +480,10 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame(409, $again->status, $again->describe());
     }
 
-    // ---- the dashboard, the queue, choosing an item ------------------------------------------
+    // ---- the matching progress, the queue, choosing an item ------------------------------------------
 
-    public function testTheDashboardCountsQueuesAndCoverage(): void
+    /** The matching progress, on Matching › Mapping › To review since HV5 (it was on Home): per store and list what waits, then the coverage. */
+    public function testTheMatchingProgressCountsQueuesAndCoverage(): void
     {
         $vpg = $this->site('vpg');
         $alt = $this->site('alt');
@@ -509,24 +510,23 @@ final class UiReviewFlowTest extends UiTestCase
             'proposal_id' => (int) self::$db->value("SELECT id FROM match_proposal WHERE listing_id = ? AND status = 'open'", [$pendingListing])]);
 
         $web = $this->signIn($this->uiUser('viewer'));
-        $dash = $web->get('/ui/');
+        self::assertStringNotContainsString(Words::HOME['coverage'], $web->get('/ui/')->text(), 'not on Home any more (HV1)');
+        $dash = $web->get('/ui/review');
         self::assertSame(200, $dash->status);
 
-        // Columns are the sites in code order (alt, vpg), by name, then the total; each list by its plain name (plan F075-F082).
-        $w = Words::HOME['to_match'];
-        self::assertSame(['1', '2', '3'], self::row($dash, $w, Words::BAND['Key']));
-        self::assertSame(['0', '1', '1'], self::row($dash, $w, Words::BAND['Check']));
-        self::assertSame(['0', '1', '1'], self::row($dash, $w, Words::BAND['Conflict']));
-        self::assertSame(['1', '0', '1'], self::row($dash, $w, Words::BAND['New item']));
-        self::assertSame(['0', '0', '0'], self::row($dash, $w, Words::BAND['Manual']), 'band Manual is named for what it is');
-        self::assertSame(['1', '3', '4'], self::row($dash, $w, Words::HOME['not_checked']), 'U1, U2 and L3 (unlinked, never proposed) on vpg, U3 on alt');
-        self::assertStringContainsString('ALT test site', $dash->text(), 'the website by its name, not its code');
-        self::assertStringContainsString(Words::HOME['look_match'], $dash->text(), 'a viewer looks; matchers decide');
+        // One group per store, by name (alt, vpg); a row per list by its plain name, what waits first (plan F075-F082, U107).
+        $waiting = static fn (string $store, string $list): string => self::row($dash, $store, $list)[0];
+        self::assertSame(['1', '2'], [$waiting('ALT test site', Words::BAND['Key']), $waiting('VPG test site', Words::BAND['Key'])]);
+        self::assertSame(['0', '1'], [$waiting('ALT test site', Words::BAND['Check']), $waiting('VPG test site', Words::BAND['Check'])]);
+        self::assertSame(['0', '1'], [$waiting('ALT test site', Words::BAND['Conflict']), $waiting('VPG test site', Words::BAND['Conflict'])]);
+        self::assertSame(['1', '0'], [$waiting('ALT test site', Words::BAND['New item']), $waiting('VPG test site', Words::BAND['New item'])]);
+        self::assertSame(['0', '0'], [$waiting('ALT test site', Words::BAND['Manual']), $waiting('VPG test site', Words::BAND['Manual'])], 'band Manual is named for what it is');
+        self::assertSame(['1', '3'], [$waiting('ALT test site', Words::HOME['not_checked']), $waiting('VPG test site', Words::HOME['not_checked'])],
+            'U1, U2 and L3 (unlinked, never proposed) on vpg, U3 on alt');
+        self::assertStringContainsString(sprintf(Words::UI['look_only'], Words::whoCan('mapping.decide')), $dash->text(), 'a viewer looks; matchers decide');
         self::assertContains('/ui/review?queue=Key&channel=alt', $dash->hrefs());
-        self::assertContains('/ui/review?queue=Key', $dash->hrefs());
-        self::assertNotContains('/ui/review?queue=Manual', $dash->hrefs(), 'an empty queue is not a link');
-        self::assertContains('/ui/review?queue=pending', $web->get('/ui/review', ['queue' => 'Key'])->hrefs(), 'Second approval is a segment of Products > Mapping');
-        self::assertStringContainsString(Words::HOME['pending_one'], $dash->text());
+        self::assertNotContains('/ui/review?queue=Manual&channel=vpg', $dash->hrefs(), 'an empty queue is not a link');
+        self::assertContains('/ui/review?queue=pending', $web->get('/ui/review', ['queue' => 'Key'])->hrefs(), 'Second approval is a segment of Matching > Mapping');
 
         // website products, matched, sold 30d, matched share 30d (a bar and the %), sold 1 year, matched share 1 year, sold but ignored 30d
         $c = Words::HOME['coverage'];

@@ -29,7 +29,7 @@ final class Words
     public const ASK_ROLE = 'Fazil (the admin)';
 
     /** The groups of() accepts (the constant names below). */
-    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'FLOW', 'MENU_HELP', 'TAB',
+    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'FLOW', 'MENU_HELP', 'NAV', 'TAB',
         'BADGE', 'COMING_LATER',
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
@@ -184,23 +184,41 @@ final class Words
     // 2. The navigation (Ui\Sections keeps the sections, tabs, segments, paths and permissions; their words are here). Standard
     //    business names (owner, 8 Oct 2026: "sidebar name make professional and make related tabs").
 
-    /** Sidebar section key (Sections::MAP) => its name: seven items, the same in the sidebar, the page bar and the phone bar. */
+    /** Section key (Sections::MAP) => its name, the same in the sidebar, the page bar and the phone bar (HV2: Home, and Sales and Matching). */
     public const SECTION = [
-        'dashboard' => 'Dashboard',
+        'dashboard' => 'Home',
         'products' => 'Products',
+        'matching' => 'Matching',
         'stock' => 'Stock',
         'purchasing' => 'Purchasing',
+        'sales' => 'Sales',
         'reports' => 'Reports',
         'approvals' => 'Approvals',
         'settings' => 'Settings',
     ];
 
+    /**
+     * The sidebar's groups and its "Every day" entries (Sections::DAILY; the approved HM_Home, 29 Oct 2026): the daily pages in front, the
+     * other sections under More.
+     */
+    public const NAV = [
+        'daily' => 'Every day',
+        'more' => 'More',
+        'goods_in' => 'Goods in',
+        'counts' => 'Counts',
+        'approvals' => 'Approvals',
+        'orders' => 'Purchase orders',
+        'products' => 'All products',
+    ];
+
     /** The one line under a section's name in its page bar. */
     public const SECTION_DESC = [
         'dashboard' => 'What needs doing today.',
-        'products' => 'Your warehouse products, and how each store\'s products match them.',
+        'products' => 'Your warehouse products, their families and multipacks.',
+        'matching' => 'How each store\'s products match the warehouse\'s items.',
         'stock' => 'What is in each warehouse, every change to it, and the records that move it.',
         'purchasing' => 'Buy from suppliers and receive the deliveries.',
+        'sales' => 'Each store\'s orders, what waits to be sent, and what came back or was cancelled.',
         'reports' => 'Figures by store, and every change made in this system.',
         'approvals' => 'Work that needs your OK before it goes ahead, or a check after.',
         'settings' => 'Company, warehouses, stores, users and rules.',
@@ -208,7 +226,7 @@ final class Words
 
     /** Tab (and page) key => its name. The same word in the tab, the page title and the crumbs. */
     public const MENU = [
-        'home' => 'Dashboard',
+        'home' => 'Home',
         // Products
         'cards' => 'All Products',
         'simple_match' => 'Simple matching',
@@ -233,8 +251,7 @@ final class Words
         'quality' => 'Quality',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
-        // ---- Pack D (docs/decisions.md PD1): Stock › Sales and its three segments ----
-        'sales' => 'Sales',
+        // ---- Pack D (docs/decisions.md PD1): Sales and its three tabs (HV3: a section of its own) ----
         'sales_orders' => 'Store orders',
         'sales_dispatch' => 'Dispatch',
         'sales_returns' => 'Returns and cancels',
@@ -310,11 +327,6 @@ final class Words
         'transfers' => 'Transfers',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
-        // ---- Pack D (docs/decisions.md PD1) ----
-        'sales_orders' => 'Orders',
-        'sales_dispatch' => 'Dispatch',
-        'sales_returns' => 'Returns',
-        // ---- end of pack D ----
         // Pack B: Products › Multipacks
         'packs' => 'Pack items',
         'pack_links' => 'Pack links',
@@ -385,7 +397,7 @@ final class Words
         'stock_text' => '%s booked in this week',
     ];
 
-    /** One line under each tab on the Dashboard ("What you can use"). */
+    /** One line on what each tab is for: under its name in the tab row's More (HV3; Home's "What you can use" until HV1). */
     public const MENU_HELP = [
         'home' => 'What is waiting for you today.',
         'cards' => 'Every product with its legal details and barcodes.',
@@ -404,8 +416,10 @@ final class Words
         'adjustments' => 'Corrections and write-offs of the stock figure, each line with its reason.',
         'counts' => 'Count the shelves: what to count next, the count sheets, and the count differences to check.',
         'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
-        // Pack D (docs/decisions.md PD1)
-        'sales' => 'Each store\'s orders, what waits to be sent, and what came back or was cancelled.',
+        // Pack D (docs/decisions.md PD1): the three tabs of Sales (HV3)
+        'sales_orders' => 'Every order of each store, newest first, with what became of it.',
+        'sales_dispatch' => 'Paid orders that are not sent yet, and what was sent today and this week.',
+        'sales_returns' => 'Units the customers sent back, and units cancelled before they were sent.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
         'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
@@ -443,7 +457,7 @@ final class Words
         'handovers' => 'Stock handed to sister shops, our shop units and trade customers, with prices and an invoice.',
     ];
 
-    /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
+    /** The phone's bottom bar: Home and the sidebar's entries take their names (SECTION, NAV); the last tab opens the whole menu. */
     public const TAB = [
         'more' => 'More',
     ];
@@ -533,7 +547,6 @@ final class Words
         // While 2-step verification is switched off for a while (auth.totp_off_until, TF4).
         'login_no_code' => ['Sign in to the Vape and Go stock system.', 'Use your e-mail and your password.'],
         'password' => ['Choose a new password of at least 12 characters.', 'You stay signed in here.'],
-        'home' => ['What is waiting for you today.', 'Start with the top card.'],
         'queue_Key' => ['Same barcode, or copied from the other website, and the AI agrees.', 'Check the names, then press Yes. A few seconds each.'],
         'mapping_overview' => ['How far each store is with matching, by how sure the computer is.', 'Choose a store, then press Review on a list.'],
         'store_products' => ['Every website product of one store, and its match.', 'Choose a store. Tick products to ignore them or send them back; open one to change it.'],
@@ -2790,27 +2803,24 @@ final class Words
         'soon_title' => 'Coming soon: not built yet',
         'more' => 'More',
         'more_new' => 'More to create',
+        'more_tabs' => 'pages of %s', // the tab row's More, after "More" for a screen reader (HV3)
         // The toolbar under the tabs (design v4): the create button (and More), then Search, Filter, Sort, and Export at the end.
         'search' => 'Search',
         'filter' => 'Filter',
         'sort' => 'Sort',
         'export' => 'Export',
         'apply' => 'Apply',
-        'help_link' => 'Help: what this system is',
         'fold' => 'Show or hide %s',
         'sign_out' => 'Sign out',
         'no_jobs' => 'no job yet',
         'off' => 'off',
         'help' => 'What does this mean?',
         'quote_rid' => 'If you report a problem, quote this number:',
-        'back_home' => 'Back to the Dashboard',
+        'back_home' => 'Back to Home',
         'back_sign_in' => 'Back to sign in',
         'coming_later' => 'Coming later:',
         'test_system' => 'TEST SYSTEM: nothing here is real',
         'look_only' => 'You can look; %s change this.',
-        'job' => 'Job',
-        'progress_done' => '%s of %s done',
-        'progress_short' => '%s of %s',
         'what_happens' => 'What happens:',
         'safer' => 'Safer',
         'what_each_answer_does' => 'What each answer does',
@@ -2820,45 +2830,33 @@ final class Words
         'signed_out' => 'You were signed out: you were away for too long, your sign-in reached its time limit, or your password changed. Sign in again to carry on.',
         // Behaviour item 1 (F057): a form sent while signed out is dropped.
         'lost' => 'What you sent was NOT saved, because you were not signed in any more. Sign in, then do it again.',
-        // Design v5 (owner's brief, 19 Oct 2026): the sidebar's bell (everything waiting for this person, on the Dashboard) and the
-        // eyebrow of an error page.
-        'bell' => 'What is waiting for you',
+        // The bell (HV4): it opens Approvals › Waiting for you and counts what waits there; the eyebrow of an error page.
+        'bell' => 'Approvals: waiting for you',
         'error_eyebrow' => 'Error %s',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
-    // 3. Home: "What needs doing", "What is this system?", matching progress, what you can use
+    // 3. Home: the greeting, "Waiting for you", the small figures (the approved HM_Home and HM_Phone, 29 Oct 2026; HV1)
 
-    /** Home's own words (plan §3.1, F075-F093). */
+    /** Home's own words. */
     public const HOME = [
-        'title' => 'Dashboard',
-        'hello' => 'Hello %s.',
-        'needs' => 'What needs doing',
-        'jobs_one' => '1 job needs you. Start with it.',
-        'jobs_many' => '%s jobs need you. Start with the top one.',
-        'start_here' => 'Start here',
+        'title' => 'Home',
+        // The greeting by the time of day in London (before noon, before 6 pm, after), with the person's first name.
+        'greet_morning' => 'Good morning, %s',
+        'greet_afternoon' => 'Good afternoon, %s',
+        'greet_evening' => 'Good evening, %s',
+        'needs' => 'Waiting for you',
         'nothing' => 'Nothing is waiting for you right now.',
         'nothing_text' => 'When something needs you, it shows here.',
         'notes' => 'Good to know',
+        // A task's state, said to a screen reader where its row has no number (Ui\HomeTasks `chip`).
         'needs_you' => 'Needs you',
         'waiting' => 'Waiting',
         'out_of_date' => 'Out of date',
-        'about' => 'What is this system?',
-        'progress' => 'Matching progress',
-        'look_match' => 'You can look; Matchers and Matching leads decide.',
-        'to_match' => 'Website products still to match',
-        'how_sure' => 'How sure',
-        'total' => 'Total',
+        'to_look' => 'To look at',
+        'figures' => 'Today in figures',
+        // Matching › Mapping › To review: how much of what we sell is matched (the matching progress, HV5).
         'not_checked' => 'Not checked by the computer yet',
-        'not_checked_help' => 'They have no suggestion. Where a barcode or a copied web address points to an item, the check on arrival suggests it; '
-            . 'the rest wait for a person, or for the next full computer check.',
-        'best_first' => 'Lists show best sellers first.',
-        'pending_one' => '1 match is waiting for a second OK from a matching lead.',
-        'pending_many' => '%s matches are waiting for a second OK from a matching lead.',
-        'pending_none' => 'Nothing is waiting for a second OK.',
-        'open' => 'Open',
-        'duplicates' => 'Possible duplicates on Vape and Go: %s.',
-        'duplicates_note' => 'Many are really different products. A matching lead checks each one. Nothing is joined without a person.',
         'coverage' => 'How much of what we sell is matched',
         'coverage_text' => 'Of all units sold, the share sold on website products already matched to a warehouse product. '
             . '100% means everything is matched. Products marked "ignore" are treated as not matched.',
@@ -2871,38 +2869,16 @@ final class Words
         'share_365' => 'Matched share (1 year)',
         'ignored_30' => 'Sold but ignored (30 days)',
         'no_sales' => 'no sales yet',
-        'uses' => 'What you can use',
-        'to_look' => 'To look at',
-        // "What needs doing" as a board (design v4): the jobs first ("Ready to do"), then the notes
-        'ready' => 'Ready to do',
-        'tasks_one' => '1 task',
-        'tasks_many' => '%s tasks',
-        'col_task' => 'Task',
-        'col_where' => 'Where',
-        'col_status' => 'Status',
-        'col_count' => 'How many',
-        'col_next' => 'Next step',
-        'tiles' => 'Main numbers',
     ];
 
-    /** The Dashboard's widget tiles (Ui\DashboardTiles): title, the line under the number, the link. */
+    /** Home's small figures (Ui\DashboardTiles), by key: the words above the number. */
     public const TILE = [
-        'products' => ['title' => 'Products', 'sub' => 'in the warehouse list', 'link' => 'All Products'],
-        'units' => ['title' => 'Units in stock', 'sub' => 'on %s products', 'sub_one' => 'on 1 product', 'link' => 'Stock overview'],
-        'matches' => ['title' => 'Matches to review', 'sub' => 'website products with a suggested match', 'link' => 'Mapping'],
-        'approvals' => ['title' => 'Waiting for your approval', 'sub' => '%s to OK first · %s to check', 'link' => 'Approvals'],
-        'orders' => ['title' => 'Open purchase orders', 'sub' => '%s draft · %s for approval · %s confirmed or sent', 'link' => 'Purchase Orders'],
-        'deliveries' => ['title' => 'Deliveries to receive', 'sub' => 'not booked in yet', 'link' => 'Goods In'],
-    ];
-
-    /** "What is this system?" (plan §3.3), one paragraph each: open for a person's first 14 days, then folded. */
-    public const ABOUT = [
-        'Central Warehouse (CW) keeps one stock figure for each real product that Vape and Go, Electrofag and Vape Big sell.',
-        'Each website has its own product pages. We match each website product to its warehouse product, so all websites share one stock figure.',
-        'Here you also buy: suppliers, purchase orders, and a list of what to buy, worked out from sales.',
-        'Nobody approves their own work. Some steps need a second person\'s OK.',
-        'The cards above show what is waiting for you. Start with the top one. The ? next to a word explains it.',
-        'Stuck? Ask ' . self::ASK_ROLE . '.',
+        'orders' => 'Open purchase orders',
+        'units' => 'Units in stock',
+        'deliveries' => 'Deliveries to receive',
+        'products' => 'Products',
+        'matches' => 'Matches to review',
+        'approvals' => 'Waiting for your approval',
     ];
 
     /**

@@ -42,7 +42,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString('screen-1', $list->text());
         self::assertStringContainsString('0 of 20', $list->text());
-        self::assertSame(['Products', 'Mapping'], [self::currentSection($list), self::currentTab($list)], 'Products › Mapping');
+        self::assertSame(['Matching', 'Mapping'], [self::currentSection($list), self::currentTab($list)], 'Matching › Mapping');
         self::assertSame([['To review', false], ['Spot check', true], ['Second approval', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($list)), '... › Spot check');
         self::assertNull(self::segments($list)[1]['href'], 'the segment shown has no link (CV13)');
