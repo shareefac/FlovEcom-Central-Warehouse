@@ -2,16 +2,16 @@
 <?php if ($error !== null && $errorId === null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
-<nav class="pills" aria-label="<?= $word('MENU', 'barcodes') ?>">
-  <a href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
-  <a href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
+<nav class="tabs show-tabs" aria-label="<?= $word('MENU', 'barcodes') ?>">
+  <a class="tab" href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
+  <a class="tab" href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
 </nav>
 <form class="filters" method="get" action="/ui/items/barcodes">
 <?php if ($show === 'decided'): ?>
   <input type="hidden" name="show" value="decided">
 <?php endif; ?>
   <label><?= $word('BARCODE', 'find') ?> <input type="search" name="barcode" value="<?= $e($barcode) ?>" inputmode="numeric" maxlength="40"></label>
-  <button type="submit"><?= $word('BARCODE', 'find_button') ?></button>
+  <button class="btn" type="submit"><?= $word('BARCODE', 'find_button') ?></button>
 </form>
 <?php if ($rows === []): ?>
 <?php if ($show === 'open'): ?>
@@ -29,7 +29,7 @@
   <dl>
 <?php if ($r['holder_sku_id'] !== null && $r['reason'] !== 'removed'): ?>
     <dt><?= $word('BARCODE', 'on_product') ?></dt>
-    <dd><a href="<?= $u('/ui/items/' . $r['holder_sku_id']) ?>"><?= $e($r['holder_code']) ?></a> <?= $e($r['holder_name']) ?> <span class="muted"><?= $say('BARCODE', 'in_stock', (int) $r['holder_stock']) ?></span><?php if ($r['holder_merged'] !== null): ?> <span class="tag warn"><?= $say('BARCODE', 'joined', (string) $r['holder_merged_code']) ?></span><?php endif; ?></dd>
+    <dd><a href="<?= $u('/ui/items/' . $r['holder_sku_id']) ?>"><?= $e($r['holder_code']) ?></a> <?= $e($r['holder_name']) ?> <span class="muted"><?= $say('BARCODE', 'in_stock', (int) $r['holder_stock']) ?></span><?php if ($r['holder_merged'] !== null): ?> <span class="tag needs"><?= $say('BARCODE', 'joined', (string) $r['holder_merged_code']) ?></span><?php endif; ?></dd>
 <?php if ($r['holder_merged_into_claimant'] && $r['status'] === 'open'): ?>
     <dd class="note"><?= $word('BARCODE', 'joined_note') ?></dd>
 <?php endif; ?>
@@ -65,7 +65,7 @@
       <label for="note-<?= $e($r['id']) ?>"><?= $word('BARCODE', 'note') ?></label>
       <input id="note-<?= $e($r['id']) ?>" type="text" name="note" maxlength="500">
     </fieldset>
-    <p class="actions"><button type="submit" class="primary"><?= $word('BARCODE', 'save_decision') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('BARCODE', 'save_decision') ?></button></p>
   </form>
 <?php endif; ?>
 </article>

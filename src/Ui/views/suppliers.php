@@ -16,7 +16,7 @@
       </label>
       <label class="choice"><input type="checkbox" name="due" value="1"<?php if ($filters['due']): ?> checked<?php endif; ?>> <?= $say('SUPPLIERS', 'due', $dueDays) ?></label>
       <label class="choice"><input type="checkbox" name="alone" value="1"<?php if ($filters['alone']): ?> checked<?php endif; ?>> <?= $word('SUPPLIERS', 'alone_filter') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/suppliers"><?= $word('SUPPLIERS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/suppliers"><?= $word('SUPPLIERS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
   <div class="tb-end"><a class="btn ghost sm" href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>" title="<?= $word('SUPPLIERS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
@@ -48,7 +48,7 @@
       <td data-label="<?= $word('SUPPLIERS', 'next_check') ?>"><?php if ($r['dd_next_review_on'] !== null): ?><?= $day($r['dd_next_review_on']) ?><?php endif; ?><?php if ($r['dd_overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIERS['overdue']) ?><?php endif; ?></td>
       <td class="num" data-label="<?= $word('SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
       <td data-label="<?= $word('SUPPLIERS', 'approved') ?>"><?php if ($r['approved_at'] !== null): ?><?= $say('SUPPLIERS', 'approved_line', \CW\Ui\Html::when($r['approved_at']), (string) ($r['approved_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><span class="muted"><?= $word('SUPPLIERS', 'not_yet') ?></span><?php endif; ?></td>
-      <td class="c-next"><a class="btn secondary" href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $word('SUPPLIERS', 'open') ?></a></td>
+      <td class="c-next"><a class="btn" href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $word('SUPPLIERS', 'open') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

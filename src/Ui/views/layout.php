@@ -31,7 +31,7 @@
 </header>
 <div class="shell">
   <nav class="side" id="menu" aria-label="Main">
-    <div class="side-head"><span class="side-title"><?= $word('UI', 'menu') ?></span><a class="btn secondary sm" href="#main"><?= $word('UI', 'close_menu') ?></a></div>
+    <div class="side-head"><span class="side-title"><?= $word('UI', 'menu') ?></span><a class="btn sm" href="#main"><?= $word('UI', 'close_menu') ?></a></div>
     <div class="side-top">
       <a class="brand" href="/ui/"><span class="brand-mark" aria-hidden="true">CW</span><span class="brand-name"><?= $word('UI', 'brand') ?></span></a>
       <div class="side-tools">
@@ -76,7 +76,7 @@
       </div>
 <?php if ($actions !== []): ?>
       <div class="toolbar page-actions">
-        <?= $partial('split', ['actions' => $actions]) ?>
+        <?= $partial('split', ['actions' => $actions, 'main' => $pagebar !== null]) ?>
       </div>
 <?php endif; ?>
 <?php endif; ?>

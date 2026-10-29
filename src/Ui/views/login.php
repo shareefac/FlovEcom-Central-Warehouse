@@ -44,11 +44,11 @@
           <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required>
         </label>
 <?php endif; ?>
-        <button type="submit" class="primary"><?= $word('SIGN_IN', 'sign_in') ?></button>
+        <button type="submit" class="btn primary"><?= $word('SIGN_IN', 'sign_in') ?></button>
       </form>
       <p class="hint"><?= $word('UI', 'login_stuck') ?></p>
       <p class="sf-or"><?= $word('SIGN_IN', 'or') ?></p>
-      <a class="btn secondary full" href="/ui/enrol"><?= $word('SIGN_IN', 'set_up') ?></a>
+      <a class="btn" href="/ui/enrol"><?= $word('SIGN_IN', 'set_up') ?></a>
       <p class="hint"><?= $word('UI', 'login_first_time') ?></p>
       <p class="hint"><?= $word('SIGN_IN', 'no_account') ?></p>
     </div>

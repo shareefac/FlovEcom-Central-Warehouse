@@ -23,7 +23,7 @@
   <label for="bulk-reason"><span><?= $word('BULK_CONFIRM', 'reason') ?> <span class="hint"><?= $word('BULK_CONFIRM', 'reason_hint') ?></span></span></label>
   <input type="text" id="bulk-reason" name="reason" maxlength="<?= $e($max_reason) ?>" value="<?= $e($reason) ?>" required<?php if ($error !== null): ?> aria-invalid="true"<?php endif; ?>>
 <?php endif; ?>
-  <p class="actions"><button type="submit" class="danger"><?= $e($button) ?></button> <a href="<?= $e($back[0]) ?>"><?= $word('BULK_CONFIRM', 'cancel') ?></a></p>
+  <p class="actions"><button type="submit" class="btn risky"><?= $e($button) ?></button> <a href="<?= $e($back[0]) ?>"><?= $word('BULK_CONFIRM', 'cancel') ?></a></p>
 </form>
 <h2><?= $say('BULK_CONFIRM', 'rows', $count) ?></h2>
 <div class="table-wrap">

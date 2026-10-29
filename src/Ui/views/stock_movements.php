@@ -26,7 +26,7 @@
           <option value="all"<?php if ($f['figure'] === 'all'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'figure_all') ?></option>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/movements"><?= $word('STOCK_VIEW', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/movements"><?= $word('STOCK_VIEW', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>

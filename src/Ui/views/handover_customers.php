@@ -41,7 +41,7 @@
         </select>
       </label>
       <label class="choice"><input type="checkbox" name="off" value="1"<?php if ($f['off']): ?> checked<?php endif; ?>> <?= $word('CUSTOMER', 'show_off') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/handovers/customers"><?= $word('CUSTOMER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/handovers/customers"><?= $word('CUSTOMER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -53,7 +53,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
 <?= $partial('handover_customer_fields', ['v' => $v, 'errors' => $errors, 'kinds' => $kinds, 'vatCodes' => $vatCodes]) ?>
-    <p class="actions"><button type="submit" class="primary"><?= $word('CUSTOMER', 'add_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('CUSTOMER', 'add_button') ?></button></p>
   </form>
 </details>
 <details class="fold"<?php if ($errorCode === 'import_columns' || $errorCode === 'bad_file'): ?> open<?php endif; ?>>
@@ -62,7 +62,7 @@
   <form class="record" method="post" enctype="multipart/form-data" action="/ui/stock/handovers/customers/prices">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('CUSTOMER', 'import_file') ?> <span class="hint"><?= $say('CUSTOMER', 'import_hint', $maxMb) ?></span><input type="file" name="file" accept=".csv,text/csv" required></label>
-    <p class="actions"><button type="submit"><?= $word('CUSTOMER', 'import_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('CUSTOMER', 'import_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

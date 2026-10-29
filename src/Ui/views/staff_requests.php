@@ -31,14 +31,14 @@
 <?php else: ?>
   <form class="inline" method="post" action="<?= $u('/ui/staff-requests/' . $r['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit" class="primary"><?= $word('STAFF_REQUESTS', $r['kind'] === 'roles' ? 'ok' : 'ok_reset') ?></button>
+    <button type="submit" class="btn primary"><?= $word('STAFF_REQUESTS', $r['kind'] === 'roles' ? 'ok' : 'ok_reset') ?></button>
   </form>
   <form class="record" method="post" action="<?= $u('/ui/staff-requests/' . $r['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('STAFF_REQUESTS', 'note') ?>
       <textarea name="note" rows="2" minlength="3" maxlength="500" required></textarea>
     </label>
-    <p class="actions"><button type="submit"><?= $word('STAFF_REQUESTS', $r['kind'] === 'roles' ? 'not_ok' : 'not_ok_reset') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STAFF_REQUESTS', $r['kind'] === 'roles' ? 'not_ok' : 'not_ok_reset') ?></button></p>
   </form>
 <?php endif; ?>
 </article>

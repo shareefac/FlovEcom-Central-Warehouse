@@ -27,7 +27,7 @@
 <?php if ($f['match'] !== null): ?>
     <input type="hidden" name="match" value="<?= $e($f['match']) ?>">
 <?php endif; ?>
-    <button type="submit" class="btn secondary sm"><?= $word('DOC_LIST', 'show') ?></button>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
 <?php if ($filtered): ?>
   <div class="tb-end"><a class="btn ghost sm" href="<?= $e($base) ?>"><?= $word('STOCK_OPS', 'clear') ?></a></div>
@@ -53,7 +53,7 @@
     </label>
     <label><?= $e($k['number']) ?> <input type="text" name="invoice_number" value="<?= $e($typed['invoice_number'] ?? '') ?>" maxlength="64"></label>
     <label><?= $e($k['date']) ?> <input type="date" name="invoice_date" value="<?= $e($typed['invoice_date'] ?? '') ?>"></label>
-    <p class="actions"><button type="submit" class="primary"><?= $e($k['start_button']) ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $e($k['start_button']) ?></button></p>
   </form>
 </details>
 <?php endif; ?>

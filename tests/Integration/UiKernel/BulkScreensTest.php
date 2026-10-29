@@ -385,8 +385,8 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(['/ui/review?channel=alt', '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($one), 'href'),
             'the store travels through the segments');
         $xp = new \DOMXPath($one->dom());
-        self::assertSame('/ui/review?queue=Check&channel=alt', $xp->evaluate('string(//nav[@class="legend"]/a[2]/@href)'), 'and through the strength lists');
-        self::assertSame('0', trim((string) $xp->evaluate('string(//nav[@class="legend"]/a[2]/strong)')), 'whose counts are the store\'s');
+        self::assertSame('/ui/review?queue=Check&channel=alt', $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)'), 'and through the strength lists');
+        self::assertSame('0', trim((string) $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/span[@class="count"])')), 'whose counts are the store\'s');
         // Second approval and the overview.
         $pending = $web->get('/ui/review', ['queue' => 'pending', 'channel' => 'vbig']);
         self::assertSame(['Big pack'], self::titles($pending));
@@ -448,7 +448,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(['pick_' . $suggested, 'pick_' . $unmatched, 'pick_' . $ignored], $boxes);
         self::assertSame(['ignore', 'unignore', 'send_back'], self::barActions($page));
         // The state filter, with each state's count, and the sort.
-        $pills = array_map(static fn (\DOMNode $a): string => trim((string) preg_replace('/\s+/', ' ', $a->textContent)), iterator_to_array($xp->query('//nav[contains(@class, "state-pills")]/a')));
+        $pills = array_map(static fn (\DOMNode $a): string => trim((string) preg_replace('/\s+/', ' ', $a->textContent)), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a')));
         self::assertSame(['All 6', 'Waiting for a second OK 1', 'On hold 1', 'Ignored 1', 'Matched 1', 'Suggested 1', 'Not matched 1'], $pills);
         self::assertSame(['Ignored one'], self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'state' => 'ignored'])));
         self::assertSame(['Suggested one', 'Waiting one', 'Ignored one', 'Unmatched one', 'Linked one', 'On hold one'],

@@ -7,16 +7,16 @@
 <p class="note"><?= $say('RECORD', 'later', $kindMany) ?></p>
 <?php endif; ?>
 <?php if ($poHref !== null): ?>
-<p class="actions"><a class="btn secondary" href="<?= $u($poHref) ?>"><?= $word('RECORD', 'open_order') ?></a> <span class="muted"><?= $word('RECORD', 'open_order_note') ?></span></p>
+<p class="actions"><a class="btn" href="<?= $u($poHref) ?>"><?= $word('RECORD', 'open_order') ?></a> <span class="muted"><?= $word('RECORD', 'open_order_note') ?></span></p>
 <?php endif; ?>
 <?php if ($stockHref !== null): ?>
-<p class="actions"><a class="btn secondary" href="<?= $u($stockHref) ?>"><?= $word('RECORD', 'open_stock') ?></a> <span class="muted"><?= $word('RECORD', 'open_stock_note') ?></span></p>
+<p class="actions"><a class="btn" href="<?= $u($stockHref) ?>"><?= $word('RECORD', 'open_stock') ?></a> <span class="muted"><?= $word('RECORD', 'open_stock_note') ?></span></p>
 <?php endif; ?>
 <?php if ($grnHref !== null): ?>
-<p class="actions"><a class="btn secondary" href="<?= $u($grnHref) ?>"><?= $word('RECORD', 'open_receipt') ?></a> <span class="muted"><?= $word('RECORD', 'open_receipt_note') ?></span></p>
+<p class="actions"><a class="btn" href="<?= $u($grnHref) ?>"><?= $word('RECORD', 'open_receipt') ?></a> <span class="muted"><?= $word('RECORD', 'open_receipt_note') ?></span></p>
 <?php endif; ?>
 <?php if ($paperHref !== null): ?>
-<p class="actions"><a class="btn secondary" href="<?= $u($paperHref) ?>"><?= $word('RECORD', 'open_paper') ?></a> <span class="muted"><?= $word('RECORD', 'open_paper_note') ?></span></p>
+<p class="actions"><a class="btn" href="<?= $u($paperHref) ?>"><?= $word('RECORD', 'open_paper') ?></a> <span class="muted"><?= $word('RECORD', 'open_paper_note') ?></span></p>
 <?php endif; ?>
 
 <?php if ($decide !== null): ?>
@@ -84,7 +84,7 @@
       </select>
     </label>
     <label><?= $word('RECORD', 'note') ?> <input type="text" name="note" maxlength="1000"></label>
-    <button type="submit"><?= $word('RECORD', 'cancel_button') ?></button>
+    <button class="btn" type="submit"><?= $word('RECORD', 'cancel_button') ?></button>
   </form>
 </section>
 <?php endif; ?>

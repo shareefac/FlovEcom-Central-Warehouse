@@ -39,7 +39,7 @@
         <td class="where" data-label="<?= $word('HOME', 'col_where') ?>"><?= $e($c['where'] ?? '') ?></td>
         <td class="c-status"><?php if (isset($c['chip'])): ?><?= $chip($c['tone'] ?? 'info', $c['chip']) ?><?php endif; ?></td>
         <td data-label="<?= $word('HOME', 'col_count') ?>"><?php if (isset($c['progress'])): ?><span class="prog"><progress class="bar" value="<?= $e($c['progress'][0]) ?>" max="<?= $e(max(1, (int) $c['progress'][1])) ?>" aria-label="<?= $say('UI', 'progress_done', (int) $c['progress'][0], (int) $c['progress'][1]) ?>"><?= $say('UI', 'progress_short', (int) $c['progress'][0], (int) $c['progress'][1]) ?></progress></span><?php endif; ?><?php if (isset($c['count'])): ?><p class="count"><?= $n($c['count']) ?><?php if (isset($c['unit'])): ?> <small><?= $e($c['unit']) ?></small><?php endif; ?></p><?php endif; ?></td>
-        <td class="c-next"><?php if (isset($c['href'], $c['button'])): ?><a class="btn sm <?php if (!empty($c['hero']) || !empty($c['primary'])): ?>primary<?php else: ?>secondary<?php endif; ?>" href="<?= $e($c['href']) ?>"><?= $e($c['button']) ?></a><?php endif; ?></td>
+        <td class="c-next"><?php if (isset($c['href'], $c['button'])): ?><a class="btn sm<?php if (!empty($c['hero']) || !empty($c['primary'])): ?> primary<?php endif; ?>" href="<?= $e($c['href']) ?>"><?= $e($c['button']) ?></a><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>

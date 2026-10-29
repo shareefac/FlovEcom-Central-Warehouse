@@ -22,7 +22,7 @@
 <?php endforeach; ?>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/receiving"><?= $word('RECEIVING', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/receiving"><?= $word('RECEIVING', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -66,7 +66,7 @@
     </label>
     <label><?= $word('RECEIVING', 'invoice') ?> <input type="text" name="invoice_number" maxlength="64" value="<?= $e($typed['invoice_number'] ?? '') ?>" autocomplete="off"></label>
     <label class="choice"><input type="checkbox" name="copy" value="1" id="copy"<?php if (($typed['copy'] ?? (($typed['po_id'] ?? '') !== '' ? '1' : '')) === '1'): ?> checked<?php endif; ?>> <?= $word('RECEIVING', 'copy') ?></label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('RECEIVING', 'start') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('RECEIVING', 'start') ?></button></p>
   </form>
   <p class="hint"><a href="/ui/receiving/template.csv"><?= $word('RECEIVING', 'sample') ?></a></p>
 <?php endif; ?>
@@ -104,7 +104,7 @@
       <td data-label="<?= $word('RECEIVING', 'bench') ?>"><?php if ($r['bench_state'] !== null): ?><?= $stateChip('BENCH_STATE', $r['bench_state']) ?><?php endif; ?></td>
       <td data-label="<?= $word('RECEIVING', 'check') ?>"><?php if ($r['review_state'] !== null && $r['review_state'] !== 'not_required'): ?><?= $stateChip('REVIEW_STATE', $r['review_state']) ?><?php endif; ?></td>
       <td data-label="<?= $word('RECEIVING', 'problems') ?>"><?php if ($r['incidents_line'] !== null): ?><?= $chip('needs', $r['incidents_line']) ?><?php endif; ?></td>
-      <td class="c-next"><a class="btn secondary" href="<?= $u('/ui/receiving/' . $r['id']) ?>"><?= $word('RECEIVING', 'open') ?></a></td>
+      <td class="c-next"><a class="btn" href="<?= $u('/ui/receiving/' . $r['id']) ?>"><?= $word('RECEIVING', 'open') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

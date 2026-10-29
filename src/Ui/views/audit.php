@@ -35,7 +35,7 @@
   <label><?= $word('AUDIT', 'id') ?>
     <input type="text" name="id" value="<?= $e($f['id'] ?? '') ?>" maxlength="64">
   </label>
-  <button type="submit" class="primary"><?= $word('AUDIT', 'search') ?></button>
+  <button type="submit" class="btn"><?= $word('AUDIT', 'search') ?></button>
 </form>
 <p class="actions"><a href="<?= $e($csv) ?>"><?= $word('AUDIT', 'download') ?></a><?php if ($filtered): ?> <a href="/ui/system/audit"><?= $word('AUDIT', 'clear') ?></a><?php endif; ?></p>
 <?php if ($rows === []): ?>

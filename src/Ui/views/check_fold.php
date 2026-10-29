@@ -5,7 +5,7 @@
 // it offers the variant's page.
 ?>
 <details class="check-fold" data-check-fold data-check="<?= $e($check) ?>" data-listing-id="<?= $e($listing) ?>" data-loading="<?= $word('CHECK', 'loading') ?>" data-failed="<?= $word('CHECK', 'failed') ?>" data-opened="<?= $word('CHECK', 'next_open') ?>">
-  <summary class="btn sm primary" title="<?= $say('CHECK', 'fold_named', $title ?? \CW\Ui\Words::LISTING['no_title']) ?>"><?= $word('CHECK', 'fold') ?></summary>
+  <summary class="btn sm" title="<?= $say('CHECK', 'fold_named', $title ?? \CW\Ui\Words::LISTING['no_title']) ?>"><?= $word('CHECK', 'fold') ?></summary>
   <div class="lc-results" data-check-results aria-live="polite"></div>
   <p class="lc-page"><a href="<?= $e($link) ?>"><?= $word('CHECK', 'open_page') ?></a></p>
 </details>

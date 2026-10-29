@@ -12567,3 +12567,113 @@ Tests: `InvoiceOnePageScreensTest` (`testTheActionBarIsInTheHeaderAndTheNewPageH
 `testTheNewPageHeadAndItsAddRowFollowTheDesign`, `testFromLeavesOutWhatHasNothingLeftToInvoice`, `testANeedsALookInvoiceSaysSoAsTheListDoes`,
 `testTheItemBoxPutsTheNameTheWordsBeginFirst` through both routes, the two above), `UiUnitTest` (the pins), `InvoiceScreensTest` reads
 "Needs a look".
+
+## One set of tabs, buttons and status parts for every page (branch `ds-one`, 29 Oct 2026; DS1-DS6)
+
+The owner, 29 Oct 2026, looking at the item page's design: "tab change follow this design pattern and button all design follow this". The
+reference is the parts board (`TP_Parts.dc.html`, and `IT_Item.dc.html` for tabs in use) of the canvas "CW Daily Screens". This runs before
+the page-by-page waves, so each later build inherits the parts. CSS and view markup only: no route, rule, permission, form field, version
+check, FormOnce or CSRF changed; every link and current-page mark of a tab row is the one it had.
+
+**DS1. One buttons component.** Every button is a `.btn` (a `<button>`, a link or a summary): plain white with a hairline, 600 14 px words,
+10 px corners, 40 px high. A variant says what kind it is, and there are only five: `.primary` (the main action, magenta), `.soft` (a helper
+attached to a field: the pink tint with its own edge, `--accent-line`), `.ghost` (quiet: Leave, Change, Clear, Export; muted words, no
+edge), `.ok` (the answer "all fine": the green tint), `.risky` (red words on white). Sizes: `.sm` 34 px, normal 40 px, `.lg` 48 px; on a phone
+every normal or large button is 48 px and a small one 44 px, 44 px on a touch screen. Disabled: faded (.45), the reason in plain words beside
+it (`.btn-why`). The variants are keyed on `.btn` only, so every button of every template now carries it (a bare `<button>` keeps the plain
+look as a fallback). The mapping:
+
+| Before | After |
+|---|---|
+| `.btn.primary`, `button.primary`, `a.button.primary-link` | `.btn.primary` |
+| `.btn.secondary`, `button.secondary`, a `<button>` with no class, `a.button` | `.btn` (plain) |
+| `.btn.danger` / `button.danger` (solid red), `.btn.danger-outline` | `.btn.risky` (red words on white) |
+| `.btn.ghost` (accent words), `.btn.quiet`, `button.link` | `.btn.ghost` (muted words) |
+| `.btn.success` (unused) | `.btn.ok` |
+| `.btn.big` (two lines, full width) | `.btn.lg`; a button holding `.btn-title` + `.sub` is laid out on two lines across its row |
+| `.btn.xs`, `.btn.dark`, `.btn.dashed` (unused), `.btn.full` (sign-in) | removed (the sign-in page's own rule makes its link full width) |
+| `.split` + `.split-main` + `details.split-more` (an accent arrow) | `.btn.primary` + `details.more` (DS4) |
+| `details.doc-more` + `.doc-more-menu` (a document's More) | `details.more` + `.more-menu` |
+| `.bulkbar .btn` (translucent), `.bulkbar .btn.primary` (pink), `.bulkbar .btn.danger` | the plain, main and risky buttons on the dark bar |
+| app.js's password "Show" (`.reveal`) | `.btn.ghost.sm.reveal` (`.reveal` only places it) |
+
+Kept as controls of their own, not button variants: `.icon-btn` (the shell's bell, menu and help), `.grp-toggle` (a group's fold),
+`.side-link` (the person's menu), `.bulkbar-close` (the bar's x), `button.po-default` (the editor's hidden default), `.add-item` (a board's
+dashed "+ Add" row), `.pager a`, `.menu-item` (a row of More), `details.lq-menu` (a Lines to place row's "⋯").
+
+**DS2. One tabs component.** Every tab-like control is a `nav.tabs` of `a.tab`: 14 px semi-bold muted words, the open tab (`aria-current`,
+as before) in the dark accent with a 3 px accent bar under it, a count as a bubble (`.count`) that turns accent on the open tab, 44 px to
+tap. The row never wraps: it scrolls sideways inside itself and app.js fades the side that has more (it already marked every `nav.tabs`). A
+second row sits right under the first. A class after `tabs` only names the row for the tests and the spacing:
+
+| Before | After |
+|---|---|
+| `nav.tabs` > `a.tab` (2 px line, 500) | the same classes: the 3 px bar, 600, the bubble |
+| `nav.seg` > `a.seg-item` (the black pills: a tab's segments) | `nav.tabs.seg` > `a.tab` |
+| `nav.seg` on the reports (Show) | `nav.tabs.show-tabs` |
+| `nav.seg.store-seg` (the store choice) | `nav.tabs.store-seg` |
+| `nav.pills.show-pills` (the queue's Show, with an "Show" label), `nav.pills` (barcodes), `nav.pills.dispatch-pills` | `nav.tabs.show-tabs` (the visible label dropped: the row's aria-label says it) |
+| `nav.pills.state-pills` (Store Products, By Item, New variants), `nav.pills.period-pills` | `nav.tabs.state-tabs`, `nav.tabs.period-tabs` (the state's dot kept) |
+| `strong.tab-count` | `span.count` (the bubble) |
+| `nav.legend` (the match strengths under their bar) | `nav.tabs.legend` (each list's colour key kept) |
+| `p.seg-links` (the count sheet's Show, New items' All / waiting) | `nav.tabs.show-tabs` (New items' one toggle link is now its two tabs, the same two addresses) |
+| `.filters-on ul.pills`, `.pills-label` (the filters that are on) | `ul.filter-chips`, `.filter-chips-label` (removable chips, not tabs) |
+
+Not tabs, kept: the buying flow (`ol.flow`, numbered steps), the phone's bottom bar (`.tabbar`), the pager, `nav.rows-choice` (rows per page,
+a size picker like the pager), the spot check's 20 blocks. The item page's parts and the settings sections have no tab row yet: their
+waves draw them with these classes.
+
+**DS3. Status: three parts, one set of colours.** `.chip` is the solid status (8 px corners now, was 6); on a record (any page heading, its
+state line, not only a document's) it is the 32 px block; `td.doc-st` stays the solid cell of a board; `.tag` is the soft tag: its tone's
+tint and words, 12 px (was 11), grey when it names no tone, and it never takes the tone of a row around it (`.tag:is(<tones>)`). The seven
+colours are the tone classes, as before: grey `waiting` (a draft), blue `info` (sent, new), purple `review` (waiting for someone, being
+checked), amber `needs` (needs a look), green `done`, red `blocked` (late, refused), navy `off` (closed). Mapped: `.tag.ok` / `.warn` /
+`.bad` → `.tag.done` / `.needs` / `.blocked` (the invoice list's match tag too); `.tag.band <tone>` → `.tag <tone>`; removed (no page used
+them): `.status`, `.status-*`, `.tag.mine`, `.mark`. One colour moved: a closed purchase order is navy (`PO_STATE closed` → `off`), as the
+approved canvas draws "Closed"; a delivery's draft stays amber (its work is waiting) until the goods-in wave redraws that board.
+
+**DS4. The page's create button and More.** The section's create button is the page's main action at the normal size (was small, and a
+split button with an accent arrow when the section has several "New …"): `.btn.primary`, then the other "New …" under a plain "More"
+(`details.more`, Words `UI more`, its name "More to create"). More is one component for the page and for a saved document's bar (the order's
+and the invoice's other steps): a `<details>` that needs no script, a drawn arrow, a menu of rows (links, a form's button, a fold's summary;
+a risky step in red words), in the flow under its button on a phone. app.js closes an open More on Esc or a click elsewhere, as it did the
+split menu, but never one that holds an open step (a reason being typed, or a step the server refused and opened again). The document bars'
+buttons are the normal size too (they stand beside the create button's place in the head). On the Dashboard (no section) the create
+buttons are plain (`split.php`'s `main` false): its main action is the person's first job, as the Dashboard design (HM_Home) draws it.
+
+**DS5. One main action per page, or one per form where a page holds several.** The parts board: "One main button per page. The rest are
+plain." Applied:
+- a form that only filters or searches (a GET form: every toolbar's Apply, the search page, the audit search) is never the page's main
+  action: its button is plain (24 templates);
+- a button repeated on every row of a list is plain and small (`.btn.sm`): Open, Receive, Review, Choose, Check & match, Book invoice,
+  Make final on a row, Match on a candidate (GI_List draws "Receive" so); the exception is a work queue whose rows are each one small form
+  answered in turn (Lines to place's Place, as LP_Queue draws it; Simple matching's Apply) and a record's decision (OK / Not OK) where a
+  page lists several records;
+- the saves of a settings page with several small forms are plain (TP_Settings draws them so): a warehouse, a reason, an approval rule;
+- on a record page the page's job keeps the colour and an edit beside it is plain (the item's selling mode, the supplier item's "make main",
+  the company's Change);
+- a helper on a field inside the main form is soft (the delivery editor's scan Add, beside "Save and book in");
+- the empty state's next step is plain (the page's create button is its main action);
+- a list's bulk bar has one main action: the first action offered as `primary` (`bulk_bar.php`); the others are plain (New variants'
+  "Confirm match" beside "Create as new items", Store Products' "Create new warehouse products for these" beside the list's own action).
+
+Where a page had two magenta buttons, demoted (listed for the owner in the build's report): the toolbar's Apply on 22 list pages and the
+audit and search pages' Search; the Dashboard's create buttons beside the first job's button; the bulk bar's second positive action; Arriving's Receive per row; the bench list's Open; By Item's Review and the picker's Choose and quick Match;
+Check & match per row and the match lists' Open (`CheckMatchScreenTest` now pins them plain); By store's Review; To check's Open; Repack's
+Make final per row; the not-invoiced list's Book invoice; a delivery's Book invoice and Claim beside its review answer; an approval rule's
+Save; a warehouse's three saves; a reason's three saves; the hand-over and account balances' Pay; a count's "Recount them all" beside "Make
+the count final"; the delivery editor's Add (now soft) beside "Save and book in"; the item's "Save selling mode" beside "Confirm the card";
+the supplier item's "Make this the main supplier" beside "Save price"; the company's "Change" beside "Confirm"; Settings' "Edit company";
+the landing page's "This is a real product" fold; the staff set-up sheet's incidental "New user" (the page after the form shows no create
+button, as the new invoice page: `side: ''`; "Done: back to …" is its main action); returns' quick "Return from a delivery" beside the create drawer; the empty state's button.
+
+**DS6. The tests.** `UiUnitTest::testTheOneTabsButtonsAndStatusPartsFollowThePartsBoard` pins the CSS of the three components (and the
+seven tones' colours). `UiTemplatesTest::testNoViewUsesARemovedClass` scans every template (the classes in the markup, between PHP blocks
+inside an attribute, and in PHP-built strings), the classes the controllers hand a template, the classes app.js sets and the stylesheet's
+rules: no removed class, every button a `.btn` with at most one variant and one size, every tab row a `nav.tabs`, a soft tag names only a
+tone, and the stylesheet names no button variant but the five and two sizes. `UiTemplatesTest::testEveryPageHasAtMostOneMainButtonPerForm`
+counts the main buttons of each template's forms (a button inside the form or naming it with `form=`; the branches of one if as the largest,
+a loop as many) and the main links and fold buttons outside them, at most one each; a class that names `primary` only under a condition is
+left to `tests/Support/MainButtons`, which `KernelBrowser` runs on every HTML page a kernel test opens (a failure names the page and the
+buttons). The pins that named the old classes follow (`KernelUiTestCase::segments`, the pill and legend helpers of the matching tests, the
+reports' Show, the More xpaths of the invoice tests, the item cards' filter chips).

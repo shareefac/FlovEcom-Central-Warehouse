@@ -16,7 +16,7 @@
 <?php else: ?>
 <form class="toolbar sm-find" method="get" action="<?= $e($path) ?>" role="search" aria-label="<?= $word('SIMPLE_MATCH', 'search') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="sm-q"><?= $word('SIMPLE_MATCH', 'search') ?></label><input id="sm-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('SIMPLE_MATCH', 'search_hint') ?>" enterkeyhint="search" data-page-search></div>
-  <button type="submit" class="btn secondary"><?= $word('UI', 'search') ?></button>
+  <button type="submit" class="btn"><?= $word('UI', 'search') ?></button>
 </form>
 <?php if ($saidTop !== null): ?>
 <p class="error sm-said" role="alert"><?= $e($saidTop['text']) ?><?php if ($saidTop['link'] !== null): ?> <a href="<?= $e($saidTop['link']) ?>"><?= $word('SIMPLE_MATCH', 'open_page') ?></a><?php endif; ?></p>
@@ -57,7 +57,7 @@
 <?php if ($c['add'] !== null): ?>
 <?php if ($c['add']['plus']): ?>
         <details class="sm-more"<?php if ($c['add']['open']): ?> open<?php endif; ?>>
-          <summary class="btn sm secondary" title="<?= $e($c['add']['more']) ?>"><?= $word('SIMPLE_MATCH', 'add_more') ?><span class="visually-hidden"> <?= $e($c['add']['more']) ?></span></summary>
+          <summary class="btn sm" title="<?= $e($c['add']['more']) ?>"><?= $word('SIMPLE_MATCH', 'add_more') ?><span class="visually-hidden"> <?= $e($c['add']['more']) ?></span></summary>
 <?php endif; ?>
         <form class="sm-add" method="post" action="<?= $e($apply) ?>" data-sm-add data-options="<?= $e($c['add']['options']) ?>" data-loading="<?= $word('SIMPLE_MATCH', 'loading') ?>" data-failed="<?= $word('SIMPLE_MATCH', 'failed') ?>" data-choose="<?= $word('SIMPLE_MATCH', 'choose') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

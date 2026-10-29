@@ -18,7 +18,7 @@
     <label><?= $word('SIGN_IN', 'again') ?>
       <input type="password" name="again" autocomplete="new-password" minlength="12" maxlength="200" required>
     </label>
-    <button type="submit" class="primary"><?= $word('SIGN_IN', 'change') ?></button>
+    <button type="submit" class="btn primary"><?= $word('SIGN_IN', 'change') ?></button>
   </form>
   <p class="hint"><?= $word('SIGN_IN', 'after') ?></p>
 </section>

@@ -32,7 +32,7 @@
     <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
     <textarea name="reason" rows="2" minlength="3" maxlength="500" required<?php if ($errorCode === 'bad_reason'): ?> aria-invalid="true"<?php endif; ?>><?= $e($reason) ?></textarea>
   </label>
-  <p class="actions"><button type="submit" class="primary"><?= $word('ROLES_EDIT', 'save') ?></button></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('ROLES_EDIT', 'save') ?></button></p>
 </form>
 <?php endif; ?>
 

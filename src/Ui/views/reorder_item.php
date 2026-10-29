@@ -108,7 +108,7 @@
       <label class="choice"><input type="checkbox" name="do_not_reorder" value="1"<?php if ((string) ($v['do_not_reorder'] ?? '0') === '1'): ?> checked<?php endif; ?>> <?= $word('REORDER_ITEM', 'never') ?></label>
       <label><?= $word('REORDER_ITEM', 'note') ?> <input type="text" name="note" value="<?= $e($v['note'] ?? '') ?>" maxlength="500"></label>
     </fieldset>
-    <p class="actions"><button type="submit" class="primary"><?= $word('REORDER_ITEM', 'save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('REORDER_ITEM', 'save') ?></button></p>
   </form>
 <?php elseif ($settings === null): ?>
   <p><?= $word('REORDER_ITEM', 'normal') ?></p>

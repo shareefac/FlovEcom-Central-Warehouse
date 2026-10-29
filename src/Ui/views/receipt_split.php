@@ -7,7 +7,7 @@
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
     <input type="hidden" name="invoice_number" value="<?= $e($step['number']) ?>">
     <input type="hidden" name="invoice_split" value="1">
-    <button type="submit" class="primary"><?= $word('RECEIPT', 'split_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('RECEIPT', 'split_button') ?></button>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'split_hint') ?></p>
 </section>

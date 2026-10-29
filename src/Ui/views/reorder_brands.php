@@ -20,7 +20,7 @@
       <label><?= $word('BRANDS', 'safety') ?> <span class="hint"><?= $say('BRANDS', 'safety_hint', $defaultSafety) ?></span> <input type="number" name="safety_days" value="<?= $e($v['safety_days'] ?? '') ?>" min="0" max="90" class="short"></label>
       <label><?= $word('BRANDS', 'note') ?> <input type="text" name="note" value="<?= $e($v['note'] ?? '') ?>" maxlength="500"></label>
     </fieldset>
-    <p class="actions"><button type="submit" class="primary"><?= $word('BRANDS', 'save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('BRANDS', 'save') ?></button></p>
   </form>
 </section>
 <?php elseif ($canManage && $rows !== []): ?>
@@ -56,7 +56,7 @@
       <td data-label="<?= $word('BRANDS', 'note') ?>"><?= $e($r['note']) ?></td>
       <td data-label="<?= $word('BRANDS', 'changed') ?>"><?php if ($r['updated_at'] !== null): ?><?= $say('BRANDS', 'changed_line', \CW\Ui\Html::when($r['updated_at']), (string) ($r['updated_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php endif; ?></td>
 <?php if ($canManage): ?>
-      <td class="c-next"><a class="btn secondary" href="<?= $u('/ui/purchasing/reorder/brands', ['brand' => $r['brand']]) ?>#change"><?= $word('BRANDS', 'change') ?></a></td>
+      <td class="c-next"><a class="btn" href="<?= $u('/ui/purchasing/reorder/brands', ['brand' => $r['brand']]) ?>#change"><?= $word('BRANDS', 'change') ?></a></td>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

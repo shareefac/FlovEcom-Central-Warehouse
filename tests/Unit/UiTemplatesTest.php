@@ -435,10 +435,11 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<a class="tab" href="/ui/review" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
             . '<span class="visually-hidden"> waiting for your second OK</span></span></a>', $bar, 'the current tab, with its count');
         self::assertStringContainsString('<a class="tab" href="/ui/items/barcodes"><span>Barcodes</span></a>', $bar);
-        // The segmented filter of the tab.
-        self::assertStringContainsString('<nav class="seg" aria-label="Mapping">', $html);
-        self::assertStringContainsString('<a class="seg-item" href="/ui/review?queue=pending" aria-current="page"><span>Second approval</span>', $html);
-        self::assertStringContainsString('<a class="seg-item" href="/ui/review/samples"><span>Spot check</span></a>', $html);
+        // The tab's segments: a second row of the same tabs (docs/decisions.md DS2: the black pills are gone).
+        self::assertStringContainsString('<nav class="tabs seg" aria-label="Mapping">', $html);
+        self::assertStringContainsString('<a class="tab" href="/ui/review?queue=pending" aria-current="page"><span>Second approval</span>', $html);
+        self::assertStringContainsString('<a class="tab" href="/ui/review/samples"><span>Spot check</span></a>', $html);
+        self::assertStringNotContainsString('seg-item', $html);
         self::assertStringNotContainsString('Phase', $html, 'no phase codes');
         self::assertStringContainsString('<a class="skip" href="#main">', $html, 'a skip link first');
         self::assertStringContainsString('<main id="main"', $html);
@@ -465,15 +466,20 @@ final class UiTemplatesTest extends TestCase
             'segments' => [], 'actions' => $f['actions'], 'flow' => [['n' => 1, 'key' => 'reorder', 'label' => 'Reorder', 'text' => 'x', 'href' => '/ui/purchasing/reorder',
                 'query' => [], 'current' => false], ['n' => 2, 'key' => 'orders', 'label' => 'Purchase Order', 'text' => '', 'href' => null, 'query' => [], 'current' => false]],
             'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<div class="ph-actions"><div class="split">', $html, 'the page\'s create button: on the right of its statement');
-        self::assertStringContainsString('<a class="btn primary sm split-main" href="/ui/purchasing/orders/new"><span class="ico ico-plus" aria-hidden="true"></span><span>New purchase order</span></a>', $html);
-        self::assertStringContainsString('<li><a class="menu-item" href="/ui/purchasing/suppliers/new">New supplier</a></li>', $html, 'the split button\'s menu: the section\'s other create actions');
+        // The page's create button on the right of its statement: the main action, the section's other "New …" under More (DS4).
+        self::assertStringContainsString('<div class="ph-actions"><a class="btn primary" href="/ui/purchasing/orders/new"><span class="ico ico-plus" aria-hidden="true"></span>'
+            . '<span>New purchase order</span></a>', $html);
+        self::assertStringContainsString('<details class="more">' . "\n" . '  <summary class="btn" aria-label="' . Words::UI['more_new'] . '">' . Words::UI['more'] . '</summary>', $html,
+            'More is a plain button');
+        self::assertStringContainsString('<a class="menu-item" href="/ui/purchasing/suppliers/new">New supplier</a>', $html, 'More\'s menu: the section\'s other create actions');
+        self::assertSame(1, substr_count($html, 'btn primary'), 'one main button');
+        self::assertStringNotContainsString('split', $html);
         $f = Sections::frame(['goods_in'], [], '/ui/receiving');
         $one = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => $f['segments'], 'actions' => $f['actions'], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<a class="btn primary sm" href="/ui/receiving#new"><span class="ico ico-plus" aria-hidden="true"></span><span>Receive delivery</span></a>', $one,
-            'one action: a plain button');
-        self::assertStringNotContainsString('split-more', $one);
+        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving#new"><span class="ico ico-plus" aria-hidden="true"></span><span>Receive delivery</span></a>', $one,
+            'one action: the main button alone');
+        self::assertStringNotContainsString('<details class="more">', $one);
         self::assertStringContainsString('<ol class="flow" aria-label="' . Words::FLOW['label'] . '">', $html);
         self::assertStringContainsString('<span class="flow-off">', $html, 'a step the person cannot open has no link');
 
@@ -537,7 +543,7 @@ final class UiTemplatesTest extends TestCase
             . '<div class="ph-title"><h1><span class="stmt stop">PO-1 &lt;b&gt;</span> <span class="chip done">PO-1 &lt;b&gt;</span></h1><details class="help">', $html,
             'the eyebrow is the section, the heading and its chips escaped');
         self::assertStringContainsString('<p class="lede">' . Html::e(Words::PAGE_INTRO['orders'][0]) . ' <span class="lede-more">You can look; Buyers change this.</span></p></div>'
-            . '<div class="ph-actions"><a class="btn primary sm" href="/ui/receiving#new">', $html, 'one sentence, the muted line, the create button on the right');
+            . '<div class="ph-actions"><a class="btn primary" href="/ui/receiving#new">', $html, 'one sentence, the muted line, the create button on the right');
         self::assertGreaterThan(strpos($html, '<header class="page-head">'), strpos($html, '<nav class="tabs" aria-label="Purchasing">'), 'the tabs under the statement');
         self::assertSame(1, substr_count($html, '<h1'));
         self::assertStringNotContainsString('frame-only', $html);
@@ -880,7 +886,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<strong>Strong match:</strong>', $help);
         self::assertStringNotContainsString('**', $help);
         self::assertSame('<div class="empty"><p class="empty-title">No &lt;orders&gt;</p><p>Add a supplier first.</p>'
-            . '<p><a class="btn primary" href="/ui/purchasing/suppliers/new">Add a supplier</a></p></div>',
+            . '<p><a class="btn" href="/ui/purchasing/suppliers/new">Add a supplier</a></p></div>', // plain: the page's main is its create button (DS5)
             Html::emptyState('No <orders>', 'Add a supplier first.', '/ui/purchasing/suppliers/new', 'Add a supplier'));
         self::assertSame('', Html::intro(''));
         self::assertSame('<p class="lede">What is waiting for you today. Start with the top card.</p>', Html::intro(Words::intro('home')));
@@ -998,6 +1004,273 @@ final class UiTemplatesTest extends TestCase
             $out[] = $code; // a block the file ends in
         }
         return $out;
+    }
+
+    /** The button variants and sizes there are (docs/decisions.md DS1: the parts board TP_Parts); a .btn with none of them is the plain one. */
+    private const BUTTON_PARTS = ['primary', 'soft', 'ghost', 'ok', 'risky', 'sm', 'lg'];
+
+    /**
+     * The classes the one tabs, buttons and status components replaced (docs/decisions.md DS1-DS6): no template, no class a controller hands
+     * a template, no class app.js sets may name one of them again, and the stylesheet keeps no rule for them.
+     */
+    private const REMOVED = [
+        // buttons: the variants mapped onto the five (DS4) and the split create button
+        'secondary', 'danger', 'danger-outline', 'success', 'dark', 'dashed', 'xs', 'full', 'big', 'button', 'primary-link', 'link', 'split', 'split-main', 'split-more',
+        'doc-more', 'doc-more-menu',
+        // tabs: the black segmented pills and every other pill row (DS2)
+        'seg-item', 'pills', 'pill', 'pills-label', 'tab-count', 'seg-links', 'state-pills', 'show-pills', 'period-pills', 'dispatch-pills',
+        // status: the old soft-tag words and the unused status classes (DS3)
+        'band', 'status', 'status-mapped', 'status-active', 'status-suggested', 'status-unmapped', 'status-pending_approval', 'status-draft',
+        'status-quarantined', 'status-inactive', 'mark',
+    ];
+
+    /**
+     * Each element of a template that has a class: its tag, its line, the classes its markup names (the literal ones, those between PHP blocks
+     * inside the attribute: `<?php if ($x): ?>primary<?php endif; ?>`, and a PHP string it prints: `'primary'`, not an array key) and its attributes.
+     *
+     * @return list<array{tag: string, line: int, classes: list<string>, attrs: string}>
+     */
+    private static function classed(string $src): array
+    {
+        $php = '<\?(?:php|=).*?\?>';
+        preg_match_all('#<([a-z][a-z0-9]*)\b((?:' . $php . '|"(?:[^"<]|' . $php . ')*"|\'[^\']*\'|[^>"\'])*)>#s', $src, $tags, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        preg_match_all('#' . $php . '#s', $src, $code, PREG_OFFSET_CAPTURE);
+        $out = [];
+        foreach ($tags as $t) {
+            foreach ($code[0] as [$block, $at]) {
+                if ($t[0][1] > $at && $t[0][1] < $at + strlen($block)) {
+                    continue 2; // markup PHP builds as a string: its classes are read from the string (testNoViewUsesARemovedClass)
+                }
+            }
+            if (preg_match('#\bclass="((?:[^"<]|' . $php . ')*)"#s', $t[2][0], $c) !== 1) {
+                continue;
+            }
+            $words = (string) preg_replace('#' . $php . '#s', ' ', $c[1]);
+            preg_match_all('#' . $php . '#s', $c[1], $blocks);
+            foreach ($blocks[0] as $block) {
+                preg_match_all("/(?<!\\[)'([a-z][a-z0-9 _-]*)'(?!\\])/", $block, $lits); // a string the block prints, not an array key
+                $words .= ' ' . implode(' ', $lits[1]);
+            }
+            $out[] = ['tag' => strtolower($t[1][0]), 'line' => substr_count(substr($src, 0, $t[0][1]), "\n") + 1,
+                'classes' => array_values(array_unique(preg_split('/\s+/', trim($words), -1, PREG_SPLIT_NO_EMPTY) ?: [])), 'attrs' => $t[2][0]];
+        }
+        return $out;
+    }
+
+    /**
+     * The one set of tabs, buttons and status parts (the owner, 29 Oct 2026: "tab change follow this design pattern and button all design
+     * follow this"; docs/decisions.md DS1-DS6), on the source of every template and of every class the PHP and the script hand a page: no
+     * removed class anywhere; a button is a .btn with at most one variant and one size from the parts board (the controls with their own
+     * look are named); a tab row is a nav.tabs of a.tab; a soft tag names only a tone.
+     */
+    public function testNoViewUsesARemovedClass(): void
+    {
+        $own = ['grp-toggle', 'side-link', 'bulkbar-close', 'po-default']; // a group's fold, the person's menu, the bulk bar's x, the hidden default
+        $tones = Words::TONES;
+        $checked = 0;
+        foreach (self::templates() as $name => $src) {
+            foreach (self::classed($src) as $el) {
+                $where = "{$name} line {$el['line']} <{$el['tag']} class=\"" . implode(' ', $el['classes']) . '">';
+                self::assertSame([], array_values(array_intersect($el['classes'], self::REMOVED)), "{$where}: a class the one components replaced");
+                $isButton = $el['tag'] === 'button' || in_array('btn', $el['classes'], true);
+                if ($isButton && array_intersect($el['classes'], $own) === []) {
+                    $checked++;
+                    self::assertContains('btn', $el['classes'], "{$where}: every button is the one .btn component");
+                    $variants = array_intersect($el['classes'], ['primary', 'soft', 'ghost', 'ok', 'risky']);
+                    $sizes = array_intersect($el['classes'], ['sm', 'lg']);
+                    $conditional = str_contains($el['attrs'], '<?php');
+                    self::assertLessThanOrEqual($conditional ? 2 : 1, count($variants), "{$where}: one variant");
+                    self::assertLessThanOrEqual(1, count($sizes), "{$where}: one size");
+                }
+                if (in_array('tag', $el['classes'], true)) {
+                    self::assertSame([], array_values(array_diff($el['classes'], ['tag', 'sm-wait', ...$tones])), "{$where}: a soft tag names a tone, nothing else");
+                }
+                if (in_array('tab', $el['classes'], true)) {
+                    self::assertContains($el['tag'], ['a', 'span'], "{$where}: a tab is a link (a tab not built yet a span)");
+                }
+                if ($el['tag'] === 'nav' && array_intersect($el['classes'], ['seg', 'store-seg', 'legend', 'show-tabs', 'state-tabs', 'period-tabs']) !== []) {
+                    self::assertContains('tabs', $el['classes'], "{$where}: every tab-like row is the one tabs component");
+                }
+            }
+            // Markup a template's PHP builds as a string (a chip line, a soft tag beside a heading): its literal classes.
+            foreach (self::phpBlocks($src) as $block) {
+                preg_match_all('/class="([a-z0-9 _-]*)/', $block, $built);
+                foreach ($built[1] as $words) {
+                    $classes = preg_split('/\s+/', trim($words), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                    self::assertSame([], array_values(array_intersect($classes, self::REMOVED)), "{$name}: PHP builds class=\"{$words}…\"");
+                    if (in_array('tag', $classes, true)) {
+                        self::assertSame([], array_values(array_diff($classes, ['tag', ...$tones])), "{$name}: PHP builds a soft tag that names more than a tone");
+                    }
+                }
+            }
+            if (preg_match_all('#<nav\b[^>]*class="([^"]*)"#', $src, $navs) > 0) {
+                foreach ($navs[1] as $cls) {
+                    $words = preg_split('/\s+/', $cls) ?: [];
+                    // A nav is the sidebar, the phone bar, a pager, or a row of tabs: nothing else draws a choice of lists.
+                    self::assertNotSame([], array_intersect($words, ['tabs', 'side', 'tabbar', 'pager', 'rows-choice']), "{$name}: <nav class=\"{$cls}\">");
+                }
+            }
+        }
+        self::assertGreaterThan(400, $checked, 'every button of every template was looked at');
+        // The classes a controller hands a template (bulk actions), the empty state's button, the soft tags' tones, what app.js sets.
+        $handed = 0;
+        foreach (glob(dirname(View::defaultDir()) . '/Controller/*.php') ?: [] as $file) {
+            preg_match_all("/'class' => (.*)$/m", (string) file_get_contents($file), $m);
+            foreach ($m[1] as $rest) {
+                $value = (preg_split("/, '[a-z_]+' =>/", $rest) ?: [''])[0]; // up to the next key of the array
+                preg_match_all("/'([a-z -]*)'/", $value, $lits);
+                foreach ($lits[1] as $lit) {
+                    $handed++;
+                    self::assertSame([], array_values(array_intersect(preg_split('/\s+/', trim($lit), -1, PREG_SPLIT_NO_EMPTY) ?: [], self::REMOVED)), basename($file) . ": 'class' => '{$lit}'");
+                }
+            }
+            preg_match_all("/\\['tone' => '([a-z]*)'/", (string) file_get_contents($file), $t);
+            foreach ($t[1] as $tone) {
+                self::assertContains($tone, ['', ...$tones], basename($file) . ": a tag's tone is one of the seven");
+            }
+        }
+        self::assertGreaterThanOrEqual(3, $handed, 'the bulk actions\' classes were read');
+        self::assertStringContainsString('<p><a class="btn" href="', (string) file_get_contents(dirname(View::defaultDir()) . '/Html.php'), 'the empty state\'s next step is a plain button');
+        $js = (string) file_get_contents(\CW\Ui\Assets::dir() . '/app.js');
+        preg_match_all("/(?:className = |classList\\.(?:add|toggle|remove)\\()'([a-z -]+)'/", $js, $set);
+        self::assertNotSame([], $set[1]);
+        foreach ($set[1] as $value) {
+            self::assertSame([], array_values(array_intersect(explode(' ', $value), self::REMOVED)), "app.js sets '{$value}'");
+        }
+        self::assertStringContainsString("b.className = 'btn ghost sm reveal';", $js, 'the password\'s Show is a quiet small button');
+        self::assertStringContainsString("var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open]';", $js, 'Esc and a click elsewhere close More');
+        // The stylesheet keeps no rule for a removed class, and names no button variant but the five and the two sizes.
+        $css = (string) file_get_contents(\CW\Ui\Assets::dir() . '/app.css');
+        $rules = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        foreach (self::REMOVED as $class) {
+            self::assertDoesNotMatchRegularExpression('/\.' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $rules, "app.css: a rule for .{$class}");
+        }
+        preg_match_all('/\.btn\.([a-z][a-z0-9-]*)/', $rules, $variants);
+        self::assertSame(self::BUTTON_PARTS, array_values(array_intersect(self::BUTTON_PARTS, array_unique($variants[1]))), 'each part has its rule');
+        self::assertSame([], array_values(array_diff(array_unique($variants[1]), self::BUTTON_PARTS)), 'and nothing else is a button variant');
+    }
+
+    /**
+     * Where a template's main (magenta) buttons are, as "where => how many": each form (`form #<id>` or `form at line <n>`) counts the main
+     * buttons that submit it (inside it, or naming it with form="..."), and "outside a form" counts the main links and fold buttons (they
+     * submit nothing) and the buttons of a part drawn inside its caller's form. Only a class that names `primary` in the markup itself is
+     * counted: one named under a condition (`<?php if ($primary): ?>`: the data decides, a document's next step, the Dashboard's first job)
+     * is left to the check of the rendered pages (tests/Support/MainButtons, on every page the kernel tests open). The branches of one
+     * if / elseif / else count as the largest; what a loop draws counts as many.
+     *
+     * @return array<string, int>
+     */
+    private static function mainButtons(string $src): array
+    {
+        $php = '<\?(?:php|=).*?\?>';
+        $re = '#(?<tag><(?<close>/?)(?<name>form|button|a|summary|input)\b(?<attrs>(?:' . $php . '|"(?:[^"<]|' . $php . ')*"|\'[^\']*\'|[^>"\'])*)>)'
+            . '|(?<ctl><\?php\s+(?<kw>if|elseif|else|endif|foreach|endforeach|for|endfor|while|endwhile)\b.*?\?>)#s';
+        preg_match_all($re, $src, $all, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        $tokens = [];
+        foreach ($all as $m) {
+            $line = substr_count(substr($src, 0, $m[0][1]), "\n") + 1;
+            if (isset($m['kw']) && $m['kw'][1] >= 0) {
+                $tokens[] = ['kw' => $m['kw'][0], 'line' => $line];
+                continue;
+            }
+            $name = strtolower($m['name'][0]);
+            $attrs = $m['attrs'][0];
+            if ($name === 'form') {
+                $id = preg_match('/\bid="([^"<]*)"/', $attrs, $i) === 1 ? $i[1] : null;
+                $tokens[] = ['kw' => $m['close'][0] === '/' ? 'form_close' : 'form_open', 'line' => $line, 'key' => $id !== null ? "form #{$id}" : "form at line {$line}"];
+                continue;
+            }
+            if ($m['close'][0] === '/' || preg_match('#\bclass="((?:[^"<]|' . $php . ')*)"#s', $attrs, $c) !== 1) {
+                continue;
+            }
+            // The classes the attribute names whatever the data: what is under an if inside the attribute is the data's choice.
+            $always = (string) preg_replace('#<\?php\s+if\b.*?<\?php\s+endif;\s*\?>#s', ' ', $c[1]);
+            $literal = preg_split('/\s+/', trim((string) preg_replace('#' . $php . '#s', ' ', $always)), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            if (!in_array('primary', $literal, true)) {
+                continue; // not a main button, or one only under a condition (the rendered pages' check)
+            }
+            $owned = in_array($name, ['button', 'input'], true);
+            $form = $owned && preg_match('/\bform="([^"<]*)"/', $attrs, $f) === 1 ? "form #{$f[1]}" : null;
+            $tokens[] = ['kw' => 'main', 'line' => $line, 'owned' => $owned, 'form' => $form];
+        }
+        $counts = [];
+        $open = null; // the form being read
+        $n = 0;
+        $walk = function (int $i, array $stop) use (&$walk, &$counts, &$open, $tokens, &$n): int {
+            while ($i < count($tokens)) {
+                $t = $tokens[$i];
+                if (in_array($t['kw'], $stop, true)) {
+                    return $i;
+                }
+                if ($t['kw'] === 'form_open') {
+                    $open = str_starts_with($t['key'], 'form #') ? $t['key'] : $t['key'] . ' #' . (++$n);
+                    $counts[$open] ??= 0;
+                } elseif ($t['kw'] === 'form_close') {
+                    $open = null;
+                } elseif ($t['kw'] === 'main') {
+                    $key = $t['form'] ?? ($t['owned'] && $open !== null ? $open : 'outside a form');
+                    $counts[$key] = ($counts[$key] ?? 0) + 1;
+                } elseif ($t['kw'] === 'if') {
+                    // Each branch from the counts before the if; after it, the largest of each.
+                    $before = $counts;
+                    $openBefore = $open;
+                    $best = $counts;
+                    $j = $i + 1;
+                    while (true) {
+                        $counts = $before;
+                        $open = $openBefore;
+                        $j = $walk($j, ['elseif', 'else', 'endif']);
+                        foreach ($counts as $k => $v) {
+                            $best[$k] = max($best[$k] ?? 0, $v);
+                        }
+                        $after = $open;
+                        if ($j >= count($tokens) || $tokens[$j]['kw'] === 'endif') {
+                            break;
+                        }
+                        $j++;
+                    }
+                    $counts = $best;
+                    $open = $after;
+                    $i = $j;
+                } elseif (in_array($t['kw'], ['foreach', 'for', 'while'], true)) {
+                    // A loop draws its body again and again: read it twice (a form it opens is a new form each time).
+                    $end = 'end' . $t['kw'];
+                    $j = $walk($i + 1, [$end]);
+                    $walk($i + 1, [$end]);
+                    $i = $j;
+                }
+                $i++;
+            }
+            return $i;
+        };
+        $walk(0, []);
+        return array_filter($counts, static fn (int $c): bool => $c > 0);
+    }
+
+    /**
+     * One main action (the owner, 29 Oct 2026: "button all design follow this"; the parts board: "One main button per page"; docs/decisions.md
+     * DS5): in every template a form holds at most one main (magenta) button, and at most one main link or fold button stands outside the
+     * forms. The rendered pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
+     */
+    public function testEveryPageHasAtMostOneMainButtonPerForm(): void
+    {
+        $forms = 0;
+        foreach (self::templates() as $name => $src) {
+            foreach (self::mainButtons($src) as $where => $count) {
+                $forms++;
+                self::assertLessThanOrEqual(1, $count, "{$name}: {$where} holds {$count} main buttons");
+            }
+        }
+        self::assertGreaterThan(60, $forms, 'the main buttons were found');
+        // The count itself: two in one form; the branches of one if; a loop; a button naming its form from outside; a link.
+        self::assertSame(['form at line 1 #1' => 2], self::mainButtons('<form method="post"><button class="btn primary">A</button><button class="btn primary">B</button></form>'));
+        self::assertSame(['form at line 1 #1' => 1], self::mainButtons('<form method="post"><?php if ($a): ?><button class="btn primary">A</button><?php elseif ($b): ?>'
+            . '<button class="btn primary">B</button><?php else: ?><button class="btn">C</button><?php endif; ?></form>'));
+        self::assertSame(['form at line 1 #1' => 2], self::mainButtons('<form method="post"><?php foreach ($rows as $r): ?><button class="btn primary">A</button><?php endforeach; ?></form>'));
+        self::assertSame(['form at line 1 #1' => 1, 'form at line 1 #2' => 1], self::mainButtons('<?php foreach ($rows as $r): ?><form method="post"><button class="btn primary">A</button></form><?php endforeach; ?>'));
+        self::assertSame(['form #f' => 2], self::mainButtons('<form id="f" method="post"><button class="btn primary">A</button></form><button form="f" class="btn primary">B</button>'));
+        self::assertSame(['outside a form' => 2], self::mainButtons('<a class="btn primary" href="/a">A</a><form method="post"><a class="btn primary" href="/b">B</a></form>'));
+        self::assertSame([], self::mainButtons('<button class="btn<?php if ($primary): ?> primary<?php endif; ?>">A</button><a class="btn" href="/">B</a>'), 'the data decides: the rendered check');
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

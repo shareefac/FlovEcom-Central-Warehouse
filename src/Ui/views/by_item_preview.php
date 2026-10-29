@@ -41,5 +41,5 @@
     </tbody>
   </table>
   </div>
-  <p class="actions sticky"><?php if ($go > 0): ?><button type="submit" class="<?php if ($danger): ?>danger<?php else: ?>btn primary<?php endif; ?>"><?= $e($button) ?></button> <?php endif; ?><a href="<?= $e($back) ?>"><?= $word('BY_ITEM_BULK', 'back') ?></a></p>
+  <p class="actions sticky"><?php if ($go > 0): ?><button type="submit" class="btn <?php if ($danger): ?>risky<?php else: ?>primary<?php endif; ?>"><?= $e($button) ?></button> <?php endif; ?><a href="<?= $e($back) ?>"><?= $word('BY_ITEM_BULK', 'back') ?></a></p>
 </form>

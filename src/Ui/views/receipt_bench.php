@@ -33,8 +33,8 @@
     <legend><?= $word('BENCH', 'find') ?></legend>
     <label><?= $word('BENCH', 'find_label') ?> <input type="search" id="bench-find" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" data-find-in=".bench-line" data-not-here="<?= $word('BENCH', 'not_here') ?>"></label>
     <span class="hint" id="bench-find-result" role="status"></span>
-    <p class="actions"><button type="button" data-fill-stamps="1"><?= $word('BENCH', 'fill_stamps') ?></button>
-      <button type="button" data-tick-all="1"><?= $word('BENCH', 'tick_all') ?></button></p>
+    <p class="actions"><button class="btn" type="button" data-fill-stamps="1"><?= $word('BENCH', 'fill_stamps') ?></button>
+      <button class="btn" type="button" data-tick-all="1"><?= $word('BENCH', 'tick_all') ?></button></p>
     <p class="hint"><?= $word('BENCH', 'tools_hint') ?></p>
   </fieldset>
 
@@ -108,9 +108,9 @@
   </article>
 <?php endforeach; ?>
   <p class="actions sticky">
-    <button type="submit" name="next" value="0" class="primary"><?= $word('BENCH', 'save') ?></button>
+    <button type="submit" name="next" value="0" class="btn primary"><?= $word('BENCH', 'save') ?></button>
 <?php if ($from + $pageSize <= $count): ?>
-    <button type="submit" name="next" value="1"><?= $say('BENCH', 'save_next', $pageSize) ?></button>
+    <button class="btn" type="submit" name="next" value="1"><?= $say('BENCH', 'save_next', $pageSize) ?></button>
 <?php endif; ?>
   </p>
 </form>
@@ -142,6 +142,6 @@
     </label>
     <label><?= $say('BENCH', 'photo_file', $maxMb) ?> <input type="file" name="file" accept="image/jpeg,image/png,application/pdf" capture="environment" data-max-bytes="2097152" data-too-big="<?= $say('RECEIPT', 'too_big', $maxMb) ?>" required></label>
     <label><?= $word('BENCH', 'photo_note') ?> <input type="text" name="note" maxlength="255"></label>
-    <p class="actions"><button type="submit"><?= $word('BENCH', 'attach') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('BENCH', 'attach') ?></button></p>
   </form>
 </section>

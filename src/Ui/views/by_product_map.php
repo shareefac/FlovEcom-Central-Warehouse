@@ -51,7 +51,7 @@ $lists = [['id' => 'suggested', 'rows' => $suggested], ['id' => 'found', 'rows' 
   <label><?= $word('BY_PRODUCT', 'pick_search_label') ?>
     <input type="search" name="q" value="<?= $e($text) ?>" maxlength="100">
   </label>
-  <button type="submit"><?= $word('UI', 'search') ?></button>
+  <button class="btn" type="submit"><?= $word('UI', 'search') ?></button>
 </form>
 <p class="hint"><?= $word('BY_PRODUCT', 'pick_search_hint') ?></p>
 <?php if (!$ran): ?>
@@ -89,7 +89,7 @@ $lists = [['id' => 'suggested', 'rows' => $suggested], ['id' => 'found', 'rows' 
       <td class="num" data-label="<?= $word('BY_PRODUCT', 'pick_price') ?>"><?php if ($r['price'] !== null && is_numeric($r['price'])): ?><?= $money($r['price']) ?><?php else: ?><?= $e($r['price']) ?><?php endif; ?></td>
       <td class="num" data-label="<?= $word('QUEUE', 'sold_30') ?>"><?= $n($r['units_30d'] ?? 0) ?></td>
       <td class="num" data-label="<?= $word('QUEUE', 'sold_365') ?>"><?= $n($r['units_365d'] ?? 0) ?></td>
-      <td class="c-next"><a class="btn sm primary" href="<?= $e($r['choose']) ?>" aria-label="<?= $say('BY_PRODUCT', 'pick_choose_named', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?>"><?= $word('BY_PRODUCT', 'pick_choose') ?></a></td>
+      <td class="c-next"><a class="btn sm" href="<?= $e($r['choose']) ?>" aria-label="<?= $say('BY_PRODUCT', 'pick_choose_named', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?>"><?= $word('BY_PRODUCT', 'pick_choose') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

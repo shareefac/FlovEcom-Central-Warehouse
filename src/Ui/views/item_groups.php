@@ -20,7 +20,7 @@
       <option value="<?= $e($fname) ?>"></option>
 <?php endforeach; ?>
     </datalist>
-    <button type="submit" class="secondary sm"><?= $word('FAMILY', 'put_button') ?></button>
+    <button type="submit" class="btn sm"><?= $word('FAMILY', 'put_button') ?></button>
   </form>
 <?php endif; ?>
   <h3><?= $word('PACKS', 'item_box') ?></h3>

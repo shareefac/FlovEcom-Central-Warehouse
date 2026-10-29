@@ -34,7 +34,7 @@
     <p><strong><?= $e($rules['blockEffect']) ?></strong></p>
     <ul class="plain">
 <?php foreach ($rules['blocked'] as $b): ?>
-      <li><span class="tag bad"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?><?php if (!$b['still']): ?> <span class="muted">(<?= $word('CARD', 'still_blocked') ?>)</span><?php endif; ?></li>
+      <li><span class="tag blocked"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?><?php if (!$b['still']): ?> <span class="muted">(<?= $word('CARD', 'still_blocked') ?>)</span><?php endif; ?></li>
 <?php endforeach; ?>
     </ul>
   </div>
@@ -44,7 +44,7 @@
     <p><strong><?= $word('CARD', 'warning') ?></strong></p>
     <ul class="plain">
 <?php foreach ($rules['warnings'] as $b): ?>
-      <li><span class="tag warn"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?></li>
+      <li><span class="tag needs"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?></li>
 <?php endforeach; ?>
     </ul>
   </div>
@@ -59,7 +59,7 @@
   <p class="note"><?= $e($a) ?></p>
 <?php endforeach; ?>
 <?php if ($canEditCard): ?>
-  <p class="actions"><a class="btn secondary" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?php if ($card['exists']): ?><?= $word('CARD', 'change') ?><?php else: ?><?= $word('CARD', 'fill_in') ?><?php endif; ?></a></p>
+  <p class="actions"><a class="btn" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?php if ($card['exists']): ?><?= $word('CARD', 'change') ?><?php else: ?><?= $word('CARD', 'fill_in') ?><?php endif; ?></a></p>
 <?php if ($rules['missing'] !== [] && $card['state'] !== 'confirmed'): ?>
   <p class="hint"><?= $say('CARD', 'missing', implode(', ', $rules['missing'])) ?></p>
 <?php elseif ($confirmKey !== null): ?>
@@ -70,7 +70,7 @@
 <?php if ($rules['warnings'] !== [] || array_filter($rules['blocked'], static fn (array $b): bool => $b['still']) !== []): ?>
     <label class="choice dup-confirm"><input type="checkbox" name="acknowledge_block" value="1"> <?= $word('CARD', 'acknowledge') ?></label>
 <?php endif; ?>
-    <button type="submit" class="primary"><?= $word('CARD', 'confirm') ?></button>
+    <button type="submit" class="btn primary"><?= $word('CARD', 'confirm') ?></button>
   </form>
 <?php endif; ?>
 <?php if ($fileFlavour !== null): ?>
@@ -80,7 +80,7 @@
     <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
     <input type="hidden" name="field" value="flavour">
     <input type="hidden" name="value" value="<?= $e($fileFlavour['value']) ?>">
-    <span><?= $say('CARD', 'file_flavour', (string) $fileFlavour['value']) ?></span> <button type="submit"><?= $word('CARD', 'confirm_flavour') ?></button>
+    <span><?= $say('CARD', 'file_flavour', (string) $fileFlavour['value']) ?></span> <button class="btn" type="submit"><?= $word('CARD', 'confirm_flavour') ?></button>
   </form>
 <?php endif; ?>
 <?php if ($proposals !== null): ?>
@@ -105,7 +105,7 @@
             <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
             <input type="hidden" name="field" value="<?= $e($p['field']) ?>">
             <input type="hidden" name="value" value="<?= $e($p['value']) ?>">
-            <button type="submit"><?= $word('CARD', 'use') ?></button>
+            <button class="btn" type="submit"><?= $word('CARD', 'use') ?></button>
           </form>
         </td>
       </tr>
@@ -169,14 +169,14 @@
               <input type="hidden" name="units_was" value="<?= $e($b['units']) ?>">
               <label class="visually-hidden" for="units-<?= $e($b['barcode']) ?>"><?= $say('BARCODE', 'units_of', (string) $b['barcode']) ?></label>
               <input class="units" id="units-<?= $e($b['barcode']) ?>" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($b['units']) ?>">
-              <button type="submit"><?= $word('BARCODE', 'save') ?></button>
+              <button class="btn" type="submit"><?= $word('BARCODE', 'save') ?></button>
             </form>
 <?php else: ?>
             <?= $n($b['units']) ?><?php if ($b['units'] > 1): ?> <span class="tag"><?= $word('BARCODE', 'outer') ?></span><?php endif; ?>
 <?php endif; ?>
           </td>
           <td data-label="<?= $word('BARCODE', 'source') ?>"><?= $e($b['source']) ?><?php if ($b['note'] !== null): ?> <span class="muted"><?= $e($b['note']) ?></span><?php endif; ?></td>
-          <td data-label="<?= $word('BARCODE', 'usable') ?>"><?php if ($b['usable']): ?><?= $word('BARCODE', 'yes') ?><?php else: ?><span class="tag bad"><?= $word('BARCODE', 'no') ?></span><?php endif; ?></td>
+          <td data-label="<?= $word('BARCODE', 'usable') ?>"><?php if ($b['usable']): ?><?= $word('BARCODE', 'yes') ?><?php else: ?><span class="tag blocked"><?= $word('BARCODE', 'no') ?></span><?php endif; ?></td>
 <?php if ($canEditBarcodes): ?>
           <td class="c-next">
 <?php if ($b['stored']): ?>
@@ -189,7 +189,7 @@
                 <p class="muted"><?= $say('BARCODE', 'remove_text', (string) $b['barcode'], (string) $sku['code']) ?></p>
                 <label for="why-<?= $e($b['barcode']) ?>"><?= $word('BARCODE', 'remove_why') ?></label>
                 <input id="why-<?= $e($b['barcode']) ?>" type="text" name="reason" maxlength="500">
-                <button type="submit"><?= $word('BARCODE', 'remove_button') ?></button>
+                <button class="btn" type="submit"><?= $word('BARCODE', 'remove_button') ?></button>
               </form>
             </details>
 <?php endif; ?>
@@ -216,7 +216,7 @@
       <input id="new-barcode" type="text" name="barcode" inputmode="numeric" autocomplete="off" maxlength="40" value="<?= $e($typedBarcode) ?>" placeholder="<?= $word('BARCODE', 'add_hint') ?>">
       <label for="new-units"><?= $word('BARCODE', 'add_units') ?></label>
       <input id="new-units" class="units" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($typedUnits) ?>">
-      <button type="submit"><?= $word('BARCODE', 'add_button') ?></button>
+      <button class="btn" type="submit"><?= $word('BARCODE', 'add_button') ?></button>
       <p class="hint"><?= $word('BARCODE', 'add_text') ?></p>
     </form>
 <?php endif; ?>
@@ -376,7 +376,7 @@
       <input id="sm-threshold" name="threshold" inputmode="numeric" pattern="[0-9]*" maxlength="6" value="<?= $e($sm['typed']['threshold']) ?>"></label>
     <label for="sm-reason"><?= $word('SELLING', 'why') ?> <span class="hint"><?= $word('SELLING', 'why_hint') ?></span>
       <input id="sm-reason" name="reason" required minlength="3" maxlength="500" value="<?= $e($sm['typed']['reason']) ?>"></label>
-    <p class="actions"><button type="submit" class="primary btn big"><span class="btn-title"><?= $word('SELLING', 'save') ?></span> <span class="sub"><?= $word('SELLING', 'save_does') ?></span></button></p>
+    <p class="actions"><button type="submit" class="btn lg"><span class="btn-title"><?= $word('SELLING', 'save') ?></span> <span class="sub"><?= $word('SELLING', 'save_does') ?></span></button></p>
   </form>
 <?php endif; ?>
 </section>

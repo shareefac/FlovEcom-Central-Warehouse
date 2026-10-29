@@ -11,7 +11,7 @@
 <?php endforeach; ?>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($type !== null): ?><a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($type !== null): ?><a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -54,7 +54,7 @@
         <td data-label="<?= $word('CHECKS', 'asked_by') ?>"><?= $e($r['opened_by']) ?></td>
         <td data-label="<?= $word('CHECKS', 'asked_on') ?>"><?= $when($r['opened_at']) ?></td>
         <td data-label="<?= $word('CHECKS', 'check_by') ?>"><?= $day($r['due_at']) ?><?php if ($r['overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::CHECKS['late']) ?><?php endif; ?></td>
-        <td class="c-next"><?php if ($r['refusal'] === null): ?><a class="btn primary sm" href="<?= $u($r['href']) ?>"><?= $word('CHECKS', 'open') ?></a><?php else: ?><span class="muted"><?= $e($r['refusal']) ?></span><?php endif; ?></td>
+        <td class="c-next"><?php if ($r['refusal'] === null): ?><a class="btn sm" href="<?= $u($r['href']) ?>"><?= $word('CHECKS', 'open') ?></a><?php else: ?><span class="muted"><?= $e($r['refusal']) ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>

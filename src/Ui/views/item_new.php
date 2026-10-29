@@ -118,13 +118,16 @@
   <label class="choice dup-confirm"><input type="checkbox" name="anyway" value="1"<?php if ($v['anyway'] === '1'): ?> checked<?php endif; ?>> <?= $word('ITEM_NEW', 'anyway') ?></label>
 <?php endif; ?>
   <p class="hint"><?= $word('ITEM_NEW', 'add_does') ?></p>
-  <p class="actions"><button type="submit" class="primary"><?= $word('ITEM_NEW', 'add') ?></button></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('ITEM_NEW', 'add') ?></button></p>
 </form>
 
 <section class="card made-by-hand" aria-labelledby="made-h">
   <h2 id="made-h"><?= $word('ITEM_NEW', 'made') ?></h2>
   <p class="hint"><?= $word('ITEM_NEW', 'made_text') ?> <?php if ($checkOn): ?><?= $word('ITEM_NEW', 'check_on') ?><?php else: ?><?= $word('ITEM_NEW', 'check_off') ?><?php endif; ?></p>
-  <p class="seg-links"><?php if ($waiting): ?><a href="/ui/items/new"><?= $word('ITEM_NEW', 'show_all') ?></a><?php else: ?><a href="<?= $u('/ui/items/new', ['show' => 'waiting']) ?>"><?= $word('ITEM_NEW', 'show_waiting') ?></a><?php endif; ?></p>
+  <nav class="tabs show-tabs" aria-label="<?= $word('ITEM_NEW', 'made') ?>">
+    <a class="tab" href="/ui/items/new"<?php if (!$waiting): ?> aria-current="page"<?php endif; ?>><?= $word('ITEM_NEW', 'show_all') ?></a>
+    <a class="tab" href="<?= $u('/ui/items/new', ['show' => 'waiting']) ?>"<?php if ($waiting): ?> aria-current="page"<?php endif; ?>><?= $word('ITEM_NEW', 'show_waiting') ?></a>
+  </nav>
 <?php if ($rows === []): ?>
 <?php if ($waiting): ?>
   <?= $empty(\CW\Ui\Words::ITEM_NEW['waiting_none'], \CW\Ui\Words::ITEM_NEW['waiting_none_text'], '/ui/items/new', \CW\Ui\Words::ITEM_NEW['show_all']) ?>
@@ -156,7 +159,7 @@
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <label class="visually-hidden" for="cn-<?= $e($r['id']) ?>"><?= $word('ITEM_NEW', 'check_note') ?></label>
             <input id="cn-<?= $e($r['id']) ?>" type="text" name="note" maxlength="500" placeholder="<?= $word('ITEM_NEW', 'check_note') ?>">
-            <button type="submit" class="secondary sm"><?= $word('ITEM_NEW', 'check_button') ?></button>
+            <button type="submit" class="btn sm"><?= $word('ITEM_NEW', 'check_button') ?></button>
           </form>
 <?php elseif ($r['own']): ?>
           <span class="o-sub"><?= $word('ITEM_NEW', 'check_own') ?></span>

@@ -238,7 +238,7 @@ abstract class KernelUiTestCase extends MappingTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[@class="seg"]/a[@class="seg-item"]') ?: [] as $a) {
+        foreach ($xp->query('//nav[@class="tabs seg"]/a[@class="tab"]') ?: [] as $a) {
             /** @var \DOMElement $a */
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'href' => $a->getAttribute('href'),
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),

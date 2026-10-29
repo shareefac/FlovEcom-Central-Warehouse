@@ -346,7 +346,7 @@ final class Sections
      *             one-line description, the tabs (current one marked, counts, "Soon" ones without a link), whether it draws the buying flow
      *   segments  the current tab's segmented filter (two or more segments the person may open), or []
      *   actions   the current page's create button the person may use (only on the page itself, not its detail pages), then the
-     *             section's other create actions they may use (the split button's menu); on the Dashboard every create action they may use
+     *             section's other create actions they may use (under More beside the create button); on the Dashboard every create action they may use
      *   phone     the bottom bar: Dashboard, up to PHONE_MAX sections, "More" (#menu)
      *
      * @param list<string> $roles
@@ -410,7 +410,7 @@ final class Sections
                     $actions[] = ['label' => Words::NEW[$new['label']], 'href' => (string) $new['href']];
                 }
             }
-            // The split button's menu: the section's other create actions the person may use (only beside a page's own).
+            // More beside the create button: the section's other create actions the person may use (only beside a page's own).
             if ($actions !== []) {
                 foreach ($visible[$s] as $other) {
                     foreach ($other['pages'] as $page) {
@@ -488,7 +488,7 @@ final class Sections
     }
 
     /**
-     * Every create action the person may use, in the map's order (the Dashboard's split button).
+     * Every create action the person may use, in the map's order (the Dashboard's create button and its More).
      *
      * @param list<string> $roles
      * @return list<array{label: string, href: string}>

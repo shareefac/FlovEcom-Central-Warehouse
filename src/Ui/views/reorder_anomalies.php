@@ -28,7 +28,7 @@
       <label><?= $word('ANOMALIES', 'brand') ?> <span class="hint"><?= $word('ANOMALIES', 'brand_hint') ?></span> <input type="text" name="brand" value="<?= $e($v['brand'] ?? '') ?>" maxlength="128"></label>
       <label><?= $word('ANOMALIES', 'label') ?> <span class="hint"><?= $word('ANOMALIES', 'label_hint') ?></span> <input type="text" name="label" value="<?= $e($v['label'] ?? '') ?>" maxlength="200" required></label>
     </fieldset>
-    <p class="actions"><button type="submit" class="primary"><?= $word('ANOMALIES', 'save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('ANOMALIES', 'save') ?></button></p>
   </form>
 </section>
 <?php endif; ?>
@@ -61,7 +61,7 @@
       <td class="c-next"><?php if ((int) $r['is_active'] === 1): ?>
         <form class="inline" method="post" action="<?= $u('/ui/purchasing/reorder/anomalies/' . $r['id'] . '/end') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-          <button type="submit"><?= $word('ANOMALIES', 'end') ?></button>
+          <button class="btn" type="submit"><?= $word('ANOMALIES', 'end') ?></button>
           <span class="hint"><?= $word('ANOMALIES', 'end_hint') ?></span>
         </form><?php endif; ?></td>
 <?php endif; ?>

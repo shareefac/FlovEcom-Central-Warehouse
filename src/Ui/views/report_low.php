@@ -6,9 +6,9 @@
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 </form>
 <p class="note"><?= $say('REPORTS', 'default_level', $default) ?></p>
-<nav class="seg" aria-label="<?= $word('REPORTS', 'show') ?>">
-  <a class="seg-item" href="<?= $u('/ui/reports/low-stock', ['q' => $f['q']]) ?>"<?php if ($f['show'] === 'low'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_low') ?></span><span class="count"><?= $n($counts['low']) ?></span></a>
-  <a class="seg-item" href="<?= $u('/ui/reports/low-stock', ['q' => $f['q'], 'show' => 'out']) ?>"<?php if ($f['show'] === 'out'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_none') ?></span><span class="count"><?= $n($counts['out']) ?></span></a>
+<nav class="tabs show-tabs" aria-label="<?= $word('REPORTS', 'show') ?>">
+  <a class="tab" href="<?= $u('/ui/reports/low-stock', ['q' => $f['q']]) ?>"<?php if ($f['show'] === 'low'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_low') ?></span><span class="count"><?= $n($counts['low']) ?></span></a>
+  <a class="tab" href="<?= $u('/ui/reports/low-stock', ['q' => $f['q'], 'show' => 'out']) ?>"<?php if ($f['show'] === 'out'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_none') ?></span><span class="count"><?= $n($counts['out']) ?></span></a>
 </nav>
 
 <?php if ($rows === []): ?>

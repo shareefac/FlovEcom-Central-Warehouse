@@ -101,6 +101,6 @@
     <p class="field-error" id="e-reason"><?= $e($errors['reason']) ?></p>
 <?php endif; ?>
   </fieldset>
-  <p class="actions"><button type="submit" class="primary"><?= $word('COMPANY', 'save') ?></button> <a href="/ui/reference/company"><?= $word('COMPANY', 'cancel') ?></a></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('COMPANY', 'save') ?></button> <a href="/ui/reference/company"><?= $word('COMPANY', 'cancel') ?></a></p>
 </form>
 <p class="muted"><?= $word('COMPANY', 'letters') ?></p>

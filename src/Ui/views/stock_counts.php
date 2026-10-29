@@ -25,7 +25,7 @@ $newActions = $newActions ?? [];
 <?php endforeach; ?>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -120,15 +120,15 @@ $newActions = $newActions ?? [];
     <label><?= $word('COUNTS', 'note') ?> <input type="text" name="note" value="<?= $e($typed['note']) ?>" maxlength="200"></label>
     <p class="actions">
 <?php if ($groups !== []): ?>
-      <button type="submit" name="mode" value="ticked" class="primary"><?= $word('COUNTS', 'open_ticked') ?></button>
+      <button type="submit" name="mode" value="ticked" class="btn primary"><?= $word('COUNTS', 'open_ticked') ?></button>
 <?php if ($filtered): ?>
-      <button type="submit" name="mode" value="found"><?= $say('COUNTS', 'open_found', $rows_n) ?></button>
+      <button class="btn" type="submit" name="mode" value="found"><?= $say('COUNTS', 'open_found', $rows_n) ?></button>
 <?php else: ?>
       <label class="inline-field"><?= $word('COUNTS', 'open_next_n') ?> <input type="text" name="n" value="<?= $e($typed['n']) ?>" inputmode="numeric" maxlength="3" size="4"></label>
-      <button type="submit" name="mode" value="next"><?= $word('COUNTS', 'open_next') ?></button>
+      <button class="btn" type="submit" name="mode" value="next"><?= $word('COUNTS', 'open_next') ?></button>
 <?php endif; ?>
 <?php endif; ?>
-      <button type="submit" name="mode" value="empty"><?= $word('COUNTS', 'open_empty') ?></button>
+      <button class="btn" type="submit" name="mode" value="empty"><?= $word('COUNTS', 'open_empty') ?></button>
     </p>
   </fieldset>
 </form>

@@ -25,7 +25,7 @@
         <td class="num" data-label="<?= $word('BY_STORE', 'col_waiting') ?>"><?= $n($r['waiting']) ?></td>
         <td class="share" data-label="<?= $word('BY_STORE', 'col_linked') ?>"><?php if ($r['listings'] > 0): ?><span class="share-val"><meter aria-hidden="true" min="0" max="100" value="<?= $e(round(100 * $r['linked'] / $r['listings'])) ?>"></meter> <?= $pct($r['linked'], $r['listings']) ?></span> <span class="muted small"><?= $say('BY_STORE', 'of_products', $r['linked'], $r['listings']) ?></span><?php else: ?><span class="muted"><?= $word('BY_STORE', 'no_products') ?></span><?php endif; ?></td>
         <td class="share" data-label="<?= $word('BY_STORE', 'col_units') ?>"><?php if ($r['u30'] > 0): ?><span class="share-val"><meter aria-hidden="true" min="0" max="100" value="<?= $e(round(100 * $r['l30'] / $r['u30'])) ?>"></meter> <?= $pct($r['l30'], $r['u30']) ?></span><?php else: ?><span class="muted"><?= $word('HOME', 'no_sales') ?></span><?php endif; ?></td>
-        <td class="c-next"><?php if ($r['href'] !== null): ?><a class="btn sm<?php if ($button === \CW\Ui\Words::QUEUE['open']): ?> primary<?php else: ?> secondary<?php endif; ?>" href="<?= $e($r['href']) ?>"><?= $word('BY_STORE', 'review') ?></a><?php else: ?><span class="muted small"><?= $word('BY_STORE', 'nothing') ?></span><?php endif; ?></td>
+        <td class="c-next"><?php if ($r['href'] !== null): ?><a class="btn sm" href="<?= $e($r['href']) ?>"><?= $word('BY_STORE', 'review') ?></a><?php else: ?><span class="muted small"><?= $word('BY_STORE', 'nothing') ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
       <tr class="sub">
@@ -40,7 +40,7 @@
         <td class="num" data-label="<?= $word('BY_STORE', 'col_waiting') ?>"><?= $n($g['total']['waiting']) ?></td>
         <td class="share" data-label="<?= $word('BY_STORE', 'col_linked') ?>"><?php if ($g['total']['listings'] > 0): ?><span class="share-val"><meter aria-hidden="true" min="0" max="100" value="<?= $e(round(100 * $g['total']['linked'] / $g['total']['listings'])) ?>"></meter> <?= $pct($g['total']['linked'], $g['total']['listings']) ?></span> <span class="muted small"><?= $say('BY_STORE', 'of_products', $g['total']['linked'], $g['total']['listings']) ?></span><?php else: ?><span class="muted"><?= $word('BY_STORE', 'no_products') ?></span><?php endif; ?></td>
         <td class="share" data-label="<?= $word('BY_STORE', 'col_units') ?>"><?php if ($g['total']['u30'] > 0): ?><span class="share-val"><meter aria-hidden="true" min="0" max="100" value="<?= $e(round(100 * $g['total']['l30'] / $g['total']['u30'])) ?>"></meter> <?= $pct($g['total']['l30'], $g['total']['u30']) ?></span><?php else: ?><span class="muted"><?= $word('HOME', 'no_sales') ?></span><?php endif; ?></td>
-        <td class="c-next"><a class="btn sm secondary" href="<?= $e($g['products']) ?>"><?= $word('BY_STORE', 'all_products') ?></a></td>
+        <td class="c-next"><a class="btn sm" href="<?= $e($g['products']) ?>"><?= $word('BY_STORE', 'all_products') ?></a></td>
       </tr>
     </tbody>
   </table>

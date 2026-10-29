@@ -71,9 +71,9 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
     {
         $out = [];
         $xp = self::xp($r);
-        foreach ($xp->query('//nav[contains(@class, "state-pills")]/a') as $a) {
+        foreach ($xp->query('//nav[contains(@class, "state-tabs")]/a') as $a) {
             /** @var \DOMElement $a */
-            $count = (int) str_replace(',', '', self::squash($xp->evaluate('string(strong)', $a)));
+            $count = (int) str_replace(',', '', self::squash($xp->evaluate('string(span[@class="count"])', $a)));
             $out[trim(str_replace((string) $count, '', self::squash($a->textContent)))] = $count;
         }
         return $out;
@@ -217,7 +217,7 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         self::assertSame([Words::STORE_PRODUCTS['unsold_shown'] . ' ' . Words::STORE_PRODUCTS['unsold_hide'], Words::STORE_PRODUCTS['unsold_hide']],
             [$hide['text'] ?? null, $hide['link'] ?? null], 'the same line hides them again');
         self::assertSame([self::STORE, ['channel' => 'electrofag']], [parse_url((string) $hide['href'], PHP_URL_PATH), self::queryOf((string) $hide['href'])]);
-        foreach (self::xp($all)->query('//nav[contains(@class, "state-pills")]/a/@href') as $href) {
+        foreach (self::xp($all)->query('//nav[contains(@class, "state-tabs")]/a/@href') as $href) {
             self::assertSame('1', self::queryOf($href->nodeValue ?? '')['unsold'] ?? null, 'a state chosen while they are shown still shows them');
         }
         // (Codex's review of d65d1f2, MEDIUM) the search box and the sort are one GET form: while they are shown it sends `unsold=1` too, so a
@@ -353,7 +353,7 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         $list = $web->get('/ui/review', ['queue' => 'Check', 'channel' => 'electrofag']);
         self::assertSame(200, $list->status, $list->describe() . implode("\n", self::$log));
         self::assertSame([$new, $sold], self::queueRows($list));
-        $legend = self::squash(self::xp($list)->evaluate('string(//nav[contains(@class, "legend")]/a[@aria-current="page"]/strong)'));
+        $legend = self::squash(self::xp($list)->evaluate('string(//nav[contains(@class, "legend")]/a[@aria-current="page"]/span[@class="count"])'));
         self::assertSame('2', $legend, 'the list\'s own count leaves them out too');
         self::assertSame(2, (new Queries(self::$db))->listLeft('Check', (int) $site->channelId), 'and the progress line of a product opened from it');
         self::assertSame([$new, $sold], self::queueRows($web->get('/ui/review', ['queue' => 'Check', 'channel' => 'electrofag', 'q' => 'elux'])), 'words do not bring it back');

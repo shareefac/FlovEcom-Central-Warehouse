@@ -31,7 +31,7 @@ $newActions = $newActions ?? [];
 <?php if ($draftsChoice): ?>
     <label class="choice tb-check"><input type="checkbox" name="drafts" value="1"<?php if ($filters['drafts']): ?> checked<?php endif; ?>> <?= $word('ORDERS', 'drafts') ?></label>
 <?php endif; ?>
-    <button type="submit" class="btn secondary sm"><?= $word('DOC_LIST', 'show') ?></button>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
   <div class="tb-end">
 <?php if ($filtered): ?>

@@ -14,7 +14,7 @@
 <?php else: ?>
     <?= $chip('blocked', \CW\Ui\Words::COMPANY['not_confirmed']) ?> <?= $word('SETTINGS_PAGE', 'not_confirmed_text') ?><?php if ($company['missing'] !== []): ?> <?= $say('COMPANY', 'missing', implode(', ', $company['missing'])) ?><?php endif; ?></p>
 <?php endif; ?>
-  <p><?php if ($company['canEdit']): ?><a class="button primary-link" href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'edit_company') ?></a><?php else: ?><a href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'see_company') ?></a><?php endif; ?></p>
+  <p><?php if ($company['canEdit']): ?><a class="btn" href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'edit_company') ?></a><?php else: ?><a href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'see_company') ?></a><?php endif; ?></p>
 </section>
 
 <h2><?= $word('SETTINGS_PAGE', 'settings') ?></h2>

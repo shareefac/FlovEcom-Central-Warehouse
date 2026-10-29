@@ -30,7 +30,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'rename'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'rename_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('REASONS_EDIT', 'rename_button') ?></button></p>
   </form>
 </section>
 <section aria-labelledby="uses-h">
@@ -51,7 +51,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'uses'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'uses_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('REASONS_EDIT', 'uses_button') ?></button></p>
   </form>
 </section>
 <section aria-labelledby="rules-h">
@@ -68,7 +68,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'rules'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'rules_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('REASONS_EDIT', 'rules_button') ?></button></p>
   </form>
 </section>
 <section aria-labelledby="switch-h">
@@ -84,9 +84,9 @@
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'on' || $typed['do'] === 'off'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
 <?php if ($r['is_active']): ?>
-    <p class="actions"><button type="submit" class="danger"><?= $word('REASONS_EDIT', 'switch_off_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('REASONS_EDIT', 'switch_off_button') ?></button></p>
 <?php else: ?>
-    <p class="actions"><button type="submit"><?= $word('REASONS_EDIT', 'switch_on_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('REASONS_EDIT', 'switch_on_button') ?></button></p>
 <?php endif; ?>
   </form>
 </section>

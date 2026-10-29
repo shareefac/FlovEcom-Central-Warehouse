@@ -99,7 +99,7 @@
       </tbody>
     </table>
     </div>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('RETURNS', 'claim_total', \CW\Ui\Html::money(\CW\Invoices\InvoiceMath::fromE2($total))) ?></span></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('RETURNS', 'claim_total', \CW\Ui\Html::money(\CW\Invoices\InvoiceMath::fromE2($total))) ?></span></p>
   </form>
 <?php else: ?>
   <div class="table-wrap">
@@ -159,7 +159,7 @@
       </select>
     </label>
     <label><?= $word('RETURNS', 'price') ?> <input type="text" name="price" value="<?= $e($typedAdd['price']) ?>" inputmode="decimal" maxlength="16"></label>
-    <button type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
   <p class="hint"><?= $word('RETURNS', 'price_hint') ?></p>
 <?php if ($choices !== null): ?>
@@ -179,7 +179,7 @@
               <input type="hidden" name="qty" value="<?= $e($typedAdd['qty']) ?>">
               <input type="hidden" name="warehouse_id" value="<?= $e($typedAdd['warehouse']) ?>">
               <input type="hidden" name="price" value="<?= $e($typedAdd['price']) ?>">
-              <button type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
+              <button class="btn" type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
             </form>
           </td>
         </tr>
@@ -202,7 +202,7 @@
 <?php endforeach; ?>
       </select>
     </label>
-    <button type="submit"><?= $word('RETURNS', 'claim_button') ?></button>
+    <button class="btn" type="submit"><?= $word('RETURNS', 'claim_button') ?></button>
   </form>
 </section>
 
@@ -245,7 +245,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'note') ?> <input type="text" name="note" value="<?= $e($form['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
   </form>
 </details>
 <section class="card final-box" aria-labelledby="final-h">
@@ -257,7 +257,7 @@
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <button type="submit" class="primary"><?= $word('RETURNS', 'post_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('RETURNS', 'post_button') ?></button>
   </form>
 </section>
 <details class="fold">
@@ -267,7 +267,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -278,7 +278,7 @@
   <p class="muted"><?= $word('STOCK_OPS', 'withdraw_text') ?></p>
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
   </form>
 </section>
 <?php endif; ?>
@@ -300,7 +300,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($creditKey) ?>">
     <input type="hidden" name="dn_id" value="<?= $e($doc->id) ?>">
-    <button type="submit"><?= $word('RETURNS', 'book_credit') ?></button>
+    <button class="btn" type="submit"><?= $word('RETURNS', 'book_credit') ?></button>
   </form>
 <?php endif; ?>
 </section>
@@ -321,7 +321,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -348,7 +348,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'file') ?> <span class="hint"><?= $say('STOCK_OPS', 'file_hint', $maxMb) ?></span><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required></label>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
   </form>
 <?php endif; ?>
 </section>

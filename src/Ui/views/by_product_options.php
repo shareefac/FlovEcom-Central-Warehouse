@@ -55,10 +55,10 @@
 <?php endif; ?>
 <?php endforeach; ?>
         <label class="qp-units"><span><?= $word('BY_PRODUCT', 'quick_units') ?></span> <input type="number" name="units_per_item" min="1" max="<?= $e($max_units) ?>" inputmode="numeric" value="<?= $e($r['units']) ?>" required></label>
-        <button type="submit" class="btn sm primary" data-listing-id="<?= $e($r['listing_id']) ?>" data-sku-id="<?= $e($sku['id']) ?>" data-channel="<?= $e($store['code']) ?>" title="<?= $say('BY_PRODUCT', 'quick_match_named', $r['title'] ?? \CW\Ui\Words::LISTING['no_title'], $sku['code']) ?>"><?= $say('BY_PRODUCT', 'quick_match', $sku['code']) ?></button>
+        <button type="submit" class="btn sm" data-listing-id="<?= $e($r['listing_id']) ?>" data-sku-id="<?= $e($sku['id']) ?>" data-channel="<?= $e($store['code']) ?>" title="<?= $say('BY_PRODUCT', 'quick_match_named', $r['title'] ?? \CW\Ui\Words::LISTING['no_title'], $sku['code']) ?>"><?= $say('BY_PRODUCT', 'quick_match', $sku['code']) ?></button>
       </form>
 <?php else: ?>
-      <p class="qp-open"><a class="btn sm secondary" href="<?= $e($r['choose']) ?>"><?= $word('BY_PRODUCT', 'pick_choose') ?></a></p>
+      <p class="qp-open"><a class="btn sm" href="<?= $e($r['choose']) ?>"><?= $word('BY_PRODUCT', 'pick_choose') ?></a></p>
 <?php endif; ?>
     </li>
 <?php endforeach; ?>

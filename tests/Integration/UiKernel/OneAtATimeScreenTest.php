@@ -144,12 +144,12 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
     private static function shows(UiResponse $r): array
     {
         return array_map(static fn (\DOMNode $a): string => self::squash($a->textContent),
-            iterator_to_array((new \DOMXPath($r->dom()))->query('//nav[contains(@class, "show-pills")]/a')));
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//nav[contains(@class, "show-tabs")]/a')));
     }
 
     private static function shown(UiResponse $r): string
     {
-        return self::squash((new \DOMXPath($r->dom()))->evaluate('string(//nav[contains(@class, "show-pills")]/a[@aria-current="page"])'));
+        return self::squash((new \DOMXPath($r->dom()))->evaluate('string(//nav[contains(@class, "show-tabs")]/a[@aria-current="page"])'));
     }
 
     /** @return array{0: string, 1: string} the notice above the list (its text, and where its link leads; '' for none) */
@@ -294,12 +294,12 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             self::assertSame(['All 12', 'Ready for a bulk action 5', 'Held back 3', 'In a spot check 4'], self::shows($page), "{$show}: each choice with its count");
             self::assertSame(Words::QUEUE_SHOW[$show] . ' ' . count($ids), self::shown($page), "{$show}: the count of the choice is its list");
             self::assertStringContainsString(Words::say('QUEUE', 'in_all', count($ids), count($ids)), $page->text(), $show);
-            self::assertSame(Words::QUEUE['show'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//nav[contains(@class, "show-pills")]/@aria-label)')));
+            self::assertSame(Words::QUEUE['show'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//nav[contains(@class, "show-tabs")]/@aria-label)')));
         }
         self::assertSame(12, count($parts['ready']) + count($parts['held']) + count($parts['spot']), 'All is the sum of the three');
         self::assertSame(['/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt&show=ready', '/ui/review?queue=Key&channel=alt&show=held',
             '/ui/review?queue=Key&channel=alt&show=spot'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($web->get('/ui/review', $query + ['show' => 'held', 'page' => '1'])->dom()))->query('//nav[contains(@class, "show-pills")]/a'))),
+            iterator_to_array((new \DOMXPath($web->get('/ui/review', $query + ['show' => 'held', 'page' => '1'])->dom()))->query('//nav[contains(@class, "show-tabs")]/a'))),
             'a choice opens the list from its first page');
 
         // The three parts are OneAtATime's own answer for each row: what the list shows and what a bulk action skips cannot disagree.
@@ -390,7 +390,7 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         self::assertContains('/ui/review?queue=Key&show=ready', $stores, 'All stores');
         self::assertContains('/ui/review?queue=Key&show=ready&channel=alt', $stores);
         self::assertSame(['/ui/review?queue=Key&channel=alt&show=ready', '/ui/review?queue=Check&channel=alt&show=ready'],
-            [$xp->evaluate('string(//nav[@class="legend"]/a[1]/@href)'), $xp->evaluate('string(//nav[@class="legend"]/a[2]/@href)')]);
+            [$xp->evaluate('string(//nav[contains(@class, "legend")]/a[1]/@href)'), $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)')]);
         self::assertSame('ready', $xp->evaluate('string(//form[contains(@class, "toolbar")]/input[@name="show"]/@value)'));
         self::assertSame(0, (new \DOMXPath($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])->dom()))->query('//form[contains(@class, "toolbar")]/input[@name="show"]')->length);
         // The pages around the lists do not take it: the segments of Mapping lead where they always led.

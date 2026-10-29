@@ -21,9 +21,9 @@
   </ul></div>
 </section>
 <p class="note"><?= $word('REPORTS', 'cost_note') ?> <?= $word('REPORTS', 'below_zero') ?> <?= $word('REPORTS', 'past_date') ?> <?= $e($asOf) ?></p>
-<nav class="seg" aria-label="<?= $word('REPORTS', 'show') ?>">
+<nav class="tabs show-tabs" aria-label="<?= $word('REPORTS', 'show') ?>">
 <?php foreach ($tabs as $t): ?>
-  <a class="seg-item" href="<?= $e($t['href']) ?>"<?php if ($t['current']): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'by_' . $t['by']) ?></span></a>
+  <a class="tab" href="<?= $e($t['href']) ?>"<?php if ($t['current']): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'by_' . $t['by']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 

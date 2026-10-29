@@ -9,7 +9,7 @@
 <?php endforeach; ?>
     </select>
   </label>
-  <button type="submit"><?= $word('QUEUES', 'filter') ?></button>
+  <button class="btn" type="submit"><?= $word('QUEUES', 'filter') ?></button>
 </form>
 <?php if ($count > 0): ?>
 <p class="muted"><?php if ($more): ?><?= $say('QUEUES', 'more', $pageSize) ?><?php elseif ($count === 1): ?><?= $word('QUEUES', 'total_one') ?><?php else: ?><?= $say('QUEUES', 'total_many', $count) ?><?php endif; ?></p>

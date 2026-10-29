@@ -3,11 +3,11 @@
 <?php $newActions = $newActions ?? []; $tiles = $tiles ?? []; $canFind = $canFind ?? false; ?>
 <?php if ($canFind): ?>
 <form class="toolbar" method="get" action="/ui/search" role="search">
-  <?= $partial('split', ['actions' => $newActions]) ?>
+  <?= $partial('split', ['actions' => $newActions, 'main' => false]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('UI', 'search_label') ?></label><input id="tb-q" type="search" name="q" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" autocomplete="off"></div>
 </form>
 <?php elseif ($newActions !== []): ?>
-<div class="toolbar"><?= $partial('split', ['actions' => $newActions]) ?></div>
+<div class="toolbar"><?= $partial('split', ['actions' => $newActions, 'main' => false]) ?></div>
 <?php endif; ?>
 <?php if ($tiles !== []): ?>
 

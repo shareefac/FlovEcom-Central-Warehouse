@@ -27,7 +27,7 @@
     <summary><?php if ($report['applied']): ?><?= $say('CARD_IMPORT', 'what_changed', count($report['changes'])) ?><?php else: ?><?= $say('CARD_IMPORT', 'what_would', count($report['changes'])) ?><?php endif; ?></summary>
     <ul class="plain">
 <?php foreach ($report['changes'] as $c): ?>
-      <li><?= $say('CARD_IMPORT', 'change_line', (string) $c['row'], (string) $c['code'], implode(', ', array_map(static fn (string $f): string => $fieldWords[$f] ?? $f, $c['fields']))) ?><?php if ($c['unconfirmed']): ?> <span class="tag warn"><?= $word('CARD_IMPORT', 'unconfirmed') ?></span><?php endif; ?></li>
+      <li><?= $say('CARD_IMPORT', 'change_line', (string) $c['row'], (string) $c['code'], implode(', ', array_map(static fn (string $f): string => $fieldWords[$f] ?? $f, $c['fields']))) ?><?php if ($c['unconfirmed']): ?> <span class="tag needs"><?= $word('CARD_IMPORT', 'unconfirmed') ?></span><?php endif; ?></li>
 <?php endforeach; ?>
     </ul>
   </details>
@@ -44,7 +44,7 @@
     <label class="choice"><input type="radio" name="mode" value="check" checked> <?= $word('CARD_IMPORT', 'check') ?></label>
     <label class="choice"><input type="radio" name="mode" value="apply"> <?= $word('CARD_IMPORT', 'apply') ?></label>
   </fieldset>
-  <p class="actions"><button type="submit" class="primary"><?= $word('CARD_IMPORT', 'button') ?></button></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('CARD_IMPORT', 'button') ?></button></p>
 </form>
 <section aria-labelledby="cols-h">
   <h2 id="cols-h"><?= $word('CARD_IMPORT', 'columns') ?></h2>

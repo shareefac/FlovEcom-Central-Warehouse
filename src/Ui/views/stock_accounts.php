@@ -27,7 +27,7 @@
   <p class="muted"><?= $say('ACCOUNTS', 'last_paid', \CW\Ui\Html::money($a['last_payment']['amount']), \CW\Ui\Html::day($a['last_payment']['paid_on']), $a['last_payment']['reference']) ?></p>
 <?php endif; ?>
 <?php if ($canRelease && !$a['own'] && $a['active']): ?>
-  <p class="actions"><a class="btn secondary" href="/ui/stock/releases#new"><?= $word('ACCOUNTS', 'release') ?></a></p>
+  <p class="actions"><a class="btn" href="/ui/stock/releases#new"><?= $word('ACCOUNTS', 'release') ?></a></p>
 <?php endif; ?>
 <?php if ($canPay): ?>
   <details class="fold"<?php if ($a['error'] !== null): ?> open<?php endif; ?>>
@@ -39,7 +39,7 @@
       <label><?= $word('ACCOUNTS', 'paid_on') ?> <input type="date" name="paid_on" value="<?= $e($a['typed']['paid_on']) ?>" required></label>
       <label><?= $word('ACCOUNTS', 'reference') ?> <input type="text" name="reference" value="<?= $e($a['typed']['reference']) ?>" maxlength="100" required></label>
       <label><?= $word('ACCOUNTS', 'note') ?> <input type="text" name="note" value="<?= $e($a['typed']['note']) ?>" maxlength="500"></label>
-      <p class="actions"><button type="submit" class="primary"><?= $word('ACCOUNTS', 'pay_button') ?></button></p>
+      <p class="actions"><button type="submit" class="btn"><?= $word('ACCOUNTS', 'pay_button') ?></button></p>
     </form>
   </details>
 <?php endif; ?>
@@ -71,7 +71,7 @@
             <form class="record" method="post" action="<?= $u('/ui/stock/accounts/payments/' . $x['id'] . '/reverse') ?>">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <label><?= $word('ACCOUNTS', 'reverse_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-              <p class="actions"><button type="submit" class="danger"><?= $word('ACCOUNTS', 'reverse_button') ?></button></p>
+              <p class="actions"><button type="submit" class="btn risky"><?= $word('ACCOUNTS', 'reverse_button') ?></button></p>
             </form>
           </details><?php endif; ?></td>
       </tr>

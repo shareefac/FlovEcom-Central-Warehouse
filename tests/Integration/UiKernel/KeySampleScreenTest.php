@@ -162,7 +162,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(Words::SPOT['change'], trim((string) $axp->evaluate('string(//details[@id="change-match"]/summary)')));
         self::assertSame(Words::SPOT['no_confirm_title'], trim((string) $axp->evaluate('string(//details[@id="change-match"]//p[@class="alert-title"])')));
         self::assertSame(Words::SPOT['change_button'], trim((string) $axp->evaluate('string(//details[@id="change-match"]//button[@type="submit"])')));
-        self::assertSame('danger', (string) $axp->evaluate('string(//details[@id="change-match"]//button[@type="submit"]/@class)'));
+        self::assertSame('btn risky', (string) $axp->evaluate('string(//details[@id="change-match"]//button[@type="submit"]/@class)'));
         self::assertSame(0, $axp->query('//details[@id="change-match"]//input[@name="action" and @value="reject"]')->length,
             'every answer left there changes the match, so the button is true');
         $seen = $other->get('/ui/review/listing/' . $first['listing_id']);

@@ -28,7 +28,7 @@
       <td class="c-next"><?php if ($r['receipt_href'] !== null): ?><a href="<?= $u($r['receipt_href']) ?>"><?= $word('ARRIVALS', 'open_receipt') ?></a><?php elseif ($canReceive): ?>
         <form class="inline" method="post" action="<?= $u('/ui/receiving/arriving/' . $r['invoice_id'] . '/receive') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-          <button type="submit" class="primary"><?= $word('ARRIVALS', 'receive') ?></button>
+          <button type="submit" class="btn sm"><?= $word('ARRIVALS', 'receive') ?></button>
         </form><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>

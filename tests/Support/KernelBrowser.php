@@ -83,6 +83,13 @@ final class KernelBrowser
             }
         }
         $r = new UiResponse($res->status, $out, $res->body);
+        // Every page a test opens keeps to one main action per form and per page (docs/decisions.md DS5).
+        if (str_starts_with((string) $r->header('content-type'), 'text/html')) {
+            $mains = MainButtons::problems($res->body);
+            if ($mains !== []) {
+                throw new \PHPUnit\Framework\AssertionFailedError("{$method} {$path}: more than one main button: " . implode('; ', $mains));
+            }
+        }
         foreach ($r->headerValues('set-cookie') as $line) {
             $parts = array_map('trim', explode(';', $line));
             [$name, $value] = array_pad(explode('=', (string) array_shift($parts), 2), 2, '');

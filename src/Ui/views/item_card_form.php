@@ -87,7 +87,7 @@
     <p class="field-error" id="e-brand"><?= $e($errors['brand']) ?></p>
 <?php endif; ?>
     <label for="f-flavour"><?= $word('CARD_FIELD', 'flavour') ?> <span class="hint"><?= $word('CARD', 'flavour_hint') ?></span><?php if ($flavourProposed): ?>
-      <span class="tag warn"><?= $word('CARD', 'from_file') ?></span> <span class="hint"><?= $word('CARD', 'flavour_file') ?></span><?php endif; ?></label>
+      <span class="tag needs"><?= $word('CARD', 'from_file') ?></span> <span class="hint"><?= $word('CARD', 'flavour_file') ?></span><?php endif; ?></label>
     <input id="f-flavour" type="text" name="flavour" maxlength="255" value="<?= $e($v['flavour']) ?>"<?php if (isset($errors['flavour'])): ?> aria-invalid="true" aria-describedby="e-flavour"<?php endif; ?>>
 <?php if (isset($errors['flavour'])): ?>
     <p class="field-error" id="e-flavour"><?= $e($errors['flavour']) ?></p>
@@ -98,5 +98,5 @@
     <label class="choice"><input type="checkbox" name="discontinued" value="yes"<?php if ($v['discontinued'] === 'yes'): ?> checked<?php endif; ?>> <?= $word('CARD', 'discontinued') ?>
       <span class="hint"><?= $word('CARD', 'discontinued_hint') ?></span></label>
   </fieldset>
-  <p class="actions"><button type="submit" class="primary"><?= $word('CARD', 'save') ?></button> <a href="<?= $u('/ui/items/' . $sku['id']) ?>"><?= $word('CARD', 'cancel') ?></a></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('CARD', 'save') ?></button> <a href="<?= $u('/ui/items/' . $sku['id']) ?>"><?= $word('CARD', 'cancel') ?></a></p>
 </form>

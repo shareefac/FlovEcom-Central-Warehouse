@@ -18,10 +18,10 @@
     <input type="hidden" name="version" value="<?= $e($i['version']) ?>">
 <?php if ((int) $i['is_preferred'] === 1): ?>
     <input type="hidden" name="preferred" value="0">
-    <button type="submit" class="btn big secondary"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'stop_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'stop_main_does') ?></span></button>
+    <button type="submit" class="btn lg"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'stop_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'stop_main_does') ?></span></button>
 <?php else: ?>
     <input type="hidden" name="preferred" value="1">
-    <button type="submit" class="primary btn big"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'make_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'make_main_does') ?></span></button>
+    <button type="submit" class="btn lg"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'make_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'make_main_does') ?></span></button>
 <?php endif; ?>
   </form>
 </section>
@@ -80,7 +80,7 @@
     <label><?= $word('SUPPLIER_ITEMS', 'price_label') ?> <input type="text" name="pack_price" value="<?= $e($priceValues['pack_price']) ?>" inputmode="decimal" maxlength="20" class="short" required></label>
     <label><?= $word('SUPPLIER_ITEMS', 'price_on') ?> <input type="date" name="effective_on" value="<?= $e($priceValues['effective_on']) ?>" max="<?= $e($today) ?>"></label>
     <label><?= $word('SUPPLIER_ITEMS', 'price_note') ?> <input type="text" name="note" value="<?= $e($priceValues['note']) ?>" maxlength="255"></label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('SUPPLIER_ITEMS', 'price_button') ?></button> <span class="hint"><?= $word('SUPPLIER_ITEMS', 'price_hint') ?></span></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('SUPPLIER_ITEMS', 'price_button') ?></button> <span class="hint"><?= $word('SUPPLIER_ITEMS', 'price_hint') ?></span></p>
   </form>
 </section>
 
@@ -98,7 +98,7 @@
     <label><?= $word('SUPPLIER_ITEMS', 'lead_label') ?> <input type="number" name="lead_days" value="<?= $e($i['lead_days']) ?>" min="0" max="120" class="short"></label>
     <label class="choice"><input type="checkbox" name="is_preferred" value="1"<?php if ((int) $i['is_preferred'] === 1): ?> checked<?php endif; ?>> <?= $word('SUPPLIER_ITEMS', 'main_tick') ?></label>
     <label class="choice"><input type="checkbox" name="is_active" value="1"<?php if ((int) $i['is_active'] === 1): ?> checked<?php endif; ?>> <?= $word('SUPPLIER_ITEMS', 'in_use_tick') ?></label>
-    <p class="actions"><button type="submit"><?= $word('SUPPLIER_ITEMS', 'save') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('SUPPLIER_ITEMS', 'save') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

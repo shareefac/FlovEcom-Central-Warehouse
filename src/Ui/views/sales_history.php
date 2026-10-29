@@ -71,7 +71,7 @@
         <th scope="row"><?= $n($b['id']) ?> <code><?= $e($b['sales_file']) ?></code></th>
         <td data-label="<?= $word('SALES', 'site') ?>"><?= $e($b['channel']) ?> <code><?= $e($b['source']) ?></code></td>
         <td data-label="<?= $word('SALES', 'days') ?>"><?= $say('SALES', 'loaded_line', \CW\Ui\Html::day($b['date_from']), \CW\Ui\Html::day($b['date_to'])) ?></td>
-        <td data-label="<?= $word('SALES', 'state') ?>"><code><?= $e($b['status']) ?></code><?php if ($b['error'] !== null): ?> <span class="tag bad"><?= $e($b['error']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('SALES', 'state') ?>"><code><?= $e($b['status']) ?></code><?php if ($b['error'] !== null): ?> <span class="tag blocked"><?= $e($b['error']) ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SALES', 'rows') ?>"><?= $n($b['rows_loaded']) ?></td>
         <td class="num" data-label="<?= $word('SALES', 'units') ?>"><?= $n($b['units_loaded']) ?></td>
         <td class="num" data-label="<?= $word('SALES', 'unknown_units') ?>"><?= $n($b['unknown_units']) ?> <span class="muted"><?= $pct((int) $b['unknown_units'], (int) $b['units_loaded']) ?></span></td>

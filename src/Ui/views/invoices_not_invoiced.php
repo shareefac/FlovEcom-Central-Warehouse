@@ -43,7 +43,7 @@
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="form_key" value="<?= $e($r['form_key']) ?>">
           <input type="hidden" name="grn_id" value="<?= $e($r['id']) ?>">
-          <button type="submit" class="primary"><?= $word('INVOICES', 'book_invoice') ?></button>
+          <button type="submit" class="btn sm"><?= $word('INVOICES', 'book_invoice') ?></button>
         </form>
 <?php endif; ?>
       </td>

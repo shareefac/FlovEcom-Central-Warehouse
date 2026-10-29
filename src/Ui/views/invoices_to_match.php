@@ -13,7 +13,7 @@
 <?php if ($canRecheck): ?>
 <form class="inline" method="post" action="/ui/purchasing/invoices/to-match/recheck">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-  <button type="submit"><?= $word('INVOICES', 'recheck') ?></button> <span class="hint"><?= $word('INVOICES', 'recheck_hint') ?></span>
+  <button class="btn" type="submit"><?= $word('INVOICES', 'recheck') ?></button> <span class="hint"><?= $word('INVOICES', 'recheck_hint') ?></span>
 </form>
 <?php endif; ?>
 

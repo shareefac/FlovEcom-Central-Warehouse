@@ -23,7 +23,7 @@
 <?php endforeach; ?>
         </select>
       </label>
-      <div class="pop-actions"><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -31,9 +31,9 @@
 <?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_search]) ?>
 <?php endif; ?>
 
-<nav class="pills state-pills" aria-label="<?= $word('STORE_PRODUCTS', 'states') ?>">
+<nav class="tabs state-tabs" aria-label="<?= $word('STORE_PRODUCTS', 'states') ?>">
 <?php foreach ($states as $s): ?>
-  <a href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?php if ($s['key'] !== null): ?><span class="dot <?= $e($s['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($s['label']) ?> <strong class="tab-count"><?= $n($s['count']) ?></strong></a>
+  <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?php if ($s['key'] !== null): ?><span class="dot <?= $e($s['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 
@@ -99,7 +99,7 @@
 <?php elseif ($r['landing_why'] !== null): ?>
         <span class="o-sub landing-why"><?= $e($r['landing_why']) ?></span>
 <?php elseif ($r['band'] !== null && $r['state'] !== 'ignored'): ?>
-        <span class="tag band <?= $e(\CW\Ui\Words::tone('BAND', $r['band'])) ?>"><?= $word('BAND', $r['band']) ?></span>
+        <span class="tag <?= $e(\CW\Ui\Words::tone('BAND', $r['band'])) ?>"><?= $word('BAND', $r['band']) ?></span>
 <?php if ($r['proposed_new']): ?>
         <?= $word('QUEUE', 'new_product') ?>
 <?php elseif ($r['proposed_code'] !== null): ?>
@@ -114,7 +114,7 @@
       </td>
       <td class="num" data-label="<?= $word('QUEUE', 'sold_30') ?>"><?= $n($r['units_30d'] ?? 0) ?></td>
       <td class="num" data-label="<?= $word('QUEUE', 'sold_365') ?>"><?= $n($r['units_365d'] ?? 0) ?></td>
-      <td class="c-next"><a class="btn sm secondary" href="<?= $e($r['link']) ?>"><?= $word('QUEUE', 'open') ?></a></td>
+      <td class="c-next"><a class="btn sm" href="<?= $e($r['link']) ?>"><?= $word('QUEUE', 'open') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

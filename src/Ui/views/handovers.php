@@ -33,7 +33,7 @@
         </select>
       </label>
       <label class="choice"><input type="checkbox" name="cancelled" value="1"<?php if ($f['cancelled']): ?> checked<?php endif; ?>> <?= $word('HANDOVER', 'stopped') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/handovers"><?= $word('HANDOVER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock/handovers"><?= $word('HANDOVER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 <?php if ($rowsN > 0): ?>
@@ -52,7 +52,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
 <?= $partial('handover_fields', ['form' => $form]) ?>
-    <p class="actions"><button type="submit" class="primary"><?= $word('HANDOVER', 'start_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('HANDOVER', 'start_button') ?></button></p>
   </form>
 <?php endif; ?>
 </details>

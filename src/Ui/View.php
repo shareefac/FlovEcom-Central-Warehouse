@@ -139,7 +139,8 @@ final class View
         $f = $this->frame;
         $pagebar = is_array($f['pagebar'] ?? null) ? $f['pagebar'] : null;
         [$sentence, $line] = $intro !== null ? Words::introParts($intro, $look) : ['', $look !== null ? sprintf(Words::UI['look_only'], $look) : ''];
-        $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions']]) : '');
+        // On the Dashboard (no section, so no page bar) the create buttons are plain: its main action is the first job (DS5).
+        $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions'], 'main' => $pagebar !== null]) : '');
         return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $lede ?? $sentence, $more ?? $line, $tag,
             $chips, $aside, $meta, $actions)
             . $this->render('page_frame', ['pagebar' => $pagebar, 'flow' => $f['flow'] ?? null, 'segments' => $f['segments'] ?? [],

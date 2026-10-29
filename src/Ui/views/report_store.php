@@ -12,7 +12,7 @@
           <option value="out"<?php if ($f['show'] === 'out'): ?> selected<?php endif; ?>><?= $word('REPORTS', 'show_out') ?></option>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('REPORTS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('REPORTS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 <?php if ($store !== null): ?>

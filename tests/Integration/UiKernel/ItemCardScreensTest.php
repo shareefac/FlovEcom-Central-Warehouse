@@ -603,10 +603,10 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $long = new \DOMXPath($web->get('/ui/items/cards', ['state' => 'changed'])->dom());
         self::assertSame(Words::say('CARDS', 'chip_card', Words::CARD_STATE['changed']), trim((string) $long->evaluate('string(//div[contains(@class, "filters-on")]/ul/li/a/span[1])')));
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
-        self::assertMatchesRegularExpression('/\n\.filters-on \.pills \{[^}]*min-width: 0;[^}]*\}/', $css);
-        self::assertMatchesRegularExpression('/\n\.filters-on \.pills li \{[^}]*max-width: 100%;[^}]*\}/', $css);
-        self::assertMatchesRegularExpression('/\n\.filters-on \.pills a \{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*\}/', $css);
-        self::assertMatchesRegularExpression('/\n\.filters-on \.pills \.ico \{[^}]*flex: none;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.filter-chips \{[^}]*min-width: 0;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.filter-chips li \{[^}]*max-width: 100%;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.filter-chips a \{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.filter-chips \.ico \{[^}]*flex: none;[^}]*\}/', $css);
         $kind = new \DOMXPath($web->get('/ui/items/cards', ['type' => 'none', 'warnings' => '1', 'discontinued' => '1'])->dom());
         self::assertSame([Words::say('CARDS', 'chip_kind', Words::CARDS['not_set']), Words::CARDS['warnings'], Words::CARDS['discontinued']],
             array_map(static fn (\DOMElement $s): string => trim($s->textContent), array_values(iterator_to_array($kind->query('//div[contains(@class, "filters-on")]/ul/li/a/span[1]')))));

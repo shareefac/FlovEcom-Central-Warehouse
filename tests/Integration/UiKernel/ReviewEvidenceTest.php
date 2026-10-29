@@ -95,7 +95,7 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         ]), $this->dd($page, Words::LISTING['watch']));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('LISTING', 'cannot', $this->skuCode($sku), Words::VETO['strength']),
-            trim((string) $xp->evaluate('string(//span[contains(@class,"tag") and contains(@class,"bad")][1])')));
+            trim((string) $xp->evaluate('string(//span[contains(@class,"tag") and contains(@class,"blocked")][1])')));
         // The codes are kept for the team, folded away (F194).
         $tech = trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//details[contains(@class, "tech-details")])')));
         foreach (['ceiling:Check', 'quote_not_verbatim', 'brand_line: conflict'] as $code) {

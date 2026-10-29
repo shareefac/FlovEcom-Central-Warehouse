@@ -48,9 +48,9 @@
           <form class="inline count-answer" method="post" action="<?= $u($r['action']) ?>">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <label><?= $word('COUNTS', 'answer_note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
-            <button type="submit" name="answer" value="accept"><?= $word('COUNTS', 'accept') ?></button>
+            <button class="btn" type="submit" name="answer" value="accept"><?= $word('COUNTS', 'accept') ?></button>
 <?php if ($r['canReject']): ?>
-            <button type="submit" name="answer" value="reject" class="danger"><?= $word('COUNTS', 'reject') ?></button>
+            <button type="submit" name="answer" value="reject" class="btn risky"><?= $word('COUNTS', 'reject') ?></button>
 <?php endif; ?>
           </form>
 <?php if ($r['counted_again']): ?>

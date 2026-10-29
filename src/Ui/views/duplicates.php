@@ -30,7 +30,7 @@
       <td class="num" data-label="<?= $word('DUPS', 'pages') ?>"><?= $n($r['size']) ?></td>
       <td class="num" data-label="<?= $word('DUPS', 'sold_365') ?>"><?= $n($r['units_365d']) ?></td>
       <td class="num" data-label="<?= $word('DUPS', 'sold_30') ?>"><?= $n($r['units_30d']) ?></td>
-      <td data-label="<?= $word('DUPS', 'rules') ?>"><?php if ($r['against'] !== []): ?><span class="tag bad"><?= $say('DUPS', 'maybe', implode(', ', $r['against'])) ?></span><?php elseif ($r['checked']): ?><span class="muted"><?= $word('DUPS', 'no_reason') ?></span><?php else: ?><span class="muted"><?= $word('DUPS', 'not_checked') ?></span><?php endif; ?></td>
+      <td data-label="<?= $word('DUPS', 'rules') ?>"><?php if ($r['against'] !== []): ?><span class="tag blocked"><?= $say('DUPS', 'maybe', implode(', ', $r['against'])) ?></span><?php elseif ($r['checked']): ?><span class="muted"><?= $word('DUPS', 'no_reason') ?></span><?php else: ?><span class="muted"><?= $word('DUPS', 'not_checked') ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

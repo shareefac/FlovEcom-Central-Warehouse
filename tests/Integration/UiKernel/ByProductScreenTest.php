@@ -122,7 +122,7 @@ final class ByProductScreenTest extends KernelUiTestCase
     private static function pills(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMNode $a): string => self::squash($a->textContent), iterator_to_array($xp->query('//nav[contains(@class, "state-pills")]/a')));
+        return array_map(static fn (\DOMNode $a): string => self::squash($a->textContent), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a')));
     }
 
     /** The picker's rows of one list (`suggested` or `found`): [name, option line, state, barcode mark, Choose link]. @return list<array{0: string, 1: string, 2: string, 3: string, 4: string}> */
@@ -411,7 +411,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 53, 50), $missing->text());
         self::assertSame('/ui/review/products?cov=missing-alt&page=2', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'),
             'the pager keeps the filter');
-        self::assertSame('page', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[contains(@class, "state-pills")]/a[3]/@aria-current)'), 'its entry is marked');
+        self::assertSame('page', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[contains(@class, "state-tabs")]/a[3]/@aria-current)'), 'its entry is marked');
         self::assertSame([$bravo, $charlie, ...array_slice($fillers, 0, 48)], self::ids($web->get('/ui/review/products', ['cov' => 'missing-cee'])));
 
         // The search: words of the name, brand or flavour, a CW number, a barcode; with a filter too.

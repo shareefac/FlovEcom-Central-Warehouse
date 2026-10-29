@@ -24,7 +24,7 @@
       <label><?= $word('QUEUE', 'min') ?>
         <input type="number" name="min" min="0" max="999999" inputmode="numeric" value="<?= $e($qc->min > 0 ? $qc->min : '') ?>">
       </label>
-      <div class="pop-actions"><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -37,9 +37,9 @@
 <?php if ($bandTotal > 0): ?>
   <div class="battery" aria-hidden="true"><?php foreach ($bands as $b): ?><?php if ($b['count'] > 0): ?><span class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?> w-<?= $e(max(1, (int) round($b['count'] * 100 / $bandTotal))) ?>"></span><?php endif; ?><?php endforeach; ?></div>
 <?php endif; ?>
-  <nav class="legend" aria-label="<?= $word('QUEUE', 'lists') ?>">
+  <nav class="tabs legend" aria-label="<?= $word('QUEUE', 'lists') ?>">
 <?php foreach ($bands as $b): ?>
-    <a class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel, 'show' => $show]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <strong class="tab-count"><?= $n($b['count']) ?></strong></a>
+    <a class="tab <?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel, 'show' => $show]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <span class="count"><?= $n($b['count']) ?></span></a>
 <?php endforeach; ?>
   </nav>
 </section>
@@ -50,10 +50,9 @@
 <p class="note"><?= $word('QUEUE', 'lead_only') ?></p>
 <?php endif; ?>
 <?php if ($shows !== []): ?>
-<nav class="pills show-pills" aria-label="<?= $word('QUEUE', 'show') ?>">
-  <span class="pills-label" aria-hidden="true"><?= $word('QUEUE', 'show') ?></span>
+<nav class="tabs show-tabs" aria-label="<?= $word('QUEUE', 'show') ?>">
 <?php foreach ($shows as $s): ?>
-  <a href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $e($s['label']) ?> <strong class="tab-count"><?= $n($s['count']) ?></strong></a>
+  <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 <?php endif; ?>
@@ -140,8 +139,8 @@
 <?php endif; ?>
       </td>
       <td data-label="<?= $word('QUEUE', 'ai') ?>"><?= $e($r['ai'] ?? '') ?></td>
-      <td data-label="<?= $word('QUEUE', 'watch') ?>"><?php foreach ($r['watch'] as $w): ?><span class="tag warn"><?= $e($w) ?></span> <?php endforeach; ?></td>
-      <td class="c-next"><a class="btn<?php if ($button === \CW\Ui\Words::QUEUE['open'] && $r['check'] === null): ?> primary<?php else: ?> secondary<?php endif; ?>" href="<?= $e($r['link']) ?>"><?= $e($button) ?></a></td>
+      <td data-label="<?= $word('QUEUE', 'watch') ?>"><?php foreach ($r['watch'] as $w): ?><span class="tag needs"><?= $e($w) ?></span> <?php endforeach; ?></td>
+      <td class="c-next"><a class="btn sm" href="<?= $e($r['link']) ?>"><?= $e($button) ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

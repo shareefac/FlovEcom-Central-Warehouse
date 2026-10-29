@@ -8,9 +8,9 @@
 <?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
 $moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') || (in_array('cancel', $moreActions, true) && $reasonError === 'cancel')
     || (in_array('reopen', $moreActions, true) && $errorCode === 'reopen_reason_required'); ?>
-  <details class="doc-more"<?php if ($moreOpen): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
-    <div class="doc-more-menu">
+  <details class="more"<?php if ($moreOpen): ?> open<?php endif; ?>>
+    <summary class="btn"><?= $word('DOC', 'more') ?></summary>
+    <div class="more-menu">
 <?php foreach ($moreActions as $a): ?>
 <?= $partial('po_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
     'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,

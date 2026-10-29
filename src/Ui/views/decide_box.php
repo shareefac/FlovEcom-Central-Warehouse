@@ -23,12 +23,12 @@
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $decide['task']['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('RECORD', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary"><?= $e($decide['ok']) ?></button>
+    <button type="submit" class="btn primary"><?= $e($decide['ok']) ?></button>
   </form>
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $decide['task']['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('RECORD', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit"><?= $word('RECORD', 'not_ok') ?></button>
+    <button class="btn" type="submit"><?= $word('RECORD', 'not_ok') ?></button>
   </form>
 <?php endif; ?>
 </section>

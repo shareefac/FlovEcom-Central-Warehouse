@@ -329,7 +329,7 @@ final class ReviewController
         $out = [];
         foreach (BulkDecisions::actionsOf($source) as $a) {
             if (BulkDecisions::offered($a, $source, $band, $roles, $confirmBands)) {
-                $out[] = ['action' => $a, 'label' => Words::of($words, $a), 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
+                $out[] = ['action' => $a, 'label' => Words::of($words, $a), 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? '' : 'primary'];
             }
         }
         return $out;

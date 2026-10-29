@@ -244,9 +244,10 @@ final class CheckMatchScreenTest extends KernelUiTestCase
     }
 
     /**
-     * The review of 21 Oct 2026 (docs/decisions.md SX7): a row with Check & match has the plain (secondary) Open, so the quick path is
-     * the one filled button of the row; a row without one keeps its filled Open. The fold carries the words app.js adds to the
-     * "Done" notice when it opens the next row's fold by itself; the answer's way back (#l-<next row>, notice, prev) is unchanged.
+     * The review of 21 Oct 2026 (docs/decisions.md SX7), with the one buttons component (DS5: a button repeated on every row of a list is
+     * plain, never the page's main action): every row's Open and its Check & match are small plain buttons. The fold carries the words
+     * app.js adds to the "Done" notice when it opens the next row's fold by itself; the answer's way back (#l-<next row>, notice, prev) is
+     * unchanged.
      */
     public function testOpenIsThePlainButtonBesideCheckAndMatchAndTheFoldCarriesItsNextWords(): void
     {
@@ -256,8 +257,8 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         $xp = new \DOMXPath($list->dom());
         $open = static fn (int $id): string => (string) $xp->evaluate('string(//tr[@id="l-' . $id . '"]/td[@class="c-next"]/a/@class)');
-        self::assertSame(['btn secondary', 'btn secondary', 'btn primary'], [$open($f['clean']), $open($f['warned']), $open($f['judged'])]);
-        self::assertSame('btn sm primary', (string) $xp->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]//details[@data-check-fold]/summary/@class)'));
+        self::assertSame(['btn sm', 'btn sm', 'btn sm'], [$open($f['clean']), $open($f['warned']), $open($f['judged'])]);
+        self::assertSame('btn sm', (string) $xp->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]//details[@data-check-fold]/summary/@class)'));
         self::assertSame(Words::CHECK['next_open'], (string) $xp->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]//details[@data-check-fold]/@data-opened)'));
         $frag = self::open($web, (string) self::fold($list, $f['clean']));
         $r = $web->post('/ui/review/listing/' . $f['clean'] . '/decide', (array) self::answer($frag, 'yes'));

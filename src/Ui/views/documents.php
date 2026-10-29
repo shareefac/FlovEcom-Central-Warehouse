@@ -31,7 +31,7 @@
   <label><?= $word('RECORDS', 'search') ?>
     <input type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100">
   </label>
-  <button type="submit" class="btn secondary"><?= $word('RECORDS', 'show') ?></button>
+  <button type="submit" class="btn"><?= $word('RECORDS', 'show') ?></button>
 </form>
 
 <?php $filtered = $filters['type'] !== null || $filters['status'] !== null || $filters['review'] !== null || $filters['q'] !== ''; ?>

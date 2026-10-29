@@ -18,7 +18,7 @@
 <?php endforeach; ?>
     </select>
   </label>
-  <button type="submit" class="btn primary sm"><?= $word('REPORTS', 'apply') ?></button>
+  <button type="submit" class="btn sm"><?= $word('REPORTS', 'apply') ?></button>
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 </form>
 <p class="note"><?= $say('REPORTS', 'period_says', $day($from), $day($to)) ?> <?= $e($asOf) ?></p>

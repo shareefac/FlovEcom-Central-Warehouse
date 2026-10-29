@@ -16,8 +16,9 @@
   sit in white cards and scroll sideways inside them, never the page; they become one card per row when the page column is 640 px or
   narrower. Inputs at 16 px on a phone; tap targets 44 px on a phone or a touch screen.
 
-  Sections: 0 font, 1 tokens, 2 base, 3 strips and toasts, 4 shell (sidebar, phone bar, phone menu), 5 page head (statement, tabs,
-  buying flow, segments, toolbar), 6 cards, KPI tiles and boards, 7 status pills and tags, 8 notices, 9 buttons, 10 forms, 11 tables,
+  Sections: 0 font, 1 tokens, 2 base, 3 strips and toasts, 4 shell (sidebar, phone bar, phone menu), 5 page head (statement, the ONE
+  tabs component, buying flow, toolbar), 6 cards, KPI tiles and boards, 7 status: block, cell and tag, 8 notices, 9 the ONE buttons
+  component and its More menu, 10 forms, 11 tables,
   12 folds, help and drawers, 13 progress, 14 home and task board, 15 decision pages, 16 lists: chips, pager, empty states, 17 the
   screens' own parts, 18 print, 19 the set-it-yourself pack, 20 stock, 21 store-wise review and bulk action, 22 by item, counts and
   orders, 23 sign-in, 24 All Products for normal staff (and the shared parts it improved: the tabs' fade, the search box, the chips of
@@ -50,8 +51,9 @@
   --accent: #c90e9f;          /* primary buttons, the open page, eyebrows, the focus ring */
   --accent-hover: #8f0a71;
   --accent-soft: #fbe6f6;
+  --accent-line: #f3c6e8;     /* the soft (helper) button's edge */
   --brand-gradient: linear-gradient(135deg, #ff14e0, #ff6a8e 55%, #ffb01e); /* the signed-in person's avatar only (and the sign-in panel) */
-  --pink: #ff6a8e;            /* the bulk bar's main action, "being added" */
+  --pink: #ff6a8e;            /* the bulk bar's count, "being added" */
   /* Solid status colours: white text on each passes 4.5:1 */
   --st-green: #0f7a5a;        /* done, paid, approved */
   --st-amber: #a65c00;        /* pending, warning */
@@ -280,8 +282,8 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 .nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
 .nav-item[aria-current="page"] .ico { color: var(--accent); }
 .nav-label { flex: 1 1 auto; min-width: 0; }
-/* Counts (pills) on the sidebar, the tabs and the segments: grey = something waits here; accent = waiting for YOU */
-.nav-item > .count, .tab > .count, .seg-item > .count {
+/* Counts (pills) on the sidebar: grey = something waits here; accent = waiting for YOU (a tab's count: section 5) */
+.nav-item > .count {
   flex: none; display: inline-block; min-width: 20px; padding: 0 7px; border-radius: var(--r-pill);
   background: var(--sf-grey); color: var(--ink-body); font: 600 11px/20px var(--font); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
@@ -400,7 +402,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 }
 
 /* ---------- 5. The page head: the statement (eyebrow, heading with its full stop, one sentence) and the page's actions on the
-   right, then the section's tabs, the buying flow, the segmented filter and the toolbar ---------- */
+   right, then the section's tabs and its segments (the ONE tabs component), the buying flow and the toolbar ---------- */
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin: 0 0 24px; }
 .ph-text { flex: 1 1 26rem; min-width: 0; }
 .ph-eyebrow { margin: 0 0 8px; font: 600 12px/16px var(--font); letter-spacing: 3px; text-transform: uppercase; color: var(--accent); }
@@ -427,38 +429,38 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 /* A page drawn without a statement (an old template; Ui\View draws the frame then) keeps the same order and look */
 .frame-only { margin: 0 0 8px; }
 
-/* Tabs (underline): 14 px, the open one in the accent with a 2 px accent line under it. Scroll inside themselves, never the page. A
-   tab not built yet is a disabled span with a "Soon" pill. */
+/* Tabs: ONE component for every tab-like control (the owner, 29 Oct 2026: "tab change follow this design pattern"; the parts board
+   TP_Parts and the item page IT_Item; docs/decisions.md DS2). The section's tabs under the statement, its segments under them (the old
+   black pills), a page's own lists (Show, the stores, the states, the periods, the match strengths, the barcodes), a page's parts: each a
+   <nav class="tabs"> of <a class="tab">. 14 px semi-bold muted words; the open tab (aria-current) in the dark accent with a 3 px accent
+   bar under it; a count is a bubble (.count) that turns accent on the open tab; 44 px to tap. The row never wraps: it scrolls sideways
+   inside itself, never the page, and app.js fades the side that has more (section 24). A second row sits right under the first. A tab
+   not built yet is a disabled span with a "Soon" pill. */
 .tabs {
-  position: relative; display: flex; gap: 4px; margin: -8px 0 24px; padding: 0; overflow-x: auto; overscroll-behavior-x: contain;
+  position: relative; display: flex; gap: 4px; margin: 0 0 24px; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
   scrollbar-width: thin; box-shadow: inset 0 -1px 0 var(--hairline);
 }
+.page-head + .tabs, .frame-only > .tabs:first-child { margin-top: -8px; }
+.tabs + .tabs { margin-top: -16px; }
 .tab {
-  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 8px 12px;
-  color: var(--ink-muted); font: 500 14px/20px var(--font); text-decoration: none; white-space: nowrap;
-  border-bottom: 2px solid transparent;
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 10px 14px;
+  color: var(--ink-muted); font: 600 14px/20px var(--font); text-decoration: none; white-space: nowrap;
+  border-bottom: 3px solid transparent;
 }
 a.tab:hover { color: var(--ink); text-decoration: none; }
 @media (hover: hover) { a.tab:not([aria-current]):hover { border-bottom-color: var(--hairline); } }
-.tab[aria-current] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-.tab[aria-current] > .count:not(.soon), .seg-item[aria-current] > .count { background: var(--accent); color: var(--on-fill); }
+.tab[aria-current] { color: var(--accent-hover); border-bottom-color: var(--accent); }
+.tab > .count {
+  flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--sf-grey); color: var(--ink-body); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tab[aria-current] > .count:not(.soon) { background: var(--accent); color: var(--on-fill); }
 .tab.soon { color: var(--ink-faint); cursor: default; }
-.tab > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); }
-
-/* The segmented filter inside a tab: a light track, 12 px options, the chosen one dark with white text */
-.seg {
-  position: relative; display: inline-flex; gap: 2px; max-width: 100%; margin: 0 0 20px; padding: 3px;
-  background: var(--page); border: 1px solid var(--hairline); border-radius: var(--r-pill); overflow-x: auto; scrollbar-width: thin;
-}
-.seg-item {
-  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 32px; padding: 4px 14px;
-  border-radius: var(--r-pill); color: var(--ink-body); font: 500 12px/18px var(--font); text-decoration: none; white-space: nowrap;
-}
-.seg-item:hover { color: var(--ink); background: var(--card); text-decoration: none; }
-.seg-item[aria-current] { background: var(--ink); color: var(--on-fill); }
-.seg-item[aria-current]:hover { background: var(--ink); color: var(--on-fill); }
-.seg-item > .count { min-width: 18px; line-height: 18px; }
-.seg-item[aria-current] > .count { background: rgba(255, 255, 255, .2); }
+.tab > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
+/* A tab's own mark: a match strength's colour key, a state's dot (the tone class on the tab gives the colour) */
+.tab > .key { flex: none; width: 12px; height: 12px; border-radius: 2px; background: var(--t-fill); }
+/* Tabs inside a card (the match strengths under their bar, a page's parts): the card's padding is the row's edge */
+.card > .tabs { margin: 12px 0 16px; }
 
 /* The buying flow on Purchasing ("what happens next": numbered 28 px circles, a bold title, a muted line); each step opens its tab */
 .flow { list-style: none; margin: 0 0 24px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
@@ -486,20 +488,11 @@ a.tab:hover { color: var(--ink); text-decoration: none; }
 .main { display: block; min-width: 0; padding: 32px var(--gutter) 48px; }
 .main:focus { outline: none; }
 .main.bare .page { max-width: 480px; margin: 0 auto; }
-/* The toolbar (filters/toolbar row): the page's create button, Search with its magnifier, Filter and Sort as small buttons (<details>
-   pop-overs, so they work without app.js), Export at the far end. */
+/* The toolbar (filters/toolbar row): Search with its magnifier, Filter and Sort as small plain buttons (<details> pop-overs, so they
+   work without app.js; their Apply is plain: a list's filter is never the page's main action, DS5), Export at the far end. */
 .toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 20px; }
 .toolbar .btn .ico, .tb-pop > summary .ico { width: 16px; height: 16px; }
-.split { position: relative; display: inline-flex; }
-.split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.split-more { position: relative; margin: 0; padding: 0; border: 0; background: none; }
-.split-more > summary {
-  list-style: none; height: 100%; min-width: 36px; padding: 0 10px; margin: 0; border-left: 1px solid rgba(255, 255, 255, .35);
-  border-top-left-radius: 0; border-bottom-left-radius: 0;
-}
-.split-more > summary::-webkit-details-marker, .tb-pop > summary::-webkit-details-marker { display: none; }
-.split-more > summary::after { content: ""; width: 7px; height: 7px; margin-top: -4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
-.split-more[open] > summary { background: var(--accent-hover); margin-bottom: 0; }
+.tb-pop > summary::-webkit-details-marker { display: none; }
 .tb-search { position: relative; display: inline-flex; align-items: center; }
 .tb-search .ico { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--ink-muted); pointer-events: none; }
 .tb-search input[type="search"] {
@@ -520,22 +513,16 @@ a.tab:hover { color: var(--ink); text-decoration: none; }
   max-width: min(400px, calc(100vw - 32px)); margin: 0; padding: 6px; list-style: none;
   background: var(--card); color: var(--ink-body); border: 1px solid var(--hairline); border-radius: var(--r-12); box-shadow: var(--shadow-float);
 }
-.split .pop { left: auto; right: 0; }
 .pop li { margin: 0; }
 .pop-form { display: grid; gap: 12px; padding: 16px; min-width: 300px; }
 .pop-form label:not(.choice) { color: var(--ink); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.menu-item {
-  display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border-radius: var(--r-8);
-  color: var(--ink-body); text-decoration: none; font: 500 14px/20px var(--font); white-space: nowrap;
-}
-.menu-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
 @media (max-width: 639.98px) {
   /* Search takes the free width; a pop-over opens under the whole toolbar, full width */
-  .split, .tb-pop { position: static; }
+  .tb-pop { position: static; }
   .tb-search { flex: 1 1 8rem; }
   .tb-search input[type="search"], .tb-search input:focus-visible, .tb-search input:not(:placeholder-shown) { width: 100%; }
-  .pop, .split .pop { left: 0; right: 0; width: auto; max-width: none; min-width: 0; }
+  .pop { left: 0; right: 0; width: auto; max-width: none; min-width: 0; }
   .pop-form { min-width: 0; }
   .tb-end { margin-left: 0; }
 }
@@ -656,8 +643,14 @@ table.board tbody tr.grp-foot:hover > *, table.board tbody tr.grp-add:hover > * 
 table.board th.c-item { min-width: 14rem; }
 table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16px var(--font); }
 
-/* ---------- 7. Status pills (solid, white 12 px semi-bold words; Ui\Html::chip is the one status-to-colour mapping, the tone's colour
-   is here) and soft tags (a tint and coloured words) ---------- */
+/* ---------- 7. Status: three parts, one set of colours (the parts board TP_Parts; docs/decisions.md DS3). The tone class carries the
+   colour, the same everywhere: grey `waiting` (a draft, not started), blue `info` (sent, new), purple `review` (waiting for someone, being
+   checked), amber `needs` (needs a look), green `done`, red `blocked` (late, refused), navy `off` (closed, switched off). Ui\Html::chip
+   and Words::TONE are the one status-to-colour mapping. The parts:
+     .chip       the solid status: white 12 px semi-bold words on the tone's colour, 8 px corners; on a record (its heading, its state
+                 line) the 32 px block
+     td.doc-st   the solid cell of a board: the whole cell in the tone's colour (section pi-design)
+     .tag        a small fact: the tone's tint and its words, fully rounded; with no tone, grey ---------- */
 /* Tones. --t-fill = the solid colour (pills, group headings, KPI squares); --t-soft = its tint; --t-ink = text on the tint. */
 .needs   { --t-fill: var(--st-amber);  --t-soft: var(--sf-amber);  --t-ink: var(--sf-amber-ink);  --t-bg: var(--needs-bg); --t-line: var(--needs-line); --t-icon: var(--needs-icon); }
 .done    { --t-fill: var(--st-green);  --t-soft: var(--sf-green);  --t-ink: var(--sf-green-ink);  --t-bg: var(--done-bg);  --t-line: var(--done-line);  --t-icon: var(--done-icon); }
@@ -669,36 +662,22 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
 
 .chip {
   display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: middle;
-  min-width: 110px; min-height: 26px; padding: 4px 12px; border-radius: 6px; white-space: nowrap; border: 0;
+  min-width: 110px; min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); white-space: nowrap; border: 0;
   background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 12px/18px var(--font); text-align: center; letter-spacing: .01em;
 }
-.chip.lg { min-height: 32px; padding: 6px 14px; font-size: 13px; }
+/* The block on a record: beside its heading, in its state line */
+.chip.lg, .ph-title h1 .chip, .ph-meta .chip { min-height: 32px; padding: 6px 14px; font-size: 13px; }
 td .chip + .chip, p .chip + .chip { margin-left: 4px; }
-/* A result mark (a 22 px round badge, then the word): done = a tick, needs = "!", blocked = a bar, info = "i" */
-.mark { display: inline-flex; align-items: center; gap: 8px; color: var(--t-ink); font-weight: 600; white-space: nowrap; }
-.mark::before {
-  content: ""; flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--t-icon, var(--info-icon)); color: var(--on-fill); font: 700 12px/1 var(--font);
-}
-.mark.needs::before { content: "!"; content: "!" / ""; }
-.mark.done::before  { content: "\2713"; content: "\2713" / ""; }
-.mark.info::before  { content: "i"; content: "i" / ""; }
-.mark.blocked::before { background: linear-gradient(var(--on-fill), var(--on-fill)) center / 10px 2px no-repeat, var(--t-icon); }
-.mark.waiting::before, .mark.off::before { background: transparent; border: 2px solid var(--t-icon); }
-.mark.review::before { content: "?"; content: "?" / ""; }
 
-/* Soft tags: the tint and coloured 11 px semi-bold words, fully rounded */
-.status, .tag {
+/* The soft tag: the tint and its words, 12 px semi-bold, fully rounded. Grey unless the tag itself names a tone (a tone class on a row
+   around it is never inherited: the custom properties would pass down). */
+.tag {
   display: inline-flex; align-items: center; gap: 6px; vertical-align: middle;
-  padding: 2px 10px; border-radius: var(--r-pill); margin: 0 4px 2px 0;
-  color: var(--sf-grey-ink); background: var(--sf-grey); border: 0; font: 600 11px/18px var(--font); white-space: normal;
+  padding: 2px 9px; border-radius: var(--r-pill); margin: 0 4px 2px 0;
+  color: var(--sf-grey-ink); background: var(--sf-grey); border: 0; font: 600 12px/18px var(--font); white-space: normal;
 }
+.tag:is(.needs, .done, .waiting, .blocked, .info, .off, .review) { background: var(--t-soft); color: var(--t-ink); }
 .tag .muted { color: inherit; opacity: .85; }
-.status-mapped, .status-active, .tag.ok { color: var(--sf-green-ink); background: var(--sf-green); }
-.status-suggested, .status-unmapped, .status-pending_approval, .status-draft, .tag.warn { color: var(--sf-amber-ink); background: var(--sf-amber); }
-.status-quarantined, .status-inactive, .tag.bad { color: var(--sf-red-ink); background: var(--sf-red); }
-.tag.band { background: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--sf-grey-ink)); }
-.tag.mine { color: var(--sf-magenta-ink); background: var(--sf-magenta); }
 
 /* ---------- 8. Notices: info (a blue-white panel, navy words), warning (amber), problem (red), done (green), each with its badge.
    The older .notice / .note / .error look the same. ---------- */
@@ -741,52 +720,86 @@ td .chip + .chip, p .chip + .chip { margin-left: 4px; }
   background: var(--sf-amber); color: var(--sf-amber-ink); font: 600 13px/20px var(--font); overflow-wrap: anywhere; }
 .alert.admin-off { margin-bottom: 20px; }
 
-/* ---------- 9. Buttons: 44 px (36 small, 30 extra small); the label says what happens. Primary (the accent), secondary (white with a
-   hairline), dark, danger (solid red: "the red button"), danger outline, success, ghost (accent words), dashed ("+ Add …").
-   Disabled = half opacity. ---------- */
-.btn, button, .button, a.button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 44px; padding: 8px 18px; border-radius: var(--r-10);
+/* ---------- 9. Buttons: ONE component (the owner, 29 Oct 2026: "button all design follow this"; the parts board TP_Parts; docs/decisions.md
+   DS1, DS4-DS6). Every button is a .btn (a <button>, a link or a summary): plain white with a hairline, 600 14 px words, 10 px corners.
+   A variant says what kind it is, and there are only these:
+     .primary  the main action, magenta: ONE per page, or one per form where a page holds several (tests: UiTemplatesTest, the browser)
+     .soft     a helper attached to a field ("Fill the lines"): the pink tint
+     .ghost    quiet: Leave, Change, Skip, Clear, Export (no edge, muted words)
+     .ok       the answer "yes / all fine": the green tint
+     .risky    red words on white: only inside More or a confirm fold (Cancel, Reverse, Remove, Refuse)
+   Sizes: .sm 34 px, normal 40 px, .lg 48 px (a big action, a two-line answer); on a phone every normal or large button is 48 px and a
+   small one 44 px, and 44 px on a touch screen. Disabled: faded, the reason in plain words next to it (.btn-why). More: a details.more
+   whose summary is a .btn ("More" and a drawn arrow) and whose .more-menu lists the rest, risky ones last; it needs no script, and on a
+   phone it opens in the flow under its button. ---------- */
+.btn, button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 40px; padding: 8px 16px; border-radius: var(--r-10);
   border: 1px solid var(--hairline); background: var(--card); color: var(--ink);
-  font: 500 14px/20px var(--font); text-align: center; text-decoration: none; cursor: pointer; vertical-align: middle;
+  font: 600 14px/20px var(--font); text-align: center; text-decoration: none; cursor: pointer; vertical-align: middle;
   -webkit-appearance: none; appearance: none; transition: background-color .1s, border-color .1s;
 }
-.btn:hover, button:hover, .button:hover { background: var(--page-alt); border-color: var(--ink-faint); color: var(--ink); text-decoration: none; }
-.btn.primary, button.primary, a.button.primary-link { background: var(--accent); color: var(--on-fill); border-color: var(--accent); font-weight: 600; }
-.btn.primary:hover, button.primary:hover, a.button.primary-link:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-fill); }
-.btn.secondary { background: var(--card); color: var(--ink); border-color: var(--hairline); }
-.btn.secondary:hover { border-color: var(--ink-faint); }
-.btn.dark, button.dark { background: var(--ink); color: var(--on-fill); border-color: var(--ink); }
-.btn.dark:hover, button.dark:hover { background: #2e2638; color: var(--on-fill); }
-.btn.danger, button.danger { background: var(--st-red); color: var(--on-fill); border-color: var(--st-red); font-weight: 600; }
-.btn.danger:hover, button.danger:hover { background: var(--sf-red-ink); border-color: var(--sf-red-ink); color: var(--on-fill); }
-.btn.danger-outline, button.danger-outline { background: var(--card); color: var(--st-red); border-color: var(--st-red); }
-.btn.danger-outline:hover, button.danger-outline:hover { background: var(--sf-red); color: var(--sf-red-ink); }
-.btn.success, button.success { background: var(--st-green); color: var(--on-fill); border-color: var(--st-green); font-weight: 600; }
-.btn.success:hover, button.success:hover { background: var(--sf-green-ink); color: var(--on-fill); }
-/* Ghost (and the older "quiet" and "link"): no edge, no fill, accent words */
-.btn.ghost, .btn.quiet, button.link { background: transparent; border-color: transparent; color: var(--accent-hover); padding-left: 10px; padding-right: 10px; }
-.btn.ghost:hover, .btn.quiet:hover, button.link:hover { background: var(--accent-soft); border-color: transparent; color: var(--accent-hover); }
-.btn.ghost .ico { color: currentColor; }
-button.link { text-decoration: underline; text-underline-offset: .2em; font-weight: 500; }
-.btn.dashed { background: transparent; border: 1px dashed var(--accent); color: var(--accent-hover); }
-.btn.dashed:hover { background: var(--accent-soft); border-color: var(--accent); }
-.btn.sm { min-height: 36px; padding: 6px 14px; font-size: 13px; line-height: 20px; }
-.btn.xs { min-height: 30px; padding: 4px 10px; font-size: 12px; line-height: 18px; }
-.btn.full { width: 100%; }
-button[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
-.btn.big { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 10px 18px; text-align: left; width: 100%; }
-.btn .btn-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.btn:hover, button:hover { background: var(--page-alt); border-color: var(--ink-faint); color: var(--ink); text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-fill); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-fill); }
+.btn.soft { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-hover); }
+.btn.soft:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-hover); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-muted); padding-left: 12px; padding-right: 12px; }
+.btn.ghost:hover { background: var(--page-alt); border-color: transparent; color: var(--ink); }
+.btn.ok { background: var(--sf-green); border-color: var(--done-line); color: var(--sf-green-ink); }
+.btn.ok:hover { background: var(--sf-green); border-color: var(--st-green); color: var(--sf-green-ink); }
+.btn.risky { background: var(--card); border-color: var(--block-line); color: var(--sf-red-ink); }
+.btn.risky:hover { background: var(--sf-red); border-color: var(--st-red); color: var(--sf-red-ink); }
+.btn .ico { color: currentColor; }
+.btn.sm { min-height: 34px; padding: 6px 12px; font-size: 13px; line-height: 20px; }
+.btn.lg { min-height: 48px; padding: 10px 20px; font-size: 15px; border-radius: var(--r-12); }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.btn[disabled]:hover, .btn[aria-disabled="true"]:hover { background: var(--card); border-color: var(--hairline); }
+.btn.primary[disabled]:hover, .btn.primary[aria-disabled="true"]:hover { background: var(--accent); border-color: var(--accent); }
+.btn-why { color: var(--ink-muted); font: 400 13px/20px var(--font); }
+/* A two-line answer (its title, then what it does): the words from the left, across its row */
+.btn:has(> .btn-title) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; width: 100%; }
+.btn .btn-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
 .btn .sub { font-size: 12px; line-height: 18px; font-weight: 400; }
-.btn.secondary .sub, .btn:not(.primary):not(.danger):not(.dark):not(.success) .sub { color: var(--ink-muted); }
+.btn:not(.primary) .sub { color: var(--ink-muted); }
 .btn-row, .actions, td.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 p.actions, div.actions { margin: 16px 0; }
-.actions > a:not(.button):not(.btn) { display: inline-flex; align-items: center; min-height: 40px; font-weight: 500; }
-.reveal { min-height: 32px; padding: 4px 12px; font-size: 13px; margin-top: -2px; justify-self: start; }
-@media (max-width: 699.98px), (pointer: coarse) {
-  .btn, button, .button, a.button, .btn.sm, .btn.xs { min-height: 44px; }
-  .reveal { min-height: 44px; }
+.actions > a:not(.btn) { display: inline-flex; align-items: center; min-height: 40px; font-weight: 500; }
+/* The password's "Show" (app.js adds it after the field's label) */
+.reveal { margin-top: -2px; justify-self: start; }
+@media (max-width: 699.98px), (pointer: coarse) { .btn, .btn.sm { min-height: 44px; } }
+@media (max-width: 699.98px) { .btn:not(.sm) { min-height: 48px; } }
+
+/* More: the rest of a page's or a record's actions (the create button's other "New …", a record's other steps). A <details>, so it needs
+   no script; Esc or a click elsewhere closes it (app.js). Its items are rows: a link (.menu-item), a form's button, a fold's summary (a
+   step that asks a reason opens in the menu). */
+details.more { position: relative; display: inline-block; margin: 0; padding: 0; border: 0; background: none; }
+details.more > summary { list-style: none; margin: 0; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::after { content: ""; width: 7px; height: 7px; margin: -4px 0 0 4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+details.more[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
+.more-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; display: grid; gap: 0; width: max-content; min-width: 220px;
+  max-width: min(32rem, calc(100vw - 32px)); padding: 4px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
+  box-shadow: var(--shadow-float);
 }
+.more-menu > form, .more-menu > a, .more-menu > details { width: 100%; margin: 0; }
+.more-menu > * + * { border-top: 1px solid var(--divider); }
+.more-menu > .btn, .more-menu > form > .btn, .more-menu > details > summary.btn, .menu-item {
+  display: flex; width: 100%; justify-content: flex-start; min-height: 40px; padding: 8px 12px; border: 0; border-radius: var(--r-8);
+  background: none; color: var(--ink); font: 500 14px/20px var(--font); text-align: left; text-decoration: none; white-space: normal;
+}
+.more-menu > .btn:hover, .more-menu > form > .btn:hover, .more-menu > details > summary.btn:hover, .menu-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
+.more-menu > .btn.risky, .more-menu > form > .btn.risky, .more-menu > details > summary.btn.risky { color: var(--sf-red-ink); }
+.more-menu > details { padding: 0; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background: none; }
+.more-menu > details > summary { list-style: none; }
+.more-menu > details > summary::-webkit-details-marker { display: none; }
+.more-menu > details[open] > summary.btn { background: var(--accent-soft); color: var(--accent-hover); }
+.more-menu .doc-act-panel { margin: 6px 0; max-width: none; }
+@media (max-width: 699.98px), (pointer: coarse) { .more-menu > .btn, .more-menu > form > .btn, .more-menu > details > summary.btn, .menu-item { min-height: 44px; } }
+/* On a phone the menu is in the flow under its button, the open menu taking its row (the Codex review of 9ce3515, M3; PV26): nothing is
+   placed against the page, with or without the script. */
+@media (max-width: 639.98px) { details.more { position: static; } .more-menu { position: static; width: auto; min-width: 0; max-width: none; margin: 6px 0 0; box-shadow: none; } details.more[open] { flex: 1 1 100%; } }
 
 /* ---------- 10. Forms: the label above each field, a muted 12 px hint, 44 px fields with a 10 px radius, the accent focus ring ---------- */
 label { display: grid; gap: 6px; color: var(--ink); font: 500 13px/20px var(--font); }
@@ -1141,20 +1154,7 @@ ul.uses .hint { display: block; }
 }
 .confirm-step { border: 1.5px solid var(--block-line); border-left: 4px solid var(--st-red); }
 
-/* ---------- 16. Lists: quick-filter chips (with counts), the pager, empty states ---------- */
-.pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; }
-.pills li { margin: 0; }
-.pills a, .pill {
-  display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 14px;
-  border-radius: var(--r-pill); border: 1px solid var(--hairline); background: var(--card);
-  color: var(--ink-body); text-decoration: none; font: 500 13px/20px var(--font); white-space: nowrap;
-}
-.pills a:hover, .pill:hover { border-color: var(--ink-faint); color: var(--ink); text-decoration: none; }
-.pills a[aria-current="page"], .pill[aria-current="true"] {
-  border: 1.5px solid var(--accent); background: var(--accent-soft); color: var(--accent-hover); padding: 5.5px 13.5px; font-weight: 600;
-}
-.pills .tab-count, .pill .tab-count { color: var(--ink-muted); font-weight: 600; }
-@media (max-width: 699.98px), (pointer: coarse) { .pills a, .pill { min-height: 44px; } }
+/* ---------- 16. Lists: the pager, empty states (the quick filters with counts are tabs: section 5) ---------- */
 /* The pager under a list ("1–10 of 112", previous and next) */
 .pager { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 16px 0 24px; color: var(--ink-muted); font-size: 13px; }
 .pager a {
@@ -1284,14 +1284,14 @@ details.how ol { margin: 0 0 .5rem; }
 section.new-order form.inline { margin-top: 4px; }
 section.sales-data .see-also { margin: 8px 0 0; }
 section.totals .actions { margin: 12px 0 4px; }
-section.totals .actions .btn.big { width: auto; flex: 1 1 16rem; }
+section.totals .actions .btn.lg { width: auto; flex: 1 1 16rem; }
 details.why.maths { margin-top: 6px; }
 table.stack tr.urgent { --t-icon: var(--block-icon); }
 table.list.reorder .o-line { max-width: none; }
 table.list.reorder .chip { margin: 4px 4px 0 0; }
 @container (max-width: 640px) {
   table.po-lines input.short, table.po-lines input[type="text"], table.po-lines select { width: 100%; }
-  section.totals .actions .btn.big, .order-actions .btn.big { width: 100%; }
+  section.totals .actions .btn.lg, .order-actions .btn.lg { width: 100%; }
   form.po-editor fieldset label { flex-basis: 100%; }
 }
 
@@ -1320,7 +1320,6 @@ article.review form.inline { margin: 6px 12px 6px 0; }
 }
 
 /* Matching pages: the lists, one website product, the second OK, the spot check (plan §6.14-6.18) */
-.tab-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 .next-link { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
 .subtitle { font-size: 16px; margin: -.25rem 0 .25rem; }
 p.eyebrow .chip { margin-left: 2px; }
@@ -1355,7 +1354,6 @@ details.confirm-step[open] { grid-column: 1 / -1; padding: 12px; border: 2px sol
   border-radius: var(--radius-sm); background: var(--surface); }
 details.confirm-step[open] > summary { margin-bottom: 12px; }
 details.confirm-step form.decide { box-shadow: none; border: 0; padding: 0; }
-.btn.big .btn-title { font-weight: 700; }
 
 /* Duplicates: the pages of a group side by side, the comparison, the decision */
 .dup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; margin: 8px 0 16px; }
@@ -1430,7 +1428,7 @@ ul.error.problems { padding: 12px 16px 12px 36px; }
 section.checklist dl { max-width: 40rem; }
 section.checklist .notice { margin-top: 0; }
 section.checklist .head-help > h3 { margin: 0; font-size: 16px; }
-section.checklist form.quick .btn.big { width: auto; flex: 1 1 18rem; }
+section.checklist form.quick .btn.lg { width: auto; flex: 1 1 18rem; }
 section.where-units .stats { margin-bottom: 0; }
 section.about-receipt dl { max-width: 52rem; }
 table.grn-lines td { vertical-align: top; }
@@ -1492,10 +1490,10 @@ html:has(.actions.sticky) { scroll-padding-bottom: 112px; }
 /* The selling mode on the websites (a product page, IM10) */
 table.selling-sites .o-sub { margin-top: 2px; }
 form.selling-mode-form { margin-top: 12px; }
-form.selling-mode-form .btn.big { width: auto; }
+form.selling-mode-form .btn.lg { width: auto; }
 
 @container (max-width: 640px) {
-  .actions.sticky button, form.receive-new button, form.close-incident button, form.selling-mode-form .btn.big, section.checklist form.quick .btn.big { width: 100%; }
+  .actions.sticky .btn, form.receive-new .btn, form.close-incident .btn, form.selling-mode-form .btn.lg, section.checklist form.quick .btn.lg { width: 100%; }
   table.grn-lines select, table.grn-lines input.short, table.grn-lines input[type="text"] { width: 100%; max-width: none; }
   form.grn-editor fieldset.scan input[type="search"] { min-width: 0; width: 100%; }
 }
@@ -1503,7 +1501,7 @@ form.selling-mode-form .btn.big { width: auto; }
 
 /* ---------- 18. Print ---------- */
 @media print {
-  .side, .appbar, .tabbar, .skip, .strip.test-system, .decide-bar, .tabs, .seg, .ph-actions, .page-actions, .flow, .toast, .bulkbar { display: none !important; }
+  .side, .appbar, .tabbar, .skip, .strip.test-system, .decide-bar, .tabs, .ph-actions, .page-actions, .flow, .toast, .bulkbar { display: none !important; }
   .shell { display: block; }
   .work { padding: 0; }
   body { background: #fff; color: #000; }
@@ -1542,17 +1540,12 @@ ol.steps li { margin-bottom: 6px; }
 table.stock-totals tr.picked > * { background: var(--primary-tint); }
 table.stock-lines .o-name { font-size: 1rem; }
 
-/* The strength bar of the matching lists (design v4's "battery") and its legend: each part's width is a class, w-1 … w-100 (no style="") */
+/* The strength bar of the matching lists (design v4's "battery") and its legend (tabs: each list's colour key, name and count): each part's
+   width is a class, w-1 … w-100 (no style="") */
 section.card.strength { margin: 0 0 16px; }
 section.card.strength > .hint { margin: 0 0 8px; }
 .battery { display: flex; height: 12px; border-radius: var(--r-pill); overflow: hidden; background: var(--hairline); }
 .battery > span { flex: 0 0 auto; height: 100%; background: var(--t-fill); box-shadow: inset -2px 0 0 var(--card); }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 12px 0 0; }
-.legend a { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; color: var(--ink); text-decoration: none; }
-.legend a:hover { text-decoration: underline; color: var(--ink); }
-.legend a[aria-current] { font-weight: 600; text-decoration: underline; text-decoration-color: var(--t-fill); text-decoration-thickness: 2px; text-underline-offset: 6px; }
-.legend .key { width: 12px; height: 12px; border-radius: 2px; background: var(--t-fill); flex: none; }
-.legend .tab-count { font-weight: 600; }
 .w-1 { width: 1%; }
 .w-2 { width: 2%; }
 .w-3 { width: 3%; }
@@ -1663,8 +1656,6 @@ section.rules article.card.rule:last-of-type { border-bottom-left-radius: var(--
 section.rules article.card.rule h3 { font: 600 15px/22px var(--font); }
 
 /* ---------- 21. Store-wise review and bulk action on the matching screens (docs/decisions.md U106-U112) ---------- */
-/* The store selector: the segmented control, under the Mapping segments */
-.store-seg .seg-item > .count { min-width: 20px; }
 /* The tick column: 44 px, the box in the middle; the name column stays sticky right after it */
 table.picks th.c-pick, table.picks td.c-pick { width: 44px; min-width: 44px; padding: 0; text-align: center; }
 /* (:where keeps it below the hover and ticked-row tints, which colour every cell of a row) */
@@ -1679,9 +1670,9 @@ label.pick input[type="checkbox"] { margin: 0; }
   table.stack.picks tr:has(> .c-status) > td.c-pick { grid-column: 3; }
   :where(table.picks) tr > :where(.c-pick) + * { position: static; }
 }
-/* The bulk action bar (when rows are ticked): a dark rounded bar, "3 selected" with a muted hint, dark secondary buttons, the main
-   action in pink with dark words, and x. Without app.js a plain row of buttons under the list; with it, shown only while rows are
-   ticked and kept at the bottom of the screen. */
+/* The bulk action bar (when rows are ticked): a dark rounded bar, "3 selected" with a muted hint, the buttons of section 9 (plain, the
+   main one magenta, DS4), and x. Without app.js a plain row of buttons under the list; with it, shown only while rows are ticked and kept
+   at the bottom of the screen. */
 .bulkbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 16px 0 24px; padding: 10px 12px 10px 16px;
   background: var(--ink); color: var(--on-fill); border: 0; border-radius: var(--r-14);
@@ -1699,12 +1690,6 @@ label.pick input[type="checkbox"] { margin: 0; }
 .bulkbar.floating .bulkbar-count > [data-bulk-count] { color: var(--on-fill); font-weight: 600; }
 .bulkbar.over .bulkbar-count, .bulkbar.over .bulkbar-count > [data-bulk-count] { color: var(--pink); font-weight: 600; }
 .bulkbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Dark secondary buttons; the main action (primary) pink with dark words; a danger stays red */
-.bulkbar .btn { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .22); color: var(--on-fill); }
-.bulkbar .btn:hover { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .4); color: var(--on-fill); }
-.bulkbar .btn.primary { background: var(--pink); border-color: var(--pink); color: var(--ink); }
-.bulkbar .btn.primary:hover { background: #ff8aa6; border-color: #ff8aa6; color: var(--ink); }
-.bulkbar .btn.danger { background: var(--st-red); border-color: var(--st-red); color: var(--on-fill); }
 .bulkbar-close {
   display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: var(--r-10);
   background: none; color: rgba(255, 255, 255, .72); font: 400 22px/1 var(--font);
@@ -1726,9 +1711,8 @@ label.pick input[type="checkbox"] { margin: 0; }
   .bulkbar.floating .bulkbar-actions { grid-column: 1 / -1; grid-row: 2; }
   .bulkbar-actions .btn { flex: 1 1 auto; }
 }
-/* Store Products: the state filter's dots and a match strength as a small label */
-.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--t-fill, var(--grey-group)); }
-.state-pills a { gap: 6px; }
+/* Store Products: the state tabs' dots and a match strength as a small label */
+.dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--t-fill, var(--grey-group)); }
 /* The "By store" overview: the strength's help under its name; the share columns centred with their meter */
 table.by-store-table th .hint { display: block; margin-top: 2px; max-width: 46ch; font-weight: 400; }
 table.by-store-table td.share { white-space: nowrap; }
@@ -1742,8 +1726,6 @@ table.by-store-table td.share .muted.small { display: block; }
 .o-sub.no-bulk, table.board .o-sub.no-bulk { margin-top: 4px; max-width: 52ch; color: var(--ink); font: 400 12px/16px var(--font); white-space: normal; }
 .o-sub.no-bulk::before { content: "!"; content: "!" / ""; display: inline-block; margin-right: 4px; color: var(--working); font-weight: 700; }
 .o-sub.no-bulk a { font-weight: 600; text-decoration: underline; }
-.show-pills { align-items: center; }
-.pills-label { color: var(--ink-2); font: 400 14px/20px var(--font); }
 .alert.no-box { margin-bottom: 16px; }
 
 /* ---------- 22. By Item: one column per store, and its picker (docs/decisions.md U113-U122) ---------- */
@@ -1878,8 +1860,7 @@ table.count-sheet input.unsaved { border: 2px solid var(--block-icon); }
 fieldset.count-open-how { margin-top: 12px; }
 fieldset.count-open-how .inline-field { display: inline-flex; align-items: center; gap: 6px; }
 fieldset.count-open-how .inline-field input { width: 5rem; }
-p.seg-links { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
-p.seg-links a, p.seg-links strong { display: inline-flex; align-items: center; min-height: 44px; }
+
 form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }
 
 
@@ -1935,7 +1916,7 @@ body:has(.strip.test-system) .signin { min-height: calc(100vh - 28px); }
 .sf-inner form button[type="submit"] { width: 100%; margin-top: 4px; }
 .sf-or { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--ink-muted); font: 500 12px/16px var(--font); }
 .sf-or::before, .sf-or::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--hairline); }
-.sf-inner .btn.full { margin: 0 0 16px; }
+.sf-inner > a.btn { width: 100%; margin: 0 0 16px; }
 .sf-inner > p.hint { margin: 0 0 8px; text-align: center; }
 @media (max-width: 899.98px) {
   .signin { grid-template-columns: minmax(0, 1fr); }
@@ -1987,16 +1968,18 @@ body:has(.strip.test-system) .signin { min-height: calc(100vh - 28px); }
 
 /* The filters that are on, under the toolbar: "Showing only:", one chip each (a tap takes it off), and the way back to everything */
 .filters-on { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -8px 0 20px; }
-.filters-on .pills-label { margin: 0; color: var(--ink-muted); font: 500 13px/20px var(--font); }
+.filters-on .filter-chips-label { margin: 0; color: var(--ink-muted); font: 500 13px/20px var(--font); }
 /* A long chip ("Product card: Changed since it was confirmed") wraps inside the page's width instead of pushing it sideways */
-.filters-on .pills { margin: 0; min-width: 0; }
-.filters-on .pills li { max-width: 100%; }
-.filters-on .pills a {
-  gap: 6px; max-width: 100%; padding: 5.5px 10px 5.5px 13.5px; border: 1.5px solid var(--accent); background: var(--accent-soft);
-  color: var(--accent-hover); font-weight: 600; white-space: normal; text-align: left;
+.filters-on .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.filters-on .filter-chips li { margin: 0; max-width: 100%; }
+.filters-on .filter-chips a {
+  display: inline-flex; align-items: center; min-height: 34px; gap: 6px; max-width: 100%; padding: 5.5px 10px 5.5px 13.5px; border-radius: var(--r-pill);
+  border: 1.5px solid var(--accent); background: var(--accent-soft); color: var(--accent-hover); font: 600 13px/20px var(--font); text-decoration: none;
+  white-space: normal; text-align: left;
 }
-.filters-on .pills a:hover { background: var(--card); color: var(--accent-hover); }
-.filters-on .pills .ico { flex: none; width: 14px; height: 14px; }
+.filters-on .filter-chips a:hover { background: var(--card); color: var(--accent-hover); }
+.filters-on .filter-chips .ico { flex: none; width: 14px; height: 14px; }
+@media (max-width: 699.98px), (pointer: coarse) { .filters-on .filter-chips a { min-height: 44px; } }
 
 /* The list's toolbar: the search box wide enough for what it says can be typed; it gives way on a narrow screen */
 .cards-tools .tb-search { flex: 1 1 15rem; max-width: 22rem; min-width: 0; }
@@ -2253,28 +2236,9 @@ td.late { color: var(--st-red); font-weight: 600; }
   table.stack td.doc-st { width: auto; min-width: 0; border: 0; border-radius: var(--r-8); padding: 4px 12px; }
   .doc-meter progress { width: 80px; }
 }
-/* The saved document: the status block, the action bar with More, the progress strip, the differences panel, the balance */
-.doc-head .ph-title h1 .chip { border-radius: var(--r-8); min-height: 32px; padding: 6px 14px; font-size: 13px; vertical-align: 6px; }
-.doc-head .ph-meta .chip { border-radius: var(--r-8); min-height: 32px; padding: 6px 14px; font-size: 13px; }
-.doc-more { position: relative; margin: 0; padding: 0; border: 0; background: none; }
-.doc-more > summary { list-style: none; }
-.doc-more > summary::-webkit-details-marker { display: none; }
-.doc-more > summary::after { content: ""; width: 7px; height: 7px; margin: -4px 0 0 4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
-.doc-more[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
-.doc-more-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; display: grid; gap: 6px; width: max-content; min-width: 240px;
-  max-width: min(32rem, calc(100vw - 32px)); padding: 10px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
-  box-shadow: var(--shadow-float);
-}
-.doc-more-menu > form, .doc-more-menu > a, .doc-more-menu > details { width: 100%; margin: 0; }
-.doc-more-menu .btn, .doc-more-menu > form > button, .doc-more-menu > details > summary { width: 100%; justify-content: flex-start; }
-.doc-more-menu > details.doc-act { padding: 0; border: 0; background: none; }
-.doc-more-menu > details.doc-act > summary { list-style: none; }
-.doc-more-menu > details.doc-act > summary::-webkit-details-marker { display: none; }
-.doc-more-menu .doc-act-panel { margin: 6px 0 0; max-width: none; }
-/* On a phone More's menu is in the flow under its button, the open fold taking the bar's whole row (the Codex review of 9ce3515, M3; PV26):
-   nothing is placed against the page, with or without the script. */
-@media (max-width: 639.98px) { .doc-more { position: static; } .doc-more-menu { position: static; width: auto; min-width: 0; max-width: none; margin: 6px 0 0; box-shadow: none; } .doc-more[open] { flex: 1 1 100%; } }
+/* The saved document: the status block (section 7), the action bar with More (section 9), the progress strip, the differences panel,
+   the balance */
+.doc-head .ph-title h1 .chip { vertical-align: 6px; }
 .doc-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
 .doc-step { display: grid; gap: 6px; align-content: start; padding: 16px 20px; border-left: 1px solid var(--divider); min-width: 0; }
 .doc-step:first-child { border-left: 0; }
@@ -2301,9 +2265,7 @@ td.late { color: var(--st-red); font-weight: 600; }
 .doc-big p { margin: 0; }
 .doc-big-value { color: var(--ink); font: 700 26px/1.2 var(--font); font-variant-numeric: tabular-nums; }
 @media (max-width: 639.98px) { .doc-meta.with-big { grid-template-columns: minmax(0, 1fr); } .doc-big { text-align: left; } }
-/* The new pages: a soft button, the dashed drop area; on a phone the lines are cards with Qty, Price and Amount side by side */
-.btn.soft { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.btn.soft:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-hover); }
+/* The new pages: the dashed drop area (the soft button is section 9's); on a phone the lines are cards with Qty, Price and Amount side by side */
 .doc-drop { padding: 16px; border: 2px dashed var(--hairline); border-radius: var(--r-12); background: var(--page-alt); }
 .doc-drop input[type="file"] { background: var(--card); }
 .doc-grid .hint { color: var(--ink-muted); font-weight: 400; font-size: 12px; }
@@ -2347,7 +2309,7 @@ table.lq-lines .lq-answer { display: inline; margin: 0; }
   display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; margin: 0; padding: 0 4px 0 10px;
   border-radius: var(--r-10); background: var(--sf-green); color: var(--sf-green-ink); font: 600 13px/18px var(--font);
 }
-.lq-picked button { min-height: 28px; }
+.lq-picked .btn.sm { min-height: 28px; }
 details.lq-menu { display: inline-block; margin: 0 0 0 6px; vertical-align: top; }
 details.lq-menu > summary {
   display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-10); cursor: pointer; list-style: none;

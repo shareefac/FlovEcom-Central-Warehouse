@@ -46,7 +46,7 @@
             data-picked="<?= $e($r['picked_label']) ?>" data-add="<?= $e($addWords) ?>" data-add-href="<?= $e($r['add_href']) ?>" data-ask="<?= $e($askWords) ?>"
             data-loading="<?= $word('LQ', 'loading') ?>" data-failed="<?= $word('LQ', 'failed') ?>" data-choose="<?= $word('LQ', 'choose') ?>">
           <ul class="sm-list" id="lq-list-<?= $e($r['id']) ?>" role="listbox" aria-label="<?= $word('LQ', 'choices') ?>" data-lq-list hidden></ul>
-          <p class="lq-picked" data-lq-chip hidden><span data-lq-chip-name></span> <button type="button" class="link" data-lq-change><?= $word('LQ', 'change') ?></button></p>
+          <p class="lq-picked" data-lq-chip hidden><span data-lq-chip-name></span> <button type="button" class="btn ghost sm" data-lq-change><?= $word('LQ', 'change') ?></button></p>
           <p class="po-says" data-lq-note hidden></p>
 <?php if ($r['add_href'] !== ''): ?>
           <a class="add-item" href="<?= $u($r['add_href']) ?>" data-lq-add-link><?= $e($addWords) ?></a>
@@ -57,14 +57,14 @@
         <td class="c-next" data-label="">
           <form class="lq-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/pick') ?>" id="lq-pick-<?= $e($r['id']) ?>">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-            <button type="submit"<?php if (!$r['correction']): ?> class="primary"<?php endif; ?>><?php if ($r['correction']): ?><?= $word('LQ', 'to_corrections') ?><?php else: ?><?= $word('LQ', 'place') ?><?php endif; ?></button>
+            <button type="submit" class="btn<?php if (!$r['correction']): ?> primary<?php endif; ?>"><?php if ($r['correction']): ?><?= $word('LQ', 'to_corrections') ?><?php else: ?><?= $word('LQ', 'place') ?><?php endif; ?></button>
           </form>
           <details class="lq-menu"<?php if ($r['typed_close'] !== null): ?> open<?php endif; ?>>
             <summary><span class="visually-hidden"><?= $word('LQ', 'menu') ?></span></summary>
             <form class="record" method="post" action="<?= $u($action . '/' . $r['id'] . '/dismiss') ?>">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <label><?= $word('LQ', 'close_note') ?> <input type="text" name="note" value="<?= $e($r['typed_close'] ?? '') ?>" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
-              <p class="actions"><button type="submit" class="danger"><?= $word('LQ', 'close') ?></button></p>
+              <p class="actions"><button type="submit" class="btn risky"><?= $word('LQ', 'close') ?></button></p>
             </form>
           </details>
         </td>

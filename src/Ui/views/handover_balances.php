@@ -28,7 +28,7 @@
       <label><?= $word('BALANCE', 'paid_on') ?> <input type="date" name="paid_on" value="<?php if ($mine): ?><?= $e($typed['paid_on']) ?><?php else: ?><?= $e($today) ?><?php endif; ?>" required></label>
       <label><?= $word('BALANCE', 'reference') ?> <input type="text" name="reference" value="<?php if ($mine): ?><?= $e($typed['reference']) ?><?php endif; ?>" maxlength="100" required></label>
       <label><?= $word('BALANCE', 'note') ?> <input type="text" name="note" value="<?php if ($mine): ?><?= $e($typed['note']) ?><?php endif; ?>" maxlength="500"></label>
-      <p class="actions"><button type="submit" class="primary"><?= $word('BALANCE', 'pay_button') ?></button></p>
+      <p class="actions"><button type="submit" class="btn"><?= $word('BALANCE', 'pay_button') ?></button></p>
     </form>
   </details>
 <?php endif; ?>
@@ -60,7 +60,7 @@
             <form class="record" method="post" action="<?= $u('/ui/stock/handovers/balances/payments/' . $x['id'] . '/reverse') ?>">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <label><?= $word('BALANCE', 'reverse_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-              <p class="actions"><button type="submit" class="danger"><?= $word('BALANCE', 'reverse_button') ?></button></p>
+              <p class="actions"><button type="submit" class="btn risky"><?= $word('BALANCE', 'reverse_button') ?></button></p>
             </form>
           </details><?php endif; ?></td>
       </tr>

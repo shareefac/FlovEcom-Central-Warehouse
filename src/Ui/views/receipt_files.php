@@ -23,7 +23,7 @@
     </label>
     <label><?= $say('RECEIPT', 'file_label', $maxMb) ?> <input type="file" name="file" accept="application/pdf,image/jpeg,image/png"<?php if ($back === 'bench'): ?> capture="environment"<?php endif; ?> data-max-bytes="2097152" data-too-big="<?= $say('RECEIPT', 'too_big', $maxMb) ?>" required></label>
     <label><?= $word('RECEIPT', 'file_note') ?> <input type="text" name="note" maxlength="255"></label>
-    <p class="actions"><button type="submit"><?= $word('RECEIPT', 'attach') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('RECEIPT', 'attach') ?></button></p>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'files_kept') ?></p>
 <?php endif; ?>

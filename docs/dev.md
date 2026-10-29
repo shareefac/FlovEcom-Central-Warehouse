@@ -731,7 +731,7 @@ invoice reuses them):
 | Passed date | `td.late` | red, semi-bold: due passed with a balance left |
 | Toolbar Show menu | `select[name=show]` in `.tb-state` | orders: '' / `all` / `closed`; invoices: '' / `all` / `cancelled` |
 | Status block | `div.doc-head` around `$head`; the chip in the `h1` (invoice) or `.ph-meta` (order) | 8 px corners, 32 px high |
-| Action bar | `div.doc-actions` > `details.doc-more` (`summary` "More", `div.doc-more-menu`) + the next step (`.primary`) | the order's `po_action`, the invoice's `si_action` partial draw one action in the bar or the menu; `PurchaseOrdersController::actions()` picks the order's next step |
+| Action bar | `div.doc-actions` > `details.more` (`summary` "More", `div.more-menu`: the one More, DS4) + the next step (`.primary`) | the order's `po_action`, the invoice's `si_action` partial draw one action in the bar or the menu; `PurchaseOrdersController::actions()` picks the order's next step |
 | Progress strip | `section.doc-progress` > `div.doc-step` (`p.doc-step-label`, `p.doc-step-big`, `progress.done` / `progress.review`) | four columns, two on a phone |
 | Differences panel | `section.doc-diff#match` > `div.doc-diff-head` (h2 + total) + `table.stack.doc-diff-lines` with `td.diff` | amber left edge; cells that differ tinted amber |
 | Large balance | `doc_party`'s `big` (label, value) → `div.doc-big` and `div.doc-meta.with-big` | right of the supplier's block; under it on a phone |
@@ -754,6 +754,22 @@ invoice reuses them):
 - Tests: `UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (CSS pins; the shared pieces close every tag), the three
   `InvoiceOnePageScreensTest` screen tests named in PV20, `Migration0053Test`.
 
+
+### One tabs, buttons and status parts for every page (`docs/decisions.md` DS1-DS6)
+
+The parts board (`TP_Parts`) as shared classes in `public/ui/assets/app.css` (sections 5, 7 and 9). A new page uses these and nothing else:
+
+| Part | Markup | Notes |
+|---|---|---|
+| Button | `.btn` + at most one of `.primary` (main, ONE per page or per form), `.soft` (helper on a field), `.ghost` (Leave, Change, Clear), `.ok` (All fine), `.risky` (only in More or a confirm fold) + at most one of `.sm` / `.lg` | every `<button>` carries `.btn`; a two-line answer holds `span.btn-title` + `span.sub`; disabled = `disabled` / `aria-disabled="true"` with `span.btn-why` beside it |
+| More | `details.more` > `summary.btn` + `div.more-menu` (rows: `a.menu-item`, a form's `.btn`, a `details.doc-act` fold) | the page's other "New …" (`views/split.php`), a saved order's or invoice's other steps (`po_bar`, `si_bar`); no script needed; in the flow on a phone |
+| Tabs | `nav.tabs[aria-label]` > `a.tab[aria-current="page"]` (+ `span.count`; a `span.tab.soon` not built yet) | a row's name after `tabs`: `seg` (a tab's segments, `page_frame`), `store-seg`, `show-tabs`, `state-tabs`, `period-tabs`, `legend`; never wraps, app.js fades the side with more |
+| Status | `$chip($tone, $words)` / `$stateChip(...)` → `.chip <tone>`; `td.doc-st <tone>` in a board; `span.tag <tone>` for a small fact | tones: `Words::TONES` (grey waiting, blue info, purple review, amber needs, green done, red blocked, navy off) |
+
+- Tests: `UiUnitTest::testTheOneTabsButtonsAndStatusPartsFollowThePartsBoard` (CSS), `UiTemplatesTest::testNoViewUsesARemovedClass` (the
+  removed classes: `UiTemplatesTest::REMOVED`), `UiTemplatesTest::testEveryPageHasAtMostOneMainButtonPerForm` (templates) and
+  `tests/Support/MainButtons` (every page a kernel test opens, run by `KernelBrowser`: a second main button in one form, or a second main
+  link or fold button on a page, fails the test that opened it).
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 

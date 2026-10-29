@@ -7,9 +7,9 @@
 <?php if ($moreActions !== []): ?>
 <?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
 $moreOpen = (in_array('accept', $moreActions, true) && $typedAccept !== '') || (in_array('reverse', $moreActions, true) && $typedCancel['code'] !== ''); ?>
-  <details class="doc-more"<?php if ($moreOpen): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
-    <div class="doc-more-menu">
+  <details class="more"<?php if ($moreOpen): ?> open<?php endif; ?>>
+    <summary class="btn"><?= $word('DOC', 'more') ?></summary>
+    <div class="more-menu">
 <?php foreach ($moreActions as $a): ?>
 <?= $partial('si_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k, 'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel,
     'creditKey' => $creditKey, 'reverse' => $reverse]) ?>

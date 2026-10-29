@@ -44,7 +44,7 @@
           </select>
         </label>
         <label><?= $word('QUEUES', 'note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
-        <p class="actions"><button type="submit"><?= $word('WEBSITE_BUG', 'handle') ?></button></p>
+        <p class="actions"><button class="btn" type="submit"><?= $word('WEBSITE_BUG', 'handle') ?></button></p>
       </fieldset>
     </form>
 <?php endif; ?>

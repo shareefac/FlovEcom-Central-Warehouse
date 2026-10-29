@@ -65,7 +65,7 @@
         <label><?= $word('PO_ADD', 'supplier_name') ?> <input type="text" name="new_supplier_name" maxlength="128" autocomplete="off" value="<?= $e($newSupplier['name']) ?>"></label>
         <label><?= $word('PO_ADD', 'supplier_email') ?> <input type="email" name="new_supplier_email" maxlength="191" autocomplete="off" value="<?= $e($newSupplier['email']) ?>"></label>
         <label><?= $word('PO_ADD', 'supplier_phone') ?> <input type="tel" name="new_supplier_phone" maxlength="32" autocomplete="off" value="<?= $e($newSupplier['phone']) ?>"></label>
-        <button type="submit" name="action" value="new_supplier" class="btn secondary"><?= $word('PO_ADD', 'supplier_button') ?></button>
+        <button type="submit" name="action" value="new_supplier" class="btn"><?= $word('PO_ADD', 'supplier_button') ?></button>
       </details>
 <?php else: ?>
       <p class="hint po-ask"><?= $e($askSupplier) ?></p>
@@ -163,7 +163,7 @@
           </td>
           <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"><label class="visually-hidden" for="pi-packs"><?= $word('PI_ONE', 'packs') ?></label><input id="pi-packs" type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></td>
           <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"><label class="visually-hidden" for="pi-price"><?= $word('PI_ONE', 'pack_price') ?></label><input id="pi-price" type="text" name="price" inputmode="decimal" maxlength="16" value="<?= $e($price) ?>" class="short"></td>
-          <td colspan="2" class="po-add-go" data-label=""><button type="submit" name="action" value="add" class="btn secondary"><?= $word('PI_ONE', 'add') ?></button></td>
+          <td colspan="2" class="po-add-go" data-label=""><button type="submit" name="action" value="add" class="btn"><?= $word('PI_ONE', 'add') ?></button></td>
         </tr>
       </tbody>
     </table>
@@ -175,14 +175,14 @@
       <p class="error" role="alert"><?= $e($itemError) ?></p>
 <?php endif; ?>
 <?php if ($itemOther !== null): ?>
-      <p class="note"><?= $say('PO_ADD', 'barcode_other', $itemOther['label']) ?> <button type="submit" name="add_sku" value="<?= $e($itemOther['id']) ?>" class="btn secondary"><?= $word('PO_ADD', 'barcode_use') ?></button></p>
+      <p class="note"><?= $say('PO_ADD', 'barcode_other', $itemOther['label']) ?> <button type="submit" name="add_sku" value="<?= $e($itemOther['id']) ?>" class="btn"><?= $word('PO_ADD', 'barcode_use') ?></button></p>
 <?php endif; ?>
 <?php if ($itemSame !== null): ?>
       <div class="note same-items">
         <p><strong><?= $word('PO_ADD', 'same_title') ?></strong> <?= $word('PO_ADD', 'same_text') ?></p>
         <ul class="plain">
 <?php foreach ($itemSame as $s): ?>
-          <li><a href="<?= $u('/ui/items/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?> <button type="submit" name="add_sku" value="<?= $e($s['id']) ?>" class="btn secondary"><?= $word('PO_ADD', 'same_use') ?></button></li>
+          <li><a href="<?= $u('/ui/items/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?> <button type="submit" name="add_sku" value="<?= $e($s['id']) ?>" class="btn"><?= $word('PO_ADD', 'same_use') ?></button></li>
 <?php endforeach; ?>
         </ul>
       </div>
@@ -196,7 +196,7 @@
       <label><?= $word('PO_ADD', 'item_code') ?> <input type="text" name="item_code" maxlength="64" autocomplete="off" value="<?= $e($item['code']) ?>"></label>
       <label><?= $word('PO_ADD', 'item_upp') ?> <input type="number" name="item_upp" min="1" max="100000" class="short" value="<?= $e($item['upp']) ?>"></label>
       <label><?= $word('PO_ADD', 'item_price') ?> <input type="text" name="item_price" inputmode="decimal" class="short" value="<?= $e($item['price']) ?>"></label>
-      <button type="submit" name="action" value="new_item" class="btn secondary"><?= $word('PO_ADD', 'item_button') ?></button>
+      <button type="submit" name="action" value="new_item" class="btn"><?= $word('PO_ADD', 'item_button') ?></button>
     </details>
 <?php else: ?>
     <p class="hint po-ask"><?= $e($askItem) ?></p>
@@ -213,7 +213,7 @@
         </label>
         <label><?= $word('PI_ONE', 'charge_amount') ?> <input type="text" name="charge_amount" inputmode="decimal" maxlength="16" value="<?= $e($charge['amount']) ?>"></label>
         <label><?= $word('PI_ONE', 'charge_words') ?> <input type="text" name="charge_description" maxlength="255" value="<?= $e($charge['description']) ?>"></label>
-        <button type="submit" name="action" value="add_charge" class="btn secondary"><?= $word('PI_ONE', 'charge_button') ?></button>
+        <button type="submit" name="action" value="add_charge" class="btn"><?= $word('PI_ONE', 'charge_button') ?></button>
       </div>
     </details>
   </section>
@@ -222,7 +222,7 @@
     <h2 id="choices-h"><?= $say('PI_ONE', 'choose', $q) ?></h2>
     <ul class="plain">
 <?php foreach ($choices as $c): ?>
-      <li><button type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('PI_ONE', 'choose_this') ?></button> <?= $e($c['name']) ?> <span class="muted"><?= $e($c['code']) ?></span></li>
+      <li><button class="btn" type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('PI_ONE', 'choose_this') ?></button> <?= $e($c['name']) ?> <span class="muted"><?= $e($c['code']) ?></span></li>
 <?php endforeach; ?>
     </ul>
   </section>
@@ -269,7 +269,7 @@
         <label class="choice"><input type="radio" name="submit_clock" value="GMT" form="pi-schedule" required> <?= $say('ARRIVALS', 'clock_gmt', $clockChoice['time']) ?></label>
       </fieldset>
 <?php endif; ?>
-      <button type="submit" form="pi-schedule" class="btn secondary"><?= $word('ARRIVALS', 'set_time') ?></button>
+      <button type="submit" form="pi-schedule" class="btn"><?= $word('ARRIVALS', 'set_time') ?></button>
 <?php if ($arrival['at'] !== null): ?>
       <button type="submit" form="pi-unschedule" class="btn ghost"><?= $word('ARRIVALS', 'take_off') ?></button>
 <?php endif; ?>
@@ -329,7 +329,7 @@
     </table>
     </div>
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="btn secondary"><?= $word('ARRIVALS', 'save_how') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('ARRIVALS', 'save_how') ?></button></p>
   </form>
 <?php endif; ?>
 </details>
@@ -340,7 +340,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="btn danger-outline"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

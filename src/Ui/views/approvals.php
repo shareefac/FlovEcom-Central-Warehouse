@@ -117,7 +117,7 @@
           <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
           <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?= $e($reasonTyped) ?></textarea>
         </label>
-        <p class="actions"><button type="submit" class="primary"><?= $word('APPROVALS', 'save_rule') ?></button></p>
+        <p class="actions"><button type="submit" class="btn"><?= $word('APPROVALS', 'save_rule') ?></button></p>
       </form>
     </details>
 <?php endif; ?>

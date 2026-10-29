@@ -54,7 +54,7 @@
       </select>
     </label>
 <?php endif; ?>
-    <button type="submit" class="primary"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
 <?php if ($kind === 'release'): ?>
   <p class="hint"><?= $word('STOCK_OPS', 'add_price_hint') ?></p>
@@ -76,7 +76,7 @@
               <input type="hidden" name="qty" value="<?= $e($typedAdd['qty']) ?>">
               <input type="hidden" name="cost" value="<?= $e($typedAdd['cost']) ?>">
               <input type="hidden" name="reason" value="<?= $e($typedAdd['reason']) ?>">
-              <button type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
+              <button class="btn" type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
             </form>
           </td>
         </tr>
@@ -147,22 +147,22 @@
     <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
 <?php endif; ?>
     <div class="actions sticky">
-      <button type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
-      <button type="submit" name="action" value="post" class="primary"><?= $e($k['final_button']) ?></button>
+      <button class="btn" type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
+      <button type="submit" name="action" value="post" class="btn primary"><?= $e($k['final_button']) ?></button>
       <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span>
     </div>
 <?php else: ?>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span></p>
 <?php endif; ?>
   </form>
 <?php if ($linesPager !== null): ?>
   <form class="pager" method="get" action="<?= $u($base . '/' . $doc->id) ?>" data-leaves="1">
     <span><?= $say('OP_FINAL', 'page', $linesPager['from'], $linesPager['to'], $linesPager['n']) ?></span>
 <?php if ($linesPager['no'] > 1): ?>
-    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] - 1) ?>"><?= $word('OP_FINAL', 'prev') ?></button>
+    <button class="btn" type="submit" name="lines_page" value="<?= $e($linesPager['no'] - 1) ?>"><?= $word('OP_FINAL', 'prev') ?></button>
 <?php endif; ?>
 <?php if ($linesPager['no'] < $linesPager['pages']): ?>
-    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] + 1) ?>"><?= $word('OP_FINAL', 'next') ?></button>
+    <button class="btn" type="submit" name="lines_page" value="<?= $e($linesPager['no'] + 1) ?>"><?= $word('OP_FINAL', 'next') ?></button>
 <?php endif; ?>
   </form>
 <?php endif; ?>
@@ -220,7 +220,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
   </form>
 </details>
 <?php if (!$oneForm): ?>
@@ -236,7 +236,7 @@
   <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <button type="submit" class="primary"><?= $e($k['final_button']) ?></button>
+    <button type="submit" class="btn primary"><?= $e($k['final_button']) ?></button>
   </form>
 </section>
 <?php endif; ?>
@@ -247,7 +247,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -258,7 +258,7 @@
   <p class="muted"><?= $word('STOCK_OPS', 'withdraw_text') ?></p>
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
   </form>
 </section>
 <?php endif; ?>
@@ -278,7 +278,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -305,7 +305,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'file') ?> <span class="hint"><?= $say('STOCK_OPS', 'file_hint', $maxMb) ?></span><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required></label>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
   </form>
 <?php endif; ?>
 </section>

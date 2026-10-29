@@ -30,7 +30,7 @@
       </label>
       <label><?= $word('SALE', 'from') ?> <input type="date" name="from" value="<?= $e($f['from']) ?>"></label>
       <label><?= $word('SALE', 'to') ?> <input type="date" name="to" value="<?= $e($f['to']) ?>"></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('SALE', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('SALE', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 <?php if ($rows !== []): ?>

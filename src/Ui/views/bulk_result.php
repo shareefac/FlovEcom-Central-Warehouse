@@ -42,7 +42,7 @@
     <tr>
       <th scope="row" class="c-head"><a class="o-name" href="<?= $e($r['link']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></a><span class="o-sub"><?= $e($r['store'] ?? '') ?><?php if ($r['variant'] !== null): ?> · <?= $say('QUEUE', 'option', (string) $r['variant']) ?><?php endif; ?></span></th>
       <td class="c-wide" data-label="<?= $word('BULK', 'why') ?>"><?= $e($r['why']) ?></td>
-      <td class="c-next"><a class="btn sm secondary" href="<?= $e($r['link']) ?>"><?= $word('QUEUE', 'open') ?></a></td>
+      <td class="c-next"><a class="btn sm" href="<?= $e($r['link']) ?>"><?= $word('QUEUE', 'open') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
@@ -75,4 +75,4 @@
 </table>
 </div>
 <p class="muted"><?= $word('BULK', 'no_undo') ?></p>
-<p class="actions"><a class="btn secondary" href="<?= $e($list[0]) ?>"><?= $say('BULK', 'back_to', $list[1]) ?></a></p>
+<p class="actions"><a class="btn" href="<?= $e($list[0]) ?>"><?= $say('BULK', 'back_to', $list[1]) ?></a></p>

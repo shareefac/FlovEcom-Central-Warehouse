@@ -53,7 +53,7 @@
     <input type="hidden" name="form_key" value="<?= $e($addKey) ?>">
     <label for="fa-list"><?= $word('FAMILY', 'bulk_label') ?> <span class="hint"><?= $word('FAMILY', 'bulk_hint') ?></span></label>
     <textarea id="fa-list" name="list" rows="6" maxlength="20000" required><?= $e($typed['list']) ?></textarea>
-    <p class="actions"><button type="submit" class="primary"><?= $word('FAMILY', 'bulk_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('FAMILY', 'bulk_button') ?></button></p>
   </form>
 <?php else: ?>
   <p class="hint"><?= $word('FAMILY', 'is_off') ?></p>
@@ -66,7 +66,7 @@
     <input type="hidden" name="version" value="<?= $e($f['version']) ?>">
     <label for="fr-name"><?= $word('FAMILY', 'rename_label') ?></label>
     <input id="fr-name" type="text" name="name" maxlength="255" required value="<?= $e($typed['name']) ?>">
-    <p class="actions"><button type="submit" class="secondary"><?= $word('FAMILY', 'rename_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('FAMILY', 'rename_button') ?></button></p>
   </form>
 </details>
 <form class="inline family-switch" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/switch') ?>">
@@ -74,10 +74,10 @@
   <input type="hidden" name="version" value="<?= $e($f['version']) ?>">
 <?php if ($f['active']): ?>
   <input type="hidden" name="on" value="0">
-  <button type="submit" class="secondary"><?= $word('FAMILY', 'switch_off') ?></button> <span class="hint"><?= $word('FAMILY', 'switch_off_does') ?></span>
+  <button type="submit" class="btn"><?= $word('FAMILY', 'switch_off') ?></button> <span class="hint"><?= $word('FAMILY', 'switch_off_does') ?></span>
 <?php else: ?>
   <input type="hidden" name="on" value="1">
-  <button type="submit" class="secondary"><?= $word('FAMILY', 'switch_on') ?></button>
+  <button type="submit" class="btn"><?= $word('FAMILY', 'switch_on') ?></button>
 <?php endif; ?>
 </form>
 <?php endif; ?>
@@ -121,7 +121,7 @@
   </table>
   </div>
 <?php if ($canManage): ?>
-  <p class="actions"><button type="submit" class="secondary"><?= $word('FAMILY', 'remove_button') ?></button> <span class="hint"><?= $word('FAMILY', 'remove_does') ?></span></p>
+  <p class="actions"><button type="submit" class="btn"><?= $word('FAMILY', 'remove_button') ?></button> <span class="hint"><?= $word('FAMILY', 'remove_does') ?></span></p>
 <?php endif; ?>
 </form>
 <?php if ($pages > 1): ?>

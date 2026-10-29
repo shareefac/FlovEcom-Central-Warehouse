@@ -535,7 +535,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertStringContainsString(Words::BY_ITEM_BULK['text_reject'], $preview->text(), 'this page is the second step of "Not a match"');
         self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], Words::say('BY_ITEM_BULK', 'selected_many', 4), Words::say('BY_ITEM_BULK', 'variants_many', 4)), $preview->text());
         self::assertSame(1, $xp->query('//div[contains(@class, "confirm-step")]')->length);
-        self::assertSame(['Yes, these 2 are not a match', 'danger'], self::button($preview), 'the red button, stating how many');
+        self::assertSame(['Yes, these 2 are not a match', 'btn risky'], self::button($preview), 'the risky button (red words: DS1), stating how many');
         $lines = self::lines($preview);
         self::assertSame([['done', Words::BY_ITEM_BULK['will_reject'], ''], ['done', Words::BY_ITEM_BULK['will_reject'], ''],
             ['skipped', Words::BY_ITEM_BULK['will_skip'], Words::BY_ITEM_SKIP['lead_only']], ['skipped', Words::BY_ITEM_BULK['will_skip'], Words::BY_ITEM_SKIP['already_rejected']]],
@@ -558,7 +558,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame(200, $preview->status, $preview->describe() . implode("\n", self::$log));
         self::assertSame($before, self::snapshot());
         self::assertSame('2 will be sent back for matching · 0 will be skipped', self::squash((new \DOMXPath($preview->dom()))->evaluate('string(//p[@class="alert-title"])')));
-        self::assertSame(['Yes, send these 2 back for matching', 'danger'], self::button($preview));
+        self::assertSame(['Yes, send these 2 back for matching', 'btn risky'], self::button($preview));
         self::assertSame([Words::BY_ITEM_BULK['will_send_back'], Words::BY_ITEM_BULK['will_send_back']], array_column(self::lines($preview), 'label'));
         $done = $web->post('/ui/review/products/bulk/apply', $preview->form('/ui/review/products/bulk/apply'));
         self::assertSame(303, $done->status, $done->describe() . implode("\n", self::$log));

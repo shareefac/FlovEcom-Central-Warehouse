@@ -61,7 +61,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?= $e($typed['reason']) ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('WAREHOUSES', 'add_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('WAREHOUSES', 'add_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

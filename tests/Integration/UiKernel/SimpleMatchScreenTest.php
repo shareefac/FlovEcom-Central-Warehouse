@@ -259,7 +259,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
             iterator_to_array($xp->query('//tr[@id="m-' . $alpha . '"]/td'))), 'on a phone each cell says its store');
         // Nothing of the other pages: no tick boxes, no bulk bar, no filter chips, no help to unfold.
         self::assertSame(0, $xp->query('//main//input[@type="checkbox"]')->length);
-        self::assertSame(0, $xp->query('//main//nav[contains(@class, "pills")]')->length);
+        self::assertSame(0, $xp->query('//main//nav[contains(@class, "state-tabs")]')->length);
         self::assertSame(0, $xp->query('//main//*[contains(@class, "bulkbar")]')->length);
         self::assertSame(0, $xp->query('//main//details[contains(@class, "help")]')->length);
         self::assertFalse($page->hasForm('/bulk'));

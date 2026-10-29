@@ -130,7 +130,7 @@ final class ByProductController
             $bands = BulkDecisions::confirmBands($ctx->db);
             foreach (BulkDecisions::ITEM_ACTIONS as $a) {
                 if (BulkDecisions::offered($a, 'item', null, $me->roles, $bands)) {
-                    $actions[] = ['action' => $a, 'label' => Words::BY_ITEM_BULK[$a], 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
+                    $actions[] = ['action' => $a, 'label' => Words::BY_ITEM_BULK[$a], 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? '' : 'primary'];
                 }
             }
         }

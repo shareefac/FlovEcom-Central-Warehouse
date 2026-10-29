@@ -28,7 +28,7 @@
         </select>
       </label>
       <label class="choice"><input type="checkbox" name="below" value="1"<?php if ($filters['below']): ?> checked<?php endif; ?>> <?= $word('REORDER_ENGINE', 'below') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder/low-stock"><?= $word('REORDER_LOW', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder/low-stock"><?= $word('REORDER_LOW', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -41,7 +41,7 @@
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="items" value="<?= $e(implode(',', array_column($rows, 'sku_id'))) ?>">
   <input type="hidden" name="back" value="low-stock">
-  <button type="submit"><?= $word('REORDER_ENGINE', 'refresh') ?></button>
+  <button class="btn" type="submit"><?= $word('REORDER_ENGINE', 'refresh') ?></button>
 </form>
 <?php endif; ?>
 <?php if ($error !== null): ?>
@@ -113,8 +113,8 @@
 </div>
 <?php if ($canManage): ?>
   <p class="actions">
-    <button type="submit" class="primary" name="action" value="safety"><?= $word('REORDER_LOW', 'use_safety') ?></button>
-    <button type="submit" name="action" value="keep"><?= $word('REORDER_LOW', 'keep_own') ?></button>
+    <button type="submit" class="btn primary" name="action" value="safety"><?= $word('REORDER_LOW', 'use_safety') ?></button>
+    <button class="btn" type="submit" name="action" value="keep"><?= $word('REORDER_LOW', 'keep_own') ?></button>
     <span class="hint"><?= $say('REORDER_LOW', 'buttons_hint', $bulkMax) ?></span>
   </p>
 </form>

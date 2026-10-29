@@ -21,7 +21,7 @@
         </select>
       </label>
       <label class="choice"><input type="checkbox" name="cancelled" value="1"<?php if ($f['cancelled']): ?> checked<?php endif; ?>> <?= $word('STOCK_OPS', 'stopped') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/returns"><?= $word('STOCK_OPS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/returns"><?= $word('STOCK_OPS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 </form>
@@ -52,7 +52,7 @@
 <?php endforeach; ?>
       </select>
     </label>
-    <button type="submit" class="primary"><?= $word('RETURNS', 'quick_button') ?></button>
+    <button type="submit" class="btn"><?= $word('RETURNS', 'quick_button') ?></button>
   </form>
 </section>
 <?php endif; ?>
@@ -88,7 +88,7 @@
       </select>
     </label>
     <label><?= $word('RETURNS', 'ref') ?> <input type="text" name="return_ref" value="<?= $e($typed['return_ref'] ?? '') ?>" maxlength="100"></label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('RETURNS', 'start_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('RETURNS', 'start_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

@@ -36,7 +36,7 @@
           <option value="reversed"<?php if ($f['state'] === 'reversed'): ?> selected<?php endif; ?>><?= $word('DUTY', 'state_reversed') ?></option>
         </select>
       </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/receiving/duty"><?= $word('DUTY', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/receiving/duty"><?= $word('DUTY', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 <?php if ($total > 0): ?>

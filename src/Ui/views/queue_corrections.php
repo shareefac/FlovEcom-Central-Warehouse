@@ -36,8 +36,8 @@
         <legend><?= $word('CORRECTIONS', 'answer_legend') ?></legend>
         <label><?= $word('QUEUES', 'note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
         <p class="actions">
-          <button type="submit"><?= $word('CORRECTIONS', 'confirm') ?></button>
-          <button type="submit" class="danger" formaction="<?= $u($action . '/' . $r['id'] . '/dismiss') ?>"><?= $word('CORRECTIONS', 'dismiss') ?></button>
+          <button class="btn" type="submit"><?= $word('CORRECTIONS', 'confirm') ?></button>
+          <button type="submit" class="btn risky" formaction="<?= $u($action . '/' . $r['id'] . '/dismiss') ?>"><?= $word('CORRECTIONS', 'dismiss') ?></button>
         </p>
         <p class="hint"><?= $word('CORRECTIONS', 'not_count') ?></p>
       </fieldset>

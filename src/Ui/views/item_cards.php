@@ -24,7 +24,7 @@
       <label class="choice"><input type="checkbox" name="warnings" value="1"<?php if ($filters['warnings']): ?> checked<?php endif; ?>> <?= $word('CARDS', 'only_warnings') ?></label>
       <label class="choice"><input type="checkbox" name="blocked" value="1"<?php if ($filters['blocked']): ?> checked<?php endif; ?>> <?= $word('CARDS', 'only_blocked') ?> <span class="hint"><?= $word('CARDS', 'blocked_hint') ?></span></label>
       <label class="choice"><input type="checkbox" name="discontinued" value="1"<?php if ($filters['discontinued']): ?> checked<?php endif; ?>> <?= $word('CARDS', 'only_discontinued') ?></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/items/cards"><?= $word('CARDS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('CARDS', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/items/cards"><?= $word('CARDS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('CARDS', 'apply') ?></button></div>
     </div>
   </details>
   <div class="tb-end">
@@ -36,8 +36,8 @@
 </form>
 <?php if ($chips !== []): ?>
 <div class="filters-on">
-  <p class="pills-label" id="cards-on"><?= $word('CARDS', 'showing') ?></p>
-  <ul class="pills" aria-labelledby="cards-on">
+  <p class="filter-chips-label" id="cards-on"><?= $word('CARDS', 'showing') ?></p>
+  <ul class="filter-chips" aria-labelledby="cards-on">
 <?php foreach ($chips as $c): ?>
     <li><a href="<?= $u('/ui/items/cards', $c['query']) ?>"><span><?= $e($c['label']) ?></span><span class="ico ico-close" aria-hidden="true"></span><span class="visually-hidden"><?= $word('CARDS', 'remove_filter') ?></span></a></li>
 <?php endforeach; ?>
@@ -93,7 +93,7 @@
       <td data-label="<?= $word('CARDS', 'mg') ?>" class="num"><?= $e($r['mg']) ?></td>
       <td data-label="<?= $word('CARDS', 'duty') ?>"><?= $e($r['duty']) ?></td>
       <td data-label="<?= $word('CARDS', 'single_use') ?>"><?= $e($r['single_use']) ?></td>
-      <td data-label="<?= $word('CARDS', 'flavour') ?>"><?= $e($r['flavour']) ?><?php if ($r['flavour_proposed']): ?> <span class="tag warn"><?= $word('CARDS', 'from_file') ?></span><?php endif; ?></td>
+      <td data-label="<?= $word('CARDS', 'flavour') ?>"><?= $e($r['flavour']) ?><?php if ($r['flavour_proposed']): ?> <span class="tag needs"><?= $word('CARDS', 'from_file') ?></span><?php endif; ?></td>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

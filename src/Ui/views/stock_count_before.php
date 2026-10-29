@@ -27,7 +27,7 @@
 <form class="inline" method="post" action="<?= $u($base . '/recount') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="times" value="1">
-  <button type="submit" class="primary"><?= $word('COUNTS', 'retime_all') ?></button> <span class="muted"><?= $word('COUNTS', 'retime_all_text') ?></span>
+  <button type="submit" class="btn"><?= $word('COUNTS', 'retime_all') ?></button> <span class="muted"><?= $word('COUNTS', 'retime_all_text') ?></span>
 </form>
 <?php endif; ?>
 <?php endif; ?>
@@ -78,7 +78,7 @@
         <form class="inline" method="post" action="<?= $u($base . '/recount') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="line" value="<?= $e($l['line_no']) ?>">
-          <button type="submit"><?= $word('COUNTS', 'recount') ?></button>
+          <button class="btn" type="submit"><?= $word('COUNTS', 'recount') ?></button>
         </form>
 <?php endif; ?>
 <?php if ($mine && $l['needs_choice']): ?>
@@ -86,7 +86,7 @@
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="line" value="<?= $e($l['line_no']) ?>">
           <input type="hidden" name="seen" value="<?= $e($l['moved']['max_id']) ?>">
-          <button type="submit"><?= $word('COUNTS', 'as_counted') ?></button>
+          <button class="btn" type="submit"><?= $word('COUNTS', 'as_counted') ?></button>
         </form>
 <?php endif; ?>
       </td>
@@ -102,7 +102,7 @@
   <form class="inline" method="post" action="<?= $u($base . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <button type="submit" class="primary"><?= $word('COUNTS', 'make_final_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('COUNTS', 'make_final_button') ?></button>
   </form>
 <?php elseif ($mine && $blocked): ?>
   <p class="note"><?= $word('COUNTS', 'make_final_blocked') ?></p>

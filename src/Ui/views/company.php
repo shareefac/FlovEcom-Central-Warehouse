@@ -29,7 +29,7 @@
     <input type="hidden" name="version" value="<?= $e($p['version']) ?>">
     <p><?= $word('COMPANY', 'check_first') ?></p>
     <p><strong><?= $word('UI', 'what_happens') ?></strong> <?= $word('COMPANY', 'confirm_after') ?></p>
-    <button type="submit" class="primary"><?= $word('COMPANY', 'confirm') ?></button>
+    <button type="submit" class="btn primary"><?= $word('COMPANY', 'confirm') ?></button>
   </form>
 <?php elseif ($canConfirm && $unsaved): ?>
   <p class="muted"><?= $word('COMPANY', 'unsaved') ?></p>
@@ -63,7 +63,7 @@
 <?php endif; ?>
   <p class="actions">
 <?php if ($canEdit): ?>
-    <a class="button primary-link" href="/ui/reference/company/edit"><?php if ($p['version'] === 0 || $missing !== []): ?><?= $word('COMPANY', 'add') ?><?php else: ?><?= $word('COMPANY', 'change') ?><?php endif; ?></a>
+    <a class="btn" href="/ui/reference/company/edit"><?php if ($p['version'] === 0 || $missing !== []): ?><?= $word('COMPANY', 'add') ?><?php else: ?><?= $word('COMPANY', 'change') ?><?php endif; ?></a>
 <?php endif; ?>
     <a href="/ui/reference/company/sample.pdf"><?= $word('COMPANY', 'sample') ?></a>
   </p>
@@ -116,12 +116,12 @@
     <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/approve') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <label><?= $word('COMPANY', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-      <button type="submit" class="primary"><?= $word('COMPANY', 'right') ?></button>
+      <button type="submit" class="btn primary"><?= $word('COMPANY', 'right') ?></button>
     </form>
     <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/reject') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <label><?= $word('COMPANY', 'why_wrong') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-      <button type="submit"><?= $word('COMPANY', 'wrong') ?></button>
+      <button class="btn" type="submit"><?= $word('COMPANY', 'wrong') ?></button>
     </form>
 <?php elseif ($t['refusal'] !== null): ?>
     <p class="note read-only"><?= $e($t['refusal']) ?></p>

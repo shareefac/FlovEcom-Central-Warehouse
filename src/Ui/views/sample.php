@@ -99,7 +99,7 @@
           <span class="o-sub"><?= $e($h['website']) ?></span>
         </th>
 <?php if ($h['linked_by_batch'] !== null): ?>
-        <td class="c-status"><span class="tag bad"><?php if (str_starts_with($h['linked_by_batch'], 'key_bulk:')): ?><?= $word('SAMPLE', 'held_bulk') ?><?php else: ?><?= $word('SAMPLE', 'held_batch') ?><?php endif; ?></span></td>
+        <td class="c-status"><span class="tag blocked"><?php if (str_starts_with($h['linked_by_batch'], 'key_bulk:')): ?><?= $word('SAMPLE', 'held_bulk') ?><?php else: ?><?= $word('SAMPLE', 'held_batch') ?><?php endif; ?></span></td>
 <?php elseif ($h['open']): ?>
         <td class="c-status"><?= $chip('needs', \CW\Ui\Words::SAMPLE['held_waiting']) ?><?php if ($h['newer']): ?> <span class="muted"><?= $word('SAMPLE', 'held_newer') ?></span><?php endif; ?></td>
 <?php else: ?>

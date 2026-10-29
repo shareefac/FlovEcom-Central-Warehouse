@@ -24,7 +24,7 @@
       <td data-label="<?= $word('BENCH', 'size') ?>"><?= $e($r['size_line']) ?></td>
       <td data-label="<?= $word('BENCH', 'progress') ?>"><?= $say('BENCH', 'lines_checked', (int) $r['checked_lines'], (int) $r['lines']) ?><?php if ($r['checked_at'] !== null): ?><span class="o-sub"><?php if ((int) $r['paperwork_ok'] === 1): ?><?= $say('BENCH', 'paperwork_ok', (string) $r['checked_by_name']) ?><?php else: ?><?= $say('BENCH', 'paperwork_not_ok', (string) $r['checked_by_name']) ?><?php endif; ?></span><?php endif; ?></td>
       <td data-label="<?= $word('BENCH', 'keyed_by') ?>"><?= $e($r['created_by_name']) ?></td>
-      <td class="c-next"><a class="btn primary" href="<?= $u('/ui/receiving/' . $r['id'] . '/bench') ?>"><?= $word('BENCH', 'open') ?></a></td>
+      <td class="c-next"><a class="btn sm" href="<?= $u('/ui/receiving/' . $r['id'] . '/bench') ?>"><?= $word('BENCH', 'open') ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

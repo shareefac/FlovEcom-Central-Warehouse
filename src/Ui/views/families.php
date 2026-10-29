@@ -19,7 +19,7 @@
     <input id="f-name" type="text" name="name" maxlength="255" required value="<?= $e($typed['name']) ?>"<?php if (in_array($errorCode, ['bad_name', 'family_exists'], true)): ?> aria-invalid="true"<?php endif; ?>>
     <label for="f-note"><?= $word('FAMILY', 'note') ?></label>
     <textarea id="f-note" name="note" rows="2" maxlength="500"><?= $e($typed['note']) ?></textarea>
-    <p class="actions"><button type="submit" class="primary"><?= $word('FAMILY', 'add_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('FAMILY', 'add_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

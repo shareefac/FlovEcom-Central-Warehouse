@@ -42,7 +42,7 @@
     <label><?= $word('HANDOVER', 'add_q') ?> <input type="search" name="q" value="<?= $e($typedAdd['q']) ?>" maxlength="100" autocomplete="off" autofocus required></label>
     <label><?= $word('HANDOVER', 'add_qty') ?> <input type="text" name="qty" value="<?= $e($typedAdd['qty']) ?>" inputmode="numeric" maxlength="9" required></label>
     <label><?= $word('HANDOVER', 'add_price') ?> <input type="text" name="price" value="<?= $e($typedAdd['price']) ?>" inputmode="decimal" maxlength="16"></label>
-    <button type="submit" class="primary"><?= $word('HANDOVER', 'add_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('HANDOVER', 'add_button') ?></button>
   </form>
   <p class="hint"><?= $word('HANDOVER', 'add_price_hint') ?></p>
 <?php if ($choices !== null): ?>
@@ -61,7 +61,7 @@
               <input type="hidden" name="sku_id" value="<?= $e($c['sku_id']) ?>">
               <input type="hidden" name="qty" value="<?= $e($typedAdd['qty']) ?>">
               <input type="hidden" name="price" value="<?= $e($typedAdd['price']) ?>">
-              <button type="submit"><?= $word('HANDOVER', 'choose_this') ?></button>
+              <button class="btn" type="submit"><?= $word('HANDOVER', 'choose_this') ?></button>
             </form>
           </td>
         </tr>
@@ -115,22 +115,22 @@
     <p class="muted"><?= $word('HANDOVER', 'final_waits') ?></p>
 <?php endif; ?>
     <div class="actions sticky">
-      <button type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
-      <button type="submit" name="action" value="post" class="primary"><?= $word('HANDOVER', 'final_button') ?></button>
+      <button class="btn" type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
+      <button type="submit" name="action" value="post" class="btn primary"><?= $word('HANDOVER', 'final_button') ?></button>
       <span class="muted"><?= $say('HANDOVER', 'total_units', number_format($units)) ?> &middot; <?= $say('HANDOVER', 'net_so_far', \CW\Ui\Html::money($sums['net'])) ?></span>
     </div>
 <?php else: ?>
-    <p class="actions"><button type="submit"><?= $word('HANDOVER', 'save_lines') ?></button> <span class="muted"><?= $say('HANDOVER', 'total_units', number_format($units)) ?> &middot; <?= $say('HANDOVER', 'net_so_far', \CW\Ui\Html::money($sums['net'])) ?></span></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('HANDOVER', 'save_lines') ?></button> <span class="muted"><?= $say('HANDOVER', 'total_units', number_format($units)) ?> &middot; <?= $say('HANDOVER', 'net_so_far', \CW\Ui\Html::money($sums['net'])) ?></span></p>
 <?php endif; ?>
   </form>
 <?php if ($linesPager !== null): ?>
   <form class="pager" method="get" action="<?= $u('/ui/stock/handovers/' . $doc->id) ?>" data-leaves="1">
     <span><?= $say('OP_FINAL', 'page', $linesPager['from'], $linesPager['to'], $linesPager['n']) ?></span>
 <?php if ($linesPager['no'] > 1): ?>
-    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] - 1) ?>"><?= $word('OP_FINAL', 'prev') ?></button>
+    <button class="btn" type="submit" name="lines_page" value="<?= $e($linesPager['no'] - 1) ?>"><?= $word('OP_FINAL', 'prev') ?></button>
 <?php endif; ?>
 <?php if ($linesPager['no'] < $linesPager['pages']): ?>
-    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] + 1) ?>"><?= $word('OP_FINAL', 'next') ?></button>
+    <button class="btn" type="submit" name="lines_page" value="<?= $e($linesPager['no'] + 1) ?>"><?= $word('OP_FINAL', 'next') ?></button>
 <?php endif; ?>
   </form>
 <?php endif; ?>
@@ -179,7 +179,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('handover_fields', ['form' => $form]) ?>
-    <p class="actions"><button type="submit"><?= $word('HANDOVER', 'save_details') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('HANDOVER', 'save_details') ?></button></p>
   </form>
 </details>
 <?php if (!$oneForm): ?>
@@ -195,7 +195,7 @@
   <form class="inline" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <button type="submit" class="primary"><?= $word('HANDOVER', 'final_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('HANDOVER', 'final_button') ?></button>
   </form>
 </section>
 <?php endif; ?>
@@ -206,7 +206,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('HANDOVER', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('HANDOVER', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('HANDOVER', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -226,7 +226,7 @@
       </select>
     </label>
     <label><?= $word('HANDOVER', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('HANDOVER', 'cancel_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('HANDOVER', 'cancel_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -237,7 +237,7 @@
   <p class="muted"><?= $word('HANDOVER', 'copy_text') ?></p>
   <form class="inline" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/copy') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit"><?= $word('HANDOVER', 'copy_button') ?></button>
+    <button class="btn" type="submit"><?= $word('HANDOVER', 'copy_button') ?></button>
   </form>
 </section>
 <?php endif; ?>

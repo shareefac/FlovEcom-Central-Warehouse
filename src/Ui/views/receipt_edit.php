@@ -85,7 +85,7 @@
       <input type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autofocus autocomplete="off" aria-describedby="scan-hint"></label>
     <label><?= $word('RECEIPT', 'scan_packs') ?> <input type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></label>
     <label><?= $word('RECEIPT', 'scan_price') ?> <input type="text" name="price" value="<?= $e($price) ?>" class="short" inputmode="decimal" autocomplete="off"></label>
-    <button type="submit" name="action" value="add" class="primary" formnovalidate><?= $word('RECEIPT', 'add_button') ?></button>
+    <button type="submit" name="action" value="add" class="btn soft" formnovalidate><?= $word('RECEIPT', 'add_button') ?></button>
     <p class="hint" id="scan-hint"><?= $word('RECEIPT', 'scan_hint') ?></p>
   </fieldset>
 <?php if ($choices !== null): ?>
@@ -95,9 +95,9 @@
 <?php foreach ($choices as $c): ?>
       <li>
 <?php if ($c['supplier_item_id'] !== null): ?>
-        <button type="submit" name="add_si" value="<?= $e($c['supplier_item_id']) ?>"><?= $word('RECEIPT', 'add_button') ?></button>
+        <button class="btn" type="submit" name="add_si" value="<?= $e($c['supplier_item_id']) ?>"><?= $word('RECEIPT', 'add_button') ?></button>
 <?php else: ?>
-        <button type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('RECEIPT', 'add_button') ?></button>
+        <button class="btn" type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('RECEIPT', 'add_button') ?></button>
 <?php endif; ?>
         <?= $e($c['name']) ?> <span class="muted"><?= $e($c['sku_code']) ?></span><?php if ($c['brand'] !== null): ?> <span class="muted"><?= $e($c['brand']) ?></span><?php endif; ?>
 <?php if ($c['supplier_item_id'] !== null): ?>
@@ -178,8 +178,8 @@
     <p class="hint"><?= $word('RECEIPT', 'lines_hint') ?></p>
   </section>
   <div class="actions sticky">
-    <button type="submit" name="action" value="save" formnovalidate><?= $word('RECEIPT', 'save') ?></button>
-    <button type="submit" name="action" value="post" class="primary"><?= $word('RECEIPT', 'save_book') ?></button>
+    <button class="btn" type="submit" name="action" value="save" formnovalidate><?= $word('RECEIPT', 'save') ?></button>
+    <button type="submit" name="action" value="post" class="btn primary"><?= $word('RECEIPT', 'save_book') ?></button>
     <?php if ($plan['problems'] === []): ?><?= $chip('done', \CW\Ui\Words::RECEIPT['ready_tag']) ?><?php else: ?><a href="#ready-h"><?php if (count($plan['problems']) === 1): ?><?= $word('RECEIPT', 'to_settle_one') ?><?php else: ?><?= $say('RECEIPT', 'to_settle', count($plan['problems'])) ?><?php endif; ?></a><?php endif; ?>
   </div>
   <p class="hint"><?= $word('RECEIPT', 'save_book_does') ?></p>
@@ -228,7 +228,7 @@
   <form class="quick" method="post" action="<?= $u('/ui/receiving/' . $doc->id . '/copy') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-    <button type="submit"><?= $say('RECEIPT', 'copy_button', (string) $po['number']) ?></button>
+    <button class="btn" type="submit"><?= $say('RECEIPT', 'copy_button', (string) $po['number']) ?></button>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'copy_hint') ?></p>
 </section>
@@ -247,7 +247,7 @@
         <option value="replace"><?= $word('RECEIPT', 'sheet_replace') ?></option>
       </select>
     </label>
-    <p class="actions"><button type="submit"><?= $word('RECEIPT', 'sheet_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('RECEIPT', 'sheet_button') ?></button></p>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'sheet_hint') ?> <a href="/ui/receiving/template.csv"><?= $word('RECEIVING', 'sample') ?></a></p>
 </details>
@@ -262,6 +262,6 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
     <label><?= $word('RECEIPT', 'cancel_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('RECEIPT', 'cancel_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('RECEIPT', 'cancel_button') ?></button></p>
   </form>
 </details>

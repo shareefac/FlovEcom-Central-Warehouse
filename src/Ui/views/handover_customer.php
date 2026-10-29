@@ -31,7 +31,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('handover_customer_fields', ['v' => $v, 'errors' => $errors, 'kinds' => $kinds, 'vatCodes' => $vatCodes]) ?>
-    <p class="actions"><button type="submit" class="primary"><?= $word('CUSTOMER', 'save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('CUSTOMER', 'save') ?></button></p>
   </form>
 </details>
 <form class="inline" method="post" action="<?= $u('/ui/stock/handovers/customers/' . $c['id'] . '/active') ?>">
@@ -40,10 +40,10 @@
 <?php if ((int) $c['is_active'] === 1): ?>
   <input type="hidden" name="on" value="0">
   <p class="muted"><?= $word('CUSTOMER', 'switch_off_text') ?></p>
-  <button type="submit" class="danger"><?= $word('CUSTOMER', 'switch_off') ?></button>
+  <button type="submit" class="btn risky"><?= $word('CUSTOMER', 'switch_off') ?></button>
 <?php else: ?>
   <input type="hidden" name="on" value="1">
-  <button type="submit"><?= $word('CUSTOMER', 'switch_on') ?></button>
+  <button class="btn" type="submit"><?= $word('CUSTOMER', 'switch_on') ?></button>
 <?php endif; ?>
 </form>
 <?php endif; ?>

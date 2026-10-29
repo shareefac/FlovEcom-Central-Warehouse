@@ -57,11 +57,11 @@
       <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
 <?php endif; ?>
 <?php endforeach; ?>
-      <button type="submit" class="btn primary big"><span class="btn-title"><?= $word('SPOT', 'yes') ?><?php if ($spot_yes['units'] !== '1'): ?> (<?= $e(\CW\Ui\Words::saleUses($spot_yes['units'])) ?>)<?php endif; ?></span><span class="sub"><?= $word('SPOT', 'yes_sub') ?></span></button>
+      <button type="submit" class="btn primary lg"><span class="btn-title"><?= $word('SPOT', 'yes') ?><?php if ($spot_yes['units'] !== '1'): ?> (<?= $e(\CW\Ui\Words::saleUses($spot_yes['units'])) ?>)<?php endif; ?></span><span class="sub"><?= $word('SPOT', 'yes_sub') ?></span></button>
     </form>
 <?php endif; ?>
     <details class="confirm-step" id="not-a-match"<?php if ($spot_open): ?> open<?php endif; ?>>
-      <summary class="btn secondary big"><span class="btn-title"><?= $word('SPOT', 'no') ?></span><span class="sub"><?= $word('SPOT', 'no_sub') ?></span></summary>
+      <summary class="btn lg"><span class="btn-title"><?= $word('SPOT', 'no') ?></span><span class="sub"><?= $word('SPOT', 'no_sub') ?></span></summary>
       <div class="alert blocked" role="note">
         <p class="alert-title"><?= $word('SPOT', 'no_confirm_title') ?></p>
         <p><?= $word('SPOT', 'no_confirm_text') ?></p>
@@ -72,7 +72,7 @@
           'protected' => $protected, 'max_units' => $max_units, 'max_reason' => $max_reason, 'card_fields' => $card_fields,
           'error' => $error, 'error_field' => $error_field, 'button' => \CW\Ui\Words::SPOT['no_confirm_button'], 'danger' => true]) ?>
     </details>
-    <a class="btn secondary big" href="<?= $e($strip['next'] ?? ($strip['url'] ?? '/ui/review/samples')) ?>"><span class="btn-title"><?= $word('SPOT', 'unsure') ?></span><span class="sub"><?= $word('SPOT', 'unsure_sub') ?></span></a>
+    <a class="btn lg" href="<?= $e($strip['next'] ?? ($strip['url'] ?? '/ui/review/samples')) ?>"><span class="btn-title"><?= $word('SPOT', 'unsure') ?></span><span class="sub"><?= $word('SPOT', 'unsure_sub') ?></span></a>
   </div>
 <?php else: ?>
 <?php if ($quick_link): ?>
@@ -93,7 +93,7 @@
     <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
 <?php endif; ?>
 <?php endforeach; ?>
-    <button type="submit" class="primary"><?php if ($next_link !== null): ?><?= $word('LISTING', 'quick') ?><?php else: ?><?= $word('LISTING', 'quick_last') ?><?php endif; ?><?php if ($form['units'] !== '1'): ?> (<?= $e(\CW\Ui\Words::saleUses($form['units'])) ?>)<?php endif; ?></button>
+    <button type="submit" class="btn primary"><?php if ($next_link !== null): ?><?= $word('LISTING', 'quick') ?><?php else: ?><?= $word('LISTING', 'quick_last') ?><?php endif; ?><?php if ($form['units'] !== '1'): ?> (<?= $e(\CW\Ui\Words::saleUses($form['units'])) ?>)<?php endif; ?></button>
     <span class="muted"><?= $word('LISTING', 'quick_note') ?></span>
   </form>
 <?php endif; ?>

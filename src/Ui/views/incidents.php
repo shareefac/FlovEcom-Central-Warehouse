@@ -18,7 +18,7 @@
 <?php endforeach; ?>
     </select>
   </label>
-  <button type="submit"><?= $word('INCIDENTS', 'filter') ?></button>
+  <button class="btn" type="submit"><?= $word('INCIDENTS', 'filter') ?></button>
 </form>
 <?php if ($rows === [] && $status === 'open' && $kind === null): ?>
 <?= $empty(\CW\Ui\Words::INCIDENTS['none_open'], \CW\Ui\Words::INCIDENTS['none_open_text']) ?>
@@ -51,7 +51,7 @@
           </select>
         </label>
         <label><?= $word('INCIDENTS', 'close_note') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-        <p class="actions"><button type="submit"><?= $word('INCIDENTS', 'close_button') ?></button></p>
+        <p class="actions"><button class="btn" type="submit"><?= $word('INCIDENTS', 'close_button') ?></button></p>
         <p class="hint"><?= $word('INCIDENTS', 'close_hint') ?></p>
       </fieldset>
     </form>

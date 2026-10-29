@@ -6,6 +6,6 @@
 <div class="doc-bar">
   <a class="btn ghost" href="<?= $u($back) ?>"><?= $word('DOC', 'leave') ?></a>
 <?php foreach ($buttons as $b): ?>
-  <button type="submit" name="action" value="<?= $e($b['value']) ?>" class="btn <?php if ($b['primary'] ?? false): ?>primary<?php else: ?>secondary<?php endif; ?>"><?= $e($b['label']) ?></button>
+  <button type="submit" name="action" value="<?= $e($b['value']) ?>" class="btn<?php if ($b['primary'] ?? false): ?> primary<?php endif; ?>"><?= $e($b['label']) ?></button>
 <?php endforeach; ?>
 </div>

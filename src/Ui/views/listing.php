@@ -47,7 +47,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
   <p class="muted"><?= $e($landing['why']) ?></p>
 <?php if ($landing['can_real']): ?>
   <details class="confirm-step" id="real-product"<?php if ($error_field === 'reason'): ?> open<?php endif; ?>>
-    <summary class="btn secondary"><?= $word('ACTION', 'not_landing') ?></summary>
+    <summary class="btn"><?= $word('ACTION', 'not_landing') ?></summary>
     <p><?= $word('LANDING', 'real_text') ?></p>
     <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -56,7 +56,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
       <input type="hidden" name="seen" value="<?= $e($form['seen'] ?? '') ?>">
       <label for="f-reason"><?= $word('LANDING', 'real_why') ?></label>
       <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" required value="<?= $e($form['reason'] ?? '') ?>">
-      <p class="actions"><button type="submit" class="primary"><?= $word('LANDING', 'real_button') ?></button></p>
+      <p class="actions"><button type="submit" class="btn"><?= $word('LANDING', 'real_button') ?></button></p>
     </form>
   </details>
 <?php else: ?>
@@ -228,7 +228,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
         <label><?= $word('UI', 'search_placeholder') ?>
           <input type="search" name="s" value="<?= $e($search_text) ?>" maxlength="100" aria-keyshortcuts="/" data-page-search>
         </label>
-        <button type="submit"><?= $word('SEARCH', 'button') ?></button>
+        <button class="btn" type="submit"><?= $word('SEARCH', 'button') ?></button>
       </form>
 <?php if ($search_text !== '' && $found === []): ?>
       <p class="muted"><?= $word('SEARCH', 'no_items') ?></p>
@@ -245,7 +245,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
             <th scope="row" class="c-head"><a href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?><?php if ($s['details'] !== ''): ?> <span class="o-sub"><?= $e($s['details']) ?></span><?php endif; ?></th>
             <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $word('POLICY', $s['policy']) ?></td>
             <td data-label="<?= $word('LISTING', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>
-            <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn secondary" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
+            <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
           </tr>
 <?php endforeach; ?>
         </tbody>
@@ -294,10 +294,10 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php if ($why['cannot'] !== [] || $why['watch'] !== []): ?>
     <dt><?= $word('LISTING', 'watch') ?></dt><dd><ul class="plain watch">
 <?php foreach ($why['cannot'] as $c): ?>
-      <li><span class="tag bad"><?= $e($c) ?></span></li>
+      <li><span class="tag blocked"><?= $e($c) ?></span></li>
 <?php endforeach; ?>
 <?php foreach ($why['watch'] as $w): ?>
-      <li><span class="tag warn"><?= $e($w) ?></span></li>
+      <li><span class="tag needs"><?= $e($w) ?></span></li>
 <?php endforeach; ?>
     </ul></dd>
 <?php endif; ?>
@@ -344,7 +344,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php if (($form['seen'] ?? '') !== ''): ?>
     <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="secondary"><?= $word('ACTION', 'landing') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('ACTION', 'landing') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -398,10 +398,10 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php foreach ($candidates as $c): ?>
       <tr<?php if ($c['ref'] !== null): ?> id="cand-<?= $e($c['ref']) ?>"<?php endif; ?><?php if ($c['ai_picked']): ?> class="picked"<?php endif; ?>>
         <th scope="row" class="c-head"><?= $e($c['ref']) ?></th>
-        <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag ok"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag done"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('LISTING', 'score') ?>"><?= $e($c['prescore']) ?></td>
-        <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> bad<?php else: ?> warn<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
-        <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn secondary" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
+        <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> blocked<?php else: ?> needs<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
+        <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>

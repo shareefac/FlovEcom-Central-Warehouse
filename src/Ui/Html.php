@@ -169,7 +169,7 @@ final class Html
             $out .= '<p>' . self::e($text) . '</p>';
         }
         if ($href !== null && $button !== null) {
-            $out .= '<p><a class="btn primary" href="' . self::e($href) . '">' . self::e($button) . '</a></p>';
+            $out .= '<p><a class="btn" href="' . self::e($href) . '">' . self::e($button) . '</a></p>';
         }
         return $out . '</div>';
     }

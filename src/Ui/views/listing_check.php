@@ -30,10 +30,10 @@ $skuId = $target['id'] ?? '';
 <?php if ($why['cannot'] !== [] || $why['watch'] !== [] || $list_watch !== []): ?>
     <dt><?= $word('CHECK', 'watch') ?></dt><dd><ul class="plain watch">
 <?php foreach ($why['cannot'] as $c): ?>
-      <li><span class="tag bad"><?= $e($c) ?></span></li>
+      <li><span class="tag blocked"><?= $e($c) ?></span></li>
 <?php endforeach; ?>
 <?php foreach ([...$why['watch'], ...$list_watch] as $w): ?>
-      <li><span class="tag warn"><?= $e($w) ?></span></li>
+      <li><span class="tag needs"><?= $e($w) ?></span></li>
 <?php endforeach; ?>
     </ul></dd>
 <?php endif; ?>
@@ -65,7 +65,7 @@ $skuId = $target['id'] ?? '';
 <?php foreach ($fields as $key => $value): ?>
       <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
 <?php endforeach; ?>
-      <button type="submit" class="btn secondary" data-answer="no" data-listing-id="<?= $e($l['id']) ?>" data-sku-id="<?= $e($skuId) ?>" data-channel="<?= $e($l['channel']) ?>" title="<?= $say('CHECK', 'no_named', $l['title'] ?? \CW\Ui\Words::LISTING['no_title'], (string) ($target['code'] ?? '')) ?>"><?= $word('CHECK', 'no') ?></button>
+      <button type="submit" class="btn" data-answer="no" data-listing-id="<?= $e($l['id']) ?>" data-sku-id="<?= $e($skuId) ?>" data-channel="<?= $e($l['channel']) ?>" title="<?= $say('CHECK', 'no_named', $l['title'] ?? \CW\Ui\Words::LISTING['no_title'], (string) ($target['code'] ?? '')) ?>"><?= $word('CHECK', 'no') ?></button>
     </form>
   </div>
   <p class="lc-open"><a href="<?= $e($open) ?>"><?= $word('CHECK', 'open_page') ?></a></p>

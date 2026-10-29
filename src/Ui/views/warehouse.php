@@ -39,7 +39,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'rename'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('WAREHOUSES', 'rename_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('WAREHOUSES', 'rename_button') ?></button></p>
   </form>
 </section>
 <?php if (!$w['is_system']): ?>
@@ -69,7 +69,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'owner'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="primary"><?= $word('WAREHOUSES', 'owner_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('WAREHOUSES', 'owner_button') ?></button></p>
   </form>
 <?php endif; ?>
 </section>
@@ -89,7 +89,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'sellable'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="danger"><?php if ($w['is_sellable']): ?><?= $word('WAREHOUSES', 'sellable_off_button') ?><?php else: ?><?= $word('WAREHOUSES', 'sellable_on_button') ?><?php endif; ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?php if ($w['is_sellable']): ?><?= $word('WAREHOUSES', 'sellable_off_button') ?><?php else: ?><?= $word('WAREHOUSES', 'sellable_on_button') ?><?php endif; ?></button></p>
   </form>
 <?php endif; ?>
 </section>
@@ -109,7 +109,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'switch_off'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('WAREHOUSES', 'switch_off_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('WAREHOUSES', 'switch_off_button') ?></button></p>
   </form>
 <?php endif; ?>
 <?php else: ?>
@@ -121,7 +121,7 @@
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'switch_on'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
-    <p class="actions"><button type="submit"><?= $word('WAREHOUSES', 'switch_on_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('WAREHOUSES', 'switch_on_button') ?></button></p>
   </form>
 <?php endif; ?>
 </section>
@@ -177,7 +177,7 @@
       <label><?= $word('CONFIG', 'reason') ?>
         <textarea name="reason" rows="2" minlength="3" maxlength="500" required></textarea>
       </label>
-      <p class="actions"><button type="submit"><?= $word('WAREHOUSES', 'place_rename_button') ?></button></p>
+      <p class="actions"><button class="btn" type="submit"><?= $word('WAREHOUSES', 'place_rename_button') ?></button></p>
     </form>
     <form class="record" method="post" action="<?= $u('/ui/reference/warehouses/' . $w['id']) ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -187,7 +187,7 @@
       <label><?= $word('CONFIG', 'reason') ?>
         <textarea name="reason" rows="2" minlength="3" maxlength="500" required></textarea>
       </label>
-      <p class="actions"><button type="submit"<?php if ($p['is_active']): ?> class="danger"<?php endif; ?>><?php if ($p['is_active']): ?><?= $word('WAREHOUSES', 'place_off_button') ?><?php else: ?><?= $word('WAREHOUSES', 'place_on_button') ?><?php endif; ?></button></p>
+      <p class="actions"><button type="submit" class="btn<?php if ($p['is_active']): ?> risky<?php endif; ?>"><?php if ($p['is_active']): ?><?= $word('WAREHOUSES', 'place_off_button') ?><?php else: ?><?= $word('WAREHOUSES', 'place_on_button') ?><?php endif; ?></button></p>
     </form>
     <?= $partial('config_history', ['rows' => $p['history']]) ?>
   </details>
@@ -214,7 +214,7 @@
         <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
         <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'place_add'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
       </label>
-      <p class="actions"><button type="submit" class="primary"><?= $word('WAREHOUSES', 'place_add_button') ?></button></p>
+      <p class="actions"><button type="submit" class="btn"><?= $word('WAREHOUSES', 'place_add_button') ?></button></p>
     </form>
   </details>
 <?php endif; ?>

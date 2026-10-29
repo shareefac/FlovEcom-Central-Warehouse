@@ -37,8 +37,8 @@
         <legend><?= $word('MODES', 'answer_legend') ?></legend>
         <label><?= $word('QUEUES', 'note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
         <p class="actions">
-          <button type="submit"><?= $word('MODES', 'accept') ?></button>
-          <button type="submit" class="danger" formaction="<?= $u($action . '/' . $r['id'] . '/dismiss') ?>"><?= $word('MODES', 'dismiss') ?></button>
+          <button class="btn" type="submit"><?= $word('MODES', 'accept') ?></button>
+          <button type="submit" class="btn risky" formaction="<?= $u($action . '/' . $r['id'] . '/dismiss') ?>"><?= $word('MODES', 'dismiss') ?></button>
         </p>
       </fieldset>
     </form>

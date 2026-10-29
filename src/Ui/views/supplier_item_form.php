@@ -5,7 +5,7 @@
 <?php endif; ?>
 <form class="filters" method="get" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>" role="search">
   <label><?= $word('SUPPLIER_ITEMS', 'find') ?> <input type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autofocus></label>
-  <button type="submit"><?= $word('SUPPLIER_ITEMS', 'find_button') ?></button>
+  <button class="btn" type="submit"><?= $word('SUPPLIER_ITEMS', 'find_button') ?></button>
 </form>
 <?php if ($q !== '' && $items === []): ?>
 <?= $empty(\CW\Ui\Words::say('SUPPLIER_ITEMS', 'find_none', $q)) ?>
@@ -21,7 +21,7 @@
     <label class="choice"><input type="radio" name="sku_id" value="<?= $e($it['id']) ?>"<?php if ($chosen === $it['id']): ?> checked<?php endif; ?><?php if ($it['merged']): ?> disabled<?php endif; ?> required>
       <?= $e($it['name']) ?> <span class="muted"><?= $e($it['code']) ?><?php if ($it['brand'] !== null): ?> · <?= $e($it['brand']) ?><?php endif; ?></span>
 <?php if ($it['merged']): ?> <span class="tag"><?= $word('SUPPLIER_ITEMS', 'joined') ?></span><?php endif; ?>
-<?php if ($it['have'] !== ''): ?> <span class="tag warn"><?= $say('SUPPLIER_ITEMS', 'already', $it['have']) ?></span><?php endif; ?></label>
+<?php if ($it['have'] !== ''): ?> <span class="tag needs"><?= $say('SUPPLIER_ITEMS', 'already', $it['have']) ?></span><?php endif; ?></label>
 <?php endforeach; ?>
   </fieldset>
   <fieldset>
@@ -46,7 +46,7 @@
     <label><?= $word('SUPPLIER_ITEMS', 'price_label') ?> <input type="text" name="pack_price" value="<?= $e($v['pack_price']) ?>" inputmode="decimal" maxlength="20" class="short"></label>
     <label><?= $word('SUPPLIER_ITEMS', 'price_on') ?> <input type="date" name="effective_on" value="<?= $e($v['effective_on']) ?>" max="<?= $e($today) ?>"></label>
   </fieldset>
-  <p class="actions"><button type="submit" class="primary"><?= $word('SUPPLIER_ITEMS', 'add_button') ?></button></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('SUPPLIER_ITEMS', 'add_button') ?></button></p>
 </form>
 <?php elseif ($q === ''): ?>
 <p class="hint"><?= $word('SUPPLIER_ITEMS', 'find_first') ?></p>

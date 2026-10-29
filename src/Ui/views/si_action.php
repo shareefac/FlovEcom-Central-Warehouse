@@ -6,14 +6,14 @@
 ?>
 <?php if ($a === 'accept'): ?>
   <details class="doc-act"<?php if ($typedAccept !== ''): ?> open<?php endif; ?>>
-    <summary class="btn <?php if ($primary): ?>primary<?php else: ?>secondary<?php endif; ?> sm"><?= $word('INVOICES', 'accept_title') ?></summary>
+    <summary class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('INVOICES', 'accept_title') ?></summary>
     <div class="doc-act-panel">
       <p class="muted"><?= $word('INVOICES', 'accept_text') ?></p>
       <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/accept') ?>">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="match_fingerprint" value="<?= $e($match['fingerprint']) ?>">
         <label><?= $word('INVOICES', 'accept_why') ?> <input type="text" name="note" value="<?= $e($typedAccept) ?>" minlength="3" maxlength="500" required></label>
-        <p class="actions"><button type="submit" class="primary"><?= $word('INVOICES', 'accept_button') ?></button></p>
+        <p class="actions"><button type="submit" class="btn primary"><?= $word('INVOICES', 'accept_button') ?></button></p>
       </form>
     </div>
   </details>
@@ -24,21 +24,21 @@
     <input type="hidden" name="form_key" value="<?= $e($creditKey) ?>">
     <input type="hidden" name="supplier_id" value="<?= $e($rec['supplier_id']) ?>">
     <input type="hidden" name="credits_id" value="<?= $e($doc->id) ?>">
-    <button type="submit" class="btn <?php if ($primary): ?>primary<?php else: ?>secondary<?php endif; ?> sm"><?= $word('INVOICES', 'book_credit') ?></button>
+    <button type="submit" class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('INVOICES', 'book_credit') ?></button>
   </form>
 <?php endif; ?>
 <?php if ($a === 'withdraw'): ?>
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit" class="btn <?php if ($primary): ?>primary<?php else: ?>secondary<?php endif; ?> sm"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
+    <button type="submit" class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
   </form>
 <?php endif; ?>
 <?php if ($a === 'file'): ?>
-  <a class="btn <?php if ($primary): ?>primary<?php else: ?>secondary<?php endif; ?> sm" href="#files"><?= $word('STOCK_OPS', 'file_button') ?></a>
+  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="#files"><?= $word('STOCK_OPS', 'file_button') ?></a>
 <?php endif; ?>
 <?php if ($a === 'reverse'): ?>
   <details class="doc-act"<?php if ($typedCancel['code'] !== ''): ?> open<?php endif; ?>>
-    <summary class="btn danger-outline sm"><?= $word('STOCK_OPS', 'cancel_title') ?></summary>
+    <summary class="btn risky"><?= $word('STOCK_OPS', 'cancel_title') ?></summary>
     <div class="doc-act-panel">
       <p class="muted"><?= $e($k['cancel_text']) ?></p>
       <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/reverse') ?>">
@@ -52,7 +52,7 @@
           </select>
         </label>
         <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-        <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
+        <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
       </form>
     </div>
   </details>

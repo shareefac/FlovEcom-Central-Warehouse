@@ -20,7 +20,7 @@
   <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/request/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="request" value="<?= $e($request['id']) ?>">
-    <button type="submit"><?= $word('STAFF', 'request_withdraw') ?></button>
+    <button class="btn" type="submit"><?= $word('STAFF', 'request_withdraw') ?></button>
   </form>
 <?php endif; ?>
 </div>
@@ -76,7 +76,7 @@
       <?= $explain('admin_off', \CW\Ui\Words::ROLE['admin']) ?>
 <?php endif; ?>
     </div>
-    <button type="submit" class="primary"><?= $word('STAFF', 'save') ?></button>
+    <button type="submit" class="btn primary"><?= $word('STAFF', 'save') ?></button>
   </form>
 </section>
 
@@ -90,11 +90,11 @@
 <?php if ($person['is_active']): ?>
     <input type="hidden" name="active" value="0">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'stop_confirm') ?></label>
-    <button type="submit" class="danger"><?= $word('STAFF', 'stop') ?></button>
+    <button type="submit" class="btn risky"><?= $word('STAFF', 'stop') ?></button>
     <span class="muted"><?= $word('STAFF', 'stop_note') ?></span>
 <?php else: ?>
     <input type="hidden" name="active" value="1">
-    <button type="submit"><?= $word('STAFF', 'allow') ?></button>
+    <button class="btn" type="submit"><?= $word('STAFF', 'allow') ?></button>
     <span class="muted"><?= $word('STAFF', 'allow_note') ?></span>
 <?php endif; ?>
   </form>
@@ -113,7 +113,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKeys['sheet']) ?>">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_sheet_confirm') ?></label>
-    <button type="submit" class="danger"><?= $word('STAFF', 'new_sheet') ?></button>
+    <button type="submit" class="btn risky"><?= $word('STAFF', 'new_sheet') ?></button>
   </form>
 <?php else: ?>
   <div class="head-help">
@@ -128,7 +128,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKeys['code']) ?>">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_code_confirm') ?></label>
-    <button type="submit" class="danger"><?= $word('STAFF', 'new_code') ?></button>
+    <button type="submit" class="btn risky"><?= $word('STAFF', 'new_code') ?></button>
   </form>
 <?php endif; ?>
   <h3><?= $word('STAFF', 'new_password') ?></h3>
@@ -140,7 +140,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKeys['password']) ?>">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_password_confirm') ?></label>
-    <button type="submit" class="danger"><?= $word('STAFF', 'new_password') ?></button>
+    <button type="submit" class="btn risky"><?= $word('STAFF', 'new_password') ?></button>
   </form>
 <?php endif; ?>
   <p class="muted"><?= $word('STAFF', 'both_lost') ?></p>
@@ -173,7 +173,7 @@
         <td data-label="<?= $word('STAFF', 'device_seen') ?>"><?= $when($d['last_seen_at']) ?></td>
         <td data-label="<?= $word('STAFF', 'device_from') ?>"><code><?= $e($d['ip'] ?? '') ?></code></td>
 <?php if ($canManage): ?>
-        <td class="c-next"><form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><button type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form></td>
+        <td class="c-next"><form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><button class="btn" type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form></td>
 <?php endif; ?>
       </tr>
 <?php endforeach; ?>
@@ -184,7 +184,7 @@
   <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sign-out') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="session" value="all">
-    <button type="submit" class="danger"><?= $word('STAFF', 'sign_out_all') ?></button>
+    <button type="submit" class="btn risky"><?= $word('STAFF', 'sign_out_all') ?></button>
     <span class="muted"><?= $word('STAFF', 'sign_out_all_note') ?></span>
   </form>
 <?php endif; ?>

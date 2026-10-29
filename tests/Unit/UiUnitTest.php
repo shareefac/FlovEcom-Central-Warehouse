@@ -1107,8 +1107,9 @@ final class UiUnitTest extends TestCase
         foreach (['/^\.doc-board \{[^}]*border-left: 6px solid var\(--t-fill/m' => 'the group\'s edge',
             '/^td\.doc-st \{[^}]*background: var\(--t-fill[^}]*color: var\(--on-fill\)[^}]*text-align: center/m' => 'the status cell',
             '/^\.doc-group > \.grp-title \{[^}]*color: var\(--t-fill/m' => 'the coloured heading',
-            '/^\.doc-head \.ph-title h1 \.chip \{[^}]*border-radius: var\(--r-8\)/m' => 'the status block',
-            '/^\.doc-more \{/m' => 'More', '/^\.doc-progress \{/m' => 'the progress strip',
+            '/^\.chip \{[^}]*border-radius: var\(--r-8\)/m' => 'the status block\'s corners (DS3: every chip)',
+            '/^\.chip\.lg, \.ph-title h1 \.chip, \.ph-meta \.chip \{ min-height: 32px;/m' => 'the status block on a record',
+            '/^details\.more \{/m' => 'More (DS4: the one More)', '/^\.doc-progress \{/m' => 'the progress strip',
             '/^\.doc-diff \{[^}]*border-left: 6px solid var\(--st-amber\)/m' => 'the differences panel',
             '/^\.doc-diff td\.diff \{[^}]*background: var\(--sf-amber\)/m' => 'a cell that differs',
             '/^\.btn\.soft \{/m' => 'the soft button', '/^\.doc-drop \{[^}]*dashed/m' => 'the drop area',
@@ -1117,7 +1118,7 @@ final class UiUnitTest extends TestCase
             '/\.doc-bar > button \{ flex: 1 1 0;/' => 'phone: the two buttons equal',
             // The Codex review of 9ce3515, M3 (PV26): on a phone More's menu is in the flow under its button (with or without the script),
             // never placed against the page.
-            '/@media \(max-width: 639\.98px\) \{ \.doc-more \{[^}]*\} \.doc-more-menu \{[^}]*position: static/' => 'phone: More opens under its button',
+            '/@media \(max-width: 639\.98px\) \{ details\.more \{[^}]*\} \.more-menu \{[^}]*position: static/' => 'phone: More opens under its button',
             // The coordinator's Chrome check of 8f6fbb7 (PV27, PV29): the totals' words have room; the action bar in the header, and on a
             // phone under the title, from the left; the new page's head one column and the "+ Add line" row's cells one under another.
             '/^\.doc-totals \{[^}]*max-width: 28rem/m' => 'the totals box wide enough',
@@ -1140,6 +1141,78 @@ final class UiUnitTest extends TestCase
                 self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
             }
         }
+    }
+
+    /**
+     * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
+     * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
+     * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that
+     * scrolls inside itself with a fade; the buttons one base with the five variants and three sizes (48 px on a phone), disabled faded,
+     * the More menu that needs no script and opens in the flow on a phone; the status as a solid block (32 px on a record), a solid cell,
+     * a soft tag, in the same seven colours.
+     */
+    public function testTheOneTabsButtonsAndStatusPartsFollowThePartsBoard(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $rule = static function (string $selector) use ($css): string {
+            self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
+            return $m[1];
+        };
+        // Tabs
+        $tabs = $rule('.tabs');
+        foreach (['display: flex', 'overflow-x: auto', 'overscroll-behavior-x: contain', 'box-shadow: inset 0 -1px 0 var(--hairline)'] as $want) {
+            self::assertStringContainsString($want, $tabs, ".tabs: {$want}");
+        }
+        self::assertStringNotContainsString('wrap', $tabs, 'one row: it scrolls, never wraps');
+        $tab = $rule('.tab');
+        foreach (['min-height: 44px', 'font: 600 14px/20px var(--font)', 'color: var(--ink-muted)', 'border-bottom: 3px solid transparent', 'white-space: nowrap'] as $want) {
+            self::assertStringContainsString($want, $tab, ".tab: {$want}");
+        }
+        self::assertSame(' color: var(--accent-hover); border-bottom-color: var(--accent); ', $rule('.tab[aria-current]'), 'the open tab: the dark accent, the accent bar');
+        self::assertStringContainsString('border-radius: var(--r-pill)', $rule('.tab > .count'), 'the count is a bubble');
+        self::assertSame(' background: var(--accent); color: var(--on-fill); ', $rule('.tab[aria-current] > .count:not(.soon)'), '... accent on the open tab');
+        self::assertStringContainsString('margin-top: -16px', $rule('.tabs + .tabs'), 'the segments: a second row right under the first');
+        self::assertStringContainsString("each(document.querySelectorAll('nav.tabs'), function (strip) {", $js, 'every row of tabs gets the fade ...');
+        self::assertSame(1, preg_match('/^\.tabs\.more-right \{[^}]*mask-image: linear-gradient/m', $css), '... on the side that has more');
+        // Buttons
+        $base = $rule('.btn, button');
+        foreach (['min-height: 40px', 'border-radius: var(--r-10)', 'border: 1px solid var(--hairline)', 'background: var(--card)', 'font: 600 14px/20px var(--font)'] as $want) {
+            self::assertStringContainsString($want, $base, "the plain button: {$want}");
+        }
+        foreach (['.btn.primary' => 'background: var(--accent); border-color: var(--accent); color: var(--on-fill);',
+            '.btn.soft' => 'background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-hover);',
+            '.btn.ghost' => 'background: transparent; border-color: transparent; color: var(--ink-muted);',
+            '.btn.ok' => 'background: var(--sf-green); border-color: var(--done-line); color: var(--sf-green-ink);',
+            '.btn.risky' => 'background: var(--card); border-color: var(--block-line); color: var(--sf-red-ink);'] as $variant => $want) {
+            self::assertStringContainsString($want, $rule($variant), $variant);
+        }
+        self::assertStringContainsString('min-height: 34px', $rule('.btn.sm'));
+        self::assertStringContainsString('min-height: 48px', $rule('.btn.lg'));
+        self::assertStringContainsString('opacity: .45; cursor: not-allowed', $rule('.btn[disabled], .btn[aria-disabled="true"]'), 'disabled: faded');
+        self::assertStringContainsString('color: var(--ink-muted)', $rule('.btn-why'), '... with the reason in plain words beside it');
+        self::assertStringContainsString('@media (max-width: 699.98px), (pointer: coarse) { .btn, .btn.sm { min-height: 44px; } }', $css, '44 px to tap');
+        self::assertStringContainsString('@media (max-width: 699.98px) { .btn:not(.sm) { min-height: 48px; } }', $css, '48 px on a phone');
+        // More: a <details> (no script), its arrow drawn, its menu placed under the button; in the flow on a phone.
+        self::assertStringContainsString('list-style: none', $rule('details.more > summary'));
+        self::assertStringContainsString('transform: rotate(45deg)', $rule('details.more > summary::after'), 'the drawn arrow');
+        self::assertStringContainsString('position: absolute', $rule('.more-menu'));
+        self::assertStringContainsString('@media (max-width: 639.98px) { details.more { position: static; } .more-menu { position: static;', $css);
+        self::assertStringContainsString('color: var(--sf-red-ink)', $rule('.more-menu > .btn.risky, .more-menu > form > .btn.risky, .more-menu > details > summary.btn.risky'),
+            'a risky step in red words, last in the menu');
+        // Status: the solid block (32 px on a record), the solid cell of a board, the soft tag; the seven colours.
+        self::assertStringContainsString('background: var(--t-fill, var(--st-grey)); color: var(--on-fill)', $rule('.chip'));
+        self::assertStringContainsString('min-height: 32px', $rule('.chip.lg, .ph-title h1 .chip, .ph-meta .chip'));
+        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*background: var\(--t-fill, var\(--st-grey\)\); color: var\(--on-fill\)/m', $css), 'the cell');
+        self::assertStringContainsString('border-radius: var(--r-pill)', $rule('.tag'));
+        self::assertStringContainsString('background: var(--sf-grey)', $rule('.tag'), 'a tag with no tone is grey ...');
+        self::assertSame(' background: var(--t-soft); color: var(--t-ink); ', $rule('.tag:is(.needs, .done, .waiting, .blocked, .info, .off, .review)'),
+            '... and never takes the tone of a row around it');
+        foreach (['waiting' => 'st-grey', 'info' => 'st-blue', 'review' => 'st-purple', 'needs' => 'st-amber', 'done' => 'st-green', 'blocked' => 'st-red', 'off' => 'st-navy'] as $tone => $colour) {
+            self::assertSame(1, preg_match('/^\.' . $tone . ' +\{ --t-fill: var\(--' . $colour . '\);/m', $css), "{$tone} is {$colour}");
+        }
+        self::assertSame(\CW\Ui\Words::TONES, ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'], 'the seven tones, no more');
+        self::assertSame('off', \CW\Ui\Words::tone('PO_STATE', 'closed'), 'closed is navy (the approved canvas)');
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

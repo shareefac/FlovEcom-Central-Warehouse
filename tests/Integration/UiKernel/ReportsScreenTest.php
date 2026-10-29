@@ -195,7 +195,7 @@ final class ReportsScreenTest extends KernelUiTestCase
         self::assertSame(['P2 slow'], self::names($page, 'report-slow'), 'no sale for 60 days or more, under 180');
         self::assertSame(['P3 never sold'], self::names($rev->get('/ui/reports/slow-stock', ['show' => 'dead']), 'report-slow'));
         self::assertSame(['1', '1'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//main//nav[@class="seg"]//span[@class="count"]'))), 'both lists counted in the one read');
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//main//nav[contains(@class, "show-tabs")]//span[@class="count"]'))), 'both lists counted in the one read');
         self::assertSame(['P3 never sold'], self::names($rev->get('/ui/reports/slow-stock', ['show' => 'dead', 'page' => '7']), 'report-slow'));
         self::assertStringContainsString(sprintf(Words::REPORTS['slow_says'], 60, 180), $page->text());
         self::assertStringContainsString(sprintf(Words::REPORTS['figures_at'], '1 Oct 2026, 10:00'), $page->text(), 'when the job last ran, in UK time');

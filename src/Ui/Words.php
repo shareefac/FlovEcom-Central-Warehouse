@@ -2784,8 +2784,9 @@ final class Words
         'find' => 'Find a product',
         'soon' => 'Soon',
         'soon_title' => 'Coming soon: not built yet',
+        'more' => 'More',
         'more_new' => 'More to create',
-        // The toolbar under the tabs (design v4): a split create button, then Search, Filter, Sort, and Export at the end.
+        // The toolbar under the tabs (design v4): the create button (and More), then Search, Filter, Sort, and Export at the end.
         'search' => 'Search',
         'filter' => 'Filter',
         'sort' => 'Sort',
@@ -11046,9 +11047,10 @@ final class Words
         'SAMPLE_STATE' => ['open' => 'needs', 'confirmed' => 'done', 'needed_second' => 'done', 'waiting_second' => 'review', 'rejected' => 'blocked',
             'superseded' => 'off', 'decided_otherwise' => 'blocked', 'confirmed_by_other' => 'blocked', 'confirmed_not_by_lead' => 'blocked', 'changed_since' => 'blocked'],
         'SAMPLE_RESULT' => ['waiting' => 'needs', 'passed' => 'done', 'failed' => 'blocked', 'unusable' => 'blocked'],
-        // Design v4 (owner's approval, 8 Oct 2026): a draft is grey, waiting for someone's OK purple, sent blue, part delivered orange.
+        // Design v4 (owner's approval, 8 Oct 2026): a draft is grey, waiting for someone's OK purple, sent blue, part delivered orange; closed
+        // navy, as on the approved canvas and the parts board (docs/decisions.md DS3).
         'PO_STATE' => ['draft' => 'waiting', 'awaiting_approval' => 'review', 'approved' => 'needs', 'sent' => 'info', 'part_received' => 'needs',
-            'received' => 'done', 'closed' => 'done', 'cancelled' => 'off'],
+            'received' => 'done', 'closed' => 'off', 'cancelled' => 'off'],
         'SUPPLIER_STATUS' => ['draft' => 'waiting', 'pending_approval' => 'review', 'active' => 'done', 'inactive' => 'off'],
         'REVIEW_STATE' => ['not_required' => 'off', 'pending' => 'review', 'approved' => 'done', 'rejected' => 'blocked'],
         'TASK_STATE' => ['open' => 'review', 'approved' => 'done', 'rejected' => 'blocked', 'withdrawn' => 'off'],

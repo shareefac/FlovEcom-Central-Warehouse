@@ -16,7 +16,7 @@
       <span class="hint"><?= $word('ENROL', 'code_hint') ?></span>
       <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required>
     </label>
-    <button type="submit" class="primary"><?= $word('ENROL', 'next') ?></button>
+    <button type="submit" class="btn primary"><?= $word('ENROL', 'next') ?></button>
   </form>
   <p class="hint"><?= $word('ENROL', 'what_next') ?></p>
   <p class="hint"><a href="/ui/login"><?= $word('ENROL', 'back') ?></a></p>

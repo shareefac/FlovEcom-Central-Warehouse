@@ -4,7 +4,7 @@
   <label><?= $word('SEARCH', 'label') ?>
     <input type="search" name="q" value="<?= $e($text) ?>" maxlength="100" autofocus aria-keyshortcuts="/" data-page-search>
   </label>
-  <button type="submit" class="primary"><?= $word('SEARCH', 'button') ?></button>
+  <button type="submit" class="btn"><?= $word('SEARCH', 'button') ?></button>
 </form>
 
 <?php if ($short): ?>

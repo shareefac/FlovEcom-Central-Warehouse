@@ -45,7 +45,7 @@
       </fieldset>
 <?php endforeach; ?>
     </div>
-    <button type="submit" class="primary"><?= $word('STAFF', 'add_button') ?></button>
+    <button type="submit" class="btn primary"><?= $word('STAFF', 'add_button') ?></button>
   </form>
 </details>
 <?php endif; ?>
@@ -114,7 +114,7 @@
         <td data-label="<?= $word('STAFF', 'device_seen') ?>"><?= $when($d['last_seen_at']) ?></td>
         <td data-label="<?= $word('STAFF', 'device_from') ?>"><code><?= $e($d['ip'] ?? '') ?></code></td>
 <?php if ($canManage): ?>
-        <td class="c-next"><?php if ($d['staff_user_id'] !== $meId): ?><form class="inline" method="post" action="<?= $u('/ui/people/' . $d['staff_user_id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><input type="hidden" name="back" value="list"><button type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form><?php endif; ?></td>
+        <td class="c-next"><?php if ($d['staff_user_id'] !== $meId): ?><form class="inline" method="post" action="<?= $u('/ui/people/' . $d['staff_user_id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><input type="hidden" name="back" value="list"><button class="btn" type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form><?php endif; ?></td>
 <?php endif; ?>
       </tr>
 <?php endforeach; ?>

@@ -49,7 +49,7 @@
           </select>
         </label>
         <label><?= $word('QUEUES', 'note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
-        <p class="actions"><button type="submit"><?= $word('OVERSOLD', 'handle') ?></button></p>
+        <p class="actions"><button class="btn" type="submit"><?= $word('OVERSOLD', 'handle') ?></button></p>
       </fieldset>
     </form>
 <?php endif; ?>
@@ -58,7 +58,7 @@
       <form class="record queue-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/note') ?>">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <label><?= $word('QUEUES', 'note') ?> <input type="text" name="note" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required></label>
-        <p class="actions"><button type="submit"><?= $word('OVERSOLD', 'add_note') ?></button></p>
+        <p class="actions"><button class="btn" type="submit"><?= $word('OVERSOLD', 'add_note') ?></button></p>
       </form>
     </details>
 <?php endif; ?>

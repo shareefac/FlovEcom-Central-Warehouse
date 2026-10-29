@@ -69,7 +69,7 @@
         <label><?= $word('PO_ADD', 'supplier_name') ?> <input type="text" name="new_supplier_name" maxlength="128" autocomplete="off" value="<?= $e($newSupplier['name']) ?>"></label>
         <label><?= $word('PO_ADD', 'supplier_email') ?> <input type="email" name="new_supplier_email" maxlength="191" autocomplete="off" value="<?= $e($newSupplier['email']) ?>"></label>
         <label><?= $word('PO_ADD', 'supplier_phone') ?> <input type="tel" name="new_supplier_phone" maxlength="32" autocomplete="off" value="<?= $e($newSupplier['phone']) ?>"></label>
-        <button type="submit" name="action" value="new_supplier" class="btn secondary"><?= $word('PO_ADD', 'supplier_button') ?></button>
+        <button type="submit" name="action" value="new_supplier" class="btn"><?= $word('PO_ADD', 'supplier_button') ?></button>
       </details>
 <?php else: ?>
       <p class="hint po-ask"><?= $e($askSupplier) ?></p>
@@ -110,7 +110,7 @@
           <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"></td>
           <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
 <?php else: ?>
-          <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="o-sub"><?= $e($l['sku_code']) ?></span><?php if ($l['merged_into_sku_id'] !== null): ?> <span class="tag bad"><?= $word('ORDER', 'replaced') ?></span><?php elseif ($l['si_active'] !== null && (int) $l['si_active'] !== 1): ?> <span class="tag warn"><?= $word('ORDER', 'switched_off') ?></span><?php endif; ?></th>
+          <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="o-sub"><?= $e($l['sku_code']) ?></span><?php if ($l['merged_into_sku_id'] !== null): ?> <span class="tag blocked"><?= $word('ORDER', 'replaced') ?></span><?php elseif ($l['si_active'] !== null && (int) $l['si_active'] !== 1): ?> <span class="tag needs"><?= $word('ORDER', 'switched_off') ?></span><?php endif; ?></th>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"><?= $e($l['code']) ?></td>
           <td data-label="<?= $word('ORDER', 'pack') ?>"><?php if ($l['supplier_item_id'] === null && $editable): ?><label><?= $word('ORDER', 'items_per_pack') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short"></label><?php else: ?><?= $e($l['pack_label']) ?><?php endif; ?></td>
           <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"><?php if ($editable): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'packs') ?>"><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
@@ -132,7 +132,7 @@
                 <p class="sm-msg muted" data-po-note aria-live="polite" hidden></p>
               </div>
               <label class="po-packs"><?= $word('ORDER', 'packs_label') ?> <input type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></label>
-              <button type="submit" name="action" value="add" class="btn secondary"><?= $word('ORDER', 'add_button') ?></button>
+              <button type="submit" name="action" value="add" class="btn"><?= $word('ORDER', 'add_button') ?></button>
             </div>
           </td>
         </tr>
@@ -146,14 +146,14 @@
       <p class="error" role="alert"><?= $e($itemError) ?></p>
 <?php endif; ?>
 <?php if ($itemOther !== null): ?>
-      <p class="note"><?= $say('PO_ADD', 'barcode_other', $itemOther['label']) ?> <button type="submit" name="add_sku" value="<?= $e($itemOther['id']) ?>" class="btn secondary"><?= $word('PO_ADD', 'barcode_use') ?></button></p>
+      <p class="note"><?= $say('PO_ADD', 'barcode_other', $itemOther['label']) ?> <button type="submit" name="add_sku" value="<?= $e($itemOther['id']) ?>" class="btn"><?= $word('PO_ADD', 'barcode_use') ?></button></p>
 <?php endif; ?>
 <?php if ($itemSame !== null): ?>
       <div class="note same-items">
         <p><strong><?= $word('PO_ADD', 'same_title') ?></strong> <?= $word('PO_ADD', 'same_text') ?></p>
         <ul class="plain">
 <?php foreach ($itemSame as $s): ?>
-          <li><a href="<?= $u('/ui/items/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?> <button type="submit" name="add_sku" value="<?= $e($s['id']) ?>" class="btn secondary"><?= $word('PO_ADD', 'same_use') ?></button></li>
+          <li><a href="<?= $u('/ui/items/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?> <button type="submit" name="add_sku" value="<?= $e($s['id']) ?>" class="btn"><?= $word('PO_ADD', 'same_use') ?></button></li>
 <?php endforeach; ?>
         </ul>
       </div>
@@ -167,7 +167,7 @@
       <label><?= $word('PO_ADD', 'item_code') ?> <input type="text" name="item_code" maxlength="64" autocomplete="off" value="<?= $e($item['code']) ?>"></label>
       <label><?= $word('PO_ADD', 'item_upp') ?> <input type="number" name="item_upp" min="1" max="100000" class="short" value="<?= $e($item['upp']) ?>"></label>
       <label><?= $word('PO_ADD', 'item_price') ?> <input type="text" name="item_price" inputmode="decimal" class="short" value="<?= $e($item['price']) ?>"></label>
-      <button type="submit" name="action" value="new_item" class="btn secondary"><?= $word('PO_ADD', 'item_button') ?></button>
+      <button type="submit" name="action" value="new_item" class="btn"><?= $word('PO_ADD', 'item_button') ?></button>
     </details>
 <?php else: ?>
     <p class="hint po-ask"><?= $e($askItem) ?></p>
@@ -180,15 +180,15 @@
 <?php foreach ($choices as $c): ?>
       <li>
 <?php if ($c['supplier_item_id'] !== null): ?>
-        <button type="submit" name="add_si" value="<?= $e($c['supplier_item_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
+        <button class="btn" type="submit" name="add_si" value="<?= $e($c['supplier_item_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
 <?php else: ?>
-        <button type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
+        <button class="btn" type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
 <?php endif; ?>
         <?= $e($c['name']) ?> <span class="muted"><?= $e($c['sku_code']) ?></span><?php if ($c['brand'] !== null): ?> <span class="muted"><?= $e($c['brand']) ?></span><?php endif; ?>
 <?php if ($c['supplier_item_id'] !== null): ?>
-        <span class="tag ok"><?= $say('ORDER', 'choice_set_up', (string) ($c['supplier_code'] ?? \CW\Ui\Words::ORDER['choice_no_code']), \CW\Ui\Controller\PurchaseOrdersController::pack((string) $c['purchase_unit'], (int) $c['units_per_pack'])) ?></span>
+        <span class="tag done"><?= $say('ORDER', 'choice_set_up', (string) ($c['supplier_code'] ?? \CW\Ui\Words::ORDER['choice_no_code']), \CW\Ui\Controller\PurchaseOrdersController::pack((string) $c['purchase_unit'], (int) $c['units_per_pack'])) ?></span>
 <?php else: ?>
-        <span class="tag warn"><?= $word('ORDER', 'choice_new') ?></span>
+        <span class="tag needs"><?= $word('ORDER', 'choice_new') ?></span>
 <?php endif; ?>
       </li>
 <?php endforeach; ?>
@@ -209,7 +209,7 @@
     </dl>
 <?php if (!$isNew): ?>
     <details class="po-cancel"<?php if ($reasonError === 'cancel'): ?> open<?php endif; ?>>
-      <summary class="btn secondary sm"><?= $word('PO_ONE', 'cancel') ?></summary>
+      <summary class="btn sm"><?= $word('PO_ONE', 'cancel') ?></summary>
       <label><?= $word('ORDER', 'cancel_why') ?> <select name="reason_code" form="po-cancel" required<?php if ($reasonError === 'cancel'): ?> aria-invalid="true"<?php endif; ?>>
         <option value=""><?= $word('ORDER', 'choose_reason') ?></option>
 <?php foreach ($cancelReasons as $r): ?>
@@ -217,7 +217,7 @@
 <?php endforeach; ?>
       </select></label>
       <label><?= $word('PO_ONE', 'cancel_note') ?> <input type="text" name="note" form="po-cancel" maxlength="400"></label>
-      <button type="submit" form="po-cancel" class="btn danger-outline sm"><?= $word('ORDER', 'cancel_draft_button') ?></button>
+      <button type="submit" form="po-cancel" class="btn risky sm"><?= $word('ORDER', 'cancel_draft_button') ?></button>
     </details>
 <?php endif; ?>
     </div>
@@ -239,6 +239,6 @@
   <input type="hidden" name="mode" value="replace">
   <p><a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.xlsx') ?>"><?= $word('ORDER', 'download_xlsx') ?></a></p>
   <label><?= $say('ORDER', 'file_label', $maxMb, $maxRows) ?> <input type="file" name="file" required></label>
-  <p class="actions"><button type="submit" class="btn secondary"><?= $word('ORDER', 'import') ?></button></p>
+  <p class="actions"><button type="submit" class="btn"><?= $word('ORDER', 'import') ?></button></p>
 </form>
 <?php endif; ?>

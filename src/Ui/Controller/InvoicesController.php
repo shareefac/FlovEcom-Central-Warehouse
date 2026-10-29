@@ -796,10 +796,10 @@ final class InvoicesController
         $tag = match (true) {
             $kind !== 'invoice' || $group === 'cancelled' => null,
             $status !== 'posted' => ['tone' => '', 'text' => Words::INVOICES['tag_unchecked']],
-            $r['match_state'] === 'needs_review' => ['tone' => 'warn', 'text' => Words::say('INVOICES', $off === 1 ? 'tag_diff_one' : 'tag_diff_many', max(1, $off))],
-            $r['match_state'] === 'accepted' => ['tone' => 'ok', 'text' => Words::INVOICES['tag_accepted']],
+            $r['match_state'] === 'needs_review' => ['tone' => 'needs', 'text' => Words::say('INVOICES', $off === 1 ? 'tag_diff_one' : 'tag_diff_many', max(1, $off))],
+            $r['match_state'] === 'accepted' => ['tone' => 'done', 'text' => Words::INVOICES['tag_accepted']],
             $r['match_state'] === null => null,
-            default => ['tone' => 'ok', 'text' => Words::INVOICES['tag_matches']],
+            default => ['tone' => 'done', 'text' => Words::INVOICES['tag_matches']],
         };
         $ref = $refs === null ? null : ($refs['po'] ?? $refs['grn']);
         $due = ($r['due_date'] ?? null) === null || $reversal ? null : (string) $r['due_date'];

@@ -78,5 +78,5 @@
 <?php endforeach; ?>
   </details>
 
-  <p class="actions"><button type="submit" class="<?php if ($danger): ?>danger<?php else: ?>primary<?php endif; ?>"><?= $e($button) ?></button></p>
+  <p class="actions"><button type="submit" class="btn <?php if ($danger): ?>risky<?php else: ?>primary<?php endif; ?>"><?= $e($button) ?></button></p>
 </form>

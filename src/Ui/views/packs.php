@@ -31,7 +31,7 @@
     <input id="p-units" type="text" name="units" inputmode="numeric" maxlength="5" required value="<?= $e($typed['units']) ?>"<?php if ($errorField === 'units'): ?> aria-invalid="true"<?php endif; ?>>
     <label for="p-note"><?= $word('PACKS', 'note') ?></label>
     <textarea id="p-note" name="note" rows="2" maxlength="500"><?= $e($typed['note']) ?></textarea>
-    <p class="actions"><button type="submit" class="primary"><?= $word('PACKS', 'add_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('PACKS', 'add_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -88,7 +88,7 @@
         <form class="inline" method="post" action="<?= $u('/ui/items/packs/' . $r['id'] . '/switch') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="on" value="<?php if ($r['active']): ?>0<?php else: ?>1<?php endif; ?>">
-          <button type="submit" class="secondary sm" title="<?= $word('PACKS', 'switch_does') ?>"><?php if ($r['active']): ?><?= $word('PACKS', 'switch_off') ?><?php else: ?><?= $word('PACKS', 'switch_on') ?><?php endif; ?></button>
+          <button type="submit" class="btn sm" title="<?= $word('PACKS', 'switch_does') ?>"><?php if ($r['active']): ?><?= $word('PACKS', 'switch_off') ?><?php else: ?><?= $word('PACKS', 'switch_on') ?><?php endif; ?></button>
         </form>
 <?php endif; ?>
       </td>

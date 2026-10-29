@@ -28,7 +28,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
     <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary"><?= $word('SUPPLIER', 'alone_ok') ?></button>
+    <button type="submit" class="btn primary"><?= $word('SUPPLIER', 'alone_ok') ?></button>
   </form>
 <?php elseif ($alone['refusal'] !== null): ?>
   <p class="note read-only"><?= $e($alone['refusal']) ?></p>
@@ -62,12 +62,12 @@
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary"><?= $e($t['ok']) ?></button>
+    <button type="submit" class="btn primary"><?= $e($t['ok']) ?></button>
   </form>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('SUPPLIER', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit"><?= $word('SUPPLIER', 'not_ok') ?></button>
+    <button class="btn" type="submit"><?= $word('SUPPLIER', 'not_ok') ?></button>
   </form>
 <?php else: ?>
   <p class="note read-only"><?= $e($t['refusal']) ?></p>
@@ -75,7 +75,7 @@
 <?php if ($t['may_withdraw']): ?>
   <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit" class="btn big secondary"><span class="btn-title"><?= $word('SUPPLIER', 'withdraw') ?></span> <span class="sub"><?= $word('SUPPLIER', 'withdraw_does') ?></span></button>
+    <button type="submit" class="btn lg"><span class="btn-title"><?= $word('SUPPLIER', 'withdraw') ?></span> <span class="sub"><?= $word('SUPPLIER', 'withdraw_does') ?></span></button>
   </form>
 <?php endif; ?>
 </section>
@@ -94,7 +94,7 @@
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
       <label><?= $word('SUPPLIER', 'stop_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-      <p class="actions"><button type="submit" class="danger"><?= $word('SUPPLIER', 'stop_button') ?></button></p>
+      <p class="actions"><button type="submit" class="btn risky"><?= $word('SUPPLIER', 'stop_button') ?></button></p>
     </form>
   </details>
 <?php endif; ?>
@@ -115,12 +115,12 @@
   <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-    <button type="submit" class="primary btn big"><span class="btn-title"><?php if (!$secondPerson): ?><?= $word('SUPPLIER', 'ask_alone') ?><?php elseif ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', $secondPerson ? 'ask_does' : 'ask_alone_does') ?></span></button>
+    <button type="submit" class="primary btn lg"><span class="btn-title"><?php if (!$secondPerson): ?><?= $word('SUPPLIER', 'ask_alone') ?><?php elseif ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', $secondPerson ? 'ask_does' : 'ask_alone_does') ?></span></button>
   </form>
 <?php endif; ?>
 <?php endif; ?>
 <?php if ($canEdit): ?>
-  <p class="actions"><a class="btn secondary" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/edit') ?>"><?= $word('SUPPLIER', 'change') ?></a></p>
+  <p class="actions"><a class="btn" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/edit') ?>"><?= $word('SUPPLIER', 'change') ?></a></p>
 <?php endif; ?>
 </section>
 
@@ -210,7 +210,7 @@
           </select>
         </label>
         <label><?= $say('SUPPLIER', 'upload_file', $maxMb) ?> <input type="file" name="file" required></label>
-        <p class="actions"><button type="submit"><?= $word('SUPPLIER', 'upload_button') ?></button></p>
+        <p class="actions"><button class="btn" type="submit"><?= $word('SUPPLIER', 'upload_button') ?></button></p>
       </form>
     </details>
 <?php endif; ?>
@@ -232,7 +232,7 @@
 <?php endforeach; ?>
       </select>
     </label>
-    <p class="actions"><button type="submit"><?= $word('ARRIVALS', 'save') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('ARRIVALS', 'save') ?></button></p>
   </form>
 <?php else: ?>
   <dl class="wide">
@@ -245,7 +245,7 @@
 <section aria-labelledby="items-h">
   <h2 id="items-h"><?= $word('SUPPLIER', 'products') ?></h2>
   <p><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?><?php if ($items['no_price'] > 0): ?> <?= $say('SUPPLIER', 'products_no_price', $items['no_price']) ?><?php endif; ?></p>
-  <p class="actions"><a class="btn secondary" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a><?php if ($canManage): ?>
+  <p class="actions"><a class="btn" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a><?php if ($canManage): ?>
     <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>"><?= $word('SUPPLIER', 'products_add') ?></a><?php endif; ?></p>
 </section>
 

@@ -348,20 +348,20 @@ final class NewVariantsScreenTest extends KernelUiTestCase
 
         $page = $web->get(self::PATH);
         self::assertSame(['Two days', 'Ten days', 'Twenty days'], self::titles($page), 'the setting\'s 30 days by default');
-        self::assertSame([['Last 7 days', false], ['Last 30 days', true], ['Last 90 days', false], ['Any time', false]], self::pills($page, 'period-pills'));
+        self::assertSame([['Last 7 days', false], ['Last 30 days', true], ['Last 90 days', false], ['Any time', false]], self::pills($page, 'period-tabs'));
         self::assertSame(['Two days'], self::titles($web->get(self::PATH, ['period' => '7'])));
         self::assertSame(['Two days', 'Ten days', 'Twenty days', 'Forty-five days'], self::titles($web->get(self::PATH, ['period' => '90'])));
         $any = $web->get(self::PATH, ['period' => 'all']);
         self::assertSame(['Two days', 'Ten days', 'Twenty days', 'Forty-five days', 'Two hundred days'], self::titles($any));
-        self::assertSame([false, false, false, true], array_column(self::pills($any, 'period-pills'), 1));
+        self::assertSame([false, false, false, true], array_column(self::pills($any, 'period-tabs'), 1));
         self::assertSame(['Two days', 'Ten days', 'Twenty days'], self::titles($web->get(self::PATH, ['period' => '12'])), 'a period the page does not offer is the default');
         // The default period's link carries no period, so it follows the setting; the others name theirs; the filter's pills keep the period.
         $xp = new \DOMXPath($any->dom());
-        $hrefs = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "period-pills")]/a')));
+        $hrefs = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "period-tabs")]/a')));
         self::assertSame([self::PATH . '?channel=alt&period=7', self::PATH . '?channel=alt', self::PATH . '?channel=alt&period=90', self::PATH . '?channel=alt&period=all'], $hrefs);
         self::assertSame([self::PATH . '?channel=alt&period=all', self::PATH . '?channel=alt&period=all&state=new', self::PATH . '?channel=alt&period=all&state=suggested',
             self::PATH . '?channel=alt&period=all&state=not_checked', self::PATH . '?channel=alt&period=all&state=all'],
-            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "state-pills")]/a'))));
+            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a'))));
         self::assertSame(['alt', 'all'], [$any->form(self::PATH)['channel'], $any->form(self::PATH)['period']], 'and so does the search');
 
         // The setting is on the Settings page, with its allowed values in words, and is changed there with a reason.
@@ -387,7 +387,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         // The page now opens with 14 days, and offers them beside its own periods.
         $after = $web->get(self::PATH);
         self::assertSame(['Two days', 'Ten days'], self::titles($after));
-        self::assertSame([['Last 7 days', false], ['Last 14 days', true], ['Last 30 days', false], ['Last 90 days', false], ['Any time', false]], self::pills($after, 'period-pills'));
+        self::assertSame([['Last 7 days', false], ['Last 14 days', true], ['Last 30 days', false], ['Last 90 days', false], ['Any time', false]], self::pills($after, 'period-tabs'));
         self::assertSame(['Two days', 'Ten days', 'Twenty days'], self::titles($web->get(self::PATH, ['period' => '30'])), '30 days is still offered, by its name');
         self::assertSame(['Two days', 'Ten days'], self::titles($web->get(self::PATH, ['period' => '14'])));
         // A matcher looks at the setting; only an admin or a reviewer changes it.
@@ -426,10 +426,10 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(['Plain mango', 'Suggested melon', 'Brand new cherry', 'Unsure grape', 'Heading row', 'Binned kiwi'], self::titles($page),
             'the page opens with everything still to match');
         self::assertSame([['All not matched 6', true], ['New: the computer found nothing like it 2', false], ['Suggested match 2', false], ['No suggestion 2', false], ['All 9', false]],
-            self::pills($page, 'state-pills'));
+            self::pills($page, 'state-tabs'));
         $new = $web->get(self::PATH, ['state' => 'new']);
         self::assertSame(['Brand new cherry', 'Binned kiwi'], self::titles($new), 'the rows the computer checked and found new');
-        self::assertSame([false, true, false, false, false], array_column(self::pills($new, 'state-pills'), 1));
+        self::assertSame([false, true, false, false, false], array_column(self::pills($new, 'state-tabs'), 1));
         self::assertSame(['Suggested melon', 'Unsure grape'], self::titles($web->get(self::PATH, ['state' => 'suggested'])));
         self::assertSame(['Plain mango', 'Heading row'], self::titles($web->get(self::PATH, ['state' => 'not_checked'])));
         $all = $web->get(self::PATH, ['state' => 'all']);
@@ -469,7 +469,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(['Suggested melon'], self::titles($found));
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'shown', 1, 1), $found->text());
         self::assertSame([['All not matched 6', false], ['New: the computer found nothing like it 2', false], ['Suggested match 2', true], ['No suggestion 2', false], ['All 9', false]],
-            self::pills($found, 'state-pills'), 'the counts are the period\'s, not the search\'s');
+            self::pills($found, 'state-tabs'), 'the counts are the period\'s, not the search\'s');
         self::assertSame('melon', $found->form(self::PATH)['q']);
         self::assertSame(self::PATH . '.csv?channel=alt&state=suggested&q=melon', (new \DOMXPath($found->dom()))->evaluate('string(//form[@class="toolbar"]//a[contains(@href, ".csv")]/@href)'));
         self::assertSame(['Binned kiwi'], self::titles($web->get(self::PATH, ['q' => 'kiwi', 'state' => 'new'])), 'a search inside New');
@@ -1443,7 +1443,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
             'No suggestion It was here before the check on arrival, which has not looked at it: open it to decide.',
         ], array_map(static fn (int $n): string => self::row($page, $n)['state'], range(1, 7)));
         self::assertSame([['All not matched 7', false], ['New: the computer found nothing like it 0', false], ['Suggested match 3', false], ['No suggestion 4', false], ['All 7', true]],
-            self::pills($page, 'state-pills'));
+            self::pills($page, 'state-tabs'));
         // The rows the check suggested for have no tick box and say so under their name; the others keep theirs.
         $xp = new \DOMXPath($page->dom());
         $boxes = [];

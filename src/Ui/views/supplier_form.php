@@ -185,6 +185,6 @@
     <p class="field-theirs" id="t-notes"><?php if ($theirs['notes']['kept']): ?><?= $say('SUPPLIER_FORM', 'theirs_kept', $theirs['notes']['by'], $theirs['notes']['now']) ?><?php else: ?><?= $say('SUPPLIER_FORM', 'theirs_taken', $theirs['notes']['by']) ?><?php endif; ?></p>
 <?php endif; ?>
   </fieldset>
-  <p class="actions"><button type="submit" class="primary"><?php if ($s === null): ?><?= $word('SUPPLIER_FORM', 'save_new') ?><?php else: ?><?= $word('SUPPLIER_FORM', 'save') ?><?php endif; ?></button><?php if ($s === null): ?> <span class="hint"><?= $word('SUPPLIER_FORM', 'save_new_hint') ?></span><?php endif; ?></p>
+  <p class="actions"><button type="submit" class="btn primary"><?php if ($s === null): ?><?= $word('SUPPLIER_FORM', 'save_new') ?><?php else: ?><?= $word('SUPPLIER_FORM', 'save') ?><?php endif; ?></button><?php if ($s === null): ?> <span class="hint"><?= $word('SUPPLIER_FORM', 'save_new_hint') ?></span><?php endif; ?></p>
 </form>
 <p class="hint"><?= $word('SUPPLIER_FORM', 'no_bank') ?></p>

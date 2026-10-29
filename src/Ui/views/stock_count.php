@@ -39,7 +39,7 @@
   <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/scan') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('COUNTS', 'scan_label') ?> <input type="search" name="code" maxlength="80" autocomplete="off" inputmode="text"<?php if ($scan === null && $report === null && !$hasMarked): ?> autofocus<?php endif; ?> required></label>
-    <button type="submit"><?= $word('COUNTS', 'scan_button') ?></button>
+    <button class="btn" type="submit"><?= $word('COUNTS', 'scan_button') ?></button>
   </form>
 <?php if ($scanUnits !== null): ?>
   <p class="note"><?= $say('COUNTS', 'scan_case', $scanUnits) ?></p>
@@ -49,7 +49,7 @@
   <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/add') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="sku_id" value="<?= $e($scan['sku_id']) ?>">
-    <button type="submit" class="primary" autofocus><?= $word('COUNTS', 'scan_add') ?></button>
+    <button type="submit" class="btn primary" autofocus><?= $word('COUNTS', 'scan_add') ?></button>
   </form>
 <?php elseif ($scan !== null): ?>
   <p class="error" role="alert" data-code="<?= $e($scan['status']) ?>"><?= $say('COUNTS', 'scan_' . $scan['status'], $scan['typed']) ?></p>
@@ -61,7 +61,12 @@
 <section aria-labelledby="lines-h">
   <h2 id="lines-h"><?= $word('COUNTS', 'lines_title') ?></h2>
 <?php if ($editable): ?>
-  <p class="seg-links"><?php foreach ($showLinks as $s): ?><?php if ($s['current']): ?><strong><?= $word('COUNT_SHOW', $s['key']) ?></strong><?php else: ?><a href="<?= $e($s['href']) ?>"><?= $word('COUNT_SHOW', $s['key']) ?></a><?php endif; ?> <?php endforeach; ?><span class="muted"><?= $say('COUNTS', 'lines_counted', $counted_n, $lines_n) ?></span></p>
+  <nav class="tabs show-tabs" aria-label="<?= $word('COUNTS', 'lines_title') ?>">
+<?php foreach ($showLinks as $s): ?>
+    <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $word('COUNT_SHOW', $s['key']) ?></a>
+<?php endforeach; ?>
+  </nav>
+  <p class="muted"><?= $say('COUNTS', 'lines_counted', $counted_n, $lines_n) ?></p>
 <?php endif; ?>
 <?php if ($lines === []): ?>
   <p class="muted"><?php if ($lines_n === 0): ?><?= $word('COUNTS', 'no_lines') ?><?php else: ?><?= $word('COUNTS', 'no_lines_shown') ?><?php endif; ?></p>
@@ -92,7 +97,7 @@
       </tbody>
     </table>
     </div>
-    <p class="actions"><button type="submit"><?= $word('COUNTS', 'save_page') ?></button> <span class="muted"><?= $word('COUNTS', 'save_hint') ?></span></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('COUNTS', 'save_page') ?></button> <span class="muted"><?= $word('COUNTS', 'save_hint') ?></span></p>
   </form>
 <?php else: ?>
   <div class="table-wrap">
@@ -131,7 +136,7 @@
   <h2 id="final-h"><?= $word('COUNTS', 'final_title') ?></h2>
   <p><?= $word('COUNTS', 'final_text') ?></p>
 <?php if ($kind === 'sheet' && $lines !== []): ?>
-  <p class="actions"><button type="submit" form="count-lines" name="then" value="review" class="primary"><?= $word('COUNTS', 'final_link') ?></button></p>
+  <p class="actions"><button type="submit" form="count-lines" name="then" value="review" class="btn primary"><?= $word('COUNTS', 'final_link') ?></button></p>
 <?php else: ?>
   <p class="actions"><a class="btn primary" href="<?= $u($base . '/differences') ?>"><?= $word('COUNTS', 'final_link') ?></a></p>
 <?php endif; ?>
@@ -184,7 +189,7 @@
     <label><?= $word('COUNTS', 'upload_when') ?> <span class="hint"><?= $say('COUNTS', 'upload_when_hint', $days) ?></span><input type="datetime-local" name="counted_at" value="<?= $e($typedWhen) ?>"></label>
     <label class="choice"><input type="radio" name="mode" value="check" checked> <?= $word('COUNTS', 'upload_check') ?></label>
     <label class="choice"><input type="radio" name="mode" value="apply"> <?= $word('COUNTS', 'upload_apply') ?></label>
-    <p class="actions"><button type="submit"><?= $word('COUNTS', 'upload_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('COUNTS', 'upload_button') ?></button></p>
   </form>
 </details>
 
@@ -195,7 +200,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('COUNTS', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('COUNTS', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>
@@ -215,7 +220,7 @@
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('COUNTS', 'cancel_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('COUNTS', 'cancel_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

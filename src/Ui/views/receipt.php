@@ -52,7 +52,7 @@
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('RECEIPT', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary"><?= $word('RECEIPT', 'ok') ?></button>
+    <button type="submit" class="btn primary"><?= $word('RECEIPT', 'ok') ?></button>
   </form>
 <?php if ($d['poClosed'] !== null): ?>
   <p class="note"><?= $say('RECEIPT', 'po_closed', (string) $d['poClosed']) ?></p>
@@ -60,7 +60,7 @@
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('RECEIPT', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit" class="danger"><?php if ($d['reversal']): ?><?= $word('RECEIPT', 'not_ok_reversal') ?><?php else: ?><?= $word('RECEIPT', 'not_ok') ?><?php endif; ?></button>
+    <button type="submit" class="btn risky"><?php if ($d['reversal']): ?><?= $word('RECEIPT', 'not_ok_reversal') ?><?php else: ?><?= $word('RECEIPT', 'not_ok') ?><?php endif; ?></button>
   </form>
 <?php endif; ?>
 </section>
@@ -97,7 +97,7 @@
       <label><?= $word('RECEIPT', 'invoice_number') ?> <input type="text" name="invoice_number" maxlength="64" autocomplete="off" value="<?= $e($doc->externalRef) ?>"></label>
       <label><?= $word('RECEIPT', 'invoice_date') ?> <input type="date" name="invoice_date" value="<?= $e($gr['invoice_date'] ?? '') ?>"></label>
       <label><?= $word('RECEIPT', 'delivery_note_no') ?> <input type="text" name="delivery_note" maxlength="64" value="<?= $e($gr['delivery_note'] ?? '') ?>"></label>
-      <p class="actions"><button type="submit"><?= $word('RECEIPT', 'set_invoice_button') ?></button></p>
+      <p class="actions"><button class="btn" type="submit"><?= $word('RECEIPT', 'set_invoice_button') ?></button></p>
     </fieldset>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'set_invoice_hint') ?></p>
@@ -106,7 +106,7 @@
   <form class="quick" method="post" action="<?= $u('/ui/receiving/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-    <button type="submit" class="primary btn big"><span class="btn-title"><?= $word('RECEIPT', 'book_in') ?></span> <span class="sub"><?= $word('RECEIPT', 'book_in_does') ?></span></button>
+    <button type="submit" class="primary btn lg"><span class="btn-title"><?= $word('RECEIPT', 'book_in') ?></span> <span class="sub"><?= $word('RECEIPT', 'book_in_does') ?></span></button>
   </form>
   <p class="hint"><?= $word('RECEIPT', 'book_in_rule') ?></p>
 <?php endif; ?>
@@ -159,7 +159,7 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($invoiceBook['formKey']) ?>">
     <input type="hidden" name="grn_id" value="<?= $e($doc->id) ?>">
-    <button type="submit" class="primary"><?= $word('INVOICES', 'book_invoice') ?></button>
+    <button type="submit" class="btn"><?= $word('INVOICES', 'book_invoice') ?></button>
   </form>
 <?php endif; ?>
 </section>
@@ -178,11 +178,11 @@
 <?php endforeach; ?>
   </ul>
 <?php if ($arrivalBox['claim'] !== null): ?>
-  <p><a class="button" href="<?= $u('/ui/purchasing/returns/' . $arrivalBox['claim']) ?>"><?= $word('ARRIVALS', 'claim_open') ?></a></p>
+  <p><a class="btn" href="<?= $u('/ui/purchasing/returns/' . $arrivalBox['claim']) ?>"><?= $word('ARRIVALS', 'claim_open') ?></a></p>
 <?php elseif ($arrivalBox['canClaim']): ?>
   <form class="inline" method="post" action="<?= $u('/ui/receiving/' . $doc->id . '/claim') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit" class="primary"><?= $word('ARRIVALS', 'claim') ?></button>
+    <button type="submit" class="btn"><?= $word('ARRIVALS', 'claim') ?></button>
   </form>
 <?php endif; ?>
 <?php endif; ?>
@@ -284,7 +284,7 @@
       </select>
     </label>
     <label><?= $word('RECEIPT', 'reverse_note') ?> <input type="text" name="note" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('RECEIPT', 'reverse_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('RECEIPT', 'reverse_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

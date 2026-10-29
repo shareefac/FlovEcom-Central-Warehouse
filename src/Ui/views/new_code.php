@@ -39,9 +39,9 @@
     <label><?= $word('ENROL', 'again') ?>
       <input type="password" name="again" autocomplete="new-password" minlength="<?= $e($min) ?>" maxlength="200" required>
     </label>
-    <button type="submit" class="primary"><?= $word('NEW_CODE', 'save_enrol') ?></button>
+    <button type="submit" class="btn primary"><?= $word('NEW_CODE', 'save_enrol') ?></button>
 <?php else: ?>
-    <button type="submit" class="primary"><?= $word('NEW_CODE', 'save_login') ?></button>
+    <button type="submit" class="btn primary"><?= $word('NEW_CODE', 'save_login') ?></button>
 <?php endif; ?>
   </form>
 <?php endif; ?>

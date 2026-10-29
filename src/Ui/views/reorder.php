@@ -34,7 +34,7 @@
       </label>
       <label class="choice"><input type="checkbox" name="urgent" value="1"<?php if ($filters['urgent']): ?> checked<?php endif; ?>> <?= $word('REORDER', 'urgent') ?></label>
       <label class="choice"><input type="checkbox" name="below" value="1"<?php if ($filters['below']): ?> checked<?php endif; ?>> <?= $word('REORDER_ENGINE', 'below') ?> <span class="hint"><?= $word('REORDER_ENGINE', 'below_hint') ?></span></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder"><?= $word('REORDER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder"><?= $word('REORDER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
 <?php if ($rows !== []): ?>
@@ -55,7 +55,7 @@
 <?php else: ?>
   <ul class="plain">
 <?php foreach ($created['drafts'] as $d): ?>
-    <li><a href="<?= $u('/ui/purchasing/orders/' . $d['id']) ?>"><?= $e($d['line']) ?></a><?php if ($d['below_minimum']): ?> <span class="tag warn"><?= $say('REORDER', 'below_minimum', \CW\Ui\Html::money($d['min_order_value'])) ?></span><?php endif; ?></li>
+    <li><a href="<?= $u('/ui/purchasing/orders/' . $d['id']) ?>"><?= $e($d['line']) ?></a><?php if ($d['below_minimum']): ?> <span class="tag needs"><?= $say('REORDER', 'below_minimum', \CW\Ui\Html::money($d['min_order_value'])) ?></span><?php endif; ?></li>
 <?php endforeach; ?>
   </ul>
 <?php endif; ?>
@@ -96,12 +96,12 @@
   <form class="inline" method="post" action="/ui/purchasing/reorder/refresh">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="items" value="<?= $e(implode(',', array_column($rows, 'sku_id'))) ?>">
-    <button type="submit"><?= $word('REORDER_ENGINE', 'refresh') ?></button>
+    <button class="btn" type="submit"><?= $word('REORDER_ENGINE', 'refresh') ?></button>
     <span class="hint"><?= $word('REORDER_ENGINE', 'refresh_hint') ?></span>
   </form>
   <form class="inline" method="post" action="/ui/purchasing/reorder/recalculate">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit"><?= $word('REORDER', 'recalculate') ?></button>
+    <button class="btn" type="submit"><?= $word('REORDER', 'recalculate') ?></button>
     <span class="hint"><?= $word('REORDER', 'recalculate_hint') ?></span>
   </form>
 <?php endif; ?>
@@ -188,7 +188,7 @@
 </div>
 <?php if ($canDraft): ?>
   <p class="actions">
-    <button type="submit" class="primary"><?= $word('REORDER', 'create') ?></button>
+    <button type="submit" class="btn primary"><?= $word('REORDER', 'create') ?></button>
     <span class="hint"><?= $word('REORDER', 'create_text') ?></span>
   </p>
 </form>

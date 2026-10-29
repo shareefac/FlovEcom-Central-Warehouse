@@ -52,7 +52,7 @@
     <label for="r-note"><?= $word('REPACK', 'note') ?></label>
     <textarea id="r-note" name="note" rows="2" maxlength="1000"><?= $e($typed['note']) ?></textarea>
     <p class="hint"><?= $word('REPACK', 'book_does') ?></p>
-    <p class="actions"><button type="submit" class="primary"><?= $word('REPACK', 'book') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary"><?= $word('REPACK', 'book') ?></button></p>
   </form>
 <?php endif; ?>
 </details>
@@ -87,7 +87,7 @@
         <form class="inline" method="post" action="<?= $u('/ui/stock/repack/' . $r['id'] . '/post') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="version" value="<?= $e($r['version']) ?>">
-          <button type="submit" class="primary sm"><?= $word('REPACK', 'final') ?></button>
+          <button type="submit" class="btn sm"><?= $word('REPACK', 'final') ?></button>
         </form>
 <?php endif; ?>
 <?php if ($r['canStop']): ?>
@@ -96,13 +96,13 @@
           <input type="hidden" name="version" value="<?= $e($r['version']) ?>">
           <label class="visually-hidden" for="rs-<?= $e($r['id']) ?>"><?= $word('REPACK', 'stop_reason') ?></label>
           <input id="rs-<?= $e($r['id']) ?>" type="text" name="reason" minlength="3" maxlength="500" required placeholder="<?= $word('REPACK', 'stop_reason') ?>">
-          <button type="submit" class="secondary sm"><?= $word('REPACK', 'stop') ?></button>
+          <button type="submit" class="btn sm"><?= $word('REPACK', 'stop') ?></button>
         </form>
 <?php endif; ?>
 <?php if ($r['canTakeBack']): ?>
         <form class="inline" method="post" action="<?= $u('/ui/stock/repack/' . $r['id'] . '/withdraw') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-          <button type="submit" class="secondary sm"><?= $word('REPACK', 'take_back') ?></button>
+          <button type="submit" class="btn sm"><?= $word('REPACK', 'take_back') ?></button>
         </form>
 <?php endif; ?>
       </td>

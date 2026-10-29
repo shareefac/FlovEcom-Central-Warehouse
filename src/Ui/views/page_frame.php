@@ -1,7 +1,7 @@
 <?php
 // Under a page's statement (View::head, design v5): the current section's tabs (a tab not built yet without a link), the buying flow
-// on Purchasing, the current tab's segmented filter, and the strip that says which jobs Admin switches off. The layout draws the same
-// for a page whose template draws no statement.
+// on Purchasing, the current tab's segments (a second row of the same tabs: docs/decisions.md DS2), and the strip that says which jobs
+// Admin switches off. The layout draws the same for a page whose template draws no statement.
 $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? []; $switchedOff = $switchedOff ?? null;
 ?>
 <?php if ($pagebar !== null): ?>
@@ -23,9 +23,9 @@ $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? [];
 </ol>
 <?php endif; ?>
 <?php if ($segments !== [] && $pagebar !== null): ?>
-<nav class="seg" aria-label="<?= $e($pagebar['tab']) ?>">
+<nav class="tabs seg" aria-label="<?= $e($pagebar['tab']) ?>">
 <?php foreach ($segments as $seg): ?>
-  <a class="seg-item" href="<?= $u($seg['href'], $seg['query']) ?>"<?php if ($seg['current']): ?> aria-current="page"<?php endif; ?>><span><?= $e($seg['label']) ?></span><?php if ($seg['count'] > 0): ?><span class="count" title="<?= $n($seg['count']) ?> <?= $e($seg['countWords']) ?>"><?= $n($seg['count']) ?><span class="visually-hidden"> <?= $e($seg['countWords']) ?></span></span><?php endif; ?></a>
+  <a class="tab" href="<?= $u($seg['href'], $seg['query']) ?>"<?php if ($seg['current']): ?> aria-current="page"<?php endif; ?>><span><?= $e($seg['label']) ?></span><?php if ($seg['count'] > 0): ?><span class="count" title="<?= $n($seg['count']) ?> <?= $e($seg['countWords']) ?>"><?= $n($seg['count']) ?><span class="visually-hidden"> <?= $e($seg['countWords']) ?></span></span><?php endif; ?></a>
 <?php endforeach; ?>
 </nav>
 <?php endif; ?>

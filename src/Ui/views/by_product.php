@@ -28,9 +28,9 @@
 <?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_search]) ?>
 <?php endif; ?>
 
-<nav class="pills state-pills" aria-label="<?= $word('BY_PRODUCT', 'filters') ?>">
+<nav class="tabs state-tabs" aria-label="<?= $word('BY_PRODUCT', 'filters') ?>">
 <?php foreach ($pills as $p): ?>
-  <a href="<?= $e($p['href']) ?>"<?php if ($p['current']): ?> aria-current="page"<?php endif; ?>><?php if ($p['tone'] !== null): ?><span class="dot <?= $e($p['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($p['label']) ?> <strong class="tab-count"><?= $n($p['count']) ?></strong></a>
+  <a class="tab" href="<?= $e($p['href']) ?>"<?php if ($p['current']): ?> aria-current="page"<?php endif; ?>><?php if ($p['tone'] !== null): ?><span class="dot <?= $e($p['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($p['label']) ?> <span class="count"><?= $n($p['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 
@@ -95,7 +95,7 @@
         <a class="o-line" href="<?= $e($c['link']) ?>"><?= $e($c['title']) ?></a>
 <?php endif; ?>
 <?php if ($c['band'] !== null): ?>
-        <span class="o-line"><span class="tag band <?= $e(\CW\Ui\Words::tone('BAND', $c['band'])) ?>"><?= $word('BAND', $c['band']) ?></span></span>
+        <span class="o-line"><span class="tag <?= $e(\CW\Ui\Words::tone('BAND', $c['band'])) ?>"><?= $word('BAND', $c['band']) ?></span></span>
 <?php endif; ?>
 <?php if ($c['more'] === 1): ?>
         <span class="o-sub"><?= $word('BY_PRODUCT', 'more_one') ?></span>
@@ -116,7 +116,7 @@
 <?php endif; ?>
 <?php if ($c['quick'] !== null): ?>
         <details class="quick-pick" data-quick-pick data-options="<?= $e($c['quick']['options']) ?>" data-sku-id="<?= $e($r['id']) ?>" data-channel="<?= $e($c['channel']) ?>" data-loading="<?= $word('BY_PRODUCT', 'quick_loading') ?>" data-failed="<?= $word('BY_PRODUCT', 'quick_failed') ?>">
-          <summary class="btn sm secondary" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?= $word('BY_PRODUCT', 'map') ?></summary>
+          <summary class="btn sm" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?= $word('BY_PRODUCT', 'map') ?></summary>
           <span class="qp-search"><input type="search" name="q" form="<?= $e($c['quick']['form']) ?>" value="<?= $e($c['quick']['text']) ?>" maxlength="100" aria-label="<?= $e($c['quick']['label']) ?>" placeholder="<?= $word('FIND', 'quick') ?>" data-qp-q> <button type="submit" class="btn sm" form="<?= $e($c['quick']['form']) ?>"><?= $word('UI', 'search') ?></button></span>
           <div class="qp-results" data-qp-results aria-live="polite"></div>
           <p class="qp-page"><a href="<?= $e($c['map']) ?>"><?= $word('BY_PRODUCT', 'quick_page') ?></a></p>
@@ -124,7 +124,7 @@
 <?php elseif ($c['review'] !== null || $c['map'] !== null): ?>
         <span class="o-line cell-actions">
 <?php if ($c['review'] !== null): ?>
-          <a class="btn sm primary" href="<?= $e($c['review']) ?>"><?= $word('BY_PRODUCT', 'review') ?></a>
+          <a class="btn sm" href="<?= $e($c['review']) ?>"><?= $word('BY_PRODUCT', 'review') ?></a>
 <?php endif; ?>
 <?php if ($c['map'] !== null): ?>
           <a class="map-more" href="<?= $e($c['map']) ?>" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?php if ($c['state'] === 'matched'): ?><?= $word('BY_PRODUCT', 'map_more') ?><?php else: ?><?= $word('BY_PRODUCT', 'map_other') ?><?php endif; ?></a>

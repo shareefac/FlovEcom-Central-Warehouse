@@ -11,7 +11,7 @@
     'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
 <div class="doc-head">
 <?= $head($title, intro: 'order', side: $bar, meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
-    ? ' <span class="tag band ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
+    ? ' <span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
@@ -65,12 +65,12 @@
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('ORDER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary"><?= $e($d['ok']) ?></button>
+    <button type="submit" class="btn primary"><?= $e($d['ok']) ?></button>
   </form>
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('ORDER', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit"><?= $word('ORDER', 'not_ok') ?></button>
+    <button class="btn" type="submit"><?= $word('ORDER', 'not_ok') ?></button>
   </form>
 <?php endif; ?>
 </section>

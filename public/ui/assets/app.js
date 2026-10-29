@@ -150,7 +150,7 @@
     var word = function (name, fallback) { return input.getAttribute('data-' + name) || fallback; };
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'reveal';
+    b.className = 'btn ghost sm reveal';
     b.textContent = word('show', 'Show');
     b.setAttribute('aria-pressed', 'false');
     b.setAttribute('aria-label', word('show-label', 'Show the password'));
@@ -1711,11 +1711,13 @@
   openTarget();
   window.addEventListener('hashchange', openTarget);
 
-  // The small menus (the person's menu, Filter and Sort, the "New" button's list): Esc or a click elsewhere closes the open one.
-  var menus = 'details.user-menu[open], details.tb-pop[open], details.split-more[open]';
+  // The small menus (the person's menu, Filter and Sort, More): Esc or a click elsewhere closes the open one. A More holding an open step
+  // (a reason being typed, or a step the server refused and opened again) stays open: only its own button closes it.
+  var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open]';
+  var holds = function (m) { return m.classList.contains('more') && m.querySelector('details[open]') !== null; };
   document.addEventListener('click', function (ev) {
     each(document.querySelectorAll(menus), function (m) {
-      if (!m.contains(ev.target)) { m.open = false; }
+      if (!m.contains(ev.target) && !holds(m)) { m.open = false; }
     });
   });
   document.addEventListener('keydown', function (ev) {
@@ -1723,6 +1725,7 @@
       return;
     }
     each(document.querySelectorAll(menus), function (m) {
+      if (holds(m)) { return; }
       m.open = false;
       var s = m.querySelector('summary');
       if (s) { s.focus(); }

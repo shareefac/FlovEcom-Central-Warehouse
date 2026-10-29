@@ -694,7 +694,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             Words::DOC['difference']], self::texts($view, '//section[contains(@class, "doc-diff")]//thead/tr/th'));
         self::assertGreaterThanOrEqual(2, self::nodes($view, '//section[contains(@class, "doc-diff")]//td[contains(@class, "diff")]'), 'the prices and the difference tinted');
         self::assertSame([Words::INVOICES['accept_title']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")]/summary[contains(@class, "primary")]'));
-        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-more")]'));
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(concat(" ", @class, " "), " more ")]'));
         self::assertStringContainsString('£48.00', implode(' ', self::texts($view, '//*[contains(@class, "doc-big")]')));
         self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//h1//span[contains(@class, "chip")]'));
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'));
@@ -1031,15 +1031,15 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $path = '/ui/purchasing/orders/' . $o['po'];
         $r = $web->post($path . '/amend', ['reason_code' => ''] + $web->get($path)->form($path . '/amend'));
         self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
-        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
+        self::assertSame(1, self::nodes($r, '//details[contains(concat(" ", @class, " "), " more ")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
             'the order\'s Correct, refused without a reason');
         // The Codex review of 8f6fbb7, L3 (PV32): a reason that needs a note, sent without one, opens the same folds.
         $r = $web->post($path . '/cancel', ['reason_code' => 'other', 'note' => ''] + $web->get($path)->form($path . '/cancel'));
         self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
-        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/cancel")]'),
+        self::assertSame(1, self::nodes($r, '//details[contains(concat(" ", @class, " "), " more ")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/cancel")]'),
             'the order\'s Cancel, "other" without its note');
         $r = $web->post($path . '/amend', ['reason_code' => 'other', 'note' => ''] + $web->get($path)->form($path . '/amend'));
-        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
+        self::assertSame(1, self::nodes($r, '//details[contains(concat(" ", @class, " "), " more ")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
             'the order\'s Correct, "other" without its note: ' . $r->describe());
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
@@ -1049,7 +1049,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $ipath = '/ui/purchasing/invoices/' . $id;
         $r = $desk->post($ipath . '/reverse', ['reason_code' => 'other', 'note' => ''] + $desk->get($ipath)->form($ipath . '/reverse'));
         self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
-        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/reverse")]'),
+        self::assertSame(1, self::nodes($r, '//details[contains(concat(" ", @class, " "), " more ")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/reverse")]'),
             'the invoice\'s Cancel, refused without the note "other" needs');
     }
 
@@ -1070,7 +1070,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $view = $web->get('/ui/purchasing/orders/' . $o['po']);
         $bar = '//header[contains(@class, "page-head")]/div[contains(@class, "ph-actions")]/div[contains(@class, "doc-actions")]';
         self::assertSame(1, self::nodes($view, $bar), $view->describe());
-        self::assertSame(1, self::nodes($view, $bar . '/details[contains(@class, "doc-more")]'));
+        self::assertSame(1, self::nodes($view, $bar . '/details[contains(concat(" ", @class, " "), " more ")]'));
         self::assertSame(1, self::nodes($view, $bar . '/*[contains(@class, "primary")] | ' . $bar . '/details/summary[contains(@class, "primary")]'));
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'), 'one bar');
         self::assertSame(0, self::nodes($view, '//header[contains(@class, "page-head")]//a[contains(@href, "/ui/purchasing/orders/new")]'), 'the bar takes the "+ New" place');
@@ -1080,7 +1080,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
         $id = self::invoiceId($desk->post('/ui/purchasing/invoices', $send)->location());
         $inv = $desk->get('/ui/purchasing/invoices/' . $id);
-        self::assertSame(1, self::nodes($inv, $bar . '/details[contains(@class, "doc-more")]'), $inv->describe());
+        self::assertSame(1, self::nodes($inv, $bar . '/details[contains(concat(" ", @class, " "), " more ")]'), $inv->describe());
         self::assertSame(1, self::nodes($inv, '//main//div[contains(@class, "doc-actions")]'));
         $new = '//header[contains(@class, "page-head")]//a[contains(@href, "/ui/purchasing/invoices/new")]';
         self::assertSame(0, self::nodes($desk->get('/ui/purchasing/invoices/new'), $new), 'not on the new page itself');
@@ -1308,7 +1308,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")][@open]/summary[contains(@class, "primary")]'),
             'confirmed, not sent: Send is the next step');
         self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]//form[contains(@action, "/send")]'), 'send, in the bar');
-        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-more")]//form[contains(@action, "/copy")]'), 'the rest under More');
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(concat(" ", @class, " "), " more ")]//form[contains(@action, "/copy")]'), 'the rest under More');
         self::assertContains('/ui/purchasing/orders/' . $o['po'] . '/pdf', self::hrefsIn($view, '//div[contains(@class, "doc-actions")]//a'));
         self::assertSame([Words::DOC['ordered'], Words::DOC['received'], Words::DOC['invoiced'], Words::DOC['expected']],
             self::texts($view, '//section[contains(@class, "doc-progress")]//*[contains(@class, "doc-step-label")]'));

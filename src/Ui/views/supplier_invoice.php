@@ -19,7 +19,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
 <?= $head((string) $title, intro: $introKey, look: $lookOnly, side: $editable ? null : $bar,
     chips: $doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : ($needsLook ? $chip('needs', \CW\Ui\Words::INVOICES['needs_look']) : $stateChip('DOC_STATUS', $doc->status)),
     meta: $needsLook ? '<span class="muted">' . $e(\CW\Ui\Words::of('DOC_STATUS', 'posted')) . '</span>'
-        : ($storedMatch !== null ? '<span class="tag band ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '')) ?>
+        : ($storedMatch !== null ? '<span class="tag ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -134,7 +134,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
       </tbody>
     </table>
     </div>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('INVOICES', 'lines_add_up', \CW\Ui\Html::money(\CW\Invoices\InvoiceMath::fromE2($sum))) ?></span></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('INVOICES', 'lines_add_up', \CW\Ui\Html::money(\CW\Invoices\InvoiceMath::fromE2($sum))) ?></span></p>
   </form>
 <?php endif; ?>
 </section>
@@ -153,7 +153,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
 <?php endforeach; ?>
       </select>
     </label>
-    <button type="submit"><?= $word('INVOICES', 'add_delivery_button') ?></button>
+    <button class="btn" type="submit"><?= $word('INVOICES', 'add_delivery_button') ?></button>
   </form>
 <?php else: ?>
   <p class="muted"><?= $word('INVOICES', 'no_deliveries') ?></p>
@@ -169,7 +169,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
 <?php endforeach; ?>
       </select>
     </label>
-    <button type="submit"><?= $word('INVOICES', 'add_order_button') ?></button>
+    <button class="btn" type="submit"><?= $word('INVOICES', 'add_order_button') ?></button>
   </form>
   <p class="hint"><?= $word('INVOICES', 'add_order_hint') ?></p>
 <?php endif; ?>
@@ -179,7 +179,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     <label><?= $word('STOCK_OPS', 'add_q') ?> <input type="search" name="q" value="<?= $e($typedAdd['q']) ?>" maxlength="100" autocomplete="off"></label>
     <label><?= $word('INVOICES', 'packs') ?> <input type="text" name="packs" value="<?= $e($typedAdd['packs']) ?>" inputmode="numeric" maxlength="7" required></label>
     <label><?= $word('INVOICES', 'pack_price') ?> <input type="text" name="price" value="<?= $e($typedAdd['price']) ?>" inputmode="decimal" maxlength="16"></label>
-    <button type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
 <?php if ($choices !== null): ?>
   <div class="card choices">
@@ -197,7 +197,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
               <input type="hidden" name="sku_id" value="<?= $e($c['sku_id']) ?>">
               <input type="hidden" name="packs" value="<?= $e($typedAdd['packs']) ?>">
               <input type="hidden" name="price" value="<?= $e($typedAdd['price']) ?>">
-              <button type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
+              <button class="btn" type="submit"><?= $word('STOCK_OPS', 'choose_this') ?></button>
             </form>
           </td>
         </tr>
@@ -221,7 +221,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     </label>
     <label><?= $word('INVOICES', 'units') ?> <input type="text" name="units" value="<?= $e($typedCredit['units']) ?>" inputmode="numeric" maxlength="8" required></label>
     <label><?= $word('INVOICES', 'unit_price') ?> <input type="text" name="price" value="<?= $e($typedCredit['price']) ?>" inputmode="decimal" maxlength="16"></label>
-    <button type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
 <?php else: ?>
   <p class="muted"><?= $word('INVOICES', 'credit_needs_invoice') ?></p>
@@ -239,7 +239,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     </label>
     <label><?= $word('INVOICES', 'amount') ?> <input type="text" name="amount" value="<?= $e($typedCharge['amount']) ?>" inputmode="decimal" maxlength="16" required></label>
     <label><?= $word('INVOICES', 'description') ?> <input type="text" name="description" value="<?= $e($typedCharge['description']) ?>" maxlength="255"></label>
-    <button type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
 </section>
 
@@ -272,7 +272,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     </label>
 <?php endif; ?>
     <label><?= $word('STOCK_OPS', 'note') ?> <input type="text" name="note" value="<?= $e($form['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
   </form>
 </details>
 <?php if ($arrival !== null && $arrival['editable']): ?>
@@ -315,7 +315,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     </table>
     </div>
 <?php endif; ?>
-    <p class="actions"><button type="submit"><?= $word('ARRIVALS', 'save_how') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('ARRIVALS', 'save_how') ?></button></p>
   </form>
 <?php endif; ?>
 </section>
@@ -329,7 +329,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <button type="submit" class="primary"><?= $e($k['post_button']) ?></button>
+    <button type="submit" class="btn primary"><?= $e($k['post_button']) ?></button>
   </form>
 <?php if ($arrival !== null && $arrival['editable']): ?>
   <h3><?= $word('ARRIVALS', 'when_title') ?></h3>
@@ -351,14 +351,14 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
       <label class="choice"><input type="radio" name="submit_clock" value="GMT" required> <?= $say('ARRIVALS', 'clock_gmt', $clockChoice['time']) ?></label>
     </fieldset>
 <?php endif; ?>
-    <button type="submit"><?= $word('ARRIVALS', 'set_time') ?></button>
+    <button class="btn" type="submit"><?= $word('ARRIVALS', 'set_time') ?></button>
   </form>
 <?php if ($arrival['at'] !== null): ?>
   <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/schedule') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <input type="hidden" name="clear" value="1">
-    <button type="submit"><?= $word('ARRIVALS', 'take_off') ?></button>
+    <button class="btn" type="submit"><?= $word('ARRIVALS', 'take_off') ?></button>
   </form>
 <?php endif; ?>
 <?php endif; ?>
@@ -370,7 +370,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
   </form>
 </details>
 <?php else: ?>
@@ -481,7 +481,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
 <?php endforeach; ?>
           </select>
         </label>
-        <p class="actions"><button type="submit" class="btn secondary sm"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
+        <p class="actions"><button type="submit" class="btn sm"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
       </form>
 <?php endif; ?>
     </div>
@@ -596,7 +596,7 @@ $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'main
       </select>
     </label>
     <label><?= $word('STOCK_OPS', 'file') ?> <span class="hint"><?= $say('STOCK_OPS', 'file_hint', $maxMb) ?></span><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required></label>
-    <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
+    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
   </form>
 <?php endif; ?>
 </section>

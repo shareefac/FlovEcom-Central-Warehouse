@@ -79,7 +79,7 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
       <legend><?= $word('DUPS', 'each_page') ?></legend>
 <?php foreach ($open_rows as $r): ?>
       <fieldset class="dup-choice">
-        <legend><?= $e($title($r)) ?><?php if ($r['verdict'] !== null && $r['verdict']['checked'] && !$r['verdict']['ok']): ?> <span class="tag bad"><?= $word('DUPS', 'state_doubt') ?></span><?php endif; ?></legend>
+        <legend><?= $e($title($r)) ?><?php if ($r['verdict'] !== null && $r['verdict']['checked'] && !$r['verdict']['ok']): ?> <span class="tag blocked"><?= $word('DUPS', 'state_doubt') ?></span><?php endif; ?></legend>
         <label class="choice"><input type="radio" name="c_<?= $e($r['id']) ?>" value="merge"<?php if ($r['choice'] === 'merge'): ?> checked<?php endif; ?>> <?= $word('DUPS', 'c_same') ?></label>
         <label class="choice"><input type="radio" name="c_<?= $e($r['id']) ?>" value="separate"<?php if ($r['choice'] === 'separate'): ?> checked<?php endif; ?>> <?= $word('DUPS', 'c_apart') ?></label>
         <label class="choice"><input type="radio" name="c_<?= $e($r['id']) ?>" value="later"<?php if ($r['choice'] === '' || $r['choice'] === 'later'): ?> checked<?php endif; ?>> <?= $word('DUPS', 'c_later') ?></label>
@@ -105,15 +105,15 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 <?php endif; ?>
     <div class="actions">
 <?php if ($several): ?>
-      <button type="submit" name="do" value="save" class="primary" formnovalidate><?= $word('DUPS', 'save') ?></button>
-      <button type="submit" name="do" value="separate_all" class="btn secondary" formnovalidate><?= $word('DUPS', 'apart_all') ?></button>
-      <button type="submit" name="do" value="merge_all" class="btn secondary"><?= $say('DUPS', 'join_all', $keeper['sku']['code']) ?></button>
+      <button type="submit" name="do" value="save" class="btn primary" formnovalidate><?= $word('DUPS', 'save') ?></button>
+      <button type="submit" name="do" value="separate_all" class="btn" formnovalidate><?= $word('DUPS', 'apart_all') ?></button>
+      <button type="submit" name="do" value="merge_all" class="btn"><?= $say('DUPS', 'join_all', $keeper['sku']['code']) ?></button>
 <?php elseif ($against !== []): ?>
-      <button type="submit" name="do" value="separate_all" class="primary" formnovalidate><?= $word('DUPS', 'apart') ?></button>
-      <button type="submit" name="do" value="merge_all"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
+      <button type="submit" name="do" value="separate_all" class="btn primary" formnovalidate><?= $word('DUPS', 'apart') ?></button>
+      <button class="btn" type="submit" name="do" value="merge_all"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
 <?php else: ?>
-      <button type="submit" name="do" value="merge_all" class="primary"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
-      <button type="submit" name="do" value="separate_all" formnovalidate><?= $word('DUPS', 'apart') ?></button>
+      <button type="submit" name="do" value="merge_all" class="btn primary"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
+      <button class="btn" type="submit" name="do" value="separate_all" formnovalidate><?= $word('DUPS', 'apart') ?></button>
 <?php endif; ?>
     </div>
   </form>
@@ -163,7 +163,7 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 <?php else: ?>
         <a href="/ui/items/<?= $e($r['sku']['id']) ?>"><?= $e($r['sku']['code']) ?></a> <?= $e($r['sku']['name']) ?>
         <br><span class="muted"><?= $e($r['sku']['counted'] ? \CW\Ui\Words::DUPS['counted'] : \CW\Ui\Words::DUPS['not_counted']) ?> · <?= $word('POLICY', $r['sku']['policy']) ?> · <?= $say('DUPS', 'free', $r['sku']['available']) ?></span>
-<?php if ($r['sku']['policy'] !== 'legacy'): ?> <span class="tag warn"><?= $word('DUPS', 'protected') ?></span><?php elseif ($r['sku']['counted'] || $r['units_per_item'] !== 1): ?> <span class="tag warn"><?= $word('DUPS', 'needs_second') ?></span><?php endif; ?>
+<?php if ($r['sku']['policy'] !== 'legacy'): ?> <span class="tag needs"><?= $word('DUPS', 'protected') ?></span><?php elseif ($r['sku']['counted'] || $r['units_per_item'] !== 1): ?> <span class="tag needs"><?= $word('DUPS', 'needs_second') ?></span><?php endif; ?>
 <?php if ($r['sku']['others'] !== []): ?>
         <br><span class="muted"><?= $word('DUPS', 'also_on') ?>
 <?php foreach ($r['sku']['others'] as $o): ?>
@@ -266,7 +266,7 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
     <input type="hidden" name="to" value="new">
     <p class="muted"><?php if ($uu['new_exact']): ?><?= $say('DUPS', 'undo_only_new', $uu['new_units'], $uu['from_code']) ?><?php elseif ($uu['chain']): ?><?= $say('DUPS', 'undo_only_new_chain', (string) ($r['sku']['code'] ?? '')) ?><?php else: ?><?= $say('DUPS', 'undo_only_new_none', (string) ($r['sku']['code'] ?? '')) ?><?php endif; ?></p>
 <?php endif; ?>
-    <button type="submit"><?= $word('DUPS', 'undo_button') ?></button>
+    <button class="btn" type="submit"><?= $word('DUPS', 'undo_button') ?></button>
   </form>
 <?php endif; ?>
 <?php endforeach; ?>
