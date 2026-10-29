@@ -1065,7 +1065,10 @@ final class UiUnitTest extends TestCase
             '/^\.btn\.soft \{/m' => 'the soft button', '/^\.doc-drop \{[^}]*dashed/m' => 'the drop area',
             '/^td\.late \{[^}]*color: var\(--st-red\)/m' => 'a due date passed',
             '/table\.stack\.doc-lines tr \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/' => 'phone: Qty, Price, Amount side by side',
-            '/\.doc-bar > button \{ flex: 1 1 0;/' => 'phone: the two buttons equal'] as $rule => $why) {
+            '/\.doc-bar > button \{ flex: 1 1 0;/' => 'phone: the two buttons equal',
+            // The Codex review of 9ce3515, M3 (PV26): on a phone More's menu is in the flow under its button (with or without the script),
+            // never placed against the page.
+            '/@media \(max-width: 639\.98px\) \{ \.doc-more \{[^}]*\} \.doc-more-menu \{[^}]*position: static/' => 'phone: More opens under its button'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         self::assertStringContainsString("hint.textContent = (hint.getAttribute('data-words') || '').replace('%s', String(days));", $js, 'the due date says where it comes from');

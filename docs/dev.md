@@ -744,6 +744,9 @@ invoice reuses them):
 - Words: `Words::ORDERS` (`group_*`, `show_*`, `add_row`), `Words::INVOICES` (`group_*`, `tag_*`, `show_*`, `needs_look`), `Words::DOC`
   (the strip and the panel), `Words::DOC_LIST` (the board's columns), `INVOICE_KIND` (`group_one`, `group_many`, `col`), `PI_ONE terms_hint`.
 - Migration `0053_po_board_recent_days.sql`: the setting `po.board_recent_days` (14).
+- The differences panel takes every figure from `InvoiceMatch::compute()` (its lines carry `po_key`, the order line priced from) plus one
+  batched read of the ordered units (PV24, PV25); the order's "still to come" is `PurchaseOrdersController::toCome($lines)`.
+- "Save and make final" posts the version its save left (FormOnce's stored `version` on a new invoice; PV21).
 - Tests: `UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (CSS pins; the shared pieces close every tag), the three
   `InvoiceOnePageScreensTest` screen tests named in PV20, `Migration0053Test`.
 

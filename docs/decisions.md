@@ -12260,7 +12260,7 @@ last row of the Draft group is "+ New ...". The toolbar has one search and one S
   the open board. The owner's rule (no hard-coded number): it is on the Settings page with a reason. The code reads it with a default of 14,
   so the code may run a moment before the migration.
 - Supplier invoices (`InvoicesController::BOARD`, `boardGroups()`): Needs a look (amber: final, the 3-way match needs review), Draft (grey),
-  Final (green); cancelled and reversed ones and their records only under Show (Open / All / Cancelled; the old `cancelled=1` still means
+  Final (green); cancelled and reversed ones and their records only under Show (Open / All / Cancelled; an old `cancelled=1` link opens on
   All). No Overdue or Paid group and no money summary (payments are not in CW). Columns: Invoice (the supplier's number; under it the order or
   delivery it is for, `SupplierInvoices::refsOf`, one read for the page), Status, Supplier, Match (a soft tag: Matches / N differences /
   Accepted / Not checked yet, from the stored match), Due (red when passed and a balance is left: `td.late`), Total, Balance. Credit notes:
@@ -12297,3 +12297,41 @@ drop area, the terms hint), `testASearchKeepsTheOtherFilters` (Show is the toolb
 `UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (the CSS pins, the hint's script, and the shared pieces close every tag
 they open: a stray `</div>` in `po_action` had pushed the next step out of the bar), `WordsTest`, `UiTemplatesTest` (the two new partials).
 The node harness (`runs/pione_js_harness/`) also checks the hint: 18/18 pass (`runs/pione_js_design.log`).
+
+### The Codex reviews of e1db3a4 (`runs/pione_codex_review2.txt`: three MEDIUM) and 9ce3515 (`runs/pione_codex_review3.txt`: four MEDIUM, two LOW): all real, each shown failing first (third commit, PV21-PV26)
+
+Red first: `runs/pione_review23_red.log` and `runs/pione_review23_red2.log` (nine tests, each failing on the second commit as the review said).
+
+**PV21. "Save and make final" posts the version its save left (review 2, M1).** PV16 split the save and the posting; a form sent again
+(FormOnce replays its draft) then posted the draft as it stood, edits made since included. The save's version is now kept (in FormOnce's
+stored result for a new invoice, from the save's transaction for a draft's form) and `makeFinal()` posts that version: a draft changed since
+is refused as changed meanwhile ("Saved as a draft. Not made final: …", 409) and stays a draft. A result FormOnce stored before this posts the
+draft as it is (as before). `testAFormSentAgainNeverMakesLaterEditsFinal`.
+
+**PV22. A cleared due date keeps its marker through a refused button (review 2, M2; finding 4 finished).** The new page draws `due_shown`
+as what the box showed when it was first drawn while the box stays cleared (`dueShown`), not from the empty box, so "Fill the lines" with
+nothing chosen, then "Save as draft", keeps the due date empty. `testAClearedDueDateStaysClearedThroughARefusal`.
+
+**PV23. "+ Add new supplier" carries a typed charge (review 2, M3).** `charge_amount`, `charge_description` and `charge_kind` (the kind only
+with a charge typed) are in `InvoiceOnePage::CARRIED`, like the rest of what was typed (PV5, PV6). `testTheChargeTypedGoesThroughANewSupplier`.
+
+**PV24. The differences panel and the order's strip never contradict the figures they come from (review 3, M1 and M2).** The panel shows
+the match's own figures (`InvoiceMatch::compute`'s lines, which now also name the order line they priced from, `po_key`): Invoiced = the units
+billed net of the posted credit notes ("2 credited" under it), Received = the accepted units of the delivery line the match used, the
+receipt that took an arriving invoice in too (`invoice_arrival`), with "N left to bill" under it when returns, other invoices or earlier lines
+of this invoice leave less; "On its way" for goods still arriving, "Delivery cancelled" for a cancelled delivery; the reference price and
+whether it is the order's or the delivery's are the match's. The order's "still to come" is what each item line still waits for, added up
+(`PurchaseOrdersController::toCome`): a line delivered over its order within the tolerance no longer hides another line's units.
+`testTheDifferencesPanelCountsWhatTheMatchCounts` (12 billed, 2 credited, 8 received: 10 against 8, £2.00),
+`ArrivalScreensTest::testTheOwnersDayOnTheScreens` (6 billed, the receipt that took it in received 4), `testStillToComeAddsUpEachLine`.
+
+**PV25. The panel reads once (review 3, M4).** Besides the match (whose reads are batched), one read of the order lines' quantities for
+every order the match priced from (chunks of 500); nothing per delivery or per order. `testTheDifferencesPanelReadsTheSameForOneDeliveryOrThree`
+(the page's statements counted on the app's connection: one delivery or three, the same; 40 against 42 before).
+
+**PV26. More on a phone, Show "Open", a refused action under More (review 3, M3, L5, L6).** Under 640 px More's menu is in the flow under
+its button (`position: static`, the open fold takes the bar's row), never placed against the page; it is a plain `details`, so the same
+without the script. The invoices' Show menu sends `open`, `all` or `cancelled`; a choice made in it wins over an old link's `cancelled=1`
+(which still opens on "all"), and the hidden `cancelled` field is gone (PV18 amended). An action under More refused for its reason (the
+order's Correct, Cancel, Reopen; the invoice's Accept, Cancel) opens More as well as its own fold. `UiUnitTest` (the phone pin),
+`testShowOpenWinsOverAnOldCancelledLink`, `testARefusedActionUnderMoreOpensMore`; `testASearchKeepsTheOtherFilters` reads "all" from the menu.

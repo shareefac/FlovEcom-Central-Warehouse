@@ -6303,6 +6303,11 @@ final class Words
         'entered' => 'Entered by',
         'no_credits' => 'No credit notes',
         'progress' => 'Progress',
+        // The differences panel says what the match counts (the Codex review of 9ce3515, M1; PV24)
+        'credited_units' => '%s credited',
+        'left_to_bill' => '%s left to bill',
+        'arriving' => 'On its way',
+        'delivery_cancelled' => 'Delivery cancelled',
     ];
 
     /** The columns and the filter of a list of documents (orders, supplier invoices; later sales invoices; docs/decisions.md PV). */

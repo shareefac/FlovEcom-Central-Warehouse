@@ -367,7 +367,9 @@
 <?php else: ?>
 <div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
 <?php if ($moreActions !== []): ?>
-  <details class="doc-more">
+<?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
+$moreOpen = (in_array('accept', $moreActions, true) && $typedAccept !== '') || (in_array('reverse', $moreActions, true) && $typedCancel['code'] !== ''); ?>
+  <details class="doc-more"<?php if ($moreOpen): ?> open<?php endif; ?>>
     <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
     <div class="doc-more-menu">
 <?php foreach ($moreActions as $a): ?>
@@ -413,8 +415,8 @@
       <tr>
         <th scope="row" class="c-head"><?= $e($d['name']) ?><span class="o-sub"><?= $e($d['code']) ?></span></th>
         <td class="num" data-label="<?= $word('DOC', 'ordered') ?>"><?php if ($d['ordered'] !== null): ?><?= $n($d['ordered']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('DOC', 'received') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?php if ($d['received'] !== null): ?><?= $n($d['received']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('DOC', 'invoiced') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?= $n($d['invoiced']) ?></td>
+        <td data-label="<?= $word('DOC', 'received') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?php if ($d['received'] !== null): ?><?= $n($d['received']) ?><?php endif; ?><?php if ($d['received_note'] !== null): ?> <span class="o-sub"><?= $e($d['received_note']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('DOC', 'invoiced') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?= $n($d['invoiced']) ?><?php if ($d['invoiced_note'] !== null): ?> <span class="o-sub"><?= $e($d['invoiced_note']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('DOC', 'price_order') ?>" class="num<?php if ($d['price_off']): ?> diff<?php endif; ?>"><?php if ($d['ref'] !== null): ?><?= $e($d['ref']) ?><?php if ($d['ref_delivery']): ?><span class="o-sub"><?= $word('DOC', 'from_delivery') ?></span><?php endif; ?><?php endif; ?></td>
         <td data-label="<?= $word('DOC', 'price_invoice') ?>" class="num<?php if ($d['price_off']): ?> diff<?php endif; ?>"><?php if ($d['price'] !== null): ?><?= $e($d['price']) ?><?php endif; ?></td>
         <td data-label="<?= $word('DOC', 'difference') ?>" class="num<?php if ($d['diff'] !== null): ?> diff<?php endif; ?>"><?php if ($d['diff'] !== null): ?><?= $e($d['diff']) ?><?php endif; ?></td>

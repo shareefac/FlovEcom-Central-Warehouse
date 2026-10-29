@@ -754,7 +754,8 @@ final class InvoicesController
     }
 
     /**
-     * `show` (the board's one Show menu, PV18): open (the default), all, cancelled; an old `cancelled=1` link is "all".
+     * `show` (the board's one Show menu, PV18): open (the default), all, cancelled; an old `cancelled=1` link is "all" until a choice is made in
+     * the menu, which always sends its own value (the Codex review of 9ce3515, L5; PV26).
      *
      * @return array{q: string, state: ?string, supplier: ?int, match: ?string, cancelled: bool, show: string}
      */
@@ -764,7 +765,7 @@ final class InvoicesController
         $match = $req->param('match');
         $show = $req->param('show');
         return [
-            'show' => $show === 'all' || $show === 'cancelled' ? $show : ($req->param('cancelled') === '1' ? 'all' : 'open'),
+            'show' => in_array($show, ['open', 'all', 'cancelled'], true) ? $show : ($req->param('cancelled') === '1' ? 'all' : 'open'),
             'q' => mb_substr(trim((string) $req->param('q')), 0, 100),
             'state' => $state !== null && in_array($state, SupplierInvoices::STATES, true) ? $state : null,
             'supplier' => UiRequest::id($req->param('supplier')),
@@ -925,9 +926,11 @@ final class InvoicesController
     }
 
     /**
-     * The differences panel of an invoice whose match is off (PV19, the approved design), from the match as it stands (no new rule): per goods
-     * line the units ordered (its order line), received (its delivery line's accepted units), invoiced, the order's price a unit (else the
-     * delivery's), the invoice's, and the money charged over; the cells the match finds different are marked (`diff`).
+     * The differences panel of an invoice whose match is off (PV19, the approved design), from the match as it stands (no new rule; PV24):
+     * per goods line the units ordered (the order line the match priced from), received (the accepted units of the delivery line the match
+     * used, an arriving invoice's receipt too; what it leaves for this invoice when that differs), invoiced (net of the posted credit notes,
+     * the credited ones said), the reference price a unit and the invoice's, and the money charged over; the cells the match finds different
+     * are marked (`diff`). One read besides the match (PV25).
      *
      * @param list<array<string, mixed>> $lines SupplierInvoices::lines()
      * @param array<string, mixed> $match InvoiceMatch::compute()
@@ -935,16 +938,20 @@ final class InvoicesController
      */
     private static function diffPanel(Context $ctx, array $lines, array $match): array
     {
-        $ordered = [];
-        $received = [];
-        foreach (array_unique(array_filter(array_map(static fn (array $l): ?int => $l['po_document_id'], $lines))) as $po) {
-            foreach ($ctx->db->all('SELECT line_no, qty, unit_cost FROM document_line WHERE document_id = ?', [$po]) as $r) {
-                $ordered[$po . ':' . $r['line_no']] = $r;
+        // Every figure is the match's (the Codex review of 9ce3515, M1 and M4; PV24, PV25): the units billed net of the posted credit notes,
+        // what the delivery received (the receipt that took an arriving invoice in, too) and what it leaves for this invoice, the
+        // reference price and where it is from. Only the ordered units are read here: one read of the order lines the match priced from.
+        $keys = [];
+        foreach ($match['lines'] as $m) {
+            if (($m['po_key'] ?? null) !== null) {
+                $keys[(string) $m['po_key']] = true;
             }
         }
-        foreach (array_unique(array_filter(array_map(static fn (array $l): ?int => $l['grn_document_id'], $lines))) as $grn) {
-            foreach ($ctx->db->all('SELECT line_no, accepted_units FROM grn_line WHERE document_id = ?', [$grn]) as $r) {
-                $received[$grn . ':' . $r['line_no']] = (int) $r['accepted_units'];
+        $ordered = [];
+        $pos = array_values(array_unique(array_map(static fn (string $k): int => (int) strstr($k, ':', true), array_keys($keys))));
+        foreach (array_chunk($pos, 500) as $chunk) {
+            foreach ($ctx->db->all('SELECT document_id, line_no, qty FROM document_line WHERE document_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $ordered[$r['document_id'] . ':' . $r['line_no']] = (int) $r['qty'];
             }
         }
         $unit = static fn (?string $v): ?string => $v === null ? null : Html::money(rtrim(rtrim($v, '0'), '.'));
@@ -955,15 +962,25 @@ final class InvoicesController
             }
             $m = $match['lines'][(int) $l['line_no']] ?? [];
             $why = (array) ($m['why'] ?? []);
-            $o = $l['po_document_id'] === null ? null : ($ordered[$l['po_document_id'] . ':' . $l['po_line_no']] ?? null);
-            $ref = $o !== null ? $unit((string) $o['unit_cost']) : (($m['ref_unit_e6'] ?? null) === null ? null : $unit(\CW\PurchaseOrders\PoMath::fromE6((int) $m['ref_unit_e6'])));
+            $available = ($m['available'] ?? null) === null ? null : (int) $m['available'];
+            [$received, $receivedNote] = match (true) {
+                (bool) ($m['reversed'] ?? false) => [null, Words::DOC['delivery_cancelled']],
+                ($m['accepted'] ?? null) !== null => [(int) $m['accepted'], $available !== null && $available !== (int) $m['accepted']
+                    ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
+                (bool) ($m['arriving'] ?? false) => [null, Words::DOC['arriving']],
+                $available === 0 => [0, null], // received without it: nothing came (PJ8)
+                default => [null, null],
+            };
+            $credited = (int) ($m['credited_units'] ?? 0);
             $diff = (int) ($m['diff_e2'] ?? 0);
-            $qty = array_intersect($why, ['qty_over', 'no_delivery', 'delivery_reversed']) !== [];
-            $price = array_intersect($why, ['price_over', 'price_under']) !== [];
+            $poKey = ($m['po_key'] ?? null) === null ? null : (string) $m['po_key'];
             $rows[] = ['name' => (string) ($l['name'] ?? ''), 'code' => (string) ($l['code'] ?? ''),
-                'ordered' => $o === null ? null : (int) $o['qty'], 'received' => $l['grn_document_id'] === null ? null : ($received[$l['grn_document_id'] . ':' . $l['grn_line_no']] ?? 0),
-                'invoiced' => (int) $l['qty'], 'ref' => $ref, 'ref_delivery' => $o === null && $ref !== null, 'price' => $unit($l['unit_cost'] === null ? null : (string) $l['unit_cost']),
-                'diff' => $diff === 0 ? null : Html::money(InvoiceMath::fromE2($diff)), 'qty_off' => $qty, 'price_off' => $price];
+                'ordered' => $poKey === null ? null : ($ordered[$poKey] ?? null), 'received' => $received, 'received_note' => $receivedNote,
+                'invoiced' => (int) ($m['units'] ?? $l['qty']), 'invoiced_note' => $credited > 0 ? Words::say('DOC', 'credited_units', $credited) : null,
+                'ref' => ($m['ref_unit_e6'] ?? null) === null ? null : $unit(\CW\PurchaseOrders\PoMath::fromE6((int) $m['ref_unit_e6'])),
+                'ref_delivery' => ($m['ref_from'] ?? null) === 'delivery', 'price' => $unit($l['unit_cost'] === null ? null : (string) $l['unit_cost']),
+                'diff' => $diff === 0 ? null : Html::money(InvoiceMath::fromE2($diff)),
+                'qty_off' => array_intersect($why, ['qty_over', 'no_delivery', 'delivery_reversed']) !== [], 'price_off' => array_intersect($why, ['price_over', 'price_under']) !== []];
         }
         $off = (int) $match['lines_off'];
         return ['title' => $off === 1 ? Words::DOC['diff_one'] : Words::say('DOC', 'diff_many', $off),

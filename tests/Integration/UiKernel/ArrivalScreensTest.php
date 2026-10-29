@@ -139,6 +139,11 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $grns->attach(Caller::staff($deskUser['id']), $grn, $pdf, 'invoice.pdf', 'supplier_invoice');
         $grns->bench(Caller::staff($this->uiUser('goods_in')['id']), $grn, $docs->get($grn)->version, ['paperwork_ok' => '1'], [1 => ['short_units' => '2']]);
         $grns->post(Caller::staff($deskUser['id']), $grn, $docs->get($grn)->version);
+        // The Codex review of 9ce3515, M1 (docs/decisions.md PV24): the invoice's differences panel counts what its match counts: the
+        // receipt that took it in received 4 of the 6 billed (its own line names no delivery: the receipt is the arrival's).
+        $look = new \DOMXPath($desk->get($path)->dom());
+        self::assertSame(['4', '6'], [trim((string) $look->evaluate('string(//section[contains(@class, "doc-diff")]//td[@data-label="' . Words::DOC['received'] . '"])')),
+            trim((string) $look->evaluate('string(//section[contains(@class, "doc-diff")]//td[@data-label="' . Words::DOC['invoiced'] . '"])'))]);
         $receipt = $desk->get('/ui/receiving/' . $grn);
         self::assertSame(200, $receipt->status, $receipt->describe());
         self::assertStringContainsString(Words::ARRIVALS['against'], $receipt->text());

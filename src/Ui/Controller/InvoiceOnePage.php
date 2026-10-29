@@ -47,7 +47,7 @@ final class InvoiceOnePage
     public const HEADER = ['invoice_number', 'invoice_date', 'due_date', 'note', 'net_total', 'vat_total'];
     /** What "+ Add new supplier" carries back to the new page (what was typed before it), besides the supplier itself. */
     public const CARRIED = ['invoice_number', 'invoice_date', 'due_date', 'note', 'net_total', 'vat_total', 'from', 'q', 'packs', 'price', 'item_name', 'item_brand',
-        'item_barcode', 'item_code', 'item_upp', 'item_price'];
+        'item_barcode', 'item_code', 'item_upp', 'item_price', 'charge_amount', 'charge_description', 'charge_kind']; // the charge: the Codex review of e1db3a4, M3 (PV23)
     /** The fields an Add that found several items or none did not save: they come back as typed on the draft's page. */
     public const UNSAVED = ['item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp', 'item_price', 'item_anyway'];
     /** The one form's actions (the default, Enter, is Add: the form's first button). */
@@ -179,13 +179,16 @@ final class InvoiceOnePage
                     // Nothing to keep yet: the draft goes with the rest of the transaction; the page shows the choices or says so.
                     throw new CwException('one_page_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? []]);
                 }
-                return OpResult::of(303, ['result' => $res['status'], 'document_id' => $doc->id, 'redirect' => self::after($doc->id, $res, $taken)]);
+                // The version this form saved (PV21): "make final" posts that version, so the same form sent again never makes later edits final.
+                return OpResult::of(303, ['result' => $res['status'], 'document_id' => $doc->id, 'version' => $ctx->documents()->get($doc->id)->version,
+                    'redirect' => self::after($doc->id, $res, $taken)]);
             });
         } catch (CwException $e) {
             $extra = ['typed' => $req->post, 'formKey' => PoAddNew::keyAgain($ctx, $e)];
             return $this->refused($ctx, null, $e, $ask, $extra);
         }
-        return $ask['action'] === 'post' ? self::makeFinal($ctx, (int) $r->body['document_id']) : FormOnce::redirect($r);
+        return $ask['action'] === 'post' ? self::makeFinal($ctx, (int) $r->body['document_id'], isset($r->body['version']) ? (int) $r->body['version'] : null)
+            : FormOnce::redirect($r);
     }
 
     /**
@@ -218,7 +221,7 @@ final class InvoiceOnePage
             $save = self::saveOnly($ask);
             $work = function () use ($ctx, $id, $version, $header, $save, $file): array {
                 $lines = self::editedLines($ctx, $id, $save['remove']);
-                return $this->apply($ctx, $id, $version, $header === [] ? null : $header, $lines, $save, $file);
+                return $this->apply($ctx, $id, $version, $header === [] ? null : $header, $lines, $save, $file) + ['saved' => $ctx->documents()->get($id)->version];
             };
             if ($ask['action'] === 'new_item') {
                 $r = FormOnce::run($ctx, 'ui.invoice.new_item', ['id' => $id] + self::request($req), function (Db $db) use ($id, $work): OpResult {
@@ -244,7 +247,7 @@ final class InvoiceOnePage
             return self::draftPage($ctx, $id, 422, new CwException('not_found', Words::say('STOCK_ERROR', 'not_found', $ask['q']), 422),
                 ['q' => $ask['q'], 'packs' => (string) ($req->field('packs') ?? '1'), 'price' => (string) ($req->field('price') ?? '')] + $unsaved);
         }
-        return $ask['action'] === 'post' ? self::makeFinal($ctx, $id) : HtmlResponse::redirect(self::after($id, $res, null));
+        return $ask['action'] === 'post' ? self::makeFinal($ctx, $id, (int) $res['saved']) : HtmlResponse::redirect(self::after($id, $res, null));
     }
 
     /**
@@ -252,16 +255,18 @@ final class InvoiceOnePage
      * the posting exactly as pack C and pack J make it final (SupplierInvoices::submit in its own transactions: "book as received" books its
      * receipt first, PJ9), never inside the save, so no lock is taken out of the order those postings keep. A refusal leaves the draft saved
      * and says so ("Saved as a draft, not made final: …" with the problems), never a half-final invoice. A form sent again finds the invoice
-     * final already and lands on it.
+     * final already and lands on it. It posts the version the save left ($saved; the Codex review of e1db3a4, M1, PV21): a draft changed
+     * since (the same form sent again after other edits) is refused as changed meanwhile, never made final unseen. $saved null: a form
+     * remembered by FormOnce before PV21, which posts the draft as it is (as before).
      */
-    private static function makeFinal(Context $ctx, int $id): HtmlResponse
+    private static function makeFinal(Context $ctx, int $id, ?int $saved): HtmlResponse
     {
         $doc = $ctx->documents()->get($id);
         if ($doc->status !== 'draft') {
             return self::finalRedirect($id, $doc);
         }
         try {
-            $doc = $ctx->supplierInvoices()->submit($ctx->caller(), $id, $doc->version);
+            $doc = $ctx->supplierInvoices()->submit($ctx->caller(), $id, $saved ?? $doc->version);
         } catch (CwException $e) {
             $now = $ctx->documents()->get($id);
             if ($now->status !== 'draft') {
@@ -502,6 +507,9 @@ final class InvoiceOnePage
         $out = [];
         foreach (self::CARRIED as $k) {
             $v = trim($req->field($k) ?? '');
+            if ($k === 'charge_kind' && trim($req->field('charge_amount') ?? '') === '' && trim($req->field('charge_description') ?? '') === '') {
+                continue; // the charge's kind only with a charge typed
+            }
             if ($v !== '' && !(in_array($k, ['packs', 'item_upp'], true) && $v === '1')) {
                 $out[$k] = mb_substr($v, 0, $k === 'note' ? 1000 : 255);
             }
@@ -682,6 +690,9 @@ final class InvoiceOnePage
             // keeps the chosen one's (the Codex review of 6418b15, finding 5); a draft's supplier is fixed.
             'sources' => self::sources($ctx, $fixed ? $supplierId : null),
             'dueAuto' => $dueAuto,
+            // What the box showed when the page was drawn: a due date the person cleared keeps its marker through a refused button (the
+            // Codex review of e1db3a4, M2, PV22), so the save after it does not fill the terms' date again.
+            'dueShown' => $clearedHere ? $text('due_shown') : $form['due_date'],
             'linesFit' => self::linesFit(count($lines)),
             'from' => $text('from'),
             'charge' => ['kind' => $text('charge_kind', 'freight'), 'amount' => $text('charge_amount'), 'description' => $text('charge_description')],

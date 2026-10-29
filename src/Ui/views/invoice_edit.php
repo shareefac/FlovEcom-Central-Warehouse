@@ -100,7 +100,7 @@
     <label><?= $word('PI_ONE', 'due') ?> <input type="date" name="due_date" value="<?= $e($form['due_date']) ?>" data-pi-due<?php if ($terms !== null): ?> data-terms="<?= $e($terms) ?>"<?php endif; ?><?php if ($dueAuto): ?> data-auto="1"<?php endif; ?>>
       <span class="hint" data-pi-due-hint data-words="<?= $word('PI_ONE', 'terms_hint') ?>"<?php if ($terms === null): ?> hidden<?php endif; ?>><?php if ($terms !== null): ?><?= $say('PI_ONE', 'terms_hint', $terms) ?><?php endif; ?></span></label>
 <?php if ($isNew): ?>
-    <input type="hidden" name="due_shown" value="<?= $e($form['due_date']) ?>">
+    <input type="hidden" name="due_shown" value="<?= $e($dueShown) ?>">
 <?php endif; ?>
   </fieldset>
 

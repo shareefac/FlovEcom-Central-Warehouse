@@ -502,8 +502,11 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             }
             return $out;
         };
-        $f = $hidden($web->get('/ui/purchasing/invoices', ['supplier' => '7', 'match' => 'needs_review', 'cancelled' => '1', 'q' => 'x']));
-        self::assertSame(['7', 'needs_review', '1'], [$f['supplier'] ?? null, $f['match'] ?? null, $f['cancelled'] ?? null]);
+        $invoices = $web->get('/ui/purchasing/invoices', ['supplier' => '7', 'match' => 'needs_review', 'cancelled' => '1', 'q' => 'x']);
+        $f = $hidden($invoices);
+        self::assertSame(['7', 'needs_review'], [$f['supplier'] ?? null, $f['match'] ?? null]);
+        // An old link's cancelled=1 is the Show menu's "all", which the search sends (PV26: a choice in the menu wins over the old flag).
+        self::assertSame(['all'], self::texts($invoices, '//form[@class="toolbar"]//select[@name="show"]/option[@selected]/@value'));
         $orders = $web->get('/ui/purchasing/orders', ['supplier' => '7', 'rejected' => '1', 'show' => 'all']);
         $f = $hidden($orders);
         self::assertSame(['7', '1'], [$f['supplier'] ?? null, $f['rejected'] ?? null]);
@@ -805,6 +808,212 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $r = $web->post('/ui/purchasing/invoices', ['invoice_date' => '2026-10-01', 'action' => 'add'] + $form);
         self::assertSame('2026-10-15', self::newForm($r)['due_date'], 'a refused form comes back with the due date from the terms');
         self::assertSame('2026-10-01', self::newForm($r)['invoice_date']);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex reviews of e1db3a4 (runs/pione_codex_review2.txt) and 9ce3515 (runs/pione_codex_review3.txt): docs/decisions.md PV21-PV26
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Review 2, M1 (PV21): "Save and make final" sent again makes final only what that form saved. A first form whose posting was refused
+     * keeps its draft; the draft is then finished with "Save as draft"; the first form sent again must not make the finished draft final.
+     */
+    public function testAFormSentAgainNeverMakesLaterEditsFinal(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Replay Invoices Ltd');
+        $web = $this->signIn($deskUser);
+        $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'REPLAY-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
+            'charge_description' => 'Carriage', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
+        $r = $web->post('/ui/purchasing/invoices', $send);
+        self::assertSame(422, $r->status, $r->describe());
+        $id = (int) self::$db->value("SELECT id FROM document WHERE doc_type = 'SINV' AND external_ref = 'REPLAY-1'");
+        self::assertGreaterThan(0, $id, 'the refused posting kept the draft');
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'save']
+            + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $web->post('/ui/purchasing/invoices', $send);
+        self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), 'the first form made final what it never saw: ' . $r->describe());
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString((string) strstr(Words::PI_ONE['not_final'], '%s', true), $r->text());
+    }
+
+    /**
+     * Review 2, M2 (PV22): a due date cleared on the new page stays cleared through a refused button ("Fill the lines" with nothing chosen)
+     * and the save after it.
+     */
+    public function testAClearedDueDateStaysClearedThroughARefusal(): void
+    {
+        $s = $this->supplier('Due Refused Ltd', 30);
+        $web = $this->signIn($this->uiUser('purchasing_desk'));
+        $date = gmdate('Y-m-d', time() - 3 * 86400);
+        $due = (new \DateTimeImmutable($date))->modify('+30 days')->format('Y-m-d');
+        $form = self::newForm($web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id'], 'invoice_date' => $date]));
+        self::assertSame([$due, $due], [$form['due_date'], $form['due_shown']]);
+        $r = $web->post('/ui/purchasing/invoices', ['invoice_number' => 'DUE-R1', 'due_date' => '', 'from' => '', 'action' => 'from'] + $form);
+        self::assertSame(422, $r->status, $r->describe());
+        $again = self::newForm($r);
+        self::assertSame('', $again['due_date']);
+        $r = $web->post('/ui/purchasing/invoices', ['action' => 'save'] + $again);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertNull(self::$db->value('SELECT due_date FROM supplier_invoice WHERE document_id = ?', [self::invoiceId($r->location())]), 'not filled again');
+    }
+
+    /** Review 2, M3 (PV23): a charge typed goes through "+ Add new supplier" with the rest of what was typed (PV5, PV6). */
+    public function testTheChargeTypedGoesThroughANewSupplier(): void
+    {
+        $s = $this->supplier('Charge Invoices Ltd');
+        $web = $this->signIn($this->uiUser('purchasing_manager'));
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'charge_kind' => 'duty', 'charge_amount' => '7.50', 'charge_description' => 'Courier',
+            'action' => 'new_supplier', 'new_supplier_name' => 'Charge Fresh Ltd'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+        self::assertSame(303, $r->status, $r->describe());
+        $back = self::newForm($web->follow($r));
+        self::assertSame(['duty', '7.50', 'Courier'], [$back['charge_kind'] ?? null, $back['charge_amount'] ?? null, $back['charge_description'] ?? null]);
+    }
+
+    /**
+     * Review 3, M1 (PV24): the differences panel says what the match counts: units billed net of the posted credit notes (the credited ones
+     * said), the units the delivery left for this invoice; never a figure the match does not use.
+     */
+    public function testTheDifferencesPanelCountsWhatTheMatchCounts(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Panel Credits Ltd');
+        $x = $this->delivery($deskUser['id'], (int) $s['id'], 8, '1.00');
+        $web = $this->signIn($deskUser);
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'grn:' . $x['grn'], 'invoice_number' => 'PANEL-C1',
+            'invoice_date' => gmdate('Y-m-d', time() - 86400), 'action' => 'from'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+        self::assertSame(303, $r->status, $r->describe());
+        $id = self::invoiceId($r->location());
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['p_1' => '12', 'net_total' => '12.00', 'vat_total' => '0.00', 'action' => 'post']
+            + self::draftForm($web->follow($r), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
+        $si = new SupplierInvoices(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)), fn (): FileStore => $this->store());
+        $desk = Caller::staff($deskUser['id']);
+        $cn = $si->createDraft($desk, 'credit_note', (int) $s['id'], ['invoice_number' => 'PANEL-CN1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'credits_id' => $id]);
+        $cn = $si->addCredit($desk, $cn->id, $cn->version, 1, 2);
+        $cn = $si->saveHeader($desk, $cn->id, $cn->version, ['net_total' => '2.00', 'vat_total' => '0.00']);
+        self::assertSame('posted', $si->post($desk, $cn->id, $cn->version)->status);
+        $view = $web->get("/ui/purchasing/invoices/{$id}");
+        $cell = static fn (string $label): string => implode(' ', self::texts($view, '//section[contains(@class, "doc-diff")]//td[@data-label="' . $label . '"]'));
+        self::assertSame('10 ' . Words::say('DOC', 'credited_units', 2), $cell(Words::DOC['invoiced']), '12 billed, 2 credited: 10, as the match counts');
+        self::assertSame('8', $cell(Words::DOC['received']));
+        self::assertSame('£2.00', $cell(Words::DOC['difference']));
+    }
+
+    /**
+     * Review 3, M4 (PV25): the differences panel reads its figures with the match (one read for the orders' lines whatever their number),
+     * so an invoice of three deliveries opens with the same statements as an invoice of one.
+     */
+    public function testTheDifferencesPanelReadsTheSameForOneDeliveryOrThree(): void
+    {
+        $this->setting('invoices.check_price', 'true');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Panel Reads Ltd');
+        $web = $this->signIn($deskUser);
+        $make = function (string $ref, int $n) use ($deskUser, $s, $web): int {
+            $grns = [];
+            for ($i = 0; $i < $n; $i++) {
+                $grns[] = $this->delivery($deskUser['id'], (int) $s['id'], 10, '3.00')['grn'];
+            }
+            $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'grn:' . $grns[0], 'invoice_number' => $ref,
+                'invoice_date' => gmdate('Y-m-d', time() - 86400), 'action' => 'from'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+            self::assertSame(303, $r->status, $r->describe());
+            $id = self::invoiceId($r->location());
+            foreach (array_slice($grns, 1) as $g) {
+                $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['from' => 'grn:' . $g, 'action' => 'from'] + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
+                self::assertSame(303, $r->status, $r->describe());
+            }
+            $prices = [];
+            for ($no = 1; $no <= $n; $no++) {
+                $prices['pp_' . $no] = '4.00';
+            }
+            $r = $web->post("/ui/purchasing/invoices/{$id}/lines", $prices + ['net_total' => number_format(40 * $n, 2, '.', ''), 'vat_total' => '0.00', 'action' => 'post']
+                + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertSame('needs_review', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$id]));
+            return $id;
+        };
+        $reads = static function (int $id) use ($web): int {
+            $n = static fn (): int => (int) self::$appDb->pdo()->query("SHOW SESSION STATUS LIKE 'Questions'")->fetch(\PDO::FETCH_NUM)[1];
+            $before = $n();
+            $view = $web->get("/ui/purchasing/invoices/{$id}");
+            self::assertSame(1, self::nodes($view, '//section[contains(@class, "doc-diff")]'));
+            return $n() - $before - 1;
+        };
+        $one = $make('READS-1', 1);
+        $three = $make('READS-3', 3);
+        $reads($one);
+        self::assertSame($reads($one), $reads($three), 'one delivery or three: the same statements');
+    }
+
+    /**
+     * Review 3, M2 (PV24): "still to come" adds up what each order line still waits for: 11 of 10 in (within the tolerance) and none of 2
+     * leaves 2 to come, not 12 less 11.
+     */
+    public function testStillToComeAddsUpEachLine(): void
+    {
+        $buyerUser = $this->uiUser('buyer');
+        $buyer = Caller::staff($buyerUser['id']);
+        $s = $this->supplier('To Come Ltd');
+        $a = $this->dryItem('To come pod A');
+        $b = $this->dryItem('To come pod B');
+        $pos = new PurchaseOrders(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)));
+        $d = $pos->createDraft($buyer, (int) $s['id'], []);
+        $d = $pos->saveDraft($buyer, $d->id, $d->version, [], [['sku_id' => $a, 'packs' => 10, 'units_per_pack' => 1, 'pack_price' => '2.00'],
+            ['sku_id' => $b, 'packs' => 2, 'units_per_pack' => 1, 'pack_price' => '2.00']]);
+        $d = $pos->approve($buyer, $d->id, $d->version);
+        // By hand (put back below, for the stock checks after the test): 11 of the first line in, none of the second.
+        self::$db->exec("UPDATE po_line SET received_units = 11 WHERE document_id = ? AND line_no = 1 AND kind = 'item'", [$d->id]);
+        self::$db->exec("UPDATE purchase_order SET state = 'part_received' WHERE document_id = ?", [$d->id]);
+        $strip = implode(' ', self::texts($this->signIn($buyerUser)->get('/ui/purchasing/orders/' . $d->id), '//section[contains(@class, "doc-progress")]'));
+        self::$db->exec("UPDATE po_line SET received_units = 0 WHERE document_id = ? AND kind = 'item'", [$d->id]);
+        self::$db->exec("UPDATE purchase_order SET state = 'approved' WHERE document_id = ?", [$d->id]);
+        self::assertStringContainsString(Words::say('DOC', 'to_come', 2), $strip);
+    }
+
+    /** Review 3, L5 (PV26): the Show menu says "Open" with its own value, and a choice made in it wins over an old link's cancelled=1. */
+    public function testShowOpenWinsOverAnOldCancelledLink(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Show Open Ltd');
+        $si = new SupplierInvoices(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)), fn (): FileStore => $this->store());
+        $desk = Caller::staff($deskUser['id']);
+        $d = $si->createDraft($desk, 'invoice', (int) $s['id'], ['invoice_number' => 'SHOW-X1']);
+        $si->cancel($desk, $d->id, $d->version, 'Typed twice');
+        $web = $this->signIn($deskUser);
+        $selected = static fn (UiResponse $r): array => self::texts($r, '//form[@class="toolbar"]//select[@name="show"]/option[@selected]/@value');
+        $old = $web->get('/ui/purchasing/invoices', ['cancelled' => '1']);
+        self::assertSame(['all'], $selected($old));
+        self::assertStringContainsString('SHOW-X1', $old->text());
+        self::assertSame(['open', 'all', 'cancelled'], self::texts($old, '//form[@class="toolbar"]//select[@name="show"]/option/@value'));
+        $open = $web->get('/ui/purchasing/invoices', ['cancelled' => '1', 'show' => 'open']);
+        self::assertSame(['open'], $selected($open));
+        self::assertStringNotContainsString('SHOW-X1', $open->text());
+    }
+
+    /** Review 3, L6 (PV26): an action under More refused for its reason opens More as well as its own fold, so the person sees why. */
+    public function testARefusedActionUnderMoreOpensMore(): void
+    {
+        $s = $this->supplier('More Opens Ltd');
+        $o = $this->order((int) $s['id'], 2);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $path = '/ui/purchasing/orders/' . $o['po'];
+        $r = $web->post($path . '/amend', ['reason_code' => ''] + $web->get($path)->form($path . '/amend'));
+        self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
+        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
+            'the order\'s Correct, refused without a reason');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $desk = $this->signIn($deskUser);
+        $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'MORE-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
+            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
+        $id = self::invoiceId($desk->post('/ui/purchasing/invoices', $send)->location());
+        $ipath = '/ui/purchasing/invoices/' . $id;
+        $r = $desk->post($ipath . '/reverse', ['reason_code' => 'other', 'note' => ''] + $desk->get($ipath)->form($ipath . '/reverse'));
+        self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
+        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/reverse")]'),
+            'the invoice\'s Cancel, refused without the note "other" needs');
     }
 
     public function testTheItemBoxListsTheSuppliersItemsAndAChoiceAddsItsPack(): void

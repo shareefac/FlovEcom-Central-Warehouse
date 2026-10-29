@@ -14,7 +14,7 @@
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
     <select id="tb-show" name="show">
-      <option value=""<?php if ($f['show'] === 'open'): ?> selected<?php endif; ?>><?= $word('INVOICES', 'show_open') ?></option>
+      <option value="open"<?php if ($f['show'] === 'open'): ?> selected<?php endif; ?>><?= $word('INVOICES', 'show_open') ?></option>
       <option value="all"<?php if ($f['show'] === 'all'): ?> selected<?php endif; ?>><?= $word('INVOICES', 'show_all') ?></option>
       <option value="cancelled"<?php if ($f['show'] === 'cancelled'): ?> selected<?php endif; ?>><?= $word('INVOICES', 'show_cancelled') ?></option>
     </select>
@@ -26,9 +26,6 @@
 <?php endif; ?>
 <?php if ($f['match'] !== null): ?>
     <input type="hidden" name="match" value="<?= $e($f['match']) ?>">
-<?php endif; ?>
-<?php if ($f['cancelled']): ?>
-    <input type="hidden" name="cancelled" value="1">
 <?php endif; ?>
     <button type="submit" class="btn secondary sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>

@@ -1133,7 +1133,7 @@ final class PurchaseOrdersController
             'canInvoice' => $canInvoice,
             'mainAction' => $main,
             'moreActions' => $more,
-            'progress' => self::progress($ctx, $doc, $po, $state, (int) $data['units'], (int) $data['received']),
+            'progress' => self::progress($ctx, $doc, $po, $state, (int) $data['units'], (int) $data['received'], $data['lines']),
         ], $status, $layout);
     }
 
@@ -1164,12 +1164,15 @@ final class PurchaseOrdersController
 
     /**
      * The saved order's progress strip (PV19): units ordered, received, invoiced (the final invoices' goods lines on this order, net of their
-     * credit notes: one indexed read on ix_sinv_line_po), the expected date and what is still to come; none for a draft or a cancelled order.
+     * credit notes: one indexed read on ix_sinv_line_po), the expected date and what is still to come: what each order line still waits
+     * for, added up (a line delivered over its order within the tolerance never hides another's; the Codex review of 9ce3515, M2, PV24);
+     * none for a draft or a cancelled order.
      *
      * @param array<string, mixed> $po
+     * @param list<array<string, mixed>> $lines the order's lines (viewData's: kind, qty, received_units)
      * @return array{ordered: int, received: int, invoiced: int, expected: ?string, to_come: int}|null
      */
-    private static function progress(Context $ctx, Document $doc, array $po, string $state, int $units, int $received): ?array
+    private static function progress(Context $ctx, Document $doc, array $po, string $state, int $units, int $received, array $lines): ?array
     {
         if ($doc->status !== 'posted' || $state === 'cancelled') {
             return null;
@@ -1178,7 +1181,19 @@ final class PurchaseOrdersController
             . "JOIN document d ON d.id = sl.document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
             . "WHERE sl.po_document_id = ? AND sl.kind = 'goods'", [$doc->id]);
         return ['ordered' => $units, 'received' => $received, 'invoiced' => max(0, $invoiced), 'expected' => ($po['expected_date'] ?? null) === null ? null : (string) $po['expected_date'],
-            'to_come' => in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, $units - $received) : 0];
+            'to_come' => in_array($state, ['approved', 'sent', 'part_received'], true) ? self::toCome($lines) : 0];
+    }
+
+    /** What the order's lines still wait for, line by line (PV24). @param list<array<string, mixed>> $lines */
+    public static function toCome(array $lines): int
+    {
+        $left = 0;
+        foreach ($lines as $l) {
+            if (($l['kind'] ?? 'item') === 'item') {
+                $left += max(0, (int) ($l['qty'] ?? 0) - (int) ($l['received_units'] ?? 0));
+            }
+        }
+        return $left;
     }
 
     /**

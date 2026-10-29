@@ -186,7 +186,7 @@ final class InvoiceMatch
             $out[$no] = ['line_no' => $no, 'kind' => 'goods', 'units' => $units, 'amount_e2' => $billed, 'credited_units' => $credited['units'],
                 'credited_e2' => $credited['amount_e2'], 'available' => $available, 'accepted' => $g['accepted'] ?? null, 'returned' => $g['returned'] ?? null,
                 'invoiced_elsewhere' => $g['invoiced_elsewhere'] ?? null, 'ref_unit_e6' => $ref, 'ref_from' => $refFrom, 'reversed' => $reversed,
-                'arriving' => $key === null && $available !== null && $l['arrival_state'] !== 'received'] + $m;
+                'arriving' => $key === null && $available !== null && $l['arrival_state'] !== 'received', 'po_key' => $poKey] + $m;
         }
         $totalDiff = $inv === null || $inv['net_total'] === null ? 0 : $sum - InvoiceMath::e2((string) $inv['net_total']);
         if (!InvoiceMath::totalOk($sum, $sum - $totalDiff, count($lines), $rules['total_per_line_e2'])) {

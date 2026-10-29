@@ -2272,7 +2272,9 @@ td.late { color: var(--st-red); font-weight: 600; }
 .doc-more-menu > details.doc-act > summary { list-style: none; }
 .doc-more-menu > details.doc-act > summary::-webkit-details-marker { display: none; }
 .doc-more-menu .doc-act-panel { margin: 6px 0 0; max-width: none; }
-@media (max-width: 639.98px) { .doc-more { position: static; } .doc-more-menu { left: 0; right: 0; width: auto; min-width: 0; max-width: none; } }
+/* On a phone More's menu is in the flow under its button, the open fold taking the bar's whole row (the Codex review of 9ce3515, M3; PV26):
+   nothing is placed against the page, with or without the script. */
+@media (max-width: 639.98px) { .doc-more { position: static; } .doc-more-menu { position: static; width: auto; min-width: 0; max-width: none; margin: 6px 0 0; box-shadow: none; } .doc-more[open] { flex: 1 1 100%; } }
 .doc-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
 .doc-step { display: grid; gap: 6px; align-content: start; padding: 16px 20px; border-left: 1px solid var(--divider); min-width: 0; }
 .doc-step:first-child { border-left: 0; }
