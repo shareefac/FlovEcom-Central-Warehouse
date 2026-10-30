@@ -46,7 +46,7 @@ $active = count(array_filter($rows, static fn (array $r): bool => $r['group'] ==
 <?= $empty(\CW\Ui\Words::ANOMALIES['none']) ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('ANOMALIES', 'group_one') ?><?php else: ?><?= $say('ANOMALIES', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board anomalies">

@@ -3,6 +3,7 @@
 // "Show", the choice, its Show button: no script needed; docs/decisions.md DC18). The groups' headings count the rows; only a cut list says so.
 ?>
 <form class="toolbar" method="get" action="<?= $u($action) ?>" aria-label="<?= $word('UI', 'filter') ?>">
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="q-status"><?= $word('QUEUES', 'show') ?></label>
     <select id="q-status" name="status">
@@ -12,6 +13,7 @@
     </select>
     <button class="btn sm" type="submit"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 </form>
 <?php if ($count > 0 && $more): ?>
 <p class="muted"><?= $say('QUEUES', 'more', $pageSize) ?></p>

@@ -9,7 +9,7 @@
 // preview, which saves nothing); the quick match's box and button name a GET form drawn after the list (a form inside a form is no form). The
 // page's More holds every other matching page, the list's file and the number of rows.
 $stateWord = static fn (string $code): string => \CW\Ui\Words::of('PRODUCT_STORE', $code);
-$bar = $partial('by_product_bar', ['pages' => $pages_more, 'export' => $stores === [] ? null : $csv_link, 'sizes' => $sizes]);
+$bar = $partial('by_product_bar', ['export' => $stores === [] ? null : $csv_link, 'sizes' => $sizes]);
 ?>
 <?= $head(\CW\Ui\Words::RD_MATCH['title'], intro: 'by_product', look: $lookOnly, meta: $word('RD_MATCH', 'sub'), side: $bar) ?>
 <?= $partial('by_product_tabs', ['tab' => 'items', 'count' => $freshCount]) ?>

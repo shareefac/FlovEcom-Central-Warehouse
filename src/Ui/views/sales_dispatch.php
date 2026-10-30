@@ -37,7 +37,7 @@
 <?= $empty($none[0], $none[1]) ?>
 <?php else: ?>
 <?php foreach ($groups as $grp): ?>
-<div class="grp-block doc-group <?= $e($grp['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($grp['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="<?= $e($grp['id']) ?>"><?= $e($grp['name']) ?></button> <span class="grp-count"><?php if (count($grp['rows']) === 1): ?><?= $word('RESV', 'group_one') ?><?php else: ?><?= $say('RESV', 'group_many', count($grp['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="<?= $e($grp['id']) ?>">
 <?php if ($show === 'waiting'): ?>

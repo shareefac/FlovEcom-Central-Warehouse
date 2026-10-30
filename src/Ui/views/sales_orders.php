@@ -74,7 +74,7 @@
 <?php endif; ?>
 <?php else: ?>
 <?php foreach ($groups as $g => $grp): ?>
-<div class="grp-block doc-group <?= $e($grp['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($grp['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $e($grp['name']) ?></button> <span class="grp-count"><?php if (count($grp['rows']) === 1): ?><?= $word('RESV', 'group_one') ?><?php else: ?><?= $say('RESV', 'group_many', count($grp['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list sales-orders">

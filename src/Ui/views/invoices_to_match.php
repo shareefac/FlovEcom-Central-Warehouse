@@ -10,6 +10,7 @@ $bar = $canRecheck ? $partial('recheck_bar', []) : '';
 <?= $head(\CW\Ui\Words::SEGMENT['to_match'], intro: 'to_match', side: $bar) ?>
 </div>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
     <select id="tb-show" name="show">
@@ -18,6 +19,7 @@ $bar = $canRecheck ? $partial('recheck_bar', []) : '';
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -32,7 +34,7 @@ $bar = $canRecheck ? $partial('recheck_bar', []) : '';
 <?php endif; ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('ARRIVALS', 'group_one') ?><?php else: ?><?= $say('ARRIVALS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list to-match">

@@ -3,7 +3,7 @@
 // tabs before); each store a group (its name, what waits, its products) over a card with the coloured edge, its rows the match strengths
 // (each its colour's strip), what waits, the share matched and the button to its list; then how much of what each store sells is matched.
 ?>
-<?= $head(\CW\Ui\Words::SEGMENT['review'], intro: 'mapping_overview', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['review'], intro: 'mapping_overview', look: $lookOnly) ?>
 <form class="toolbar" method="get" action="/ui/review" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-state">
     <label for="tb-show"><?= $word('QUEUE', 'show') ?></label>

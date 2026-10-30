@@ -11,6 +11,7 @@
 <?= $head(\CW\Ui\Words::MENU['receiving'], intro: 'receiving', look: $lookOnly, aside: $explain('posting', \CW\Ui\Words::RECEIVING['posting_label'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('GI', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('GI', 'search') ?>" autocomplete="off"></div>
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('GI', 'show') ?></label>
     <select id="tb-show" name="show">
@@ -26,6 +27,7 @@
 <?php endif; ?>
     <button type="submit" class="btn sm"><?= $word('GI', 'show_button') ?></button>
   </div>
+  <?= $showEnd() ?>
 <?php if ($filtered): ?>
   <div class="tb-end">
     <details class="more tb-more">
@@ -46,7 +48,7 @@
 <?= $empty(\CW\Ui\Words::GI['none'], \CW\Ui\Words::GI['none_text']) ?>
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if ($g['key'] === 'arriving'): ?><?php if (count($g['rows']) === 1): ?><?= $word('GI', 'orders_one') ?><?php else: ?><?= $say('GI', 'orders_many', count($g['rows'])) ?><?php endif; ?><?php elseif (count($g['rows']) === 1): ?><?= $word('GI', 'deliveries_one') ?><?php else: ?><?= $say('GI', 'deliveries_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
 <?php if ($g['key'] === 'arriving'): ?>

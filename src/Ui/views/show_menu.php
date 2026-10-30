@@ -2,7 +2,9 @@
 // The Show choice of a page (the redesign's lists, 30 Oct 2026; docs/decisions.md RD2): the pages of one sidebar entry (and a page's own
 // filter choices) as ONE menu that looks like the artboards' select: a <details>, so it opens without a script, of plain links (GET
 // navigation, no form and no new route); the current choice is not a link (CV13). View::show() draws it ($showMenu); $choices: label,
-// href, query (optional), current, count and countWords (optional).
+// href, query (optional), current, count and countWords (optional). $own (View::showStart, $showStart … $showEnd): the list and the page's
+// own filter fields (its div.tb-state, written by the page's template up to $showEnd(), which closes the panel) in one panel.
+$own = $own ?? false;
 $now = null;
 foreach ($choices as $c) {
     if (($c['current'] ?? false) === true) {
@@ -13,6 +15,9 @@ foreach ($choices as $c) {
 ?>
 <details class="show-menu">
   <summary class="show-select"><span class="visually-hidden"><?= $word('UI', 'show') ?>: </span><span class="show-now"><?= $e($now['label'] ?? \CW\Ui\Words::UI['show']) ?></span></summary>
+<?php if ($own): ?>
+  <div class="show-panel">
+<?php endif; ?>
   <ul class="show-list" aria-label="<?= $word('UI', 'show') ?>">
 <?php foreach ($choices as $c): ?>
 <?php $count = (int) ($c['count'] ?? 0); ?>
@@ -23,4 +28,6 @@ foreach ($choices as $c) {
 <?php endif; ?>
 <?php endforeach; ?>
   </ul>
+<?php if (!$own): ?>
 </details>
+<?php endif; ?>

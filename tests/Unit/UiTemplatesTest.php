@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 final class UiTemplatesTest extends TestCase
 {
     private const HELPERS = ['e', 'n', 'dec', 'dt', 'u', 'pct', 'partial', 'word', 'say', 'money', 'day', 'when', 'jobs', 'chip', 'stateChip', 'intro', 'explain',
-        'cards', 'empty', 'head', 'showMenu', 'groupPages'];
+        'cards', 'empty', 'head', 'showMenu', 'groupPages', 'showStart', 'showEnd', 'showMine', 'showNav', 'sectionMore'];
 
     /** @return array<string, string> file name => source */
     private static function templates(): array
@@ -517,6 +517,64 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString('menu-btn', $html, 'nothing to open');
         self::assertStringContainsString(Words::TASK['no_job']['text'], $html);
         self::assertStringContainsString('<form class="signout" method="post" action="/ui/logout">', $html, 'sign out is always there');
+    }
+
+    /**
+     * ONE Show per page (the integration of the redesign, 30 Oct 2026; docs/decisions.md RD-I2): a grouped page whose toolbar has its own
+     * filter fields draws them inside the group's Show ($showStart … $showEnd around its div.tb-state: the group's pages, then the fields,
+     * one panel) and the head draws no Show row; with one page in the group the fields as before; Settings' section list says it is the
+     * group's ($showNav); a page that draws its own More beside its title lists the section's specialist pages ($sectionMore, RD6).
+     */
+    public function testOneShowHoldsThePagesOwnFieldsAndTheHeadDrawsNoSecond(): void
+    {
+        $dir = sys_get_temp_dir() . '/cw-show-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        try {
+            foreach (['layout', 'page_frame', 'split', 'show_menu'] as $t) {
+                copy(View::defaultDir() . '/' . $t . '.php', $dir . '/' . $t . '.php');
+            }
+            file_put_contents($dir . '/page.php', "<?= \$head('Goods received') ?>\n<form class=\"toolbar\" method=\"get\">\n  <?= \$showStart() ?>\n  <div class=\"tb-state\">\n"
+                . "    <select id=\"tb-show\" name=\"show\"><option value=\"\">Open</option></select>\n    <button type=\"submit\" class=\"btn sm\">Show</button>\n"
+                . "  </div>\n  <?= \$showEnd() ?>\n</form>\n");
+            file_put_contents($dir . '/nav.php', "<?= \$head('Company') ?>\n<?= \$showNav() ?><nav class=\"set-nav\"></nav>\n");
+            file_put_contents($dir . '/alone.php', "<?= \$head('Company') ?>\n");
+            file_put_contents($dir . '/more.php', "<?= \$head('Product matching', side: '') ?>\n<?php foreach (\$sectionMore() as \$p): ?><a class=\"m\" href=\"<?= \$u((string) \$p['href'], \$p['query']) ?>\"><?= \$e(\$p['label']) ?></a>\n<?php endforeach; ?>\n");
+            $who = new StaffIdentity(7, 'b@test.invalid', 'Bea', ['goods_in', 'admin', 'mapping_lead'], false, 'sid');
+            $view = new View($dir, ['csrf' => 'tok', 'who' => $who]);
+            $frame = static function (string $path) use ($who): array {
+                $f = Sections::frame($who->roles, [], $path);
+                return ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'], 'segments' => $f['segments'],
+                    'actions' => $f['actions'], 'searchBox' => false, 'tabs' => [], 'testSystem' => false, 'switchedOff' => null];
+            };
+            $html = $view->page('page', [], $frame('/ui/receiving'));
+            self::assertSame(1, substr_count($html, '<details class="show-menu">'), 'ONE Show');
+            self::assertStringNotContainsString('show-row', $html, 'the head draws no second');
+            self::assertStringContainsString('<form class="toolbar" method="get">' . "\n" . '  <details class="show-menu">', $html, 'in the toolbar');
+            self::assertStringContainsString('<li><span class="show-item" aria-current="page"><span class="show-name">' . Words::SEGMENT['receiving'] . '</span></span></li>', $html);
+            self::assertStringContainsString('<li><a class="show-item" href="/ui/receiving/bench"><span class="show-name">' . Words::SEGMENT['bench'] . '</span></a></li>', $html);
+            self::assertMatchesRegularExpression('#<div class="show-panel">\s*<ul class="show-list"[^>]*>.*</ul>\s*<div class="tb-state">\s*<select id="tb-show" name="show">'
+                . '.*<button type="submit" class="btn sm">Show</button>\s*</div>\s*</div></details>\s*</form>#s', $html, 'the page\'s own fields in the same panel, its form');
+            // One page in the group (a page outside a group): only the fields, as before.
+            $one = $view->page('page', [], $frame('/ui/purchasing/orders'));
+            self::assertStringNotContainsString('show-menu', $one);
+            self::assertMatchesRegularExpression('#<form class="toolbar" method="get">\s*<div class="tb-state">\s*<select id="tb-show" name="show">.*</button>\s*</div>\s*</form>#s', $one);
+            // Settings' section list is the group's: no Show row under the head.
+            $nav = $view->page('nav', [], $frame('/ui/reference/company'));
+            self::assertStringNotContainsString('show-menu', $nav);
+            self::assertStringContainsString('<nav class="set-nav">', $nav);
+            self::assertStringContainsString('<div class="show-row"><details class="show-menu">', $view->page('alone', [], $frame('/ui/reference/company')),
+                'without it the head draws the group');
+            // Product matching's own More: the section's specialist pages (RD6), the head drawing no More of its own (side).
+            $more = $view->page('more', [], $frame('/ui/review/products'));
+            self::assertSame(0, substr_count($more, '<details class="more">'));
+            self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'],
+                preg_match_all('#<a class="m" href="[^"]*">([^<]*)</a>#', $more, $m) > 0 ? $m[1] : []);
+        } catch (\InvalidArgumentException $e) {
+            self::fail($e->getMessage());
+        } finally {
+            array_map('unlink', glob($dir . '/*.php') ?: []);
+            rmdir($dir);
+        }
     }
 
     /**
@@ -1737,7 +1795,7 @@ final class UiTemplatesTest extends TestCase
     /**
      * The Purchases and Sales pages on the approved redesign of 30 Oct 2026 (docs/decisions.md RD-B1 to RD-B8; Purchases.dc.html,
      * PurchaseOrder.dc.html, GoodsReceived.dc.html, PurchaseInvoices.dc.html, Sales.dc.html): every list is the simple list (a group's
-     * heading with its count; a white card scoped .rd-list; three to five columns besides a row's
+     * heading with its count, on rd1's shared list look (the .rd-list stand-in went at the integration); three to five columns besides a row's
      * own action; the status a small pill in the cell, rd1's shape; no add row, no progress bar, no initials, no figures strip); the order's
      * page has the four steps, the paper's three blocks, five line columns, Related and History; the delivery's page the list's link above
      * its title, the line under it, no figures strip and four columns besides the line's answers.
@@ -1749,7 +1807,8 @@ final class UiTemplatesTest extends TestCase
             'handovers', 'handover_customers', 'invoices_to_match', 'invoices_not_invoiced', 'invoices_timed'];
         foreach ($lists as $name) {
             $src = $t[$name . '.php'];
-            self::assertMatchesRegularExpression('/<div class="grp-block doc-group <\?= \$e\([^\n]*\) \?> rd-list">/', $src, "{$name}: the group scoped as a simple list");
+            self::assertMatchesRegularExpression('/<div class="grp-block doc-group <\?= \$e\([^\n]*\) \?>">/', $src, "{$name}: a group of the shared simple list (RD8)");
+            self::assertStringNotContainsString('rd-list', $src, "{$name}: no stand-in of the shared look (RD-B9)");
             self::assertStringContainsString('<span class="grp-count">', $src, "{$name}: the group's count (its words as before: RD-B9)");
             foreach (['<tr class="grp-add">', 'doc-meter', '<progress', 'class="initials', 'c-by', 'rp-figs'] as $old) {
                 self::assertStringNotContainsString($old, $src, "{$name}: {$old} is not on a simple list");
@@ -1767,7 +1826,7 @@ final class UiTemplatesTest extends TestCase
                 self::assertStringStartsWith('<span class="chip">', $after, "{$name}: the status a pill in its cell");
             }
         }
-        self::assertSame([], array_values(array_filter(['purchase_orders', 'invoices', 'sales_orders'], static fn (string $n): bool => !str_contains($t[$n . '.php'], 'rd-list'))));
+        self::assertStringNotContainsString('rd-list', (string) file_get_contents(\CW\Ui\Assets::dir() . '/app.css'), 'the stand-in rules went with rd1\'s list look (RD-B9)');
         // Purchase orders: Order, Supplier, Status, Expected, Total (Purchases.dc.html).
         preg_match('#<thead>(.*?)</thead>#s', $t['purchase_orders.php'], $po);
         self::assertSame(["'order'", "'supplier'", "'status'", "'expected'", "'total'"], preg_match_all("/DOC_LIST', ('[a-z]+')/", $po[1], $m) > 0 ? $m[1] : []);

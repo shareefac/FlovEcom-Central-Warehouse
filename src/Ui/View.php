@@ -42,6 +42,16 @@ namespace CW\Ui;
  *                           when there are fewer than two. Drawn by a page (its toolbar), the head draws no Show of its own.
  *   $groupPages()           the page's group as choices (key, label, href, query, count, countWords, current, here), for a page that mixes
  *                           its own filter choices in: $showMenu([...$groupPages(), ['label' => …, 'href' => …, 'query' => […], 'current' => …]])
+ *   $showStart() … $showEnd()   ONE Show that holds a page's own filter fields too (the integration of the redesign, 30 Oct 2026): around
+ *                           the page's div.tb-state (its GET form's select and Show button, as before), the group's choices as $showMenu()
+ *                           draws them, the tb-state under them in the same panel; with fewer than two choices nothing (the tb-state as it
+ *                           was). The head draws no Show of its own then.
+ *   $showMine($own, $other) ONE Show of the group with the page's own filter choices (label, href with its query, current) in place of the page's
+ *                           entry: an own choice that opens another page of the group is the group's (its permission, count and kept store);
+ *                           $other (optional): the words shown first, not a link, when none is the current one (filters chosen under More)
+ *   $showNav()              the page draws its group as its own list (Settings' section list, RD-C14): '' and the head draws no Show
+ *   $sectionMore()          the section's specialist pages (label, href, query, count, countWords, help) for a page that draws its own
+ *                           More beside its title (Product matching, RD-C8): the header's More of RD6, ONE More
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
  * fails the build when a `<?=` prints something that did not pass through one of them, when a
@@ -65,6 +75,8 @@ final class View
     private bool $headDrawn = false;
     /** Whether the page's template drew a Show ($showMenu): then the head's slot stays empty */
     private bool $showDrawn = false;
+    /** @var list<string> what $showEnd() closes, the last $showStart() first */
+    private array $showOwn = [];
     /** Where the head leaves room for the group's Show, filled once the body is drawn (page()): no template can print it (escaping). */
     private const SHOW_SLOT = '<!--cw:show-->';
 
@@ -118,6 +130,14 @@ final class View
                 => Html::emptyState($title, $text, $href, $button),
             'showMenu' => fn (?array $choices = null): string => $this->show($choices),
             'groupPages' => fn (): array => is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [],
+            'showStart' => fn (?array $choices = null): string => $this->showStart($choices),
+            'showEnd' => fn (): string => array_pop($this->showOwn) ?? '',
+            'showMine' => fn (array $own, ?string $other = null): string => $this->show(self::mine($this->frame['segments'] ?? [], $own, $other)),
+            'showNav' => function (): string {
+                $this->showDrawn = true;
+                return '';
+            },
+            'sectionMore' => fn (): array => is_array($this->frame['pagebar']['more'] ?? null) ? $this->frame['pagebar']['more'] : [],
         ];
         $clash = array_keys(array_intersect_key($vars + $this->shared, $helpers));
         if ($clash !== []) {
@@ -143,6 +163,7 @@ final class View
         $this->frame = $layout;
         $this->headDrawn = false;
         $this->showDrawn = false;
+        $this->showOwn = [];
         try {
             $body = $this->render($template, $vars);
             // The group's Show under the head, unless the page drew its own (RD2); only on a page that is one of the group's choices.
@@ -167,6 +188,70 @@ final class View
         $this->showDrawn = true;
         $choices ??= is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [];
         return count($choices) < 2 ? '' : $this->render('show_menu', ['choices' => array_values($choices)]);
+    }
+
+    /**
+     * ONE Show with the page's own filter fields in it ($showStart … $showEnd): the group's choices as show() draws them and, in the same
+     * panel (div.show-panel), the page's div.tb-state that the template writes up to $showEnd(); with fewer than two choices nothing: the
+     * page's div.tb-state stays as it was.
+     *
+     * @param list<array<string, mixed>>|null $choices
+     */
+    private function showStart(?array $choices): string
+    {
+        $this->showDrawn = true;
+        $choices ??= is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [];
+        if (count($choices) < 2) {
+            $this->showOwn[] = '';
+            return '';
+        }
+        $this->showOwn[] = '</div></details>';
+        return $this->render('show_menu', ['choices' => array_values($choices), 'own' => true]);
+    }
+
+    /**
+     * The choices of $showMine: the group's pages, the page's own choices in place of its entry (in their order); an own choice that opens another
+     * page of the group is left to the group's entry (only the people who may open it see it, with its count and kept store); one that opens a
+     * page outside the group follows. With $other and none current, $other first (not a link).
+     *
+     * @param mixed $group the frame's segments
+     * @param list<array<string, mixed>> $own
+     * @return list<array<string, mixed>>
+     */
+    private static function mine(mixed $group, array $own, ?string $other): array
+    {
+        $group = is_array($group) ? array_values($group) : [];
+        $path = static fn (array $c): string => (string) parse_url((string) $c['href'], PHP_URL_PATH);
+        $here = null;
+        foreach ($group as $g) {
+            if (($g['current'] ?? false) === true) {
+                $here = $path($g);
+            }
+        }
+        $paths = array_map($path, $group);
+        $mine = [];
+        $outside = [];
+        foreach ($own as $c) {
+            $p = $path($c);
+            if ($here === null || $p === $here) {
+                $mine[] = $c;
+            } elseif (!in_array($p, $paths, true)) {
+                $outside[] = $c;
+            }
+        }
+        $out = [];
+        foreach ($group as $g) {
+            if ($here !== null && ($g['current'] ?? false) === true) {
+                array_push($out, ...($mine === [] ? [$g] : $mine));
+            } elseif ($here !== null) {
+                $out[] = $g;
+            }
+        }
+        $out = $here === null ? [...$mine, ...$outside] : [...$out, ...$outside];
+        if ($other !== null && !in_array(true, array_map(static fn (array $c): bool => ($c['current'] ?? false) === true, $out), true)) {
+            array_unshift($out, ['label' => $other, 'href' => '', 'current' => true]);
+        }
+        return $out;
     }
 
     /** The group's Show the head draws under itself: only on a page that is one of the group's choices (a list, not one of its records). */

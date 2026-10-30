@@ -8,6 +8,7 @@
 <?= $head(\CW\Ui\Words::SEGMENT['not_invoiced'], intro: 'not_invoiced', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search_delivery') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('INVOICES', 'search_delivery') ?>"></div>
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-supplier"><?= $word('INVOICES', 'supplier') ?></label>
     <select id="tb-supplier" name="supplier">
@@ -18,6 +19,7 @@
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -26,7 +28,7 @@
 <?= $empty(\CW\Ui\Words::INVOICES['none_waiting'], \CW\Ui\Words::INVOICES['none_waiting_text']) ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('INVOICES', 'deliveries_one') ?><?php else: ?><?= $say('INVOICES', 'deliveries_many', count($g['rows'])) ?><?php endif; ?> · <?= $say('INVOICES', 'waiting_total', \CW\Ui\Html::money(\CW\Invoices\InvoiceMath::fromE2($total))) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list not-invoiced">

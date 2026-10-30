@@ -300,7 +300,7 @@ final class ReviewController
             'coverage' => $sold,
             'button' => $me->canDecide() ? Words::QUEUE['open'] : Words::QUEUE['look'],
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
-        ], 200, ['title' => Words::SEGMENT['review'], 'active' => 'review', 'notice' => $this->notice($ctx, null)]);
+        ], 200, ['title' => Words::MENU['review'], 'active' => 'review', 'notice' => $this->notice($ctx, null)]);
     }
 
     /**

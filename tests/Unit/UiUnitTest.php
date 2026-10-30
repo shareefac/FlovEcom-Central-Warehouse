@@ -1210,9 +1210,9 @@ final class UiUnitTest extends TestCase
             '/table\.stack\.gi-lines \.gi-acts \.btn \{[^}]*min-height: 48px/' => 'phone: big All fine and Problem',
             '/table\.stack\.gi-lines \.gi-mini \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/' => 'phone: the problem fields two a row',
             '/table\.stack\.gi-lines tr\.gi-panel:target, table\.stack\.gi-lines tr\.gi-panel\.open \{ display: grid; \}/' => 'phone: the open panel a card',
-            // The coordinator's phone check of 349dc13 (GV23-GV25): the stacked cell has no background of its own, so the card says it itself.
-            '/table\.stack\.doc-lines\.gi-lines tr\.gi-row > td\.gi-check \{[^}]*background: var\(--t-fill, var\(--st-grey\)\);[^}]*color: var\(--on-fill\);/'
-                => 'phone: the check a chip in its colour at the top right',
+            // The coordinator's phone check of 349dc13 (GV23-GV25); since the redesign (RD8) the cell holds the pill and has no fill of its own.
+            '/table\.stack\.doc-lines\.gi-lines tr\.gi-row > td\.gi-check \{[^}]*grid-column: 2; grid-row: 1; justify-self: end;[^}]*padding: 0;/'
+                => 'phone: the check\'s pill at the top right',
             '/table\.stack\.gi-lines tr\.gi-row > td\.gi-check::before \{ content: none; \}/' => 'phone: the chip without the column\'s name',
             // The duty stamp is in the line's answers (RD-B5, the approved GoodsReceived.dc.html): its name and its value visible on a phone.
             '/table\.stack\.gi-lines \.gi-acts > \.gi-duty \.gi-duty-name \{ color: var\(--ink-muted\); \}/' => 'phone: the duty stamp\'s label visible',
@@ -1304,7 +1304,7 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('background: var(--st-blue); color: var(--on-fill); font: 600 13px/1 var(--font);', $rule('.avatar'), 'the person\'s circle');
         self::assertStringContainsString('  .nav-sub-item { min-height: 44px; font-size: 14px; }', $css, 'the phone\'s drawer: 44 px');
         // RD10: a list draws no figure tiles (Home and the reports keep theirs: Sections::FIGURES).
-        self::assertSame(' display: none; ', $rule('.work.is-list .rp-figs'));
+        self::assertSame(' display: none; ', $rule('.work.is-list .rp-figs:not(.rp-keep)'), 'a strip with a safety message stays (RD-B7)');
         // RD2: the Show looks like the artboards' 44 px select and opens a list of links.
         self::assertStringContainsString('min-height: 44px; height: 44px;', $rule('.show-select'));
         self::assertStringContainsString('border: 1px solid var(--field); border-radius: var(--r-10);', $rule('.show-select'));

@@ -76,7 +76,7 @@ final class ByProductController
             if ($fresh['unknown']) {
                 return $ctx->error(404, 'unknown_store', 'no such store', [Html::url(ByProductContext::LIST_PATH, ['tab' => 'new']), Words::RD_MATCH['tab_new']]);
             }
-            return $ctx->page('by_product_new', ['fresh' => $fresh, 'pages_more' => self::morePages(), 'lookOnly' => $lookOnly,
+            return $ctx->page('by_product_new', ['fresh' => $fresh, 'lookOnly' => $lookOnly,
                 'matchAll' => $me->canDecide() && $fresh['store'] !== null ? Html::url(NewVariantsController::PATH, ['channel' => $fresh['store']['code']]) : null],
                 200, $layout);
         }
@@ -85,7 +85,7 @@ final class ByProductController
             return $ctx->page('by_product', ['stores' => [], 'rows' => [], 'pills' => [], 'text' => '', 'coverage' => null, 'total' => 0, 'shown' => 0, 'page_no' => 1, 'pages' => 1,
                 'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'clear_search' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
                 'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => '',
-                'freshCount' => $fresh['count'], 'pages_more' => self::morePages()],
+                'freshCount' => $fresh['count']],
                 200, $layout);
         }
         $cov = ByProductContext::coverage($req->param('cov'), $stores);
@@ -222,27 +222,7 @@ final class ByProductController
             'manualNote' => array_filter($rows, static fn (array $r): bool => $r['manual']) !== [],
             'allLink' => Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page > 1 ? $page : null, 'all' => 1]),
             'freshCount' => $fresh['count'],
-            'pages_more' => self::morePages(),
         ], 200, $layout);
-    }
-
-    /**
-     * Every other matching page, for the page's More (the approved ByItem artboard: "its More holds every other matching page"; docs/decisions.md
-     * RD-C8). Each is a route of linking.view, the permission of this page: whoever sees this page may open every one of them.
-     *
-     * @return list<array{href: string, label: string}>
-     */
-    public static function morePages(): array
-    {
-        return [
-            ['href' => '/ui/review/store', 'label' => Words::MENU['store_products']],
-            ['href' => SimpleMatchController::PATH, 'label' => Words::MENU['simple_match']],
-            ['href' => '/ui/review', 'label' => Words::SEGMENT['review']],
-            ['href' => '/ui/review/samples', 'label' => Words::MENU['samples']],
-            ['href' => Html::url('/ui/review', ['queue' => 'pending']), 'label' => Words::MENU['pending']],
-            ['href' => NewVariantsController::PATH, 'label' => Words::MENU['new_variants']],
-            ['href' => '/ui/review/duplicates', 'label' => Words::MENU['duplicates']],
-        ];
     }
 
     /**

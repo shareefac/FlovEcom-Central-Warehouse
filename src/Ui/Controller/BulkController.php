@@ -114,7 +114,7 @@ final class BulkController
         $b = $ctx->db->one('SELECT b.*, u.display_name, c.code AS channel_code, c.name AS channel_name FROM mapping_batch b '
             . 'LEFT JOIN staff_user u ON u.id = b.staff_user_id LEFT JOIN channel c ON c.id = b.channel_id WHERE b.id = ?', [$id]);
         if ($b === null) {
-            return $ctx->error(404, 'unknown_batch', Words::BULK_ERROR['unknown_batch'], ['/ui/review', Words::SEGMENT['review']]);
+            return $ctx->error(404, 'unknown_batch', Words::BULK_ERROR['unknown_batch'], ['/ui/review', Words::MENU['review']]);
         }
         $batch = DecisionService::SCREEN_BATCH_PREFIX . $id;
         $rows = [];
@@ -314,7 +314,7 @@ final class BulkController
         }
         $band = self::opt($req->field('queue'), Proposals::BANDS);
         if ($band === null) {
-            return ['/ui/review', Words::SEGMENT['review']];
+            return ['/ui/review', Words::MENU['review']];
         }
         return [Html::url('/ui/review', ['queue' => $band, 'channel' => $channel['code'] ?? null, 'lane' => self::opt($req->field('lane'), Queries::LANES),
             'min' => preg_match('/^[0-9]{1,6}$/D', (string) $req->field('min')) === 1 && (int) $req->field('min') > 0 ? (int) $req->field('min') : null,

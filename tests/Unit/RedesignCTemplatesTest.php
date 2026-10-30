@@ -102,7 +102,7 @@ final class RedesignCTemplatesTest extends TestCase
         }
         $n = $t['by_product_new'];
         foreach (['<input type="hidden" name="tab" value="new">', '<select id="nw-store" name="channel"', "\$say('RD_MATCH', 'store_n', \$s['name'], \$s['count'])",
-            '<span class="bi-hint<?php if ($r[\'likely\']): ?> likely<?php endif; ?>">', '<a class="btn" href="<?= $e($r[\'link\']) ?>"><?= $word(\'RD_MATCH\', \'match\') ?></a>',
+            '<span class="chip <?php if ($r[\'likely\']): ?>needs bi-hint likely<?php else: ?>waiting bi-hint<?php endif; ?>">', '<a class="btn" href="<?= $e($r[\'link\']) ?>"><?= $word(\'RD_MATCH\', \'match\') ?></a>',
             "\\CW\\Ui\\Words::RD_MATCH['match_all']"] as $part) {
             self::assertStringContainsString($part, $n, "by_product_new: {$part}");
         }

@@ -369,9 +369,9 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .scrim { display: none; }
 .tabbar { display: none; }
 .page { max-width: var(--page-w); margin: 0 auto; position: relative; container-type: inline-size; }
-body:has(.hm-find) .page { max-width: 1100px; }
-/* A list shows no figure tiles (the owner, 30 Oct 2026: figures only on Home and the reports; RD10): its figures strip is not drawn */
-.work.is-list .rp-figs { display: none; }
+/* A list shows no figure tiles (the owner, 30 Oct 2026: figures only on Home and the reports; RD10): its figures strip is not drawn. A strip
+   that holds a safety message (What to buy's "the sales data is old", Low stock's failed run: RD-B7) stays (.rp-keep, the integration). */
+.work.is-list .rp-figs:not(.rp-keep) { display: none; }
 
 @media (min-width: 700px) {
   .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); align-items: start; min-height: 100vh; }
@@ -508,6 +508,20 @@ a.show-item:hover { background: var(--page-alt); color: var(--ink); text-decorat
   flex: none; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-hover);
   font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums;
 }
+/* ONE Show that also holds the page's own filter fields (View::showStart, the integration of 30 Oct 2026): the group's pages and, under them
+   in the same panel, the page's .tb-state (its GET form's select and its Show button, as before) */
+.show-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: min(360px, calc(100vw - 32px));
+  margin: 0; padding: 6px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12); box-shadow: var(--shadow-menu);
+}
+.show-panel > .show-list { position: static; width: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+details.show-menu > .show-panel > .tb-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 0; padding: 10px 6px 4px;
+  border-top: 1px solid var(--divider); }
+details.show-menu > .show-panel > .tb-state + .tb-state { margin-top: 0; border-top: 0; }
+details.show-menu > .show-panel > .tb-state > label:not(.choice) { display: grid; gap: 4px; flex: 1 1 100%; margin: 0; color: var(--ink-muted); font: 500 12px/16px var(--font); }
+details.show-menu > .show-panel > .tb-state > label > select { color: var(--ink); font: 400 14px/20px var(--font); }
+details.show-menu > .show-panel > .tb-state select { flex: 1 1 12rem; min-width: 0; }
+.ph-actions details.show-menu > .show-panel, .ph-actions details.show-menu > .show-list { left: auto; right: 0; }
 @media (max-width: 699.98px) {
   .show-select { font-size: 16px; }
   .show-item { min-height: 44px; }
@@ -1188,10 +1202,6 @@ td.meter meter { width: 80px; }
    box beside them; "Waiting for you", a card of rows (a 52 px square with the number in the task's colour, its name, one muted line, one
    button); the notes after them, quieter; a card of up to four small figures. On a phone the Find box takes its row and a whole row opens
    its task (its button's link covers the row). ---------- */
-.page-head:has(.hm-find) .ph-actions { flex: 0 1 380px; }
-.hm-find { position: relative; display: flex; align-items: center; width: 100%; margin: 0; }
-.hm-find > .ico { position: absolute; left: 14px; color: var(--ink-muted); pointer-events: none; }
-.hm-find > input { width: 100%; min-height: 44px; padding-left: 42px; border-radius: var(--r-12); font-size: 15px; }
 .hm-jobs, .hm-figs { padding: 0; overflow: hidden; margin: 0 0 22px; }
 .hm-h { margin: 0; padding: 16px 18px 4px; font: 700 16px/24px var(--font); color: var(--ink); }
 .card > h2.hm-h:first-child { margin: 0; }
@@ -1221,8 +1231,6 @@ td.meter meter { width: 80px; }
 .hm-fig-t { color: var(--ink-muted); font: 400 13px/18px var(--font); }
 .hm-fig-n { color: var(--ink); font: 700 24px/32px var(--font); font-variant-numeric: tabular-nums; }
 @media (max-width: 699.98px) {
-  .page-head:has(.hm-find) .ph-actions { flex: 1 1 100%; }
-  .hm-find > input { min-height: 48px; font-size: 16px; }
   .hm-row { position: relative; gap: 14px; padding: 14px 16px; }
   .hm-n { min-width: 46px; height: 46px; font-size: 18px; }
   /* HM_Phone (DC19): the whole row is the link, no button drawn; its words stay for a screen reader, its focus ring is the row's */
@@ -2591,10 +2599,9 @@ details.gi-ready { margin: 0; }
 @container (max-width: 640px) {
   table.stack.gi-lines tr.gi-row { grid-template-columns: minmax(0, 1fr) auto; border-left: 6px solid var(--t-fill, var(--st-grey)); }
   table.stack.doc-lines.gi-lines tr.gi-row > th.c-head { grid-column: 1; }
-  /* The check: a chip in its colour at the top right (the stacked cell has no background of its own: its white words were lost, GV23) */
+  /* The check: its pill at the top right (the cell holds the pill since the redesign, RD8; no fill of its own) */
   table.stack.doc-lines.gi-lines tr.gi-row > td.gi-check { display: inline-flex; align-items: center; justify-content: center; grid-column: 2; grid-row: 1; justify-self: end;
-    align-self: start; width: auto; min-width: 0; min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); background: var(--t-fill, var(--st-grey)); color: var(--on-fill);
-    font: 600 12px/18px var(--font); white-space: nowrap; }
+    align-self: start; width: auto; min-width: 0; min-height: 0; padding: 0; white-space: nowrap; }
   table.stack.gi-lines tr.gi-row > td.gi-check::before { content: none; }
   table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] { grid-column: 1 / -1; grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr); text-align: left; }
   table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] > * { grid-column: 2; }
@@ -3024,33 +3031,6 @@ table.gi-lines .gi-duty select { min-height: 32px; padding: 2px 6px; border: 1px
   font: 500 13px/18px var(--font); }
 table.gi-lines td.gi-items .o-sub { display: block; }
 @media (min-width: 700px) { p.crumbs.gi-crumbs { display: none; } }
-/* The simple list (rd_common: "all list make one more simple design"; Purchases.dc.html, PurchaseInvoices.dc.html, Sales.dc.html), drawn
-   here for the Purchases and Sales lists (.rd-list on the group) until the shared list style lands (rd1 draws the same for every list; then
-   these rules go): a group's heading is a 10 px dot in its colour, its name 15 px semi-bold ink and its count muted; the card white with
-   12 px corners and no coloured edge; the head row 12 px muted, the rows 14 px with 14 px padding; the status a small pill (tint + darker
-   ink) in a cell that is no longer filled. */
-.grp-block.rd-list > .grp-title { gap: 4px 8px; margin: 0 0 8px; color: var(--ink); font: 600 15px/22px var(--font); }
-.grp-block.rd-list > .grp-title::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--t-fill, var(--st-grey)); }
-.grp-block.rd-list > .grp-title .grp-toggle { margin: 0 0 0 -4px; padding: 4px; color: var(--ink); font: 600 15px/22px var(--font); }
-.grp-block.rd-list > .grp-title .grp-count { color: var(--ink-muted); font: 400 15px/22px var(--font); }
-.grp-block.rd-list > .doc-board { border-left: 1px solid var(--hairline); border-radius: var(--r-12); }
-.grp-block.rd-list > .doc-board > table thead th { color: var(--ink-muted); font: 500 12px/16px var(--font); }
-.grp-block.rd-list > .doc-board > table tbody th, .grp-block.rd-list > .doc-board > table tbody td { font-size: 14px; }
-@container (min-width: 641px) {
-  .grp-block.rd-list > .doc-board > table th, .grp-block.rd-list > .doc-board > table td { padding: 10px 16px; }
-  .grp-block.rd-list > .doc-board > table tbody > tr > * { height: auto; padding-top: 14px; padding-bottom: 14px; }
-}
-.grp-block.rd-list td.doc-st, .grp-block.rd-list tbody tr:hover > td.doc-st, table.gi-lines td.doc-st, table.gi-lines tbody tr:hover > td.doc-st {
-  width: auto; min-width: 0; border: 0; background: none; color: var(--ink-body); font: 400 14px/20px var(--font); text-align: left; }
-.grp-block.rd-list td.doc-st .o-sub, table.gi-lines td.doc-st .o-sub { color: var(--ink-muted); opacity: 1; }
-.grp-block.rd-list td.doc-st > .chip, table.gi-lines td.doc-st > .chip, .po-paper .chip, .po-cards .chip {
-  min-height: 0; padding: 3px 10px; border-radius: var(--r-pill); background: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--sf-grey-ink)); font: 600 12px/16px var(--font); }
-/* app.js writes "Checked" straight into the check cell after "All fine" (the pill's span goes): its words then in the tone's ink. */
-table.gi-lines td.gi-check:not(:has(.chip)) { color: var(--t-ink, var(--sf-grey-ink)); font-weight: 600; }
-@container (max-width: 640px) {
-  .grp-block.rd-list table.stack td.doc-st { padding: 0; }
-  table.stack.doc-lines.gi-lines tr.gi-row > td.gi-check { background: none; color: var(--t-ink, var(--sf-grey-ink)); padding: 0; min-height: 0; }
-}
 /* Sales orders' More (RD-B3): the old Show row's period links, state, way in and days (the row's Show button sends them). */
 .sales-more > label { display: grid; gap: 4px; margin: 0; padding: 6px 12px; }
 /* ==== end rd2b ============================================================================================================================== */
@@ -3148,8 +3128,6 @@ details.bi-quick > summary::-webkit-details-marker { display: none; }
 details.bi-quick[open] { flex: 1 1 100%; display: block; }
 details.bi-quick[open] > summary { border-style: solid; border-color: var(--accent); color: var(--accent-hover); }
 details.bi-quick[open] > .qp-search { display: flex; gap: 8px; margin-top: 10px; }
-.bi-hint { font-size: 12px; font-weight: 600; border-radius: var(--r-pill); padding: 3px 10px; white-space: nowrap; background: var(--sf-grey); color: var(--sf-grey-ink); }
-.bi-hint.likely { background: var(--sf-amber); color: var(--sf-amber-ink); }
 .bi-row > a.btn { min-height: 38px; }
 @media (max-width: 699.98px) {
   .bi-row { padding: 14px 16px; }
@@ -3212,9 +3190,8 @@ section.card.rp-all > h2 { margin: 0 0 10px; color: var(--ink); font: 600 15px/1
    4 px bar; the record's figures as four tiles (the first in the kind's tint, a rise on the green tint); the note's label above it; "Next: …"
    at the left of the answers. Scoped to the inbox page (.rd-inbox): the other inboxes keep their look. */
 form.ap-show { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
-form.ap-show > label { color: var(--ink-muted); font-size: 13px; }
-form.ap-show > select { height: 40px; border: 1px solid #d9d0e1; border-radius: var(--r-10); padding: 0 12px; font: inherit; font-size: 14px; background: var(--card); }
-form.ap-show > .btn { min-height: 40px; }
+form.ap-show select { height: 40px; }
+form.ap-show .btn { min-height: 40px; }
 .rd-inbox .ap-list { max-width: 380px; border-radius: var(--r-16); padding: 0; }
 .rd-inbox .ap-gh { padding: 14px 18px 10px; font-size: 14px; }
 .rd-inbox .ap-row { padding: 12px 18px; border-left: 0; border-top: 1px solid var(--divider); }
@@ -3237,7 +3214,7 @@ form.ap-show > .btn { min-height: 40px; }
 @media (max-width: 699.98px) {
   .rd-inbox .ap-list { max-width: none; }
   .rd-inbox .ap-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  form.ap-show > select { flex: 1 1 12rem; height: 44px; }
+  form.ap-show select { height: 44px; }
 }
 /* Settings (one settings shell): the section list at the left (a white card, 230 px, 16 px corners; each section 10 by 12 px, the one shown on the
    grey tint, semi-bold), the page's cards at the right; each card's heading on the quiet fill in its topic's colour (teal, amber, blue, purple,

@@ -1,7 +1,7 @@
 <?php
 // To check › All records as a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W12.10): one search (the number or the
-// reference) and ONE Show control (DC27's pop-over: the kind, the
-// status, the check: the filter form before), Clear at the right; the line of which kinds are in
+// reference) and ONE Show control (Approvals' pages, then the kind, the status, the check: the filter form before; the integration of
+// 30 Oct 2026, View::showStart), Clear at the right; the line of which kinds are in
 // use; then the page's records grouped by their status (newest first in each), each group its colour and count over a card with the coloured
 // edge, the status the solid cell, a row opening the record.
 $filtered = $filters['type'] !== null || $filters['status'] !== null || $filters['review'] !== null || $filters['q'] !== '';
@@ -9,11 +9,8 @@ $filtered = $filters['type'] !== null || $filters['status'] !== null || $filters
 <?= $head(\CW\Ui\Words::MENU['documents'], intro: 'documents') ?>
 <form class="toolbar" method="get" action="/ui/documents" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('RECORDS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('RECORDS', 'search') ?>"></div>
-<?php $on = ($filters['type'] !== null ? 1 : 0) + ($filters['status'] !== null ? 1 : 0) + ($filters['review'] !== null ? 1 : 0); ?>
+  <?= $showStart() ?>
   <div class="tb-state">
-    <details class="tb-pop tb-show">
-      <summary class="btn"><?= $word('RECORDS', 'show') ?><?php if ($on > 0): ?> <span class="count"><?= $n($on) ?><span class="visually-hidden"> <?= $word('CARDS', 'filters_on') ?></span></span><?php endif; ?></summary>
-      <div class="pop pop-form">
     <label for="tb-show"><?= $word('RECORDS', 'kind') ?>
     <select id="tb-show" name="type">
       <option value=""><?= $word('RECORDS', 'all_kinds') ?></option>
@@ -38,10 +35,9 @@ $filtered = $filters['type'] !== null || $filters['status'] !== null || $filters
 <?php endforeach; ?>
     </select>
     </label>
-        <div class="pop-actions"><button type="submit" class="btn sm"><?= $word('RECORDS', 'show') ?></button></div>
-      </div>
-    </details>
+    <button type="submit" class="btn sm"><?= $word('RECORDS', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
   <div class="tb-end">
 <?php if ($filtered): ?>
     <a class="btn ghost sm" href="/ui/documents"><?= $word('RECORDS', 'clear') ?></a>

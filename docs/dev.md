@@ -1135,9 +1135,9 @@ Layout only on the approved redesign of 30 Oct 2026; every page keeps its addres
 | the other lists | `receipts`, `suppliers`, `supplier_returns`, `arrivals`, `incidents`, `invoices_to_match`, `invoices_not_invoiced`, `invoices_timed`, `sales_dispatch`, `sales_returns`, `handovers`, `handover_customers` | simple lists: three to five columns besides a row's action; Shipments' counts in its Show choices (`DispatchController` `shows[].count`) |
 | the reorder pages | `reorder`, `reorder_low_stock`, `reorder_brands`, `reorder_suppliers`, `reorder_anomalies`, `sales_history` | the dot heading and the pill; strip and columns unchanged (RD-B7) |
 
-- A list's group is `div.grp-block.doc-group.<tone>.rd-list`; its count `span.grp-count` (its words, as before); a status
-  `td.c-status.doc-st.<tone>` > `span.chip` (+ `span.o-sub`). CSS: the "rd2b" block of `app.css` (the `.rd-list` rules are a stand-in
-  for the shared list style: RD-B9).
+- A list's group is `div.grp-block.doc-group.<tone>` (rd1's look; the `.rd-list` stand-in went at the integration, RD-I1); its count
+  `span.grp-count` (its words, as before); a status `td.c-status.doc-st.<tone>` > `span.chip` (+ `span.o-sub`). CSS: the "rd2b" block of
+  `app.css` holds only the order's and the delivery's own parts.
 - Tests: `UiTemplatesTest::testThePurchasesAndSalesPagesFollowTheRedesign`; the pages' kernel tests.
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
@@ -1163,7 +1163,7 @@ The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/pr
 | Path | What |
 |---|---|
 | `src/Ui/Sections.php` | `MAP`: section (`gap`, `count` = the page whose count is the section's) => entries ("tabs": `pages`, `keep`, `more` = a specialist page under the header's More) => pages; `PHONE` (Home, Receive, Count, Approvals), `ICON` (a section's or a bar entry's sprite name), `FIGURES` (sections whose lists keep figure tiles); `frame()` returns `nav` (one row per section: `key`, `label`, `icon`, `href`, `query`, `count`, `gap`, `current`, `open`, `subs`), `pagebar` (the current section, its `more`), `segments` (the current entry's Show choices: `current`, `here`), `actions`, `list`, `phone`, `bell`, `here` |
-| `src/Ui/View.php` | `$showMenu(?array $choices)` (the Show; no argument = the page's group), `$groupPages()` (the group as data), the head's Show slot filled in `page()` (`SHOW_SLOT`, `showRow()`), the head's More (`split` with `pages`) |
+| `src/Ui/View.php` | `$showMenu(?array $choices)` (the Show; no argument = the page's group), `$groupPages()` (the group as data), the head's Show slot filled in `page()` (`SHOW_SLOT`, `showRow()`), the head's More (`split` with `pages`); since the integration (RD-I2, RD-I3): `$showStart()` … `$showEnd()` around a page's `div.tb-state` (ONE Show holding its own fields), `$showMine($own, $other)` (the group with the page's own link choices in place of its entry), `$showNav()` (Settings' list is the group's), `$sectionMore()` (the specialist pages for a page's own More) |
 | `src/Ui/Html.php` | `statement()`: no eyebrow but a given one; `back` as `p.ph-back` ("‹" drawn by CSS), its tag after " · " |
 | `src/Ui/Context.php`, `src/Ui/Queries.php` | the layout's `list` and `stores` (`Queries::storeNames`, the sidebar's line under the name) |
 | views `layout` (sidebar, top bar, bottom bar), `show_menu`, `split` (create button + More with the specialist pages) | |
@@ -1176,7 +1176,7 @@ The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/pr
 | Status pill | `$chip($tone, $words)` / `$stateChip(...)`; in a board `<td class="c-status doc-st <tone>"><span class="chip">Words</span></td>` | the tone's tint and its darker words; `td.doc-st` is no longer filled |
 | Group heading | `div.grp-block.doc-group.<tone>` > `h3.grp-title` (`button.grp-toggle` + `span.grp-count`) | the dot is CSS; name in ink |
 | Table card | `div.table-wrap.doc-board` > `table.stack.list.board.doc-list` | 12 px corners, no coloured edge |
-| Show | `<?= $showMenu() ?>` in the page's toolbar, or `$showMenu([...$groupPages(), [label, href, query, current]])` | without it the head draws the group's under itself |
+| Show | `<?= $showMenu() ?>` in the page's toolbar, or `$showMenu([...$groupPages(), [label, href, query, current]])`; a GET form's fields: `<?= $showStart() ?><div class="tb-state">…</div><?= $showEnd() ?>`; link choices: `$showMine($choices)` | without it the head draws the group's under itself; never two on a page (`MenusTest`) |
 | Record header | `$head($name, back: [listHref, listName], chips: $chip(...), meta: '…', side: $bar)` | "‹ list", pill, one fact line, actions right |
 
 - A new page: add it to its entry in `Sections::MAP` (a page of an entry with two or more is a Show choice: its `SEGMENT` word); a new entry
@@ -1192,7 +1192,7 @@ The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/pr
 | Page | Template(s) | The parts (CSS: the "rd2c" block of `app.css`) |
 |---|---|---|
 | Check a match `/ui/review/listing/{id}` | `listing.php` | `section.card.mt-compare` > `div.mt-row.mt-heads` (`div.mt-side.mt-store` / `.mt-item`, `span.mt-dot`) + `div.mt-row.mt-fact.same|.diff[data-state]` (`div.mt-k`, `div.mt-v`, `div.mt-m` > `span.mt-mark[role=img]`); `div.mt-pick` (find + units); the note `div.field.mt-note` first in the bar's More; the head's line `span.mt-line[data-progress]` |
-| Product matching `/ui/review/products` (+ `?tab=new`) | `by_product.php`, `by_product_new.php`, `by_product_tabs.php`, `by_product_bar.php` | `nav.tabs.bi-tabs`; `form.bi-find` (`select#bi-cov`, `a.bi-clear`); `section.card.bi-list` > `div.bi-row#p-<item>` (`div.bi-item`, `div.bi-stores` > `.bi-chip.on|.wait|.open[.suggested|.off][data-state]`, `details.quick-pick.bi-quick`); New: `div.bi-row#l-<variant>`, `span.bi-hint.likely`; More: `ByProductController::morePages()` |
+| Product matching `/ui/review/products` (+ `?tab=new`) | `by_product.php`, `by_product_new.php`, `by_product_tabs.php`, `by_product_bar.php` | `nav.tabs.bi-tabs`; `form.bi-find` (`select#bi-cov`, `a.bi-clear`); `section.card.bi-list` > `div.bi-row#p-<item>` (`div.bi-item`, `div.bi-stores` > `.bi-chip.on|.wait|.open[.suggested|.off][data-state]`, `details.quick-pick.bi-quick`); New: `div.bi-row#l-<variant>`, `span.chip.needs.bi-hint.likely`; More: the section's specialist pages (`$sectionMore()`, RD6, RD-I3) |
 | The five reports, the duty register | `report_*.php`, `duty_register.php`, `report_bar.php`, `report_paper_head.php`, `report_all.php` | `back: ['#all-reports', …]`; `form.card.rp-options` (`div.rp-opt`, Run report the main button); `article.card.rp-paper` > `div.rp-paper-head` + `table.rp-table` (`tr.rp-group`, `tr.rp-gtotal`, `tr.rp-total`); `section.card.rp-all#all-reports`; data: `ReportsController::shared()` (company, all reports, today) |
 | Approvals `/ui/approvals` | `approvals_inbox.php`, `approvals_show.php`, `approvals_record.php` | `form.ap-show` (`?show=<kind>`), `div.ap-inbox.rd-inbox` (scoped look), the answer's `inbox_show` |
 | Settings (17 pages) | each page + `settings_nav.php` | `div.set-shell` > `nav.set-nav` (`a.set-nav-item`, the current `aria-current`) + `div.set-main` |

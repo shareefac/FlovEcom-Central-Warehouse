@@ -8,6 +8,7 @@ $filtered = $type !== null;
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['reviews'], intro: 'reviews') ?>
 <form class="toolbar" method="get" action="/ui/documents/reviews" aria-label="<?= $word('UI', 'filter') ?>">
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('CHECKS', 'kind') ?></label>
     <select id="tb-show" name="type">
@@ -18,6 +19,7 @@ $filtered = $type !== null;
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
   <div class="tb-end">
 <?php if ($filtered): ?>
     <a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a>

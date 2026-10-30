@@ -31,7 +31,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
 </section>
 <?php endif; ?>
 
-<section class="doc-progress rp-figs" aria-label="<?= $word('REORDER_LOW', 'figures') ?>">
+<section class="doc-progress rp-figs rp-keep" aria-label="<?= $word('REORDER_LOW', 'figures') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER_LOW', 'fig_products') ?></p><p class="doc-step-big"><?= $n($total) ?></p></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER_LOW', 'fig_below') ?></p><p class="doc-step-big"><?= $n($below) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER_LOW', 'fig_page') ?></p><?php endif; ?></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER_LOW', 'fig_set') ?></p><p class="doc-step-big"><?= $n($set) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER_LOW', 'fig_page') ?></p><?php endif; ?></div>
@@ -40,6 +40,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
 
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER_LOW', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></div>
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-low"><?= $word('REORDER_LOW', 'filter_low') ?></label>
     <select id="tb-low" name="low">
@@ -66,6 +67,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 <?php if ($filtered): ?>
   <div class="tb-end"><a class="btn ghost sm" href="/ui/purchasing/reorder/low-stock"><?= $word('REORDER_LOW', 'clear') ?></a></div>
 <?php endif; ?>
@@ -88,7 +90,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('REORDER_LOW', 'group_one') ?><?php else: ?><?= $say('REORDER_LOW', 'group_many', count($g['rows'])) ?><?php endif; ?><?php if ($pages > 1): ?> · <?= $say('REORDER', 'page', $page, $pages) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board reorder low-stock">

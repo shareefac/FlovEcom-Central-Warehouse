@@ -9,6 +9,7 @@
 <?= $head(\CW\Ui\Words::SEGMENT['handover_customers'], intro: 'handover_customers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('CUSTOMER', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('CUSTOMER', 'search') ?>"></div>
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
     <select id="tb-show" name="kind">
@@ -20,6 +21,7 @@
     <label class="choice tb-check"><input type="checkbox" name="off" value="1"<?php if ($f['off']): ?> checked<?php endif; ?>> <?= $word('CUSTOMER', 'show_off') ?></label>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
   <div class="tb-end">
 <?php if ($filtered): ?>
     <a class="btn ghost sm" href="/ui/stock/handovers/customers"><?= $word('CUSTOMER', 'clear') ?></a>
@@ -85,7 +87,7 @@
 <?php else: ?>
 <?php foreach ($groups as $g => $list): ?>
 <?php $tone = $g === 'on' ? 'done' : 'off'; ?>
-<div class="grp-block doc-group <?= $e($tone) ?> rd-list">
+<div class="grp-block doc-group <?= $e($tone) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $word('CUSTOMER', $g) ?></button> <span class="grp-count"><?php if (count($list) === 1): ?><?= $word('CUSTOMER', 'group_one') ?><?php else: ?><?= $say('CUSTOMER', 'group_many', count($list)) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list customers">

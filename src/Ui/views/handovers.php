@@ -64,7 +64,7 @@
 <?php else: ?>
 <?php foreach ($groups as $g => $list): ?>
 <?php $tone = $list[0]['tone']; $name = $g === 'reversal' ? \CW\Ui\Words::HANDOVER['group_reversal'] : \CW\Ui\Words::of('DOC_STATUS', $g); ?>
-<div class="grp-block doc-group <?= $e($tone) ?> rd-list">
+<div class="grp-block doc-group <?= $e($tone) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $e($name) ?></button> <span class="grp-count"><?= $say('HANDOVER', 'group_count', count($list)) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list handover-records">

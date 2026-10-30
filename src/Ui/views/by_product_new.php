@@ -4,7 +4,7 @@
 // whose bar matches or creates many at once; for whoever may decide); one search and the store choice, each store with its count; then ONE white
 // card, a row per store product: its name, its store and when it was added, its likely match, and Match (its own page: is it the same item?).
 $f = $fresh;
-$bar = $partial('by_product_bar', ['pages' => $pages_more, 'main' => $matchAll === null ? null : ['href' => $matchAll, 'label' => \CW\Ui\Words::RD_MATCH['match_all']]]);
+$bar = $partial('by_product_bar', ['main' => $matchAll === null ? null : ['href' => $matchAll, 'label' => \CW\Ui\Words::RD_MATCH['match_all']]]);
 ?>
 <?= $head(\CW\Ui\Words::RD_MATCH['title'], intro: 'by_product', look: $lookOnly, meta: $word('RD_MATCH', 'sub'), side: $bar) ?>
 <?= $partial('by_product_tabs', ['tab' => 'new', 'count' => $f['count']]) ?>
@@ -42,7 +42,7 @@ $bar = $partial('by_product_bar', ['pages' => $pages_more, 'main' => $matchAll =
       <span class="o-name"><?= $e($r['name']) ?></span>
       <span class="o-sub"><?= $e($r['store']) ?> · <?= $say('RD_MATCH', 'added', \CW\Ui\Html::day($r['seen'])) ?></span>
     </div>
-    <span class="bi-hint<?php if ($r['likely']): ?> likely<?php endif; ?>"><?= $e($r['hint']) ?></span>
+    <span class="chip <?php if ($r['likely']): ?>needs bi-hint likely<?php else: ?>waiting bi-hint<?php endif; ?>"><?= $e($r['hint']) ?></span>
     <a class="btn" href="<?= $e($r['link']) ?>"><?= $word('RD_MATCH', 'match') ?></a>
   </div>
 <?php endforeach; ?>

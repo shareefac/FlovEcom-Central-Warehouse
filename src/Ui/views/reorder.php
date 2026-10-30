@@ -46,7 +46,7 @@ foreach ($history['channels'] as $c) {
 </section>
 <?php endif; ?>
 
-<section class="doc-progress rp-figs" aria-label="<?= $word('REORDER', 'figures') ?>">
+<section class="doc-progress rp-figs rp-keep" aria-label="<?= $word('REORDER', 'figures') ?>">
   <div class="doc-step"><p class="doc-step-label"><?php if ($filters['show'] === 'need'): ?><?= $word('REORDER', 'fig_to_buy') ?><?php else: ?><?= $word('REORDER', 'fig_listed') ?><?php endif; ?></p><p class="doc-step-big"><?= $n($total) ?></p></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER', 'fig_urgent') ?></p><p class="doc-step-big"><?= $n($strip['urgent']) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER', 'fig_page') ?></p><?php endif; ?></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER', 'fig_value') ?></p><p class="doc-step-big"><?= $e($strip['value']) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER', 'fig_page') ?></p><?php endif; ?></div>
@@ -58,6 +58,7 @@ foreach ($history['channels'] as $c) {
 <?php endif; ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></div>
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('REORDER', 'show') ?></label>
     <select id="tb-show" name="show">
@@ -89,6 +90,7 @@ foreach ($history['channels'] as $c) {
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 <?php if ($filtered): ?>
   <div class="tb-end"><a class="btn ghost sm" href="/ui/purchasing/reorder"><?= $word('REORDER', 'clear') ?></a></div>
 <?php endif; ?>
@@ -114,7 +116,7 @@ foreach ($history['channels'] as $c) {
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('REORDER', 'group_one') ?><?php else: ?><?= $say('REORDER', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list reorder">

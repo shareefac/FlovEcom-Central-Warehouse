@@ -6,6 +6,7 @@
 ?>
 <?= $head(\CW\Ui\Words::MENU['incidents'], intro: 'incidents', look: $lookOnly, aside: $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label'])) ?>
 <form class="toolbar" method="get" action="/ui/receiving/incidents" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
+  <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('INCIDENTS', 'show') ?></label>
     <select id="tb-show" name="status">
@@ -22,6 +23,7 @@
     </select>
     <button class="btn sm" type="submit"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <?= $showEnd() ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
@@ -32,7 +34,7 @@
 <?= $empty(\CW\Ui\Words::INCIDENTS['none'], \CW\Ui\Words::INCIDENTS['none_text'], '/ui/receiving/incidents', \CW\Ui\Words::INCIDENTS['show_open']) ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('INCIDENTS', 'group_one') ?><?php else: ?><?= $say('INCIDENTS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list incidents">

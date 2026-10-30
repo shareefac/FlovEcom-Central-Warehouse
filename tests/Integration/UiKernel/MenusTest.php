@@ -102,7 +102,9 @@ final class MenusTest extends KernelUiTestCase
 
     /**
      * Same people reach the same pages (the brief's rule, RD12), as served: from Home, following only the links the pages draw in the
-     * sidebar, a Show and the header's More, every page each job may open is reached and opens (200), for several jobs.
+     * sidebar, a Show, the header's More and Settings' section list (RD-C14; its "Users and roles" page's More holds Roles and permissions),
+     * every page each job may open is reached and opens (200), for several jobs. And no page draws two Shows or two Mores in its header
+     * (the integration of the redesign, 30 Oct 2026).
      */
     public function testEveryPageAPersonMayOpenIsReachedFromHomeAsServed(): void
     {
@@ -121,9 +123,13 @@ final class MenusTest extends KernelUiTestCase
                 self::assertSame(200, $page->status, implode('+', $roles) . " {$url}: " . $page->describe());
                 $seen[$url] = true;
                 $xp = new \DOMXPath($page->dom());
+                self::assertLessThanOrEqual(1, $xp->query('//main//details[contains(concat(" ", @class, " "), " show-menu ")]')->length, "{$url}: ONE Show");
+                self::assertLessThanOrEqual(1, $xp->query('//header[contains(@class, "page-head")]//details[contains(concat(" ", @class, " "), " more ")]')->length,
+                    "{$url}: ONE More in the header");
                 $links = $xp->query('//nav[@aria-label="Main"]//a[contains(@class, "nav-item") or contains(@class, "nav-sub-item")][@href]'
                     . ' | //main//details[contains(@class, "show-menu")]//a[@href]'
-                    . ' | //header[contains(@class, "page-head")]//details[contains(@class, "more")]//a[span[@class="menu-name"]]');
+                    . ' | //header[contains(@class, "page-head")]//details[contains(@class, "more")]//a[span[@class="menu-name"]]'
+                    . ' | //main//nav[contains(@class, "set-nav")]//a[@href] | //main//details[contains(@class, "more")]//a[@href="/ui/reference/access"]');
                 foreach ($links ?: [] as $a) {
                     /** @var \DOMElement $a */
                     $to = html_entity_decode($a->getAttribute('href'));

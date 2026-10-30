@@ -135,12 +135,13 @@ final class RedesignCScreensTest extends KernelUiTestCase
             'the suggestion\'s own page, with the way back');
         self::assertSame(2, $xp->query('//div[@id="p-' . $b . '"]//details[contains(@class, "bi-quick")]/summary[contains(@class, "bi-chip")]')->length,
             'not on a store: the quick match\'s fold, "+ Store"');
-        // One filter (the match status), Clear filters when it is on; More holds every other matching page.
+        // One filter (the match status), Clear filters when it is on; ONE More holds every other matching page (the section's, RD6).
         self::assertSame(['cov'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), iterator_to_array($xp->query('//form[@class="bi-find"]//select'))));
         $more = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//header//div[@class="bi-actions"]/details//a[@href]')));
-        foreach (ByProductController::morePages() as $p) {
-            self::assertContains($p['href'], $more);
+        foreach (['/ui/match', '/ui/review/store', '/ui/review/samples', '/ui/review?queue=pending', '/ui/review/new-variants', '/ui/review/duplicates'] as $href) {
+            self::assertContains($href, $more);
         }
+        self::assertSame(1, $xp->query('//header//details[contains(concat(" ", @class, " "), " more ")]')->length, 'ONE More');
         self::assertSame(0, $xp->query('//header//div[@class="bi-actions"]/a[contains(@class, "primary")]')->length, 'no main button on By item');
         $filtered = $web->get('/ui/review/products', ['cov' => 'every']);
         self::assertSame(1, self::xp($filtered)->query('//a[@class="bi-clear"][@href="/ui/review/products"]')->length);
@@ -297,7 +298,11 @@ final class RedesignCScreensTest extends KernelUiTestCase
         $page = $web->get(InboxController::PATH);
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $xp = self::xp($page);
-        $options = self::texts($xp, '//header//form[@class="ap-show"]/select[@name="show"]/option');
+        $options = self::texts($xp, '//header//form[@class="ap-show"]//select[@name="show"]/option');
+        // ONE Show (the integration, docs/decisions.md RD-I2): Approvals' pages, then the kind, in one panel; the head draws no second.
+        self::assertSame(1, $xp->query('//main//details[contains(@class, "show-menu")]')->length);
+        self::assertSame(1, $xp->query('//header//form[@class="ap-show"]/details[contains(@class, "show-menu")]/div[@class="show-panel"]/div[@class="tb-state"]/select[@name="show"]')->length);
+        self::assertSame(0, $xp->query('//div[@class="show-row"]')->length);
         self::assertSame(Words::say('RD_INBOX', 'everything', 8), $options[0]);
         self::assertContains(Words::INBOX['kind_corrections'] . ' (2)', $options);
         // One kind: only its group; its rows keep it; the answer carries it and the list stays on it.

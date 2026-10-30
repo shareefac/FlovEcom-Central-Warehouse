@@ -14876,3 +14876,53 @@ order". A phone shows the greeting and "Waiting for you", as the Phone artboard 
 - Home's tiles, buttons and cards.
 
 The existing screen tests of these pages read the new markup.
+
+## The redesign integrated (branch `redesign-all`, 30 Oct 2026; RD-I1-RD-I8)
+
+The four builds of the approved redesign (rd1 `redesign-shared`, rd2b `redesign-rd2b`, rd2c `redesign-rd2c`, rd2a `redesign-rd2a`), each one
+commit on 8acedfb, merged in that order with `--no-ff` (each builder's commit kept as it is), then the integration's own changes. rd1 owns the
+shared code; the module pages keep their templates and are switched onto rd1's shared pieces.
+
+**RD-I1. The stand-ins went.** rd2b's `.rd-list` (the class on 21 lists and its rules: the dot heading, the plain card, the unfilled status
+cell, the pill) is rd1's look for every list (RD8). rd2c's `.bi-hint` pill is the shared `.chip` (`needs` for the likely match, `waiting`
+otherwise; the class stays for its place). rd2a's `rda_show` (its Show menu) is rd1's `$showMenu` (RD-I2). The delivery's check cell on a
+phone was still the old solid block (GV23): it holds its pill now, no fill. Home's Find box went with rd2c (the sidebar's find box, RD9;
+the phone's top bar keeps Find): its CSS went too.
+
+**RD-I2. ONE Show per page.** rd1's head draws the group's Show under the title only when the page draws none (RD2). A grouped page with a
+toolbar now draws it there:
+- A page whose own filter is a GET form (rd2b's and rd2c's pages: Goods received, Issues, Purchase invoices and credit notes, To match,
+  Delivered no invoice yet, Purchase returns, Customers, What to buy, Low stock, Documents to review, History, the stores' queues, Approvals'
+  kind) puts `$showStart()` and `$showEnd()` around its `div.tb-state`: ONE `details.show-menu` whose panel (`div.show-panel`) lists the
+  group's pages, then the page's own fields and Show button (its `div.tb-state`), in the same GET form as the search. Every field keeps its
+  name and value; with fewer than two pages in the group the two draw nothing (the `div.tb-state` as before). History's pop-over Show
+  (DC27) is its fields in that panel.
+- A page whose own choices are links (rd2a's pages) draws `$showMine($choices, $other)`: the group's pages with the page's own choices in
+  place of its entry; a choice that opens another page of the group is the group's (its permission, count and kept store: rd2a's "Made by
+  hand" was drawn for everyone).
+- Settings' section list (RD-C14) is the Settings group's way between its pages (`$showNav()`): no Show row on a settings page.
+- A grouped page without a toolbar (Arriving, Timed, the duty register, Brand settings and the other reorder pages, Balances, Staff
+  requests) keeps the head's Show row.
+`MenusTest`'s crawl now also checks that no page it reaches draws two Shows or two Mores in its header.
+
+**RD-I3. ONE More.** Product matching draws its own actions beside its title (`side:`), so rd1's head draws no More there; its More lists the
+section's specialist pages as the header's More does elsewhere (`$sectionMore()`: Simple matching, Store products, Spot check, Second
+approval, New variants, Duplicates, with their counts and lines), then the list's file and its rows a page. `ByProductController::morePages()`
+went (it also listed "To review", which is the sidebar's Check a match).
+
+**RD-I4. /ui/review is titled as the sidebar names it**: "Check a match" (`MENU review`), also its page title and the way back from a batch
+or an unknown store product (rd1's open point).
+
+**RD-I5. What to buy and Low stock keep their figures strip.** rd1 hides a list's strip (RD10, the owner's rule); rd2b kept the reorder
+pages' strips (RD-B7) because they say when the suggestions were worked out and warn when the sales data is old or the last run failed. A
+safety message is never removed: those two strips are `.rp-keep` and stay; the other reorder pages' strips (no warning in them) are hidden
+as RD10 says.
+
+**RD-I6. The status cells.** rd1 put `span.chip` in 54 cells; where rd2b and rd2c rewrote the same rows their templates were kept (they
+hold the pill already, or draw it with `$chip`); the delivery's duty stamp is in the line's answers (RD-B5), so rd1's pill in the old duty
+cell and its CSS went.
+
+**RD-I7. Tests.** `UiTemplatesTest::testOneShowHoldsThePagesOwnFieldsAndTheHeadDrawsNoSecond` (the helpers on a page of their own),
+`MenusTest` (ONE Show and ONE header More on every page the crawl reaches; Settings' list followed), the pins of the stand-ins moved to the
+integrated markup (`UiTemplatesTest`, `UiUnitTest`, `RedesignCTemplatesTest`, `RedesignCScreensTest`, `ByProductScreenTest`,
+`MatchingPatternsScreensTest`, `MenusTest`).
