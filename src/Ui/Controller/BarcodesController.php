@@ -107,7 +107,7 @@ final class BarcodesController
 
     /**
      * Products › Barcodes, an inbox (the approved design of 29 Oct 2026, AP_Inbox; docs/decisions.md W11.8): the reviews grouped by why they
-     * wait, one open (`?open=<id>`, the refused one after a refused decision, else the first), its next one named.
+     * wait, one open (`?open=<id>`, the refused one after a refused decision, else the first), and the one its save opens named (W11.14).
      */
     private function queuePage(Context $ctx, int $status, ?CwException $error, ?string $notice, ?int $errorId = null): HtmlResponse
     {
@@ -121,7 +121,13 @@ final class BarcodesController
             $channels[(string) $c['code']] = (string) $c['name'];
         }
         $base = ['show' => $show === 'decided' ? 'decided' : null, 'barcode' => $q === '' ? null : $q];
-        foreach ($svc->rows($show, BarcodeReviews::LIST_LIMIT, $barcode) as $r) {
+        $found = $svc->rows($show, BarcodeReviews::LIST_LIMIT, $barcode);
+        // A refused decision opens its own record (W11.12): the POST carries no search, so a record found by its search past the list's first
+        // LIST_LIMIT is read alone and listed with the others, while it still waits. Decided meanwhile, it is not: its refusal goes over the list.
+        if ($errorId !== null && $show === 'open' && !in_array($errorId, array_map(static fn (array $r): int => (int) $r['id'], $found), true)) {
+            $found = [...$found, ...$svc->rows('open', 1, null, $errorId)];
+        }
+        foreach ($found as $r) {
             $rows[] = $r + ['formKey' => FormOnce::newKey(), 'reasonLabel' => Words::of('BARCODE_REASON', (string) $r['reason']),
                 'decisionLabel' => $r['decision'] === null ? null : Words::of('BARCODE_DECISION', (string) $r['decision']),
                 'choices' => array_map(static fn (string $code): string => Words::of('BARCODE_DECISION', $code),
@@ -130,10 +136,9 @@ final class BarcodesController
                 'listing_state' => $r['listing_status'] === null ? '' : mb_strtolower(Words::of('LISTING_STATUS', (string) $r['listing_status'])),
                 'group' => (string) $r['reason'], 'href' => Html::url('/ui/items/barcodes', $base + ['open' => (int) $r['id']])];
         }
-        $reasons = array_values(array_unique([...array_keys(BarcodeReviews::REASONS), ...array_column($rows, 'group')]));
         $groups = Html::groups($rows, array_map(static fn (string $reason): array => [self::TONES[$reason] ?? 'info', Words::of('BARCODE_REASON', $reason)],
-            array_combine($reasons, $reasons)));
-        // The rows in the list's order; the open one, and the one after it.
+            self::reasons($rows)));
+        // The rows in the list's order, and the open one.
         $order = array_merge(...array_map(static fn (array $g): array => $g['rows'], $groups ?: [['rows' => []]]));
         $want = $errorId ?? UiRequest::id($ctx->req->param('open'));
         $at = 0;
@@ -148,7 +153,7 @@ final class BarcodesController
             'rows' => $rows,
             'groups' => $groups,
             'record' => $record === null ? null : $record + ['tone' => self::TONES[(string) $record['reason']] ?? 'info', 'place' => Words::say('BARCODE', 'place', $at + 1, count($order)),
-                'next' => isset($order[$at + 1]) ? (string) $order[$at + 1]['barcode'] : null],
+                'next' => $record['status'] === 'open' ? self::nextAfter($svc, (int) $record['id']) : null],
             'show' => $show,
             'barcode' => $q,
             'open' => $svc->openCount(),
@@ -161,6 +166,37 @@ final class BarcodesController
 
     /** Each reason's colour (as the old card's chip: another product's barcode blocks, a pack-or-single question needs a look). */
     private const TONES = ['on_another_item' => 'blocked', 'multipack_listing' => 'needs', 'removed' => 'info'];
+
+    /**
+     * The list's groups, in order: BarcodeReviews::REASONS', then any other reason as it first comes.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array<string, string>
+     */
+    private static function reasons(array $rows): array
+    {
+        $reasons = array_values(array_unique([...array_keys(BarcodeReviews::REASONS), ...array_map(static fn (array $r): string => (string) $r['reason'], $rows)]));
+        return array_combine($reasons, $reasons);
+    }
+
+    /**
+     * The barcode the save of record $id opens (docs/decisions.md W11.14): the decision's redirect is the waiting list without a search, its
+     * first one open, so this is the first of the waiting ones left once $id is decided (the list's first LIST_LIMIT, in its order); null
+     * when none is left.
+     */
+    private static function nextAfter(BarcodeReviews $svc, int $id): ?string
+    {
+        $left = array_slice(array_values(array_filter($svc->waiting(BarcodeReviews::LIST_LIMIT + 1), static fn (array $r): bool => $r['id'] !== $id)),
+            0, BarcodeReviews::LIST_LIMIT);
+        foreach (self::reasons($left) as $reason) {
+            foreach ($left as $r) {
+                if ($r['reason'] === $reason) {
+                    return $r['barcode'];
+                }
+            }
+        }
+        return null;
+    }
 
     /** A whole number of units from a form (422 bad_units otherwise). */
     private static function unitsOf(string $v): int

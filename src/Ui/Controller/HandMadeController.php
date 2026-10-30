@@ -35,6 +35,8 @@ final class HandMadeController
     /** The product card's fields on this form: `c_<field>` (the card's brand and flavour are the box's, apart from the identity's). */
     public const CARD = ['product_type', 'liquid_ml', 'nicotine_mg', 'duty_liable', 'single_use', 'ecid', 'manufacturer', 'brand', 'flavour', 'discontinued'];
     public const NIC_TYPES = ['salt', 'freebase', 'zero'];
+    /** The form's yes / no answers (radios: yes, no, or "not known", which sends nothing). */
+    private const ANSWERS = ['c_duty_liable', 'c_single_use'];
 
     public function form(Context $ctx): HtmlResponse
     {
@@ -98,8 +100,10 @@ final class HandMadeController
         $errors = $error !== null && is_array($error->detail['errors'] ?? null) ? array_map('strval', array_values($error->detail['errors'])) : [];
         $field = is_string($error?->detail['field'] ?? null) ? (string) $error->detail['field'] : null;
         $v = $typed + self::blank();
-        // A fold opens when what it holds was typed or refused (a refused form comes back with every value where it was).
-        $typedIn = static fn (array $names): bool => array_filter($names, static fn (string $n): bool => $v[$n] !== '' && $v[$n] !== 'on') !== [];
+        // A fold opens when what it holds was typed or refused (a refused form comes back with every value where it was). Typed text is typed
+        // whatever it says ("on" too, W11.15); a yes / no answer is given only by its yes or its no (its "not known" sends nothing).
+        $typedIn = static fn (array $names): bool => array_filter($names, static fn (string $n): bool => in_array($n, self::ANSWERS, true)
+            ? in_array($v[$n], ['yes', 'no'], true) : $v[$n] !== '') !== [];
         $legal = array_map(static fn (string $f): string => 'c_' . $f, array_values(array_diff(self::CARD, ['discontinued'])));
         $buying = ['pack_units', 'family', 'c_discontinued'];
         return $ctx->page('item_new', [

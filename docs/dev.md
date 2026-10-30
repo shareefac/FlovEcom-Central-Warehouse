@@ -1025,6 +1025,10 @@ on main's shared parts and W8's / W9's (`Html::groups`, `td.c-next`, `form.doc-d
   W9.15's guard: a POST form with a field to type or choose carries `data-unsaved` + `data-unsaved-text`, and on a page with one every form
   carries `data-leaves` (`UiTemplatesTest::testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst` lists them). Add Item's form is
   `$r->form('/ui/items/new', true)` as before; its list view `$r->get('/ui/items/new', ['show' => 'all'])`.
+- Codex's review of d0f98d9 (W11.12-W11.16): a refused decision past the inbox's first `LIST_LIMIT` is read alone (`BarcodeReviews::rows(…, $id)`)
+  and listed; "Next" is `BarcodesController::nextAfter()` over `BarcodeReviews::waiting()` (the first one the save's redirect opens); values a
+  refused form brings back carry `data-dirty` (families, packs, `family_bar`, which also opens More + Rename or Add items); Add Item's folds
+  count any typed text (`HandMadeController::ANSWERS`: only the yes / no radios need their yes or no).
 - Tests: `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/ProductPatternsScreensTest.php`
   (the pages as served), `ItemCardScreensTest` (All Products' board, filters and Clear; the barcode inbox), `ItemManagementScreensTest`.
 

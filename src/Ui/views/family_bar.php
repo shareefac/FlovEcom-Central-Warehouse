@@ -2,17 +2,19 @@
 // A family's actions (docs/decisions.md W11.5; the approved record page, PO_View): in the head, at its right, for whoever keeps the families.
 // In use, the main one is "Add items" (its form opens under the bar, open at first while the family is empty or after a refused list); under
 // More, rename it and switch it off. Switched off, switching it on again is the main one and renaming is under More. Every form posts where it
-// did before.
+// did before. A refused rename opens More and Rename again, a refused list Add items, with what was typed, guarded as typed (W11.13).
+$renamed = $typed['name'] !== $f['name'];
+$listed = $typed['list'] !== '';
 ?>
 <?php if ($canManage): ?>
 <div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
-  <details class="more">
+  <details class="more"<?php if ($renamed): ?> open<?php endif; ?>>
     <summary class="btn"><?= $word('DOC', 'more') ?></summary>
     <div class="more-menu">
-      <details class="doc-act family-rename">
+      <details class="doc-act family-rename"<?php if ($renamed): ?> open<?php endif; ?>>
         <summary class="btn"><?= $word('FAMILY', 'rename') ?></summary>
         <div class="doc-act-panel">
-          <form class="record" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/rename') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
+          <form class="record" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/rename') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($renamed): ?> data-dirty="1"<?php endif; ?>>
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="version" value="<?= $e($f['version']) ?>">
             <label for="fr-name"><?= $word('FAMILY', 'rename_label') ?></label>
@@ -33,10 +35,10 @@
     </div>
   </details>
 <?php if ($f['active']): ?>
-  <details class="doc-act family-add"<?php if ($f['items'] === 0 || $errorCode === 'empty_list' || $errorCode === 'too_many_rows'): ?> open<?php endif; ?>>
+  <details class="doc-act family-add"<?php if ($f['items'] === 0 || $errorCode === 'empty_list' || $errorCode === 'too_many_rows' || $listed): ?> open<?php endif; ?>>
     <summary class="btn primary"><?= $word('FAMILY', 'bulk') ?></summary>
     <div class="doc-act-panel">
-      <form class="record" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/add') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
+      <form class="record" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/add') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($listed): ?> data-dirty="1"<?php endif; ?>>
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="form_key" value="<?= $e($addKey) ?>">
         <label for="fa-list"><?= $word('FAMILY', 'bulk_label') ?> <span class="hint"><?= $word('FAMILY', 'bulk_hint') ?></span></label>

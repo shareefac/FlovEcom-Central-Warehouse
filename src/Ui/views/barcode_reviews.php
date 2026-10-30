@@ -2,8 +2,9 @@
 // Products › Barcodes, an inbox (the approved design of 29 Oct 2026, AP_Inbox; docs/decisions.md W11.8): the barcode search and one Show row
 // (waiting, decided), Clear at the right; then the barcodes grouped by why they wait (a coloured dot, the reason and its count), each row a link
 // that opens it; the open one on the right (first on a phone), with its facts and its one decision: the answers, the items per scan where they
-// matter, the note, and ONE main button naming the form, with the next one named beside it. The open row is the page shown: no link. A decided
-// barcode shows what was decided and has no form. A refusal is said in the record it concerns, or over the list when that one is not shown.
+// matter, the note, and ONE main button naming the form, with the one its save opens named beside it (W11.14). The open row is the page shown:
+// no link. A decided barcode shows what was decided and has no form. A refusal is said in the record it concerns (W11.12), or over the list
+// when that one no longer waits.
 ?>
 <?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes') ?>
 <form class="toolbar" method="get" action="/ui/items/barcodes" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">

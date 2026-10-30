@@ -1903,7 +1903,7 @@ final class UiTemplatesTest extends TestCase
         self::assertSame(1, substr_count($t['item_new.php'], "'primary' => true"), 'one main button');
         // A family's bar: Add items the main one, the rest under More.
         self::assertStringContainsString('<div class="doc-actions" role="group"', $t['family_bar.php']);
-        self::assertStringContainsString('<details class="more">', $t['family_bar.php']);
+        self::assertStringContainsString('<details class="more"<?php if ($renamed): ?> open<?php endif; ?>>', $t['family_bar.php'], 'More, open again on a refused rename (W11.13)');
         self::assertStringContainsString('<summary class="btn primary">', $t['family_bar.php']);
         foreach (['item_cards', 'item_new', 'items_by_hand', 'families', 'family', 'family_bar', 'packs', 'pack_links', 'barcode_reviews'] as $name) {
             foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset', 'nav', 'ul'] as $tag) {

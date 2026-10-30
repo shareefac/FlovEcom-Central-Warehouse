@@ -14106,3 +14106,46 @@ assertions); the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 8
 sidebar tree; the kernel helpers read the tree, so the earlier who-sees-what assertions (tabs, More pages, segments, their counts) all run
 on it. Not seen in a real browser here: the coordinator's Chrome check should look at the sidebar tree, the All Products Show control and
 the boards at 375 px and 1,280 px.
+
+## Products: the Codex review of d0f98d9 (`runs/w11_codex_findings.txt`), two MEDIUM and two LOW, each shown failing first (branch `wave-w11`, second commit, 30 Oct 2026; W11.12-W11.16)
+
+Fixed on `d0f98d9` (W11.1-W11.11, merged to main and on staging). Red first: `runs/w11_fix_red.log` (the four new tests on `d0f98d9`, each
+failing on what it checks). The owner's word of 30 Oct ("strictly follow our design guidelines") holds: no new line, note, button or chip on
+any page; a fold or More opens where a refused form's values are, as main's bars already do (PV, W8). No route, permission, rule or posted
+field changed; the shared parts (`View::head`, `Html::statement`, `layout.php`, `page_frame.php`, `Sections.php`, the shared `app.css`)
+untouched.
+
+**W11.12. A refused decision opens its own barcode, also past the list's limit (MEDIUM 1).** The decision posts to
+`/ui/items/barcodes/{id}/decide` without the page's search, and its refusal drew the waiting list unfiltered: with 201 waiting, a barcode
+found by its search (the 201st) and sent without an answer came back with the first one open, its refusal over the list. The refusal now
+reads its record alone (`BarcodeReviews::rows()` takes the row's id) when the list does not hold it and it still waits, and lists it with
+the others (the last of its reason's group, open); its refusal is said in it, and its form keeps `data-dirty`. Decided meanwhile
+(409), it is not drawn as waiting: the refusal goes over the list, as before. The page itself, its list and its limit are unchanged.
+
+**W11.13. Values a refused form brings back are guarded as typed (MEDIUM 2).** A refused new family (its name taken, a note typed) came back
+with the name and the note in the open drawer, but the form had no `data-dirty`: a family row, Show or a pager link left without a word and
+the note was lost. The same for a refused new pack item and a family's rename and pasted list. Now a refused form whose values come back
+carries `data-dirty="1"` (W9.15's guard then asks first): the new family when its name or note is not empty, the new pack item when any of its
+four is not empty, a family's rename when the name brought back differs from the family's, its list when it is not empty. Where such values
+sat in a closed part they are shown, as main's bars do: a refused rename opens More and Rename, a refused list opens Add items (it opened
+for an empty or a too long list only). A refusal with nothing typed (an empty name) and every page drawn fresh hold nothing unsaved.
+
+**W11.14. "Next" names the barcode the save opens (LOW 1).** The decision's redirect (unchanged) is the waiting list, no search, the first
+one open; "Next" named the row after the open one in the list shown, so with A, B and C and B open it said C and the save opened A, and a
+barcode found by its search said "The last one in this list." though others waited. "Next" is now the first of the waiting ones left once
+this one is decided, in the list's order (its reasons' groups, oldest first; the first `LIST_LIMIT` as the list reads them):
+`BarcodesController::nextAfter()` over `BarcodeReviews::waiting()` (id, barcode, reason of the oldest `LIST_LIMIT + 1`, one indexed read).
+"The last one in this list." when none is left. One case it cannot know: a "move" also closes the old holder's own review of that barcode
+(I116), so when that review is the one named, the save opens the one after it.
+
+**W11.15. Typed text "on" is typed (LOW 2).** Add Item's folds open when something in them was typed, and every value "on" was taken for
+nothing typed (a radio without a value sends "on"): a brand typed "on", refused for its barcode, came back in a closed Legal details. Text,
+the kind and the tick count when not empty, whatever they say; the two yes / no answers (duty, single-use) only by their yes or their no
+(`HandMadeController::ANSWERS`): their "not known" opens nothing.
+
+**W11.16. Tests.** Red first (`runs/w11_fix_red.log`, 4 of 4 fail). `ProductPatternsScreensTest::testARefusedDecisionOpensItsOwnRecordPastTheListsLimit`
+(201 waiting: the 201st found, refused, open again with its refusal, its row selected; decided meanwhile, the refusal over the list),
+`testWhatARefusedFormBringsBackIsGuardedAsTyped` (a new family, an empty one, a rename, a pasted list, a new pack item; the pages drawn
+fresh), `testNextNamesTheBarcodeTheSaveOpens` (A, B, C: B open and C found by its search name A; the save opens A; the last one),
+`testTypedTextOnOpensItsFold` (a brand "on"; "not known" alone opens nothing). `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns`
+pins the family bar's More with its open-again condition.

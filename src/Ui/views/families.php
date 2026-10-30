@@ -1,8 +1,8 @@
 <?php
 // Products › Families, a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W11.4): one search (the family's name) and one
 // Show row (in use, or in use and switched off), Clear at the right; the head's "+ New family" and the last row of the In use group open the
-// add form (its fields in two columns). The groups: in use, switched off; each a coloured heading with its count over a card with its colour on
-// the left edge, the status cell filled with it. A row opens the family.
+// add form (its fields in two columns; what a refused one brings back is guarded as typed, W11.13). The groups: in use, switched off; each a
+// coloured heading with its count over a card with its colour on the left edge, the status cell filled with it. A row opens the family.
 ?>
 <?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
@@ -28,7 +28,7 @@
 <?php if ($formKey !== null): ?>
 <details class="fold new-order drawer" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
   <summary><?= $word('FAMILY', 'add') ?></summary>
-  <form class="doc-details" method="post" action="/ui/items/families" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
+  <form class="doc-details" method="post" action="/ui/items/families" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($typed['name'] . $typed['note'] !== ''): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
     <fieldset class="doc-grid">

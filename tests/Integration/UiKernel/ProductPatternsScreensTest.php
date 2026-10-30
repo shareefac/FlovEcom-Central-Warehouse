@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\Caller;
+use CW\Catalogue\BarcodeReviews;
 use CW\Catalogue\BarcodeSync;
 use CW\Catalogue\ItemCards;
 use CW\Items\Families;
@@ -364,6 +365,138 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $decided = $web->get('/ui/items/barcodes', ['show' => 'decided']);
         self::assertSame(0, self::xp($decided)->query('//form[@id="ap-answer"]')->length, 'a decided record has no form');
         self::assertStringContainsString(Words::BARCODE_DECISION['keep_holder'], $decided->text());
+    }
+
+    /**
+     * Codex's review of d0f98d9, MEDIUM 1 (docs/decisions.md W11.12): a barcode past the list's first BarcodeReviews::LIST_LIMIT, found by its
+     * search and refused (no decision chosen), opens again with its refusal, in the list too; it never opens another barcode.
+     */
+    public function testARefusedDecisionOpensItsOwnRecordPastTheListsLimit(): void
+    {
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sku = $this->item('legacy', 0, 'Many packs');
+        $limit = BarcodeReviews::LIST_LIMIT;
+        $values = [];
+        for ($i = 1; $i <= $limit + 1; $i++) {
+            $values[] = sprintf("('%d', 'multipack_listing', %d, 'system:sync_barcodes')", 50_000_000 + $i, $sku);
+        }
+        self::$db->exec('INSERT INTO barcode_review (barcode, reason, claimant_sku_id, opened_actor) VALUES ' . implode(', ', $values));
+        $first = (int) self::$db->value("SELECT MIN(id) FROM barcode_review WHERE status = 'open'");
+        $last = (int) self::$db->value("SELECT MAX(id) FROM barcode_review WHERE status = 'open'");
+        $barcode = (string) (50_000_000 + $limit + 1);
+        $decide = '/ui/items/barcodes/' . $last . '/decide';
+
+        $found = $web->get('/ui/items/barcodes', ['barcode' => $barcode]);
+        self::assertTrue($found->hasForm($decide), 'its search finds it: ' . $found->describe());
+        $none = $web->post($decide, $found->form($decide));
+        self::assertSame(400, $none->status, 'no decision chosen: ' . $none->describe());
+        self::assertTrue($none->hasForm($decide), 'the refused record is the one open');
+        self::assertFalse($none->hasForm('/ui/items/barcodes/' . $first . '/decide'), 'not the first of the list');
+        $xp = self::xp($none);
+        self::assertSame(1, $xp->query('//section[contains(@class, "ap-record")]//p[@class="error"]')->length, 'its refusal in it');
+        self::assertSame(0, $xp->query('//main//p[@class="error" and not(ancestor::section[contains(@class, "ap-record")])]')->length, 'not over the list');
+        self::assertSame([$barcode], self::texts($none, '//section[contains(@class, "ap-list")]//a[contains(@class, "ap-row") and contains(@class, "sel")]/span[@class="ap-t"]'),
+            'its row in the list, open');
+        self::assertSame(1, $xp->query('//form[@id="ap-answer" and @data-dirty="1"]')->length);
+
+        // Decided meanwhile (by someone else): it is not drawn as waiting; its refusal is said over the list.
+        self::$db->exec("UPDATE barcode_review SET status = 'decided', decision = 'dismiss', decided_actor = 'test', decided_at = UTC_TIMESTAMP(6) WHERE id = ?", [$last]);
+        $closed = $web->post($decide, ['decision' => 'dismiss'] + $found->form($decide));
+        self::assertSame(409, $closed->status, $closed->describe());
+        self::assertFalse($closed->hasForm($decide), 'a decided record has no form');
+        self::assertSame(1, self::xp($closed)->query('//main//p[@class="error" and not(ancestor::section[contains(@class, "ap-record")])]')->length, 'its refusal over the list');
+    }
+
+    /**
+     * Codex's review of d0f98d9, MEDIUM 2 (W11.13): what a refused form brings back is guarded as typed (data-dirty), and is shown: Families'
+     * new family, Pack items' new pack item, a family's rename (More and Rename open) and its pasted list (Add items open). A page drawn
+     * fresh, and a refusal that brings nothing typed back, hold nothing unsaved.
+     */
+    public function testWhatARefusedFormBringsBackIsGuardedAsTyped(): void
+    {
+        $web = $this->signIn($this->uiUser('buyer'));
+        $fam = new Families(self::$db);
+        $legend = $fam->create($this->staffUser('buyer'), 'Elux Legend')['id'];
+        $fam->create($this->staffUser('buyer'), 'Old range');
+        $fam->assign($this->staffUser('buyer'), $this->item('legacy', 1, 'Legend Blue'), $legend, null);
+
+        self::assertSame(0, self::xp($web->get('/ui/items/families'))->query('//form[@data-dirty]')->length, 'drawn fresh: nothing unsaved');
+        $r = $this->submit($web, '/ui/items/families', '/ui/items/families', ['name' => 'Elux Legend', 'note' => 'A new note']);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertSame(1, self::xp($r)->query('//details[@id="new" and @open]/form[@action="/ui/items/families" and @data-unsaved="1" and @data-dirty="1"]'
+            . '//textarea[@name="note" and normalize-space(.)="A new note"]')->length, 'the new family: the note brought back is guarded');
+        $r = $this->submit($web, '/ui/items/families', '/ui/items/families', ['name' => '', 'note' => '']);
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertSame(0, self::xp($r)->query('//form[@data-dirty]')->length, 'nothing typed, nothing unsaved');
+
+        $path = '/ui/items/families/' . $legend;
+        self::assertSame(0, self::xp($web->get($path))->query('//form[@data-dirty]')->length, 'the family drawn fresh: nothing unsaved');
+        $r = $this->submit($web, $path, $path . '/rename', ['name' => 'Old range']);
+        self::assertSame(409, $r->status, $r->describe());
+        $xp = self::xp($r);
+        self::assertSame(1, $xp->query('//div[@class="doc-head"]//details[contains(@class, "more") and @open]/div/details[contains(@class, "family-rename") and @open]'
+            . '//form[@action="' . $path . '/rename" and @data-unsaved="1" and @data-dirty="1"]//input[@name="name" and @value="Old range"]')->length,
+            'the rename: More and Rename open, the name brought back guarded');
+        self::assertSame(1, $xp->query('//form[@data-dirty]')->length, 'that form alone');
+        $r = $this->submit($web, $path, $path . '/add', ['list' => 'CW-999999', 'form_key' => 'not-a-key']);
+        self::assertSame(400, $r->status, $r->describe());
+        $xp = self::xp($r);
+        self::assertSame(1, $xp->query('//details[contains(@class, "family-add") and @open]//form[@action="' . $path . '/add" and @data-unsaved="1" and @data-dirty="1"]'
+            . '//textarea[@name="list" and normalize-space(.)="CW-999999"]')->length, 'the pasted list: Add items open, the list brought back guarded');
+        self::assertSame(0, $xp->query('//details[contains(@class, "more") and @open]')->length, 'More stays shut');
+        self::assertSame(1, $xp->query('//form[@data-dirty]')->length, 'that form alone');
+
+        $lead = $this->signIn($this->uiUser('mapping_lead'));
+        self::assertSame(0, self::xp($lead->get('/ui/items/packs'))->query('//form[@data-dirty]')->length, 'pack items drawn fresh: nothing unsaved');
+        $r = $this->submit($lead, '/ui/items/packs', '/ui/items/packs', ['pack' => 'CW-999998', 'single' => 'CW-999999', 'units' => '10', 'note' => 'Box of ten']);
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertSame(1, self::xp($r)->query('//details[@id="new" and @open]/form[@action="/ui/items/packs" and @data-unsaved="1" and @data-dirty="1"]'
+            . '//input[@name="units" and @value="10"]')->length, 'the new pack item: what was typed is guarded');
+    }
+
+    /**
+     * Codex's review of d0f98d9, LOW 1 (W11.14): "Next" names the barcode the save opens. The save goes back to the waiting list (no search,
+     * the first one open), so Next is the first one left there once this one is decided: for the second of three, the first; for one found
+     * by its search, the list's first all the same.
+     */
+    public function testNextNamesTheBarcodeTheSaveOpens(): void
+    {
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sku = $this->item('legacy', 0, 'Packs of three');
+        self::$db->exec("INSERT INTO barcode_review (barcode, reason, claimant_sku_id, opened_actor) VALUES ('40000001', 'multipack_listing', ?, 'system:sync_barcodes'), "
+            . "('40000002', 'multipack_listing', ?, 'system:sync_barcodes'), ('40000003', 'multipack_listing', ?, 'system:sync_barcodes')", [$sku, $sku, $sku]);
+        [$a, $b, $c] = array_map('intval', array_column(self::$db->all("SELECT id FROM barcode_review WHERE status = 'open' ORDER BY id"), 'id'));
+        $next = static fn (UiResponse $p): string => self::texts($p, '//section[contains(@class, "ap-record")]//p[@class="ap-next"]')[0] ?? '';
+
+        self::assertSame(sprintf(Words::BARCODE['next_one'], '40000002'), $next($web->get('/ui/items/barcodes')), 'the first open: the second next');
+        $page = $web->get('/ui/items/barcodes', ['open' => (string) $b]);
+        self::assertSame(sprintf(Words::BARCODE['next_one'], '40000001'), $next($page), 'the second open: the save opens the first');
+        self::assertSame(sprintf(Words::BARCODE['next_one'], '40000001'), $next($web->get('/ui/items/barcodes', ['barcode' => '40000003'])),
+            'the third found by its search: the save opens the list\'s first');
+        $decide = '/ui/items/barcodes/' . $b . '/decide';
+        $after = $web->follow($web->post($decide, ['decision' => 'dismiss'] + $page->form($decide)));
+        self::assertTrue($after->hasForm('/ui/items/barcodes/' . $a . '/decide'), 'the save opened the one Next named');
+        self::assertSame(sprintf(Words::BARCODE['next_one'], '40000003'), $next($after));
+        $after = $web->follow($web->post('/ui/items/barcodes/' . $a . '/decide', ['decision' => 'dismiss'] + $after->form('/ui/items/barcodes/' . $a . '/decide')));
+        self::assertTrue($after->hasForm('/ui/items/barcodes/' . $c . '/decide'));
+        self::assertSame(Words::BARCODE['last_one'], $next($after), 'the last one');
+    }
+
+    /**
+     * Codex's review of d0f98d9, LOW 2 (W11.15): typed text is typed whatever it says ("on" too): after a refusal, its fold opens with it.
+     * The answers "not known" open nothing.
+     */
+    public function testTypedTextOnOpensItsFold(): void
+    {
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $page = $web->get('/ui/items/new');
+        $r = $web->post('/ui/items/new', ['name' => 'Widget', 'barcode' => 'x', 'c_brand' => 'on'] + self::NOT_KNOWN + $page->form('/ui/items/new', true));
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertSame(1, self::xp($r)->query('//details[@id="new-legal" and @open]//input[@name="c_brand" and @value="on"]')->length, 'the legal fold open, "on" in it');
+        self::assertSame(0, self::xp($r)->query('//details[@id="new-buying" and @open]')->length, 'nothing typed in the buying fold');
+        $r = $web->post('/ui/items/new', ['name' => 'Widget', 'barcode' => 'x'] + self::NOT_KNOWN + $page->form('/ui/items/new', true));
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertSame(0, self::xp($r)->query('//details[@open]')->length, 'nothing typed in either fold: both shut');
     }
 
     /** @return array<string, string> the query of a link */

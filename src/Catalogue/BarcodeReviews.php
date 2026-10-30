@@ -75,12 +75,25 @@ final class BarcodeReviews
     }
 
     /**
+     * The open rows' id, barcode and reason, oldest first, at most $limit: the queue's order without its details (what the inbox's
+     * "Next" is read from, docs/decisions.md W11.14).
+     *
+     * @return list<array{id: int, barcode: string, reason: string}>
+     */
+    public function waiting(int $limit = self::LIST_LIMIT): array
+    {
+        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'barcode' => (string) $r['barcode'], 'reason' => (string) $r['reason']],
+            $this->db->all("SELECT id, barcode, reason FROM barcode_review WHERE status = 'open' ORDER BY id ASC LIMIT " . max(1, min(1001, $limit))));
+    }
+
+    /**
      * The queue: open rows oldest first, or decided rows newest first, with both items (code, name, merged into, stock held),
-     * the listing (site, variant, title, units per item, status) and where the barcode is now.
+     * the listing (site, variant, title, units per item, status) and where the barcode is now. $barcode: that barcode's rows only;
+     * $id: that row only (docs/decisions.md W11.12).
      *
      * @return list<array<string, mixed>>
      */
-    public function rows(string $status = 'open', int $limit = self::LIST_LIMIT, ?string $barcode = null): array
+    public function rows(string $status = 'open', int $limit = self::LIST_LIMIT, ?string $barcode = null, ?int $id = null): array
     {
         $status = $status === 'decided' ? 'decided' : 'open';
         $params = [$status];
@@ -88,6 +101,10 @@ final class BarcodeReviews
         if ($barcode !== null && $barcode !== '') {
             $where .= ' AND r.barcode = ?';
             $params[] = $barcode;
+        }
+        if ($id !== null) {
+            $where .= ' AND r.id = ?';
+            $params[] = $id;
         }
         $rows = $this->db->all(
             'SELECT r.*, c.code AS claimant_code, c.name AS claimant_name, c.merged_into_sku_id AS claimant_merged, h.code AS holder_code, h.name AS holder_name, '
