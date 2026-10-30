@@ -1357,7 +1357,7 @@ final class UiTemplatesTest extends TestCase
                 self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
             }
         }
-        self::assertGreaterThanOrEqual(20, $tabs, 'every tab row was read');
+        self::assertGreaterThanOrEqual(15, $tabs, 'every tab row was read (fewer since the boards\' Show menus replaced the show tabs, W11.3, W11.8)');
         $templates = self::templates();
         foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
@@ -1654,6 +1654,9 @@ final class UiTemplatesTest extends TestCase
             'invoices_not_invoiced' => ['invoices_not_invoiced'], 'invoices_timed' => ['invoices_timed'], 'arrivals' => ['arrivals'], 'incidents' => ['incidents'],
             'duty_register' => ['duty_register'], 'reorder' => ['reorder', 'reorder_bar'], 'reorder_low_stock' => ['reorder_low_stock', 'low_stock_bar'],
             'reorder_brands' => ['reorder_brands'], 'reorder_anomalies' => ['reorder_anomalies'], 'reorder_suppliers' => ['reorder_suppliers'], 'sales_history' => ['sales_history'],
+            // The Products pages (wave w11, docs/decisions.md W11): the same rule.
+            'item_cards' => ['item_cards'], 'item_new' => ['item_new'], 'items_by_hand' => ['items_by_hand'], 'families' => ['families'], 'family' => ['family', 'family_bar'],
+            'packs' => ['packs'], 'pack_links' => ['pack_links'], 'barcode_reviews' => ['barcode_reviews'],
         ];
         $tagRe = '(?:<\?(?:php|=).*?\?>|[^>])*>';
         $counts = [];
@@ -1696,7 +1699,8 @@ final class UiTemplatesTest extends TestCase
             $counts[$page] = $guarded;
         }
         self::assertSame(['supplier' => 5, 'supplier_form' => 1, 'supplier_returns' => 2, 'supplier_return' => 6, 'invoices' => 1, 'incidents' => 1, 'reorder' => 1,
-            'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1], array_filter($counts), 'every guarded form was read');
+            'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1,
+            'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 3, 'packs' => 1, 'barcode_reviews' => 1], array_filter($counts), 'every guarded form was read');
     }
 
     /**
@@ -1709,16 +1713,85 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<button type="submit"<?php if (isset($b[\'value\'])): ?> name="<?= $e($b[\'name\'] ?? \'action\') ?>" value="<?= $e($b[\'value\']) ?>"<?php endif; ?> class="btn',
             $t['doc_bar.php']);
         $calls = 0;
-        foreach (['purchase_order_edit', 'invoice_edit', 'receipt_edit', 'supplier_form'] as $name) {
+        foreach (['purchase_order_edit', 'invoice_edit', 'receipt_edit', 'supplier_form', 'item_new'] as $name) {
             self::assertSame(1, preg_match("/\\\$partial\\('doc_bar', \\[(.*?)\\]\\) \\?>/s", $t[$name . '.php'], $m), "{$name}: its bar");
             // Its buttons: in the call, or built before it ($buttons, the delivery's page).
             $src = $m[1] . (preg_match_all('/^\s*\$buttons(?:\[\])? = .*$/m', $t[$name . '.php'], $built) > 0 ? implode("\n", $built[0]) : '');
             $buttons = substr_count($src, "'label' =>");
             self::assertGreaterThan(0, $buttons, "{$name}: its buttons");
-            self::assertSame($name === 'supplier_form' ? 0 : $buttons, substr_count($src, "'value' =>"), "{$name}: what its buttons send");
+            self::assertSame(in_array($name, ['supplier_form', 'item_new'], true) ? 0 : $buttons, substr_count($src, "'value' =>"), "{$name}: what its buttons send (Add Item's: nothing, W11.2)");
             $calls++;
         }
         self::assertSame($calls, preg_match_all("/\\\$partial\\('doc_bar'/", implode('', $t)), 'every bar was read');
+    }
+
+    /**
+     * Wave w11 (docs/decisions.md W11): the Products pages on the approved patterns. All Products, the items made by hand, Families, Pack items
+     * and Pack links are boards (no Filter pop-over or filter chips: the filters are plain inputs in the one Show row, one Clear); Add Item is the
+     * one-page form (name, brand and barcode first, the legal and the buying details in folds, the bar at the bottom); a family is the record
+     * page; Barcodes is the inbox (the list on the left, one record open with its one decision).
+     */
+    public function testTheProductPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $pins = [
+            'board' => ['<div class="grp-block doc-group ', '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-', '<span class="grp-count">',
+                '<div class="table-wrap doc-board" id="g-', '<td class="c-status doc-st '],
+            'toolbar' => ['<form class="toolbar', '" method="get"', '<div class="tb-state">', '<select id="tb-show" name="'],
+            'search' => ['<div class="tb-search">', '<input id="tb-q" type="search"'],
+            'row_link' => ['<a class="o-name row-link"'],
+            'add_row' => ['<tr class="grp-add">', '<a class="add-item"'],
+            'new' => ['<details class="fold new-order drawer" id="new"', '<form class="doc-details" method="post"', '<fieldset class="doc-grid">'],
+            'record' => ['<div class="doc-head">', 'side: $bar', '<section class="doc-progress rp-figs"', '<article class="doc-view"', "\$partial('doc_party'"],
+            'form' => ['<form class="doc-details item-new" id="new" method="post" action="/ui/items/new" data-unsaved="1"', '<fieldset class="doc-grid">',
+                '<details class="fold" id="new-legal"', '<details class="fold" id="new-buying"', "\$partial('doc_bar', ['back' => '/ui/items/cards'", "side: ''"],
+            'inbox' => ['<div class="ap-inbox">', '<section class="card ap-list"', '<div class="ap-group ', '<a class="ap-row', '<section class="ap-record ',
+                '<form class="ap-answer" id="ap-answer" method="post"', '<button type="submit" form="ap-answer" class="btn primary">', '<p class="ap-next">'],
+        ];
+        $pages = [
+            'item_cards' => ['board', 'toolbar', 'search', 'row_link'], 'item_new' => ['form'], 'items_by_hand' => ['board', 'toolbar', 'row_link', 'add_row'],
+            'families' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'], 'family' => ['record'],
+            'packs' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'], 'pack_links' => ['board', 'row_link'], 'barcode_reviews' => ['inbox', 'toolbar', 'search'],
+        ];
+        foreach ($pages as $name => $patterns) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($patterns as $p) {
+                foreach ($pins[$p] as $part) {
+                    self::assertStringContainsString($part, $src, "{$name}: the {$p} pattern's {$part}");
+                }
+            }
+            foreach (['class="tb-pop"', 'filters-on', 'filter-chips', 'tb-clear', 'class="fold how"', 'ico-filter', 'show-tabs', 'row-strips', 'class="kpis', 'summary-line',
+                '<dl class="wide', 'class="card made-by-hand"', 'class="card barcode-review"'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            if (in_array('toolbar', $patterns, true)) {
+                self::assertSame(1, substr_count($src, '<div class="tb-state">'), "{$name}: one Show row");
+                self::assertLessThanOrEqual(1, substr_count($src, '<input id="tb-q" type="search"'), "{$name}: one search box");
+            }
+            if (in_array('board', $patterns, true)) {
+                self::assertSame(0, substr_count($src, '$chip(') + substr_count($src, '$stateChip('), "{$name}: a status is the solid cell, a small fact a soft tag");
+                self::assertStringNotContainsString('rp-figs', $src, "{$name}: the approved board has no figures strip");
+                self::assertStringNotContainsString('board-title', $src, "{$name}: nor a heading of its own over the groups");
+            }
+        }
+        // All Products: the filters are plain inputs in the Show row (the card, the kind, four ticks) and ONE Clear takes them all off.
+        self::assertSame(4, substr_count($t['item_cards.php'], '<label class="choice tb-check"><input type="checkbox" name="'));
+        self::assertSame(1, substr_count($t['item_cards.php'], "\$word('CARDS', 'clear_filters')"));
+        // Add Item: name, brand and barcode come first; the made-by-hand list (and its check) is on its own view, not under the form.
+        preg_match_all('/<input id="[^"]+" type="text" name="([a-z_]+)"/', $t['item_new.php'], $names);
+        self::assertSame(['name', 'brand', 'barcode'], array_slice($names[1], 0, 3));
+        self::assertStringNotContainsString('/check', $t['item_new.php']);
+        self::assertStringContainsString('<td class="c-next">', $t['items_by_hand.php']);
+        self::assertSame(1, substr_count($t['item_new.php'], "'primary' => true"), 'one main button');
+        // A family's bar: Add items the main one, the rest under More.
+        self::assertStringContainsString('<div class="doc-actions" role="group"', $t['family_bar.php']);
+        self::assertStringContainsString('<details class="more">', $t['family_bar.php']);
+        self::assertStringContainsString('<summary class="btn primary">', $t['family_bar.php']);
+        foreach (['item_cards', 'item_new', 'items_by_hand', 'families', 'family', 'family_bar', 'packs', 'pack_links', 'barcode_reviews'] as $name) {
+            foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset', 'nav', 'ul'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php'] ?? ''), substr_count($t[$name . '.php'] ?? '', '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

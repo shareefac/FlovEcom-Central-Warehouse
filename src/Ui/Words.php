@@ -684,6 +684,7 @@ final class Words
         // Pack B
         'item_new' => ['Make a warehouse item that no store sells yet: stock that arrives before its web page, or trade-only or sister-only stock.',
             'Type its name and what you know, then press "Add the item". The rest can be added on its page later.'],
+        'items_by_hand' => ['The items made on Add Item, newest first.', ''],
         'families' => ['Families group items: all the flavours or strengths of one product.', 'Open a family to put items in it or take them out.'],
         'family' => ['One family and the items in it.', 'Paste CW numbers or barcodes to put items in it, or tick items to take them out.'],
         'packs' => ['Sealed multipacks kept in stock as packs, each with the single item it holds and how many.',
@@ -7707,6 +7708,15 @@ final class Words
         'warning_line' => 'Warning: %s',
         'previous' => 'Previous',
         'next' => 'Next',
+        // The board (wave w11, docs/decisions.md W11.1): the products grouped by their card, the filters plain inputs in the Show row, one Clear.
+        'group_check' => 'Not confirmed yet',
+        'group_one' => '1 product',
+        'group_many' => '%s products',
+        'any_card' => 'Every product',
+        'any_kind' => 'Any kind of product',
+        'clear_filters' => 'Clear',
+        'fill_col' => 'Action',
+        'fill_button' => 'Fill in the card',
     ];
 
     /** A product card's state (ItemCardList::STATES keys and the card section). */
@@ -8018,6 +8028,17 @@ final class Words
         'save_decision' => 'Save the decision',
         'limit' => 'The first %s are shown.',
         'set_up' => 'set up by CW',
+        // The inbox (wave w11, docs/decisions.md W11.8): the list on the left, one barcode open.
+        'show' => 'Show',
+        'clear' => 'Clear',
+        'list' => 'Barcodes to decide',
+        'state_open' => 'Waiting',
+        'state_decided' => 'Decided',
+        'place' => '%s of %s',
+        'next_one' => 'Next: %s',
+        'last_one' => 'The last one in this list.',
+        'row_carried' => 'On a website product of %s',
+        'row_removed' => 'Removed from %s',
     ];
 
     /** Where a barcode came from (sku_barcode.source). */
@@ -10053,7 +10074,7 @@ final class Words
         'made' => 'Made by hand',
         'made_text' => 'The items made on this page, newest first.',
         'made_none' => 'No item was made by hand yet.',
-        'made_none_text' => 'Add one with the form above.',
+        'made_none_text' => 'Add one with "Add Item".',
         'waiting_none' => 'No item made by hand waits for a check.',
         'waiting_none_text' => 'Show them all to see the ones already checked.',
         'item' => 'Item',
@@ -10073,6 +10094,16 @@ final class Words
         'next' => 'Older',
         'on_item' => 'Made by hand by %s on %s.',
         'on_item_waiting' => 'A second person has not checked it yet.',
+        // The one-page form and the list of its own (wave w11, docs/decisions.md W11.2, W11.3).
+        'legal' => 'Legal details',
+        'buying' => 'Buying details',
+        'made_link' => 'Items made by hand',
+        'list_title' => 'Items made by hand',
+        'show' => 'Show',
+        'group_one' => '1 item',
+        'group_many' => '%s items',
+        'add_row' => '+ Add an item',
+        'clear' => 'Show them all',
     ];
 
     /** The states of an item made by hand (item_by_hand.check_state). */
@@ -10204,6 +10235,23 @@ final class Words
         'put_hint' => 'Type the name of a family in use. Empty: take the item out of its family.',
         'put_button' => 'Save the family',
         'look_only' => 'You can look; the catalogue team and the buyers change families.',
+        // The board and the record page (wave w11, docs/decisions.md W11.4, W11.5).
+        'show' => 'Show',
+        'show_on' => 'In use',
+        'show_all' => 'In use and switched off',
+        'clear_list' => 'Clear',
+        'group_one' => '1 family',
+        'group_many' => '%s families',
+        'add_row' => '+ New family',
+        'figures' => 'The family in numbers',
+        'fig_items' => 'Items',
+        'fig_made' => 'Added',
+        'fig_changed' => 'Last changed',
+        'party' => 'Family',
+        'fact_made' => 'Added',
+        'fact_changed' => 'Last changed',
+        'fact_state' => 'State',
+        'not_changed' => 'Not changed since.',
     ];
 
     /** Why a line of a bulk change of a family was left out (Items\Families::SKIPS). */
@@ -10274,6 +10322,19 @@ final class Words
         'prev' => 'Previous page',
         'next' => 'Next page',
         'look_only' => 'You can look; the catalogue team defines pack items.',
+        // The boards (wave w11, docs/decisions.md W11.6, W11.7).
+        'show' => 'Show',
+        'show_on' => 'In use',
+        'show_all' => 'In use and switched off',
+        'clear_list' => 'Clear',
+        'group_one' => '1 pack item',
+        'group_many' => '%s pack items',
+        'add_row' => '+ Define a pack item',
+        'actions' => 'Actions',
+        'group_check' => 'To check',
+        'group_fine' => 'Nothing to check',
+        'links_group_one' => '1 variant',
+        'links_group_many' => '%s variants',
     ];
 
     /** What the Multipacks page says of a pack item (Items\Packs::FLAGS). */

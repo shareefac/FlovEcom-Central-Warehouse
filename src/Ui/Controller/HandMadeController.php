@@ -77,56 +77,78 @@ final class HandMadeController
         try {
             (new HandMade($ctx->db, $ctx->decisions()))->check($ctx->caller(), $id, $ctx->req->field('note'));
         } catch (CwException $e) {
-            return $this->page($ctx, $e->httpStatus, $e, [], null, FormOnce::newKey());
+            return $this->page($ctx, $e->httpStatus, $e, [], null, FormOnce::newKey(), null, true);
         }
         return HtmlResponse::redirect(Html::url(self::PATH, ['notice' => 'checked', 'show' => 'waiting']));
     }
 
     /**
+     * The page: the one-page form (wave w11, docs/decisions.md W11.2), or the items made by hand as a list of their own (`?show=all` or
+     * `?show=waiting`, and a refused check: $list; W11.3).
+     *
      * @param array<string, string> $typed
      * @param list<array<string, mixed>>|null $same the items of the same name and identity (the warning), or null
      */
-    private function page(Context $ctx, int $status, ?CwException $error, array $typed, ?array $same, string $formKey, ?string $notice = null): HtmlResponse
+    private function page(Context $ctx, int $status, ?CwException $error, array $typed, ?array $same, string $formKey, ?string $notice = null, bool $list = false): HtmlResponse
     {
-        $waiting = $ctx->req->param('show') === 'waiting';
-        $page = max(1, min(10_000, UiRequest::id($ctx->req->param('page')) ?? 1));
-        $hand = new HandMade($ctx->db, $ctx->decisions());
-        $list = $hand->recent($waiting, $page);
-        $me = $ctx->me();
-        $checkOn = ApprovalRules::on($ctx->db, HandMade::CHECK_SWITCH);
-        $rows = array_map(static fn (array $r): array => [
-            'id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'],
-            'who' => (string) ($r['created_by_name'] ?? ''), 'at' => (string) $r['created_at'], 'state' => (string) $r['check_state'],
-            'checked' => $r['checked_at'] === null ? null : Words::say('ITEM_NEW', 'checked_by', (string) ($r['checked_by_name'] ?? ''), Html::when((string) $r['checked_at'])),
-            'note' => $r['check_note'] === null ? null : (string) $r['check_note'],
-            'canCheck' => $r['check_state'] === 'waiting' && (int) $r['created_by'] !== $me->id,
-            'own' => $r['check_state'] === 'waiting' && (int) $r['created_by'] === $me->id,
-        ], $list['rows']);
+        $show = $ctx->req->param('show');
+        if ($list || $show === 'all' || $show === 'waiting') {
+            return $this->listPage($ctx, $status, $error, $show === 'waiting', $notice);
+        }
         $errors = $error !== null && is_array($error->detail['errors'] ?? null) ? array_map('strval', array_values($error->detail['errors'])) : [];
+        $field = is_string($error?->detail['field'] ?? null) ? (string) $error->detail['field'] : null;
         $v = $typed + self::blank();
+        // A fold opens when what it holds was typed or refused (a refused form comes back with every value where it was).
+        $typedIn = static fn (array $names): bool => array_filter($names, static fn (string $n): bool => $v[$n] !== '' && $v[$n] !== 'on') !== [];
+        $legal = array_map(static fn (string $f): string => 'c_' . $f, array_values(array_diff(self::CARD, ['discontinued'])));
+        $buying = ['pack_units', 'family', 'c_discontinued'];
         return $ctx->page('item_new', [
             'v' => $v,
             'formKey' => $formKey,
             'same' => $same === null ? null : array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'code' => (string) $s['code'], 'name' => (string) $s['name']], $same),
             'error' => $error === null ? null : ($errors !== [] ? Words::ITEM_NEW['card_errors'] : FamiliesController::plain($error)),
             'errorCode' => $error?->errorCode,
-            'errorField' => is_string($error?->detail['field'] ?? null) ? (string) $error->detail['field'] : null,
+            'errorField' => $field,
             'errorItem' => $error?->errorCode === 'barcode_on_other_item' && isset($error->detail['sku_id']) ? ['id' => (int) $error->detail['sku_id'],
                 'code' => (string) ($error->detail['code'] ?? '')] : null,
             'cardErrors' => $errors,
+            'legalOpen' => $errors !== [] || in_array($field, $legal, true) || $typedIn($legal),
+            'buyingOpen' => in_array($field, $buying, true) || $typedIn($buying),
             'types' => array_map('ucfirst', ItemRules::TYPES),
             'forms' => array_combine(Form::ALL, array_map(static fn (string $f): string => Words::of('FORM_VALUE', $f), Form::ALL)),
             'nicTypes' => array_combine(self::NIC_TYPES, array_map(static fn (string $t): string => Words::of('NIC_TYPE', $t), self::NIC_TYPES)),
             'families' => (new Families($ctx->db))->activeNames(),
+        ], $status, ['title' => Words::title('item_new'), 'notice' => $notice]);
+    }
+
+    /** The items made by hand, newest first, grouped by their check (a board; docs/decisions.md W11.3), with the second person's check in each row. */
+    private function listPage(Context $ctx, int $status, ?CwException $error, bool $waiting, ?string $notice): HtmlResponse
+    {
+        $page = max(1, min(10_000, UiRequest::id($ctx->req->param('page')) ?? 1));
+        $list = (new HandMade($ctx->db, $ctx->decisions()))->recent($waiting, $page);
+        $me = $ctx->me();
+        $rows = array_map(static fn (array $r): array => [
+            'id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'],
+            'who' => (string) ($r['created_by_name'] ?? ''), 'at' => (string) $r['created_at'], 'state' => (string) $r['check_state'], 'group' => (string) $r['check_state'],
+            'checked' => $r['checked_at'] === null ? null : Words::say('ITEM_NEW', 'checked_by', (string) ($r['checked_by_name'] ?? ''), Html::when((string) $r['checked_at'])),
+            'note' => $r['check_note'] === null ? null : (string) $r['check_note'],
+            'canCheck' => $r['check_state'] === 'waiting' && (int) $r['created_by'] !== $me->id,
+            'own' => $r['check_state'] === 'waiting' && (int) $r['created_by'] === $me->id,
+        ], $list['rows']);
+        $show = $waiting ? 'waiting' : 'all';
+        return $ctx->page('items_by_hand', [
             'rows' => $rows,
-            'total' => $list['total'],
+            'groups' => Html::groups($rows, array_map(static fn (string $state): array => [Words::tone('BY_HAND_STATE', $state), Words::of('BY_HAND_STATE', $state)],
+                array_combine(['waiting', 'checked', 'not_asked'], ['waiting', 'checked', 'not_asked']))),
+            'show' => $show,
+            'checkOn' => ApprovalRules::on($ctx->db, HandMade::CHECK_SWITCH),
+            'error' => $error === null ? null : FamiliesController::plain($error),
+            'errorCode' => $error?->errorCode,
             'page_no' => $list['page'],
             'pages' => $list['pages'],
-            'waiting' => $waiting,
-            'checkOn' => $checkOn,
-            'prev_link' => $list['page'] > 1 ? Html::url(self::PATH, ['show' => $waiting ? 'waiting' : null, 'page' => $list['page'] - 1]) : null,
-            'next_link' => $list['page'] < $list['pages'] ? Html::url(self::PATH, ['show' => $waiting ? 'waiting' : null, 'page' => $list['page'] + 1]) : null,
-        ], $status, ['title' => Words::title('item_new'), 'notice' => $notice]);
+            'prev_link' => $list['page'] > 1 ? Html::url(self::PATH, ['show' => $show, 'page' => $list['page'] - 1]) : null,
+            'next_link' => $list['page'] < $list['pages'] ? Html::url(self::PATH, ['show' => $show, 'page' => $list['page'] + 1]) : null,
+        ], $status, ['title' => Words::ITEM_NEW['list_title'], 'notice' => $notice]);
     }
 
     /** @return array<string, string> every field of the form, empty */

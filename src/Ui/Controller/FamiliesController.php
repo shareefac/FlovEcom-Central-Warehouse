@@ -36,9 +36,12 @@ final class FamiliesController
         $can = $ctx->me()->can('families.manage');
         $base = ['q' => $q === '' ? null : $q, 'off' => $off ? '1' : null];
         $notice = $req->param('notice');
+        $rows = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'active' => (int) $r['is_active'] === 1,
+            'items' => (int) $r['items'], 'href' => self::PATH . '/' . (int) $r['id'], 'group' => (int) $r['is_active'] === 1 ? 'on' : 'off'], $list['rows']);
         return $ctx->page('families', [
-            'rows' => array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'active' => (int) $r['is_active'] === 1,
-                'items' => (int) $r['items'], 'href' => self::PATH . '/' . (int) $r['id']], $list['rows']),
+            'rows' => $rows,
+            // The board (wave w11, docs/decisions.md W11.4): in use, then switched off (shown with ?off=1).
+            'groups' => Html::groups($rows, ['on' => ['done', Words::FAMILY['on']], 'off' => ['off', Words::FAMILY['off']]]),
             'total' => $list['total'],
             'q' => $q,
             'off' => $off,
@@ -170,7 +173,19 @@ final class FamiliesController
         $page = max(1, min(10_000, UiRequest::id($ctx->req->param('page')) ?? 1));
         $members = $svc->members($id, $page);
         $can = $ctx->me()->can('families.manage');
+        $changed = (string) $f['updated_at'] !== (string) $f['created_at'];
+        $active = (int) $f['is_active'] === 1;
         return $ctx->page('family', [
+            // The record page (wave w11, docs/decisions.md W11.5): the paper card's party (the family and its note) and facts, the figures strip.
+            'party' => ['label' => Words::FAMILY['party'], 'name' => (string) $f['name'], 'href' => null, 'lines' => $f['note'] === null ? [] : [(string) $f['note']]],
+            'docFacts' => [
+                ['label' => Words::FAMILY['fact_state'], 'value' => $active ? Words::FAMILY['on'] : Words::FAMILY['off']],
+                ['label' => Words::FAMILY['fact_made'], 'value' => Words::say('FAMILY', 'made', (string) ($f['created_by_name'] ?? Words::AUDIT['cw']), Html::when((string) $f['created_at']))],
+                ['label' => Words::FAMILY['fact_changed'], 'value' => $changed
+                    ? Words::say('FAMILY', 'changed', (string) ($f['updated_by_name'] ?? Words::AUDIT['cw']), Html::when((string) $f['updated_at'])) : Words::FAMILY['not_changed']],
+            ],
+            'madeOn' => (string) $f['created_at'],
+            'changedOn' => $changed ? (string) $f['updated_at'] : null,
             'f' => ['id' => $id, 'name' => (string) $f['name'], 'active' => (int) $f['is_active'] === 1, 'version' => (int) $f['version'], 'note' => $f['note'] === null ? null : (string) $f['note'],
                 'items' => (int) $f['items'], 'made' => Words::say('FAMILY', 'made', (string) ($f['created_by_name'] ?? Words::AUDIT['cw']), Html::when((string) $f['created_at'])),
                 'changed' => (string) $f['updated_at'] === (string) $f['created_at'] ? null

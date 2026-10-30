@@ -24,7 +24,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class ItemManagementUnitTest extends TestCase
 {
-    private const TEMPLATES = ['item_new', 'families', 'family', 'packs', 'pack_links', 'repacks', 'item_groups'];
+    private const TEMPLATES = ['item_new', 'items_by_hand', 'families', 'family', 'family_bar', 'packs', 'pack_links', 'repacks', 'item_groups'];
 
     public function testThePagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {

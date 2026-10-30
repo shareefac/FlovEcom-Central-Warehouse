@@ -13849,3 +13849,88 @@ The order, invoice and delivery pages pass theirs, so their buttons are drawn ex
 line, the final return, a supplier, the returns' and the credit notes' lists, as served), `testTheItemsTabDrawsTheFirstRowsAndItsCutGroupReadsWithAPlus`
 (103 records: the tab's 100 with "98+", the products page's 103), `testTheLoadsFigureReadsWithAPlusAtTheListsLimit` (3, then 150 loads),
 `testTheSupplierFormsSaveSendsItsFieldsAloneAsBefore` (new and change).
+
+## The Products pages on the approved patterns (wave w11, branch `wave-w11`, 30 Oct 2026; W11.1-W11.11)
+
+The owner's word of 29 Oct ("all design convert our new claude suggested design") for Products: All Products, Add Item, Families, Multipacks
+(Pack items, Pack links) and Barcodes; and the owner's word of 30 Oct ("strictly follow our design guidelines"): each page has the mockup's
+parts in the mockup's order and nothing more. Layout and words only: no route, permission, migration, setting or service rule changed; every
+form posts what and where it did (FormOnce, versions, CSRF as before). Built on main's shared parts (PV18-PV20, DS1-DS6, CV13-CV14, AV1-AV19)
+and W8's and W9's (`.rp-figs`, `form.doc-details`, `td.c-next` above the row's link, `Html::groups`); no new CSS class. The item page itself
+is the itone build's (IV1-IV16), already on the approved pattern: unchanged.
+
+**W11.1. All Products is a board (GI_List).** The page's products (still a page of `ItemCardList::PAGE`, most stock first) grouped by their
+card: Blocked (red: a card whose confirmed rule blocks), Not confirmed yet (amber: not confirmed, or changed since), Confirmed (green), No card
+yet (grey). The status cell says the card (Blocked, Not confirmed, Changed since it was confirmed, Confirmed, No card yet); a block's rules are
+the muted line under the name (not a second "Blocked"), a warning and "Not sold any more" soft tags there, a flavour from a file a soft tag in
+its cell. A card's group has the card's columns; the No card group has none, and, for the catalogue team, "Fill in the card" (`a.btn.sm` in
+`td.c-next`, naming its product for a screen reader). The filters are plain inputs in the one Show row (the brief: "plain filter inputs and
+one Clear link instead of removable filter chips"): the card (first choice "Every product"), the kind of product ("Any kind of product"), the
+four ticks with their short words (Holds stock, Warning or blocked, Blocked, Not sold any more), one Show button; ONE Clear (`clear_filters`)
+at the right takes every filter and the search off. The Filter pop-over, its count, the chips and the search's own clear mark are gone (their
+CSS stays: other pages use it). The empty state of a search still clears the search alone, keeping the filters. The figures line and the
+"Products" heading over the list are gone (the approved board has neither; the groups carry the counts); "Page n of m" is in the pager.
+
+**W11.2. Add Item is the one-page form (PI_New).** The link to the items made by hand above the heading (the mockup's "Supplier invoices ›"),
+no create button in the head (`side: ''`: the page is that button's form); the refusal and the "same item" warning first; then one form
+(`form.doc-details.item-new#new`, `data-unsaved`): what the item is in two columns, name, brand and barcode first (then items per scan,
+line, flavour, strength, nicotine type, form, volume, puffs); "Legal details" (the product card's confirmed fields: kind, ml, mg/ml, duty,
+single-use, ECID, manufacturer, brand and flavour on the box) and "Buying details" (units in one box, the family, "discontinued / do not
+reorder") each a closed fold that opens when something in it was typed or refused (a card's errors, an unknown or switched-off family); then
+the bar at the bottom (`doc_bar`: "Leave without saving" back to All Products, "Add the item"). The bar's button is given no value, so
+`doc_bar` draws it without a name (W9.18) and the form posts exactly the fields it did. The paragraph hints ("Only the name is needed…", "The legal and buying details…", what Add does, what
+single-use means) are gone; the short hints in the labels stay.
+
+**W11.3. The items made by hand are a list of their own (GI_List).** `GET /ui/items/new?show=all` (and `?show=waiting`, which already
+existed) draw the board `items_by_hand` instead of the form: the head's "+ Add Item", one Show row (All of them / Only those waiting for a
+check; Clear back to all), the items grouped by their check (Waiting for a check, Checked, No check asked), newest first in each (a page of
+`HandMade::PER_PAGE`), a row opening the item, another person's check (note + "Checked: it is right", `btn sm`) in `td.c-next`, "+ Add an
+item" at the end of the first group. Whether a second person checks is the head's muted line. The check's redirect
+(`?notice=checked&show=waiting`) lands on this list; a refused check is answered with it too (it was the form page). The pager's links carry
+`show=all` (the form page no longer lists).
+
+**W11.4. Families is a board.** One search, one Show row (`off`: In use / In use and switched off, the same values the tick sent), Clear at
+the right; the groups In use (green) and Switched off (navy); a row opens the family; "+ New family" at the end of In use opens the drawer,
+its two fields in two columns (`form.doc-details`). The count line over the list is gone (the groups' counts).
+
+**W11.5. A family is the record page (PO_View).** The link back to Families; its name with its status block and its bar at the head's right
+(`family_bar`): in use, "Add items" (the pasted list, open at first while the family is empty or after a refused list) is the main action,
+Rename and "Switch the family off" (risky) under More; switched off, "Switch the family on again" is the main action and Rename under More.
+The figures strip: Items, Added, Last changed. The paper card: the family and its note beside its facts (State, Added by, Last changed by),
+its items as the card's lines (tick and take out, each a link to its item), the pager under them. The lines "Added by …", the note paragraph
+and "This family is switched off …" are gone (the facts and the status block say them). There is no History part: the family keeps no
+history of its own beyond those two facts.
+
+**W11.6. Pack items is a board.** One search, one Show row (`off`), Clear; the groups In use and Switched off; a row opens the pack item;
+its single item (a link), what to check (soft tags, the variants that could take singles, the note) and its actions (Repack it, Switch
+off / on) sit in `td.c-next` cells above the row's link; "+ Define a pack item" at the end of In use. The "Two ways of selling a pack" fold
+and the rule's line are gone (no help fold on the approved board; the rule is on Settings).
+
+**W11.7. Pack links is a board.** The variants matched with more than 1 unit a sale, grouped To check (amber: a pack item of that many
+exists, or the item is a pack itself; the reasons soft tags) and Nothing to check (green); a row opens the variant's page (where its match is
+changed); its item a link above the row's link. It has no filter of its own, so no toolbar.
+
+**W11.8. Barcodes is an inbox (AP_Inbox).** The barcode search and one Show row (Waiting (n) / Decided); the list on the left grouped by why
+the barcode waits (On another product red, Pack or single item? amber, Removed by a person blue), each row the barcode and the product whose
+website product carries it, a link `?open=<id>` (keeping the Show and the search); the open one on the right (first on a phone): the reason
+and its place ("1 of 3"), the barcode, its status block, the facts (`dl.doc-facts`), and ONE decision: the answers, the items per scan where
+they matter, the note, "Save the decision" (`form="ap-answer"`), "Next: <barcode>". The first one opens unless `open` names another; a refused
+decision opens its own record with the refusal in it. The decision posts where and what it did, and its redirect is unchanged (the first one
+left opens).
+
+**W11.9. Where the pages still differ from the mockups (kept on purpose, or for the later design-conformance build).** Shared, left for the
+one design build (the coordinator's note of 30 Oct): the titles' case and full stop, the intro lines under the titles, "+ New" in the toolbar
+row, the Show select with its button (the mockups show the choices alone). Kept on purpose: All Products' "?" (the rules about warnings and
+blocks, the owner's request of 21 Oct), Import and Export in its toolbar, its pager; Barcodes' search (finding a scanned barcode is the page's
+use; the mockup's inbox has none); the drawers of Families and Pack items (the forms of a board, W8's pattern); the family has no History part
+(W11.5).
+
+**W11.10. Typed values are guarded (W9.15's rule).** A POST form with a field to type or choose carries `data-unsaved` with DOC's words
+(the check of an item made by hand, a new family, a family's rename, its pasted list and its ticked items, a new pack item, a barcode's
+decision, Add Item), and on a page with one every form carries `data-leaves` (the toolbars, the switches): it says so first when another
+form holds typed values. Nothing is sent differently.
+
+**W11.11. Tests.** `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns` (the templates), `ProductPatternsScreensTest` (the pages as
+served, shown failing on main first: `runs/w11_red.log`); `ItemCardScreensTest` (the All Products tests now pin the board, the plain filters
+and the one Clear instead of the chips; the barcode review reads the open record), `ItemManagementScreensTest` (the list view, the family's
+status block), `ItemManagementUnitTest` (the two new templates).

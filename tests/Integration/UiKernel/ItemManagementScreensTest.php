@@ -80,8 +80,8 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $ok = $web->post('/ui/items/new', ['anyway' => '1'] + self::NOT_KNOWN + $form);
         self::assertSame(303, $ok->status, ($ok->errorCode() ?? "") . " " . $ok->describe());
         self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM sku WHERE origin = 'manual'"));
-        // The list of items made by hand names both.
-        self::assertStringContainsString(sprintf('CW-%06d', $id), $web->get('/ui/items/new')->text());
+        // The list of items made by hand (a view of its own, docs/decisions.md W11.3) names both.
+        self::assertStringContainsString(sprintf('CW-%06d', $id), $web->get('/ui/items/new', ['show' => 'all'])->text());
 
         // With the second check switched on, another person checks a new item afterwards (it is usable at once).
         self::$db->exec("UPDATE app_setting SET value_json = 'true' WHERE setting_key = 'approvals.item_by_hand_check'");
@@ -92,7 +92,8 @@ final class ItemManagementScreensTest extends KernelUiTestCase
             $new = (int) self::$db->value("SELECT id FROM sku WHERE name = 'Checked later'");
             self::assertFalse($web->get('/ui/items/new', ['show' => 'waiting'])->hasForm('/ui/items/new/' . $new . '/check'), 'not by the person who made it');
             $lead = $this->signIn($this->uiUser('mapping_lead'));
-            $r = $this->submit($lead, '/ui/items/new', '/ui/items/new/' . $new . '/check', ['note' => 'right']);
+            $waiting = $lead->get('/ui/items/new', ['show' => 'waiting']);
+            $r = $lead->post('/ui/items/new/' . $new . '/check', ['note' => 'right'] + $waiting->form('/ui/items/new/' . $new . '/check'));
             self::assertSame(303, $r->status, ($r->errorCode() ?? "") . " " . $r->describe() . ' ' . implode(' | ', self::$log));
             self::assertStringContainsString(Words::ITEMS_NOTICE['checked'], $lead->follow($r)->text());
             self::assertSame('checked', self::$db->value('SELECT check_state FROM item_by_hand WHERE sku_id = ?', [$new]));
@@ -146,7 +147,8 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         // Switched off: kept, said on its page, and gone from the list.
         $r = $this->submit($web, $path, $path . '/switch');
         self::assertSame(303, $r->status);
-        self::assertStringContainsString(Words::FAMILY['is_off'], $web->get($path)->text());
+        self::assertSame(Words::FAMILY['off'], trim((string) (new \DOMXPath($web->get($path)->dom()))->evaluate('string(//div[@class="doc-head"]//h1/span[contains(@class, "chip")])')),
+            'its status block says it');
         self::assertNotContains($path, $web->get('/ui/items/families')->hrefs(), 'a switched-off family is left out of the list');
     }
 

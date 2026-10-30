@@ -21,8 +21,8 @@ use CW\Ui\Words;
 
 /**
  * The item card screens (IM3; docs/decisions.md I109, I110):
- *  - Items > Item cards (/ui/items/cards, catalogue.view): every item with its card, ordered by the stock it holds, with
- *    filters, the numbers on top and the CSV download (the same filters);
+ *  - Items > Item cards (/ui/items/cards, catalogue.view): every item with its card, ordered by the stock it holds (a board by card, W11.1), with
+ *    filters and the CSV download (the same filters);
  *  - the card form (/ui/items/{id}/card, catalogue.edit) and its POST; accepting a suggestion and confirming the card (POSTs
  *    from the item page);
  *  - the CSV import (/ui/items/cards/import, catalogue.edit): check only (the default) or save.
@@ -48,48 +48,38 @@ final class ItemCardsController
         foreach ($list->rows($f, ItemCardList::PAGE, ($f['page'] - 1) * ItemCardList::PAGE) as $r) {
             $hasCard = $r['card_sku_id'] !== null;
             $st = $hasCard ? ItemRules::status($r) : ['level' => null, 'blocked' => [], 'warnings' => []];
+            $state = !$hasCard ? 'none' : ($r['confirmed_at'] !== null ? 'confirmed' : ($r['first_confirmed_at'] !== null ? 'changed' : 'unconfirmed'));
+            // The board's group (wave w11, docs/decisions.md W11.1): a block first, then the cards still to confirm, the confirmed ones, no card yet.
+            $group = $st['level'] === 'block' ? 'blocked' : match ($state) { 'none' => 'none', 'confirmed' => 'confirmed', default => 'check' };
             $rows[] = [
                 'id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'held' => (int) $r['held'],
                 'type' => $r['product_type'] === null ? null : ucfirst(ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type']),
                 'ml' => Html::dec($r['liquid_ml']), 'mg' => Html::dec($r['nicotine_mg']), 'duty' => self::yesNo($r['duty_liable']),
                 'single_use' => self::yesNo($r['single_use']), 'flavour' => $r['flavour'], 'flavour_proposed' => $r['flavour_status'] === 'proposed',
                 'discontinued' => $hasCard && (int) $r['discontinued'] === 1,
-                'state' => !$hasCard ? 'none' : ($r['confirmed_at'] !== null ? 'confirmed' : ($r['first_confirmed_at'] !== null ? 'changed' : 'unconfirmed')),
+                'state' => $state, 'group' => $group,
+                'stateWord' => $group === 'blocked' ? Words::CARD_STATE['blocked'] : Words::of('CARD_STATE', $state),
                 'level' => $st['level'], 'blocked' => ItemRules::labels($st['blocked']), 'warnings' => ItemRules::labels($st['warnings']),
             ];
         }
-        // The filters that are on, as chips under the toolbar (the owner's request of 21 Oct 2026: normal staff see what hides rows),
-        // each a link to the list without that one filter; the search shows in its own box, with its own "Clear the search".
+        // The filters are plain inputs in the toolbar's Show row, with ONE Clear (the owner's patterns of 29 Oct 2026; the chips of 21 Oct are gone);
+        // the empty state of a search keeps the filters (`searchClear`).
         $query = ItemCardList::query($f);
-        $without = static fn (string $key): array => array_diff_key($query, [$key => true]);
-        $chips = [];
-        if ($f['state'] !== 'all') {
-            $chips[] = ['label' => Words::say('CARDS', 'chip_card', Words::of('CARD_STATE', $f['state'])), 'query' => $without('state')];
-        }
-        if ($f['type'] !== '') {
-            $kind = $f['type'] === 'none' ? Words::CARDS['not_set'] : ucfirst(ItemRules::TYPES[$f['type']]);
-            $chips[] = ['label' => Words::say('CARDS', 'chip_kind', $kind), 'query' => $without('type')];
-        }
-        foreach (['stock', 'warnings', 'blocked', 'discontinued'] as $key) {
-            if ($f[$key]) {
-                $chips[] = ['label' => Words::CARDS[$key], 'query' => $without($key)];
-            }
-        }
+        $states = array_map(static fn (string $code): string => $code === 'unconfirmed' ? Words::CARDS['filter_unconfirmed'] : Words::of('CARD_STATE', $code),
+            array_combine(array_keys(ItemCardList::STATES), array_keys(ItemCardList::STATES)));
+        $states['all'] = Words::CARDS['any_card'];
         return $ctx->page('item_cards', [
             'rows' => $rows,
-            // While no product on this page has a card, the six card columns are left out (every cell would be empty).
-            'details' => array_filter($rows, static fn (array $r): bool => $r['state'] !== 'none') !== [],
-            'chips' => $chips,
-            'searchClear' => $f['q'] === '' ? null : $without('q'),
+            'groups' => Html::groups($rows, ['blocked' => ['blocked', Words::CARD_STATE['blocked']], 'check' => ['needs', Words::CARDS['group_check']],
+                'confirmed' => ['done', Words::CARD_STATE['confirmed']], 'none' => ['waiting', Words::CARD_STATE['none']]]),
+            'searchClear' => $f['q'] === '' ? null : array_diff_key($query, ['q' => true]),
             'filters' => $f,
             'query' => $query,
-            'states' => array_map(static fn (string $code): string => $code === 'unconfirmed' ? Words::CARDS['filter_unconfirmed'] : Words::of('CARD_STATE', $code),
-                array_combine(array_keys(ItemCardList::STATES), array_keys(ItemCardList::STATES))),
+            'states' => $states,
             'types' => array_map('ucfirst', ItemRules::TYPES),
             'total' => $total,
             'page' => $f['page'],
             'pages' => $pages,
-            'summary' => $list->summary(),
             'filtered' => $f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued'],
             'canEdit' => $ctx->me()->can('catalogue.edit'),
         ], 200, ['title' => Words::MENU['cards'], 'active' => 'cards']);

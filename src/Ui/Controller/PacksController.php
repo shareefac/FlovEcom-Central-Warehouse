@@ -45,8 +45,11 @@ final class PacksController
         $can = $me->can('catalogue.edit');
         $base = ['q' => $q === '' ? null : $q, 'off' => $off ? '1' : null];
         $notice = $req->param('notice');
+        $rows = array_map(fn (array $r): array => $this->row($r), $list['rows']);
         return $ctx->page('packs', [
-            'rows' => array_map(fn (array $r): array => $this->row($r), $list['rows']),
+            'rows' => $rows,
+            // The board (wave w11, docs/decisions.md W11.6): in use, then switched off (shown with ?off=1).
+            'groups' => Html::groups($rows, ['on' => ['done', Words::PACKS['on']], 'off' => ['off', Words::PACKS['off']]]),
             'total' => $list['total'],
             'q' => $q,
             'off' => $off,
@@ -58,7 +61,6 @@ final class PacksController
             'canEdit' => $can,
             'canLink' => $me->can('linking.view'),
             'canRepack' => $me->can('doc.RPK.post'),
-            'rule' => Packs::onlyWhenSingleSold($ctx->db),
             'formKey' => $can ? ($typed['form_key'] ?? FormOnce::newKey()) : null,
             'typed' => ['pack' => $typed['pack'] ?? '', 'single' => $typed['single'] ?? '', 'units' => $typed['units'] ?? '', 'note' => $typed['note'] ?? ''],
             'lookOnly' => $can ? null : Words::whoCan('catalogue.edit'),
@@ -106,15 +108,19 @@ final class PacksController
     {
         $page = max(1, min(10_000, UiRequest::id($ctx->req->param('page')) ?? 1));
         $list = (new Packs($ctx->db))->links($page);
-        return $ctx->page('pack_links', [
-            'rows' => array_map(static fn (array $r): array => [
+        $rows = array_map(static fn (array $r): array => [
                 'id' => (int) $r['id'], 'store' => (string) $r['channel_name'], 'variant' => trim(((string) ($r['product_title'] ?? '')) . ' ' . ((string) ($r['variant_title'] ?? ''))),
                 'option' => (string) $r['external_variant_id'], 'units' => (int) $r['units_per_item'], 'item' => ['id' => (int) $r['sku_id'], 'code' => (string) $r['sku_code'],
                     'name' => (string) $r['sku_name']],
                 'flags' => array_map(static fn (string $f): array => ['tone' => Words::tone('PACK_LINK_FLAG', $f), 'text' => $f === 'pack_item_exists'
                     ? Words::say('PACK_LINK_FLAG', $f, (string) ($r['pack_item']['code'] ?? '')) : Words::of('PACK_LINK_FLAG', $f)], $r['flags']),
                 'pack' => $r['pack_item'],
-            ], $list['rows']),
+                'group' => $r['flags'] === [] ? 'fine' : 'check',
+            ], $list['rows']);
+        return $ctx->page('pack_links', [
+            'rows' => $rows,
+            // The board (wave w11, docs/decisions.md W11.7): the variants something needs a look at first.
+            'groups' => Html::groups($rows, ['check' => ['needs', Words::PACKS['group_check']], 'fine' => ['done', Words::PACKS['group_fine']]]),
             'total' => $list['total'],
             'page_no' => $list['page'],
             'pages' => $list['pages'],
@@ -128,7 +134,7 @@ final class PacksController
     {
         $units = (int) $r['units'];
         return [
-            'id' => (int) $r['id'], 'active' => (int) $r['is_active'] === 1, 'units' => $units,
+            'id' => (int) $r['id'], 'active' => (int) $r['is_active'] === 1, 'units' => $units, 'group' => (int) $r['is_active'] === 1 ? 'on' : 'off',
             'pack' => ['id' => (int) $r['pack_sku_id'], 'code' => (string) $r['pack_code'], 'name' => (string) $r['pack_name']],
             'single' => ['id' => (int) $r['single_sku_id'], 'code' => (string) $r['single_code'], 'name' => (string) $r['single_name']],
             'stock' => Words::say('PACKS', 'stock_line', (int) $r['on_hand']['pack'], (int) $r['on_hand']['single']),

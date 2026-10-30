@@ -2764,3 +2764,14 @@ form.doc-details { margin: 0 0 20px; }
   table.stack.doc-lines.sales-units tr > td.c-status { grid-column: 2; white-space: normal; }
 }
 /* ==== end w10 =============================================================================================================================== */
+/* ==== w11: the Products pages on the approved patterns (wave w11, docs/decisions.md W11; the canvas's GI_List, PI_New, PO_View, AP_Inbox) ======
+   All Products, the items made by hand, Families, Pack items and Pack links are boards, Add Item the one-page form, a family the record page and
+   Barcodes the inbox, all on the shared pieces above (.doc-group, .doc-board, td.doc-st, .doc-head, .doc-actions, .rp-figs, .doc-view, .doc-grid,
+   .doc-bar, .ap-*). Here only what they add; no new class. */
+/* A one-page form's fold (Add Item's legal and buying details): the fold is the card, its fields' grid sits inside it without a second box */
+form.doc-details > details.fold { margin: 0 0 16px; }
+form.doc-details > details.fold > fieldset.doc-grid { margin: 0; padding: 0 0 4px; border: 0; background: none; }
+/* The inbox's decision (Barcodes): its answers sit in the record's card without a box of their own */
+.ap-answer > fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; background: none; }
+.ap-answer > fieldset > legend { padding: 0 0 4px; font: 600 13px/20px var(--font); }
+/* ==== end w11 =============================================================================================================================== */

@@ -1004,6 +1004,30 @@ Every page keeps its address, its filters and its CSV; only the layout follows t
   `SalesScreensTest`, `onBoard()` turns a newest-first list into the board's order and `boardGroups()` reads the groups' headings.
 
 
+### The Products pages on the approved patterns (`docs/decisions.md` W11)
+
+Every page keeps its address, its routes and its forms; only the layout follows the pattern (1 board, 2 record, 3 one-page form, 4 inbox),
+on main's shared parts and W8's / W9's (`Html::groups`, `td.c-next`, `form.doc-details`, `.rp-figs`). No new CSS class (the "w11" block of
+`app.css` only drops the second box of a fold's grid and of the inbox's answers).
+
+| Page | Template (+ partials) | Pattern |
+|---|---|---|
+| `/ui/items/cards` | `item_cards` | 1 board by card (`ItemCardsController::index()` `groups`: blocked, check, confirmed, none); the filters plain inputs in the Show row (`state`, `type`, four ticks), ONE Clear (`CARDS clear_filters`) |
+| `/ui/items/new` | `item_new` (+ `doc_bar`) | 3 one-page form: what it is (name, brand, barcode first), the folds `details#new-legal` and `#new-buying` (`legalOpen`, `buyingOpen`), the bar |
+| `/ui/items/new?show=all`, `?show=waiting` | `items_by_hand` | 1 board by check state (`HandMadeController::listPage()`); the check in `td.c-next`; a refused check comes back here |
+| `/ui/items/families` | `families` | 1 board (In use, Switched off: Show = `off`); the new family's drawer in two columns |
+| a family `/ui/items/families/{id}` | `family` (+ `family_bar`) | 2 record page: status block, bar (Add items; More: Rename, Switch off), strip, the paper card with its items as the lines |
+| `/ui/items/packs` | `packs` | 1 board (In use, Switched off); a row opens the pack item; the single, what to check and the actions in `td.c-next` |
+| `/ui/items/packs/links` | `pack_links` | 1 board (To check, Nothing to check); a row opens the variant |
+| `/ui/items/barcodes` | `barcode_reviews` | 4 inbox on the `.ap-*` classes of Approvals: groups by reason, `?open=<id>`, one decision (`form#ap-answer`, the button names it) |
+
+- Add Item's bar adds no field: its `doc_bar` button has no `value`, so it is drawn without a name (W9.18). Every form of these pages follows
+  W9.15's guard: a POST form with a field to type or choose carries `data-unsaved` + `data-unsaved-text`, and on a page with one every form
+  carries `data-leaves` (`UiTemplatesTest::testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst` lists them). Add Item's form is
+  `$r->form('/ui/items/new', true)` as before; its list view `$r->get('/ui/items/new', ['show' => 'all'])`.
+- Tests: `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/ProductPatternsScreensTest.php`
+  (the pages as served), `ItemCardScreensTest` (All Products' board, filters and Clear; the barcode inbox), `ItemManagementScreensTest`.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

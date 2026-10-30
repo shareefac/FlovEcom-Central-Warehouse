@@ -1,36 +1,56 @@
+<?php
+// Products › Multipacks › Pack items, a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W11.6): one search (CW number
+// or name) and one Show row (in use, or in use and switched off), Clear at the right; the head's "+ New pack item" and the last row of the In
+// use group open the form (its fields in two columns). The groups: in use, switched off; each a coloured heading with its count over a card
+// with its colour on the left edge, the status cell filled with it. A row opens the pack item; its single, what to check (soft tags, the
+// variants that could sell singles) and its actions (Repack it, switch off or on) sit above the row's link.
+?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['packs'], intro: 'packs', look: $lookOnly) ?>
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('PACKS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('PACKS', 'search') ?>"></div>
-  <label class="choice"><input type="checkbox" name="off" value="1"<?php if ($off): ?> checked<?php endif; ?>> <?= $word('PACKS', 'show_off') ?></label>
-  <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('PACKS', 'show') ?></label>
+    <select id="tb-show" name="off">
+      <option value=""><?= $word('PACKS', 'show_on') ?></option>
+      <option value="1"<?php if ($off): ?> selected<?php endif; ?>><?= $word('PACKS', 'show_all') ?></option>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
+  <div class="tb-end">
+<?php if ($filtered): ?>
+    <a class="btn ghost sm" href="/ui/items/packs"><?= $word('PACKS', 'clear_list') ?></a>
+<?php endif; ?>
+  </div>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
-<details class="fold how">
-  <summary><?= $word('PACKS', 'how') ?></summary>
-  <ul>
-    <li><?= $word('PACKS', 'how_link') ?></li>
-    <li><?= $word('PACKS', 'how_item') ?></li>
-  </ul>
-  <p class="hint"><?php if ($rule): ?><?= $word('PACKS', 'rule_on') ?><?php else: ?><?= $word('PACKS', 'rule_off') ?><?php endif; ?></p>
-</details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-pack drawer" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
   <summary><?= $word('PACKS', 'add') ?></summary>
-  <p class="hint"><?= $word('PACKS', 'add_text') ?></p>
-  <form class="record" method="post" action="/ui/items/packs">
+  <form class="doc-details" method="post" action="/ui/items/packs" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
-    <label for="p-pack"><?= $word('PACKS', 'pack_label') ?></label>
-    <input id="p-pack" type="text" name="pack" maxlength="64" required autocomplete="off" value="<?= $e($typed['pack']) ?>"<?php if ($errorField === 'pack'): ?> aria-invalid="true"<?php endif; ?>>
-    <label for="p-single"><?= $word('PACKS', 'single_label') ?></label>
-    <input id="p-single" type="text" name="single" maxlength="64" required autocomplete="off" value="<?= $e($typed['single']) ?>"<?php if ($errorField === 'single'): ?> aria-invalid="true"<?php endif; ?>>
-    <label for="p-units"><?= $word('PACKS', 'units_label') ?></label>
-    <input id="p-units" type="text" name="units" inputmode="numeric" maxlength="5" required value="<?= $e($typed['units']) ?>"<?php if ($errorField === 'units'): ?> aria-invalid="true"<?php endif; ?>>
-    <label for="p-note"><?= $word('PACKS', 'note') ?></label>
-    <textarea id="p-note" name="note" rows="2" maxlength="500"><?= $e($typed['note']) ?></textarea>
+    <fieldset class="doc-grid">
+      <legend class="visually-hidden"><?= $word('PACKS', 'add') ?></legend>
+      <div class="field">
+        <label for="p-pack"><?= $word('PACKS', 'pack_label') ?></label>
+        <input id="p-pack" type="text" name="pack" maxlength="64" required autocomplete="off" value="<?= $e($typed['pack']) ?>"<?php if ($errorField === 'pack'): ?> aria-invalid="true"<?php endif; ?>>
+      </div>
+      <div class="field">
+        <label for="p-single"><?= $word('PACKS', 'single_label') ?></label>
+        <input id="p-single" type="text" name="single" maxlength="64" required autocomplete="off" value="<?= $e($typed['single']) ?>"<?php if ($errorField === 'single'): ?> aria-invalid="true"<?php endif; ?>>
+      </div>
+      <div class="field">
+        <label for="p-units"><?= $word('PACKS', 'units_label') ?></label>
+        <input id="p-units" type="text" name="units" inputmode="numeric" maxlength="5" required value="<?= $e($typed['units']) ?>"<?php if ($errorField === 'units'): ?> aria-invalid="true"<?php endif; ?>>
+      </div>
+      <div class="field">
+        <label for="p-note"><?= $word('PACKS', 'note') ?></label>
+        <textarea id="p-note" name="note" rows="2" maxlength="500"><?= $e($typed['note']) ?></textarea>
+      </div>
+    </fieldset>
     <p class="actions"><button type="submit" class="btn primary"><?= $word('PACKS', 'add_button') ?></button></p>
   </form>
 </details>
@@ -41,62 +61,75 @@
 <?php elseif ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PACKS['none'], \CW\Ui\Words::PACKS['none_text']) ?>
 <?php else: ?>
-<p class="muted"><?php if ($total === 1): ?><?= $word('PACKS', 'count_one') ?><?php else: ?><?= $say('PACKS', 'count_many', $total) ?><?php endif; ?></p>
-<div class="table-wrap">
-<table class="stack list packs">
-  <thead>
-    <tr>
-      <th scope="col"><?= $word('PACKS', 'pack_item') ?></th>
-      <th scope="col"><?= $word('PACKS', 'single') ?></th>
-      <th scope="col"><?= $word('PACKS', 'stock') ?></th>
-      <th scope="col"><?= $word('PACKS', 'checks') ?></th>
-      <th scope="col" class="c-status"><?= $word('PACKS', 'state') ?></th>
-    </tr>
-  </thead>
-  <tbody>
-<?php foreach ($rows as $r): ?>
-    <tr<?php if (!$r['active']): ?> class="inactive off"<?php endif; ?>>
-      <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $r['pack']['id']) ?>"><?= $e($r['pack']['code']) ?></a> <?= $e($r['pack']['name']) ?><span class="o-sub"><?= $say('PACKS', 'equals', $r['units']) ?></span></th>
-      <td data-label="<?= $word('PACKS', 'single') ?>"><a href="<?= $u('/ui/items/' . $r['single']['id']) ?>"><?= $e($r['single']['code']) ?></a> <?= $e($r['single']['name']) ?></td>
-      <td data-label="<?= $word('PACKS', 'stock') ?>"><?= $e($r['stock']) ?></td>
-      <td class="c-wide" data-label="<?= $word('PACKS', 'checks') ?>">
+<?php foreach ($groups as $g): ?>
+<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('PACKS', 'group_one') ?><?php else: ?><?= $say('PACKS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
+  <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
+  <table class="stack list board doc-list packs">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('PACKS', 'pack_item') ?></th>
+        <th scope="col" class="c-status"><?= $word('PACKS', 'state') ?></th>
+        <th scope="col"><?= $word('PACKS', 'single') ?></th>
+        <th scope="col"><?= $word('PACKS', 'stock') ?></th>
+        <th scope="col"><?= $word('PACKS', 'checks') ?></th>
+<?php if ($canEdit || $canRepack): ?>
+        <th scope="col" class="c-next"><span class="visually-hidden"><?= $word('PACKS', 'actions') ?></span></th>
+<?php endif; ?>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($g['rows'] as $r): ?>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['pack']['id']) ?>"><?= $e($r['pack']['code']) ?> <?= $e($r['pack']['name']) ?></a><span class="o-sub"><?= $say('PACKS', 'equals', $r['units']) ?></span></th>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-next" data-label="<?= $word('PACKS', 'single') ?>"><a href="<?= $u('/ui/items/' . $r['single']['id']) ?>"><?= $e($r['single']['code']) ?></a> <?= $e($r['single']['name']) ?></td>
+        <td data-label="<?= $word('PACKS', 'stock') ?>"><?= $e($r['stock']) ?></td>
+        <td class="c-next c-wide" data-label="<?= $word('PACKS', 'checks') ?>">
 <?php if ($r['flags'] === [] && $r['suggest'] === [] && !$r['ownProduct']): ?>
-        <span class="muted"><?= $word('PACKS', 'nothing') ?></span>
+          <span class="muted"><?= $word('PACKS', 'nothing') ?></span>
 <?php endif; ?>
 <?php foreach ($r['flags'] as $fl): ?>
-        <span class="pack-flag"><?= $chip($fl['tone'], $fl['text']) ?></span>
+          <span class="tag <?= $e($fl['tone']) ?>"><?= $e($fl['text']) ?></span>
 <?php endforeach; ?>
 <?php if ($r['suggest'] !== [] && $canLink): ?>
-        <p class="pack-suggest"><strong><?= $word('PACKS', 'suggest_title') ?></strong> <?= $say('PACKS', 'suggest_text', $r['units']) ?></p>
-        <ul class="plain">
+          <p class="pack-suggest"><strong><?= $word('PACKS', 'suggest_title') ?></strong> <?= $say('PACKS', 'suggest_text', $r['units']) ?></p>
+          <ul class="plain">
 <?php foreach ($r['suggest'] as $s): ?>
-          <li><a href="<?= $e($s['href']) ?>"><?= $e($s['title']) ?></a> <span class="muted"><?= $e($s['store']) ?></span></li>
+            <li><a href="<?= $e($s['href']) ?>"><?= $e($s['title']) ?></a> <span class="muted"><?= $e($s['store']) ?></span></li>
 <?php endforeach; ?>
-        </ul>
+          </ul>
 <?php elseif ($r['ownProduct']): ?>
-        <p class="hint"><?= $word('PACKS', 'own_product') ?></p>
+          <p class="hint"><?= $word('PACKS', 'own_product') ?></p>
 <?php endif; ?>
 <?php if ($r['note'] !== null): ?>
-        <p class="muted"><?= $e($r['note']) ?></p>
+          <p class="muted"><?= $e($r['note']) ?></p>
 <?php endif; ?>
-      </td>
-      <td class="c-status"><?php if ($r['active']): ?><?= $chip('done', \CW\Ui\Words::PACKS['on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::PACKS['off']) ?><?php endif; ?>
+        </td>
+<?php if ($canEdit || $canRepack): ?>
+        <td class="c-next">
 <?php if ($r['active'] && $canRepack): ?>
-        <a class="btn ghost sm" href="<?= $u('/ui/stock/repack', ['pack' => $r['id']]) ?>#new"><?= $word('PACKS', 'repack') ?></a>
+          <a class="btn ghost sm" href="<?= $u('/ui/stock/repack', ['pack' => $r['id']]) ?>#new"><?= $word('PACKS', 'repack') ?></a>
 <?php endif; ?>
 <?php if ($canEdit): ?>
-        <form class="inline" method="post" action="<?= $u('/ui/items/packs/' . $r['id'] . '/switch') ?>">
-          <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-          <input type="hidden" name="on" value="<?php if ($r['active']): ?>0<?php else: ?>1<?php endif; ?>">
-          <button type="submit" class="btn sm" title="<?= $word('PACKS', 'switch_does') ?>"><?php if ($r['active']): ?><?= $word('PACKS', 'switch_off') ?><?php else: ?><?= $word('PACKS', 'switch_on') ?><?php endif; ?></button>
-        </form>
+          <form class="inline" method="post" action="<?= $u('/ui/items/packs/' . $r['id'] . '/switch') ?>" data-leaves="1">
+            <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+            <input type="hidden" name="on" value="<?php if ($r['active']): ?>0<?php else: ?>1<?php endif; ?>">
+            <button type="submit" class="btn sm" title="<?= $word('PACKS', 'switch_does') ?>"><?php if ($r['active']): ?><?= $word('PACKS', 'switch_off') ?><?php else: ?><?= $word('PACKS', 'switch_on') ?><?php endif; ?></button>
+          </form>
 <?php endif; ?>
-      </td>
-    </tr>
+        </td>
+<?php endif; ?>
+      </tr>
 <?php endforeach; ?>
-  </tbody>
-</table>
+<?php if ($g['key'] === 'on' && $formKey !== null): ?>
+      <tr class="grp-add"><td data-label="" colspan="<?php if ($canEdit || $canRepack): ?>6<?php else: ?>5<?php endif; ?>"><a class="add-item" href="#new"><?= $word('PACKS', 'add_row') ?></a></td></tr>
+<?php endif; ?>
+    </tbody>
+  </table>
+  </div>
 </div>
+<?php endforeach; ?>
 <?php if ($pages > 1): ?>
 <nav class="pager" aria-label="<?= $say('PACKS', 'page', $page_no, $pages) ?>">
 <?php if ($prev_link !== null): ?><a href="<?= $e($prev_link) ?>" rel="prev"><?= $word('PACKS', 'prev') ?></a><?php endif; ?>
