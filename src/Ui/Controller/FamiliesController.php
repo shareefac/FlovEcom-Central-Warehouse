@@ -46,6 +46,11 @@ final class FamiliesController
             'q' => $q,
             'off' => $off,
             'filtered' => $q !== '' || $off,
+            // The redesign's simple list (docs/decisions.md RD-A7): the ONE Show choice, the head's More (Clear) and "+ New family".
+            'show' => [['label' => Words::FAMILY['show_on'], 'href' => Html::url(self::PATH, ['q' => $q === '' ? null : $q]), 'current' => !$off],
+                ['label' => Words::FAMILY['show_all'], 'href' => Html::url(self::PATH, ['q' => $q === '' ? null : $q, 'off' => '1']), 'current' => $off]],
+            'bar' => ['links' => $q !== '' || $off ? [['label' => Words::FAMILY['clear_list'], 'href' => self::PATH]] : [],
+                'main' => $can ? ['label' => Words::NEW['families'], 'href' => self::PATH . '#new'] : null],
             'page_no' => $list['page'],
             'pages' => $list['pages'],
             'prev_link' => $list['page'] > 1 ? Html::url(self::PATH, $base + ['page' => $list['page'] - 1]) : null,

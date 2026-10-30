@@ -51,25 +51,28 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
     }
 
     /**
-     * The board pattern (1): one Show row and no Filter pop-over or chips; the groups' headings (a toggle and a count) over cards; every row's
-     * status cell filled. @return list<string> the groups' names, in order
+     * The board pattern (1), on the redesign's simple list since 30 Oct 2026 (docs/decisions.md RD-A2): one search, ONE Show choice and no Show row
+     * of selects, no Filter pop-over or chips, no "+ Add" row; the groups' headings (a toggle and a count) over cards; every row's status cell
+     * filled where the list has a status column ($status). @return list<string> the groups' names, in order
      */
-    private static function assertBoard(UiResponse $page, string $what, bool $search = true): array
+    private static function assertBoard(UiResponse $page, string $what, bool $search = true, bool $status = true): array
     {
         $xp = self::xp($page);
         self::assertSame($search ? 1 : 0, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, "{$what}: the search");
+        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, "{$what}: ONE Show choice");
+        self::assertSame(0, $xp->query('//main//div[@class="tb-state"] | //main//tr[contains(@class, "grp-add")]')->length, "{$what}: no Show row, no \"+ Add\" row");
         self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop") and not(contains(@class, "tb-show"))]')->length, "{$what}: no Filter pop-over (the one Show control only, DC27)");
         self::assertSame(0, $xp->query('//main//*[contains(@class, "filters-on") or contains(@class, "show-tabs") or contains(@class, "row-strips")]')->length, "{$what}: the old parts");
         self::assertGreaterThan(0, $xp->query('//main//div[contains(@class, "doc-group")]/div[contains(@class, "doc-board")]//table[contains(@class, "doc-list")]')->length,
             "{$what}: the groups' cards");
-        self::assertSame($xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr[not(contains(@class, "grp-add"))]')->length,
-            $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr/td[contains(@class, "doc-st")]')->length, "{$what}: every row's status cell is filled");
+        self::assertSame($status ? $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr')->length : 0,
+            $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr/td[contains(@class, "doc-st")]')->length, "{$what}: every row's status cell, or none");
         self::assertSame(0, $xp->query('//main//div[contains(@class, "doc-board")]//tbody//span[contains(concat(" ", @class, " "), " chip ")][not(parent::td[contains(@class, "doc-st")])]')->length,
             "{$what}: a status is the pill in its cell (RD8), a small fact a soft tag");
         return self::texts($page, '//main//div[contains(@class, "doc-group")]/h3[@class="grp-title"]/button[@class="grp-toggle"]');
     }
 
-    public function testAllProductsIsABoardByCardWithPlainFiltersAndOneClear(): void
+    public function testItemsIsABoardByCardInTheArtboardsGroups(): void
     {
         $who = $this->uiUser('stock_controller');
         $cards = new ItemCards(self::$db);
@@ -83,53 +86,27 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
         $xp = self::xp($list);
-        self::assertSame([Words::CARD_STATE['blocked'], Words::CARDS['group_check'], Words::CARD_STATE['none']], self::assertBoard($list, 'all products'),
-            'blocked first, then the cards to confirm, then no card yet');
-        self::assertSame(['blocked', 'needs', 'waiting'], array_map(static fn (\DOMElement $d): string => trim(str_replace(['grp-block', 'doc-group'], '', $d->getAttribute('class'))),
+        // The redesign's Items artboard (docs/decisions.md RD-A3): Needs a look (a block, a card to confirm), No card yet, Ready.
+        self::assertSame([Words::INV_LIST['g_look'], Words::INV_LIST['g_none']], self::assertBoard($list, 'items'));
+        self::assertSame(['needs', 'waiting'], array_map(static fn (\DOMElement $d): string => trim(str_replace(['grp-block', 'doc-group'], '', $d->getAttribute('class'))),
             array_values(iterator_to_array($xp->query('//main//div[contains(@class, "doc-group")]')))));
-        // The rows: the number and the name one link that opens the item; the status cell says the card; the rules a soft tag.
-        self::assertSame([self::cw($high) . ' Tank five'], self::texts($list, '//div[@id="g-blocked"]//tbody/tr/th/a[contains(@class, "row-link")]'));
-        self::assertSame(['/ui/items/' . $high], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-blocked"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
-        self::assertSame([Words::CARD_STATE['blocked']], self::texts($list, '//div[@id="g-blocked"]//tbody/tr/td[contains(@class, "doc-st") and contains(@class, "blocked")]'));
-        self::assertSame(['tank or pod over 2 ml'], self::texts($list, '//div[@id="g-blocked"]//tbody/tr/th/span[@class="o-sub"]'), 'the rules under the name, not a second "Blocked"');
-        self::assertSame([Words::CARD_STATE['unconfirmed']], self::texts($list, '//div[@id="g-check"]//tbody/tr/td[contains(@class, "doc-st") and contains(@class, "needs")]'));
-        self::assertSame([Words::say('CARDS', 'warning_line', 'nicotine over 20 mg/ml')], self::texts($list, '//div[@id="g-check"]//tbody/tr/th//span[contains(@class, "tag") and contains(@class, "needs")]'));
-        // A card group has the card's columns; the No card group has none: the stock held, and the catalogue team's "Fill in" above the row's link.
-        self::assertSame([Words::CARDS['product'], Words::CARDS['state'], Words::CARDS['held'], Words::CARDS['kind'], Words::CARDS['ml'], Words::CARDS['mg'],
-            Words::CARDS['duty'], Words::CARDS['single_use'], Words::CARDS['flavour']], self::texts($list, '//div[@id="g-blocked"]//thead/tr/th'));
-        self::assertSame([Words::CARDS['product'], Words::CARDS['state'], Words::CARDS['held'], Words::CARDS['fill_col']], self::texts($list, '//div[@id="g-none"]//thead/tr/th'));
-        self::assertSame(['/ui/items/' . $none . '/card'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-none"]//tbody/tr/td[contains(@class, "c-next")]/a[contains(@class, "btn")]')))));
-        self::assertSame([Words::CARDS['fill_button'] . ' ' . self::cw($none)], self::texts($list, '//div[@id="g-none"]//tbody/tr/td[contains(@class, "c-next")]/a'),
-            'each names its product for a screen reader');
-        self::assertSame(0, self::xp($this->signIn($this->uiUser('buyer'))->get('/ui/items/cards'))->query('//div[@id="g-none"]//a[contains(@href, "/card")]')->length,
-            'someone who only looks has no Fill in');
-
-        // The approved board: no figures strip, no heading of its own over the groups.
+        self::assertSame(['Tank five', 'Strong shot'], self::texts($list, '//div[@id="g-look"]//tbody/tr/th/a[contains(@class, "row-link")]'));
+        self::assertSame(['/ui/items/' . $high, '/ui/items/' . $low], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//div[@id="g-look"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
+        self::assertSame([Words::INV_LIST['p_blocked'], Words::INV_LIST['p_check']], self::texts($list, '//div[@id="g-look"]//tbody/tr/td[contains(@class, "doc-st")]'));
+        self::assertSame(['tank or pod over 2 ml'], self::texts($list, '//div[@id="g-look"]//tbody/tr[1]/th/span[@class="o-sub"][2]'), 'the rules under the name, not a second "Blocked"');
+        self::assertSame([Words::say('CARDS', 'warning_line', 'nicotine over 20 mg/ml')], self::texts($list, '//div[@id="g-look"]//tbody/tr/th//span[contains(@class, "tag") and contains(@class, "needs")]'));
+        self::assertSame([Words::INV_LIST['col_item'], Words::INV_LIST['col_status'], Words::INV_LIST['col_on_hand']], self::texts($list, '//div[@id="g-none"]//thead/tr/th'));
+        self::assertSame(['/ui/items/' . $none], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//div[@id="g-none"]//tbody/tr/th/a')))));
+        // No figures strip, no heading of its own over the groups.
         self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")] | //main//h2[contains(@class, "board-title")] | //main//ul[contains(@class, "summary-line")]')->length);
-
-        // The filters in the ONE Show control (DC27: a pop-over of the card, the kind of product and the four ticks, one Show button); no Clear while nothing is on.
-        $row = '//form[contains(@class, "toolbar")]/div[@class="tb-state"]';
-        self::assertSame(['state', 'type'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), array_values(iterator_to_array($xp->query($row . '//select')))));
-        self::assertSame(['stock', 'warnings', 'blocked', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            array_values(iterator_to_array($xp->query($row . '//label[contains(@class, "tb-check")]/input[@type="checkbox"]')))));
-        self::assertSame([Words::CARDS['stock'], Words::CARDS['warnings'], Words::CARDS['blocked'], Words::CARDS['discontinued']], self::texts($list, $row . '//label[contains(@class, "tb-check")]'));
-        self::assertSame(1, $xp->query($row . '//button[@type="submit"]')->length);
-        self::assertSame(0, $xp->query('//form[contains(@class, "toolbar")]//a[@href="/ui/items/cards"]')->length, 'nothing on: nothing to clear');
-        // Filters on: they show in their own inputs, and ONE Clear link takes every filter and the search off.
+        // A search and a filter of More keep each other; ONE Clear under More.
         $on = $web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'confirmed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1']);
-        $oxp = self::xp($on);
-        self::assertSame(['confirmed', 'tank'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-            array_values(iterator_to_array($oxp->query($row . '//select/option[@selected]')))));
-        self::assertSame(['stock', 'blocked'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            array_values(iterator_to_array($oxp->query($row . '//label/input[@checked]')))));
-        self::assertSame('tank', (string) $oxp->evaluate('string(//input[@id="tb-q"]/@value)'));
-        self::assertSame([Words::CARDS['clear_filters']], self::texts($on, '//form[contains(@class, "toolbar")]//a[@href="/ui/items/cards"]'));
-        self::assertSame(1, $oxp->query('//form[contains(@class, "toolbar")]/div[@class="tb-end"]/details[contains(@class, "tb-more")]//a[@href="/ui/items/cards"]')->length,
-            'at the right, under the toolbar\'s More (DC27)');
-        self::assertSame(0, $oxp->query('//a[contains(@class, "tb-clear")]')->length, 'one Clear, not one per filter');
-        self::assertSame([self::cw($high) . ' Tank five'], self::texts($on, '//main//tbody/tr/th/a[contains(@class, "row-link")]'));
+        self::assertSame([Words::CARDS['clear_filters']], self::texts($on, '//header//details[contains(@class, "page-more")]//a[@href="/ui/items/cards"]'));
+        self::assertSame(['Tank five'], self::texts($on, '//main//tbody/tr/th/a[contains(@class, "row-link")]'));
+        self::assertSame(['state', 'stock', 'blocked', 'type'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
+            array_values(iterator_to_array(self::xp($on)->query('//form[contains(@class, "toolbar")]/input[@type="hidden"]')))), 'a new search keeps them');
     }
 
     public function testAddItemIsOnePageAndTheItemsMadeByHandAListOfTheirOwn(): void
@@ -186,19 +163,21 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
             self::assertSame([Words::BY_HAND_STATE['waiting'], Words::BY_HAND_STATE['not_asked']], self::assertBoard($list, 'made by hand', false));
             $lxp = self::xp($list);
             self::assertSame(0, $lxp->query('//form[@action="/ui/items/new" and @method="post"]')->length, 'the list alone');
-            self::assertSame(['all', 'waiting'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-                array_values(iterator_to_array($lxp->query('//form[contains(@class, "toolbar")]/div[@class="tb-state"]/select[@name="show"]/option')))));
+            self::assertSame([Words::INV_LIST['by_hand']], self::texts($list, '//details[contains(@class, "show-pick")]//*[@aria-current]'), 'Items\' Show choice (RD-A3)');
+            self::assertSame(['/ui/items/new?show=waiting'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+                array_values(iterator_to_array($lxp->query('//header//details[contains(@class, "page-more")]//a')))), 'those waiting for a check: under More');
             self::assertSame(['/ui/items/' . $two], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
                 array_values(iterator_to_array($lxp->query('//div[@id="g-waiting"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
             self::assertSame(1, $lxp->query('//div[@id="g-waiting"]//tbody/tr/td[contains(@class, "c-next")]/form[@action="/ui/items/new/' . $two . '/check"]')->length,
                 'the check above the row\'s link');
-            self::assertSame(['/ui/items/new#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-                array_values(iterator_to_array($lxp->query('//div[@id="g-waiting"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]')))));
+            self::assertSame(['/ui/items/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+                array_values(iterator_to_array($lxp->query('//header//div[contains(@class, "ph-actions")]/a[contains(@class, "primary")]')))), 'the head\'s + New item');
             $r = $lead->post('/ui/items/new/' . $two . '/check', ['note' => 'right'] + $list->form('/ui/items/new/' . $two . '/check'));
             self::assertSame('/ui/items/new?notice=checked&show=waiting', $r->location(), $r->describe());
             $back = $lead->follow($r);
             self::assertStringContainsString(Words::ITEMS_NOTICE['checked'], $back->text());
-            self::assertSame('waiting', (string) self::xp($back)->evaluate('string(//select[@name="show"]/option[@selected]/@value)'), 'the list, still showing those waiting');
+            self::assertSame(['/ui/items/new?show=all'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+                array_values(iterator_to_array(self::xp($back)->query('//header//details[contains(@class, "page-more")]//a')))), 'the list, still showing those waiting');
             // A refused check comes back on the list, not the form.
             $again = $lead->post('/ui/items/new/' . $two . '/check', ['note' => 'again'] + $list->form('/ui/items/new/' . $two . '/check'));
             self::assertSame(409, $again->status, $again->describe());
@@ -224,16 +203,16 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame([Words::FAMILY['on']], self::assertBoard($list, 'families'));
         $xp = self::xp($list);
-        self::assertSame(['', '1'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-            array_values(iterator_to_array($xp->query('//div[@class="tb-state"]/select[@name="off"]/option')))));
+        self::assertSame(['/ui/items/families?off=1'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//details[contains(@class, "show-pick")]//a')))), 'the Show choice: in use, or with the switched-off ones');
         self::assertSame(['/ui/items/families/' . $on], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
-        self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]')))));
+        self::assertSame(['/ui/items/families#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//header//div[contains(@class, "ph-actions")]/a[contains(@class, "primary")]')))), 'the head\'s + New family');
         self::assertSame(1, $xp->query('//details[@id="new"]//form[@action="/ui/items/families"]/fieldset[contains(@class, "doc-grid")]//input[@name="name"]')->length);
         $all = $web->get('/ui/items/families', ['off' => '1']);
         self::assertSame([Words::FAMILY['on'], Words::FAMILY['off']], self::assertBoard($all, 'families, all'));
-        self::assertSame([Words::FAMILY['clear_list']], self::texts($all, '//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a[@href="/ui/items/families"]'));
+        self::assertSame([Words::FAMILY['clear_list']], self::texts($all, '//header//details[contains(@class, "page-more")]//a[@href="/ui/items/families"]'));
 
         // The family: its status block and its bar in the head (Add items the main one, Rename and Switch off under More), the figures, the
         // paper card with its items as the card's lines.
@@ -280,15 +259,15 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $r = $this->submit($lead, '/ui/items/packs', '/ui/items/packs', ['pack' => self::cw($box), 'single' => (string) $shot, 'units' => '10']);
         self::assertSame(303, $r->status, $r->describe());
         $list = $lead->follow($r);
-        self::assertSame([Words::PACKS['on']], self::assertBoard($list, 'pack items'));
+        self::assertSame([Words::PACKS['on']], self::assertBoard($list, 'pack items', true, false));
         $xp = self::xp($list);
         self::assertSame(['/ui/items/' . $box], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tbody/tr/th/a[contains(@class, "row-link")]')))), 'a row opens the pack item');
         self::assertSame(['/ui/items/' . $shot], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tbody/tr/td[contains(@class, "c-next")]/a[@href="/ui/items/' . $shot . '"]')))), 'the single above the row\'s link');
         self::assertSame(1, $xp->query('//div[@id="g-on"]//tbody/tr/td[contains(@class, "c-next")]/form[contains(@action, "/switch")]')->length);
-        self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]')))));
+        self::assertSame(['/ui/items/packs#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//header//div[contains(@class, "ph-actions")]/a[contains(@class, "primary")]')))), 'the head\'s + New pack item');
         self::assertSame(0, $xp->query('//details[contains(concat(" ", @class, " "), " how ")]')->length, 'no help fold (the approved board has none)');
         self::assertSame(1, $xp->query('//details[@id="new"]//form[@action="/ui/items/packs"]/fieldset[contains(@class, "doc-grid")]//input[@name="units"]')->length);
         // Pack links: a board of the variants sold as more than one unit, grouped by whether something needs a look; a row opens the variant.
@@ -296,7 +275,8 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $this->profiled($site, 'SHOT5', ['product_title' => 'Nic shot 5 pack'], $shot, 5);
         $links = $lead->get('/ui/items/packs/links');
         self::assertSame(200, $links->status, $links->describe());
-        self::assertSame([Words::PACKS['group_check'], Words::PACKS['group_fine']], self::assertBoard($links, 'pack links', false));
+        self::assertSame([Words::PACKS['group_check'], Words::PACKS['group_fine']], self::assertBoard($links, 'pack links', false, false));
+        self::assertSame([Words::PAGE_TITLE['pack_links']], self::texts($links, '//details[contains(@class, "show-pick")]//*[@aria-current]'), 'Multipacks\' Show choice (RD-A7)');
         $lx = self::xp($links);
         self::assertSame(['Nic shot 10 pack'], self::texts($links, '//div[@id="g-check"]//tbody/tr/th/a[contains(@class, "row-link") and starts-with(@href, "/ui/review/listing/")]'));
         self::assertSame([sprintf(Words::PACK_LINK_FLAG['pack_item_exists'], self::cw($box))], self::texts($links, '//div[@id="g-check"]//tbody/tr/td//span[contains(@class, "tag") and contains(@class, "needs")]'));
@@ -307,7 +287,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $id = (int) self::$db->value('SELECT id FROM item_pack');
         $r = $lead->post('/ui/items/packs/' . $id . '/switch', ['csrf' => $this->token($lead), 'on' => '0']);
         self::assertSame(303, $r->status);
-        self::assertSame([Words::PACKS['off']], self::assertBoard($lead->follow($r), 'pack items, switched off'));
+        self::assertSame([Words::PACKS['off']], self::assertBoard($lead->follow($r), 'pack items, switched off', true, false));
     }
 
     public function testBarcodesIsAnInboxWithOneRecordOpen(): void
@@ -327,10 +307,10 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $q = $web->get('/ui/items/barcodes');
         self::assertSame(200, $q->status, $q->describe());
         $xp = self::xp($q);
-        // The toolbar: the barcode search and the Show menu (waiting, decided).
+        // The toolbar: the barcode search and the ONE Show choice (waiting, decided).
         self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]//input[@id="tb-q" and @name="barcode"]')->length);
-        self::assertSame(['', 'decided'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/div[@class="tb-state"]/select[@name="show"]/option')))));
+        self::assertSame(['/ui/items/barcodes?show=decided'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]//a')))));
         self::assertSame(0, $xp->query('//nav[contains(@class, "show-tabs")]')->length);
         // The list: grouped by why, each row a link that opens it; the open one has no link.
         self::assertSame([Words::BARCODE_REASON['on_another_item']], self::texts($q, '//section[contains(@class, "ap-list")]//div[contains(@class, "ap-group") and contains(@class, "blocked")]/h2/span[@class="ap-gname"]'));

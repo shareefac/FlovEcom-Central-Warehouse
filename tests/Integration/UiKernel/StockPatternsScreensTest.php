@@ -65,6 +65,21 @@ final class StockPatternsScreensTest extends KernelUiTestCase
             $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr/td[contains(@class, "doc-st")]')->length, "{$what}: every row's status cell is filled");
     }
 
+    /**
+     * The redesign's simple list (docs/decisions.md RD-A2, RD-A5, RD-A7): one search, ONE Show choice (no Show row of selects), no Filter pop-over,
+     * no figures strip, no "+ Add" row, the groups' cards.
+     */
+    private static function assertSimple(UiResponse $page, string $what): void
+    {
+        $xp = self::xp($page);
+        self::assertSame(1, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, "{$what}: one search");
+        self::assertSame(1, $xp->query('//main//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, "{$what}: ONE Show choice");
+        self::assertSame(0, $xp->query('//main//div[@class="tb-state"] | //main//details[contains(@class, "tb-pop")] | //main//section[contains(@class, "rp-figs")] | //main//tr[contains(@class, "grp-add")]')->length,
+            "{$what}: no Show row, Filter pop-over, figures strip or \"+ Add\" row");
+        self::assertGreaterThan(0, $xp->query('//main//div[contains(@class, "doc-group")]/div[contains(@class, "doc-board")]//table[contains(@class, "doc-list")]')->length,
+            "{$what}: the groups' cards");
+    }
+
     public function testAStockRecordIsABoardThenTheOnePageFormThenTheRecordPage(): void
     {
         $sku = $this->item('strict', 4, 'Omega pod 2ml');
@@ -79,14 +94,12 @@ final class StockPatternsScreensTest extends KernelUiTestCase
         $page = $this->start($web, 'in', ['reason_code' => 'found', 'external_ref' => 'BOX 7']);
         self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '5', 'cost' => '1.50'])->status);
 
-        // The board: the draft in its group, "+ New" at the end of it.
+        // The simple list (RD-A5): the draft in its group; the state of before under the head's More.
         $list = $web->get('/ui/stock/in');
-        self::assertBoard($list, 'stock in');
+        self::assertSimple($list, 'stock in');
         self::assertSame([Words::STOCK_OPS['no_number']], self::texts($list, '//div[contains(@class, "doc-group") and contains(@class, "waiting")]//tbody/tr/th/a[contains(@class, "row-link")]'));
-        self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array(self::xp($list)->query('//div[@id="g-draft"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]'))));
         self::assertSame(['draft', 'awaiting_approval', 'posted', 'reversed', 'cancelled'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-            array_slice(iterator_to_array(self::xp($list)->query('//div[@class="tb-state"]/select[@name="state"]/option')), 1)), 'the Show menu: every state');
+            array_slice(iterator_to_array(self::xp($list)->query('//header//details[contains(@class, "page-more")]//select[@name="state"]/option')), 1)), 'More\'s state: every state');
 
         // The draft: the one-page form. Its details in two columns (their own form, as before), the lines board, the totals, the bar.
         $draft = $web->get($page);
@@ -183,7 +196,8 @@ final class StockPatternsScreensTest extends KernelUiTestCase
         $this->item('legacy', 12, 'Alpha liquid 10ml');
         self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, is_active, stock_owner, owner_entity, sort_order) VALUES ('W8TWO', 'W8 room', 0, 1, 'other', 'W8 Two Ltd', 40)");
         $web = $this->signIn($this->uiUser(['stock_controller', 'purchasing_desk']));
-        foreach (['/ui/stock' => 4, '/ui/stock/movements' => 3, '/ui/stock/accounts' => 3] as $path => $figures) {
+        // Stock on hand and Stock history are simple lists since the redesign (no figures strip on a list, RD-A7); the balance owed is a report.
+        foreach (['/ui/stock' => 0, '/ui/stock/movements' => 0, '/ui/stock/accounts' => 3] as $path => $figures) {
             $page = $web->get($path);
             self::assertSame(200, $page->status, $path . ' ' . $page->describe());
             self::assertCount($figures, self::texts($page, '//main//section[contains(@class, "rp-figs")]/div[contains(@class, "doc-step")]'), "{$path}: the figures strip");
@@ -195,9 +209,9 @@ final class StockPatternsScreensTest extends KernelUiTestCase
             self::assertGreaterThan(0, self::xp($page)->query('//main//div[contains(@class, "doc-board")]//table')->length, "{$path}: the board");
         }
         $resv = $web->get('/ui/stock/reservations');
-        self::assertSame(1, self::xp($resv)->query('//main//form[contains(@class, "toolbar")]//div[@class="tb-state"]/select[@name="state"]')->length, 'reservations: the Show menu');
+        self::assertSame(1, self::xp($resv)->query('//main//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, 'reservations: the Show choice');
         self::assertSame(0, self::xp($resv)->query('//main//details[contains(@class, "tb-pop")]')->length);
         $repack = $web->get('/ui/stock/repack');
-        self::assertSame(1, self::xp($repack)->query('//main//form[contains(@class, "toolbar")]//div[@class="tb-state"]/select[@name="state"]')->length, 'repack: the Show menu');
+        self::assertSame(1, self::xp($repack)->query('//main//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, 'repack: the Show choice');
     }
 }

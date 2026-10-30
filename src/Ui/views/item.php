@@ -1,16 +1,17 @@
 <?php
-// One item, stock first (docs/decisions.md IV1-IV12; the owner's approved design IT_Item, IT_Phone of 29 Oct 2026): the head (its name, the
-// status block, its code and short identity line, the actions this person may use: item_bar), the stock strip, the recent movements, where it
-// sells; then the tabs that hold the parts and forms of before (Details, Barcodes, Suppliers and packs, Store matching, History). The tabs are
-// plain links (?tab=): the page draws every part and opens one, so it works without the script; a #fragment inside a closed part opens it
-// too (CSS :target), and then the tabs say so: that part's tab looks open and the open one gives way to its twin, a link (IV16). The open tab
-// has no link (CV13: a click never reloads the page). Every form that keeps typed values carries main's guard (data-unsaved, CV14: a tab
-// link asks first), every form that leaves asks first when another holds typed values (data-leaves; IV13). Every rule and permission is as
-// before.
+// One item, one page in sections (the approved redesign of 30 Oct 2026, artboard Item; docs/decisions.md RD-A4; before it IV1-IV12): the
+// back link to Items, the name with its status label, the fact line, More and the ONE main button (item_bar); the stock card (on the shelf,
+// held for orders, free to sell, coming in and what it sells a week); then Details (PRODUCT, BUYING for who sees suppliers, LEGAL: the
+// product card, its rules, its confirmation and suggestions; Change opens the card's form) and the recent stock history (All history), and
+// beside them the side cards: Store listings (each store: its state, the store product matched and Change, or Match…), Barcodes (+ Add, and
+// each one's Change: its items per scan, Remove) and Suppliers. There is no tab row: what the tabs of before held that the artboard does not
+// draw is a closed fold under the history (each warehouse's stock, selling on the stores with the selling-mode switch, the item group and
+// packs, the card's history), which a refused form, a notice or an old ?tab= link opens (ItemController::openPart). Every form keeps main's
+// guards (data-unsaved, data-leaves); every rule and permission is as before.
 ?>
 <?php $bar = $partial('item_bar', ['actions' => $actions, 'skuId' => $sku['id']]); ?>
 <div class="doc-head item-head">
-<?= $head((string) $sku['name'], intro: 'item', side: $bar, back: ['/ui/items/cards', \CW\Ui\Words::MENU['cards']], meta: $chip($top['tone'], $top['status']) . ' <span class="item-id">' . $e($top['identity']) . '</span>') ?>
+<?= $head((string) $sku['name'], intro: 'item', side: $bar, back: ['/ui/items/cards', \CW\Ui\Words::INV_LIST['items']], aside: '<span class="tag ' . $e($top['tone']) . '">' . $e($top['status']) . '</span>', meta: '<span class="item-id">' . $e($top['identity']) . '</span>') ?>
 </div>
 
 <?php if ($merged_into !== null): ?>
@@ -29,152 +30,57 @@
 <?php endif; ?>
 
 <section class="doc-progress item-strip" aria-labelledby="stock-h">
-  <h2 id="stock-h" class="visually-hidden"><?= $word('ITEM', 'stock') ?></h2>
+  <h2 id="stock-h" class="visually-hidden"><?= $word('ITEM_PAGE', 'stock') ?></h2>
   <div class="doc-step">
     <p class="doc-step-label"><?= $word('ITEM', 'on_shelf') ?></p>
     <p class="doc-step-big"><?= $n($strip['shelf']) ?></p>
-    <p class="step-sub"><?php if ($sku['counted_at'] === null): ?><?= $word('COUNTS', 'item_never') ?><?php else: ?><?= $say('COUNTS', 'item_counted', \CW\Ui\Html::day($sku['counted_at'])) ?><?php endif; ?></p>
   </div>
   <div class="doc-step">
     <p class="doc-step-label"><?= $word('ITEM', 'held_orders') ?></p>
-    <p class="doc-step-big"><?= $n($strip['allocated'] + $strip['held']) ?></p>
-    <p class="step-sub"><?php if ($strip['allocated'] > 0): ?><a href="<?= $u('/ui/stock/reservations', ['q' => $sku['code'], 'state' => 'committed']) ?>" title="<?= $word('ITEM', 'reserved_link') ?>"><?= $say('ITEM', 'held_paid', $strip['allocated']) ?></a><?php endif; ?><?php if ($strip['allocated'] > 0 && $strip['held'] > 0): ?> · <?php endif; ?><?php if ($strip['held'] > 0): ?><a href="<?= $u('/ui/stock/reservations', ['q' => $sku['code'], 'state' => 'held']) ?>" title="<?= $word('ITEM', 'reserved_link') ?>"><?= $say('ITEM', 'held_unpaid', $strip['held']) ?></a><?php endif; ?></p>
+    <p class="doc-step-big"><?php if ($strip['allocated'] + $strip['held'] > 0): ?><a href="<?= $u('/ui/stock/reservations', ['q' => $sku['code']]) ?>" title="<?= $word('ITEM', 'reserved_link') ?>"><?= $n($strip['allocated'] + $strip['held']) ?></a><?php else: ?><?= $n(0) ?><?php endif; ?></p>
   </div>
   <div class="doc-step">
     <p class="doc-step-label"><?= $word('ITEM', 'free') ?></p>
     <p class="doc-step-big free"><?= $n($strip['free']) ?></p>
-    <p class="step-sub"><?php if ($strip['incoming'] > 0): ?><?= $say('ITEM', 'free_incoming', $strip['incoming']) ?><?php endif; ?></p>
+<?php if ($strip['incoming'] > 0): ?>
+    <p class="step-sub"><?= $say('ITEM', 'free_incoming', $strip['incoming']) ?></p>
+<?php endif; ?>
   </div>
   <div class="doc-step">
     <p class="doc-step-label"><?= $word('ITEM', 'coming') ?></p>
     <p class="doc-step-big"><?= $n($strip['coming']) ?></p>
-    <p class="step-sub"><?php if ($strip['first'] !== null): ?><?php if ($strip['canOpenPo']): ?><a href="<?= $u('/ui/purchasing/orders/' . $strip['first']['id']) ?>"><?= $e($strip['first']['number']) ?></a><?php else: ?><?= $e($strip['first']['number']) ?><?php endif; ?><?php if ($strip['first']['due'] !== null): ?> · <?= $say('ITEM', 'coming_due', \CW\Ui\Html::day($strip['first']['due'])) ?><?php endif; ?><?php endif; ?></p>
-  </div>
 <?php if ($strip['weekly'] !== null): ?>
-  <div class="doc-step">
-    <p class="doc-step-label"><?= $word('ITEM', 'weekly') ?></p>
-    <p class="doc-step-big"><?= $e($strip['weekly']['n']) ?></p>
-    <p class="step-sub"><?= $e($strip['weekly']['lasts']) ?></p>
-  </div>
+    <p class="step-sub"><?= $say('ITEM_PAGE', 'sells_week', $strip['weekly']['n']) ?></p>
 <?php endif; ?>
+<?php if ($strip['first'] !== null): ?>
+    <p class="step-sub"><?php if ($strip['canOpenPo']): ?><a href="<?= $u('/ui/purchasing/orders/' . $strip['first']['id']) ?>"><?= $e($strip['first']['number']) ?></a><?php else: ?><?= $e($strip['first']['number']) ?><?php endif; ?><?php if ($strip['first']['due'] !== null): ?> · <?= $say('ITEM', 'coming_due', \CW\Ui\Html::day($strip['first']['due'])) ?><?php endif; ?></p>
+<?php endif; ?>
+  </div>
 </section>
 
-<details class="fold item-wh">
-  <summary><?= $word('ITEM', 'each_warehouse') ?></summary>
-<?php if ($stock === []): ?>
-  <p class="muted"><?= $word('ITEM', 'no_stock') ?></p>
-<?php else: ?>
-  <?= $explain('stock', \CW\Ui\Words::ITEM['stock']) ?>
-  <div class="table-wrap">
-  <table class="stack list stock">
-    <thead>
-      <tr>
-        <th scope="col"><?= $word('ITEM', 'warehouse') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK', 'on_hand') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK', 'incoming') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK', 'allocated') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK', 'held') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK', 'available') ?></th>
-        <th scope="col"><?= $word('ITEM', 'last_counted') ?></th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($stock as $b): ?>
-      <tr>
-        <th scope="row" class="c-head"><?= $e($b['name'] ?? $b['code']) ?><?php if (!$b['sellable']): ?> <span class="tag"><?= $word('ITEM', 'not_sellable') ?></span><?php endif; ?></th>
-        <td class="num" data-label="<?= $word('STOCK', 'on_hand') ?>"><?= $n($b['on_hand']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'incoming') ?>"><?= $n($b['incoming']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?= $n($b['allocated']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?= $n($b['held']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'available') ?>"><?= $n($b['available']) ?></td>
-        <td data-label="<?= $word('ITEM', 'last_counted') ?>"><?php if ($b['counted_at'] === null): ?><span class="muted"><?= $word('ITEM', 'never') ?></span><?php else: ?><?= $when($b['counted_at']) ?><?php endif; ?></td>
-      </tr>
+<div class="item-cols">
+<div class="item-main">
+<section class="card item-card item-details<?php if ($rules['level'] === 'block'): ?> blocked<?php elseif ($rules['level'] === 'warn'): ?> warned<?php endif; ?>" id="card" aria-labelledby="card-h">
+  <div class="card-head"><h2 id="card-h"><?= $word('ITEM_PAGE', 'details') ?></h2><?php if ($canEditCard): ?><a class="card-link" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?= $word('ITEM_PAGE', 'change') ?></a><?php endif; ?></div>
+<?php foreach ($facts as $grp): ?>
+  <div class="facts-group facts-<?= $e($grp['key']) ?>">
+    <p class="facts-title"><?= $e($grp['title']) ?></p>
+    <dl class="item-facts-grid<?php if ($grp['key'] === 'legal'): ?> item-card-fields<?php endif; ?>">
+<?php foreach ($grp['facts'] as $fact): ?>
+      <div><dt><?= $e($fact['label']) ?></dt> <dd><?php if ($fact['value'] === null): ?><span class="muted"><?= $word('CARD', 'not_known') ?></span><?php elseif (($fact['href'] ?? null) !== null): ?><a href="<?= $u($fact['href']) ?>"><?= $e($fact['value']) ?></a><?php else: ?><?= $e($fact['value']) ?><?php endif; ?></dd></div>
 <?php endforeach; ?>
-      <tr class="sub">
-        <th scope="row" class="c-head"><?= $word('STOCK', 'total') ?></th>
-        <td class="num" data-label="<?= $word('STOCK', 'on_hand') ?>"><?= $n($totals['on_hand']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'incoming') ?>"><?= $n($totals['incoming']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?= $n($totals['allocated']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?= $n($totals['held']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'available') ?>"><?= $n($totals['available']) ?></td>
-        <td data-label=""></td>
-      </tr>
-    </tbody>
-  </table>
+    </dl>
   </div>
-<?php endif; ?>
-</details>
-
-<section class="item-moves" aria-labelledby="ledger-h">
-  <div class="board-head"><h2 id="ledger-h" class="board-title"><?= $word('ITEM', 'movements') ?></h2><a class="board-link" href="<?= $e($allMoves) ?>"><?= $word('ITEM', 'all_moves') ?></a></div>
-<?php if ($ledger === []): ?>
-  <p class="muted"><?= $word('ITEM', 'no_movements') ?></p>
-<?php else: ?>
-  <div class="table-wrap">
-  <table class="stack list board doc-list ledger">
-    <thead>
-      <tr>
-        <th scope="col"><?= $word('ITEM', 'm_when') ?></th>
-        <th scope="col"><?= $word('ITEM', 'm_what') ?></th>
-        <th scope="col"><?= $word('ITEM', 'm_doc') ?></th>
-<?php if ($moveWarehouses): ?>
-        <th scope="col"><?= $word('ITEM', 'warehouse') ?></th>
-<?php endif; ?>
-        <th scope="col"><?= $word('ITEM', 'who') ?></th>
-        <th scope="col" class="num"><?= $word('ITEM', 'm_units') ?></th>
-        <th scope="col" class="num"><?= $word('ITEM', 'm_after') ?></th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($ledger as $r): ?>
-      <tr>
-        <th scope="row" class="c-head"><?= $e(\CW\Ui\Html::near($r['at'] === null ? null : (string) $r['at'])) ?></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['kind']) ?></span><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('ITEM', 'm_doc') ?>"><?php if (($r['record'] ?? null) !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><span class="o-sub"><?= $e(implode(' · ', array_filter([$r['record']['what'], $r['record']['why'], $r['record']['given']]))) ?></span><?php elseif ($r['ref'] !== null): ?><?= $e($r['ref']) ?><span class="o-sub"><?= $e(implode(' · ', array_filter([\CW\Ui\Words::of('MOVEMENT', $r['type']), $r['note']]))) ?></span><?php else: ?><?= $word('MOVEMENT', $r['type']) ?><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $e($r['note']) ?></span><?php endif; ?><?php endif; ?></td>
-<?php if ($moveWarehouses): ?>
-        <td data-label="<?= $word('ITEM', 'warehouse') ?>"><?= $e(\CW\Ui\Words::STOCK['warehouse_' . $r['warehouse']] ?? $r['warehouse']) ?></td>
-<?php endif; ?>
-        <td data-label="<?= $word('ITEM', 'who') ?>"><?= $e($r['actor']) ?></td>
-        <td data-label="<?= $word('ITEM', 'm_units') ?>" class="num chg <?= $e($r['dir']) ?>"><?= $e($r['signed']) ?></td>
-        <td class="num" data-label="<?= $word('ITEM', 'm_after') ?>"><?= $n($r['after']) ?></td>
-      </tr>
 <?php endforeach; ?>
-    </tbody>
-  </table>
-  </div>
-<?php endif; ?>
-</section>
-
-<section class="card item-sells" aria-labelledby="sells-h">
-  <h2 id="sells-h"><?= $word('ITEM', 'sells') ?></h2>
-<?php if ($sells === []): ?>
-  <p class="muted"><?= $word('ITEM', 'sells_none') ?></p>
-<?php else: ?>
-  <p class="item-chips"><?php foreach ($sells as $st): ?><?= $chip($st['tone'], $st['text']) ?> <?php endforeach; ?></p>
-<?php endif; ?>
-</section>
-
-<section class="item-parts" id="it-tabs" aria-label="<?= $word('ITEM', 'tabs') ?>">
-  <nav class="tabs item-tabs" aria-label="<?= $word('ITEM', 'tabs') ?>">
-<?php foreach (\CW\Ui\Controller\ItemController::TABS as $t): ?>
-    <a class="tab" data-tab="<?= $e($t) ?>"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/items/' . $sku['id'], ['tab' => $t]) ?>#it-tabs"<?php endif; ?>><span><?= $word('ITEM', 'tab_' . $t) ?></span><?php if (($tabCounts[$t] ?? 0) > 0): ?><span class="count"><?= $n($tabCounts[$t]) ?></span><?php endif; ?></a>
-<?php if ($tab === $t): ?>
-    <a class="tab tab-back" data-tab="<?= $e($t) ?>" href="<?= $u('/ui/items/' . $sku['id'], ['tab' => $t]) ?>#it-tabs"><span><?= $word('ITEM', 'tab_' . $t) ?></span><?php if (($tabCounts[$t] ?? 0) > 0): ?><span class="count"><?= $n($tabCounts[$t]) ?></span><?php endif; ?></a>
-<?php endif; ?>
-<?php endforeach; ?>
-  </nav>
-  <div class="it-panels">
-  <div class="it-panel<?php if ($tab === 'details'): ?> open<?php endif; ?>" id="t-details">
-<section class="card item-card<?php if ($rules['level'] === 'block'): ?> blocked<?php elseif ($rules['level'] === 'warn'): ?> warned<?php endif; ?>" id="card" aria-labelledby="card-h">
-  <h2 id="card-h"><?= $word('CARD', 'title') ?> <span class="hint"><?= $word('CARD', 'hint') ?></span></h2>
+  <div class="facts-more">
 <?php if ($card['state'] === 'none'): ?>
-  <p class="card-state"><?= $stateChip('CARD_STATE', 'none') ?> <?= $word('CARD', 'none') ?></p>
+  <p class="card-state"><?= $word('CARD', 'none') ?></p>
 <?php elseif ($card['state'] === 'confirmed'): ?>
-  <p class="card-state"><?= $stateChip('CARD_STATE', 'confirmed') ?> <?= $say('CARD', 'confirmed', (string) ($card['confirmed_by'] ?? ''), \CW\Ui\Html::when($card['confirmed_at'])) ?></p>
+  <p class="card-state"><?= $say('CARD', 'confirmed', (string) ($card['confirmed_by'] ?? ''), \CW\Ui\Html::when($card['confirmed_at'])) ?></p>
 <?php elseif ($card['state'] === 'changed'): ?>
-  <p class="card-state"><?= $stateChip('CARD_STATE', 'changed') ?> <?= $say('CARD', 'changed', (string) ($card['updated_by'] ?? ''), \CW\Ui\Html::when($card['updated_at'])) ?></p>
+  <p class="card-state"><?= $say('CARD', 'changed', (string) ($card['updated_by'] ?? ''), \CW\Ui\Html::when($card['updated_at'])) ?></p>
 <?php else: ?>
-  <p class="card-state"><?= $stateChip('CARD_STATE', 'unconfirmed') ?> <?= $say('CARD', 'unconfirmed', (string) ($card['updated_by'] ?? ''), \CW\Ui\Html::when($card['updated_at'])) ?></p>
+  <p class="card-state"><?= $say('CARD', 'unconfirmed', (string) ($card['updated_by'] ?? ''), \CW\Ui\Html::when($card['updated_at'])) ?></p>
 <?php endif; ?>
 <?php if ($rules['blocked'] !== []): ?>
   <div class="rules block" role="status">
@@ -196,17 +102,10 @@
     </ul>
   </div>
 <?php endif; ?>
-  <dl class="item-card-fields">
-<?php foreach ($card['values'] as $f): ?>
-    <dt><?= $e($f['label']) ?></dt>
-    <dd><?php if ($f['shown'] === null): ?><span class="muted"><?= $word('CARD', 'not_known') ?></span><?php else: ?><?= $e($f['shown']) ?><?php endif; ?></dd>
-<?php endforeach; ?>
-  </dl>
 <?php foreach ($rules['advice'] as $a): ?>
   <p class="note"><?= $e($a) ?></p>
 <?php endforeach; ?>
 <?php if ($canEditCard): ?>
-  <p class="actions"><a class="btn" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?php if ($card['exists']): ?><?= $word('ITEM', 'edit_details') ?><?php else: ?><?= $word('CARD', 'fill_in') ?><?php endif; ?></a></p>
 <?php if ($rules['missing'] !== [] && $card['state'] !== 'confirmed'): ?>
   <p class="hint"><?= $say('CARD', 'missing', implode(', ', $rules['missing'])) ?></p>
 <?php elseif ($confirmKey !== null): ?>
@@ -267,141 +166,81 @@
 <?php endif; ?>
 <?php endif; ?>
 <?php endif; ?>
+  </div>
 </section>
 
-<section class="card item-facts" aria-labelledby="id-h">
-  <h2 id="id-h"><?= $word('ITEM', 'matching') ?></h2>
-  <p class="hint"><?= $word('ITEM', 'matching_hint') ?></p>
-  <dl>
-<?php foreach (['brand', 'strength_mg', 'nic_type', 'line', 'form', 'flavour', 'volume_ml', 'puffs', 'pack_units'] as $f): ?>
-<?php if ($sku[$f] !== null && $sku[$f] !== ''): ?>
-    <dt><?= $word('FIELD', $f) ?></dt><dd><?php if ($f === 'form' && \CW\Ui\Words::has('FORM_VALUE', $sku[$f])): ?><?= $word('FORM_VALUE', $sku[$f]) ?><?php elseif ($f === 'nic_type' && \CW\Ui\Words::has('NIC_TYPE', $sku[$f])): ?><?= $word('NIC_TYPE', $sku[$f]) ?><?php else: ?><?= $e($sku[$f]) ?><?php endif; ?></dd>
-<?php endif; ?>
-<?php endforeach; ?>
-    <dt><?= $word('ITEM', 'rule') ?></dt><dd><?= $stateChip('POLICY', $sku['policy']) ?><?php if ($sku['policy'] !== 'legacy'): ?> <span class="muted">(<?= $word('LISTING', 'protected') ?>)</span><?php endif; ?> <?= $explain('stock_rule', \CW\Ui\Words::ITEM['rule']) ?></dd>
-    <dt><?= $word('ITEM', 'made_from') ?></dt><dd><?php if ($made_from !== null): ?><a href="/ui/review/listing/<?= $e($made_from['id']) ?>"><?= $e($made_from['text']) ?></a><?php elseif ($sku['origin'] !== null): ?><?= $word('ORIGIN', $sku['origin']) ?><?php else: ?><span class="muted"><?= $word('LISTING', 'not_stated') ?></span><?php endif; ?><?php if ($sku['cwp'] !== null): ?> <span class="muted small"><?= $word('LISTING', 'tech_cwp') ?>: <code><?= $e($sku['cwp']) ?></code></span><?php endif; ?></dd>
-    <dt><?= $word('ITEM', 'created') ?></dt><dd><?= $when($sku['created_at']) ?></dd>
-    <dt><?= $word('ITEM', 'last_counted') ?></dt><dd><?php if ($sku['counted_at'] === null): ?><span class="muted"><?= $word('ITEM', 'never') ?></span><?php else: ?><?= $when($sku['counted_at']) ?><?php endif; ?></dd>
-  </dl>
-</section>
-  </div>
-  <div class="it-panel<?php if ($tab === 'barcodes'): ?> open<?php endif; ?>" id="t-barcodes">
-<section class="card" id="barcodes" aria-labelledby="bc-h">
-  <h2 id="bc-h"><?= $word('BARCODE', 'title') ?></h2>
-<?php if ($barcodes === []): ?>
-  <p class="muted"><?= $word('BARCODE', 'none') ?></p>
+<section class="card item-moves" aria-labelledby="ledger-h">
+  <div class="card-head"><h2 id="ledger-h"><?= $word('ITEM_PAGE', 'history') ?></h2><a class="card-link" href="<?= $e($allMoves) ?>"><?= $word('ITEM_PAGE', 'all_history') ?></a></div>
+<?php if ($ledger === []): ?>
+  <p class="muted card-pad"><?= $word('ITEM_PAGE', 'no_history') ?></p>
 <?php else: ?>
   <div class="scroll">
-  <table class="stack barcodes">
-    <thead><tr><th scope="col"><?= $word('BARCODE', 'barcode') ?></th><th scope="col" class="num"><?= $word('BARCODE', 'units') ?></th><th scope="col"><?= $word('BARCODE', 'source') ?></th><th scope="col"><?= $word('BARCODE', 'usable') ?></th><?php if ($canEditBarcodes): ?><th scope="col"><span class="visually-hidden"><?= $word('BARCODE', 'remove') ?></span></th><?php endif; ?></tr></thead>
+  <table class="item-history ledger">
+    <caption class="visually-hidden"><?= $word('ITEM_PAGE', 'history') ?></caption>
     <tbody>
-<?php foreach ($barcodes as $b): ?>
+<?php foreach ($ledger as $r): ?>
       <tr>
-        <td data-label="<?= $word('BARCODE', 'barcode') ?>"><?= $e($b['barcode']) ?></td>
-        <td data-label="<?= $word('BARCODE', 'units') ?>" class="num">
-<?php if ($canEditBarcodes && $b['stored']): ?>
-          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/units') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
-            <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-            <input type="hidden" name="form_key" value="<?= $e($b['unitsKey']) ?>">
-            <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
-            <input type="hidden" name="units_was" value="<?= $e($b['units']) ?>">
-            <label class="visually-hidden" for="units-<?= $e($b['barcode']) ?>"><?= $say('BARCODE', 'units_of', (string) $b['barcode']) ?></label>
-            <input class="units" id="units-<?= $e($b['barcode']) ?>" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($b['units']) ?>">
-            <button class="btn" type="submit"><?= $word('BARCODE', 'save') ?></button>
-          </form>
-<?php else: ?>
-          <?= $n($b['units']) ?><?php if ($b['units'] > 1): ?> <span class="tag"><?= $word('BARCODE', 'outer') ?></span><?php endif; ?>
-<?php endif; ?>
-        </td>
-        <td data-label="<?= $word('BARCODE', 'source') ?>"><?= $e($b['source']) ?><?php if ($b['note'] !== null): ?> <span class="muted"><?= $e($b['note']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('BARCODE', 'usable') ?>"><?php if ($b['usable']): ?><?= $word('BARCODE', 'yes') ?><?php else: ?><span class="tag blocked"><?= $word('BARCODE', 'no') ?></span><?php endif; ?></td>
-<?php if ($canEditBarcodes): ?>
-        <td class="c-next">
-<?php if ($b['stored']): ?>
-          <details class="remove-barcode">
-            <summary><?= $word('BARCODE', 'remove') ?></summary>
-            <form method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/remove') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
-              <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-              <input type="hidden" name="form_key" value="<?= $e($b['removeKey']) ?>">
-              <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
-              <p class="muted"><?= $say('BARCODE', 'remove_text', (string) $b['barcode'], (string) $sku['code']) ?></p>
-              <label for="why-<?= $e($b['barcode']) ?>"><?= $word('BARCODE', 'remove_why') ?></label>
-              <input id="why-<?= $e($b['barcode']) ?>" type="text" name="reason" maxlength="500">
-              <button class="btn" type="submit"><?= $word('BARCODE', 'remove_button') ?></button>
-            </form>
-          </details>
-<?php endif; ?>
-        </td>
-<?php endif; ?>
+        <td class="h-when" data-label="<?= $word('ITEM', 'm_when') ?>"><?= $e(\CW\Ui\Html::near($r['at'] === null ? null : (string) $r['at'])) ?></td>
+        <td class="h-what" data-label="<?= $word('ITEM', 'm_what') ?>"><span class="m-what"><?= $e($r['kind']) ?></span><?php if ($r['bucket'] !== 'on_hand'): ?> <span class="muted"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?> <?php if (($r['record'] ?? null) !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><?php if ($r['record']['why'] !== null || $r['record']['given'] !== null): ?><span class="o-sub"><?= $e(implode(' · ', array_filter([$r['record']['why'], $r['record']['given']]))) ?></span><?php endif; ?><?php elseif ($r['ref'] !== null): ?><span class="m-ref"><?= $e($r['ref']) ?></span><?php endif; ?><?php if ($moveWarehouses): ?><span class="o-sub"><?= $e(\CW\Ui\Words::STOCK['warehouse_' . $r['warehouse']] ?? $r['warehouse']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('ITEM', 'm_units') ?>" class="num chg <?= $e($r['dir']) ?>"><?= $e($r['signed']) ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
   </table>
   </div>
 <?php endif; ?>
-<?php if ($barcodeReviews !== []): ?>
-  <p class="note"><?= $word('BARCODE', 'open_reviews') ?>
-<?php foreach ($barcodeReviews as $br): ?>
-    <?php if ($canSeeReviews): ?><a href="<?= $u('/ui/items/barcodes', ['barcode' => $br['barcode']]) ?>"><?= $e($br['barcode']) ?></a><?php else: ?><?= $e($br['barcode']) ?><?php endif; ?> (<?= $e($br['reason']) ?>)
-<?php endforeach; ?>
-  </p>
-<?php endif; ?>
-<?php if ($canEditBarcodes): ?>
-  <form class="add-barcode" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="form_key" value="<?= $e($barcodeAddKey) ?>">
-    <label for="new-barcode"><?= $word('BARCODE', 'add') ?></label>
-    <input id="new-barcode" type="text" name="barcode" inputmode="numeric" autocomplete="off" maxlength="40" value="<?= $e($typedBarcode) ?>" placeholder="<?= $word('BARCODE', 'add_hint') ?>">
-    <label for="new-units"><?= $word('BARCODE', 'add_units') ?></label>
-    <input id="new-units" class="units" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($typedUnits) ?>">
-    <button class="btn" type="submit"><?= $word('BARCODE', 'add_button') ?></button>
-    <p class="hint"><?= $word('BARCODE', 'add_text') ?></p>
-  </form>
-<?php endif; ?>
 </section>
-  </div>
-  <div class="it-panel<?php if ($tab === 'packs'): ?> open<?php endif; ?>" id="t-packs">
-<?php if ($suppliers !== null): ?>
-<section aria-labelledby="suppliers-h">
-  <h2 id="suppliers-h"><?= $word('MENU', 'suppliers') ?></h2>
-<?php if ($suppliers === []): ?>
-  <p class="muted"><?= $word('SUPPLIER_ITEMS', 'others_none') ?></p>
+
+<details class="fold it-fold item-wh" id="it-wh"<?php if ($open === 'warehouses'): ?> open<?php endif; ?>>
+  <summary><h2 class="fold-h"><?= $word('ITEM_PAGE', 'f_each') ?></h2></summary>
+<?php if ($stock === []): ?>
+  <p class="muted"><?= $word('ITEM', 'no_stock') ?></p>
 <?php else: ?>
+  <?= $explain('stock', \CW\Ui\Words::ITEM['stock']) ?>
   <div class="table-wrap">
-  <table class="stack list item-suppliers">
+  <table class="stack list stock">
     <thead>
       <tr>
-        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'supplier') ?></th>
-        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'main') ?></th>
-        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'their_code') ?></th>
-        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'pack') ?></th>
-        <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_pack') ?></th>
+        <th scope="col"><?= $word('ITEM', 'warehouse') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK', 'on_hand') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK', 'incoming') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK', 'allocated') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK', 'held') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK', 'available') ?></th>
+        <th scope="col"><?= $word('ITEM', 'last_counted') ?></th>
       </tr>
     </thead>
     <tbody>
-<?php foreach ($suppliers as $r): ?>
-      <tr<?php if (!$r['active']): ?> class="inactive"<?php endif; ?>>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['name']) ?></a><?php if ($r['status'] !== 'active'): ?> <?= $stateChip('SUPPLIER_STATUS', $r['status']) ?><?php endif; ?><?php if (!$r['active']): ?> <?= $chip('off', \CW\Ui\Words::SUPPLIER_ITEMS['not_used']) ?><?php endif; ?></th>
-        <td class="c-status"><?php if ($r['preferred']): ?><?= $chip('done', \CW\Ui\Words::SUPPLIER_ITEMS['main']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('SUPPLIER_ITEMS', 'their_code') ?>"><?= $e($r['code']) ?></td>
-        <td data-label="<?= $word('SUPPLIER_ITEMS', 'pack') ?>"><?= $e($r['pack']) ?></td>
-        <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_pack') ?>"><?= $e($r['price']) ?><?php if ($r['price_on'] !== null): ?> <span class="o-sub"><?= $day($r['price_on']) ?></span><?php endif; ?></td>
+<?php foreach ($stock as $b): ?>
+      <tr>
+        <th scope="row" class="c-head"><?= $e($b['name'] ?? $b['code']) ?><?php if (!$b['sellable']): ?> <span class="tag"><?= $word('ITEM', 'not_sellable') ?></span><?php endif; ?></th>
+        <td class="num" data-label="<?= $word('STOCK', 'on_hand') ?>"><?= $n($b['on_hand']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'incoming') ?>"><?= $n($b['incoming']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?= $n($b['allocated']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?= $n($b['held']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'available') ?>"><?= $n($b['available']) ?></td>
+        <td data-label="<?= $word('ITEM', 'last_counted') ?>"><?php if ($b['counted_at'] === null): ?><span class="muted"><?= $word('ITEM', 'never') ?></span><?php else: ?><?= $when($b['counted_at']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
+      <tr class="sub">
+        <th scope="row" class="c-head"><?= $word('STOCK', 'total') ?></th>
+        <td class="num" data-label="<?= $word('STOCK', 'on_hand') ?>"><?= $n($totals['on_hand']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'incoming') ?>"><?= $n($totals['incoming']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?= $n($totals['allocated']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?= $n($totals['held']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'available') ?>"><?= $n($totals['available']) ?></td>
+        <td data-label=""></td>
+      </tr>
     </tbody>
   </table>
   </div>
 <?php endif; ?>
-</section>
-<?php endif; ?>
-<?= $partial('item_groups', $groups) ?>
-  </div>
-  <div class="it-panel<?php if ($tab === 'stores'): ?> open<?php endif; ?>" id="t-stores">
+</details>
+
+<details class="fold it-fold" id="it-selling"<?php if ($open === 'selling'): ?> open<?php endif; ?>>
+  <summary><h2 class="fold-h"><?= $word('ITEM_PAGE', 'f_selling') ?></h2></summary>
 <section aria-labelledby="listings-h">
   <h2 id="listings-h"><?= $word('ITEM', 'listings') ?></h2>
-<?php if ($coverage_link !== null): ?>
-  <p class="see-also"><a href="<?= $e($coverage_link) ?>"><?= $word('ITEM', 'coverage_link') ?></a></p>
-<?php endif; ?>
 <?php if ($listings === []): ?>
   <p class="muted"><?= $word('ITEM', 'listings_none') ?></p>
 <?php else: ?>
@@ -520,10 +359,16 @@
   </form>
 <?php endif; ?>
 </section>
-  </div>
-  <div class="it-panel<?php if ($tab === 'history'): ?> open<?php endif; ?>" id="t-history">
-<section class="card card-history" aria-labelledby="hist-h">
-  <h2 id="hist-h"><?= $say('CARD', 'history', count($cardHistory)) ?></h2>
+</details>
+
+<details class="fold it-fold" id="it-groups"<?php if ($open === 'groups'): ?> open<?php endif; ?>>
+  <summary><h2 class="fold-h"><?= $word('ITEM_PAGE', 'f_groups') ?></h2></summary>
+<?= $partial('item_groups', $groups) ?>
+</details>
+
+<details class="fold it-fold" id="it-history"<?php if ($open === 'history'): ?> open<?php endif; ?>>
+  <summary><h2 class="fold-h"><?= $say('CARD', 'history', count($cardHistory)) ?></h2></summary>
+<section class="card-history" aria-labelledby="hist-h">
 <?php if ($cardHistory === []): ?>
   <p class="muted"><?= $word('ITEM', 'history_none') ?></p>
 <?php else: ?>
@@ -534,6 +379,105 @@
   </ol>
 <?php endif; ?>
 </section>
+</details>
+</div>
+
+<aside class="item-side" aria-label="<?= $word('ITEM', 'tabs') ?>">
+<section class="card side-card item-stores" aria-labelledby="st-h">
+  <div class="card-head"><h2 id="st-h"><?= $word('ITEM_PAGE', 'listings') ?></h2><?php if ($coverage_link !== null): ?><a class="card-link" href="<?= $e($coverage_link) ?>"><?= $word('ITEM_PAGE', 'matching') ?></a><?php endif; ?></div>
+<?php if ($storeRows === []): ?>
+  <p class="muted side-row"><?= $word('ITEM', 'sells_none') ?></p>
+<?php endif; ?>
+<?php foreach ($storeRows as $st): ?>
+  <div class="side-row" title="<?= $e($st['title']) ?>">
+    <p class="side-line"><span class="side-name"><?= $e($st['store']) ?></span><?php if ($st['match'] !== null): ?><a class="card-link" href="<?= $e($st['match']) ?>"><?= $word('ITEM_PAGE', 'match') ?></a><?php else: ?><span class="tag <?= $e($st['tone']) ?>"><?= $e($st['state']) ?></span><?php endif; ?></p>
+<?php foreach ($st['listings'] as $l): ?>
+    <p class="side-sub"><?= $e($l['line']) ?></p>
+<?php if ($l['href'] !== null): ?>
+    <a class="card-link" href="<?= $u($l['href']) ?>"><?= $word('ITEM_PAGE', 'listing_change') ?></a>
+<?php endif; ?>
+<?php endforeach; ?>
   </div>
-  </div>
+<?php endforeach; ?>
 </section>
+
+<section class="card side-card item-barcodes" id="barcodes" aria-labelledby="bc-h">
+  <div class="card-head"><h2 id="bc-h"><?= $word('ITEM_PAGE', 'barcodes') ?></h2></div>
+<?php if ($canEditBarcodes): ?>
+  <details class="card-add"<?php if ($open === 'barcodes' && $error !== null): ?> open<?php endif; ?>>
+    <summary class="card-link"><?= $word('ITEM_PAGE', 'add') ?><span class="visually-hidden"> <?= $word('BARCODE', 'add') ?></span></summary>
+  <form class="add-barcode" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($barcodeAddKey) ?>">
+    <label for="new-barcode"><?= $word('BARCODE', 'add') ?></label>
+    <input id="new-barcode" type="text" name="barcode" inputmode="numeric" autocomplete="off" maxlength="40" value="<?= $e($typedBarcode) ?>" placeholder="<?= $word('BARCODE', 'add_hint') ?>">
+    <label for="new-units"><?= $word('BARCODE', 'add_units') ?></label>
+    <input id="new-units" class="units" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($typedUnits) ?>">
+    <button class="btn" type="submit"><?= $word('BARCODE', 'add_button') ?></button>
+    <p class="hint"><?= $word('BARCODE', 'add_text') ?></p>
+  </form>
+  </details>
+<?php endif; ?>
+<?php if ($barcodeLines === []): ?>
+  <p class="muted side-row"><?= $word('BARCODE', 'none') ?></p>
+<?php else: ?>
+  <ul class="plain side-list barcodes">
+<?php foreach ($barcodeLines as $b): ?>
+    <li class="side-row">
+      <p class="side-line"><span><?= $e($b['barcode']) ?> <span class="muted">· <?= $e($b['units_words']) ?></span><?php if (!$b['usable']): ?> <span class="tag blocked"><?= $word('ITEM_PAGE', 'not_usable') ?></span><?php endif; ?></span></p>
+      <p class="side-sub"><?= $e($b['source']) ?><?php if ($b['note'] !== null): ?> · <?= $e($b['note']) ?><?php endif; ?></p>
+<?php if ($canEditBarcodes && $b['stored']): ?>
+        <details class="bc-change">
+          <summary><?= $word('ITEM_PAGE', 'barcode_change') ?><span class="visually-hidden"> <?= $e($b['barcode']) ?></span></summary>
+          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/units') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+            <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+            <input type="hidden" name="form_key" value="<?= $e($b['unitsKey']) ?>">
+            <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
+            <input type="hidden" name="units_was" value="<?= $e($b['units']) ?>">
+            <label for="units-<?= $e($b['barcode']) ?>"><?= $word('BARCODE', 'units') ?></label>
+            <input class="units" id="units-<?= $e($b['barcode']) ?>" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($b['units']) ?>">
+            <button class="btn sm" type="submit"><?= $word('BARCODE', 'save') ?></button>
+          </form>
+          <details class="remove-barcode">
+            <summary><?= $word('BARCODE', 'remove') ?></summary>
+            <form method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/remove') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+              <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+              <input type="hidden" name="form_key" value="<?= $e($b['removeKey']) ?>">
+              <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
+              <p class="muted"><?= $say('BARCODE', 'remove_text', (string) $b['barcode'], (string) $sku['code']) ?></p>
+              <label for="why-<?= $e($b['barcode']) ?>"><?= $word('BARCODE', 'remove_why') ?></label>
+              <input id="why-<?= $e($b['barcode']) ?>" type="text" name="reason" maxlength="500">
+              <button class="btn" type="submit"><?= $word('BARCODE', 'remove_button') ?></button>
+            </form>
+          </details>
+        </details>
+<?php endif; ?>
+    </li>
+<?php endforeach; ?>
+  </ul>
+<?php endif; ?>
+<?php if ($barcodeReviews !== []): ?>
+  <p class="note"><?= $word('BARCODE', 'open_reviews') ?>
+<?php foreach ($barcodeReviews as $br): ?>
+    <?php if ($canSeeReviews): ?><a href="<?= $u('/ui/items/barcodes', ['barcode' => $br['barcode']]) ?>"><?= $e($br['barcode']) ?></a><?php else: ?><?= $e($br['barcode']) ?><?php endif; ?> (<?= $e($br['reason']) ?>)
+<?php endforeach; ?>
+  </p>
+<?php endif; ?>
+</section>
+
+<?php if ($supplierRows !== null): ?>
+<section class="card side-card item-suppliers" aria-labelledby="sp-h">
+  <div class="card-head"><h2 id="sp-h"><?= $word('ITEM_PAGE', 'suppliers') ?></h2></div>
+<?php if ($supplierRows === [] && $supplierRowsOff === []): ?>
+  <p class="muted side-row"><?= $word('ITEM_PAGE', 'no_suppliers') ?></p>
+<?php endif; ?>
+<?php foreach ([...$supplierRows, ...$supplierRowsOff] as $r): ?>
+  <div class="side-row">
+    <p class="side-line"><span><a href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['name']) ?></a><?php if ($r['preferred']): ?> <span class="tag info"><?= $word('ITEM_PAGE', 'main') ?></span><?php endif; ?><?php if ($r['status'] !== 'active'): ?> <?= $stateChip('SUPPLIER_STATUS', $r['status']) ?><?php endif; ?><?php if (!$r['active']): ?> <span class="tag off"><?= $word('ITEM_PAGE', 'not_used') ?></span><?php endif; ?></span></p>
+    <p class="side-sub"><?= $e($r['pack']) ?><?php if ($r['price'] !== null): ?> · <?= $say('ITEM_PAGE', 'last_price', (string) $r['price']) ?><?php endif; ?><?php if ($r['code'] !== null): ?> · <?= $e($r['code']) ?><?php endif; ?></p>
+  </div>
+<?php endforeach; ?>
+</section>
+<?php endif; ?>
+</aside>
+</div>

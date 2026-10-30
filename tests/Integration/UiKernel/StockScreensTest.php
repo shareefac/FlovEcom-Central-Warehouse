@@ -50,14 +50,15 @@ final class StockScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['stock'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
-        // The four figures: products, in stock (a sellable warehouse), units everywhere, with no stock.
-        self::assertSame(['4', '2', '23', '2'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array($xp->query('//main//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-big"]'))));
+        // A simple list since the redesign (docs/decisions.md RD-A7): no figures strip.
+        self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")]')->length);
         // One row per product; nothing to sell first (Delta: only in a warehouse the websites do not sell from), then by name.
         self::assertSame([Words::STOCK_VIEW['group_out'], Words::STOCK_VIEW['group_in']], self::groupTitles($page));
         self::assertSame(['Delta coil', 'Alpha liquid 10ml', 'Beta pod 2ml'], self::names($page, 'stock-lines'), 'Gamma (nothing left anywhere) is left out');
         $beta = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//table[contains(@class, "stock-lines")]/tbody/tr[th/a[. = "Beta pod 2ml"]])')));
-        self::assertStringContainsString(Words::STOCK_VIEW['group_in'] . ' 5 2 0 0 5', $beta, 'Main warehouse 5, the check room 2, unstamped 0, reserved 0, available 5');
+        self::assertStringContainsString(Words::STOCK_VIEW['group_in'] . ' 7 0 5', $beta, 'on hand 7 (Main warehouse 5 and the check room 2: every warehouse together, RD-A7), reserved 0, available 5');
+        self::assertSame('2', trim((string) (new \DOMXPath($web->get('/ui/stock', ['warehouse' => (string) self::$db->value("SELECT id FROM warehouse WHERE code = 'VERIFY'")])->dom()))
+            ->evaluate('string(//table[contains(@class, "stock-lines")]/tbody/tr[th/a[. = "Beta pod 2ml"]]/td[@data-label="' . Words::INV_LIST['col_on_hand'] . '"])')), 'the warehouse chosen: its own');
         self::assertSame('/ui/items/' . $a, $xp->query('//table[contains(@class, "stock-lines")]//th/a[. = "Alpha liquid 10ml"]')->item(0)?->getAttribute('href'));
         self::assertGreaterThan(0, $xp->query('//table[contains(@class, "stock-lines") and contains(@class, "stack")]//td[@data-label="' . Words::STOCK['available'] . '"]')->length,
             'one card per product on a phone');

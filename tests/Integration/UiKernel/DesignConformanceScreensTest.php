@@ -61,10 +61,11 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertMockupHead($cards, 'Items', Words::NEW['add_item']);
         self::assertSame('/ui/items/new', self::xp($cards)->evaluate('string(//main//header[contains(@class, "page-head")]/div[@class="ph-actions"]/a/@href)'));
         self::assertSame(0, self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a')->length, 'no loose buttons in the toolbar');
-        self::assertSame(['tb-search', 'tb-state', 'tb-end'], array_map(static fn (\DOMElement $d): string => $d->getAttribute('class'),
-            iterator_to_array(self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/div') ?: [])), 'one search, one Show, the More');
+        // The redesign's simple list (docs/decisions.md RD-A2, RD-A3): one search and ONE Show choice in the toolbar; every filter of before in More.
+        self::assertSame(['tb-search', 'more show-pick'], array_map(static fn (\DOMElement $d): string => $d->getAttribute('class'),
+            iterator_to_array(self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/*[not(self::input)]') ?: [])), 'one search, one Show');
         self::assertSame(['state', 'type', 'stock', 'warnings', 'blocked', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            iterator_to_array(self::xp($cards)->query('//main//form[contains(@class, "toolbar")]//details[contains(@class, "tb-show")]//*[@name]') ?: [])), 'every filter inside the one Show');
+            iterator_to_array(self::xp($cards)->query('//main//header//details[contains(@class, "page-more")]//form//*[@name and not(@type="hidden")]') ?: [])), 'every filter inside More');
         $counts = $stock->get('/ui/stock/counts');
         self::assertMockupHead($counts, 'Counts', null);
         self::assertSame(0, self::xp($counts)->query('//main//nav[contains(@class, "tabs")]')->length, 'Counts: no tab row, no segment row (DC28)');

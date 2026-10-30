@@ -163,10 +163,11 @@ final class ReservationsScreenTest extends KernelUiTestCase
             (string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "help")])')), 'the page\'s own help in it');
         self::assertSame(Words::INTRO_LOOK['reservations'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")]//p[last()])')),
             'who changes it, under the heading\'s "?" (DC1)');
-        // Nothing reserved yet: the empty state in words, the figures at nothing, no export, and no form that sends anything.
+        // Nothing reserved yet: the empty state in words, no figures strip (a simple list since the redesign, docs/decisions.md RD-A7), no
+        // export, and no form that sends anything.
         self::assertStringContainsString(Words::RESV['none'], $page->text());
         self::assertStringContainsString(Words::RESV['none_text'], $page->text());
-        self::assertSame(['0', '0', '0'], self::figures($page));
+        self::assertSame([], self::figures($page));
         self::assertSame([], self::refs($page));
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
@@ -189,47 +190,43 @@ final class ReservationsScreenTest extends KernelUiTestCase
             self::groupTitles($page), 'the engine\'s states; a paid order waits to ship until none of its items does');
         self::assertSame(['=SUM(A1)', 'A2001', 'V1002', 'V1001', 'V1003', 'ghost', 'V1004', 'V1005'], self::refs($page), 'newest first inside each group');
 
-        // One row: the label (the board's status cell, right after the order: docs/decisions.md W8), the store, products and units (a ten-pack
-        // keeps 10 warehouse units), and what became of it.
+        // One row (RD-A7): the order, the store, the label (the board's status cell), the units with the products under them (a ten-pack keeps 10
+        // warehouse units), and what became of it.
         $row = self::rowOf($page, 'V1001');
-        self::assertStringContainsString(Words::RESV_CHIP['to_ship'] . ' VPG test site 2 12 ', $row);
+        self::assertStringContainsString('VPG test site ' . Words::RESV_CHIP['to_ship'] . ' 12 ' . Words::say('INV_LIST', 'products_n', 2), $row);
         self::assertStringContainsString(Words::say('RESV', 'out_part_allocated', 2) . ' · ' . Words::say('RESV', 'out_part_shipped', 1), $row);
         self::assertStringContainsString(Words::RESV['out_all_shipped'], self::rowOf($page, 'V1003'));
         self::assertStringContainsString(Words::RESV['out_held'], self::rowOf($page, 'V1002'));
         self::assertStringContainsString(Words::RESV['out_released'], self::rowOf($page, 'V1004'));
         self::assertStringContainsString(Words::RESV['out_tombstone'], self::rowOf($page, 'ghost'));
         self::assertStringContainsString(Words::RESV['out_expired'], self::rowOf($page, 'V1005'));
-        self::assertStringContainsString(Words::RESV_CHIP['held'] . ' ALT test site 1 3 ', self::rowOf($page, 'A2001'));
+        self::assertStringContainsString('ALT test site ' . Words::RESV_CHIP['held'] . ' 3 ' . Words::say('INV_LIST', 'products_n', 1), self::rowOf($page, 'A2001'));
         // A product that is not linked keeps no stock: 0 units, and the row says why.
-        self::assertStringContainsString(Words::RESV_CHIP['held'] . ' VPG test site 1 0 ', self::rowOf($page, '=SUM(A1)'));
+        self::assertStringContainsString('VPG test site ' . Words::RESV_CHIP['held'] . ' 0 ' . Words::say('INV_LIST', 'products_n', 1), self::rowOf($page, '=SUM(A1)'));
         self::assertStringEndsWith(Words::RESV['out_held'] . Words::RESV['unlinked_one'], self::rowOf($page, '=SUM(A1)'));
         $xp = new \DOMXPath($page->dom());
         self::assertGreaterThan(0, $xp->query('//table[contains(@class, "reservations") and contains(@class, "stack")]//td[@data-label="' . Words::RESV['units'] . '"]')->length,
             'one card per order on a phone');
         // A hold says until when it is kept; nothing else does.
-        self::assertSame(3, $xp->query('//table[contains(@class, "reservations")]/tbody/tr/td[@data-label="' . Words::RESV['expires'] . '"][normalize-space(.) != ""]')->length);
+        self::assertSame(3, $xp->query('//table[contains(@class, "reservations")]/tbody/tr/td[@data-label="' . Words::RESV['outcome'] . '"][starts-with(normalize-space(.), "'
+            . explode('%s', Words::INV_LIST['kept_until'])[0] . '")]')->length);
 
-        // The figures: units reserved now (1 Beta + 3 Alpha; the unlinked product keeps none), reservations that run out within the hour
-        // (the two of the store that keeps them 40 minutes), units sold and waiting to ship (1 Alpha + the ten-pack: the stock figure).
-        self::assertSame(['4', '2', '11'], self::figures($page));
-        self::assertStringContainsString(Words::say('RESV', 'tile_held_sub', 3), $page->text());
+        // No figures strip on the list (RD-A7); the stock figures hold the same units (the item page's stock card says them).
+        self::assertSame([], self::figures($page));
         self::assertSame(11, (int) self::$db->value('SELECT SUM(allocated) FROM stock_balance'));
         self::assertSame(4, (int) self::$db->value('SELECT SUM(held) FROM stock_balance'), 'the same units the stock figures call reserved');
 
         // The store selector: All stores, then each store of the channel table by name, with its reservations held now.
-        // A choice of the Show row since DC33 (the store tab row went), its `channel` as the tabs' links had it.
+        // A choice of the Show row since DC33 (the store tab row went), under the head's More since the redesign (RD-A7), its `channel` as the
+        // tabs' links had it.
         self::assertSame([[Words::BULK['all_stores'], self::PATH, 3, true], ['ALT test site', self::PATH . '?channel=alt', 1, false],
             ['VPG test site', self::PATH . '?channel=vpg', 2, false]], self::storeChoice($page, self::PATH));
         self::assertSame(0, (new \DOMXPath($page->dom()))->query('//main//nav[contains(@class, "store-seg")] | //main//nav[contains(@class, "tabs")]')->length, 'no store tab row');
         $alt = $this->page($web, ['channel' => 'alt']);
         self::assertSame(['A2001', 'ghost'], self::refs($alt));
         self::assertSame([false, true, false], array_column(self::storeChoice($alt, self::PATH), 3));
-        self::assertSame(['3', '0'], self::figures($alt), 'this store keeps a reservation two hours: none runs out within the hour');
-        self::assertStringContainsString(Words::RESV['to_ship_all'], $alt->text(), 'units waiting to ship are not kept per store: left out, and the page says so');
         $vpg = $this->page($web, ['channel' => 'vpg']);
         self::assertSame(['=SUM(A1)', 'V1002', 'V1001', 'V1003', 'V1004', 'V1005'], self::refs($vpg));
-        self::assertSame(['1', '2'], self::figures($vpg));
-        self::assertStringContainsString(Words::say('RESV', 'tile_held_sub', 2), $vpg->text());
 
         // The state filter (the engine's four states), alone and with a store; the store's links keep the state.
         self::assertSame(['=SUM(A1)', 'A2001', 'V1002'], self::refs($held = $this->page($web, ['state' => 'held'])));
@@ -278,13 +275,12 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::RESV['none_filtered'], $none->text());
         self::assertContains(self::PATH, $none->hrefs(), 'Clear the filters');
 
-        // The product's page leads here: its reserved figures link to the orders that hold them.
+        // The product's page leads here: its held figure links to the orders that hold it (the redesign's stock card, RD-A4: one figure).
         $item = $web->get('/ui/items/' . $this->alpha);
         self::assertSame(200, $item->status, $item->describe());
         $links = array_values(array_filter($item->hrefs(), static fn (string $h): bool => str_starts_with($h, self::PATH)));
-        self::assertSame([self::PATH . '?q=' . $code . '&state=committed', self::PATH . '?q=' . $code . '&state=held'], $links);
-        self::assertSame(['V1001'], self::refs($this->open($web, $links[0])), 'sold, waiting to ship');
-        self::assertSame(['A2001'], self::refs($this->open($web, $links[1])), 'reserved in a checkout');
+        self::assertSame([self::PATH . '?q=' . $code], $links);
+        self::assertSame(['A2001', 'V1001'], self::refs($this->open($web, $links[0])), 'reserved in a checkout, sold and waiting to ship');
         $plain = $web->get('/ui/items/' . $this->item('legacy', 5, 'Gamma kit'));
         self::assertSame([], array_values(array_filter($plain->hrefs(), static fn (string $h): bool => str_starts_with($h, self::PATH))), 'nothing reserved: a plain figure');
     }

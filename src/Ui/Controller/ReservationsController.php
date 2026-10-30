@@ -52,7 +52,21 @@ final class ReservationsController
         $code = $f['store'] === null ? null : (string) $f['store']['code'];
         $keep = ['state' => $f['state'], 'q' => $f['q'] === '' ? null : $f['q']];
         $query = ['channel' => $code] + $keep;
+        $storeItems = ReviewController::storeItems($stores, self::PATH, $keep, $code, $held, true);
         return $ctx->page('stock_reservations', [
+            // The redesign's simple list (docs/decisions.md RD-A7): the state is the ONE Show choice; the store (with its reservations held now,
+            // DC33), Clear and the download are under the head's More.
+            'show' => [['label' => Words::RESV['any_state'], 'href' => Html::url(self::PATH, ['channel' => $code, 'q' => $keep['q']]), 'current' => $f['state'] === null],
+                ...array_map(static fn (string $st, string $label): array => ['label' => $label, 'href' => Html::url(self::PATH, ['channel' => $code, 'q' => $keep['q'],
+                    'state' => $st]), 'current' => $f['state'] === $st], array_keys(Words::RESV_STATE), array_values(Words::RESV_STATE))],
+            'bar' => ['filters' => ['action' => self::PATH, 'keep' => array_filter(['q' => $keep['q'], 'state' => $keep['state']], static fn (?string $v): bool => $v !== null),
+                'open' => $code !== null,
+                'selects' => [['name' => 'channel', 'label' => Words::RESV['store'], 'value' => (string) $code, 'options' => array_combine(
+                    array_map(static fn (array $it): string => (string) ($it['query']['channel'] ?? ''), $storeItems),
+                    array_map(static fn (array $it): string => $it['label'] . ' (' . Html::int($it['count']) . ')', $storeItems))]]],
+                'links' => array_values(array_filter([
+                    $f['state'] !== null || $f['q'] !== '' ? ['label' => Words::RESV['clear'], 'href' => Html::url(self::PATH, ['channel' => $code])] : null,
+                    $page['rows'] !== [] ? ['label' => Words::RESV['download'], 'href' => Html::url(self::PATH . '.csv', $query), 'download' => true] : null]))],
             'f' => ['channel' => $code, 'state' => $f['state'], 'q' => $f['q']],
             'storeItems' => ReviewController::storeItems($stores, self::PATH, $keep, $code, $held, true),
             'states' => Words::RESV_STATE,

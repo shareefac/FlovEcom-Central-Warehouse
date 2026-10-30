@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
@@ -38,6 +39,13 @@ final class StockOpsController
     public const PAGES = ['in' => 'stock_in', 'out' => 'stock_out', 'adjust' => 'adjustments', 'transfer' => 'transfers', 'release' => 'releases'];
     /** The board's groups, in order: status, and the cancellation records apart. */
     public const GROUPS = ['draft', 'awaiting_approval', 'posted', 'reversed', 'reversal', 'cancelled'];
+    /**
+     * The list's groups as the redesign's Adjustments artboard orders them (docs/decisions.md RD-A5): Waiting for an OK, Draft, Done this week;
+     * then done before this week, cancelled, the cancellation records, stopped.
+     */
+    public const LIST_GROUPS = ['awaiting_approval', 'draft', 'week', 'earlier', 'reversed', 'reversal', 'cancelled'];
+    /** The kinds the Adjustments page's Show chooses between, in the artboard's order (its "All kinds" is not built: RD-A5). */
+    public const ADJUSTMENT_KINDS = ['in', 'out', 'adjust', 'release'];
     /** The kinds that print a PDF (the transfer note, the release invoice). */
     public const PDF_KINDS = ['transfer', 'release'];
 
@@ -74,35 +82,41 @@ final class StockOpsController
         $canPost = Documents::mayPost($me->roles, $type);
         $f = self::filters($ctx->req);
         $rows = array_map(fn (array $r): array => $this->listRow($kind, $r), $ctx->stockOps()->list($kind, $f));
+        // The groups of the redesign's Adjustments artboard (docs/decisions.md RD-A5): Waiting for an OK, Draft, Done this week (made final since
+        // Monday, UK time), then what the artboard does not draw but the list holds: done before this week, cancelled, the cancellation
+        // records, stopped.
+        $week = self::weekStart();
         $groups = [];
         foreach ($rows as $r) {
-            $groups[$r['group']][] = $r;
+            $groups[$r['group'] === 'posted' ? ($r['posted_at'] !== null && $r['posted_at'] >= $week ? 'week' : 'earlier') : $r['group']][] = $r;
         }
         $choices = $ctx->stockOps()->formChoices($kind);
         $k = Words::STOCK_KIND[$kind];
         $page = self::PAGES[$kind];
         // The item page's Move stock and More (docs/decisions.md IV2): the new form names the item, which goes into the draft's add box.
         $item = self::itemOf($ctx, UiRequest::id($typed['item'] ?? $ctx->req->param('item')));
+        $filtered = $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null || $f['cancelled'];
+        $csv = Html::url(StockOps::PATHS[$kind] . '.csv', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => $f['state'], 'warehouse' => $f['warehouse'],
+            'cancelled' => $f['cancelled'] ? '1' : null]);
         return $ctx->page('stock_ops', [
             'kind' => $kind,
             'k' => $k,
             'pageKey' => $page,
             'base' => StockOps::PATHS[$kind],
-            'groups' => array_filter(array_map(static fn (string $g): array => $groups[$g] ?? [], array_combine(self::GROUPS, self::GROUPS)),
+            'groups' => array_filter(array_map(static fn (string $g): array => $groups[$g] ?? [], array_combine(self::LIST_GROUPS, self::LIST_GROUPS)),
                 static fn (array $g): bool => $g !== []),
+            'groupNames' => self::groupNames(),
+            'show' => self::showChoices($kind, $f),
+            'bar' => self::bar($kind, $f, $filtered, $csv, count($rows) > 0, $canPost, $choices['warehouses']),
             'rows_n' => count($rows),
             'limit' => StockOps::LIST_LIMIT,
             'f' => $f,
-            'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null || $f['cancelled'],
-            'states' => array_intersect_key(Words::DOC_STATUS, array_flip(StockOps::STATES)),
-            'warehouses' => $choices['warehouses'],
+            'filtered' => $filtered,
             'form' => self::form($kind, $choices, $typed),
             'canPost' => $canPost,
             'formKey' => $canPost ? FormOnce::newKey() : null,
             'item' => $item,
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $type . '.post'),
-            'csv' => Html::url(StockOps::PATHS[$kind] . '.csv', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => $f['state'], 'warehouse' => $f['warehouse'],
-                'cancelled' => $f['cancelled'] ? '1' : null]),
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => $kind === 'release' ? Words::SEGMENT['releases'] : Words::MENU[$page]]);
@@ -610,6 +624,83 @@ final class StockOpsController
      * @param array<string, mixed> $r StockOps::list() row
      * @return array<string, mixed>
      */
+    /** Monday 00:00 of this week in London, as a UTC DATETIME (a record made final since then is "Done this week"). */
+    private static function weekStart(): string
+    {
+        $london = Clock::now()->setTimezone(new \DateTimeZone('Europe/London'));
+        return Clock::db($london->modify('monday this week')->setTime(0, 0)->setTimezone(Clock::utc()));
+    }
+
+    /** @return array<string, string> each list group's name */
+    private static function groupNames(): array
+    {
+        return ['awaiting_approval' => Words::INV_LIST['g_waiting'], 'draft' => Words::INV_LIST['g_draft'], 'week' => Words::INV_LIST['g_week'],
+            'earlier' => Words::INV_LIST['g_earlier'], 'reversed' => Words::DOC_STATUS['reversed'], 'reversal' => Words::STOCK_OPS['group_reversal'],
+            'cancelled' => Words::DOC_STATUS['cancelled']];
+    }
+
+    /**
+     * The list's ONE Show choice (docs/decisions.md RD-A2, RD-A5): on the four pages of Adjustments the kind (each its own page, the filters
+     * kept); on Transfers the state (the list of before: every record not stopped, else one state).
+     *
+     * @param array{q: string, state: ?string, warehouse: ?int, cancelled: bool} $f
+     * @return list<array{label: string, href: string, current: bool}>
+     */
+    private static function showChoices(string $kind, array $f): array
+    {
+        $q = $f['q'] === '' ? null : $f['q'];
+        if ($kind !== 'transfer') {
+            return array_map(static fn (string $k): array => ['label' => Words::INV_LIST['kinds_' . $k],
+                'href' => Html::url(StockOps::PATHS[$k], ['q' => $q, 'state' => $f['state'], 'warehouse' => $f['warehouse'], 'cancelled' => $f['cancelled'] ? '1' : null]),
+                'current' => $k === $kind], self::ADJUSTMENT_KINDS);
+        }
+        $out = [['label' => Words::STOCK_OPS['any_state'], 'href' => Html::url(StockOps::PATHS[$kind], ['q' => $q, 'warehouse' => $f['warehouse']]),
+            'current' => $f['state'] === null && !$f['cancelled']]];
+        foreach (StockOps::STATES as $state) {
+            $out[] = ['label' => Words::of('DOC_STATUS', $state), 'href' => Html::url(StockOps::PATHS[$kind], ['q' => $q, 'state' => $state, 'warehouse' => $f['warehouse']]),
+                'current' => $f['state'] === $state];
+        }
+        return $out;
+    }
+
+    /**
+     * The head's right (docs/decisions.md RD-A2, RD-A5): More holds the filters the Show choice does not (the state on Adjustments' pages, the
+     * warehouse), Clear, the download and, on Stock in, Goods in for a supplier's delivery; then the ONE main button, the kind's "New …" (it
+     * opens the create fold), for who keeps these records.
+     *
+     * @param array{q: string, state: ?string, warehouse: ?int, cancelled: bool} $f
+     * @param list<array<string, mixed>> $warehouses
+     * @return array<string, mixed>
+     */
+    private static function bar(string $kind, array $f, bool $filtered, string $csv, bool $rows, bool $canPost, array $warehouses): array
+    {
+        $selects = [];
+        if ($kind !== 'transfer') {
+            $selects[] = ['name' => 'state', 'label' => Words::INV_LIST['state'], 'value' => (string) $f['state'],
+                'options' => ['' => Words::STOCK_OPS['any_state']] + array_intersect_key(Words::DOC_STATUS, array_flip(StockOps::STATES))];
+        }
+        $selects[] = ['name' => 'warehouse', 'label' => Words::STOCK_OPS['warehouse'], 'value' => (string) $f['warehouse'],
+            'options' => ['' => Words::STOCK_OPS['any_warehouse']] + array_column($warehouses, 'name', 'id')];
+        $keep = array_filter(['q' => $f['q'], 'state' => $kind === 'transfer' ? (string) $f['state'] : '', 'cancelled' => $f['cancelled'] ? '1' : ''],
+            static fn (string $v): bool => $v !== '');
+        $links = [];
+        if ($filtered) {
+            $links[] = ['label' => Words::STOCK_OPS['clear'], 'href' => StockOps::PATHS[$kind]];
+        }
+        if ($rows) {
+            $links[] = ['label' => Words::STOCK_OPS['download'], 'href' => $csv, 'download' => true];
+        }
+        if ($kind === 'in') {
+            $links[] = ['label' => Words::INV_LIST['goods_in'], 'href' => '/ui/receiving'];
+        }
+        return [
+            'filters' => ['action' => StockOps::PATHS[$kind], 'keep' => $keep, 'open' => $f['warehouse'] !== null || ($kind !== 'transfer' && $f['state'] !== null),
+                'selects' => $selects],
+            'links' => $links,
+            'main' => $canPost ? ['label' => Words::NEW[self::PAGES[$kind]], 'href' => StockOps::PATHS[$kind] . '#new'] : null,
+        ];
+    }
+
     private function listRow(string $kind, array $r): array
     {
         $status = (string) $r['status'];
@@ -639,6 +730,18 @@ final class StockOpsController
             'tone' => $group === 'reversal' ? 'off' : Words::tone('DOC_STATUS', $status), 'state_word' => Words::of('DOC_STATUS', $status),
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => $r['priced'] === null ? null : (string) $r['priced'],
             'made_by' => (string) ($r['created_by_name'] ?? ''), 'next' => $next,
+            // The redesign's columns (docs/decisions.md RD-A5): the kind, the reason (an adjustment's are on its lines), the units with the way
+            // they move (stock in: +, stock out: −; an adjustment's lines go both ways, a transfer or a release moves stock between rooms: no sign),
+            // from and to.
+            'posted_at' => $r['posted_at'] === null ? null : (string) $r['posted_at'],
+            'kind_word' => Words::INV_LIST['kind_' . $kind],
+            'units_shown' => match ($kind) {
+                'in' => '+' . Html::int((int) $r['units']),
+                'out' => '−' . Html::int((int) $r['units']),
+                default => Html::int((int) $r['units']),
+            },
+            'units_dir' => match ($kind) { 'in' => 'up', 'out' => 'down', default => '' },
+            'from' => $from, 'to' => $to,
         ];
     }
 

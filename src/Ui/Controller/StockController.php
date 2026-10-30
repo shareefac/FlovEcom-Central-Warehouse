@@ -39,9 +39,20 @@ final class StockController
             $row = ['sku_id' => (int) $r['sku_id'], 'code' => (string) ($r['code'] ?? ''), 'name' => (string) $r['name'],
                 'brand' => $r['brand'] === null ? null : (string) $r['brand'], 'reserved' => (int) $r['reserved'], 'available' => (int) $r['available'],
                 'by_warehouse' => array_map(static fn (array $w): int => (int) ($r['w_' . $w['id']] ?? 0), $warehouses)];
+            // The redesign's one On hand column (docs/decisions.md RD-A7): the warehouse chosen under More, else every warehouse together.
+            $row['on_hand'] = $f['warehouse'] === null ? array_sum($row['by_warehouse'])
+                : (int) ($r['w_' . $f['warehouse']] ?? 0);
             $groups[$row['available'] > 0 ? 'in' : 'out'][] = $row;
         }
+        $keep = ['q' => $f['q'] === '' ? null : $f['q'], 'warehouse' => $f['warehouse']];
         return $ctx->page('stock', [
+            // The redesign's simple list (docs/decisions.md RD-A7): what to show is the ONE Show choice; the warehouse and Clear are under More.
+            'show' => array_map(static fn (string $v, string $label): array => ['label' => $label, 'href' => Html::url('/ui/stock', $keep + ['show' => $v === 'stock' ? null : $v]),
+                'current' => $f['show'] === $v], ['stock', 'all', 'negative'], [Words::STOCK_VIEW['show_stock'], Words::STOCK_VIEW['show_all'], Words::STOCK_VIEW['show_negative']]),
+            'bar' => ['filters' => ['action' => '/ui/stock', 'keep' => array_filter(['q' => $f['q'], 'show' => $f['show'] === 'stock' ? '' : $f['show']],
+                static fn (string $v): bool => $v !== ''), 'open' => $f['warehouse'] !== null, 'selects' => [['name' => 'warehouse', 'label' => Words::STOCK_VIEW['warehouse'],
+                'value' => (string) $f['warehouse'], 'options' => ['' => Words::STOCK_VIEW['all_warehouses']] + array_column($warehouses, 'name', 'id')]]],
+                'links' => $f['warehouse'] !== null || $f['q'] !== '' || $f['show'] !== 'stock' ? [['label' => Words::STOCK_VIEW['clear'], 'href' => '/ui/stock']] : []],
             'f' => $f,
             'warehouses' => $warehouses,
             'figures' => $views->figures(),
@@ -74,7 +85,21 @@ final class StockController
         $who = $views->actors(array_values(array_unique(array_map(static fn (array $r): string => (string) $r['actor'], $result['rows']))));
         $query = ['warehouse' => $f['warehouse'], 'q' => $f['q'], 'type' => $f['type'], 'figure' => $f['figure'] === 'on_hand' ? null : $f['figure']];
         $deltas = array_map(static fn (array $r): int => (int) $r['qty_delta'], $result['rows']);
+        $keep = ['q' => $f['q'] === '' ? null : $f['q'], 'warehouse' => $f['warehouse'], 'figure' => $f['figure'] === 'on_hand' ? null : $f['figure']];
+        $filtered = $f['warehouse'] !== null || $f['q'] !== '' || $f['type'] !== null || $f['figure'] !== 'on_hand';
         return $ctx->page('stock_movements', [
+            // The redesign's simple list (docs/decisions.md RD-A7): the kind of change is the ONE Show choice; the warehouse and the figure (a GET
+            // form) and Clear are under the head's More.
+            'show' => [['label' => Words::STOCK_VIEW['all_types'], 'href' => Html::url('/ui/stock/movements', $keep), 'current' => $f['type'] === null],
+                ...array_map(static fn (string $t, string $label): array => ['label' => $label, 'href' => Html::url('/ui/stock/movements', $keep + ['type' => $t]),
+                    'current' => $f['type'] === $t], array_keys(Words::MOVEMENT), array_values(Words::MOVEMENT))],
+            'bar' => ['filters' => ['action' => '/ui/stock/movements', 'keep' => array_filter(['q' => $f['q'], 'type' => (string) $f['type']], static fn (string $v): bool => $v !== ''),
+                'open' => $f['warehouse'] !== null || $f['figure'] !== 'on_hand', 'selects' => [
+                    ['name' => 'warehouse', 'label' => Words::STOCK_VIEW['warehouse'], 'value' => (string) $f['warehouse'],
+                        'options' => ['' => Words::STOCK_VIEW['all_warehouses']] + array_column($warehouses, 'name', 'id')],
+                    ['name' => 'figure', 'label' => Words::STOCK_VIEW['figure'], 'value' => $f['figure'],
+                        'options' => ['on_hand' => Words::STOCK_VIEW['figure_on_hand'], 'all' => Words::STOCK_VIEW['figure_all']]]]],
+                'links' => $filtered ? [['label' => Words::STOCK_VIEW['clear'], 'href' => '/ui/stock/movements']] : []],
             'f' => $f,
             // The report's figures strip (docs/decisions.md W8): the changes this page shows, the units they added and took away.
             'figures' => ['moves' => count($deltas), 'in' => array_sum(array_filter($deltas, static fn (int $d): bool => $d > 0)),
@@ -94,7 +119,7 @@ final class StockController
                     'day' => Html::day((string) $r['at']), 'time' => substr(Html::when((string) $r['at']), -5),
                 ];
             }, $result['rows']),
-            'filtered' => $f['warehouse'] !== null || $f['q'] !== '' || $f['type'] !== null || $f['figure'] !== 'on_hand',
+            'filtered' => $filtered,
             'older_link' => $result['next'] === null ? null : Html::url('/ui/stock/movements', $query + ['before' => $result['next']]),
             'newest_link' => $f['before'] === null ? null : Html::url('/ui/stock/movements', $query),
         ], 200, ['title' => Words::MENU['movements']]);

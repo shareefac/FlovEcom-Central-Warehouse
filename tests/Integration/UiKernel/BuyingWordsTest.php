@@ -94,7 +94,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$buyer, '/ui/purchasing/suppliers/' . $made['id'] . '/items/new?q=plain', Words::say('SUPPLIER_ITEMS', 'add_title', 'Plain Supplies'), 'supplier_item_form'],
             [$buyer, '/ui/purchasing/supplier-items/' . $si['id'], Words::say('SUPPLIER_ITEMS', 'one_title', 'Plain pod 2ml', 'Plain Supplies'), 'supplier_item'],
             [$manager, '/ui/purchasing/orders/' . $draft->id, Words::say('ORDER', 'title_draft', 'Plain Supplies'), 'order'],
-            [$manager, '/ui/items/cards', Words::MENU['cards'], 'cards'],
+            [$manager, '/ui/items/cards', Words::INV_LIST['items'], 'cards'],
             [$manager, '/ui/items/cards/import', Words::PAGE_TITLE['card_import'], 'card_import'],
             [$reviewer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' ' . Words::PO_STATE['approved'], 'order'] /* PO_View: the number, its status block beside it (DC22) */,
             [$reviewer, '/ui/purchasing/reorder', Words::MENU['reorder'], null],
@@ -104,7 +104,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$stock, '/ui/items/' . $sku, 'Plain pod 2ml', 'item'], // its CW number is on the identity line under the name (IV1)
             [$stock, '/ui/items/' . $sku . '/card', Words::say('CARD', 'form_title', 'Plain pod 2ml') . ' (' . $code($sku) . ')', 'card_form'],
             [$stock, '/ui/items/barcodes', Words::MENU['barcodes'], 'barcodes'],
-            [$auditor, '/ui/items/cards', Words::MENU['cards'], null],
+            [$auditor, '/ui/items/cards', Words::INV_LIST['items'], null],
             [$auditor, '/ui/purchasing/supplier-items/' . $si['id'], Words::say('SUPPLIER_ITEMS', 'one_title', 'Plain pod 2ml', 'Plain Supplies'), null],
         ];
         $browsers = [];
@@ -141,7 +141,8 @@ final class BuyingWordsTest extends KernelUiTestCase
         foreach (iterator_to_array($xp->query('//main//code | //main//details[contains(@class, "tech-details")]') ?: []) as $kept) {
             $kept->parentNode?->removeChild($kept);
         }
-        $text = (string) preg_replace('/\S+@\S+/', '', trim((string) preg_replace('/\s+/u', ' ', (string) $xp->query('//main')->item(0)?->textContent)));
+        // "Store listings" is the approved redesign's name of the matching section and of the item page's card (30 Oct 2026, docs/decisions.md RD-A4).
+        $text = str_replace(Words::ITEM_PAGE['listings'], '', (string) preg_replace('/\S+@\S+/', '', trim((string) preg_replace('/\s+/u', ' ', (string) $xp->query('//main')->item(0)?->textContent))));
         self::assertDoesNotMatchRegularExpression('/\b[a-z]+_[a-z_]+\b/', $text, "{$where}: a code on the screen (rule 2)");
         foreach (['UTC', 'Phase I-', 'bin/', 'docs/', 'Your role', 'Your roles', '(GBP)', '∞', 'MiB', 'preferred supply', 'item card', 'Item card', 'listing',
             'Reorder list', 'awaiting approval', 'Mark as sent', 'due diligence', 'Due diligence', 'Lead days'] as $word) {

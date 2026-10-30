@@ -303,7 +303,9 @@ abstract class KernelUiTestCase extends MappingTestCase
     protected static function storeChoice(UiResponse $r, string $path): array
     {
         $xp = new \DOMXPath($r->dom());
-        $forms = $xp->query('//main//form[@method="get" and contains(concat(" ", @class, " "), " toolbar ")][.//select[@name="channel"]]');
+        // The Show row of before, or (Reserved stock since the redesign, docs/decisions.md RD-A7) the head's More's filter form.
+        $forms = $xp->query('//main//form[@method="get" and (contains(concat(" ", @class, " "), " toolbar ") or contains(concat(" ", @class, " "), " list-filters "))]'
+            . '[.//select[@name="channel"]]');
         self::assertLessThanOrEqual(1, $forms->length, 'one Show row holds the store');
         $form = $forms->item(0);
         if (!$form instanceof \DOMElement) {

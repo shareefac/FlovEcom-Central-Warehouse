@@ -49,15 +49,23 @@ final class ItemCardsController
             $hasCard = $r['card_sku_id'] !== null;
             $st = $hasCard ? ItemRules::status($r) : ['level' => null, 'blocked' => [], 'warnings' => []];
             $state = !$hasCard ? 'none' : ($r['confirmed_at'] !== null ? 'confirmed' : ($r['first_confirmed_at'] !== null ? 'changed' : 'unconfirmed'));
-            // The board's group (wave w11, docs/decisions.md W11.1): a block first, then the cards still to confirm, the confirmed ones, no card yet.
+            // The board's group (the redesign's Items artboard, docs/decisions.md RD-A3): Needs a look (a block, or a card still to confirm), No card
+            // yet, Ready (confirmed); the row's status label says which (Blocked in red, Check the card in amber).
             $group = $st['level'] === 'block' ? 'blocked' : match ($state) { 'none' => 'none', 'confirmed' => 'confirmed', default => 'check' };
+            [$pillTone, $pill] = match ($group) {
+                'blocked' => ['blocked', Words::INV_LIST['p_blocked']],
+                'check' => ['needs', Words::INV_LIST['p_check']],
+                'none' => ['waiting', Words::INV_LIST['p_none']],
+                default => ['done', Words::INV_LIST['p_ready']],
+            };
             $rows[] = [
                 'id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'held' => (int) $r['held'],
                 'type' => $r['product_type'] === null ? null : ucfirst(ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type']),
                 'ml' => Html::dec($r['liquid_ml']), 'mg' => Html::dec($r['nicotine_mg']), 'duty' => self::yesNo($r['duty_liable']),
                 'single_use' => self::yesNo($r['single_use']), 'flavour' => $r['flavour'], 'flavour_proposed' => $r['flavour_status'] === 'proposed',
                 'discontinued' => $hasCard && (int) $r['discontinued'] === 1,
-                'state' => $state, 'group' => $group,
+                'state' => $state, 'group' => match ($group) { 'blocked', 'check' => 'look', 'confirmed' => 'ready', default => 'none' },
+                'pill' => $pill, 'pillTone' => $pillTone,
                 'stateWord' => $group === 'blocked' ? Words::CARD_STATE['blocked'] : Words::of('CARD_STATE', $state),
                 'level' => $st['level'], 'blocked' => ItemRules::labels($st['blocked']), 'warnings' => ItemRules::labels($st['warnings']),
             ];
@@ -70,19 +78,74 @@ final class ItemCardsController
         $states['all'] = Words::CARDS['any_card'];
         return $ctx->page('item_cards', [
             'rows' => $rows,
-            'groups' => Html::groups($rows, ['blocked' => ['blocked', Words::CARD_STATE['blocked']], 'check' => ['needs', Words::CARDS['group_check']],
-                'confirmed' => ['done', Words::CARD_STATE['confirmed']], 'none' => ['waiting', Words::CARD_STATE['none']]]),
+            'groups' => Html::groups($rows, ['look' => ['needs', Words::INV_LIST['g_look']], 'none' => ['waiting', Words::INV_LIST['g_none']],
+                'ready' => ['done', Words::INV_LIST['g_ready']]]),
+            // The ONE Show choice (RD-A2): the artboard's four, each a link (Made by hand is its own page).
+            'show' => [
+                ['label' => Words::INV_LIST['all_items'], 'href' => Html::url('/ui/items/cards', $f['q'] === '' ? [] : ['q' => $f['q']]),
+                    'current' => !$f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
+                ['label' => Words::INV_LIST['holding'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'stock' => '1']),
+                    'current' => $f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
+                ['label' => Words::INV_LIST['needs_look'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => 'unconfirmed']),
+                    'current' => !$f['stock'] && $f['state'] === 'unconfirmed' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
+                ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(HandMadeController::PATH, ['show' => 'all']), 'current' => false],
+            ],
             'searchClear' => $f['q'] === '' ? null : array_diff_key($query, ['q' => true]),
             'filters' => $f,
             'query' => $query,
-            'states' => $states,
-            'types' => array_map('ucfirst', ItemRules::TYPES),
+            // A search keeps the filters on (the Show choice, More's filters).
+            'kept' => array_diff_key($query, ['q' => true]),
             'total' => $total,
             'page' => $f['page'],
             'pages' => $pages,
             'filtered' => $f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued'],
             'canEdit' => $ctx->me()->can('catalogue.edit'),
+            'bar' => self::bar($ctx, $f, $query, $states),
         ], 200, ['title' => Words::MENU['cards'], 'active' => 'cards']);
+    }
+
+    /**
+     * The head's right (the redesign's Items artboard, docs/decisions.md RD-A3): More holds the filters of before (the card, the kind of product,
+     * the four ticks: a GET form, open in the menu when one the Show choice does not name is on), Clear, Import (the catalogue team), the
+     * download; then the ONE main button "New item" for who may make an item by hand.
+     *
+     * @param array{q: string, state: string, stock: bool, warnings: bool, blocked: bool, type: string, discontinued: bool, page: int} $f
+     * @param array<string, string> $query
+     * @param array<string, string> $states
+     * @return array<string, mixed>
+     */
+    private static function bar(Context $ctx, array $f, array $query, array $states): array
+    {
+        $me = $ctx->me();
+        $shown = !$f['warnings'] && !$f['blocked'] && !$f['discontinued'] && $f['type'] === ''
+            && (($f['state'] === 'all') || ($f['state'] === 'unconfirmed' && !$f['stock']));
+        $links = [];
+        if ($f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued']) {
+            $links[] = ['label' => Words::CARDS['clear_filters'], 'href' => '/ui/items/cards'];
+        }
+        if ($me->can('catalogue.edit')) {
+            $links[] = ['label' => Words::CARDS['import'], 'href' => '/ui/items/cards/import'];
+        }
+        $links[] = ['label' => Words::CARDS['download'], 'href' => Html::url('/ui/items/cards.csv', $query), 'download' => true];
+        $kinds = ['' => Words::CARDS['any_kind'], 'none' => Words::CARDS['not_set']] + array_map('ucfirst', ItemRules::TYPES);
+        return [
+            'filters' => [
+                'action' => '/ui/items/cards', 'keep' => $f['q'] === '' ? [] : ['q' => $f['q']], 'open' => !$shown,
+                'selects' => [
+                    ['name' => 'state', 'label' => Words::CARDS['card'], 'value' => $f['state'] === 'all' ? '' : $f['state'],
+                        'options' => array_combine(array_map(static fn (string $c): string => $c === 'all' ? '' : $c, array_keys($states)), array_values($states))],
+                    ['name' => 'type', 'label' => Words::CARDS['kind'], 'value' => $f['type'], 'options' => $kinds],
+                ],
+                'ticks' => [
+                    ['name' => 'stock', 'label' => Words::CARDS['stock'], 'checked' => $f['stock']],
+                    ['name' => 'warnings', 'label' => Words::CARDS['warnings'], 'checked' => $f['warnings']],
+                    ['name' => 'blocked', 'label' => Words::CARDS['blocked'], 'checked' => $f['blocked']],
+                    ['name' => 'discontinued', 'label' => Words::CARDS['discontinued'], 'checked' => $f['discontinued']],
+                ],
+            ],
+            'links' => $links,
+            'main' => $me->can('items.create') ? ['label' => Words::INV_LIST['new_item'], 'href' => HandMadeController::PATH] : null,
+        ];
     }
 
     /** "Yes" / "No" / "" for a card's yes-no answer (1, 0, null). */
