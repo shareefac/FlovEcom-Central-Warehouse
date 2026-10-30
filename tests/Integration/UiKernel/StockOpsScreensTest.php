@@ -69,7 +69,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         foreach (['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/transfers', '/ui/stock/releases', '/ui/stock/accounts'] as $path) {
             self::assertSame(200, $web->get($path)->status, $path);
         }
-        self::assertSame(['Corrections', 'Stock in', 'Stock out', 'Releases'], array_column(self::segments($web->get('/ui/stock/releases')), 'label'), 'a release is an Adjustments page (RD4)');
+        self::assertSame(['Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($web->get('/ui/stock/releases')), 'label'), 'a release is an Adjustments page (RD4)');
         self::assertSame(['Transfers', 'Balance owed'], array_column(self::segments($web->get('/ui/stock/accounts')), 'label'), 'the balance owed stays with Transfers (RD4)');
         // A viewer sees the stock but not the records; a buyer reads them but keeps none.
         $viewer = $this->signIn($this->uiUser('viewer'));

@@ -82,7 +82,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame([['Stock on hand', null], ['Adjustments', '/ui/stock/adjustments'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
             ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($stockPage)));
-        self::assertSame(['Corrections', 'Stock in', 'Stock out', 'Releases'], array_column(self::segments($desk->get('/ui/stock/in')), 'label'));
+        self::assertSame(['Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($desk->get('/ui/stock/in')), 'label'), 'Inventory.dc.html\'s order (RD-A5)');
         self::assertSame('Adjustments', self::currentTab($desk->get('/ui/stock/out')), 'a stock out is an Adjustments page (RD4)');
         // Sales: its five entries, the trade sales and the customers since the redesign.
         self::assertSame(['Sales orders', 'Shipments', 'Sales returns', 'Trade sales', 'Customers'], self::tabLabels($desk->get('/ui/stock/sales')));
