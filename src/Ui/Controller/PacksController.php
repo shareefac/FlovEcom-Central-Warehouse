@@ -56,8 +56,7 @@ final class PacksController
             'filtered' => $q !== '' || $off,
             // The redesign's simple list (docs/decisions.md RD-A7): Multipacks' ONE Show choice, the head's More (Clear) and "+ New pack item".
             'show' => self::views($ctx, $off ? 'all' : 'on', $q),
-            'bar' => ['links' => $q !== '' || $off ? [['label' => Words::PACKS['clear_list'], 'href' => self::PATH]] : [],
-                'main' => $can ? ['label' => Words::NEW['packs'], 'href' => self::PATH . '#new'] : null],
+            'bar' => ['links' => $q !== '' || $off ? [['label' => Words::PACKS['clear_list'], 'href' => self::PATH]] : []],
             'page_no' => $list['page'],
             'pages' => $list['pages'],
             'prev_link' => $list['page'] > 1 ? Html::url(self::PATH, $base + ['page' => $list['page'] - 1]) : null,

@@ -59,7 +59,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
     {
         $xp = self::xp($page);
         self::assertSame($search ? 1 : 0, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, "{$what}: the search");
-        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, "{$what}: ONE Show choice");
+        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]')->length, "{$what}: ONE Show choice");
         self::assertSame(0, $xp->query('//main//div[@class="tb-state"] | //main//tr[contains(@class, "grp-add")]')->length, "{$what}: no Show row, no \"+ Add\" row");
         self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop") and not(contains(@class, "tb-show"))]')->length, "{$what}: no Filter pop-over (the one Show control only, DC27)");
         self::assertSame(0, $xp->query('//main//*[contains(@class, "filters-on") or contains(@class, "show-tabs") or contains(@class, "row-strips")]')->length, "{$what}: the old parts");
@@ -103,7 +103,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")] | //main//h2[contains(@class, "board-title")] | //main//ul[contains(@class, "summary-line")]')->length);
         // A search and a filter of More keep each other; ONE Clear under More.
         $on = $web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'confirmed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1']);
-        self::assertSame([Words::CARDS['clear_filters']], self::texts($on, '//header//details[contains(@class, "page-more")]//a[@href="/ui/items/cards"]'));
+        self::assertSame([Words::CARDS['clear_filters']], self::texts($on, '//header//details[contains(concat(" ", @class, " "), " more ")]//a[@href="/ui/items/cards"]'));
         self::assertSame(['Tank five'], self::texts($on, '//main//tbody/tr/th/a[contains(@class, "row-link")]'));
         self::assertSame(['state', 'stock', 'blocked', 'type'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
             array_values(iterator_to_array(self::xp($on)->query('//form[contains(@class, "toolbar")]/input[@type="hidden"]')))), 'a new search keeps them');
@@ -163,9 +163,9 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
             self::assertSame([Words::BY_HAND_STATE['waiting'], Words::BY_HAND_STATE['not_asked']], self::assertBoard($list, 'made by hand', false));
             $lxp = self::xp($list);
             self::assertSame(0, $lxp->query('//form[@action="/ui/items/new" and @method="post"]')->length, 'the list alone');
-            self::assertSame([Words::INV_LIST['by_hand']], self::texts($list, '//details[contains(@class, "show-pick")]//*[@aria-current]'), 'Items\' Show choice (RD-A3)');
+            self::assertSame([Words::INV_LIST['by_hand']], self::texts($list, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'Items\' Show choice (RD-A3)');
             self::assertSame(['/ui/items/new?show=waiting'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-                array_values(iterator_to_array($lxp->query('//header//details[contains(@class, "page-more")]//a')))), 'those waiting for a check: under More');
+                array_values(iterator_to_array($lxp->query('//header//details[contains(concat(" ", @class, " "), " more ")]//a')))), 'those waiting for a check: under More');
             self::assertSame(['/ui/items/' . $two], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
                 array_values(iterator_to_array($lxp->query('//div[@id="g-waiting"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
             self::assertSame(1, $lxp->query('//div[@id="g-waiting"]//tbody/tr/td[contains(@class, "c-next")]/form[@action="/ui/items/new/' . $two . '/check"]')->length,
@@ -177,7 +177,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
             $back = $lead->follow($r);
             self::assertStringContainsString(Words::ITEMS_NOTICE['checked'], $back->text());
             self::assertSame(['/ui/items/new?show=all'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-                array_values(iterator_to_array(self::xp($back)->query('//header//details[contains(@class, "page-more")]//a')))), 'the list, still showing those waiting');
+                array_values(iterator_to_array(self::xp($back)->query('//header//details[contains(concat(" ", @class, " "), " more ")]//a')))), 'the list, still showing those waiting');
             // A refused check comes back on the list, not the form.
             $again = $lead->post('/ui/items/new/' . $two . '/check', ['note' => 'again'] + $list->form('/ui/items/new/' . $two . '/check'));
             self::assertSame(409, $again->status, $again->describe());
@@ -204,7 +204,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame([Words::FAMILY['on']], self::assertBoard($list, 'families'));
         $xp = self::xp($list);
         self::assertSame(['/ui/items/families?off=1'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//details[contains(@class, "show-pick")]//a')))), 'the Show choice: in use, or with the switched-off ones');
+            array_values(iterator_to_array($xp->query('//details[contains(@class, "show-menu")]//a')))), 'the Show choice: in use, or with the switched-off ones');
         self::assertSame(['/ui/items/families/' . $on], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
         self::assertSame(['/ui/items/families#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
@@ -212,7 +212,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//details[@id="new"]//form[@action="/ui/items/families"]/fieldset[contains(@class, "doc-grid")]//input[@name="name"]')->length);
         $all = $web->get('/ui/items/families', ['off' => '1']);
         self::assertSame([Words::FAMILY['on'], Words::FAMILY['off']], self::assertBoard($all, 'families, all'));
-        self::assertSame([Words::FAMILY['clear_list']], self::texts($all, '//header//details[contains(@class, "page-more")]//a[@href="/ui/items/families"]'));
+        self::assertSame([Words::FAMILY['clear_list']], self::texts($all, '//header//details[contains(concat(" ", @class, " "), " more ")]//a[@href="/ui/items/families"]'));
 
         // The family: its status block and its bar in the head (Add items the main one, Rename and Switch off under More), the figures, the
         // paper card with its items as the card's lines.
@@ -276,7 +276,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $links = $lead->get('/ui/items/packs/links');
         self::assertSame(200, $links->status, $links->describe());
         self::assertSame([Words::PACKS['group_check'], Words::PACKS['group_fine']], self::assertBoard($links, 'pack links', false, false));
-        self::assertSame([Words::PAGE_TITLE['pack_links']], self::texts($links, '//details[contains(@class, "show-pick")]//*[@aria-current]'), 'Multipacks\' Show choice (RD-A7)');
+        self::assertSame([Words::PAGE_TITLE['pack_links']], self::texts($links, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'Multipacks\' Show choice (RD-A7)');
         $lx = self::xp($links);
         self::assertSame(['Nic shot 10 pack'], self::texts($links, '//div[@id="g-check"]//tbody/tr/th/a[contains(@class, "row-link") and starts-with(@href, "/ui/review/listing/")]'));
         self::assertSame([sprintf(Words::PACK_LINK_FLAG['pack_item_exists'], self::cw($box))], self::texts($links, '//div[@id="g-check"]//tbody/tr/td//span[contains(@class, "tag") and contains(@class, "needs")]'));
@@ -310,7 +310,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         // The toolbar: the barcode search and the ONE Show choice (waiting, decided).
         self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]//input[@id="tb-q" and @name="barcode"]')->length);
         self::assertSame(['/ui/items/barcodes?show=decided'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]//a')))));
+            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]//a')))));
         self::assertSame(0, $xp->query('//nav[contains(@class, "show-tabs")]')->length);
         // The list: grouped by why, each row a link that opens it; the open one has no link.
         self::assertSame([Words::BARCODE_REASON['on_another_item']], self::texts($q, '//section[contains(@class, "ap-list")]//div[contains(@class, "ap-group") and contains(@class, "blocked")]/h2/span[@class="ap-gname"]'));

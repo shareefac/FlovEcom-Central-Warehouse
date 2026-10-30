@@ -6,13 +6,13 @@
 // is under it), its single, the stock of both, what to check (soft tags, the variants that could sell singles), its actions (Repack it,
 // switch off or on).
 ?>
-<?= $head(\CW\Ui\Words::INV_LIST['packs_on'], intro: 'packs', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['packs_on'], intro: 'packs', look: $lookOnly, menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('PACKS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('PACKS', 'search') ?>"></div>
 <?php if ($off): ?>
   <input type="hidden" name="off" value="1">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

@@ -1,19 +1,14 @@
 <?php
-// The head's right of an Items or Inventory list (the approved redesign of 30 Oct 2026: "title + ONE main button top right (More for the
-// rest)"; docs/decisions.md RD-A2): More with what the artboard does not show (the filters of before in a fold, a GET form, open inside the
-// menu when a filter the Show choice does not name is on; Clear, Import,
-// the download, the other pages of before), then the ONE main button (the page's "+ New …"; a #new link opens the page's create fold).
+// A list's own items in the page head's ONE More (the approved redesign of 30 Oct 2026: "title + ONE main button top right (More for the rest)";
+// docs/decisions.md RD-A2, RD-I8): what the artboard does not show: the filters of before in a fold (a GET form, open inside the menu when a
+// filter the Show choice does not name is on), then the page's links (Clear, Import, the download, the other pages of before). Drawn inside
+// rd1's page-head More (View::head's `menu:`, split.php), after its other "New …"; the main button is the head's create button.
 // $links: list of ['label' => string, 'href' => string, 'download' => bool (optional)]; $filters: null or ['action' => path, 'keep' =>
 // [name => value] (hidden: the search; the form sends to the page itself), 'open' => bool, 'selects' => list of ['name', 'label', 'options' => [value => label], 'value'],
-// 'ticks' => list of ['name', 'label', 'checked']]; $main: null or ['label' => string, 'href' => string].
+// 'ticks' => list of ['name', 'label', 'checked']].
 $links = $links ?? [];
 $filters = $filters ?? null;
-$main = $main ?? null;
 ?>
-<?php if ($links !== [] || $filters !== null): ?>
-<details class="more page-more">
-  <summary class="btn"><?= $word('INV_LIST', 'more') ?></summary>
-  <div class="more-menu">
 <?php if ($filters !== null): ?>
     <details class="doc-act"<?php if ($filters['open']): ?> open<?php endif; ?>>
       <summary class="btn"><?= $word('INV_LIST', 'more_filters') ?></summary>
@@ -42,9 +37,3 @@ $main = $main ?? null;
 <?php foreach ($links as $l): ?>
     <a class="menu-item" href="<?= $e($l['href']) ?>"<?php if ($l['download'] ?? false): ?> download<?php endif; ?>><?= $e($l['label']) ?></a>
 <?php endforeach; ?>
-  </div>
-</details>
-<?php endif; ?>
-<?php if ($main !== null): ?>
-<a class="btn primary" href="<?= $e($main['href']) ?>"><span class="ico ico-plus" aria-hidden="true"></span><span><?= $e($main['label']) ?></span></a>
-<?php endif; ?>

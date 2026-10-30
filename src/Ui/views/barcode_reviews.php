@@ -6,13 +6,13 @@
 // no link. A decided barcode shows what was decided and has no form. A refusal is said in the record it concerns (W11.12), or over the list
 // when that one no longer waits.
 ?>
-<?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes', side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes', menu: $bar) ?>
 <form class="toolbar" method="get" action="/ui/items/barcodes" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('BARCODE', 'find') ?></label><input id="tb-q" type="search" name="barcode" value="<?= $e($barcode) ?>" inputmode="numeric" maxlength="40" placeholder="<?= $word('BARCODE', 'find') ?>"></div>
 <?php if ($show === 'decided'): ?>
   <input type="hidden" name="show" value="decided">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $views, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($views) ?>
 </form>
 <?php if ($error !== null && ($record === null || $errorId !== (int) $record['id'])): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

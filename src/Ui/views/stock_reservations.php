@@ -5,7 +5,7 @@
 // opens it; when it started under it), the store, its status label, the units, until when it is kept and what became of it. No form here
 // posts anything.
 ?>
-<?= $head(\CW\Ui\Words::MENU['reservations'], intro: 'reservations', aside: $explain('reservations', \CW\Ui\Words::MENU['reservations']), side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['reservations'], intro: 'reservations', aside: $explain('reservations', \CW\Ui\Words::MENU['reservations']), menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('RESV', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('RESV', 'find') ?>" title="<?= $word('RESV', 'find') ?>"></div>
 <?php if ($f['state'] !== null): ?>
@@ -14,7 +14,7 @@
 <?php if ($f['channel'] !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 
 <?php if ($productSearch): ?>

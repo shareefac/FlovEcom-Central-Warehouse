@@ -497,6 +497,7 @@ details.show-menu[open] > .show-select { border-color: var(--accent); }
   margin: 0; padding: 6px; list-style: none; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
   box-shadow: var(--shadow-menu);
 }
+details.show-menu > .show-list, details.show-menu > .show-panel { max-height: min(60vh, 32rem); overflow-y: auto; }
 .show-list li { margin: 0; }
 .show-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: var(--r-8);
@@ -3280,26 +3281,18 @@ section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr
 }
 /* ==== end rd2c ============================================================================================================================== */
 
-/* ==== rd2a: Items and Inventory on the approved redesign of 30 Oct 2026 (artboards Items, Item, Inventory, Counts; docs/decisions.md RD-A1+) ==== */
-/* A list's ONE Show choice (views/rda_show; TEMPORARY until the redesign's shared grouped-pages helper is on main): the More menu's engine,
-   its button drawn as the artboards' select (44 px, the search box's edge, 10 px corners, white, 14 px plain words, the arrow at the right),
-   its menu from the left edge; the choice shown is not a link (the accent's tint). The search beside it is 44 px too. */
-details.show-pick > summary.show-select {
-  min-height: 44px; padding: 0 14px; gap: 10px; border: 1px solid var(--field); border-radius: var(--r-10); background: var(--card);
-  color: var(--ink); font: 400 14px/20px var(--font); justify-content: space-between;
-}
-details.show-pick[open] > summary.show-select { border-color: var(--accent); background: var(--card); color: var(--ink); }
-details.show-pick > .more-menu { left: 0; right: auto; min-width: max(100%, 220px); }
-details.show-pick .menu-item.is-current { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.toolbar:has(> details.show-pick) .tb-search input[type="search"] { height: 44px; min-height: 44px; }
-.toolbar:has(> details.show-pick) { gap: 10px; margin-bottom: 20px; }
-/* The head's More beside the ONE main button (a list's rest: filters, import, the download, Clear); its filter form in a fold of the menu */
-.ph-actions > details.page-more > .more-menu { min-width: 260px; }
-.page-more .doc-act-panel form.record { display: grid; gap: 10px; margin: 0; }
-.page-more .doc-act-panel form.record select { width: 100%; }
-.page-more .doc-act-panel form.record .tb-check { min-height: 44px; }
-.page-more .doc-act-panel p.actions { margin: 4px 0 0; justify-content: flex-end; }
-@media (max-width: 639.98px) { details.show-pick { flex: 1 1 100%; } details.show-pick > summary.show-select { width: 100%; } }
+/* ==== rd2a: Items and Inventory on the approved redesign of 30 Oct 2026 (artboards Items, Item, Inventory, Counts; docs/decisions.md RD-A1+) ====
+   Its Show and the header's More are rd1's since the integration (RD-I8): here only what the Items and Inventory pages add. */
+/* A list's Show beside its search (rd1's show-menu, $showMine): the search 44 px too. The header's More holds the list's own items
+   (list_more.php: its filter form in a fold of the menu, Clear, the download) */
+.toolbar:has(> details.show-menu) .tb-search input[type="search"] { height: 44px; min-height: 44px; }
+.toolbar:has(> details.show-menu) { gap: 10px; margin-bottom: 20px; }
+.ph-actions > details.more:has(form.list-filters) > .more-menu { min-width: 260px; }
+.doc-act-panel form.list-filters { display: grid; gap: 10px; margin: 0; }
+.doc-act-panel form.list-filters select { width: 100%; }
+.doc-act-panel form.list-filters .tb-check { min-height: 44px; }
+.doc-act-panel form.list-filters p.actions { margin: 4px 0 0; justify-content: flex-end; }
+@media (max-width: 639.98px) { .toolbar > details.show-menu { flex: 1 1 100%; } .toolbar > details.show-menu > summary.show-select { width: 100%; } }
 /* Adjustments and Transfers (artboard Inventory: Adjustments): the units in their colour, + green and − red; the reason on an adjustment's lines muted */
 table.stock-records td.chg { font-weight: 600; color: var(--ink); }
 table.stock-records td.chg.up { color: var(--sf-green-ink); }
@@ -3369,6 +3362,5 @@ table.item-history td.chg.down { color: var(--sf-red-ink); }
 .item-side details.bc-change input.units { width: 6rem; }
 .item-side p.note { margin: 12px 18px; }
 @media (max-width: 639.98px) { dl.item-facts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table.item-history td { padding: 12px 16px; } }
-details.show-pick > .more-menu { max-height: min(60vh, 32rem); overflow-y: auto; }
 @media (max-width: 699.98px), (pointer: coarse) { .item-cols .card-link, .item-side details > summary { min-height: 44px; } }
 /* ==== end rd2a ============================================================================================================================== */

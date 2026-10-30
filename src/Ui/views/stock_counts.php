@@ -9,14 +9,14 @@
 // "Count the ticked items". Enter in a field counts the ticked items (the hidden first button).
 ?>
 <?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'counts', look: $lookOnly,
-    side: $partial('rda_bar', $bar) . ($openSheets > 0 ? '<a class="btn" href="' . $e($openSheetsHref) . '">' . $say('COUNTS', 'open_sheets', $openSheets) . '</a>' : '')) ?>
+    menu: $bar, extra: $openSheets > 0 ? ['href' => $openSheetsHref, 'label' => \CW\Ui\Words::say('COUNTS', 'open_sheets', $openSheets)] : null) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('COUNTS', 'find') ?>"></div>
 <?php if ($f['warehouse'] !== null): ?>
   <input type="hidden" name="warehouse" value="<?= $e($f['warehouse']) ?>">
 <?php endif; ?>
   <input type="hidden" name="show" value="<?= $e($f['show']) ?>">
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

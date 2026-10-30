@@ -5,7 +5,7 @@
 // number under it), what changed (the record it was booked by, with its reason and who did it), the warehouse, the units with their sign,
 // what was left after. Older changes by the ledger id. Read only.
 ?>
-<?= $head(\CW\Ui\Words::MENU['movements'], intro: 'movements', side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['movements'], intro: 'movements', menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('STOCK_VIEW', 'find_hint') ?>"></div>
 <?php if ($f['type'] !== null): ?>
@@ -17,7 +17,7 @@
 <?php if ($f['figure'] !== 'on_hand'): ?>
   <input type="hidden" name="figure" value="<?= $e($f['figure']) ?>">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 
 <?php if ($rows === []): ?>

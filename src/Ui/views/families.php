@@ -4,13 +4,13 @@
 // refused one brings back is guarded as typed, W11.13); one search (the family's name) and ONE Show choice (in use, or in use and switched
 // off); then the groups in use and switched off, three columns: the family (it opens it), its state, how many items it holds.
 ?>
-<?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly, menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('FAMILY', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('FAMILY', 'search') ?>"></div>
 <?php if ($off): ?>
   <input type="hidden" name="off" value="1">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

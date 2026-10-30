@@ -144,7 +144,6 @@ final class ItemCardsController
                 ],
             ],
             'links' => $links,
-            'main' => $me->can('items.create') ? ['label' => Words::INV_LIST['new_item'], 'href' => HandMadeController::PATH] : null,
         ];
     }
 

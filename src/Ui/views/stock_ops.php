@@ -9,7 +9,7 @@
 ?>
 <?php $transfer = $kind === 'transfer'; ?>
 <?= $head($transfer ? (string) $k['tab'] : \CW\Ui\Words::INV_LIST['adjustments'], intro: $pageKey, look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second']),
-    side: $partial('rda_bar', $bar)) ?>
+    menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_OPS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('STOCK_OPS', 'search') ?>"></div>
 <?php if ($f['state'] !== null): ?>
@@ -21,7 +21,7 @@
 <?php if ($f['cancelled']): ?>
   <input type="hidden" name="cancelled" value="1">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 
 <?php if ($error !== null): ?>

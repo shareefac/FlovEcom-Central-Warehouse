@@ -41,7 +41,7 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs(), 'the spreadsheet: under the card\'s More');
         self::assertSame(Words::PAGE_TITLE['reasons'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringNotContainsString('Phase', $reasons->text());
-        self::assertSame([['Company', '/ui/reference/company'], ['Warehouses', '/ui/reference/warehouses'], ['Roles and permissions', '/ui/reference/access'],
+        self::assertSame([['Company', '/ui/reference/company'], ['Warehouses', '/ui/reference/warehouses'], ['Users and roles', '/ui/reference/access'],
             ['Approval rules', '/ui/reference/approvals'], ['Reasons', null], ['Rules and numbers', '/ui/reference/settings'], ['Numbering', '/ui/reference/series']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($reasons)),
             'the Settings pages a buyer may open, its one Show (RD7; no Stores: system.view; no Users: staff.view)');

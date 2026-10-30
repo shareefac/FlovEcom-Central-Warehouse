@@ -538,7 +538,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
 
         $xp = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'elux', 'stock' => '1'])->dom());
         self::assertSame([Words::CARDS['clear_filters']], array_map(static fn (\DOMElement $a): string => trim($a->textContent),
-            array_values(iterator_to_array($xp->query('//header//details[contains(@class, "page-more")]//a[@href="/ui/items/cards"]')))), 'one Clear, under the head\'s More (RD-A2)');
+            array_values(iterator_to_array($xp->query('//header//details[contains(concat(" ", @class, " "), " more ")]//a[@href="/ui/items/cards"]')))), 'one Clear, under the head\'s More (RD-A2)');
         self::assertSame(['stock'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
             array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/input[@type="hidden"]')))), 'a new search keeps the Show choice');
 
@@ -560,9 +560,9 @@ final class ItemCardScreensTest extends KernelUiTestCase
     {
         $this->stocked('Tank', 3);
         $web = $this->signIn($this->uiUser('buyer'));
-        $fold = '//header//details[contains(@class, "page-more")]//details[contains(@class, "doc-act")]//form[@method="get"]';
+        $fold = '//header//details[contains(concat(" ", @class, " "), " more ")]//details[contains(@class, "doc-act")]//form[@method="get"]';
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, 'ONE Show choice');
+        self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]')->length, 'ONE Show choice');
         self::assertSame(0, $xp->query('//*[contains(@class, "filters-on")] | //div[@class="tb-state"]')->length, 'no chips, no Show row of selects');
         self::assertSame([Words::CARDS['stock'], Words::CARDS['warnings'], Words::CARDS['blocked'], Words::CARDS['discontinued']],
             array_map(static fn (\DOMElement $l): string => trim((string) preg_replace('/\s+/', ' ', $l->textContent)), array_values(iterator_to_array($xp->query($fold . '//label[contains(@class, "tb-check")]')))));
@@ -575,15 +575,15 @@ final class ItemCardScreensTest extends KernelUiTestCase
         self::assertSame(['stock', 'blocked'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($xp->query($fold . '//label/input[@checked]')))));
         self::assertSame(['tank'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('value'), array_values(iterator_to_array($xp->query($fold . '/input[@name="q"]')))),
             'the search goes along');
-        self::assertSame(1, $xp->query('//header//details[contains(@class, "page-more")]//details[contains(@class, "doc-act") and @open]')->length, 'open in the menu: a filter is on');
-        self::assertSame(Words::INV_LIST['filtered'], trim((string) $xp->evaluate('string(//details[contains(@class, "show-pick")]//*[@aria-current])')));
-        self::assertSame(1, $xp->query('//header//details[contains(@class, "page-more")]//a[@href="/ui/items/cards"]')->length, 'one Clear, every filter off');
+        self::assertSame(1, $xp->query('//header//details[contains(concat(" ", @class, " "), " more ")]//details[contains(@class, "doc-act") and @open]')->length, 'open in the menu: a filter is on');
+        self::assertSame(Words::INV_LIST['filtered'], trim((string) $xp->evaluate('string(//details[contains(@class, "show-menu")]//*[@aria-current])')));
+        self::assertSame(1, $xp->query('//header//details[contains(concat(" ", @class, " "), " more ")]//a[@href="/ui/items/cards"]')->length, 'one Clear, every filter off');
         $kind = new \DOMXPath($web->get('/ui/items/cards', ['type' => 'none', 'warnings' => '1', 'discontinued' => '1'])->dom());
         self::assertSame(['none'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), array_values(iterator_to_array($kind->query('//select[@name="type"]/option[@selected]')))));
         self::assertSame(['warnings', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($kind->query($fold . '//label/input[@checked]')))));
         // Each tick is a 44 px target.
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
-        self::assertStringContainsString('.page-more .doc-act-panel form.record .tb-check { min-height: 44px; }', $css);
+        self::assertStringContainsString('.doc-act-panel form.list-filters .tb-check { min-height: 44px; }', $css);
     }
 
     /**

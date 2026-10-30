@@ -63,10 +63,11 @@ final class MenusTest extends KernelUiTestCase
             'Website bugs'], array_column(self::segments($reviewer->get('/ui/documents')), 'label'));
         self::assertSame([], self::sectionTabs($reviewer->get('/ui/documents')), 'one entry: no sub-items');
         self::assertSame('/ui/documents', self::nav($buyer->get('/ui/'))['Approvals']['href'], 'a buyer answers nothing: the history');
-        // Settings: one entry; everyone reads; Stores (system.view) for the reviewer; "Roles and permissions" for all who read settings.
-        self::assertSame(['Company', 'Warehouses', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering'],
+        // Settings: one entry; everyone reads; Stores (system.view) for the reviewer; "Users and roles" (who can do what, for those who may not
+        // see the people) for all who read settings: its section list (RD-C14, the Show of Settings since the integration, RD-I2).
+        self::assertSame(['Company', 'Warehouses', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering'],
             array_column(self::segments($buyer->get('/ui/reference/company')), 'label'));
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering', 'System checks',
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering', 'System checks',
             'Audit log'],
             array_column(self::segments($reviewer->get('/ui/reference/company')), 'label'));
         // Items: the items for everyone; the barcodes to check only for catalogue.edit (I109); item groups and multipacks for everyone.
@@ -276,7 +277,7 @@ final class MenusTest extends KernelUiTestCase
         $page = $admin->get('/ui/');
         $nav = self::nav($page);
         self::assertSame(['Home', 'Items', 'Inventory', 'Store listings', 'Settings'], array_keys($nav), 'no Purchases, no Approvals, no Reports for the admin (I12; the audit log is in Settings)');
-        self::assertSame('/ui/people', array_column(self::segments($admin->get('/ui/reference/company')), 'href', 'label')['Users']);
+        self::assertSame('/ui/people', array_column(self::segments($admin->get('/ui/reference/company')), 'href', 'label')['Users and roles'], 'the people (RD-C14)');
         self::assertSame('/ui/system/audit', array_column(self::segments($admin->get('/ui/reference/company')), 'href', 'label')['Audit log']);
         $pending = $admin->get('/ui/review/products');
         self::assertSame(0, array_column(self::moreTabs($pending), 'count', 'label')['Second approval'], 'no count: admin cannot give the second OK (plan F007)');

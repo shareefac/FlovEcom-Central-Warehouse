@@ -5,13 +5,13 @@
 // it, Approvals › History; its date under it), what it does, where, and a draft's or a waiting one's own small forms (make it final, stop
 // it, take it back, as before).
 ?>
-<?= $head(\CW\Ui\Words::MENU['repack'], intro: 'repack', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['repack'], intro: 'repack', look: $lookOnly, menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPACK', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPACK', 'search') ?>"></div>
 <?php if ($f['state'] !== null): ?>
   <input type="hidden" name="state" value="<?= $e($f['state']) ?>">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 
 <?php if ($done !== null): ?>

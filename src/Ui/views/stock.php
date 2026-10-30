@@ -5,7 +5,7 @@
 // what is on hand (every warehouse together, or the one chosen; each warehouse's own figure is on the item page), reserved, free to sell.
 // The pager under it. Read only.
 ?>
-<?= $head(\CW\Ui\Words::MENU['stock'], intro: 'stock', aside: $explain('stock', \CW\Ui\Words::ITEM['stock']), side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::MENU['stock'], intro: 'stock', aside: $explain('stock', \CW\Ui\Words::ITEM['stock']), menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('STOCK_VIEW', 'find_hint') ?>"></div>
 <?php if ($f['warehouse'] !== null): ?>
@@ -14,7 +14,7 @@
 <?php if ($f['show'] !== 'stock'): ?>
   <input type="hidden" name="show" value="<?= $e($f['show']) ?>">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 
 <?php if ($groups === []): ?>

@@ -62,10 +62,10 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertSame('/ui/items/new', self::xp($cards)->evaluate('string(//main//header[contains(@class, "page-head")]/div[@class="ph-actions"]/a/@href)'));
         self::assertSame(0, self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a')->length, 'no loose buttons in the toolbar');
         // The redesign's simple list (docs/decisions.md RD-A2, RD-A3): one search and ONE Show choice in the toolbar; every filter of before in More.
-        self::assertSame(['tb-search', 'more show-pick'], array_map(static fn (\DOMElement $d): string => $d->getAttribute('class'),
+        self::assertSame(['tb-search', 'show-menu'], array_map(static fn (\DOMElement $d): string => $d->getAttribute('class'),
             iterator_to_array(self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/*[not(self::input)]') ?: [])), 'one search, one Show');
         self::assertSame(['state', 'type', 'stock', 'warnings', 'blocked', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            iterator_to_array(self::xp($cards)->query('//main//header//details[contains(@class, "page-more")]//form//*[@name and not(@type="hidden")]') ?: [])), 'every filter inside More');
+            iterator_to_array(self::xp($cards)->query('//main//header//details[contains(concat(" ", @class, " "), " more ")]//form//*[@name and not(@type="hidden")]') ?: [])), 'every filter inside More');
         $counts = $stock->get('/ui/stock/counts');
         self::assertMockupHead($counts, 'Counts', null);
         self::assertSame(0, self::xp($counts)->query('//main//nav[contains(@class, "tabs")]')->length, 'Counts: no tab row, no segment row (DC28)');
@@ -134,8 +134,12 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         }
         $sheets = $web->get('/ui/stock/counts/sheets');
         $sx = self::xp($sheets);
-        self::assertSame(1, $sx->query('//main//header[contains(@class, "page-head")]/following-sibling::div[@class="show-row"][1]/details[@class="show-menu"]')->length,
-            'the group\'s Show right under the title (RD2)');
+        self::assertSame(1, $sx->query('//main//form[contains(@class, "toolbar")]/details[@class="show-menu"]')->length,
+            'the group\'s Show in the toolbar beside the search (RD2; the integration, RD-I8)');
+        self::assertSame(0, $sx->query('//main//div[@class="show-row"]')->length, 'the head draws no second Show');
+        $arriving = self::xp($web->get('/ui/receiving/arriving'));
+        self::assertSame(1, $arriving->query('//main//header[contains(@class, "page-head")]/following-sibling::div[@class="show-row"][1]/details[@class="show-menu"]')->length,
+            'a grouped page without a toolbar: the group\'s Show right under the title (RD2)');
         self::assertSame(['Items to count', 'Count sheets', 'Differences'], array_column(self::segments($sheets), 'label'));
         self::assertSame(0, $sx->query('//main//header[contains(@class, "page-head")]//p[contains(@class, "ph-eyebrow")]')->length, 'a list is its title alone (RD3)');
         $home = $web->get('/ui/');

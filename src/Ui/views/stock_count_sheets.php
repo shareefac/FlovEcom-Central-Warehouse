@@ -5,7 +5,7 @@
 // under the head's More; four columns: the sheet (its date under it, and what waits on it), where, how many lines are counted (the units it
 // changed), who opened it. Older pages by id.
 ?>
-<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'count_sheets', side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'count_sheets', menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find_sheet') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('COUNTS', 'find_sheet') ?>"></div>
 <?php if ($f['state'] !== null): ?>
@@ -14,7 +14,7 @@
 <?php if ($f['warehouse'] !== null): ?>
   <input type="hidden" name="warehouse" value="<?= $e($f['warehouse']) ?>">
 <?php endif; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </form>
 <?php if ($byItem): ?>
 <p class="muted"><?= $word('COUNTS', 'by_item') ?></p>

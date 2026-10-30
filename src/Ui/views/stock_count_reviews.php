@@ -6,9 +6,9 @@
 // counted, why it waits, and the two answers (a note, then accept or reject). A difference of an item counted again since says so instead
 // of the reject button (review C-1).
 ?>
-<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'count_differences', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'count_differences', look: $lookOnly, menu: $bar) ?>
 <div class="toolbar">
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </div>
 <p class="note"><?= $e($second) ?></p>
 <?php if ($error !== null): ?>

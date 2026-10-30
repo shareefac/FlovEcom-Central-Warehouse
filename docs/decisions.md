@@ -14961,7 +14961,7 @@ shared code; the module pages keep their templates and are switched onto rd1's s
 
 **RD-I1. The stand-ins went.** rd2b's `.rd-list` (the class on 21 lists and its rules: the dot heading, the plain card, the unfilled status
 cell, the pill) is rd1's look for every list (RD8). rd2c's `.bi-hint` pill is the shared `.chip` (`needs` for the likely match, `waiting`
-otherwise; the class stays for its place). rd2a's `rda_show` (its Show menu) is rd1's `$showMenu` (RD-I2). The delivery's check cell on a
+otherwise; the class stays for its place). rd2a's `rda_show` and `rda_bar` are rd1's Show and header More (RD-I8). The delivery's check cell on a
 phone was still the old solid block (GV23): it holds its pill now, no fill. Home's Find box went with rd2c (the sidebar's find box, RD9;
 the phone's top bar keeps Find): its CSS went too.
 
@@ -15002,3 +15002,18 @@ cell and its CSS went.
 `MenusTest` (ONE Show and ONE header More on every page the crawl reaches; Settings' list followed), the pins of the stand-ins moved to the
 integrated markup (`UiTemplatesTest`, `UiUnitTest`, `RedesignCTemplatesTest`, `RedesignCScreensTest`, `ByProductScreenTest`,
 `MatchingPatternsScreensTest`, `MenusTest`).
+
+**RD-I8. Items and Inventory on rd1's Show and header More (rd2a's stand-ins went).** rd2a was built without step 1 (RD-A1) and drew its own
+Show (`rda_show`, the More menu's engine as a select) and the head's right (`rda_bar`: More, then the main button), styled in the "rd2a"
+block. Now:
+- The Show is `$showMine($choices, $other)`: rd1's `details.show-menu` with rd2a's own link choices in their order (each keeps the page's
+  filters); a choice that opens another page of the group is drawn only for the people who may open it, with the group's count (rd2a drew
+  "Made by hand" for everyone, a 403 for those who may not make items; Pack links likewise); the group's pages no choice names follow.
+- The header is rd1's: its create button (the page's `new` of `Sections::MAP`, the same link and words rd2a's `main` had) and ONE More,
+  which holds the page's other "New …", then the list's items (`views/list_more.php`, rd2a's filter fold and links, via
+  `$head(…, menu: $bar)`); Stock counts' "Open sheets (N)" is `extra:`, a plain button before them. Items to count now has rd1's
+  "+ New count" (its `#new` is the count-sheet form; Counts.dc.html draws none: a reviewer's call).
+- `rda_show.php`, `rda_bar.php`, their CSS (`.show-pick`, `.page-more`) and the controllers' dead `main` went; the menu's height cap moved
+  to rd1's Show. rd2a's three status cells without the pill (Items, Stock on hand, Reserved stock) hold it.
+- `KernelUiTestCase::storeChoice()` reads the store from the Show row's form or the header More's filter form (`form.list-filters`, rd2a):
+  kept. The tests' pins moved from `.show-pick` / `.page-more` to `details.show-menu` / the header's `details.more`.

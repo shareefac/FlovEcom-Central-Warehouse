@@ -153,8 +153,7 @@ final class HandMadeController
                 ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(self::PATH, ['show' => 'all']), 'current' => true],
             ],
             'bar' => ['links' => [$waiting ? ['label' => Words::ITEM_NEW['show_all'], 'href' => Html::url(self::PATH, ['show' => 'all'])]
-                : ['label' => Words::ITEM_NEW['show_waiting'], 'href' => Html::url(self::PATH, ['show' => 'waiting'])]],
-                'main' => $me->can('items.create') ? ['label' => Words::INV_LIST['new_item'], 'href' => self::PATH] : null],
+                : ['label' => Words::ITEM_NEW['show_waiting'], 'href' => Html::url(self::PATH, ['show' => 'waiting'])]]],
             'checkOn' => ApprovalRules::on($ctx->db, HandMade::CHECK_SWITCH),
             'error' => $error === null ? null : FamiliesController::plain($error),
             'errorCode' => $error?->errorCode,

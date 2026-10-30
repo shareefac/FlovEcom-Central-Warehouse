@@ -269,7 +269,7 @@ abstract class KernelUiTestCase extends MappingTestCase
 
     /**
      * The page's Show choices (docs/decisions.md RD2: the pages of its sidebar entry, the sidebar's old second level): label, link (null for
-     * the choice of the page shown: CV13), count, current. The page's first Show menu.
+     * the choice of the page shown: CV13), count, current. The page's first Show menu; on a settings page its section list (RD-C14, RD-I2).
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
@@ -279,6 +279,14 @@ abstract class KernelUiTestCase extends MappingTestCase
         $menus = $xp->query('//main//details[contains(concat(" ", @class, " "), " show-menu ")]');
         $menu = $menus === false ? null : $menus->item(0);
         $out = [];
+        if ($menu === null) {
+            // Settings' section list is the Settings group's Show (RD-C14; the integration, docs/decisions.md RD-I2): its sections the choices.
+            foreach ($xp->query('//main//nav[contains(concat(" ", @class, " "), " set-nav ")]/a') ?: [] as $a) {
+                /** @var \DOMElement $a */
+                $out[] = ['label' => trim($a->textContent), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null, 'count' => 0,
+                    'current' => $a->hasAttribute('aria-current')];
+            }
+        }
         foreach ($menu === null ? [] : ($xp->query('.//ul[@class="show-list"]/li/*[contains(concat(" ", @class, " "), " show-item ")]', $menu) ?: []) as $a) {
             /** @var \DOMElement $a */
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="show-name"])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,

@@ -26,8 +26,9 @@ namespace CW\Ui;
  *                           eyebrow; an `eyebrow` given, Home's date, is drawn, `tag` after it); a record has `back`, [href, label]: "‹
  *                           label" above its title (the tag after it, DC37); the heading (`chips` inside it: the record's status pill,
  *                           `aside` beside it), `meta` (the one fact line), the page's create button on the right with More (its other
- *                           "New …" and the section's specialist pages); then the switched-off strip and, on a page of a group, the
- *                           group's Show when the page draws none itself.
+ *                           "New …", the section's specialist pages, then `menu`: the page's own items, list_more.php's links and
+ *                           filters) and `extra` (['href', 'label']: a plain button before them, Stock counts' "Open sheets"); then the
+ *                           switched-off strip and, on a page of a group, the group's Show when the page draws none itself.
  *                           No sentence under the heading: `intro` names the page (its words stay in Words::PAGE_INTRO) and only the
  *                           steps of View::INTRO_KEPT draw their line; `look` (who may change this) or `more` (a look-only sentence) is
  *                           a "?" beside the heading (with `aside`'s help: its last line, one "?", DC34). Text arguments are escaped;
@@ -46,9 +47,9 @@ namespace CW\Ui;
  *                           the page's div.tb-state (its GET form's select and Show button, as before), the group's choices as $showMenu()
  *                           draws them, the tb-state under them in the same panel; with fewer than two choices nothing (the tb-state as it
  *                           was). The head draws no Show of its own then.
- *   $showMine($own, $other) ONE Show of the group with the page's own filter choices (label, href with its query, current) in place of the page's
- *                           entry: an own choice that opens another page of the group is the group's (its permission, count and kept store);
- *                           $other (optional): the words shown first, not a link, when none is the current one (filters chosen under More)
+ *   $showMine($own, $other) ONE Show of the group with the page's own link choices (label, href with its query, current) in place of the
+ *                           group's entries they open; one that opens a page the person may not open is not drawn; $other (optional): the
+ *                           words shown first, not a link, when none is the current one (filters chosen under More)
  *   $showNav()              the page draws its group as its own list (Settings' section list, RD-C14): '' and the head draws no Show
  *   $sectionMore()          the section's specialist pages (label, href, query, count, countWords, help) for a page that draws its own
  *                           More beside its title (Product matching, RD-C8): the header's More of RD6, ONE More
@@ -121,8 +122,9 @@ final class View
             'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
             'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::lede(...Words::introParts($page, $lookOnly)),
             'head' => fn (string $title, ?string $intro = null, ?string $look = null, string $chips = '', string $meta = '', string $aside = '',
-                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null, ?array $back = null): string
-                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side, $back),
+                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null, ?array $back = null,
+                ?array $menu = null, ?array $extra = null): string
+                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side, $back, $menu, $extra),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
             // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): one row per task; $notes: the notes after the jobs.
             'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
@@ -210,9 +212,10 @@ final class View
     }
 
     /**
-     * The choices of $showMine: the group's pages, the page's own choices in place of its entry (in their order); an own choice that opens another
-     * page of the group is left to the group's entry (only the people who may open it see it, with its count and kept store); one that opens a
-     * page outside the group follows. With $other and none current, $other first (not a link).
+     * The choices of $showMine: the page's own choices in their order (the page shown: its filters; another page of the group: the page's link
+     * with its filters kept, the group's count beside it), then the group's pages no own choice opens. An own choice that opens a page outside
+     * the person's group is not drawn (the group is the pages the person may open: rd2a's "Made by hand" was drawn for everyone); when the
+     * person may open only this page of the group, only the choices that open it. With $other and none current, $other first (not a link).
      *
      * @param mixed $group the frame's segments
      * @param list<array<string, mixed>> $own
@@ -222,32 +225,29 @@ final class View
     {
         $group = is_array($group) ? array_values($group) : [];
         $path = static fn (array $c): string => (string) parse_url((string) $c['href'], PHP_URL_PATH);
-        $here = null;
+        $here = in_array(true, array_map(static fn (array $g): bool => ($g['current'] ?? false) === true, $group), true);
+        $byPath = [];
         foreach ($group as $g) {
-            if (($g['current'] ?? false) === true) {
-                $here = $path($g);
-            }
+            $byPath[$path($g)] ??= $g;
         }
-        $paths = array_map($path, $group);
-        $mine = [];
-        $outside = [];
-        foreach ($own as $c) {
-            $p = $path($c);
-            if ($here === null || $p === $here) {
-                $mine[] = $c;
-            } elseif (!in_array($p, $paths, true)) {
-                $outside[] = $c;
-            }
-        }
+        // Without a group (the person may open only this page of it), only the page's own choices: the ones that open this page.
+        $current = array_values(array_filter($own, static fn (array $c): bool => ($c['current'] ?? false) === true))[0] ?? $own[0] ?? null;
+        $page = $current === null ? '' : $path($current);
         $out = [];
-        foreach ($group as $g) {
-            if ($here !== null && ($g['current'] ?? false) === true) {
-                array_push($out, ...($mine === [] ? [$g] : $mine));
-            } elseif ($here !== null) {
+        $used = [];
+        foreach ($own as $c) {
+            $g = $byPath[$path($c)] ?? null;
+            if ($here ? $g === null : $path($c) !== $page) {
+                continue;
+            }
+            $used[$path($c)] = true;
+            $out[] = $g === null || ($g['current'] ?? false) === true ? $c : $c + ['count' => $g['count'] ?? 0, 'countWords' => $g['countWords'] ?? ''];
+        }
+        foreach ($here ? $group : [] as $g) {
+            if (!isset($used[$path($g)])) {
                 $out[] = $g;
             }
         }
-        $out = $here === null ? [...$mine, ...$outside] : [...$out, ...$outside];
         if ($other !== null && !in_array(true, array_map(static fn (array $c): bool => ($c['current'] ?? false) === true, $out), true)) {
             array_unshift($out, ['label' => $other, 'href' => '', 'current' => true]);
         }
@@ -275,7 +275,7 @@ final class View
      * @param array{0: string, 1: string}|null $back
      */
     private function head(string $title, ?string $intro, ?string $look, string $chips, string $meta, string $aside, ?string $lede, ?string $more,
-        string $tag, ?string $eyebrow, ?string $side = null, ?array $back = null): string
+        string $tag, ?string $eyebrow, ?string $side = null, ?array $back = null, ?array $menu = null, ?array $extra = null): string
     {
         $this->headDrawn = true;
         $f = $this->frame;
@@ -289,7 +289,9 @@ final class View
         // Outside a section (no page bar) a create button is plain (DS5); Home has none: its main action is the first job (HV1).
         $made = is_array($f['actions'] ?? null) ? $f['actions'] : [];
         $pages = $pagebar !== null && is_array($pagebar['more'] ?? null) ? $pagebar['more'] : [];
-        $actions = $side ?? ($made !== [] || $pages !== [] ? $this->render('split', ['actions' => $made, 'main' => $pagebar !== null, 'pages' => $pages]) : '');
+        $menu = $menu !== null && (($menu['links'] ?? []) !== [] || ($menu['filters'] ?? null) !== null) ? $menu : null;
+        $actions = $side ?? ($made !== [] || $pages !== [] || $menu !== null || $extra !== null
+            ? $this->render('split', ['actions' => $made, 'main' => $pagebar !== null, 'pages' => $pages, 'menu' => $menu, 'extra' => $extra]) : '');
         return Html::statement($eyebrow ?? '', $title, $sentence, $line, $tag, $chips, Html::helpWithLook($aside, $lookLine, $lookLabel), $meta, $actions, $back)
             . $this->render('page_frame', ['switchedOff' => $f['switchedOff'] ?? null]) . ($f !== [] ? self::SHOW_SLOT : '');
     }

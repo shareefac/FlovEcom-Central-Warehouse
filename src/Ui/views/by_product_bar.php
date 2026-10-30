@@ -1,7 +1,7 @@
 <?php
 // Product matching's actions beside its title (the approved ByItem artboard of 30 Oct 2026; docs/decisions.md RD-C7, RD-C8): the page's ONE main button
 // (`main`: "Match all new" on the New on the stores tab, for whoever may decide; none on By item) and ONE More: Store listings' other matching
-// pages as the header's More lists them (the section's specialist pages, docs/decisions.md RD6, with their counts and lines), then the list's
+// pages as the page head's More lists them (the section's specialist pages, docs/decisions.md RD6, with their counts and lines), then the list's
 // own file and how many rows a page shows (By item only). A details fold: no script needed.
 $main = $main ?? null; $export = $export ?? null; $sizes = $sizes ?? [];
 $pages = $sectionMore();

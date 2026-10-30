@@ -1,18 +1,18 @@
 <?php
 // Items, a simple list (the approved redesign of 30 Oct 2026, artboard Items; docs/decisions.md RD-A3): the title, and at its right More and
-// ONE main button "+ New item" (rda_bar); one search and ONE Show choice (All items, Holding stock, Needs a look, Made by hand); then the
+// ONE main button "+ New item" (the page head's create button, its More with the list's items: list_more); one search and ONE Show choice (All items, Holding stock, Needs a look, Made by hand); then the
 // items grouped Needs a look (a block or a card still to confirm), No card yet, Ready, most stock first in each, three columns: the item (its
 // name opens it, its CW number under it), its status label, what it holds. A block's rules and a warning stay a small line under the name
 // (the "?" beside the heading says what they mean).
 ?>
 <?= $head(\CW\Ui\Words::INV_LIST['items'], intro: 'cards', look: $canEdit ? null : \CW\Ui\Words::whoCan('catalogue.edit'), aside: $explain('card_rules', \CW\Ui\Words::CARDS['rules_label']),
-    side: $partial('rda_bar', $bar)) ?>
+    menu: $bar) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('CARDS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('INV_LIST', 'items_search') ?>" enterkeyhint="search"></div>
 <?php foreach ($kept as $k => $v): ?>
   <input type="hidden" name="<?= $e($k) ?>" value="<?= $e($v) ?>">
 <?php endforeach; ?>
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show'], 'other' => \CW\Ui\Words::INV_LIST['filtered']]) ?>
+  <?= $showMine($show, \CW\Ui\Words::INV_LIST['filtered']) ?>
 </form>
 <?php if ($rows === [] && $filters['q'] !== ''): ?>
 <?= $empty(\CW\Ui\Words::say('CARDS', 'none_search', $filters['q']), \CW\Ui\Words::CARDS['none_search_text'], \CW\Ui\Html::url('/ui/items/cards', $searchClear ?? []), \CW\Ui\Words::CARDS['clear_search']) ?>

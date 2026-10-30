@@ -539,14 +539,14 @@ final class UiTemplatesTest extends TestCase
             file_put_contents($dir . '/nav.php', "<?= \$head('Company') ?>\n<?= \$showNav() ?><nav class=\"set-nav\"></nav>\n");
             file_put_contents($dir . '/alone.php', "<?= \$head('Company') ?>\n");
             file_put_contents($dir . '/more.php', "<?= \$head('Product matching', side: '') ?>\n<?php foreach (\$sectionMore() as \$p): ?><a class=\"m\" href=\"<?= \$u((string) \$p['href'], \$p['query']) ?>\"><?= \$e(\$p['label']) ?></a>\n<?php endforeach; ?>\n");
-            $who = new StaffIdentity(7, 'b@test.invalid', 'Bea', ['goods_in', 'admin', 'mapping_lead'], false, 'sid');
-            $view = new View($dir, ['csrf' => 'tok', 'who' => $who]);
-            $frame = static function (string $path) use ($who): array {
-                $f = Sections::frame($who->roles, [], $path);
+            // One job at a time: each page's group as that job sees it.
+            $view = static fn (string $job): View => new View($dir, ['csrf' => 'tok', 'who' => new StaffIdentity(7, 'b@test.invalid', 'Bea', [$job], false, 'sid')]);
+            $frame = static function (string $job, string $path): array {
+                $f = Sections::frame([$job], [], $path);
                 return ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'], 'segments' => $f['segments'],
                     'actions' => $f['actions'], 'searchBox' => false, 'tabs' => [], 'testSystem' => false, 'switchedOff' => null];
             };
-            $html = $view->page('page', [], $frame('/ui/receiving'));
+            $html = $view('goods_in')->page('page', [], $frame('goods_in', '/ui/receiving'));
             self::assertSame(1, substr_count($html, '<details class="show-menu">'), 'ONE Show');
             self::assertStringNotContainsString('show-row', $html, 'the head draws no second');
             self::assertStringContainsString('<form class="toolbar" method="get">' . "\n" . '  <details class="show-menu">', $html, 'in the toolbar');
@@ -555,17 +555,17 @@ final class UiTemplatesTest extends TestCase
             self::assertMatchesRegularExpression('#<div class="show-panel">\s*<ul class="show-list"[^>]*>.*</ul>\s*<div class="tb-state">\s*<select id="tb-show" name="show">'
                 . '.*<button type="submit" class="btn sm">Show</button>\s*</div>\s*</div></details>\s*</form>#s', $html, 'the page\'s own fields in the same panel, its form');
             // One page in the group (a page outside a group): only the fields, as before.
-            $one = $view->page('page', [], $frame('/ui/purchasing/orders'));
+            $one = $view('goods_in')->page('page', [], $frame('goods_in', '/ui/purchasing/orders'));
             self::assertStringNotContainsString('show-menu', $one);
             self::assertMatchesRegularExpression('#<form class="toolbar" method="get">\s*<div class="tb-state">\s*<select id="tb-show" name="show">.*</button>\s*</div>\s*</form>#s', $one);
             // Settings' section list is the group's: no Show row under the head.
-            $nav = $view->page('nav', [], $frame('/ui/reference/company'));
+            $nav = $view('admin')->page('nav', [], $frame('admin', '/ui/reference/company'));
             self::assertStringNotContainsString('show-menu', $nav);
             self::assertStringContainsString('<nav class="set-nav">', $nav);
-            self::assertStringContainsString('<div class="show-row"><details class="show-menu">', $view->page('alone', [], $frame('/ui/reference/company')),
+            self::assertStringContainsString('<div class="show-row"><details class="show-menu">', $view('admin')->page('alone', [], $frame('admin', '/ui/reference/company')),
                 'without it the head draws the group');
             // Product matching's own More: the section's specialist pages (RD6), the head drawing no More of its own (side).
-            $more = $view->page('more', [], $frame('/ui/review/products'));
+            $more = $view('mapping_lead')->page('more', [], $frame('mapping_lead', '/ui/review/products'));
             self::assertSame(0, substr_count($more, '<details class="more">'));
             self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'],
                 preg_match_all('#<a class="m" href="[^"]*">([^<]*)</a>#', $more, $m) > 0 ? $m[1] : []);
@@ -1611,8 +1611,9 @@ final class UiTemplatesTest extends TestCase
                 'data-leave>', '<span class="doc-bar-note">'],
             'report' => ['<section class="doc-progress rp-figs"', 'class="table-wrap doc-board'],
             'toolbar' => $toolbar,
-            // The redesign's simple list (docs/decisions.md RD-A2, RD-A5, RD-A7): one search, the ONE Show choice, the head's More and main button.
-            'simple' => ['<form class="toolbar" method="get"', '<div class="tb-search">', "\$partial('rda_show'", "side: \$partial('rda_bar', \$bar)",
+            // The redesign's simple list (docs/decisions.md RD-A2, RD-A5, RD-A7; rd1's Show and header More since the integration, RD-I8): one
+            // search, the ONE Show choice, the head's More with the list's items and its create button.
+            'simple' => ['<form class="toolbar" method="get"', '<div class="tb-search">', '$showMine($', 'menu: $bar',
                 '<div class="grp-block doc-group ', '<div class="table-wrap doc-board" id="g-', '<th scope="row" class="c-head c-item"><a class="o-name'],
         ];
         $pages = [
@@ -1687,7 +1688,8 @@ final class UiTemplatesTest extends TestCase
             'related' => ['<section class="doc-related"', '<div class="board-head"><h2 id="', '<div class="table-wrap doc-board '],
             'tabs' => ['<nav class="tabs record-tabs" id="record-tabs"', ' aria-current="page"', '<?php if (!$t[\'current\']): ?> href="'],
             'form' => ['<form class="doc-details" method="post"', '<fieldset class="doc-grid', 'data-unsaved="1"', 'data-unsaved-text="'],
-            'report' => ['<section class="doc-progress rp-figs"', '<div class="grp-block doc-group ', 'class="table-wrap doc-board'],
+            // (a strip with a safety message is also .rp-keep: RD-I5)
+            'report' => ['<section class="doc-progress rp-figs', '<div class="grp-block doc-group ', 'class="table-wrap doc-board'],
         ];
         $pages = [
             // The simple lists (RD-B6): "+ New …" is the head's one button, no add row at a group's end.
@@ -1995,8 +1997,8 @@ final class UiTemplatesTest extends TestCase
             'record' => ['<div class="doc-head">', 'side: $bar', '<section class="doc-progress rp-figs"', '<article class="doc-view"', "\$partial('doc_party'"],
             'form' => ['<form class="doc-details item-new" id="new" method="post" action="/ui/items/new" data-unsaved="1"', '<fieldset class="doc-grid">',
                 '<details class="fold" id="new-legal"', '<details class="fold" id="new-buying"', "\$partial('doc_bar', ['back' => '/ui/items/cards'", "side: ''"],
-            // The redesign's simple list (docs/decisions.md RD-A2, RD-A3, RD-A7): the ONE Show choice, the head's More and main button.
-            'simple' => ['<form class="toolbar', '" method="get"', "\$partial('rda_show'", "side: \$partial('rda_bar', \$bar)"],
+            // The redesign's simple list (docs/decisions.md RD-A2, RD-A3, RD-A7; rd1's Show and header More since the integration, RD-I8).
+            'simple' => ['<form class="toolbar', '" method="get"', '$showMine($', 'menu: $bar'],
             'inbox' => ['<div class="ap-inbox">', '<section class="card ap-list"', '<div class="ap-group ', '<a class="ap-row', '<section class="ap-record ',
                 '<form class="ap-answer" id="ap-answer" method="post"', '<button type="submit" form="ap-answer" class="btn primary">', '<p class="ap-next">'],
         ];
@@ -2021,7 +2023,7 @@ final class UiTemplatesTest extends TestCase
                 self::assertLessThanOrEqual(1, substr_count($src, '<input id="tb-q" type="search"'), "{$name}: one search box");
             }
             if (in_array($name, ['item_cards', 'items_by_hand', 'families', 'packs', 'pack_links', 'barcode_reviews'], true)) {
-                self::assertSame(1, substr_count($src, "\$partial('rda_show'"), "{$name}: ONE Show choice (RD-A2)");
+                self::assertSame(1, substr_count($src, '$showMine($'), "{$name}: ONE Show choice (RD-A2, RD-I8)");
                 foreach (['<div class="tb-state">', 'grp-add', 'add-item', 'rp-figs'] as $old) {
                     self::assertStringNotContainsString($old, $src, "{$name}: no {$old} on a simple list");
                 }
@@ -2032,8 +2034,11 @@ final class UiTemplatesTest extends TestCase
                 self::assertStringNotContainsString('board-title', $src, "{$name}: nor a heading of its own over the groups");
             }
         }
-        // Items: the filters of before are More's fold (rda_bar's GET form of selects and ticks), three columns (RD-A3).
-        self::assertSame(1, substr_count($t['rda_bar.php'], '<label class="choice tb-check"><input type="checkbox" name="'));
+        // Items: the filters of before are More's fold (list_more's GET form of selects and ticks, in rd1's header More), three columns (RD-A3).
+        self::assertSame(1, substr_count($t['list_more.php'], '<label class="choice tb-check"><input type="checkbox" name="'));
+        self::assertStringContainsString("<?= \$partial('list_more', \$menu) ?>", $t['split.php'], 'inside the header\'s ONE More');
+        self::assertArrayNotHasKey('rda_bar.php', $t, 'the stand-ins went (RD-I8)');
+        self::assertArrayNotHasKey('rda_show.php', $t);
         self::assertSame(3, substr_count($t['item_cards.php'], '<th scope="col"'));
         // Add Item: name, brand and barcode come first; the made-by-hand list (and its check) is on its own view, not under the form.
         preg_match_all('/<input id="[^"]+" type="text" name="([a-z_]+)"/', $t['item_new.php'], $names);
@@ -2045,7 +2050,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<div class="doc-actions" role="group"', $t['family_bar.php']);
         self::assertStringContainsString('<details class="more"<?php if ($renamed): ?> open<?php endif; ?>>', $t['family_bar.php'], 'More, open again on a refused rename (W11.13)');
         self::assertStringContainsString('<summary class="btn primary">', $t['family_bar.php']);
-        foreach (['item_cards', 'item_new', 'items_by_hand', 'families', 'family', 'family_bar', 'packs', 'pack_links', 'barcode_reviews', 'rda_bar', 'rda_show'] as $name) {
+        foreach (['item_cards', 'item_new', 'items_by_hand', 'families', 'family', 'family_bar', 'packs', 'pack_links', 'barcode_reviews', 'list_more'] as $name) {
             foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset', 'nav', 'ul'] as $tag) {
                 self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php'] ?? ''), substr_count($t[$name . '.php'] ?? '', '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
             }

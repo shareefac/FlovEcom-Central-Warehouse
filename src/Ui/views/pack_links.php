@@ -6,7 +6,7 @@
 ?>
 <?= $head(\CW\Ui\Words::INV_LIST['packs_on'], intro: 'pack_links') ?>
 <div class="toolbar">
-  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($show) ?>
 </div>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PACKS['links_none'], \CW\Ui\Words::PACKS['links_none_text']) ?>

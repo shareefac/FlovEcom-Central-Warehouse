@@ -4,9 +4,9 @@
 // Show choice; then the items grouped by their check (waiting, checked, no check asked), newest first in each. A row opens the item; another
 // person's check (a note, the button) is in its row. Whether a second person checks is the "?" beside the heading.
 ?>
-<?= $head(\CW\Ui\Words::INV_LIST['items'], intro: 'items_by_hand', more: $checkOn ? \CW\Ui\Words::ITEM_NEW['check_on'] : \CW\Ui\Words::ITEM_NEW['check_off'], side: $partial('rda_bar', $bar)) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['items'], intro: 'items_by_hand', more: $checkOn ? \CW\Ui\Words::ITEM_NEW['check_on'] : \CW\Ui\Words::ITEM_NEW['check_off'], menu: $bar) ?>
 <div class="toolbar">
-  <?= $partial('rda_show', ['choices' => $views, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
+  <?= $showMine($views) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

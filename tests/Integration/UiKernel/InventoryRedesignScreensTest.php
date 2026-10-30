@@ -64,7 +64,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $xp = self::xp($page);
         self::assertSame([$title], self::texts($page, '//main//header[contains(@class, "page-head")]//h1'), "{$what}: the title");
         self::assertLessThanOrEqual(1, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, "{$what}: one search");
-        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]')->length, "{$what}: ONE Show choice");
+        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]')->length, "{$what}: ONE Show choice");
         self::assertSame(0, $xp->query('//main//div[@class="tb-state"] | //main//details[contains(@class, "tb-pop")]')->length, "{$what}: no Show row, no Filter pop-over");
         self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")]')->length, "{$what}: no figures strip on a list");
         self::assertSame(0, $xp->query('//main//tr[contains(@class, "grp-add")]')->length, "{$what}: no \"+ Add\" row (the head's main button)");
@@ -74,14 +74,15 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         }
         self::assertLessThanOrEqual(1, $xp->query('//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]//*[contains(@class, "btn") and contains(@class, "primary")]')->length,
             "{$what}: ONE main button");
-        $pick = '//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-pick")]';
-        $current = $xp->query($pick . '/div[contains(@class, "more-menu")]/*[@aria-current]');
+        $pick = '//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]';
+        $current = $xp->query($pick . '/ul[@class="show-list"]/li/*[@aria-current]');
         self::assertSame(1, $current->length, "{$what}: the choice shown");
         self::assertSame('span', $current->item(0)?->nodeName, "{$what}: the choice shown is no link");
-        self::assertSame(Words::INV_LIST['show'] . ': ' . trim((string) $current->item(0)?->textContent), trim((string) preg_replace('/\s+/u', ' ',
+        self::assertSame(Words::INV_LIST['show'] . ': ' . trim((string) $current->item(0)?->firstChild?->textContent), trim((string) preg_replace('/\s+/u', ' ',
             (string) $xp->evaluate('string(' . $pick . '/summary)'))), "{$what}: the Show button says the choice shown");
-        return array_map(static fn (\DOMElement $c): array => [trim($c->textContent), $c->hasAttribute('aria-current')],
-            array_values(iterator_to_array($xp->query($pick . '/div[contains(@class, "more-menu")]/*'))));
+        // rd1's Show (the integration, docs/decisions.md RD-I8): each choice's name (span.show-name; a group page's count beside it).
+        return array_map(static fn (\DOMElement $c): array => [trim((string) $c->firstChild?->textContent), $c->hasAttribute('aria-current')],
+            array_values(iterator_to_array($xp->query($pick . '/ul[@class="show-list"]/li/*'))));
     }
 
     /** The groups' headings: [name, count] in order. @return list<array{0: string, 1: string}> */
@@ -125,7 +126,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([[Words::INV_LIST['all_items'], true], [Words::INV_LIST['holding'], false], [Words::INV_LIST['needs_look'], false], [Words::INV_LIST['by_hand'], false]],
             self::assertSimpleList($list, 'items', Words::INV_LIST['items']));
         self::assertSame(['/ui/items/cards?stock=1', '/ui/items/cards?state=unconfirmed', '/ui/items/new?show=all'],
-            self::attrs($list, '//details[contains(@class, "show-pick")]//a', 'href'), 'each choice a link: Made by hand is its own page');
+            self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'), 'each choice a link: Made by hand is its own page');
         self::assertSame([Words::INV_LIST['items_search']], self::attrs($list, '//form[contains(@class, "toolbar")]//input[@type="search"]', 'placeholder'));
         // The groups in the artboard's order and colours, each count a figure; three columns; the name opens the item, its CW number under it.
         self::assertSame([[Words::INV_LIST['g_look'], '2'], [Words::INV_LIST['g_none'], '1'], [Words::INV_LIST['g_ready'], '1']], self::groupHeads($list));
@@ -144,22 +145,22 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
         self::assertSame(['/ui/items/new'], self::attrs($list, $head . '/a[contains(@class, "primary")]', 'href'));
         self::assertSame([Words::INV_LIST['new_item']], self::texts($list, $head . '/a[contains(@class, "primary")]'));
-        self::assertSame(['state', 'type'], self::attrs($list, $head . '/details[contains(@class, "page-more")]//form//select', 'name'));
-        self::assertSame(['stock', 'warnings', 'blocked', 'discontinued'], self::attrs($list, $head . '/details[contains(@class, "page-more")]//form//input[@type="checkbox"]', 'name'));
-        self::assertSame(['/ui/items/cards/import', '/ui/items/cards.csv'], self::attrs($list, $head . '/details[contains(@class, "page-more")]/div/a', 'href'));
+        self::assertSame(['state', 'type'], self::attrs($list, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
+        self::assertSame(['stock', 'warnings', 'blocked', 'discontinued'], self::attrs($list, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//input[@type="checkbox"]', 'name'));
+        self::assertSame(['/ui/items/cards/import', '/ui/items/cards.csv'], self::attrs($list, $head . '/details[contains(concat(" ", @class, " "), " more ")]/div/a', 'href'));
         $buyer = $this->signIn($this->uiUser('buyer'))->get('/ui/items/cards');
         self::assertSame(0, self::xp($buyer)->query($head . '//a[contains(@class, "primary")] | //a[@href="/ui/items/cards/import"]')->length, 'no New item, no Import');
         // A Show choice and a filter of More: the Show button says which; a search keeps the choice.
         $holding = $web->get('/ui/items/cards', ['stock' => '1']);
-        self::assertSame([Words::INV_LIST['holding']], self::texts($holding, '//details[contains(@class, "show-pick")]//*[@aria-current]'));
+        self::assertSame([Words::INV_LIST['holding']], self::texts($holding, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame(['stock'], self::attrs($holding, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));
         self::assertSame(['Tank five', 'Strong shot', 'Cola ten'], self::texts($holding, '//main//tbody/tr/th/a'));
         $look = $web->get('/ui/items/cards', ['state' => 'unconfirmed']);
-        self::assertSame([Words::INV_LIST['needs_look']], self::texts($look, '//details[contains(@class, "show-pick")]//*[@aria-current]'));
+        self::assertSame([Words::INV_LIST['needs_look']], self::texts($look, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame(['Strong shot', 'Nothing yet'], self::texts($look, '//main//tbody/tr/th/a'));
         $blockedOnly = $web->get('/ui/items/cards', ['blocked' => '1']);
-        self::assertSame([Words::INV_LIST['filtered']], self::texts($blockedOnly, '//details[contains(@class, "show-pick")]//*[@aria-current]'), 'a filter of More: the choice says so');
-        self::assertSame(['blocked'], self::attrs($blockedOnly, $head . '/details[contains(@class, "page-more")]//details[@open]//input[@checked]', 'name'),
+        self::assertSame([Words::INV_LIST['filtered']], self::texts($blockedOnly, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'a filter of More: the choice says so');
+        self::assertSame(['blocked'], self::attrs($blockedOnly, $head . '/details[contains(concat(" ", @class, " "), " more ")]//details[@open]//input[@checked]', 'name'),
             'More\'s filters open in the menu with the one on');
         self::assertSame(['Tank five'], self::texts($blockedOnly, '//main//tbody/tr/th/a'));
     }
@@ -181,7 +182,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $list = $web->get('/ui/stock/in');
         self::assertSame([[Words::INV_LIST['kinds_in'], true], [Words::INV_LIST['kinds_out'], false], [Words::INV_LIST['kinds_adjust'], false], [Words::INV_LIST['kinds_release'], false]],
             self::assertSimpleList($list, 'stock in', Words::INV_LIST['adjustments']));
-        self::assertSame(['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/releases'], self::attrs($list, '//details[contains(@class, "show-pick")]//a', 'href'));
+        self::assertSame(['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/releases'], self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'));
         self::assertSame([[Words::INV_LIST['g_draft'], '1'], [Words::INV_LIST['g_week'], '1']], self::groupHeads($list), 'made final today: Done this week');
         self::assertSame([Words::INV_LIST['col_adjustment'], Words::INV_LIST['col_kind'], Words::INV_LIST['col_reason'], Words::INV_LIST['col_units']],
             self::texts($list, '//div[@id="g-week"]//thead/tr/th'));
@@ -193,20 +194,20 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
         self::assertSame(['/ui/stock/in#new'], self::attrs($list, $head . '/a[contains(@class, "primary")]', 'href'));
         self::assertSame([Words::NEW['stock_in']], self::texts($list, $head . '/a[contains(@class, "primary")]'));
-        self::assertSame(['state', 'warehouse'], self::attrs($list, $head . '/details[contains(@class, "page-more")]//form//select', 'name'));
-        self::assertContains('/ui/receiving', self::attrs($list, $head . '/details[contains(@class, "page-more")]/div/a', 'href'));
+        self::assertSame(['state', 'warehouse'], self::attrs($list, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
+        self::assertContains('/ui/receiving', self::attrs($list, $head . '/details[contains(concat(" ", @class, " "), " more ")]/div/a', 'href'));
         self::assertSame(1, self::xp($list)->query('//details[@id="new"]//form[@action="/ui/stock/in"]')->length, 'the create form as before');
         // Corrections: the reasons are on each line.
         $adjust = $this->start($web, 'adjust');
         self::assertSame(303, $web->post($adjust . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($adjust)->form($adjust . '/add', true))->status);
         $corr = $web->get('/ui/stock/adjustments');
-        self::assertSame([Words::INV_LIST['kinds_adjust']], self::texts($corr, '//details[contains(@class, "show-pick")]//*[@aria-current]'));
+        self::assertSame([Words::INV_LIST['kinds_adjust']], self::texts($corr, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame([Words::INV_LIST['kind_adjust']], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[1]'));
         self::assertSame([Words::INV_LIST['reason_lines']], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'));
         // A state chosen under More: the search keeps it, the choice of kind keeps it too.
         $drafts = $web->get('/ui/stock/in', ['state' => 'draft']);
         self::assertSame(['state'], self::attrs($drafts, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));
-        self::assertSame('/ui/stock/out?state=draft', self::attrs($drafts, '//details[contains(@class, "show-pick")]//a', 'href')[0]);
+        self::assertSame('/ui/stock/out?state=draft', self::attrs($drafts, '//details[contains(@class, "show-menu")]//a', 'href')[0]);
         // Transfers: its own page; the state is its Show; From and To.
         $move = $this->start($web, 'transfer', ['warehouse' => (string) self::warehouseId('MAIN'), 'to_warehouse' => (string) self::warehouseId('VERIFY')]);
         self::assertNotSame('', $move);
@@ -215,7 +216,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([Words::STOCK_OPS['any_state'], true], $show[0]);
         self::assertSame([Words::INV_LIST['col_transfer'], Words::INV_LIST['col_from'], Words::INV_LIST['col_to'], Words::INV_LIST['col_units']],
             self::texts($tr, '//div[@id="g-draft"]//thead/tr/th'));
-        self::assertSame(['warehouse'], self::attrs($tr, $head . '/details[contains(@class, "page-more")]//form//select', 'name'));
+        self::assertSame(['warehouse'], self::attrs($tr, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -249,13 +250,13 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $again = $web->get('/ui/stock/counts');
         $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
         self::assertSame([Words::say('COUNTS', 'open_sheets', 1)], self::texts($again, $head . '/a[contains(@class, "btn") and not(contains(@class, "primary"))]'));
-        self::assertSame(['warehouse', 'show'], self::attrs($again, $head . '/details[contains(@class, "page-more")]//form//select', 'name'));
+        self::assertSame(['warehouse', 'show'], self::attrs($again, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
         // Its other two views: the same title, their Show choice shown.
         $sheets = $web->get('/ui/stock/counts/sheets');
         self::assertSame([Words::INV_LIST['view_sheets'], true], self::assertSimpleList($sheets, 'count sheets', Words::INV_LIST['counts'])[1]);
         self::assertSame([Words::INV_LIST['col_sheet'], Words::INV_LIST['col_where'], Words::INV_LIST['col_lines'], Words::INV_LIST['col_opened_by']],
             self::texts($sheets, '//main//thead/tr/th'));
-        self::assertSame(['state', 'warehouse'], self::attrs($sheets, $head . '/details[contains(@class, "page-more")]//form//select', 'name'));
+        self::assertSame(['state', 'warehouse'], self::attrs($sheets, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
         $diff = $web->get('/ui/stock/counts/differences');
         self::assertSame([Words::INV_LIST['view_differences'], true], self::assertSimpleList($diff, 'differences', Words::INV_LIST['counts'])[2]);
     }
@@ -365,7 +366,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(['6'], self::texts($stock, '//main//tbody/tr[th/a[@href="/ui/items/' . $sku . '"]]/td[@data-label="' . Words::INV_LIST['col_on_hand'] . '"]'));
         // Stock history: the kind of change is the Show choice; the warehouse and the figure under More.
         $moves = $web->get('/ui/stock/movements');
-        self::assertSame(['warehouse', 'figure'], self::attrs($moves, '//main//header//details[contains(@class, "page-more")]//form//select', 'name'));
+        self::assertSame(['warehouse', 'figure'], self::attrs($moves, '//main//header//details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
         self::assertSame(Words::STOCK_VIEW['all_types'], self::assertSimpleList($moves, 'movements', Words::MENU['movements'])[0][0]);
     }
 }

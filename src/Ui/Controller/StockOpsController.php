@@ -107,7 +107,7 @@ final class StockOpsController
                 static fn (array $g): bool => $g !== []),
             'groupNames' => self::groupNames(),
             'show' => self::showChoices($kind, $f),
-            'bar' => self::bar($kind, $f, $filtered, $csv, count($rows) > 0, $canPost, $choices['warehouses']),
+            'bar' => self::bar($kind, $f, $filtered, $csv, count($rows) > 0, $choices['warehouses']),
             'rows_n' => count($rows),
             'limit' => StockOps::LIST_LIMIT,
             'f' => $f,
@@ -672,7 +672,7 @@ final class StockOpsController
      * @param list<array<string, mixed>> $warehouses
      * @return array<string, mixed>
      */
-    private static function bar(string $kind, array $f, bool $filtered, string $csv, bool $rows, bool $canPost, array $warehouses): array
+    private static function bar(string $kind, array $f, bool $filtered, string $csv, bool $rows, array $warehouses): array
     {
         $selects = [];
         if ($kind !== 'transfer') {
@@ -697,7 +697,6 @@ final class StockOpsController
             'filters' => ['action' => StockOps::PATHS[$kind], 'keep' => $keep, 'open' => $f['warehouse'] !== null || ($kind !== 'transfer' && $f['state'] !== null),
                 'selects' => $selects],
             'links' => $links,
-            'main' => $canPost ? ['label' => Words::NEW[self::PAGES[$kind]], 'href' => StockOps::PATHS[$kind] . '#new'] : null,
         ];
     }
 
