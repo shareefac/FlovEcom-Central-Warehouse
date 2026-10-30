@@ -369,7 +369,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
             $cell = $xp->query('td[contains(@class, "doc-st")]', $tr)->item(0);
             self::assertInstanceOf(\DOMElement::class, $cell, 'each row has its solid cell');
             $tone = array_values(array_intersect(explode(' ', $cell->getAttribute('class')), Words::TONES));
-            $rows[] = [self::squash($xp->evaluate('string(text())', $cell)), $tone, self::squash($xp->evaluate('string(td[@data-label="' . Words::ITEM['m_units'] . '"])', $tr))];
+            $rows[] = [self::squash($xp->evaluate('string(span[@class="chip"])', $cell)), $tone, self::squash($xp->evaluate('string(td[@data-label="' . Words::ITEM['m_units'] . '"])', $tr))];
         }
         self::assertSame([
             [Words::MOVE_KIND['commit'], [Words::tone('MOVE_KIND', 'commit')], '+1'],

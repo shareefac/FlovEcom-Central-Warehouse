@@ -63,7 +63,7 @@
 <?php foreach ($g['rows'] as $o): ?>
       <tr>
         <th scope="row" class="c-head c-item"><?php if ($canSeeOrders): ?><a class="o-name" href="<?= $u('/ui/purchasing/orders/' . $o['id']) ?>"><?= $e($o['number']) ?></a><?php else: ?><span class="o-name"><?= $e($o['number']) ?></span><?php endif; ?> <span class="muted">· <?= $say('GI', 'to_come', (int) $o['outstanding']) ?></span></th>
-        <td class="c-status doc-st <?= $e($o['state_tone']) ?>"><?= $e($o['state_word']) ?></td>
+        <td class="c-status doc-st <?= $e($o['state_tone']) ?>"><span class="chip"><?= $e($o['state_word']) ?></span></td>
         <td class="strong" data-label="<?= $word('GI', 'col_supplier') ?>"><?= $e($o['supplier_name']) ?></td>
         <td data-label="<?= $word('GI', 'col_expected') ?>"<?php if ($o['late']): ?> class="late"<?php endif; ?>><?php if ($o['expected_date'] !== null): ?><?= $day($o['expected_date']) ?><?php if ($o['is_today']): ?> · <?= $word('GI', 'today') ?><?php endif; ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('GI', 'col_items') ?>"><?= $n($o['outstanding']) ?></td>
@@ -98,7 +98,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/receiving/' . $r['id']) ?>"><?= $e($r['name']) ?></a> <span class="muted">· <?= $e($r['sub_line']) ?></span></th>
-        <td class="c-status doc-st <?= $e($r['state_tone']) ?>"><?= $e($r['board_word']) ?></td>
+        <td class="c-status doc-st <?= $e($r['state_tone']) ?>"><span class="chip"><?= $e($r['board_word']) ?></span></td>
         <td class="strong" data-label="<?= $word('GI', 'col_supplier') ?>"><?= $e($r['supplier_name']) ?></td>
         <td data-label="<?= $word('GI', 'col_arrived') ?>"><?= $e($r['arrived_line']) ?><?php if ((int) $r['paper_sheet'] === 1): ?> <span class="o-sub"><?= $word('RECEIVING', 'paper') ?></span><?php endif; ?></td>
 <?php if (in_array($g['key'], ['checking', 'ready'], true)): ?>

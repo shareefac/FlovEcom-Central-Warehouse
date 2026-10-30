@@ -51,7 +51,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr id="incident-<?= $e($r['id']) ?>">
         <th scope="row" class="c-head c-item"><span class="o-name"><?= $e($r['title']) ?></span><span class="o-sub"><?= $e($r['where']) ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('INCIDENT_STATE', (string) $r['status']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('INCIDENT_STATE', (string) $r['status']) ?></span></td>
         <td data-label="<?= $word('INCIDENTS', 'came_from') ?>"><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['from']) ?></a></td>
         <td data-label="<?= $word('INCIDENTS', 'found') ?>"><?= $e($r['opened']) ?><?php if ($r['closed'] !== null): ?><span class="o-sub"><?= $e($r['closed']) ?></span><?php endif; ?></td>
 <?php if ($canResolve && $g['key'] === 'open'): ?>

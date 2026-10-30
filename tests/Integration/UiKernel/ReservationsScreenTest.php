@@ -150,11 +150,11 @@ final class ReservationsScreenTest extends KernelUiTestCase
     {
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $this->page($web);
-        self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', null]],
+        self::assertSame(['Inventory', 'Reserved stock'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame([['Stock on hand', '/ui/stock'], ['Reserved stock', null], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
-            'under the row\'s More, in the row on its own page (HV3); a viewer reads no stock records and no counts');
-        self::assertSame([], self::moreTabs($page), 'nothing else a viewer opens: no More of Quality (still "Soon") alone');
+            'Inventory\'s entries (RD1); a viewer reads no stock records and no counts');
+        self::assertSame([], self::moreTabs($page), 'no specialist page in Inventory');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['reservations'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
@@ -171,13 +171,13 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
         self::assertSame([[Words::BULK['all_stores'], self::PATH, 0, true]], self::storeChoice($page, self::PATH), 'no store yet: only "All stores", the one shown');
-        // The other pages of Stock list it in the sidebar (DC28; it was under the tab row's More); the stock records' people see it after their tabs on its own page.
+        // The other pages of Inventory list it in the sidebar (RD1).
         $stock = $web->get('/ui/stock');
         self::assertContains(self::PATH, $stock->hrefs());
-        self::assertContains(['label' => 'Reservations', 'href' => self::PATH, 'count' => 0], self::moreTabs($stock), 'one of Stock\'s pages in the sidebar (DC28)');
+        self::assertContains(['label' => 'Reserved stock', 'href' => self::PATH, 'count' => 0, 'current' => false], self::sectionTabs($stock), 'one of Inventory\'s entries');
         $sc = $this->page($this->signIn($this->uiUser('stock_controller')));
-        self::assertSame(['Overview', 'Movements', 'Stock in', 'Stock out', 'Adjustments', 'Counts', 'Reservations'], self::tabLabels($sc));
-        self::assertSame(['Hand-overs', 'Transfers', 'Quality', 'Repack'], array_column(self::moreTabs($sc), 'label'));
+        self::assertSame(['Stock on hand', 'Adjustments', 'Transfers', 'Stock counts', 'Repack', 'Reserved stock', 'Stock history'], self::tabLabels($sc));
+        self::assertSame([], self::moreTabs($sc));
     }
 
     public function testTheBoardGroupsEveryStateNewestFirstWithTheFiguresAndTheStores(): void
@@ -297,7 +297,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertContains(self::PATH . '/' . $ids['V1001'], $list->hrefs(), 'a row opens its reservation');
         $page = $web->get(self::PATH . '/' . $ids['V1001']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Inventory', 'Reserved stock'], [self::currentSection($page), self::currentTab($page)]);
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('RESV', 'title', 'V1001') . ' ' . Words::RESV_CHIP['to_ship'], trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))));
         self::assertSame(self::PATH . '?channel=vpg', $xp->query('//main//p[@class="crumbs" or contains(@class, "ph-back")]/a')->item(0)?->getAttribute('href'), 'back to the list, at its store');
@@ -454,7 +454,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $missing = $buyer->get(self::PATH . '/999999');
         self::assertSame(404, $missing->status, $missing->describe());
         self::assertSame('not_found', $missing->errorCode());
-        self::assertSame('Stock', self::currentSection($missing));
+        self::assertSame('Inventory', self::currentSection($missing));
         self::assertContains(self::PATH, $missing->hrefs(), 'a way back to the list');
         foreach (['/0', '/abc', '/-1', '/' . $ids['V1001'] . '/edit', '/999999999999999999999'] as $tail) {
             self::assertSame(404, $buyer->get(self::PATH . $tail)->status, $tail);

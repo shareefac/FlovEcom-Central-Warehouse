@@ -250,10 +250,10 @@ final class SalesScreensTest extends KernelUiTestCase
         $ids = $this->orders();
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $this->page($web, self::ORDERS);
-        self::assertSame(['Sales', 'Store orders'], [self::currentSection($page), self::currentTab($page)], 'a section of its own (HV3)');
+        self::assertSame(['Sales', 'Sales orders'], [self::currentSection($page), self::currentTab($page)], 'a section of its own (HV3)');
         self::assertSame([[Words::MENU['sales_orders'], null, true], [Words::MENU['sales_dispatch'], self::DISPATCH, false],
-            [Words::MENU['sales_returns'], self::RETURNS, false]],
-            array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::sectionTabs($page)), 'its three pages are its tabs');
+            [Words::MENU['sales_returns'], self::RETURNS, false], [Words::MENU['handovers'], '/ui/stock/handovers', false], [Words::MENU['customers'], '/ui/stock/handovers/customers', false]],
+            array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::sectionTabs($page)), 'its entries (RD1: the trade sales joined)');
         self::assertSame([], self::segments($page));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['sales_orders'], trim((string) $xp->evaluate('string(//main//h1)')));
@@ -272,13 +272,14 @@ final class SalesScreensTest extends KernelUiTestCase
         }
         // The store chosen travels through the tabs.
         $alt = $this->page($web, self::ORDERS, ['channel' => 'alt']);
-        self::assertSame([null, self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt'], array_column(self::sectionTabs($alt), 'href'), 'the one shown: no link (CV13)');
+        self::assertSame([null, self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt', '/ui/stock/handovers', '/ui/stock/handovers/customers'],
+            array_column(self::sectionTabs($alt), 'href'), 'the one shown: no link (CV13); the store to the three that keep it');
         foreach ([[self::DISPATCH, 'sales_dispatch'], [self::RETURNS, 'sales_returns'], [self::ORDERS . '/' . $ids['V2003'], 'sales_orders']] as [$path, $tab]) {
             $p = $this->page($web, $path);
             self::assertSame(['Sales', Words::MENU[$tab]], [self::currentSection($p), self::currentTab($p)], $path);
         }
-        self::assertSame(self::ORDERS, self::nav($web->get('/ui/'))['Sales']['href'], 'the sidebar\'s Sales, under More (HV2)');
-        self::assertNotContains('Sales', self::tabLabels($web->get('/ui/stock')), 'not a tab of Stock any more');
+        self::assertSame(self::ORDERS, self::nav($web->get('/ui/'))['Sales']['href'], 'the sidebar\'s Sales (RD1)');
+        self::assertNotContains('Sales orders', self::tabLabels($web->get('/ui/stock')), 'not an Inventory entry');
 
         // Who may open it: the people who look at sales (sales.view); not the matching jobs and not admin.
         $paths = [self::ORDERS, self::ORDERS . '.csv', self::ORDERS . '/' . $ids['V2003'], self::DISPATCH, self::RETURNS, self::RETURNS . '.csv'];

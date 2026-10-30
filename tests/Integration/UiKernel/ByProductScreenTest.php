@@ -222,8 +222,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
         self::assertSame('By item', self::currentTab($page));
-        self::assertSame(['Simple matching', 'Mapping', 'Store products', 'By item'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
-        self::assertSame(['New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
+        self::assertSame(['By item', 'Check a match'], self::tabLabels($page), 'Store listings\' two entries (RD6)');
+        self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
+            'the other matching pages under the header\'s More');
         self::assertSame(Words::MENU['by_product'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
         self::assertSame([Words::BY_PRODUCT['item'], 'Alt Store', 'Big Store', 'Cee Store', Words::BY_PRODUCT['stores_matched']], self::heads($page),
             'one column per store, by name: the channel table says which');
@@ -834,7 +835,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame("/ui/review/listing/{$one}?pick={$sku}&via=product&product={$sku}&channel=alt", $choose['Elux Legend']);
         $page = self::open($web, $choose['Elux Legend']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame('Mapping', self::currentTab($page), 'the existing page, where it always was');
+        self::assertSame('Check a match', self::currentTab($page), 'the existing page, where it always was (Check a match since RD1)');
         self::assertStringContainsString(Words::LISTING['picked'], $page->text());
         self::assertStringContainsString($code, $page->text());
         self::assertSame(['link'], $page->buttons('/decide', 'action', true), 'Same item (W12.1)');

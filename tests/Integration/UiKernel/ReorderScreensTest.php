@@ -65,9 +65,9 @@ final class ReorderScreensTest extends KernelUiTestCase
             '1 Oct 2026'), $page->text());
         self::assertStringNotContainsString('∞', $page->text(), 'no sales: "no sales", never ∞ (F318)');
         // Pack C: + Invoices and Returns (a buyer reads them).
-        self::assertSame([['Reorder', null, true], ['Purchase orders', '/ui/purchasing/orders', false], ['Invoices', '/ui/purchasing/invoices', false],
-            ['Returns', '/ui/purchasing/returns', false], ['Suppliers', '/ui/purchasing/suppliers', false]],
-            array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchasing › Reorder');
+        self::assertSame([['Suppliers', '/ui/purchasing/suppliers', false], ['Purchase orders', '/ui/purchasing/orders', false], ['Purchase invoices', '/ui/purchasing/invoices', false],
+            ['Purchase returns', '/ui/purchasing/returns', false], ['Reorder', null, true]],
+            array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchases › Reorder');
         self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history', 'Suppliers', 'Low-stock warnings'], array_column(self::segments($page), 'label'));
         self::assertSame('Suggestions', self::segments($page)[0]['current'] ? 'Suggestions' : null);
         // The report (docs/decisions.md W9.11): the lines grouped, ONE "Create draft orders", in the bar at the bottom of the list.

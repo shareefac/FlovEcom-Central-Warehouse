@@ -884,7 +884,7 @@ strip is `.doc-progress`, the movements a board with `td.doc-st`, the parts unde
 - Tests: `tests/Integration/UiKernel/ItemPageScreensTest.php`, `tests/Unit/ItemPageUnitTest.php`. In a kernel test the actions are
   `//div[contains(@class, "item-bar")]`, Count it's form is `$page->form('/ui/stock/counts')`, a tab's panel `//div[@id="t-<key>"]`.
 
-### Home and a shorter menu (`docs/decisions.md` HV1-HV9)
+### Home and a shorter menu (`docs/decisions.md` HV1-HV9; the sidebar part replaced by the redesign's, RD1-RD12, below)
 
 The approved design (`HM_Home`, `HM_Phone`): Home is the person's jobs as rows and four figures; the sidebar is Home, "Every day", "More"; each
 section's set-up, import and specialist pages are under its tab row's More.
@@ -1042,8 +1042,8 @@ The shared code follows the approved mockups (section A of `runs/dsaudit_finding
 | A record's eyebrow | `$head(back: [href, label])` | the list as an accent link and "›" (`p.ph-eyebrow.ph-back`), a `tag` right after it ("Store products › Electrofag · 8,767 to match", DC37); no `p.crumbs` above the head |
 | A list's store | `select[name=channel]` in the Show row (`form.toolbar .tb-state`; a pop-over's when the list has several filters) | options from `ReviewController::storeItems` ("All stores" and each store, "Name (N)", the one shown `selected`; the hover `BULK store_count_title` says what N counts); no hidden `channel` beside it; no store tab row (DC33) |
 | The create button | the layout's `actions` (Sections `new`) | always in the header (no `OWN_TOOLBAR`); the page's own only, no second More |
-| A section's pages | `Sections::frame` `nav[*]['subs']` (each with `segs`), `layout.php` | the open section's pages as `a.nav-sub-item` under it, the page's segments in `ul.nav-sub.nav-seg`; no page draws a tab or segment row (DC28) |
-| The shell | `layout.php` | plain name, words-only menu with magenta counts, no bell, no find link, the open section's pages under it; phone: name + `.appbar-me` initials (to `#menu`, the same tree), `.menu-btn` only without a bottom bar |
+| A section's pages | `Sections::frame` `nav[*]['subs']`, `segments`, `layout.php` | the open section's entries as `a.nav-sub-item` under it; an entry's pages are its Show (RD2), never a third level |
+| The shell | `layout.php` | Sidebar.dc.html and Phone.dc.html (RD1, RD5): see "The redesign's shared parts" below |
 | Initials | `Html::initials`, `.initials` | the PO board's By, the phone top bar |
 | A recent time | `Html::near` | "Today 09:40", "Yesterday 15:10", else the date and time (UK) |
 | The toolbar's More | `form.toolbar > .tb-end > details.more.tb-more` | what a board mockup does not show (download, show drafts, Clear, a list's size) |
@@ -1136,3 +1136,34 @@ The classes it added (CSS: the "w12" block of `app.css`), for pattern 7 only:
   the cut-off is the database clock, as `stock_ledger.created_at`; the script run out of process on the test schema),
   `tests/Integration/Ops/RollbackListsTest.php` (extends `PurchaseOrderTestCase`), `Migration0046Test`. A new movement type is either in
   `CARRIED_TYPES` or in `WEBSITE_TYPES`; anything else is listed as `unknown_type` and never carried.
+
+### The redesign's shared parts (`docs/decisions.md` RD1-RD12; branch `redesign-shared`)
+
+The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/project/`): every page's frame, header, Show and list look.
+
+| Path | What |
+|---|---|
+| `src/Ui/Sections.php` | `MAP`: section (`gap`, `count` = the page whose count is the section's) => entries ("tabs": `pages`, `keep`, `more` = a specialist page under the header's More) => pages; `PHONE` (Home, Receive, Count, Approvals), `ICON` (a section's or a bar entry's sprite name), `FIGURES` (sections whose lists keep figure tiles); `frame()` returns `nav` (one row per section: `key`, `label`, `icon`, `href`, `query`, `count`, `gap`, `current`, `open`, `subs`), `pagebar` (the current section, its `more`), `segments` (the current entry's Show choices: `current`, `here`), `actions`, `list`, `phone`, `bell`, `here` |
+| `src/Ui/View.php` | `$showMenu(?array $choices)` (the Show; no argument = the page's group), `$groupPages()` (the group as data), the head's Show slot filled in `page()` (`SHOW_SLOT`, `showRow()`), the head's More (`split` with `pages`) |
+| `src/Ui/Html.php` | `statement()`: no eyebrow but a given one; `back` as `p.ph-back` ("‹" drawn by CSS), its tag after " · " |
+| `src/Ui/Context.php`, `src/Ui/Queries.php` | the layout's `list` and `stores` (`Queries::storeNames`, the sidebar's line under the name) |
+| views `layout` (sidebar, top bar, bottom bar), `show_menu`, `split` (create button + More with the specialist pages) | |
+| `src/Ui/Words.php` | `SECTION`, `NAV` (the phone bar), `MENU` (an entry's name = its page's title), `SEGMENT` (Show words), `MENU_HELP` (a specialist page's line), `NEW add_item` "New item", `UI side_find`, `show`, `more_pages` |
+| `public/ui/assets/icons.svg` | the sections' icons (`sec-*`) and the bar's (`receive`, `count`, `dots`), from the artboards; the CSS names the sprite by its sha256 (first 16) |
+| `public/ui/assets/app.css` | section 4 (the shell: `.side-brand`, `.brand-tile`, `.brand-stores`, `.side-find`, `.nav-item`, `.nav-chip`, `.nav-gap`, `.nav-sub`, `.sec-<section>` colours `--sec`/`--sec-tint`/`--sec-ink`, `.appbar-home`, `.appbar-title`, `.tabbar`, `.work.is-list .rp-figs`), section 5 (`.ph-back`, `.ph-meta`, `.show-row`, `details.show-menu`, `.show-select`, `.show-list`, `.show-item`), section 6 (`.grp-title::before` the dot), section 7 (`.chip` the pill), pi-design (`.doc-board` without its edge, `td.doc-st` holding the pill) |
+
+| Piece | Markup | Notes |
+|---|---|---|
+| Status pill | `$chip($tone, $words)` / `$stateChip(...)`; in a board `<td class="c-status doc-st <tone>"><span class="chip">Words</span></td>` | the tone's tint and its darker words; `td.doc-st` is no longer filled |
+| Group heading | `div.grp-block.doc-group.<tone>` > `h3.grp-title` (`button.grp-toggle` + `span.grp-count`) | the dot is CSS; name in ink |
+| Table card | `div.table-wrap.doc-board` > `table.stack.list.board.doc-list` | 12 px corners, no coloured edge |
+| Show | `<?= $showMenu() ?>` in the page's toolbar, or `$showMenu([...$groupPages(), [label, href, query, current]])` | without it the head draws the group's under itself |
+| Record header | `$head($name, back: [listHref, listName], chips: $chip(...), meta: '…', side: $bar)` | "‹ list", pill, one fact line, actions right |
+
+- A new page: add it to its entry in `Sections::MAP` (a page of an entry with two or more is a Show choice: its `SEGMENT` word); a new entry
+  needs `MENU` and `MENU_HELP`; Store listings' other pages are `'more' => true`.
+- Tests: `tests/Unit/SectionsTest.php` (the map, the tree, the Show, the More, every page reached from Home for every job),
+  `UiTemplatesTest::testTheLayoutDrawsTheSidebarOfThePersonsJobs`, `testEveryPageOpensWithItsStatement`, `testTheSharedPartsFollowTheApprovedMockups`,
+  `UiUnitTest::testTheSidebarHoldsTheSectionsPagesAndNoPageHasATabRow` and the CSS pins; in a kernel test `self::nav()` (label => href,
+  count), `self::currentSection()`, `self::sectionTabs()` (the open section's entries), `self::segments()` (the page's Show),
+  `self::moreTabs()` (the header's More pages), `self::tabs()` (the phone bar).

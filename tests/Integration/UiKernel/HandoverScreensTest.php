@@ -50,11 +50,12 @@ final class HandoverScreensTest extends KernelUiTestCase
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
         $list = $desk->get('/ui/stock/handovers');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Stock', 'Hand-overs'], [self::currentSection($list), self::currentTab($list)]);
-        self::assertContains(['Hand-overs', null], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($list)), 'the tab shown: no link (CV13)');
-        self::assertSame('/ui/stock/handovers', array_column(self::sectionTabs($desk->get((string) array_column(self::segments($list), 'href', 'label')['Customers'])), 'href', 'label')['Hand-overs'],
-            'a link from its other pages');
-        self::assertSame(['Hand-overs', 'Customers', 'Balances'], array_column(self::segments($list), 'label'));
+        self::assertSame(['Sales', 'Trade sales'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertContains(['Trade sales', null], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($list)), 'the entry shown: no link (CV13)');
+        $customers = $desk->get((string) array_column(self::sectionTabs($list), 'href', 'label')['Customers']);
+        self::assertSame('/ui/stock/handovers', array_column(self::sectionTabs($customers), 'href', 'label')['Trade sales'], 'a link from its other pages');
+        self::assertSame([], self::segments($list), 'Trade sales is one page (RD1)');
+        self::assertSame(['Customers', 'Balances'], array_column(self::segments($customers), 'label'), 'Sales › Customers: the customers and their balances');
         self::assertStringContainsString(Words::HANDOVER['no_customers'], $list->text(), 'no customer yet: the form says to add one first');
         foreach (['/ui/stock/handovers/customers', '/ui/stock/handovers/balances', '/ui/receiving/duty'] as $path) {
             self::assertSame(200, $desk->get($path)->status, $path);

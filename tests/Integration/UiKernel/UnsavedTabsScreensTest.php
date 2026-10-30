@@ -65,7 +65,7 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         // The section's tab and the segment lead back to the lists from this record: links, marked as where the person is.
         // (the sidebar's sub-items since DC28: the section's pages and the page's segments)
-        self::assertSame([['label' => 'Counts', 'href' => '/ui/stock/counts', 'count' => 0, 'current' => true]], array_values(array_filter(self::sectionTabs($page), static fn (array $t): bool => $t['current'])));
+        self::assertSame([['label' => 'Stock counts', 'href' => '/ui/stock/counts', 'count' => 0, 'current' => true]], array_values(array_filter(self::sectionTabs($page), static fn (array $t): bool => $t['current'])));
         self::assertSame('/ui/stock/counts/sheets', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//p[contains(@class, "ph-back")]/a/@href)'),
             'the sheet is one of Count sheets: its eyebrow leads back to them (DC3)');
         // The quantity form is guarded (app.js asks before a link or another form leaves while it holds typed values); the paper copy is a
@@ -75,7 +75,7 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//body[@data-unsaved-link="' . Words::UI['unsaved_link'] . '"]')->length, 'the words a link\'s note says');
         // The board itself: its own tab and segment have no link.
         $board = $web->get(CountsController::PATH);
-        self::assertSame([['Counts', null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], array_values(array_filter(self::sectionTabs($board), static fn (array $t): bool => $t['current']))));
+        self::assertSame([['Stock counts', null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], array_values(array_filter(self::sectionTabs($board), static fn (array $t): bool => $t['current']))));
         self::assertSame([[Words::SEGMENT['counts'], null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], array_values(array_filter(self::segments($board), static fn (array $t): bool => $t['current']))));
     }
 

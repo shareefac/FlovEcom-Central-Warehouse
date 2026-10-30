@@ -30,7 +30,7 @@ $modes = ['live', 'shadow', 'off'];
 <?php foreach ($rows as $s): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="#site-<?= $e($s['code']) ?>"><?= $e($s['name']) ?></a><?php if ($s['no_contact'] !== null || $s['mismatch']): ?> <span class="tag blocked"><?= $word('SITES', 'look') ?></span><?php endif; ?></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('MODE', $s['mode'])) ?>"><?= $word('MODE', $s['mode']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('MODE', $s['mode'])) ?>"><span class="chip"><?= $word('MODE', $s['mode']) ?></span></td>
         <td data-label="<?= $word('SITES', 'site_mode') ?>"><?php if ($s['site_mode'] === null): ?><span class="muted"><?= $word('SITES', 'not_reported') ?></span><?php else: ?><?= $word('MODE', $s['site_mode']) ?><?php endif; ?></td>
         <td data-label="<?= $word('SITES', 'contact') ?>"><?= $e($s['contact']) ?></td>
         <td data-label="<?= $word('SITES', 'queue') ?>"><?= $e($s['queue_text']) ?></td>

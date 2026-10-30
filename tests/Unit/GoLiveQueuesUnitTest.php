@@ -69,11 +69,12 @@ final class GoLiveQueuesUnitTest extends TestCase
         self::assertTrue(Permissions::can(['auditor'], 'queues.view'));
         self::assertFalse(Permissions::can(['admin'], 'queues.view'));
         self::assertFalse(Permissions::can(['purchasing_desk'], 'queues.corrections'), 'a correction moves stock without a count: the stock controller\'s');
-        $tab = Sections::MAP['approvals']['tabs']['store_queues'];
-        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], array_column($tab['pages'], 'key'),
+        // Approvals' one entry (RD1): what the stores send is among its Show choices, after the inbox, the reviews, the history and the staff requests.
+        $tab = Sections::MAP['approvals']['tabs']['inbox'];
+        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], array_slice(array_column($tab['pages'], 'key'), 4),
             'and the website bugs (0050, LP8)');
-        self::assertSame(['approvals', 'store_queues', 'queue_modes'], array_values(Sections::locate('/ui/queues/modes')));
-        self::assertSame(['approvals', 'store_queues', 'queue_oversold'], array_values(Sections::locate('/ui/queues/oversold')));
+        self::assertSame(['approvals', 'inbox', 'queue_modes'], array_values(Sections::locate('/ui/queues/modes')));
+        self::assertSame(['approvals', 'inbox', 'queue_oversold'], array_values(Sections::locate('/ui/queues/oversold')));
     }
 
     /** The queue pages take every word from Words (no word typed in a template), and every POST form carries the token. */

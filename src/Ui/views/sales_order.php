@@ -44,7 +44,7 @@ $bar = $partial('sales_order_bar', ['kept' => $kept]);
         <td data-label="<?= $word('SALE_ORDER', 'u_unit') ?>"><?= $e($l['unit']) ?></td>
         <td data-label="<?= $word('SALE_ORDER', 'u_variant') ?>"><?= $e($l['variant']) ?></td>
         <td data-label="<?= $word('SALE_ORDER', 'u_warehouse') ?>"><?= $e($l['warehouse']) ?></td>
-        <td class="c-status doc-st <?= $e($l['tone']) ?>"><?= $e($l['state']) ?></td>
+        <td class="c-status doc-st <?= $e($l['tone']) ?>"><span class="chip"><?= $e($l['state']) ?></span></td>
         <td data-label="<?= $word('SALE_ORDER', 'u_sent') ?>"><?= $when($l['sent']) ?></td>
       </tr>
 <?php endforeach; ?>

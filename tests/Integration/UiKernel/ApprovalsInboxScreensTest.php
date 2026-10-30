@@ -185,7 +185,8 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['ERPNext corrections' => 1, 'Lines to place' => 1, 'Oversold' => 1, 'Mode changes' => 1], self::kindsShown($page), 'the kinds in the brief\'s order');
         self::assertSame(['href' => self::INBOX, 'count' => 4], self::nav($page)['Approvals'], 'the badge counts the inbox, once');
-        self::assertSame(['Waiting for you', 4, true], [self::sectionTabs($page)[0]['label'], self::sectionTabs($page)[0]['count'], self::sectionTabs($page)[0]['current']]);
+        self::assertSame(['Waiting for you', 4, true], [self::segments($page)[0]['label'], self::segments($page)[0]['count'], self::segments($page)[0]['current']],
+            'Approvals is one entry: Waiting for you is its first Show choice (RD7)');
         self::assertSame(self::INBOX, self::nav($sc->get('/ui/'))['Approvals']['href'], 'the menu\'s Approvals entry opens the inbox');
         // The purchasing desk does not answer ERPNext corrections; a reviewer answers none of the stores' queues.
         $desk = $this->signIn($this->uiUser('purchasing_desk'));

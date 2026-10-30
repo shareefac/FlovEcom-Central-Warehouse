@@ -82,7 +82,7 @@ $filtered = $filters['type'] !== null || $filters['status'] !== null || $filters
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/documents/' . $r['id']) ?>"><?php if ($r['number'] === null): ?><?= $word('RECORDS', 'no_number') ?><?php else: ?><?= $e($r['number']) ?><?php endif; ?></a></th>
-        <td data-label="<?= $word('RECORDS', 'status') ?>" class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td data-label="<?= $word('RECORDS', 'status') ?>" class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td data-label="<?= $word('RECORDS', 'what') ?>"><?= $e($r['what']) ?></td>
         <td data-label="<?= $word('RECORDS', 'check') ?>"><?php if ($r['review_state'] !== null): ?><?= $word('CHECK_STATE', $r['review_state']) ?><?php endif; ?></td>
         <td data-label="<?= $word('RECORDS', 'date') ?>"><?= $day($r['doc_date']) ?></td>

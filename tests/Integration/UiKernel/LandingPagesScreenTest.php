@@ -109,7 +109,8 @@ final class LandingPagesScreenTest extends KernelUiTestCase
         $look = $buyer->get('/ui/queues/landing');
         self::assertSame(200, $look->status, $look->describe() . ' ' . implode(' | ', self::$log));
         self::assertStringContainsString('You can look', $look->text());
-        self::assertSame(['Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'], array_column(self::segments($look), 'label'));
+        self::assertSame(['Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'], array_slice(array_column(self::segments($look), 'label'), -5),
+            'the stores\' queues, last in Approvals\' Show (RD7)');
 
         $web = $this->signIn($this->uiUser('stock_controller'));
         $home = $web->get('/ui/');

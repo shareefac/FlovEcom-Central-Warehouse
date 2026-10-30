@@ -64,8 +64,8 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
             "{$what}: the groups' cards");
         self::assertSame($xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr[not(contains(@class, "grp-add"))]')->length,
             $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr/td[contains(@class, "doc-st")]')->length, "{$what}: every row's status cell is filled");
-        self::assertSame(0, $xp->query('//main//div[contains(@class, "doc-board")]//tbody//span[contains(concat(" ", @class, " "), " chip ")]')->length,
-            "{$what}: a status is the solid cell, a small fact a soft tag");
+        self::assertSame(0, $xp->query('//main//div[contains(@class, "doc-board")]//tbody//span[contains(concat(" ", @class, " "), " chip ")][not(parent::td[contains(@class, "doc-st")])]')->length,
+            "{$what}: a status is the pill in its cell (RD8), a small fact a soft tag");
         return self::texts($page, '//main//div[contains(@class, "doc-group")]/h3[@class="grp-title"]/button[@class="grp-toggle"]');
     }
 
@@ -289,7 +289,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//div[@id="g-on"]//tbody/tr/td[contains(@class, "c-next")]/form[contains(@action, "/switch")]')->length);
         self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             array_values(iterator_to_array($xp->query('//div[@id="g-on"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]')))));
-        self::assertSame(0, $xp->query('//details[contains(@class, "how")]')->length, 'no help fold (the approved board has none)');
+        self::assertSame(0, $xp->query('//details[contains(concat(" ", @class, " "), " how ")]')->length, 'no help fold (the approved board has none)');
         self::assertSame(1, $xp->query('//details[@id="new"]//form[@action="/ui/items/packs"]/fieldset[contains(@class, "doc-grid")]//input[@name="units"]')->length);
         // Pack links: a board of the variants sold as more than one unit, grouped by whether something needs a look; a row opens the variant.
         $this->profiled($site, 'SHOT10', ['product_title' => 'Nic shot 10 pack'], $shot, 10);

@@ -83,15 +83,15 @@ final class CountWordsTest extends TestCase
         self::assertSame(['overdue', 'never', 'inside'], CountsController::PLAN_GROUPS);
         self::assertSame(['no_code', 'not_whole', 'negative', 'too_large', 'twice'], array_keys(Words::COUNT_BAD));
         self::assertSame([50, 100, 200], CountPlan::SHOW);
-        // The menu: Counts is a tab with three segments, each with its name; the tab has its line on the Dashboard, its create button
-        // and its badge.
-        $pages = Sections::MAP['stock']['tabs']['counts']['pages'];
+        // The menu: Stock counts is an Inventory entry whose three pages are its Show (RD2), each with its name; the entry has its line,
+        // its create button and its badge.
+        $pages = Sections::MAP['inventory']['tabs']['counts']['pages'];
         self::assertSame(['counts', 'count_sheets', 'count_differences'], array_column($pages, 'key'));
         foreach ($pages as $page) {
             self::assertTrue(Words::has('SEGMENT', (string) $page['key']));
             self::assertSame('documents.view', $page['perm'], 'the people who read records look');
         }
-        self::assertSame(['Next to count', 'Count sheets', 'Differences'], array_map(static fn (array $p): string => Words::SEGMENT[$p['key']], $pages));
+        self::assertSame(['Items to count', 'Count sheets', 'Differences'], array_map(static fn (array $p): string => Words::SEGMENT[$p['key']], $pages));
         self::assertSame(['perm' => 'doc.CNT.post', 'href' => '/ui/stock/counts#new', 'label' => 'counts'], $pages[0]['new']);
         self::assertSame('counts_open', $pages[2]['badge']);
         foreach (['MENU_HELP' => 'counts', 'NEW' => 'counts', 'BADGE' => 'counts_open', 'PAGE_TITLE' => 'count_differences'] as $group => $code) {

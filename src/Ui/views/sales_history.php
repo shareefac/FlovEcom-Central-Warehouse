@@ -52,7 +52,7 @@ foreach ($channels as $c) {
       <tr>
         <th scope="row" class="c-head"><?php if ($canLink && $t['listing_id'] !== null): ?><a class="o-name" href="<?= $u('/ui/review/listing/' . $t['listing_id']) ?>"><?= $e($t['product_title'] ?? $t['variant']) ?></a><?php else: ?><span class="o-name"><?= $e($t['product_title'] ?? $t['variant']) ?></span><?php endif; ?>
           <span class="o-sub"><?php if ($t['variant_title'] !== null): ?><?= $e($t['variant_title']) ?> · <?php endif; ?><?= $say('SALES', 'option', $t['variant']) ?><?php if ($t['brand'] !== null): ?> · <?= $e($t['brand']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?php if ($t['listing_id'] === null): ?>off<?php else: ?>needs<?php endif; ?>"><?= $e($t['problem']) ?></td>
+        <td class="c-status doc-st <?php if ($t['listing_id'] === null): ?>off<?php else: ?>needs<?php endif; ?>"><span class="chip"><?= $e($t['problem']) ?></span></td>
         <td class="num" data-label="<?= $word('SALES', 'sold') ?>"><?= $n($t['units']) ?></td>
         <td data-label="<?= $word('SALES', 'last_sale') ?>"><?= $day($t['last_sale']) ?></td>
       </tr>

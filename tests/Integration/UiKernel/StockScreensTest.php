@@ -43,11 +43,10 @@ final class StockScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $web->get('/ui/stock');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Stock', 'Overview'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', null], ['Movements', '/ui/stock/movements']], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
-            'a viewer reads no stock records and no counts (documents.view)');
-        self::assertSame([['Reservations', '/ui/stock/reservations'], ['Quality', null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($page)),
-            'under the row\'s More (HV3); the tab not built yet is "Soon", never a link');
+        self::assertSame(['Inventory', 'Stock on hand'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame([['Stock on hand', null], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)), 'a viewer reads no stock records and no counts (documents.view)');
+        self::assertSame([], self::moreTabs($page), 'no "Soon" page any more (RD1)');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['stock'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
@@ -86,7 +85,7 @@ final class StockScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $page = $web->get('/ui/stock/movements');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Stock', 'Movements'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Inventory', 'Stock history'], [self::currentSection($page), self::currentTab($page)]);
         self::assertSame(['Alpha liquid 10ml', 'Beta pod 2ml', 'Alpha liquid 10ml'], self::names($page, 'ledger'), 'newest first');
         self::assertNotSame([], self::groupTitles($page), 'grouped by day');
         $first = trim((string) preg_replace('/\s+/u', ' ', (string) (new \DOMXPath($page->dom()))->evaluate('string(//table[contains(@class, "ledger")]/tbody/tr[1])')));
@@ -118,7 +117,7 @@ final class StockScreensTest extends KernelUiTestCase
             $web = $this->signIn($this->uiUser($role));
             self::assertSame(200, $web->get('/ui/stock')->status, $role);
             self::assertSame(200, $web->get('/ui/stock/movements')->status, $role);
-            self::assertArrayHasKey('Stock', self::nav($web->get('/ui/')), $role);
+            self::assertArrayHasKey('Inventory', self::nav($web->get('/ui/')), $role);
         }
         self::assertSame(303, $this->browser()->get('/ui/stock')->status, 'signed out: to the sign-in page');
     }

@@ -68,7 +68,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['name']) ?></a></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td class="num" data-label="<?= $word('FAMILY', 'items') ?>"><?= $n($r['items']) ?></td>
       </tr>
 <?php endforeach; ?>

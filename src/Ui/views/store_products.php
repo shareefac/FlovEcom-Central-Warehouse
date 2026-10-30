@@ -111,7 +111,7 @@
           <?= $partial('check_fold', ['check' => $r['check'], 'listing' => $r['listing_id'], 'title' => $r['title'], 'link' => $r['link']]) ?>
 <?php endif; ?>
         </th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td class="c-wide" data-label="<?= $word('STORE_PRODUCTS', 'warehouse') ?>">
 <?php if ($r['sku_code'] !== null): ?>
           <?= $e($r['sku_code']) ?> <span class="muted"><?= $e($r['sku_name']) ?></span><span class="o-sub"><?= $e($r['sale_uses']) ?></span>

@@ -75,7 +75,7 @@ $bar = $partial('customer_bar', ['c' => $c, 'v' => $v, 'version' => $version, 'e
 <?php foreach (array_slice($handovers, 0, 10) as $h): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($h['href']) ?>"><?= $e($h['number_line']) ?></a><span class="o-sub"><?= $e($h['date_line']) ?></span></th>
-        <td class="c-status doc-st <?= $e($h['tone']) ?>"><?= $e($h['state_word']) ?></td>
+        <td class="c-status doc-st <?= $e($h['tone']) ?>"><span class="chip"><?= $e($h['state_word']) ?></span></td>
         <td class="num" data-label="<?= $word('HANDOVER', 'units') ?>"><?= $n($h['units']) ?></td>
         <td class="num" data-label="<?= $word('HANDOVER', 'value') ?>"><?php if ($h['value'] !== null): ?><?= $money($h['value']) ?><?php if (!$h['final']): ?><span class="o-sub"><?= $word('HANDOVER', 'before_vat') ?></span><?php endif; ?><?php endif; ?></td>
       </tr>

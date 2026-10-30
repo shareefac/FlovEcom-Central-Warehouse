@@ -55,7 +55,8 @@ final class StoreQueuesScreensTest extends KernelUiTestCase
         $buyer = $this->signIn($this->uiUser('buyer'));
         $page = $buyer->get(self::PATH . '/suspense');
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
-        self::assertSame(['Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'], array_column(self::segments($page), 'label'));
+        self::assertSame(['History', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'], array_column(self::segments($page), 'label'),
+            'Approvals\' one Show (RD7): a buyer reads the history and the queues');
         self::assertStringContainsString('You can look', $page->text());
         self::assertFalse($page->hasForm(self::PATH . '/suspense/' . $ids['suspense'] . '/pick'));
         self::assertSame(0, array_sum(array_column(self::segments($page), 'count')), 'a buyer answers none: no counts');
@@ -66,9 +67,9 @@ final class StoreQueuesScreensTest extends KernelUiTestCase
             self::assertSame(200, $r->status, $q . ' ' . $r->describe() . ' ' . implode(' | ', self::$log));
             self::assertStringNotContainsString('You can look', $r->text(), $q);
         }
-        self::assertSame([1, 1, 1, 1, 0], array_column(self::segments($controller->get(self::PATH . '/modes')), 'count'));
+        self::assertSame([1, 1, 1, 1, 0], array_slice(array_column(self::segments($controller->get(self::PATH . '/modes')), 'count'), -5));
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
-        self::assertSame([1, 0, 1, 1, 0], array_column(self::segments($desk->get(self::PATH . '/modes')), 'count'), 'the desk does not answer corrections');
+        self::assertSame([1, 0, 1, 1, 0], array_slice(array_column(self::segments($desk->get(self::PATH . '/modes')), 'count'), -5), 'the desk does not answer corrections');
         self::assertStringContainsString('You can look', $desk->get(self::PATH . '/corrections')->text());
     }
 

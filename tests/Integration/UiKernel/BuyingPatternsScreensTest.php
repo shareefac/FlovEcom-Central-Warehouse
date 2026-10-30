@@ -35,7 +35,7 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
     private static function assertNoOldLayout(UiResponse $page, string $what): void
     {
         $xp = self::xp($page);
-        self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop")] | //main//details[contains(@class, "how")] | //main//*[contains(@class, "kpis")]')->length,
+        self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop")] | //main//details[contains(concat(" ", @class, " "), " how ")] | //main//*[contains(@class, "kpis")]')->length,
             "{$what}: the old layout");
     }
 

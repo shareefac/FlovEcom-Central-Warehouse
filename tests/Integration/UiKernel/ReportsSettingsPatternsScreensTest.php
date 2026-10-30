@@ -80,7 +80,7 @@ final class ReportsSettingsPatternsScreensTest extends KernelUiTestCase
         // Group by: Item, Brand, Warehouse (the tab row went); the search finds a brand or an item.
         self::assertSame([Words::REPORTS['group_product'], Words::REPORTS['group_brand'], Words::REPORTS['group_warehouse']],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array(self::xp($value)->query('//select[@name="by"]/option'))));
-        self::assertSame(Words::REPORTS['find_value'], self::xp($value)->evaluate('string(//input[@type="search"]/@placeholder)'));
+        self::assertSame(Words::REPORTS['find_value'], self::xp($value)->evaluate('string(//main//input[@type="search"]/@placeholder)'));
         // The store is chosen in the Show row, its figures are the strip.
         $store = $rev->get('/ui/reports/stock-by-store', ['store' => (string) $vpg->channelId]);
         self::assertSame(['VPG test site'], array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent),

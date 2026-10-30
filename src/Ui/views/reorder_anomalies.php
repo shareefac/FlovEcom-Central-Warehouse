@@ -66,7 +66,7 @@ $active = count(array_filter($rows, static fn (array $r): bool => $r['group'] ==
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head"><?= $e($r['label']) ?></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?php if ((int) $r['is_active'] === 1): ?><?= $word('ANOMALIES', 'active') ?><?php elseif ($r['ended_by_name'] !== null): ?><?= $say('ANOMALIES', 'ended_by', \CW\Ui\Html::day((string) $r['ended_at']), (string) $r['ended_by_name']) ?><?php else: ?><?= $say('ANOMALIES', 'ended', \CW\Ui\Html::day((string) $r['ended_at'])) ?><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?php if ((int) $r['is_active'] === 1): ?><?= $word('ANOMALIES', 'active') ?><?php elseif ($r['ended_by_name'] !== null): ?><?= $say('ANOMALIES', 'ended_by', \CW\Ui\Html::day((string) $r['ended_at']), (string) $r['ended_by_name']) ?><?php else: ?><?= $say('ANOMALIES', 'ended', \CW\Ui\Html::day((string) $r['ended_at'])) ?><?php endif; ?></span></td>
         <td data-label="<?= $word('ANOMALIES', 'days') ?>"><?= $say('ANOMALIES', 'days_line', \CW\Ui\Html::day($r['date_from']), \CW\Ui\Html::day($r['date_to'])) ?></td>
         <td data-label="<?= $word('ANOMALIES', 'which') ?>"><?= $e($r['channel_code'] === null ? \CW\Ui\Words::ANOMALIES['all_websites'] : ($channelNames[$r['channel_code']] ?? $r['channel_code'])) ?> · <?= $e($r['brand'] ?? \CW\Ui\Words::ANOMALIES['all_brands']) ?></td>
         <td data-label="<?= $word('ANOMALIES', 'added') ?>"><?= $say('ANOMALIES', 'by', \CW\Ui\Html::when($r['created_at']), (string) ($r['created_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?></td>

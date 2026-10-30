@@ -746,11 +746,8 @@ final class UiUnitTest extends TestCase
             preg_match_all('/\bico-([a-z][a-z-]*)\b/', (string) file_get_contents($file), $u);
             $used = array_merge($used, $u[1]);
         }
-        foreach (\CW\Ui\Sections::MAP as $section => $_) {
-            $used[] = $section; // the sidebar draws ico-<section>
-        }
         foreach (\CW\Ui\Sections::ICON as $icon) {
-            $used[] = $icon; // ... and its other entries' own (docs/decisions.md HV2)
+            $used[] = $icon; // the sidebar's section chips and the phone bar's icons (docs/decisions.md RD1, RD5)
         }
         foreach (array_unique($used) as $name) {
             self::assertContains($name, $views, "ico-{$name}: a page names it, the sprite has it");
@@ -1016,14 +1013,14 @@ final class UiUnitTest extends TestCase
         // Enter chooses only the item a usable barcode or a CW number names exactly (the Codex review of 7fa7fd3, finding 5; LQ9).
         self::assertStringContainsString("if (enter && found.length === 1 && node.getAttribute('data-exact') === '1') {", $js);
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
-        // The board is the shared one (pi-design): the group, its card's coloured edge, the solid status cell; kept solid on hover here.
+        // The board is the shared one (pi-design, RD8): the group with its dot, the plain card, the status a pill in its cell.
         $tpl = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/queue_suspense.php');
         foreach (['grp-block doc-group', 'table-wrap doc-board', 'c-status doc-st', 'class="grp-toggle"'] as $shared) {
             self::assertStringContainsString($shared, $tpl, $shared);
         }
-        self::assertSame(1, preg_match('/^\.doc-board \{[^}]*border-left: 6px solid var\(--t-fill/m', $css), 'the coloured edge');
-        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*background: var\(--t-fill, var\(--st-grey\)\); color: var\(--on-fill\)/m', $css), 'the status cell filled solid');
-        self::assertSame(1, preg_match('/^table\.lq-lines tbody tr:hover > td\.doc-st \{ background: var\(--t-fill/m', $css), 'and on hover');
+        self::assertSame(0, preg_match('/^\.doc-board \{[^}]*border-left/m', $css), 'no coloured edge (RD8)');
+        self::assertStringContainsString('<span class="chip"><?= $e($r[\'st_word\']) ?></span>', $tpl, 'the status a pill in its cell');
+        self::assertSame(0, preg_match('/td\.doc-st \{[^}]*background: var\(--t-fill/', $css), 'no filled status cell, not even on hover');
         self::assertStringNotContainsString('.lq-board', $css, 'no second copy of the board');
         self::assertSame(1, preg_match('/^\.lq-picked \{[^}]*background: var\(--sf-green\); color: var\(--sf-green-ink\)/m', $css), 'the green chip');
     }
@@ -1107,11 +1104,12 @@ final class UiUnitTest extends TestCase
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
-        foreach (['/^\.doc-board \{[^}]*border-left: 6px solid var\(--t-fill/m' => 'the group\'s edge',
-            '/^td\.doc-st \{[^}]*background: var\(--t-fill[^}]*color: var\(--on-fill\)[^}]*text-align: center/m' => 'the status cell',
-            '/^\.doc-group > \.grp-title \{[^}]*color: var\(--t-fill/m' => 'the coloured heading',
-            '/^\.chip \{[^}]*border-radius: var\(--r-8\)/m' => 'the status block\'s corners (DS3: every chip)',
-            '/^\.chip\.lg, \.ph-title h1 \.chip, \.ph-meta \.chip \{ min-height: 32px;/m' => 'the status block on a record',
+        foreach (['/^\.doc-board \{ border-radius: var\(--r-12\); \}/m' => 'the plain card, 12 px corners, no coloured edge (RD8)',
+            '/^td\.doc-st \{ color: var\(--t-ink, var\(--sf-grey-ink\)\);/m' => 'the status cell holds the pill (its words the tone\'s ink)',
+            '/^\.grp-title::before \{[^}]*width: 10px; height: 10px; border-radius: var\(--r-pill\); background: var\(--t-fill/m' => 'the group\'s dot',
+            '/^\.doc-group > \.grp-title \{ color: var\(--ink\);/m' => 'the group\'s name in ink',
+            '/^\.chip \{[^}]*border-radius: var\(--r-pill\)/m' => 'the pill\'s corners (RD8: every chip)',
+            '/^\.chip\.lg, \.ph-title h1 \.chip, \.ph-meta \.chip \{ padding: 4px 12px;/m' => 'the pill beside a record\'s title',
             '/^details\.more \{/m' => 'More (DS4: the one More)', '/^\.doc-progress \{/m' => 'the progress strip',
             '/^\.doc-diff \{[^}]*border-left: 6px solid var\(--st-amber\)/m' => 'the differences panel',
             '/^\.doc-diff td\.diff \{[^}]*background: var\(--sf-amber\)/m' => 'a cell that differs',
@@ -1278,15 +1276,38 @@ final class UiUnitTest extends TestCase
             self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
             return $m[1];
         };
-        self::assertSame(0, preg_match('/\.tabs-row|\.tabs-more|\.tab-more/', $css), 'no tab row, no tab row\'s More');
-        self::assertSame(' background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; ', $rule('.nav-item.open'), 'the open section');
-        foreach (['padding: 7px 12px 7px 26px', 'border-radius: var(--r-8)', 'color: var(--ink-muted)', 'font: 400 13px/20px var(--font)'] as $want) {
+        self::assertSame(0, preg_match('/\.tabs-row|\.tabs-more|\.tab-more|\.nav-seg|\.side-label/', $css), 'no tab row, no third level, no "Every day" group');
+        // Sidebar.dc.html (RD1): 42 px rows, 10 px corners, the 28 px icon chip in the section's tint (white on the current one), the count a
+        // pill in the section's colour; the current section tinted; its pages 34 px, 13 px, a 2 px line on their left, the current one in the
+        // section's words on its tint; 264 px wide.
+        foreach (['min-height: 42px', 'padding: 0 10px', 'border-radius: var(--r-10)', 'font: 500 14px/20px var(--font)'] as $want) {
+            self::assertStringContainsString($want, $rule('.nav-item'), ".nav-item: {$want}");
+        }
+        self::assertSame(' background: var(--sec-tint); color: var(--ink); font-weight: 600; ', $rule('.nav-item[aria-current]'), 'the current section');
+        self::assertStringContainsString('width: 28px; height: 28px; flex: none; border-radius: var(--r-8); background: var(--sec-tint); color: var(--sec);', $rule('.nav-chip'));
+        self::assertSame(' background: var(--card); ', $rule('.nav-item[aria-current] .nav-chip'));
+        self::assertStringContainsString('border-radius: var(--r-pill); background: var(--sec); color: var(--on-fill);', $rule('.nav-item > .count'));
+        self::assertStringContainsString('font: 600 11px/16px var(--font)', $rule('.nav-item > .count'));
+        self::assertStringContainsString('margin: 2px 0 8px 22px; padding: 0 0 0 12px; border-left: 2px solid var(--divider);', $rule('.nav-sub'));
+        foreach (['min-height: 34px', 'border-radius: var(--r-8)', 'color: var(--ink-muted)', 'font: 500 13px/18px var(--font)'] as $want) {
             self::assertStringContainsString($want, $rule('.nav-sub-item'), ".nav-sub-item: {$want}");
         }
-        self::assertSame(' color: var(--accent-hover); font-weight: 600; ', $rule('.nav-sub-item[aria-current]'), 'the current page');
-        self::assertSame(' padding-left: 40px; ', $rule('.nav-seg .nav-sub-item'), 'a segment one more indent');
-        self::assertStringContainsString('  .nav-sub-item { min-height: 44px; font-size: 14px; }', $css, 'the phone\'s menu: 44 px');
-        self::assertStringContainsString('background: var(--accent-soft)', $rule('.nav-item[aria-current]'), 'the entry that is or holds the page');
+        self::assertSame(' background: var(--sec-tint); color: var(--sec-ink); font-weight: 600; ', $rule('.nav-sub-item[aria-current]'), 'the current page');
+        self::assertSame(' height: 1px; margin: 10px 8px; border: 0; background: var(--divider); ', $rule('.nav-gap'));
+        foreach (['items' => 'st-blue', 'inventory' => 'st-teal', 'purchases' => 'st-amber', 'sales' => 'st-green', 'approvals' => 'st-purple', 'reports' => 'st-navy'] as $key => $colour) {
+            self::assertSame(1, preg_match('/^\.sec-' . $key . ' \{ --sec: var\(--' . $colour . '\);/m', $css), "{$key}: its colour");
+        }
+        self::assertStringContainsString('--st-teal: #0f7a72; --sf-teal: #e0f3f1;', $css);
+        self::assertStringContainsString('--side-w: 264px; --topbar-h: 60px; --tabbar-h: 72px;', $css);
+        self::assertStringContainsString('background: var(--st-blue); color: var(--on-fill); font: 600 13px/1 var(--font);', $rule('.avatar'), 'the person\'s circle');
+        self::assertStringContainsString('  .nav-sub-item { min-height: 44px; font-size: 14px; }', $css, 'the phone\'s drawer: 44 px');
+        // RD10: a list draws no figure tiles (Home and the reports keep theirs: Sections::FIGURES).
+        self::assertSame(' display: none; ', $rule('.work.is-list .rp-figs'));
+        // RD2: the Show looks like the artboards' 44 px select and opens a list of links.
+        self::assertStringContainsString('min-height: 44px; height: 44px;', $rule('.show-select'));
+        self::assertStringContainsString('border: 1px solid var(--field); border-radius: var(--r-10);', $rule('.show-select'));
+        self::assertStringContainsString('position: absolute; top: calc(100% + 6px);', $rule('.show-list'));
+        self::assertSame(' background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; ', $rule('.show-item[aria-current]'));
     }
 
     /**
@@ -1304,9 +1325,8 @@ final class UiUnitTest extends TestCase
         self::assertSame(1, preg_match('/@media \(max-width: 639\.98px\) \{\s*\.toolbar \.tb-state label\.tb-day \{([^}]*)\}\s*\.toolbar \.tb-state label\.tb-day input\[type="date"\] \{([^}]*)\}/', $css, $phone));
         self::assertStringContainsString('min-width: 0', $phone[1], 'a phone: the row wraps, never wider than the page');
         self::assertStringContainsString('min-height: 44px', $phone[2], 'a phone: 44 px to tap');
-        // A board's status cell keeps its fill on a phone (the stacked list's generic rule took it: white words on the white card); Goods in's
-        // duty cell is the one drawn as a white field there (GV23).
-        self::assertStringContainsString('@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty) { background: var(--t-fill, var(--st-grey)); } }', $css);
+        // A board's status cell is no filled block on a phone either (RD8): its pill is the status.
+        self::assertStringNotContainsString('table.stack td.doc-st:not(.gi-duty) { background', $css);
     }
 
     /**
@@ -1339,8 +1359,9 @@ final class UiUnitTest extends TestCase
      */
     public function testAFilledStatusCellsLabelIsInTheCellsWhiteOnAPhone(): void
     {
+        // RD8: no filled status cell any more, so its word for its column is muted like every other label on a card; the duty cell keeps its rule.
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
-        self::assertStringContainsString('@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; } }', $css);
+        self::assertStringNotContainsString('table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; }', $css);
         self::assertStringContainsString('table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: var(--ink-muted); }', $css, 'the duty cell keeps its grey word');
     }
 
@@ -1401,10 +1422,12 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('@media (max-width: 639.98px) { details.more { position: static; } .more-menu { position: static;', $css);
         self::assertStringContainsString('color: var(--sf-red-ink)', $rule('.more-menu > .btn.risky, .more-menu > form > .btn.risky, .more-menu > details > summary.btn.risky'),
             'a risky step in red words, last in the menu');
-        // Status: the solid block (32 px on a record), the solid cell of a board, the soft tag; the seven colours.
-        self::assertStringContainsString('background: var(--t-fill, var(--st-grey)); color: var(--on-fill)', $rule('.chip'));
-        self::assertStringContainsString('min-height: 32px', $rule('.chip.lg, .ph-title h1 .chip, .ph-meta .chip'));
-        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*background: var\(--t-fill, var\(--st-grey\)\); color: var\(--on-fill\)/m', $css), 'the cell');
+        // Status (RD8): the pill (the tone's tint and its darker words), a little wider beside a record's title, held by a board's cell; the
+        // soft tag; the seven colours.
+        self::assertStringContainsString('padding: 3px 10px; border-radius: var(--r-pill);', $rule('.chip'));
+        self::assertStringContainsString('background: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--sf-grey-ink)); font: 600 12px/18px var(--font);', $rule('.chip'));
+        self::assertStringContainsString('padding: 4px 12px', $rule('.chip.lg, .ph-title h1 .chip, .ph-meta .chip'));
+        self::assertSame(0, preg_match('/td\.doc-st \{[^}]*background/', $css), 'the cell is not filled');
         self::assertStringContainsString('border-radius: var(--r-pill)', $rule('.tag'));
         self::assertStringContainsString('background: var(--sf-grey)', $rule('.tag'), 'a tag with no tone is grey ...');
         self::assertSame(' background: var(--t-soft); color: var(--t-ink); ', $rule('.tag:is(.needs, .done, .waiting, .blocked, .info, .off, .review)'),
@@ -1433,10 +1456,13 @@ final class UiUnitTest extends TestCase
             return $m[1];
         };
         // DC2: the heading, the eyebrow, no full stop.
-        self::assertSame(' font-size: 26px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; ', $rule('h1'), 'the mockups\' heading, no negative tracking');
+        self::assertSame(' font-size: 26px; font-weight: 600; line-height: 1.25; margin: 0 0 8px; ', $rule('h1'), 'the artboards\' heading: 26 px, 600 (RD3)');
         self::assertStringNotContainsString('stmt.stop', $css, 'no drawn full stop');
         self::assertStringContainsString('margin: 0; font: 600 12px/18px var(--font); letter-spacing: .08em;', $rule('.ph-eyebrow'));
-        self::assertStringContainsString('margin: 2px 0 0', $rule('.ph-title'), 'the heading 2 px under the eyebrow');
+        self::assertStringContainsString('flex-direction: column; gap: 4px;', $rule('.ph-text'), 'the back link, the title and the fact line 4 px apart (Item.dc.html)');
+        self::assertStringContainsString('color: var(--ink-muted); font: 400 13px/18px var(--font);', $rule('.ph-back'), '"‹ Items": 13 px, muted');
+        self::assertStringContainsString('content: "\\2039\\00a0" / "";', $rule('.ph-back a::before'), 'the "‹" drawn, not read');
+        self::assertStringContainsString('color: var(--ink-muted); font: 400 14px/20px var(--font);', $rule('.ph-meta'), 'the fact line');
         self::assertStringContainsString('font-size: 24px; line-height: 1.3', $rule('.item-head .ph-title h1, .match-head .ph-title h1'), 'IT_Item and TP_Match: 24 px');
         // DC8: the page's width and gutters.
         self::assertStringContainsString('--gutter: 32px;', $css);
@@ -1457,16 +1483,15 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('input[type="date"], input[type="datetime-local"], input[type="file"], select, textarea {', $css);
         self::assertStringContainsString('input[type="date"], input[type="datetime-local"], select, textarea { font-size: 16px; }', $css);
         // DC12: the boards.
-        self::assertStringContainsString('font: 700 16px/24px var(--font)', $rule('.grp-toggle'));
+        self::assertStringContainsString('font: 600 15px/22px var(--font)', $rule('.grp-toggle'), 'RD8: the name 15 px semi-bold in ink');
         self::assertSame(1, preg_match('/^\.grp-toggle\[aria-expanded="false"\]::before \{\n  content: "";/m', $css), 'the chevron only on a folded group');
         self::assertSame(0, preg_match('/^\.grp-toggle::before \{/m', $css), 'none on an open one');
-        self::assertStringContainsString('font: 500 13px/20px var(--font)', $rule('.grp-count'));
+        self::assertStringContainsString('color: var(--ink-muted); font: 400 15px/22px var(--font)', $rule('.grp-count'), 'the count in muted words');
         self::assertStringNotContainsString('dashed', $rule('.add-item'), 'the add row is quiet text');
         self::assertStringContainsString('color: var(--ink-muted)', $rule('.add-item'));
-        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*width: 170px;/m', $css), 'the 170 px status cell');
-        self::assertSame(1, preg_match('/@container \(min-width: 641px\) \{\n  \.doc-board > table th, \.doc-board > table td \{ padding: 10px 14px; \}\n'
-            . '  \.doc-board > table tbody > tr > \* \{ height: 48px;/', $css), '14 px cells, 48 px rows (a phone card keeps its own)');
-        self::assertSame(' font-weight: 600; ', $rule('.doc-board > table thead th'));
+        self::assertSame(1, preg_match('/@container \(min-width: 641px\) \{\n  \.doc-board > table th, \.doc-board > table td \{ padding: 10px 16px; \}\n'
+            . '  \.doc-board > table tbody > tr > \* \{ height: 48px; padding-top: 14px; padding-bottom: 14px; \}/', $css), 'RD8: 16 px sides, rows with 14 px padding');
+        self::assertSame(' font-weight: 500; ', $rule('.doc-board > table thead th'), 'the head row 12 px muted, 500');
         // DC14: TP_Parts' chips, edges and More menu.
         self::assertStringNotContainsString('min-width: 110px', $rule('.chip'));
         self::assertStringContainsString('--done-line: #9fd4bf;', $css, 'All fine\'s edge');
@@ -1484,12 +1509,15 @@ final class UiUnitTest extends TestCase
         // DC5: no buying-flow strip.
         self::assertSame(0, preg_match('/^\.flow \{/m', $css));
         // DC7: the shell.
-        self::assertStringContainsString('background: var(--accent); color: var(--on-fill); font: 700 12px/22px var(--font);', $rule('.nav-item > .count'), 'HM_Home\'s magenta count');
-        self::assertStringContainsString('font: 700 16px/1.2 var(--font)', $rule('.brand'), 'the plain name');
-        self::assertStringContainsString('  .appbar .menu-btn { display: none; margin-left: -10px; }', $css);
-        self::assertStringContainsString('  body:has(.doc-bar) .appbar .menu-btn, body:has(.decide-bar) .appbar .menu-btn, body:not(:has(.tabbar)) .appbar .menu-btn { display: inline-grid; }', $css,
-            'the menu button where no bottom bar is (PI_New_Phone)');
-        self::assertStringContainsString('width: 44px; height: 44px;', $rule('  .appbar-me'), 'the initials: 44 px to tap');
+        // RD1, RD5: the shell of Sidebar.dc.html and Phone.dc.html.
+        self::assertStringContainsString('width: 36px; height: 36px; flex: none; border-radius: var(--r-10);', $rule('.brand-tile'), 'the CW tile');
+        self::assertStringContainsString('color: var(--ink); font: 600 15px/1.2 var(--font)', $rule('.brand-name'), 'the name');
+        self::assertStringContainsString('color: var(--ink-muted); font: 400 11px/1.3 var(--font)', $rule('.brand-stores'), 'the stores');
+        self::assertStringContainsString('  .appbar-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px;', $css, 'the tile: 44 px to tap');
+        self::assertStringContainsString('  .appbar .icon-btn { width: 44px; height: 44px;', $css, 'Find and Menu: 44 px');
+        self::assertStringContainsString('  .appbar-title { flex: 1 1 auto; min-width: 0; color: var(--ink); font: 600 16px/22px var(--font);', $css);
+        self::assertStringContainsString('  .tabbar a[aria-current="page"] { color: var(--accent); font-weight: 600; }', $css, 'the bottom bar: the open one in the accent');
+        self::assertStringContainsString('  .tabbar a .ico { width: 22px; height: 22px; }', $css);
     }
 
     /**

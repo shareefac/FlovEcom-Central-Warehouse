@@ -31,7 +31,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['external_ref'] ?? '') ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td data-label="<?= $word('ARRIVALS', 'supplier') ?>"><?= $e($r['supplier_name']) ?></td>
         <td data-label="<?= $word('ARRIVALS', 'since') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $when($r['posted_at']) ?><span class="o-sub"><?= $say('ARRIVALS', 'hours', $r['hours']) ?></span></td>
         <td class="num" data-label="<?= $word('ARRIVALS', 'units_on_way') ?>"><?= $n($r['units']) ?></td>

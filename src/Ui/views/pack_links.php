@@ -29,7 +29,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/review/listing/' . $r['id']) ?>"><?php if ($r['variant'] !== ''): ?><?= $e($r['variant']) ?><?php else: ?><?= $e($r['option']) ?><?php endif; ?></a></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td data-label="<?= $word('PACKS', 'store') ?>"><?= $e($r['store']) ?></td>
         <td class="c-next" data-label="<?= $word('PACKS', 'item') ?>"><a href="<?= $u('/ui/items/' . $r['item']['id']) ?>"><?= $e($r['item']['code']) ?></a> <?= $e($r['item']['name']) ?></td>
         <td class="num" data-label="<?= $word('PACKS', 'per_sale') ?>"><?= $n($r['units']) ?></td>

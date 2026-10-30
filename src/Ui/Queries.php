@@ -68,6 +68,12 @@ final class Queries
         return $this->db->all('SELECT id, code, name FROM channel ORDER BY code');
     }
 
+    /** @return list<string> the stores' names in the order they joined (the sidebar's line under its name, Sidebar.dc.html) */
+    public function storeNames(): array
+    {
+        return array_map(static fn (array $r): string => (string) $r['name'], $this->db->all('SELECT name FROM channel ORDER BY id'));
+    }
+
     /**
      * @return array<string, array<int, int>> band => channel id => open proposals still to decide (the lists' rows: an old product not sold
      *         in a year left out, HU2)

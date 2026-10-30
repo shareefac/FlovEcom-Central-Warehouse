@@ -60,7 +60,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString(Words::SUPPLIERS['none'], $list->text());
         self::assertContains('/ui/purchasing/suppliers/new', $list->hrefs());
-        self::assertSame(['Purchasing', 'Suppliers'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Purchases', 'Suppliers'], [self::currentSection($list), self::currentTab($list)]);
         self::assertSame(['/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($list->dom()))->query('//header[contains(@class, "page-head")]//a[contains(concat(" ", @class, " "), " primary ")] | //header[contains(@class, "page-head")]//details[@class="more"]//a'))),
             '"+ New supplier" in the header, alone (DC4)');

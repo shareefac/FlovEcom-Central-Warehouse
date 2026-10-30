@@ -259,8 +259,8 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $other = $this->item('legacy', 0, 'Other');
         $this->profiled($vpg, 'V1', ['barcodes' => ['4006381333931']], $other);
         (new BarcodeSync(self::$db))->run(Caller::system('sync_barcodes'), true);
-        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($web->get('/ui/'))['All products'], 'the sidebar\'s All products: the Products section (HV2)');
-        self::assertSame(1, array_column(self::sectionTabs($web->get('/ui/items/barcodes')), 'count', 'label')['Barcodes'], 'Products › Barcodes: 1 to check');
+        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($web->get('/ui/'))['Items'], 'the sidebar\'s Items (RD1)');
+        self::assertSame(1, array_column(self::sectionTabs($web->get('/ui/items/barcodes')), 'count', 'label')['Barcodes'], 'Items › Barcodes: 1 to check');
     }
 
     public function testBarcodesOnTheItemPageAndTheReviewQueue(): void
@@ -344,7 +344,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['All products', 'All products'], [self::currentSection($list), self::currentTab($list)], 'the sidebar\'s All products (HV2)');
+        self::assertSame(['Items', 'Items'], [self::currentSection($list), self::currentTab($list)], 'the sidebar\'s All products (HV2)');
         // The row's link is the CW number and the name (the first word is the number).
         $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => (string) strtok(trim($a->textContent), ' '),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/a')));
@@ -623,7 +623,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
     {
         $web = $this->signIn($this->uiUser('buyer'));
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/a[@aria-current="page"]')->length, 'the page shown: the sidebar\'s sub-item (DC28)');
+        self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//ul[contains(@class, "nav-sub")]/li/a[@aria-current="page"]')->length, 'the page shown: the sidebar\'s sub-item (DC28)');
         $js = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.js');
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
         self::assertStringContainsString("each(document.querySelectorAll('nav.tabs'), function (strip) {", $js);

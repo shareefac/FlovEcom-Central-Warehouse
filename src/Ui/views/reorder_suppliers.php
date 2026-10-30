@@ -55,7 +55,7 @@ $spare = count(array_filter($rows, static fn (array $r): bool => $r['safety_days
 <?php foreach ($rows as $r): ?>
       <tr>
         <th scope="row" class="c-head"><a href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $e($r['name']) ?></a> <span class="o-sub"><?= $e($r['code']) ?></span></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('SUPPLIER_STATUS', (string) $r['status'])) ?>"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('SUPPLIER_STATUS', (string) $r['status'])) ?>"><span class="chip"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></span></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'delivery') ?>"><?php if ($r['default_lead_days'] !== null): ?><?= $say('REORDER_SUPPLIERS', 'n_days', (int) $r['default_lead_days']) ?><?php else: ?><span class="muted"><?= $say('REORDER_SUPPLIERS', 'normal_days', $defaults['lead']) ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'every') ?>"><?php if ($r['review_days'] !== null): ?><?= $say('REORDER_SUPPLIERS', 'n_days', (int) $r['review_days']) ?><?php else: ?><span class="muted"><?= $say('REORDER_SUPPLIERS', 'normal_days', $defaults['review']) ?></span><?php endif; ?></td>

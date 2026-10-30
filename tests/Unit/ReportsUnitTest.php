@@ -24,7 +24,7 @@ final class ReportsUnitTest extends TestCase
     public function testTheReportsAreRealTabsGuardedByTheirPermissions(): void
     {
         $tabs = Sections::MAP['reports']['tabs'];
-        self::assertSame(['stock_by_store', 'sales_by_store', 'low_stock', 'stock_value', 'slow_stock', 'audit'], array_keys($tabs), 'no new sidebar item, Audit Log last');
+        self::assertSame(['stock_value', 'stock_by_store', 'low_stock', 'slow_stock', 'sales_by_store'], array_keys($tabs), 'Sidebar.dc.html\'s order; the audit log is a Settings page (RD7)');
         $slugs = ['stock_by_store' => 'stock-by-store', 'sales_by_store' => 'sales-by-store', 'low_stock' => 'low-stock', 'stock_value' => 'stock-value', 'slow_stock' => 'slow-stock'];
         foreach ($slugs as $tab => $slug) {
             self::assertArrayNotHasKey('soon', $tabs[$tab], $tab);
@@ -36,13 +36,14 @@ final class ReportsUnitTest extends TestCase
             self::assertArrayHasKey($tab, Words::PAGE_INTRO);
         }
         self::assertSame(['reports.view', 'values.view'], array_values(array_unique(ReportsController::PAGES)));
-        self::assertSame(array_keys(Sections::MAP), ['dashboard', 'products', 'matching', 'stock', 'purchasing', 'sales', 'reports', 'approvals', 'settings'],
-            'the sections (Matching and Sales of their own since HV3)');
-        // A buyer sees four reports and no money; a reviewer all five and the audit log; admin only the audit log.
+        self::assertSame(array_keys(Sections::MAP), ['home', 'approvals', 'items', 'inventory', 'purchases', 'sales', 'listings', 'reports', 'settings'],
+            'the sections of the redesign (RD1)');
+        // A buyer sees four reports and no money; a reviewer all five; admin none (the audit log is theirs in Settings).
         $visible = static fn (array $roles): array => array_keys(Sections::visible($roles)['reports'] ?? []);
-        self::assertSame(['stock_by_store', 'sales_by_store', 'low_stock', 'slow_stock'], $visible(['buyer']));
-        self::assertSame(['stock_by_store', 'sales_by_store', 'low_stock', 'stock_value', 'slow_stock', 'audit'], $visible(['reviewer']));
-        self::assertSame(['audit'], $visible(['admin']));
+        self::assertSame(['stock_by_store', 'low_stock', 'slow_stock', 'sales_by_store'], $visible(['buyer']));
+        self::assertSame(['stock_value', 'stock_by_store', 'low_stock', 'slow_stock', 'sales_by_store'], $visible(['reviewer']));
+        self::assertSame([], $visible(['admin']));
+        self::assertContains('audit', array_column(Sections::visible(['admin'])['settings']['settings']['pages'], 'key'));
         self::assertSame([], $visible(['viewer']));
         self::assertTrue(Permissions::can(['admin', 'accountant'], 'values.view'), 'admin with a look-only job keeps that job\'s looks');
     }

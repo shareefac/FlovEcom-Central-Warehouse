@@ -25,7 +25,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['external_ref'] ?? \CW\Ui\Words::STOCK_OPS['no_number']) ?></a><span class="o-sub"><?= $e(\CW\Ui\Words::RECEIVE_MODE[$r['receive_mode']] ?? '') ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?><?php if ($r['failed']): ?><span class="o-sub"><?= $e($r['submit_error'] ?? '') ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span><?php if ($r['failed']): ?><span class="o-sub"><?= $e($r['submit_error'] ?? '') ?></span><?php endif; ?></td>
         <td data-label="<?= $word('ARRIVALS', 'supplier') ?>"><?= $e($r['supplier_name']) ?></td>
         <td data-label="<?= $word('ARRIVALS', 'timed_at') ?>"><?= $e($r['at']) ?></td>
         <td data-label="<?= $word('ARRIVALS', 'timed_by') ?>"><?= $e($r['submit_by_name'] ?? '') ?></td>

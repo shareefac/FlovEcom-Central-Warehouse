@@ -110,7 +110,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['sub']) ?><?php if ($r['delivery'] !== null): ?> · <?= $e($r['delivery']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state_word']) ?><?php if ($r['made_by'] !== ''): ?><span class="o-sub"><?= $e($r['made_by']) ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['state_word']) ?></span><?php if ($r['made_by'] !== ''): ?><span class="o-sub"><?= $e($r['made_by']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('INVOICES', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
         <td data-label="<?= $word('RETURNS', 'reason') ?>"><?= $e($r['reason'] ?? '') ?></td>
         <td class="num" data-label="<?= $word('STOCK_OPS', 'units') ?>"><?= $n($r['units']) ?></td>

@@ -1048,7 +1048,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]//span[contains(@class, "doc-meter")]/progress[@max="2" and @value="1"]')->length);
         self::assertSame(Words::say('GI', 'orders_one'), trim((string) $xp->evaluate('string(//div[contains(@class, "doc-group") and contains(@class, "info")]//span[contains(@class, "grp-count")])')));
         self::assertSame(1, $xp->query('//select[@name="show"]')->length, 'one Show menu');
-        self::assertSame(1, $xp->query('//input[@type="search" and @name="q"]')->length, 'one search');
+        self::assertSame(1, $xp->query('//main//input[@type="search" and @name="q"]')->length, 'one search (the sidebar\'s find box aside, RD9)');
         // One way in (GV13): the "+ New delivery" button opens the start page; no fold of its own on the board.
         self::assertSame(0, $xp->query('//details[@id="new"]')->length, 'no second way to start a delivery on the board');
         self::assertSame(0, $xp->query('//form[@action="/ui/receiving"]//select[@name="supplier_id"]')->length);

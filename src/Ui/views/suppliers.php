@@ -50,7 +50,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ((int) $r['is_overseas'] === 1): ?> · <?= $word('SUPPLIERS', 'abroad') ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?><?php if ($r['alone_open']): ?><span class="o-sub"><?= $word('SUPPLIERS', 'alone_chip') ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></span><?php if ($r['alone_open']): ?><span class="o-sub"><?= $word('SUPPLIERS', 'alone_chip') ?></span><?php endif; ?></td>
         <td data-label="<?= $word('SUPPLIERS', 'next_check') ?>"<?php if ($r['dd_overdue']): ?> class="late"<?php endif; ?>><?php if ($r['dd_next_review_on'] !== null): ?><?= $day($r['dd_next_review_on']) ?><?php endif; ?><?php if ($r['dd_overdue']): ?> · <?= $word('SUPPLIERS', 'overdue') ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
         <td data-label="<?= $word('SUPPLIERS', 'approved') ?>"><?php if ($r['approved_at'] !== null): ?><?= $say('SUPPLIERS', 'approved_line', \CW\Ui\Html::when($r['approved_at']), (string) ($r['approved_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><span class="muted"><?= $word('SUPPLIERS', 'not_yet') ?></span><?php endif; ?></td>

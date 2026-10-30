@@ -1620,7 +1620,9 @@
       var cell = row.querySelector('td.gi-check');
       giTone(cell, 'done');
       giTone(row, 'done');
-      if (cell) { cell.textContent = cell.getAttribute('data-words') || cell.textContent; }
+      // The cell's pill takes the words (the status is a pill in its cell since the redesign, RD8); the cell keeps the tone.
+      var pill = cell ? (cell.querySelector('.chip') || cell) : null;
+      if (pill) { pill.textContent = cell.getAttribute('data-words') || pill.textContent; }
       giOpen(no, false);
       giStampOnly(no);
       if (typeof window.scrollTo === 'function') { window.scrollTo(x, y); }
@@ -1956,9 +1958,9 @@
   openTarget();
   window.addEventListener('hashchange', openTarget);
 
-  // The small menus (the person's menu, Filter and Sort, More): Esc or a click elsewhere closes the open one. A More holding an open step
+  // The small menus (the person's menu, Filter and Sort, More, a page's Show): Esc or a click elsewhere closes the open one. A More holding an open step
   // (a reason being typed, or a step the server refused and opened again) stays open: only its own button closes it.
-  var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open]';
+  var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open], details.show-menu[open]';
   var holds = function (m) { return m.classList.contains('more') && m.querySelector('details[open]') !== null; };
   document.addEventListener('click', function (ev) {
     each(document.querySelectorAll(menus), function (m) {

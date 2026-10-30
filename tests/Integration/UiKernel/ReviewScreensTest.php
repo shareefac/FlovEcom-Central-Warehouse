@@ -52,8 +52,9 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(Words::MENU['reviews'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'the tab\'s name (F096)');
         // The menu's Approvals entry opens Waiting for you (docs/decisions.md AV1); this queue is its second tab.
         self::assertSame(['href' => '/ui/approvals', 'count' => 0], self::nav($queue)['Approvals']);
-        self::assertSame([['Waiting for you', false], ['Documents to review', true], ['History', false], ['Staff requests', false], ['From the stores', false]],
-            array_map(static fn (array $t): array => [$t['label'], $t['current']], self::sectionTabs($queue)));
+        self::assertSame([['Waiting for you', false], ['Documents to review', true], ['History', false], ['Staff requests', false], ['Lines to place', false],
+            ['ERPNext corrections', false], ['Mode changes', false], ['Oversold', false], ['Website bugs', false]],
+            array_map(static fn (array $t): array => [$t['label'], $t['current']], self::segments($queue)), 'Approvals\' one Show (RD7)');
 
         $poster = $this->uiUser(['stock_controller', 'reviewer']);
         $sku = self::makeSku('Screen item');
@@ -83,7 +84,7 @@ final class ReviewScreensTest extends KernelUiTestCase
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="type"]/option'))),
             'the filter offers the kinds in use (F102): PO, GRN (IM6), the stock records (pack A1; ADJ is the fixture here) and the stock counts (pack A2a), never the kinds still to come');
         self::assertSame(3, self::nav($queue)['Approvals']['count'], 'the count is what this reviewer may decide');
-        self::assertSame(3, self::sectionTabs($queue)[0]['count']);
+        self::assertSame(3, self::segments($queue)[0]['count']);
 
         // Approve through the form.
         $page = $web->get('/ui/documents/' . $a->id);
@@ -200,7 +201,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertFalse($page->hasForm('/approve'));
         self::assertFalse($page->hasForm('/reject'));
         self::assertSame(0, array_sum(array_column(self::nav($page), 'count')), 'their own document is not in their count');
-        self::assertSame(['Approvals', 'History'], [self::currentSection($page), self::currentTab($page)], 'a record keeps Approvals › History marked');
+        self::assertSame(['Approvals', null], [self::currentSection($page), self::currentTab($page)], 'a record keeps Approvals › History marked');
         $queue = $web->get('/ui/documents/reviews');
         self::assertStringContainsString(Words::REFUSAL['own_document'], $queue->text());
         self::assertNotContains('/ui/documents/reviews/' . $this->task($doc->id) . '/approve', $queue->hrefs());

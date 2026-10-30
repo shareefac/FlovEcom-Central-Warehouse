@@ -272,11 +272,12 @@ final class Context
 
     /**
      * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
-     * current section's page bar with its tabs (`pagebar`), the current tab's segmented filter (`segments`), the page's create button
-     * (`actions`), the phone's bottom bar (`tabs`), whether the find box is
-     * theirs (catalogue.view), the test-system strip and the strip that says which jobs Admin switches off. The current page is found
-     * from the request's path (Sections::locate), so a detail page keeps its section and tab marked. During the forced password
-     * change there is no menu, no bar and no find box (every link would lead back to the password page): only Sign out.
+     * current section (`pagebar`: its specialist pages for the header's More), the current entry's Show choices (`segments`), the page's
+     * create button (`actions`), whether the page is a list (`list`: no figure tiles), the phone's bottom bar (`tabs`), whether the find
+     * box is theirs (catalogue.view), the stores under the sidebar's name (`stores`, Sidebar.dc.html), the test-system strip and the
+     * strip that says which jobs Admin switches off. The current page is found from the request's path (Sections::locate), so a detail
+     * page keeps its section and entry marked. During the forced password change there is no menu, no bar and no find box (every link
+     * would lead back to the password page): only Sign out.
      *
      * @return array<string, mixed>
      */
@@ -294,7 +295,9 @@ final class Context
             'pagebar' => $f['pagebar'],
             'segments' => $f['segments'],
             'actions' => $f['actions'],
+            'list' => $f['list'],
             'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
+            'stores' => $f['nav'] === [] ? [] : $this->queries()->storeNames(),
             'tabs' => $f['phone'],
             'testSystem' => $this->testSystem,
             'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),

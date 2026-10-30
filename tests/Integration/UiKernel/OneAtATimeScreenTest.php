@@ -392,8 +392,9 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             $xp->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="queue"]/option[@selected]/@value)'),
             $xp->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="show"]/option[@selected]/@value)')]);
         self::assertSame('', (new \DOMXPath($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])->dom()))->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="show"]/option[@selected]/@value)'));
-        // The pages around the lists do not take it: the segments of Mapping lead where they always led.
-        self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($p1), 'href'));
+        // The pages around the lists do not take it: the spot check and the second approval under the header's More lead where they always led.
+        self::assertSame(['/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_values(array_intersect(array_column(self::moreTabs($p1), 'href'),
+            ['/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'])));
 
         // A variant's page, the way back, and "the next one": the next READY one, where the whole list's next one is a held one.
         self::assertContains('/ui/review/listing/' . $first . '?queue=Key&channel=alt&show=ready', $p1->hrefs());

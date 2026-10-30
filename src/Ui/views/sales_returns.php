@@ -66,7 +66,7 @@
 <?php foreach ($grp['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><?php if ($r['sku_id'] !== null): ?><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><?php else: ?><?= $e($r['name']) ?><?php endif; ?><span class="o-sub"><?= $e($r['sub']) ?></span></th>
-        <td class="c-status doc-st <?= $e($r['restockTone']) ?>"><?= $e($r['restockWord']) ?></td>
+        <td class="c-status doc-st <?= $e($r['restockTone']) ?>"><span class="chip"><?= $e($r['restockWord']) ?></span></td>
         <td data-label="<?= $word('SALE_RETURNS', 'order') ?>"><a href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a></td>
         <td data-label="<?= $word('SALE_RETURNS', 'store') ?>"><?= $e($r['store']) ?></td>
         <td data-label="<?= $word('SALE_RETURNS', 'unit') ?>"><?= $e($r['unit']) ?></td>

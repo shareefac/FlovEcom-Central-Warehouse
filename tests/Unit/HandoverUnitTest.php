@@ -139,10 +139,11 @@ final class HandoverUnitTest extends TestCase
         foreach (['counterparty', 'counterparty_price', 'handover'] as $t) {
             self::assertSame(['Select', 'Insert', 'Update'], \CW\Schema\Grants::desired($t), $t);
         }
-        self::assertSame(['section' => 'stock', 'tab' => 'handovers', 'page' => 'handovers'], Sections::locate('/ui/stock/handovers/12/pdf'));
-        self::assertSame(['section' => 'stock', 'tab' => 'handovers', 'page' => 'handover_customers'], Sections::locate('/ui/stock/handovers/customers/12/active'));
-        self::assertSame(['section' => 'stock', 'tab' => 'handovers', 'page' => 'handover_balances'], Sections::locate('/ui/stock/handovers/balances/payments/12/reverse'));
-        self::assertSame(['section' => 'purchasing', 'tab' => 'goods_in', 'page' => 'duty'], Sections::locate('/ui/receiving/duty.csv'));
+        // The redesign (docs/decisions.md RD1): the hand-overs are Sales › Trade sales, their customers and balances Sales › Customers.
+        self::assertSame(['section' => 'sales', 'tab' => 'handovers', 'page' => 'handovers'], Sections::locate('/ui/stock/handovers/12/pdf'));
+        self::assertSame(['section' => 'sales', 'tab' => 'customers', 'page' => 'handover_customers'], Sections::locate('/ui/stock/handovers/customers/12/active'));
+        self::assertSame(['section' => 'sales', 'tab' => 'customers', 'page' => 'handover_balances'], Sections::locate('/ui/stock/handovers/balances/payments/12/reverse'));
+        self::assertSame(['section' => 'purchases', 'tab' => 'goods_in', 'page' => 'duty'], Sections::locate('/ui/receiving/duty.csv'));
     }
 
     public function testTheTemplatesFollowTheScreensRules(): void

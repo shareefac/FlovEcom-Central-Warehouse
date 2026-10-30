@@ -52,7 +52,7 @@ $bar = $canRecheck ? $partial('recheck_bar', []) : '';
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['external_ref'] ?? '') ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('MATCH_STATE', (string) $r['match_state']) ?><?php foreach ($r['claims'] as $claim): ?><span class="o-sub"><?= $e($claim) ?></span><?php endforeach; ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('MATCH_STATE', (string) $r['match_state']) ?></span><?php foreach ($r['claims'] as $claim): ?><span class="o-sub"><?= $e($claim) ?></span><?php endforeach; ?></td>
         <td data-label="<?= $word('INVOICES', 'supplier') ?>"><?= $e($r['supplier_name']) ?></td>
         <td data-label="<?= $word('INVOICES', 'posted') ?>"><?= $when($r['posted_at']) ?><span class="o-sub"><?= $e($r['posted_by_name'] ?? '') ?></span></td>
         <td class="num" data-label="<?= $word('INVOICES', 'lines_off') ?>"><?= $n($r['match_lines_off']) ?></td>

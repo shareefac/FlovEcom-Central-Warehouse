@@ -130,7 +130,7 @@ $tone = \CW\Ui\Words::tone('BAND', $qc->band);
           <?= $partial('check_fold', ['check' => $r['check'], 'listing' => $r['listing_id'], 'title' => $r['title'], 'link' => $r['link']]) ?>
 <?php endif; ?>
         </th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('BAND', $qc->band) ?></td>
+        <td class="c-status doc-st <?= $e($tone) ?>"><span class="chip"><?= $word('BAND', $qc->band) ?></span></td>
         <td data-label="<?= $word('QUEUE', 'website') ?>"><?= $e($r['channel']) ?> <span class="muted small"><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span></td>
         <td class="num" data-label="<?= $word('QUEUE', 'sold_365') ?>"><?= $n($r['units_365d'] ?? 0) ?></td>
         <td class="num" data-label="<?= $word('QUEUE', 'sold_30') ?>"><?= $n($r['units_30d'] ?? 0) ?></td>

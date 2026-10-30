@@ -65,7 +65,7 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('STOCK_VIEW', 'group_' . $key) ?></td>
+        <td class="c-status doc-st <?= $e($tone) ?>"><span class="chip"><?= $word('STOCK_VIEW', 'group_' . $key) ?></span></td>
 <?php foreach ($warehouses as $i => $w): ?>
         <td class="num" data-label="<?= $e($w['name']) ?>"><?= $n($r['by_warehouse'][$i]) ?></td>
 <?php endforeach; ?>

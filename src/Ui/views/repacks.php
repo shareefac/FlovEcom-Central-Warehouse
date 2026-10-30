@@ -108,7 +108,7 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $when($r['date']) ?></span></th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('DOC_STATUS', $r['status']) ?></td>
+        <td class="c-status doc-st <?= $e($tone) ?>"><span class="chip"><?= $word('DOC_STATUS', $r['status']) ?></span></td>
         <td data-label="<?= $word('REPACK', 'what') ?>"><?= $e($r['way']) ?><span class="o-sub"><?= $e($r['what']) ?></span></td>
         <td data-label="<?= $word('REPACK', 'where') ?>"><?= $e($r['where']) ?></td>
         <td data-label="<?= $word('REPACK', 'made_by') ?>"><?= $e($r['made_by']) ?></td>

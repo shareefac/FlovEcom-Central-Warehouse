@@ -100,7 +100,7 @@ $groupsShown = [['key' => 'active', 'tone' => 'done', 'rows' => array_values(arr
 <?php foreach ($g['rows'] as $p): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/people/' . $p['id']) ?>"><?= $e($p['display_name']) ?></a><?php if ($p['id'] === $meId): ?> <span class="muted"><?= $word('STAFF', 'you') ?></span><?php endif; ?></th>
-        <td data-label="<?= $word('STAFF', 'can_sign_in') ?>" class="c-status doc-st <?php if (!$p['is_active']): ?>off<?php elseif (\CW\Auth\Permissions::switchedOff($p['roles']) !== []): ?>needs<?php else: ?>done<?php endif; ?>"><?php if ($p['is_active']): ?><?= $word('STAFF', 'yes') ?><?php else: ?><?= $word('STAFF', 'no') ?><?php endif; ?></td>
+        <td data-label="<?= $word('STAFF', 'can_sign_in') ?>" class="c-status doc-st <?php if (!$p['is_active']): ?>off<?php elseif (\CW\Auth\Permissions::switchedOff($p['roles']) !== []): ?>needs<?php else: ?>done<?php endif; ?>"><span class="chip"><?php if ($p['is_active']): ?><?= $word('STAFF', 'yes') ?><?php else: ?><?= $word('STAFF', 'no') ?><?php endif; ?></span></td>
         <td data-label="<?= $word('STAFF', 'jobs') ?>"><?= $jobs($p['roles']) ?></td>
         <td data-label="<?= $word('STAFF', 'email') ?>"><?= $e($p['email'] ?? '') ?></td>
         <td data-label="<?= $word('STAFF', 'last_signed_in') ?>"><?php if ($p['last_login_at'] === null): ?><span class="muted"><?= $word('STAFF', 'never') ?></span><?php else: ?><?= $when($p['last_login_at']) ?><?php endif; ?></td>

@@ -38,8 +38,10 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
             self::assertSame(1, $btn->length, "{$what}: \"+ New\" beside the title");
             self::assertSame($new, trim((string) $btn->item(0)?->textContent), $what);
         }
-        self::assertSame(0, $xp->query('//header[@class="appbar"]//a[contains(@class, "bell")] | //nav[@id="menu"]//a[contains(@class, "side-find")]')->length, "{$what}: the plain shell");
-        self::assertSame(0, $xp->query('//nav[@id="menu"]//a[@class="nav-item"]/span[contains(@class, "ico")]')->length, "{$what}: the menu is words only");
+        self::assertSame(0, $xp->query('//header[@class="appbar"]//a[contains(@class, "bell")]')->length, "{$what}: no bell");
+        self::assertSame(0, $xp->query('//main//header[contains(@class, "page-head")]//p[contains(@class, "ph-eyebrow")]')->length, "{$what}: a list is its title alone (RD3)");
+        self::assertGreaterThan(0, $xp->query('//nav[@id="menu"]//a[contains(@class, "nav-item")]/span[@class="nav-chip"]/span[contains(@class, "ico")]')->length,
+            "{$what}: Sidebar.dc.html's icon chips (RD1)");
     }
 
     public function testEveryBoardsNewIsInItsHeaderAndNoPageHasASentenceUnderItsHeading(): void
@@ -56,7 +58,7 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertMockupHead($stock->get('/ui/stock/adjustments'), 'Adjustments', Words::NEW['adjustments']);
         // All Products (w11): its main create action, Add Item, beside the title (DC27); its rare controls under the toolbar's More.
         $cards = $stock->get('/ui/items/cards');
-        self::assertMockupHead($cards, 'All products', Words::NEW['add_item']);
+        self::assertMockupHead($cards, 'Items', Words::NEW['add_item']);
         self::assertSame('/ui/items/new', self::xp($cards)->evaluate('string(//main//header[contains(@class, "page-head")]/div[@class="ph-actions"]/a/@href)'));
         self::assertSame(0, self::xp($cards)->query('//main//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a')->length, 'no loose buttons in the toolbar');
         self::assertSame(['tb-search', 'tb-state', 'tb-end'], array_map(static fn (\DOMElement $d): string => $d->getAttribute('class'),
@@ -66,20 +68,20 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         $counts = $stock->get('/ui/stock/counts');
         self::assertMockupHead($counts, 'Counts', null);
         self::assertSame(0, self::xp($counts)->query('//main//nav[contains(@class, "tabs")]')->length, 'Counts: no tab row, no segment row (DC28)');
-        self::assertSame(['Next to count', 'Count sheets', 'Differences'], array_column(self::segments($counts), 'label'), 'its pages in the sidebar, one indent under Counts');
+        self::assertSame(['Items to count', 'Count sheets', 'Differences'], array_column(self::segments($counts), 'label'), 'its pages: its Show (RD2)');
 
         $goods = $this->signIn($this->uiUser('goods_in'));
         $in = $goods->get('/ui/receiving');
-        self::assertMockupHead($in, 'Goods in', Words::NEW['receiving']);
+        self::assertMockupHead($in, 'Goods received', Words::NEW['receiving']);
         $xp = self::xp($in);
         self::assertSame(0, $xp->query('//main//nav[contains(@class, "tabs")]')->length, 'GI_List: no tab row, no segment row (DC28)');
         self::assertSame([null, '/ui/receiving/bench', '/ui/receiving/incidents', '/ui/receiving/duty', '/ui/receiving/arriving'], array_column(self::segments($in), 'href'),
-            'Goods in\'s pages in the sidebar, the one shown without a link (CV13)');
+            'Goods received\'s pages: its Show, the one shown without a link (CV13)');
         $bench = $goods->get('/ui/receiving/bench');
         self::assertSame(200, $bench->status, $bench->describe());
-        self::assertSame(['Purchasing', 'Goods in'], [trim((string) self::xp($bench)->evaluate('string(//nav[@aria-label="Main"]//a[contains(@class, "open")]/span[@class="nav-label"])')),
-            self::currentTab($bench)], 'Purchasing open, Goods in its current page');
-        self::assertSame('/ui/receiving', self::xp($bench)->evaluate('string(//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/a[@aria-current]/@href)'), 'which leads back to the list');
+        self::assertSame(['Purchases', 'Goods received'], [trim((string) self::xp($bench)->evaluate('string(//nav[@aria-label="Main"]//a[contains(@class, "open")]/span[@class="nav-label"])')),
+            self::currentTab($bench)], 'Purchases open, Goods received its current entry');
+        self::assertSame('/ui/receiving', self::xp($bench)->evaluate('string(//nav[@aria-label="Main"]//ul[contains(@class, "nav-sub")]/li/a[@aria-current]/@href)'), 'which leads back to the list');
     }
 
     public function testALookOnlyPageSaysWhoChangesItUnderTheHeadingsQuestionMark(): void
@@ -111,5 +113,36 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         $more = self::xp($page)->query('//main//form[contains(@class, "toolbar")]//details[contains(@class, "tb-more")]//a[@class="menu-item"]');
         $hrefs = array_map(static fn (\DOMElement $a): string => (string) $a->getAttribute('href'), iterator_to_array($more ?: []));
         self::assertContains('/ui/purchasing/orders?state=sent&q=abc&rejected=1', $hrefs, 'Hide the drafts again keeps the state, the search and the sent-back filter');
+    }
+
+    /**
+     * The redesign's shared look as served (docs/decisions.md RD1-RD10): a list's status is a pill in its cell (no filled cell), its groups
+     * dot headings over plain cards; a list is marked so its figure tiles are not drawn; a grouped page shows its group's Show under its
+     * title when it draws none of its own (its page not a link); the phone's top bar and bottom bar of Phone.dc.html.
+     */
+    public function testTheRedesignsSharedPartsAsServed(): void
+    {
+        $web = $this->signIn($this->uiUser(['stock_controller', 'warehouse']));
+        $stock = $web->get('/ui/stock');
+        self::assertSame(200, $stock->status, $stock->describe());
+        $xp = self::xp($stock);
+        self::assertSame(1, $xp->query('//main[@id="main" and contains(concat(" ", @class, " "), " is-list ")]')->length, 'a list: no figure tiles (RD10)');
+        foreach ($xp->query('//main//td[contains(concat(" ", @class, " "), " doc-st ")]') ?: [] as $td) {
+            /** @var \DOMElement $td */
+            self::assertSame(1, $xp->query('span[@class="chip"]', $td)->length, 'the status is a pill in its cell (RD8)');
+        }
+        $sheets = $web->get('/ui/stock/counts/sheets');
+        $sx = self::xp($sheets);
+        self::assertSame(1, $sx->query('//main//header[contains(@class, "page-head")]/following-sibling::div[@class="show-row"][1]/details[@class="show-menu"]')->length,
+            'the group\'s Show right under the title (RD2)');
+        self::assertSame(['Items to count', 'Count sheets', 'Differences'], array_column(self::segments($sheets), 'label'));
+        self::assertSame(0, $sx->query('//main//header[contains(@class, "page-head")]//p[contains(@class, "ph-eyebrow")]')->length, 'a list is its title alone (RD3)');
+        $home = $web->get('/ui/');
+        $hx = self::xp($home);
+        self::assertSame(['/ui/', '/ui/search', '#menu'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($hx->query('//header[@class="appbar"]/a'))), 'Phone.dc.html\'s top bar: the CW tile, Find, Menu');
+        self::assertSame('Home', trim((string) $hx->evaluate('string(//header[@class="appbar"]/span[@class="appbar-title"])')));
+        self::assertSame(['Home', 'Receive', 'Count', 'Approvals', 'More'], array_column(self::tabs($home), 'label'));
+        self::assertSame('Inventory', trim((string) self::xp($sheets)->evaluate('string(//header[@class="appbar"]/span[@class="appbar-title"])')), 'the section\'s name');
     }
 }

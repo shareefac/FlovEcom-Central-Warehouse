@@ -202,9 +202,8 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The current section's pages in the sidebar (docs/decisions.md DC28: the owner's "use sidebar and sub section", no tab row): the
-     * section's own ones (a set-up or specialist page, HV3, only when it is the current one; moreTabs() has the others): label, link
-     * (null for the page shown: CV13), count and whether it is the current one.
+     * The current section's entries in the sidebar (Sidebar.dc.html; docs/decisions.md RD1): label, link (null for the page shown: CV13),
+     * count and whether it is the current one. A section with one entry (Home, Approvals, Settings) shows none.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
@@ -215,14 +214,22 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The section's set-up, import and specialist pages in the sidebar (HV3), but the current one: label, link and count, in order.
+     * The section's specialist pages under the header's More (Store listings' other matching pages, docs/decisions.md RD6), but the one
+     * shown: label, link and count, in order (the More's other rows, a page's other "New …", are not pages).
      *
      * @return list<array{label: string, href: ?string, count: int}>
      */
     protected static function moreTabs(UiResponse $r): array
     {
-        return array_values(array_map(static fn (array $t): array => ['label' => $t['label'], 'href' => $t['href'], 'count' => $t['count']],
-            array_filter(self::subItems($r), static fn (array $t): bool => $t['more'] && !$t['current'])));
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//header[contains(@class, "page-head")]//details[contains(concat(" ", @class, " "), " more ")]/div[contains(@class, "more-menu")]/a[span[@class="menu-name"]]') ?: [] as $a) {
+            /** @var \DOMElement $a */
+            $name = $xp->query('span[@class="menu-name"]', $a)->item(0);
+            $out[] = ['label' => trim((string) $xp->evaluate('string(text())', $name)), 'href' => $a->getAttribute('href'),
+                'count' => (int) self::visibleText($xp, $xp->query('.//span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0))];
+        }
+        return $out;
     }
 
     /** @return list<array{label: string, href: ?string, count: int, current: bool, more: bool}> every page of the current section in the sidebar */
@@ -230,12 +237,11 @@ abstract class KernelUiTestCase extends MappingTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/*[contains(concat(" ", @class, " "), " nav-sub-item ")]') ?: [] as $t) {
+        foreach ($xp->query('//nav[@aria-label="Main"]//ul[contains(concat(" ", @class, " "), " nav-sub ")]/li/*[contains(concat(" ", @class, " "), " nav-sub-item ")]') ?: [] as $t) {
             /** @var \DOMElement $t */
             if ($t->hasAttribute('aria-current')) {
-                // Exact (DC32): "true" when one of its segments is the page, else "page".
-                $segPage = $xp->query('following-sibling::ul//a[@aria-current="page"]', $t)->length > 0;
-                self::assertSame($segPage ? 'true' : 'page', $t->getAttribute('aria-current'), 'a page of the section is the page, or holds it');
+                // Two levels only (RD1): the current entry is the page, or holds it (one of its records).
+                self::assertSame('page', $t->getAttribute('aria-current'), 'an entry of the section is the page (or holds it)');
             }
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $t)), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $t)->item(0)),
@@ -262,22 +268,25 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The current page's segments: the sidebar's second level under the current page (DC28): label, link (null for the segment of the page
-     * shown: CV13), count, current.
+     * The page's Show choices (docs/decisions.md RD2: the pages of its sidebar entry, the sidebar's old second level): label, link (null for
+     * the choice of the page shown: CV13), count, current. The page's first Show menu.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
     protected static function segments(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
+        $menus = $xp->query('//main//details[contains(concat(" ", @class, " "), " show-menu ")]');
+        $menu = $menus === false ? null : $menus->item(0);
         $out = [];
-        foreach ($xp->query('//nav[@aria-label="Main"]//ul[contains(concat(" ", @class, " "), " nav-seg ")]/li/a') ?: [] as $a) {
+        foreach ($menu === null ? [] : ($xp->query('.//ul[@class="show-list"]/li/*[contains(concat(" ", @class, " "), " show-item ")]', $menu) ?: []) as $a) {
             /** @var \DOMElement $a */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="show-name"])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),
                 'current' => $a->hasAttribute('aria-current')];
             if ($a->hasAttribute('aria-current')) {
-                self::assertSame('page', $a->getAttribute('aria-current'), 'a segment that is current is the page (DC32)');
+                self::assertSame('page', $a->getAttribute('aria-current'), 'the current choice is the page');
+                self::assertFalse($a->hasAttribute('href'), 'the current choice has no link (CV13)');
             }
         }
         return $out;

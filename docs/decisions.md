@@ -14523,3 +14523,116 @@ store and kept filters), and check one "?" with the page's help and who changes 
 `MatchingPatternsScreensTest` the whole eyebrow; `DesignConformanceScreensTest` and `ItemCardScreensTest` the look-only "?" as the one
 "?" (Purchase orders for an auditor; the cards' rules, then who changes them, for a buyer). The tab-link floor of
 `testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves` is 3 (the item's two and the supplier's).
+
+## The redesign, step 1: the shared parts (branch `redesign-shared`, 30 Oct 2026; RD1-RD12)
+
+The owner approved the redesign canvas on 30 Oct 2026 ("Yes, approve all"; `/root/cw_work/design/redesign_20261030/project/`). Step 1 is
+what every page shares: the sidebar and the phone bars, the page header, the grouped pages' Show, the simple list's look and the status
+pill. The page bodies are step 2 (three module builds); here they changed only where a shared part forced it (the status cell's pill).
+
+**RD1. The sidebar is Sidebar.dc.html.** The CW tile, "Central Warehouse" and the stores' names (`channel`, in the order they joined:
+`Queries::storeNames`, one small read per page); the find box; then one row per section: Home, Approvals, a divider, Items, Inventory,
+Purchases, Sales, Store listings, a divider, Reports, Settings, each with its colour and icon chip (the artboard's `renderVals`: tokens
+`--st-*`/`--sf-*` plus the new `--st-teal`/`--sf-teal` for Inventory; the icons are new views of the sprite, `ico-sec-<section>`), its
+count a pill in its colour; the current section tinted, the only one that shows its entries (13 px, 34 px, the current one in the
+section's words on its tint); the person at the bottom (a blue circle, the name, the jobs, the account menu). HM_Home's "Every day" and
+"More" groups are gone (`Sections::DAILY`, `MORE`, `Words::SECTION_DESC`, `Words::TAB` with them). `Sections::MAP` is
+section => entries ("tabs") => pages, in the artboard's order; every page of the old map is in it with its address, `match` and
+permission unchanged (SectionsTest), and the section keys are the artboard's (`home`, `approvals`, `items`, `inventory`, `purchases`,
+`sales`, `listings`, `reports`, `settings`). Where the old pages went:
+
+| Entry | Pages (its Show choices) | Was |
+|---|---|---|
+| Items › Items | All items `/ui/items/cards` (+ item pages, search, the one-page form `/ui/items/new`), Made by hand `/ui/items/new?show=all` | Products › All products; Add item (More) |
+| Items › Item groups, Multipacks (+ Pack links), Barcodes | as named | Products (Families and Multipacks were under More) |
+| Inventory › Stock on hand, Stock history, Reserved stock, Repack | `/ui/stock`, `/movements`, `/reservations`, `/repack` | Stock › Overview, Movements; Reservations, Repack (More) |
+| Inventory › Adjustments | Corrections `/ui/stock/adjustments`, Stock in, Stock out, Releases | Stock › Adjustments, Stock in, Stock out; Transfers › Releases |
+| Inventory › Transfers | Transfers, Balance owed `/ui/stock/accounts` | Stock › Transfers (More) |
+| Inventory › Stock counts | Items to count, Count sheets, Differences | Stock › Counts |
+| Purchases › Suppliers, Purchase orders | as before | Purchasing |
+| Purchases › Goods received | To receive, Checking, Issues, Duty register, Arriving | Purchasing › Goods in |
+| Purchases › Purchase invoices | Invoices, To match, Delivered no invoice yet, Timed | Purchasing › Invoices (without its credit notes) |
+| Purchases › Purchase returns | Returns to suppliers, Credit notes | Purchasing › Returns; Invoices › Credit notes |
+| Purchases › Reorder | Suggestions, Brands, Anomalies, Suppliers, Low-stock warnings, Sales history | Purchasing › Reorder |
+| Sales › Sales orders, Shipments, Sales returns | as before (the store kept across the three) | Sales › Store orders, Dispatch, Returns and cancels |
+| Sales › Trade sales, Customers (+ Balances) | `/ui/stock/handovers`, `/customers`, `/balances` | Stock › Hand-overs (More) |
+| Store listings › By item, Check a match | `/ui/review/products`; `/ui/review` (+ a store product's decision page) | Matching › By item (More), Mapping › To review |
+| Store listings (specialist, RD6) | Simple matching, Store products, Spot check, Second approval, New variants, Duplicates | Matching |
+| Approvals (one entry) | Waiting for you, Documents to review, History, Staff requests, the five queues from the stores | Approvals' five tabs |
+| Reports | Inventory valuation summary, Stock summary by store, Low stock, Inventory aging, Sales by store | Reports (Stock value, Stock by store, Slow stock renamed) |
+| Settings (one entry) | Company, Warehouses, Stores, Users, Roles and permissions, Approval rules, Reasons, Rules and numbers, Numbering, System checks, Audit log | Settings' seven tabs; Reports › Audit log |
+
+A section's link opens its first entry's first page the person may open (Purchases: Suppliers, the artboard's first entry). The
+"Quality" placeholder (a tab "not built yet", no route) is not drawn: the artboard has no such entry and nothing opened from it.
+
+**RD2. The pages that belong together are ONE Show.** No tab row and no third level in the sidebar: an entry's two or more pages are its
+Show choices. `View`'s `$showMenu(?array $choices = null)` draws them as `details.show-menu` > `summary.show-select` (looks like the
+artboards' 44 px select, the current choice's words) + `ul.show-list` of `a.show-item` links, the current one a `span[aria-current=page]`
+(no link, CV13). A real `<select>` would need a script or a form; the brief forbids a new route, and a GET form whose select names a page
+would need one, so the choices are links in a menu that opens without a script. `$groupPages()` gives the choices as data so a page can
+mix its own filters in (rd2: "Open invoices / To match / … / All invoices"). A page that draws no Show of its own gets the group's
+under its header (`div.show-row`): `$head` leaves a slot (an HTML comment no template can print: escaping) that `View::page()` fills
+after the body, so every grouped page is reachable today and a page that calls `$showMenu()` in its toolbar moves it there. The slot
+draws only on a page that is one of the choices (a list), never on a record. Esc and a click elsewhere close it (app.js's small menus).
+Sales keeps the store across its three entries, Check a match across the spot check and the second approval (`keep` on an entry).
+
+**RD3. The page header.** A list is its title alone (26 px, 600, the artboards' weight; no section eyebrow, no intro) with ONE main button
+and More on its right; a record has `back:` drawn as "‹ Items" (13 px, muted; the "‹" is the stylesheet's so the link's words are the
+list's name: the tests read them), its status pill beside the title (`chips:`), one fact line under it (`meta:`, 14 px muted) and its
+actions on the right (`side:`). An eyebrow a page names itself (Home's date, an error's code) is still drawn; a record's tag follows its
+back link after " · " (DC37's "Store products · Electrofag · 8,767 to match").
+
+**RD4. Inventory's groups.** Adjustments holds the four kinds of stock change, as Inventory.dc.html's Show lists them: corrections (the
+`/ui/stock/adjustments` page, "Corrections" in the Show), stock in, stock out and releases; its link opens the adjustments themselves.
+`/ui/stock/accounts` (the balance owed to another account) stays with Transfers: it is another account's room and what we owe it (an
+account-to-account matter, the words staff know as "Transfers › Balance owed"), and Adjustments' Show in the artboard lists only kinds of
+stock change, where a money page would be the odd one out. Its page keeps its "Release stock" for each account.
+
+**RD5. The phone.** The top bar of Phone.dc.html: the CW tile (Home), the current section's name, Find (the item search) and Menu (the
+same sidebar as the drawer, `#menu`, no script); the person's initials are no longer there (Sign out is in the drawer). The bottom bar:
+Home, Receive (Goods received), Count (Stock counts), Approvals, More (the drawer), each only for the people who may open it
+(`Sections::PHONE`), the current one in the accent; 72 px, 44 px targets.
+
+**RD6. Store listings' specialist pages.** Only By item and Check a match are the section's entries (the owner). Simple matching, Store
+products, Spot check, Second approval, New variants and Duplicates belong to the section (it is marked on their pages) and are listed,
+with their counts and their lines (`MENU_HELP`), under the header's More of the section's list pages (`View::head`, `split.php`), so every
+one of them is reachable now; step 2 builds the Product matching page's own More from the same data (`pagebar['more']`).
+
+**RD7. Approvals and Settings are one entry each; the audit log is a Settings page.** Approvals' five tabs and Settings' seven are one Show
+each (the artboard draws neither with sub-items). Approvals' count is still its inbox's, counted once (`'count' => 'inbox'` now names the
+page). The audit log moves from Reports to Settings (Settings.dc.html's list), with the same permission (`audit.view`): admin, whose only
+report it was, now has no Reports section and reaches the log through Settings.
+
+**RD8. The simple list and the status pill, shared.** Every board at once, by CSS: a group's heading is a 10 px dot in its colour, the
+name 15 px semi-bold in ink, the count in muted words; the card has 12 px corners and no coloured edge; the head row 12 px muted (500),
+rows 14 px with 14 px padding. The status is a pill everywhere: `.chip` (and so `$chip`, `$stateChip`) is now the tone's tint with its
+darker words, fully rounded (Items.dc.html's `pill`), a little wider beside a record's title. A board's status cell no longer fills:
+`td.doc-st` keeps the tone and holds the pill (`<span class="chip">`, which takes the cell's tone); the 54 status cells of the templates
+were changed to hold it (a template's one line each; o-sub lines stay under the pill). Goods in's duty answer is a select in the cell's
+tint; app.js writes "All fine" into the check cell's pill, not over it. The phone's "keep the cell's fill" rules (W10.12, W10.13) went
+with the fill.
+
+**RD9. The find box searches items.** `/ui/search` finds warehouse items (name, barcode, CW number) and store products; it does not find
+orders, so the box says "Find an item", not the artboard's "Find an item or an order" (needs a build: an order search). Its edge, like
+every field's, stays CW's `--field` (3:1 for WCAG 1.4.11), not the artboard's lighter #d9d0e1.
+
+**RD10. No figure tiles on a list.** The owner's rule (figures only on Home and the reports): a list page (an entry's own page outside
+Home and Reports, `Sections::frame`'s `list`, `main.work.is-list`) does not draw its `.rp-figs` strip (CSS; the markup and its tests stay
+for step 2). A record (the item's stock card, a purchase order's progress) and the reports keep theirs.
+
+**RD11. The words.** `Words::SECTION` and `NAV` (the phone bar) are the artboards'; `MENU` (an entry's name, also its page's title and the
+way back to it) and `SEGMENT` (the Show's words) are renamed in sentence case: Items (was All products), Item groups (Families), Stock on
+hand (Overview), Stock history (Movements), Reserved stock (Reservations), Stock counts (Counts), Goods received (Goods in), Purchase
+invoices (Invoices), Purchase returns (Returns), Sales orders (Store orders), Shipments (Dispatch), Sales returns (Returns and cancels),
+Trade sales (Hand-overs), Check a match (Mapping), Inventory valuation summary (Stock value), Stock summary by store (Stock by store),
+Inventory aging (Slow stock); Show: Items to count (Next to count), Delivered, no invoice yet (Not invoiced yet), Corrections, Made by
+hand, Rules and numbers, Audit log. The Items page's create button is "New item" (`NEW add_item`), as the artboard's "+ New item".
+
+**RD12. Tests.** `SectionsTest` (rewritten): every page a live route with its permission and words; every staff page's section, entry and
+page; each job's menu; the sidebar tree, its counts, the phone bar and the bell; the Show choices, the header's More, the kept store and
+the create buttons; and `testEveryPageAPersonMayOpenIsReachedFromHome`: from Home, following only what the shell draws (the sidebar, a
+group's Show, Store listings' More), every page each job may open is reached, for all 14 jobs and three job sets. `UiTemplatesTest`
+(the layout's sidebar and bars as drawn, the statement with its Show row and slot, the back link), `UiUnitTest` (the sidebar's, the
+pill's, the board's and the header's CSS), and the kernel helpers: `segments()` reads the page's Show, `moreTabs()` the header's More,
+`sectionTabs()` the open section's entries. The old pins of HM_Home's sidebar, the tab-row More, the solid cell and the eyebrow were
+moved to these.

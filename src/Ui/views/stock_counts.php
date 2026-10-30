@@ -85,7 +85,7 @@
         <td class="c-pick" data-label=""><label class="pick"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1" data-tick<?php if ($r['ticked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('COUNTS', 'tick_one', $r['name']) ?></span></label></td>
 <?php endif; ?>
         <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a> <span class="muted"><?= $e($r['code']) ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('COUNT_GROUP', $r['state']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('COUNT_GROUP', $r['state']) ?></span></td>
         <td data-label="<?= $word('COUNTS', 'last_counted') ?>"><?php if ($r['counted_at'] === null): ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><span class="visually-hidden"> <?= $word('COUNTS', 'never') ?></span><?php else: ?><?= $day($r['counted_at']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('COUNTS', 'sells') ?>"><?php if ($r['sells'] === null): ?><span class="muted"><?= $word('COUNTS', 'no_sales') ?></span><?php else: ?><?= $e($r['sells']) ?><?php endif; ?></td>
       </tr>

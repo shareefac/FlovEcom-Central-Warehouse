@@ -100,7 +100,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::INVOICE_NOTICE['timed'], $page->text());
         $timed = $desk->get(\CW\Ui\Controller\ArrivalsController::TIMED);
         self::assertSame(200, $timed->status, $timed->describe());
-        self::assertSame(['Purchasing', 'Invoices'], [self::currentSection($timed), self::currentTab($timed)]);
+        self::assertSame(['Purchases', 'Purchase invoices'], [self::currentSection($timed), self::currentTab($timed)]);
         self::assertStringContainsString('ARR-SCR-1', $timed->text());
         self::assertStringContainsString(Words::ARRIVALS['waiting'], $timed->text());
         // Taken off again, then made final now.
@@ -123,7 +123,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $goodsIn = $this->signIn($this->uiUser('goods_in'));
         $list = $goodsIn->get(\CW\Ui\Controller\ArrivalsController::ARRIVING);
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Goods in', 'Goods in'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Purchases', 'Goods received'], [self::currentSection($list), self::currentTab($list)]);
         self::assertStringContainsString($number, $list->text());
         self::assertStringContainsString('Screen Arrivals Ltd', $list->text());
         $r = $goodsIn->post('/ui/receiving/arriving/' . $x['id'] . '/receive', $list->form('/ui/receiving/arriving/' . $x['id'] . '/receive'));
