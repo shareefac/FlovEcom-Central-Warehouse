@@ -34,7 +34,7 @@ $lastGroup = array_key_last($groups);
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['sku_name']) ?></a><span class="o-sub"><?= $e($r['sku_code']) ?><?php if ($r['merged_code'] !== null): ?> · <?= $say('SUPPLIER_ITEMS', 'merged', (string) $r['merged_code']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td data-label="<?= $word('SUPPLIER_ITEMS', 'their_code') ?>"><?= $e($r['supplier_code']) ?></td>
         <td data-label="<?= $word('SUPPLIER_ITEMS', 'pack') ?>"><?= $e($r['pack']) ?></td>
         <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'moq') ?>"><?= $n($r['moq_packs']) ?></td>

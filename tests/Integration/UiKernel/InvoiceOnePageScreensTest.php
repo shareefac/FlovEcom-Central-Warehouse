@@ -198,7 +198,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/purchasing/invoices/new');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame(Words::PI_ONE['title'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
-        self::assertSame(['Purchasing', 'Invoices'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Purchases', 'Purchase invoices'], [self::currentSection($page), self::currentTab($page)]);
         $form = self::newForm($page);
         self::assertSame(['csrf', 'form_key'], array_slice(array_keys($form), 0, 2));
         foreach (['supplier_id', 'invoice_number', 'invoice_date', 'due_date', 'from', 'q', 'pick_si', 'pick_sku', 'packs', 'price', 'charge_kind', 'charge_amount',

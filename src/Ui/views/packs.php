@@ -83,7 +83,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['pack']['id']) ?>"><?= $e($r['pack']['code']) ?> <?= $e($r['pack']['name']) ?></a><span class="o-sub"><?= $say('PACKS', 'equals', $r['units']) ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
         <td class="c-next" data-label="<?= $word('PACKS', 'single') ?>"><a href="<?= $u('/ui/items/' . $r['single']['id']) ?>"><?= $e($r['single']['code']) ?></a> <?= $e($r['single']['name']) ?></td>
         <td data-label="<?= $word('PACKS', 'stock') ?>"><?= $e($r['stock']) ?></td>
         <td class="c-next c-wide" data-label="<?= $word('PACKS', 'checks') ?>">

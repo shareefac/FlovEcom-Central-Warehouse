@@ -61,10 +61,10 @@ final class ItemManagementUnitTest extends TestCase
             'REPACK_DIRECTION' => RepackHandler::DIRECTIONS,
             'BY_HAND_STATE' => \CW\Items\HandMade::STATES,
             'DOC_TYPE' => ['RPK'], 'DOC_TYPES' => ['RPK'],
-            'MENU' => ['add_item', 'families', 'multipacks', 'packs', 'pack_links', 'repack'],
-            'SEGMENT' => ['packs', 'pack_links'],
+            'MENU' => ['families', 'multipacks', 'packs', 'pack_links', 'repack'],
+            'SEGMENT' => ['packs', 'pack_links', 'by_hand'], // RD2: the items made by hand are a Show choice of Items
             'NEW' => ['add_item', 'families', 'packs', 'repack'],
-            'MENU_HELP' => ['add_item', 'families', 'multipacks', 'repack'],
+            'MENU_HELP' => ['cards', 'families', 'multipacks', 'repack'],
             'PERMISSION' => ['items.create', 'families.manage', 'doc.RPK.post'],
             'AUDIT_ACTION' => ['item.create', 'item.check', 'family.create', 'family.rename', 'family.switch', 'family.assign', 'family.unassign', 'family.bulk_assign',
                 'family.bulk_remove', 'pack.create', 'pack.switch', 'repack.book'],
@@ -101,18 +101,21 @@ final class ItemManagementUnitTest extends TestCase
         self::assertTrue(\CW\Documents\Documents::mayPost(['warehouse'], 'RPK'));
     }
 
-    public function testTheTabsSitInProductsAndStockWithNoNewSidebarItem(): void
+    public function testThePagesSitInItemsAndInventory(): void
     {
-        self::assertSame(['dashboard', 'products', 'matching', 'stock', 'purchasing', 'sales', 'reports', 'approvals', 'settings'], array_keys(Sections::MAP));
-        self::assertSame(['add_item', 'families', 'multipacks'], array_slice(array_keys(Sections::MAP['products']['tabs']), -3));
-        self::assertSame('repack', array_key_last(Sections::MAP['stock']['tabs']));
-        self::assertSame(['section' => 'products', 'tab' => 'add_item', 'page' => 'add_item'], Sections::locate('/ui/items/new'));
-        self::assertSame(['section' => 'products', 'tab' => 'add_item', 'page' => 'add_item'], Sections::locate('/ui/items/new/12/check'));
-        self::assertSame(['section' => 'products', 'tab' => 'families', 'page' => 'families'], Sections::locate('/ui/items/families/12'));
-        self::assertSame(['section' => 'products', 'tab' => 'multipacks', 'page' => 'packs'], Sections::locate('/ui/items/packs/12/switch'));
-        self::assertSame(['section' => 'products', 'tab' => 'multipacks', 'page' => 'pack_links'], Sections::locate('/ui/items/packs/links'));
-        self::assertSame(['section' => 'stock', 'tab' => 'repack', 'page' => 'repack'], Sections::locate('/ui/stock/repack/12/post'));
-        self::assertSame(['section' => 'products', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/12/family'), 'the item page\'s box stays on the item');
+        // The redesign (docs/decisions.md RD1, RD2): Items' entries are Items (with the items made by hand as a Show choice and "+ New item"
+        // opening the one-page form), Item groups, Multipacks, Barcodes; Repack is an Inventory entry.
+        self::assertSame(['cards', 'families', 'multipacks', 'barcodes'], array_keys(Sections::MAP['items']['tabs']));
+        self::assertSame(['cards', 'by_hand'], array_column(Sections::MAP['items']['tabs']['cards']['pages'], 'key'));
+        self::assertSame('repack', array_keys(Sections::MAP['inventory']['tabs'])[4]);
+        self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/new'));
+        self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/new/12/check'));
+        self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'by_hand'], Sections::locate('/ui/items/new', ['show' => 'all']));
+        self::assertSame(['section' => 'items', 'tab' => 'families', 'page' => 'families'], Sections::locate('/ui/items/families/12'));
+        self::assertSame(['section' => 'items', 'tab' => 'multipacks', 'page' => 'packs'], Sections::locate('/ui/items/packs/12/switch'));
+        self::assertSame(['section' => 'items', 'tab' => 'multipacks', 'page' => 'pack_links'], Sections::locate('/ui/items/packs/links'));
+        self::assertSame(['section' => 'inventory', 'tab' => 'repack', 'page' => 'repack'], Sections::locate('/ui/stock/repack/12/post'));
+        self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/12/family'), 'the item page\'s box stays on the item');
         $tabs = static function (array $roles, string $section): array {
             foreach (Sections::menu($roles) as $s) {
                 if ($s['key'] === $section) {
@@ -121,13 +124,13 @@ final class ItemManagementUnitTest extends TestCase
             }
             return [];
         };
-        self::assertSame(['All products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'));
-        self::assertSame(['All products', 'Barcodes', 'Add item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
-        self::assertContains('Repack', $tabs(['warehouse'], 'stock'));
-        self::assertNotContains('Repack', $tabs(['viewer'], 'stock'));
-        self::assertContains(['label' => Words::NEW['add_item'], 'href' => '/ui/items/new#new'], Sections::frame(['stock_controller'], [], '/ui/items/new')['actions']);
-        self::assertSame([true, true, true], [Sections::MAP['products']['tabs']['add_item']['more'], Sections::MAP['products']['tabs']['families']['more'],
-            Sections::MAP['products']['tabs']['multipacks']['more']], 'set-up pages: under the row\'s More (docs/decisions.md HV3)');
+        self::assertSame(['Items', 'Item groups', 'Multipacks'], $tabs(['buyer'], 'items'));
+        self::assertSame(['Items', 'Item groups', 'Multipacks', 'Barcodes'], $tabs(['stock_controller'], 'items'));
+        self::assertContains('Repack', $tabs(['warehouse'], 'inventory'));
+        self::assertNotContains('Repack', $tabs(['viewer'], 'inventory'));
+        self::assertSame([['label' => Words::NEW['add_item'], 'href' => '/ui/items/new']], Sections::frame(['stock_controller'], [], '/ui/items/cards')['actions'], '"+ New item"');
+        self::assertSame([['label' => Words::NEW['add_item'], 'href' => '/ui/items/new']], Sections::frame(['stock_controller'], [], '/ui/items/new', ['show' => 'all'])['actions']);
+        self::assertSame([], Sections::frame(['stock_controller'], [], '/ui/items/new')['actions'], 'the form it opens has none of its own');
     }
 
     public function testTheSettingsAndTheSwitchAreOnTheirPagesTheSwitchOffByDefault(): void

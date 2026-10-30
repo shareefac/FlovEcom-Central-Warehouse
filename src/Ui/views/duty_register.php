@@ -83,7 +83,7 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
 <?php foreach ($rows as $r): ?>
       <tr<?php if ($r['status'] === 'reversed'): ?> class="off"<?php endif; ?>>
         <th scope="row" class="c-head c-item"><?= $when($r['received_at']) ?><span class="o-sub"><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['number']) ?></a><?php if ($r['status'] === 'reversed'): ?> &middot; <?= $word('DUTY', 'state_reversed') ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('DUTY_STAMP', (string) $r['stamp_state'])) ?>"><?= $word('DUTY_STAMP', (string) $r['stamp_state']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('DUTY_STAMP', (string) $r['stamp_state'])) ?>"><span class="chip"><?= $word('DUTY_STAMP', (string) $r['stamp_state']) ?></span></td>
         <td data-label="<?= $word('DUTY', 'supplier') ?>"><?= $e($r['supplier']) ?><span class="o-sub"><?= $say('DUTY', 'invoice', (string) ($r['supplier_invoice'] ?? '')) ?><?php if ($r['delivery_note'] !== null): ?> &middot; <?= $say('DUTY', 'delivery_note', (string) $r['delivery_note']) ?><?php endif; ?></span></td>
         <td data-label="<?= $word('DUTY', 'item') ?>"><?= $e($r['sku_name']) ?><span class="o-sub"><?= $e($r['sku_code']) ?><?php if ($r['barcode'] !== null): ?> &middot; <?= $e($r['barcode']) ?><?php endif; ?><?php if ($r['duty_ml'] !== null): ?> &middot; <?= $say('DUTY', 'ml', \CW\Ui\Html::dec($r['duty_ml'])) ?><?php endif; ?></span></td>
         <td class="num" data-label="<?= $word('DUTY', 'units') ?>"><?= $n($r['units']) ?><span class="o-sub"><?= $say('DUTY', 'went', (int) ($r['accepted_units'] ?? 0), (int) ($r['quarantine_units'] ?? 0), (int) ($r['refused_units'] ?? 0)) ?></span></td>

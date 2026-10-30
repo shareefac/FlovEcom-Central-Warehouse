@@ -62,7 +62,7 @@
 <?php foreach ($grp['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['chipWord']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['chipWord']) ?></span></td>
         <td data-label="<?= $word('DISPATCH', 'store') ?>"><?= $e($r['store']) ?></td>
         <td data-label="<?= $word('DISPATCH', 'paid') ?>"><?= $when($r['paid']) ?></td>
         <td data-label="<?= $word('DISPATCH', 'waiting') ?>"><?= $e($r['waited']) ?></td>
@@ -88,7 +88,7 @@
 <?php foreach ($grp['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><?php if ($r['href'] !== null): ?><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a><?php else: ?><?= $e($r['ref']) ?><?php endif; ?></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['now']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['now']) ?></span></td>
         <td data-label="<?= $word('DISPATCH', 'store') ?>"><?= $e($r['store']) ?></td>
         <td data-label="<?= $word('DISPATCH', 'unit') ?>"><?= $e($r['unit']) ?></td>
         <td data-label="<?= $word('DISPATCH', 'undone_at') ?>"><?= $when($r['at']) ?></td>
@@ -113,7 +113,7 @@
 <?php foreach ($grp['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['chipWord']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['chipWord']) ?></span></td>
         <td data-label="<?= $word('DISPATCH', 'store') ?>"><?= $e($r['store']) ?></td>
         <td data-label="<?= $word('DISPATCH', 'sent') ?>"><?= $when($r['sent']) ?></td>
         <td class="num" data-label="<?= $word('DISPATCH', 'units') ?>"><?= $n($r['units']) ?></td>

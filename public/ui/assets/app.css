@@ -71,6 +71,8 @@
   --sf-grey: #efe9f2; --sf-grey-ink: #4a4454;
   --sf-magenta: #fbe6f6; --sf-magenta-ink: #8f0a71;
   --sf-purple: #efe9fb; --sf-purple-ink: #5a2fb8;
+  /* Inventory's colour in the sidebar (Sidebar.dc.html; RD1): its icon and count, its tint */
+  --st-teal: #0f7a72; --sf-teal: #e0f3f1;
   --info-panel: #f3f7fd;
   --warn-row: #fdf6ec;        /* a row that needs a look */
   --amber-panel: #fff8ec; --amber-edge: #f3c77c; /* work waiting from another team */
@@ -86,7 +88,7 @@
   --shadow-up: 0 -6px 16px rgba(26, 21, 34, .06); /* the bar at the bottom (the mockups' dock) */
   --shadow-menu: 0 8px 24px rgba(26, 21, 34, .10); /* a More menu (TP_Parts) */
   --backdrop: rgba(26, 21, 34, .45);
-  --side-w: 248px; --topbar-h: 56px; --tabbar-h: 64px; --row-h: 44px; --gutter: 32px;
+  --side-w: 264px; --topbar-h: 60px; --tabbar-h: 72px; --row-h: 44px; --gutter: 32px;
   --page-w: 1180px;          /* the work column of the mockups, centred (Home: 1100 px) */
 
   /* 1b. The names the page bodies use, from the brief's tokens */
@@ -141,7 +143,7 @@ body {
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-wrap: break-word;
 }
 h1, h2, h3, h4 { color: var(--ink); font-family: var(--font); }
-h1 { font-size: 26px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; }
+h1 { font-size: 26px; font-weight: 600; line-height: 1.25; margin: 0 0 8px; }
 h2 { font-size: 17px; font-weight: 600; line-height: 1.4; margin: 28px 0 12px; }
 h3 { font-size: 16px; font-weight: 600; line-height: 1.4; margin: 18px 0 8px; }
 h4 { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 14px 0 6px; }
@@ -182,36 +184,48 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: 24px 0; }
   -webkit-mask-position: center; mask-position: center; -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
-.ico-dashboard { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#dashboard"); mask-image: url("icons.svg?v=85946e439bad00db#dashboard"); }
-.ico-products { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#products"); mask-image: url("icons.svg?v=85946e439bad00db#products"); }
-.ico-stock { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#stock"); mask-image: url("icons.svg?v=85946e439bad00db#stock"); }
-.ico-purchasing { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#purchasing"); mask-image: url("icons.svg?v=85946e439bad00db#purchasing"); }
-.ico-reports { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#reports"); mask-image: url("icons.svg?v=85946e439bad00db#reports"); }
-.ico-approvals { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#approvals"); mask-image: url("icons.svg?v=85946e439bad00db#approvals"); }
-.ico-settings { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#settings"); mask-image: url("icons.svg?v=85946e439bad00db#settings"); }
-.ico-search { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#search"); mask-image: url("icons.svg?v=85946e439bad00db#search"); }
-.ico-key { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#key"); mask-image: url("icons.svg?v=85946e439bad00db#key"); }
-.ico-signout { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#signout"); mask-image: url("icons.svg?v=85946e439bad00db#signout"); }
-.ico-plus { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#plus"); mask-image: url("icons.svg?v=85946e439bad00db#plus"); }
-.ico-help { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#help"); mask-image: url("icons.svg?v=85946e439bad00db#help"); }
-.ico-filter { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#filter"); mask-image: url("icons.svg?v=85946e439bad00db#filter"); }
-.ico-sort { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#sort"); mask-image: url("icons.svg?v=85946e439bad00db#sort"); }
-.ico-export { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#export"); mask-image: url("icons.svg?v=85946e439bad00db#export"); }
-.ico-menu { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#menu"); mask-image: url("icons.svg?v=85946e439bad00db#menu"); }
-.ico-more { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#more"); mask-image: url("icons.svg?v=85946e439bad00db#more"); }
-.ico-bell { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#bell"); mask-image: url("icons.svg?v=85946e439bad00db#bell"); }
-.ico-close { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#close"); mask-image: url("icons.svg?v=85946e439bad00db#close"); }
-.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-right"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-right"); }
-.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-left"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-left"); }
-.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#chevron-down"); mask-image: url("icons.svg?v=85946e439bad00db#chevron-down"); }
-.ico-check { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#check"); mask-image: url("icons.svg?v=85946e439bad00db#check"); }
-.ico-user { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#user"); mask-image: url("icons.svg?v=85946e439bad00db#user"); }
-.ico-home { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#home"); mask-image: url("icons.svg?v=85946e439bad00db#home"); }
-.ico-goods-in { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#goods-in"); mask-image: url("icons.svg?v=85946e439bad00db#goods-in"); }
-.ico-counts { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#counts"); mask-image: url("icons.svg?v=85946e439bad00db#counts"); }
-.ico-orders { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#orders"); mask-image: url("icons.svg?v=85946e439bad00db#orders"); }
-.ico-sales { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#sales"); mask-image: url("icons.svg?v=85946e439bad00db#sales"); }
-.ico-matching { -webkit-mask-image: url("icons.svg?v=85946e439bad00db#matching"); mask-image: url("icons.svg?v=85946e439bad00db#matching"); }
+.ico-dashboard { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#dashboard"); mask-image: url("icons.svg?v=891b99bdff99d7e5#dashboard"); }
+.ico-products { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#products"); mask-image: url("icons.svg?v=891b99bdff99d7e5#products"); }
+.ico-stock { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#stock"); mask-image: url("icons.svg?v=891b99bdff99d7e5#stock"); }
+.ico-purchasing { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#purchasing"); mask-image: url("icons.svg?v=891b99bdff99d7e5#purchasing"); }
+.ico-reports { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#reports"); mask-image: url("icons.svg?v=891b99bdff99d7e5#reports"); }
+.ico-approvals { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#approvals"); mask-image: url("icons.svg?v=891b99bdff99d7e5#approvals"); }
+.ico-settings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#settings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#settings"); }
+.ico-search { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#search"); mask-image: url("icons.svg?v=891b99bdff99d7e5#search"); }
+.ico-key { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#key"); mask-image: url("icons.svg?v=891b99bdff99d7e5#key"); }
+.ico-signout { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#signout"); mask-image: url("icons.svg?v=891b99bdff99d7e5#signout"); }
+.ico-plus { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#plus"); mask-image: url("icons.svg?v=891b99bdff99d7e5#plus"); }
+.ico-help { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#help"); mask-image: url("icons.svg?v=891b99bdff99d7e5#help"); }
+.ico-filter { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#filter"); mask-image: url("icons.svg?v=891b99bdff99d7e5#filter"); }
+.ico-sort { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sort"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sort"); }
+.ico-export { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#export"); mask-image: url("icons.svg?v=891b99bdff99d7e5#export"); }
+.ico-menu { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#menu"); mask-image: url("icons.svg?v=891b99bdff99d7e5#menu"); }
+.ico-more { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#more"); mask-image: url("icons.svg?v=891b99bdff99d7e5#more"); }
+.ico-bell { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#bell"); mask-image: url("icons.svg?v=891b99bdff99d7e5#bell"); }
+.ico-close { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#close"); mask-image: url("icons.svg?v=891b99bdff99d7e5#close"); }
+.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-right"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-right"); }
+.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-left"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-left"); }
+.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-down"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-down"); }
+.ico-check { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#check"); mask-image: url("icons.svg?v=891b99bdff99d7e5#check"); }
+.ico-user { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#user"); mask-image: url("icons.svg?v=891b99bdff99d7e5#user"); }
+.ico-home { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#home"); mask-image: url("icons.svg?v=891b99bdff99d7e5#home"); }
+.ico-goods-in { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#goods-in"); mask-image: url("icons.svg?v=891b99bdff99d7e5#goods-in"); }
+.ico-counts { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#counts"); mask-image: url("icons.svg?v=891b99bdff99d7e5#counts"); }
+.ico-orders { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#orders"); mask-image: url("icons.svg?v=891b99bdff99d7e5#orders"); }
+.ico-sales { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sales"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sales"); }
+.ico-matching { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#matching"); mask-image: url("icons.svg?v=891b99bdff99d7e5#matching"); }
+.ico-sec-home { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-home"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-home"); }
+.ico-sec-approvals { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-approvals"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-approvals"); }
+.ico-sec-items { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-items"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-items"); }
+.ico-sec-inventory { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-inventory"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-inventory"); }
+.ico-sec-purchases { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-purchases"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-purchases"); }
+.ico-sec-sales { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-sales"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-sales"); }
+.ico-sec-listings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-listings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-listings"); }
+.ico-sec-reports { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-reports"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-reports"); }
+.ico-sec-settings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-settings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-settings"); }
+.ico-receive { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#receive"); mask-image: url("icons.svg?v=891b99bdff99d7e5#receive"); }
+.ico-count { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#count"); mask-image: url("icons.svg?v=891b99bdff99d7e5#count"); }
+.ico-dots { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#dots"); mask-image: url("icons.svg?v=891b99bdff99d7e5#dots"); }
 
 /* ---------- 3. Strips (the test system, every page) and toasts ---------- */
 .strip.test-system {
@@ -237,18 +251,18 @@ p.toast a { color: inherit; font-weight: 600; text-decoration: underline; }
 p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; }
 @media (max-width: 699.98px) { p.notice.toast, p.toast { left: 16px; right: 16px; bottom: 16px; max-width: none; } }
 
-/* ---------- 4. Shell: the white sidebar, the lilac work area; on a phone a top bar and the menu sliding in ---------- */
+/* ---------- 4. Shell: the approved redesign's sidebar (Sidebar.dc.html, 30 Oct 2026; docs/decisions.md RD1, RD5), the lilac work area; on a
+   phone the top bar, the same sidebar as a drawer, and the bottom bar (Phone.dc.html) ---------- */
 .appbar { display: none; }
-.brand {
-  display: inline-flex; align-items: center; gap: 10px; min-height: 40px; min-width: 0;
-  color: var(--ink); text-decoration: none; font: 700 16px/1.2 var(--font);
+/* The CW tile: the sidebar's (36 px), the phone's top bar's (32 px); the sign-in page's mark (.brand-mark) is its own */
+.brand-tile {
+  display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: var(--r-10);
+  background: var(--accent); color: var(--on-fill); font: 700 14px/1 var(--font);
 }
-.brand:hover { color: var(--ink); text-decoration: none; }
 .brand-mark {
   display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-12); flex: none;
   background: var(--accent); color: var(--on-fill); font: 700 14px/1 var(--font); letter-spacing: .02em;
 }
-.brand-name { min-width: 0; }
 .icon-btn {
   position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: var(--r-10); flex: none;
   color: var(--ink-muted); text-decoration: none; background: none; border: 0; cursor: pointer;
@@ -256,61 +270,79 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 .icon-btn:hover { background: var(--page-alt); color: var(--ink); }
 .icon-btn .ico { width: 20px; height: 20px; }
 
-/* The sidebar of the approved HM_Home (docs/decisions.md HV2, DC7): the plain name, Home, the "Every day" entries and the "More" sections
-   under their group names, each its words and a magenta count where something waits; the person pinned to the bottom (their account and
-   Sign out). The same markup is the phone's slide-in menu. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
-.side { background: var(--card); display: flex; flex-direction: column; min-width: 0; }
-.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 14px; }
-.side-top .brand { min-height: 0; }
-.side-top .brand-name { overflow-wrap: normal; } /* "Central / Warehouse" on two lines, never broken inside a word */
+/* Each section's colour (its icon chip, its count, its tint when it is current, its current page's words): Sidebar.dc.html's renderVals */
+.sec-home, .sec-listings { --sec: var(--accent); --sec-tint: var(--accent-soft); --sec-ink: var(--accent-hover); }
+.sec-approvals { --sec: var(--st-purple); --sec-tint: var(--sf-purple); --sec-ink: var(--st-purple); }
+.sec-items { --sec: var(--st-blue); --sec-tint: var(--sf-blue); --sec-ink: var(--st-blue); }
+.sec-inventory { --sec: var(--st-teal); --sec-tint: var(--sf-teal); --sec-ink: var(--st-teal); }
+.sec-purchases { --sec: var(--st-amber); --sec-tint: var(--sf-amber); --sec-ink: var(--st-amber); }
+.sec-sales { --sec: var(--st-green); --sec-tint: var(--sf-green); --sec-ink: var(--st-green); }
+.sec-reports { --sec: var(--st-navy); --sec-tint: var(--sf-blue); --sec-ink: var(--st-navy); }
+.sec-settings { --sec: var(--ink-body); --sec-tint: var(--sf-grey); --sec-ink: var(--ink-body); }
+
+/* The sidebar: the CW tile, the name and the stores; the find box; one row per section (42 px, its 28 px icon chip in its tint, white on
+   the current one, its count a pill in its colour), a 1 px divider above Items and above Reports; the current section tinted, its pages
+   under it (13 px, 34 px, a 2 px line on their left; the current one in the section's colour on its tint); the person at the bottom. The
+   same markup is the phone's drawer. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
+.side { background: var(--card); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .side-head { display: none; }
-.side-label { margin: 14px 12px 4px; font: 700 11px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
-.nav { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; color: var(--ink); text-decoration: none; }
+.side-brand:hover { color: var(--ink); text-decoration: none; }
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
+.brand-name { min-width: 0; color: var(--ink); font: 600 15px/1.2 var(--font); }
+.brand-stores { color: var(--ink-muted); font: 400 11px/1.3 var(--font); }
+.side-find {
+  display: flex; align-items: center; gap: 8px; height: 40px; margin: 0 0 14px; padding: 0 12px;
+  border: 1px solid var(--field); border-radius: var(--r-10); background: var(--card);
+}
+.side-find:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.side-find .ico { width: 16px; height: 16px; color: var(--ink-muted); }
+.side-find input[type="search"] {
+  flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; height: 38px; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none;
+  background: transparent; color: var(--ink); font: 400 13px/20px var(--font);
+}
+.side-find input[type="search"]:focus, .side-find input[type="search"]:focus-visible { outline: none; }
+.side-find input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.nav { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .nav li { margin: 0; }
+.nav-gap { height: 1px; margin: 10px 8px; border: 0; background: var(--divider); }
 .nav-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 9px 12px;
-  border-radius: var(--r-10); color: var(--ink-body); text-decoration: none; font: 500 14px/20px var(--font);
+  display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 0 10px; border-radius: var(--r-10);
+  color: var(--ink-body); text-decoration: none; font: 500 14px/20px var(--font);
 }
 .nav-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
-.nav-item .ico { color: var(--ink-muted); }
-/* The open section: the accent's soft fill, semi-bold; its text in the darker accent (the accent on its own tint is 4.3:1) */
-.nav-item[aria-current] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.nav-item[aria-current] .ico { color: var(--accent); }
+.nav-item[aria-current] { background: var(--sec-tint); color: var(--ink); font-weight: 600; }
+.nav-chip { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: var(--r-8); background: var(--sec-tint); color: var(--sec); }
+.nav-chip .ico { width: 16px; height: 16px; }
+.nav-item[aria-current] .nav-chip { background: var(--card); }
 .nav-label { flex: 1 1 auto; min-width: 0; }
-/* The open section (the page mockups' .nav.on, CT_Board, IT_Item; docs/decisions.md DC28): the accent's tint and words; its pages under it
-   as sub-items (13 px, 26 px in, 8 px corners, muted; the current one the dark accent, semi-bold), the page's segments one more indent */
-.nav-item.open { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.nav-sub { list-style: none; margin: 2px 0 4px; padding: 0; display: grid; gap: 2px; }
+.nav-item > .count {
+  flex: none; padding: 1px 8px; border-radius: var(--r-pill); background: var(--sec); color: var(--on-fill);
+  font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.nav-sub { list-style: none; display: grid; gap: 2px; margin: 2px 0 8px 22px; padding: 0 0 0 12px; border-left: 2px solid var(--divider); }
 .nav-sub li { margin: 0; }
 .nav-sub-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 7px 12px 7px 26px;
-  border-radius: var(--r-8); color: var(--ink-muted); font: 400 13px/20px var(--font); text-decoration: none;
+  display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px; border-radius: var(--r-8);
+  color: var(--ink-muted); font: 500 13px/18px var(--font); text-decoration: none;
 }
 a.nav-sub-item[href]:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
-.nav-sub-item[aria-current] { color: var(--accent-hover); font-weight: 600; }
-.nav-seg .nav-sub-item { padding-left: 40px; }
-.nav-sub-item.soon { color: var(--ink-faint); cursor: default; }
-.nav-sub-item > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
+.nav-sub-item[aria-current] { background: var(--sec-tint); color: var(--sec-ink); font-weight: 600; }
 .nav-sub-item > .count {
-  flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
-  background: var(--accent); color: var(--on-fill); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-/* A count on the sidebar: the magenta pill of HM_Home, 22 px */
-.nav-item > .count {
-  flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--r-pill);
-  background: var(--accent); color: var(--on-fill); font: 700 12px/22px var(--font); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+  flex: none; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-hover);
+  font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .side-user {
-  position: relative; margin-top: auto; padding: 10px; border: 1px solid var(--hairline); border-radius: var(--r-12);
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--card);
+  position: relative; margin-top: auto; padding: 20px 0 0 8px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
 }
 .avatar {
-  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; flex: none;
-  background: var(--brand-gradient); color: var(--on-fill); font: 600 12px/1 var(--font); letter-spacing: .02em;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; flex: none;
+  background: var(--st-blue); color: var(--on-fill); font: 600 13px/1 var(--font);
 }
-.side-user .who { margin: 0; min-width: 0; }
+.side-user .who { margin: 0; min-width: 0; line-height: 1.25; }
 .side-user .who strong { display: block; font: 600 13px/18px var(--font); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-user .who-jobs { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--ink-muted); font: 400 12px/16px var(--font); }
+.side-user .who-jobs { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--ink-muted); font: 400 11px/16px var(--font); }
 .side-user .role { color: var(--ink-muted); font-weight: 400; }
 /* The person's menu ("My account", "Sign out"): a <details>, so it needs no script; it opens upwards */
 details.user-menu { border: 0; padding: 0; margin: 0; background: none; }
@@ -338,38 +370,33 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .tabbar { display: none; }
 .page { max-width: var(--page-w); margin: 0 auto; position: relative; container-type: inline-size; }
 body:has(.hm-find) .page { max-width: 1100px; }
+/* A list shows no figure tiles (the owner, 30 Oct 2026: figures only on Home and the reports; RD10): its figures strip is not drawn */
+.work.is-list .rp-figs { display: none; }
 
 @media (min-width: 700px) {
   .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); align-items: start; min-height: 100vh; }
   .side {
-    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 12px 16px;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 14px 24px;
     border-right: 1px solid var(--hairline); scrollbar-width: thin;
   }
-  .side-user { margin-top: auto; }
-  .nav:last-of-type { margin-bottom: 20px; }
   body:has(.strip.test-system) .side { height: calc(100vh - 28px); top: 0; }
 }
 @media (min-width: 700px) and (max-width: 1023.98px) { :root { --gutter: 24px; } .work { padding-top: 24px; } }
 
-/* A phone: the sticky top bar of HM_Phone (the name, the person's initials, which open the menu; the menu button at its left only where
-   no bottom bar is, as PI_New_Phone draws it); the menu slides in from the left */
+/* A phone (Phone.dc.html): the sticky 60 px top bar (the CW tile, the section's name, Find and Menu, 44 px each); the sidebar slides in
+   from the left as the drawer; the 72 px bottom bar (Home, Receive, Count, Approvals, More: its icon over its name, the open one in the
+   accent) */
 @media (max-width: 699.98px) {
   :root { --gutter: 16px; }
   html { scroll-padding-top: calc(var(--topbar-h) + 8px); }
   .appbar {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 40; min-height: var(--topbar-h);
-    padding: 6px 10px 6px 16px; background: var(--card); border-bottom: 1px solid var(--hairline);
+    display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 40; min-height: var(--topbar-h);
+    padding: 0 16px; background: var(--card); border-bottom: 1px solid var(--hairline);
   }
-  .appbar .brand { flex: 1 1 auto; min-height: 44px; font-size: 15px; }
-  .appbar .icon-btn { width: 44px; height: 44px; }
-  .appbar .menu-btn { display: none; margin-left: -10px; }
-  body:has(.doc-bar) .appbar .menu-btn, body:has(.decide-bar) .appbar .menu-btn, body:not(:has(.tabbar)) .appbar .menu-btn { display: inline-grid; }
-  .appbar-me { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; text-decoration: none; }
-  .appbar-me > span[aria-hidden] {
-    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%;
-    background: var(--sf-purple); color: var(--sf-purple-ink); font: 700 13px/1 var(--font);
-  }
-  a.appbar-me:hover > span[aria-hidden] { background: var(--sf-magenta); color: var(--sf-magenta-ink); }
+  .appbar-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; margin-left: -6px; text-decoration: none; }
+  .appbar .brand-tile { width: 32px; height: 32px; border-radius: 9px; font-size: 13px; }
+  .appbar-title { flex: 1 1 auto; min-width: 0; color: var(--ink); font: 600 16px/22px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .appbar .icon-btn { width: 44px; height: 44px; color: var(--ink-body); }
   .work { padding: 20px var(--gutter) 40px; }
   .side {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 70; width: min(88vw, 320px);
@@ -377,7 +404,6 @@ body:has(.hm-find) .page { max-width: 1100px; }
     transform: translateX(-102%); visibility: hidden;
     transition: transform .25s cubic-bezier(0, 0, .35, 1), visibility 0s linear .25s;
   }
-  .side .side-top { display: none; }
   /* No script: #menu is the :target ("Menu" links to it; "Close the menu" and the scrim link to #main). */
   .side:target { transform: none; visibility: visible; transition: transform .25s cubic-bezier(0, 0, .35, 1); }
   .side:target + .scrim { display: block; position: fixed; inset: 0; z-index: 65; background: var(--backdrop); }
@@ -387,52 +413,58 @@ body:has(.hm-find) .page { max-width: 1100px; }
     background: var(--card); border-bottom: 1px solid var(--hairline);
   }
   .side-title { font: 600 17px/24px var(--font); color: var(--ink); }
+  .side-find input[type="search"] { font-size: 16px; }
   .nav-item, .side-link { min-height: 48px; font-size: 15px; }
   .nav-sub-item { min-height: 44px; font-size: 14px; }
   .side-user { margin-top: 24px; }
 
-  /* The bottom bar (HM_Phone: Home, Goods in, Counts, Approvals, More): white, a hairline above, the open one in the accent */
   html { scroll-padding-bottom: calc(var(--tabbar-h) + 32px); }
   .tabbar {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
     background: var(--card); border-top: 1px solid var(--hairline); padding-bottom: env(safe-area-inset-bottom);
   }
   .tabbar a {
-    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-    flex: 1 0 auto; min-width: 0; min-height: var(--tabbar-h); padding: 6px 4px; color: var(--ink-muted); text-decoration: none;
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    flex: 1 1 0; min-width: 0; min-height: var(--tabbar-h); padding: 6px 4px; color: var(--ink-body); text-decoration: none;
     font: 500 11px/14px var(--font); text-align: center;
   }
-  .tabbar a .ico { width: 20px; height: 20px; }
+  .tabbar a .ico { width: 22px; height: 22px; }
   .tabbar a > span:not(.tb-badge):not(.ico):not(.visually-hidden) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tabbar a:hover { color: var(--ink); }
   .tabbar a[aria-current="page"] { color: var(--accent); font-weight: 600; }
-  .tabbar a[aria-current="page"]::before { content: ""; position: absolute; top: 0; left: 28%; right: 28%; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent); }
   .tb-badge {
-    position: absolute; top: 5px; left: calc(50% + 6px); min-width: 18px; padding: 0 5px; border-radius: var(--r-pill);
+    position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; padding: 0 5px; border-radius: var(--r-pill);
     background: var(--accent); color: var(--on-fill); font: 600 11px/18px var(--font); text-align: center; box-shadow: 0 0 0 2px var(--card);
   }
   body:has(.tabbar) { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   body:has(.tabbar) p.toast { bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom)); }
-  /* Decision pages: an answer bar takes the bottom of the screen instead of the tab bar */
+  /* Decision pages and a document's bar: the answer bar takes the bottom of the screen instead of the tab bar */
   body:has(.decide-bar) .tabbar { display: none; }
   body:has(.decide-bar) { padding-bottom: 0; }
 }
 
-/* ---------- 5. The page head: the statement (the eyebrow, the heading, no full stop and no sentence: the approved mockups, DC1-DC3) and
-   the page's actions on the right, then the section's ONE tab row and its segments where no Show replaces them, and the toolbar ---------- */
-.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 0 0 24px; }
-.ph-text { flex: 1 1 26rem; min-width: 0; }
+/* ---------- 5. The page head (the redesign of 30 Oct 2026; docs/decisions.md RD3): a list is its title alone (26 px, 600) with ONE main
+   button and More on the right; a record has "‹ list" above its title (13 px, muted), its status pill beside it and one fact line under it
+   (14 px, muted), its actions on the right (Item.dc.html, GoodsReceived.dc.html). No sentence under a heading (DC1). Then the group's Show
+   and the toolbar ---------- */
+.page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 20px; }
+.page-head:has(.ph-back) { align-items: flex-start; }
+.ph-text { flex: 1 1 26rem; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* An eyebrow a page names itself (Home's date, an error's code): small, uppercase, the accent */
 .ph-eyebrow { margin: 0; font: 600 12px/18px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
 .ph-eyebrow .ph-tag { letter-spacing: .08em; }
-/* A record's eyebrow is its list (the mockups' breadcrumb, DC3): the link in the accent, no underline, then "›" */
-.ph-eyebrow.ph-back a { color: var(--accent); text-decoration: none; }
-.ph-eyebrow.ph-back a:hover { color: var(--accent-hover); text-decoration: underline; }
-.ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 0; }
+/* A record's way back: "‹ Items", muted, no underline (the "‹" is drawn here, so the link's words are the list's name) */
+.ph-back { margin: 0; color: var(--ink-muted); font: 400 13px/18px var(--font); }
+.ph-back a { color: var(--ink-muted); text-decoration: none; }
+.ph-back a::before { content: "\2039\00a0"; content: "\2039\00a0" / ""; }
+.ph-back a:hover { color: var(--accent-hover); text-decoration: underline; }
+.ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; }
 .ph-title h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.ph-title h1 .chip { margin-left: 6px; vertical-align: 7px; }
+.ph-title h1 .chip { margin-left: 6px; vertical-align: 5px; }
 .ph-title h1 .muted { font-weight: 500; }
 .ph-title > .subtitle { flex: 0 0 100%; margin: 0; color: var(--ink-body); font-weight: 500; } /* a website product's variant, under its name */
-.ph-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 10px 0 0; }
+/* The one fact line under a record's title */
+.ph-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; color: var(--ink-muted); font: 400 14px/20px var(--font); }
 .ph-text .lede { margin: 10px 0 0; }
 .lede { max-width: 75ch; margin: 0 0 16px; color: var(--ink-body); font: 400 14px/1.6 var(--font); }
 .lede strong { color: var(--ink); }
@@ -442,6 +474,43 @@ body:has(.hm-find) .page { max-width: 1100px; }
   h1 { font-size: 22px; line-height: 1.3; }
   .page-head { margin-bottom: 20px; align-items: stretch; }
   .ph-actions { width: 100%; }
+}
+/* The Show choice (RD2; Items.dc.html's select): a <details> of links that looks like a 44 px select, the current choice its words; the
+   list of the group's pages opens under it (the current one tinted, not a link). The head draws it in .show-row when the page does not
+   draw it in its toolbar. */
+.show-row { display: flex; flex-wrap: wrap; gap: 10px; margin: -4px 0 20px; }
+details.show-menu { position: relative; flex: none; margin: 0; padding: 0; border: 0; background: none; }
+.show-select {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; height: 44px; margin: 0; padding: 0 38px 0 12px;
+  border: 1px solid var(--field); border-radius: var(--r-10); background: var(--card); color: var(--ink); font: 400 14px/20px var(--font);
+  list-style: none; cursor: pointer; white-space: nowrap;
+}
+.show-select::-webkit-details-marker { display: none; }
+.show-select::after {
+  content: ""; position: absolute; right: 15px; top: 50%; width: 7px; height: 7px; margin-top: -6px;
+  border-right: 2px solid var(--ink-muted); border-bottom: 2px solid var(--ink-muted); transform: rotate(45deg);
+}
+.show-select:hover { border-color: var(--ink-body); }
+details.show-menu[open] > .show-select { border-color: var(--accent); }
+.show-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: min(360px, calc(100vw - 32px));
+  margin: 0; padding: 6px; list-style: none; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
+  box-shadow: var(--shadow-menu);
+}
+.show-list li { margin: 0; }
+.show-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: var(--r-8);
+  color: var(--ink-body); text-decoration: none; font: 500 14px/20px var(--font);
+}
+a.show-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
+.show-item[aria-current] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.show-item > .count {
+  flex: none; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-hover);
+  font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums;
+}
+@media (max-width: 699.98px) {
+  .show-select { font-size: 16px; }
+  .show-item { min-height: 44px; }
 }
 /* A page drawn without a statement (an old template; Ui\View draws the frame then) keeps the same order and look */
 .frame-only { margin: 0 0 8px; }
@@ -610,31 +679,31 @@ section.box.waiting > h2, .card.waiting:not(.task) > h2, .elsewhere > h2 { color
 .stat dd { margin: 10px 0 0; color: var(--ink); font: 700 26px/1.1 var(--font); font-variant-numeric: tabular-nums; }
 .stat dd small { display: block; margin-top: 6px; font: 400 12px/16px var(--font); color: var(--ink-muted); }
 
-/* Boards: a board title, then one block per group: its heading (the group's name in its colour, 16 px bold, a muted 13 px count), then
-   its table in a white card. A group folds (app.js; its heading is the button); the chevron shows only on a folded group, so an open
-   board is the mockups' (docs/decisions.md DC12); without the script every group stays open. */
+/* Boards (the redesign's simple lists, 30 Oct 2026; RD8): a board title, then one block per group: its heading (a 10 px dot in the group's
+   colour, the name 15 px semi-bold in ink, the count in muted words), then its table in a white card. A group folds (app.js; its heading
+   is the button); the chevron shows only on a folded group (docs/decisions.md DC12); without the script every group stays open. */
 .board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 28px 0 12px; }
 .board-head:first-child { margin-top: 0; }
 .board-head > h2, .board-head > h3, .board-title, .board-sub { margin: 0; font: 600 17px/24px var(--font); color: var(--ink); }
 .board-note { margin: 0; color: var(--ink-muted); font: 400 13px/20px var(--font); }
 .grp-block { margin: 0 0 24px; }
 .t-primary { --t-fill: var(--accent); --t-soft: var(--accent-soft); --t-ink: var(--accent-hover); }
-.grp-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 18px 0 8px; font: 400 14px/20px var(--font); color: var(--ink); }
+.grp-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 18px 0 8px; font: 400 15px/22px var(--font); color: var(--ink); }
+.grp-title::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--t-fill, var(--st-grey)); }
 .grp-toggle {
   display: inline-flex; align-items: center; gap: 6px; min-height: 36px; margin: 0 0 0 -6px; padding: 4px 6px;
-  border: 0; border-radius: var(--r-8); background: none; color: var(--t-fill, var(--st-grey));
-  font: 700 16px/24px var(--font); cursor: pointer;
+  border: 0; border-radius: var(--r-8); background: none; color: var(--ink);
+  font: 600 15px/22px var(--font); cursor: pointer;
 }
-.grp-title.waiting .grp-toggle { color: var(--st-grey); }
-.grp-toggle:hover { background: rgba(26, 21, 34, .05); color: var(--t-fill, var(--st-grey)); }
+.grp-toggle:hover { background: rgba(26, 21, 34, .05); color: var(--ink); }
 .grp-toggle[aria-expanded="false"]::before {
   content: ""; width: 8px; height: 8px; margin: 0 6px 0 4px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
   transform: rotate(-45deg);
 }
 html:not(.js) .grp-toggle { cursor: default; }
 html:not(.js) .grp-toggle:hover { background: none; }
-.grp-count { color: var(--ink-muted); font: 500 13px/20px var(--font); }
-.grp-name { font: 700 16px/24px var(--font); color: var(--t-fill, var(--st-grey)); }
+.grp-count { color: var(--ink-muted); font: 400 15px/22px var(--font); }
+.grp-name { font: 600 15px/22px var(--font); color: var(--ink); }
 /* Groups inside one table (a heading row per tbody) */
 table.board tbody.grp > tr.grp-head > th {
   height: auto; padding: 20px 16px 8px; border: 0; background: var(--card); text-align: left; position: static; font-weight: 400;
@@ -663,9 +732,9 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
    colour, the same everywhere: grey `waiting` (a draft, not started), blue `info` (sent, new), purple `review` (waiting for someone, being
    checked), amber `needs` (needs a look), green `done`, red `blocked` (late, refused), navy `off` (closed, switched off). Ui\Html::chip
    and Words::TONE are the one status-to-colour mapping. The parts:
-     .chip       the solid status: white 12 px semi-bold words on the tone's colour, 8 px corners; on a record (its heading, its state
-                 line) the 32 px block
-     td.doc-st   the solid cell of a board: the whole cell in the tone's colour (section pi-design)
+     .chip       the status pill (the redesign, RD8): the tone's tint and its darker words, 12 px semi-bold, fully rounded; beside a
+                 record's title a little wider (Item.dc.html)
+     td.doc-st   a board's status cell: it carries the tone for the .chip it holds (section pi-design)
      .tag        a small fact: the tone's tint and its words, fully rounded; with no tone, grey ---------- */
 /* Tones. --t-fill = the solid colour (pills, group headings, KPI squares); --t-soft = its tint; --t-ink = text on the tint. */
 .needs   { --t-fill: var(--st-amber);  --t-soft: var(--sf-amber);  --t-ink: var(--sf-amber-ink);  --t-bg: var(--needs-bg); --t-line: var(--needs-line); --t-icon: var(--needs-icon); }
@@ -678,11 +747,11 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
 
 .chip {
   display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: middle;
-  min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); white-space: nowrap; border: 0;
-  background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 12px/18px var(--font); text-align: center; letter-spacing: .01em;
+  padding: 3px 10px; border-radius: var(--r-pill); white-space: nowrap; border: 0;
+  background: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--sf-grey-ink)); font: 600 12px/18px var(--font); text-align: center;
 }
-/* The block on a record: beside its heading, in its state line */
-.chip.lg, .ph-title h1 .chip, .ph-meta .chip { min-height: 32px; padding: 6px 14px; font-size: 13px; }
+/* The pill beside a record's title, in its fact line */
+.chip.lg, .ph-title h1 .chip, .ph-meta .chip { padding: 4px 12px; font-size: 12px; }
 td .chip + .chip, p .chip + .chip { margin-left: 4px; }
 
 /* The soft tag: the tint and its words, 12 px semi-bold, fully rounded. Grey unless the tag itself names a tone (a tone class on a row
@@ -1063,7 +1132,7 @@ details.help > :last-child:not(summary) { margin-bottom: 0; }
   html.js details.drawer[open]:not(.is-inline) > summary::before { display: none; }
   html.js details.drawer[open]:not(.is-inline) > summary::after {
     content: ""; flex: none; width: 20px; height: 20px; padding: 10px; border-radius: var(--r-10); background: var(--ink-muted);
-    -webkit-mask: url("icons.svg?v=85946e439bad00db#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=85946e439bad00db#close") center / 20px 20px no-repeat;
+    -webkit-mask: url("icons.svg?v=891b99bdff99d7e5#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=891b99bdff99d7e5#close") center / 20px 20px no-repeat;
   }
   html.js details.drawer[open]:not(.is-inline) > :not(summary) { margin-left: 24px; margin-right: 24px; }
   html.js details.drawer[open]:not(.is-inline) > summary + * { margin-top: 20px; }
@@ -1909,7 +1978,6 @@ table.store-new-preview td.c-wide { text-align: left; }
 .count-bar > .count-ticked { margin-right: auto; color: var(--ink); font-weight: 600; }
 .count-bar > details.more { margin-right: auto; }
 .doc-bar details.more > .more-menu { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; max-height: min(70vh, 40rem); overflow-y: auto; }
-table.count-next tbody tr.picked > td.doc-st { background: var(--t-fill, var(--st-grey)); }
 .count-plan { margin: 0 0 16px; }
 /* The sheet's head: "N of M counted" with its bar; the big scan box */
 .count-progress { display: grid; gap: 6px; min-width: 12rem; text-align: right; }
@@ -2319,19 +2387,20 @@ table.doc-list td.c-status { width: 1%; }
    title, its next step in the accent and the rest under More; the order's progress strip; the invoice's differences panel with the cells
    that differ tinted; a soft button, the dashed drop area; on a phone the lines are cards with Qty, Price and Amount side by side and the
    bar's two buttons equal. The sales invoice reuses them later (docs/dev.md). */
-/* The board */
+/* The board (the redesign's simple list, RD8: Items.dc.html and the other list artboards): the group's heading with its dot (section 6), a
+   white card with 12 px corners and no coloured edge; the head row 12 px muted, the rows 14 px with 14 px padding; the status a pill in
+   its cell, not a filled cell */
 .doc-group { margin: 0 0 24px; }
-.doc-group > .grp-title { color: var(--t-fill, var(--st-grey)); margin: 0 0 8px; }
-.doc-group > .grp-title .grp-toggle { color: var(--t-fill, var(--st-grey)); }
-.doc-board { border-left: 6px solid var(--t-fill, var(--st-grey)); border-radius: var(--r-12); }
-/* The board mockups' table: 12 px semi-bold heads, 14 px cell sides, 48 px rows, the status cell 170 px (DC12); a card on a phone keeps its own */
-.doc-board > table thead th { font-weight: 600; }
+.doc-group > .grp-title { color: var(--ink); margin: 0 0 8px; }
+.doc-board { border-radius: var(--r-12); }
+.doc-board > table thead th { font-weight: 500; }
 @container (min-width: 641px) {
-  .doc-board > table th, .doc-board > table td { padding: 10px 14px; }
-  .doc-board > table tbody > tr > * { height: 48px; padding-top: 6px; padding-bottom: 6px; }
+  .doc-board > table th, .doc-board > table td { padding: 10px 16px; }
+  .doc-board > table tbody > tr > * { height: 48px; padding-top: 14px; padding-bottom: 14px; }
 }
-td.doc-st { background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 13px/18px var(--font); text-align: center; width: 170px; min-width: 150px; padding: 6px 10px; border-left: 2px solid var(--card); border-right: 2px solid var(--card); }
-td.doc-st .o-sub { display: block; color: inherit; opacity: .85; font-weight: 400; }
+/* A board's status cell holds the pill (.chip, which takes the cell's tone); a cell's words not yet in a pill are the tone's ink */
+td.doc-st { color: var(--t-ink, var(--sf-grey-ink)); font: 600 13px/18px var(--font); white-space: nowrap; }
+td.doc-st .o-sub { display: block; margin-top: 4px; color: var(--ink-muted); font-weight: 400; white-space: normal; }
 /* A board's name cell and total in ink, semi-bold (the mockups' .strong); who made a row: their initials in the soft purple circle that is the
    phone top bar's too (cwdesign/Main.dc.html's By; DC16) */
 table.doc-list td.strong { color: var(--ink); font-weight: 600; }
@@ -2340,14 +2409,12 @@ table.doc-list th.c-by, table.doc-list td.c-by { text-align: center; width: 1%; 
   display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none;
   background: var(--sf-purple); color: var(--sf-purple-ink); font: 700 12px/1 var(--font);
 }
-table.doc-list tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
 .doc-meter { display: flex; align-items: center; gap: 8px; }
 .doc-meter progress { width: 110px; flex: none; }
 .doc-meter progress::-webkit-progress-value { background: var(--st-green); }
 .doc-meter progress::-moz-progress-bar { background: var(--st-green); }
 td.late { color: var(--st-red); font-weight: 600; }
 @container (max-width: 640px) {
-  table.stack td.doc-st { width: auto; min-width: 0; border: 0; border-radius: var(--r-8); padding: 4px 12px; }
   .doc-meter progress { width: 80px; }
 }
 /* The saved document: the status block (section 7), the action bar with More (section 9), the progress strip, the differences panel,
@@ -2415,7 +2482,6 @@ table.pi-lines tr.po-add-row td.po-add-go { text-align: right; }
    the rows add: their boxes, the status cell kept solid on hover, the item chosen as a green chip, the row's menu a small fold. */
 table.lq-lines th, table.lq-lines td { vertical-align: top; }
 table.lq-lines td.doc-st { vertical-align: middle; }
-table.lq-lines tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
 table.lq-lines td.lq-item { min-width: 16rem; }
 table.lq-lines td.lq-item input[type="text"], table.lq-lines td input[name="note"] { width: 100%; min-width: 10rem; }
 table.lq-lines .lq-answer { display: inline; margin: 0; }
@@ -2473,10 +2539,10 @@ details.lq-menu form.record { margin-top: 8px; max-width: 22rem; }
 /* The lines */
 table.gi-lines th, table.gi-lines td { vertical-align: middle; }
 table.gi-lines td.doc-st { padding: 6px 8px; }
-table.gi-lines tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
+/* The duty answer is a select in the cell's tone: the pill's tint and words (RD8) */
 table.gi-lines td.gi-duty select {
-  width: 100%; min-height: 34px; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, .6); border-radius: var(--r-8);
-  background-color: transparent; color: inherit; font: 600 13px/18px var(--font);
+  width: 100%; min-height: 34px; padding: 4px 8px; border: 1px solid var(--t-line, var(--hairline)); border-radius: var(--r-8);
+  background-color: var(--t-soft, var(--sf-grey)); color: var(--t-ink, var(--sf-grey-ink)); font: 600 13px/18px var(--font);
 }
 table.gi-lines td.gi-duty select option { color: var(--ink); background: var(--card); }
 table.gi-lines td.num input.short { width: 5.5rem; }
@@ -2755,12 +2821,8 @@ form.doc-details { margin: 0 0 20px; }
 }
 /* A card that holds a line instead of a table (an order's unit with no stock change in its history) */
 .doc-board > p { margin: 0; padding: 14px 16px; }
-/* A phone: a status cell keeps its fill, the pill-like block docs/dev.md describes. The stacked list's `table.stack td { background: none }`
-   outranked `td.doc-st`, so its white words sat on the white card (GV23 found it on Goods in, whose duty cell stays a white field there) */
-@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty) { background: var(--t-fill, var(--st-grey)); } }
-/* ...and its own word for its column (Lines to place's "Status") is in the cell's white, not the muted grey of a label on the white card
-   (the Codex review of a260cba, W10.13); the duty cell keeps its grey word beside its white field */
-@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; } }
+/* A phone: a status cell is no filled block any more (RD8): its pill sits in the card's top right like any status, its word for its column
+   (Lines to place's "Status") muted like every other label */
 /* An order's sold units on a phone (W10.12): the status takes its own width, up to half the card, and wraps inside it; the item has the rest.
    The lines' three equal columns put it in the last third on one line, so a long status lay over a long item name */
 @container (max-width: 640px) {

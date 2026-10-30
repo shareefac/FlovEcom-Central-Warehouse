@@ -93,7 +93,7 @@ $addItem = $who !== null && $who->can('items.create') ? $partial('split', ['acti
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['id']) ?>"><span class="ic-code"><?= $e($r['code']) ?></span> <span class="ic-name"><?= $e($r['name']) ?></span></a><?php if ($r['blocked'] !== '' && $g['key'] === 'blocked'): ?><span class="o-sub"><?= $e($r['blocked']) ?></span><?php endif; ?><?php if ($r['warnings'] !== '' || $r['discontinued']): ?><span class="o-sub"><?php if ($r['warnings'] !== ''): ?><span class="tag needs"><?= $say('CARDS', 'warning_line', $r['warnings']) ?></span><?php endif; ?><?php if ($r['discontinued']): ?> <span class="tag off"><?= $word('CARDS', 'discontinued') ?></span><?php endif; ?></span><?php endif; ?></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($r['stateWord']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($r['stateWord']) ?></span></td>
         <td class="num" data-label="<?= $word('CARDS', 'held') ?>"><?= $n($r['held']) ?></td>
 <?php if ($card): ?>
         <td data-label="<?= $word('CARDS', 'kind') ?>"><?= $e($r['type']) ?></td>

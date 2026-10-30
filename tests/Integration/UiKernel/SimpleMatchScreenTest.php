@@ -245,10 +245,11 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        self::assertSame(Words::MENU['simple_match'], self::currentTab($page));
-        self::assertSame([Words::MENU['simple_match'], 'Mapping', 'Store products'], self::tabLabels($page), 'the first tab of Matching (HV3); the old pages stay');
-        self::assertSame(['By item', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
-        self::assertSame('Matching', self::currentSection($page));
+        self::assertNull(self::currentTab($page), 'a specialist page of Store listings (RD6): no entry current');
+        self::assertSame(['By item', 'Check a match'], self::tabLabels($page));
+        self::assertSame(['Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
+            'the other matching pages under the header\'s More');
+        self::assertSame('Store listings', self::currentSection($page));
         $xp = self::xp($page);
         self::assertSame(Words::MENU['simple_match'], self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//header[contains(@class, "page-head")]//p[@class="lede"]')->length, 'no line under the title (DC1)');

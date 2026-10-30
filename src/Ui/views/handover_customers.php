@@ -102,7 +102,7 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/stock/handovers/customers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $word('CUSTOMER_KIND', (string) $r['kind']) ?></span></th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('CUSTOMER', $g) ?></td>
+        <td class="c-status doc-st <?= $e($tone) ?>"><span class="chip"><?= $word('CUSTOMER', $g) ?></span></td>
         <td data-label="<?= $word('CUSTOMER', 'vat_code') ?>"><?php if ($r['vat_code'] === null): ?><?= $word('CUSTOMER', 'vat_company') ?><?php else: ?><?= $e($r['vat_code']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('CUSTOMER', 'handovers') ?>"><?= $n($r['handovers']) ?></td>
         <td class="num" data-label="<?= $word('CUSTOMER', 'balance') ?>"><?= $money($r['balance']) ?></td>

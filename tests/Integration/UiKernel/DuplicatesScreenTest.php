@@ -102,9 +102,11 @@ final class DuplicatesScreenTest extends KernelUiTestCase
 
         $list = $web->get('/ui/review/duplicates');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Duplicates', 'href' => null, 'count' => 2, 'current' => true], self::sectionTabs($list)[3],
-            'the tab\'s count is the open groups (under Matching\'s More, in the row on its page: HV3)');
-        self::assertSame(2, array_column(self::moreTabs($web->get('/ui/match')), 'count', 'label')['Duplicates'], '... and under More on the other pages');
+        self::assertSame('Store listings', self::currentSection($list), 'a specialist page of Store listings (RD6)');
+        self::assertSame(2, self::nav($list)['Store listings']['count'], 'the section counts the open groups');
+        self::assertSame(['label' => 'Duplicates', 'href' => '/ui/review/duplicates', 'count' => 2], array_column(self::moreTabs($web->get('/ui/review/products')), null, 'label')['Duplicates'],
+            'its count under the header\'s More of By item');
+        self::assertSame(2, array_column(self::moreTabs($web->get('/ui/match')), 'count', 'label')['Duplicates'], '... and of the other matching pages');
         $rows = (new \DOMXPath($list->dom()))->query('//table[contains(@class, "dups")]/tbody/tr/th/a');
         self::assertSame(['/ui/review/duplicates/' . $x['pb'], '/ui/review/duplicates/' . $pd], [$rows->item(0)?->getAttribute('href'), $rows->item(1)?->getAttribute('href')],
             'the biggest sellers first (365 days)');
@@ -186,7 +188,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $done = $web->follow($r);
         self::assertStringContainsString(Words::DUP_NOTICE['done'], $done->text());
         self::assertStringContainsString('Decided recently', $done->text());
-        self::assertSame(0, array_column(self::sectionTabs($done), 'count', 'label')['Duplicates'], 'nothing left: no count');
+        self::assertSame(0, array_column(self::moreTabs($web->get('/ui/review/products')), 'count', 'label')['Duplicates'], 'nothing left: no count');
 
         // The merged group: its heading says the answer (F127), and the undo. B goes back to its own item with its 8.
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
@@ -241,7 +243,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
             self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pc])]);
         $list = $web->get('/ui/review/duplicates');
         self::assertStringContainsString(Words::DUPS['partly'], $list->text());
-        self::assertSame(1, array_column(self::sectionTabs($list), 'count', 'label')['Duplicates']);
+        self::assertSame(1, array_column(self::moreTabs($web->get('/ui/review/products')), 'count', 'label')['Duplicates']);
         // C: a different product (6000 puffs).
         $g = $web->get('/ui/review/duplicates/' . $pb);
         self::assertStringContainsString(Words::DUPS['state_same'], $g->text());

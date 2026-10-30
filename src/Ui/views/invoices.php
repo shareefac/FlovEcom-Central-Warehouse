@@ -98,7 +98,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $e($r['date']) ?><?php if ($r['refs'] !== ''): ?> · <?= $e($r['refs']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><?= $e($r['cell_word']) ?></td>
+        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><span class="chip"><?= $e($r['cell_word']) ?></span></td>
         <td data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
 <?php if ($kind === 'invoice'): ?>
         <td data-label="<?= $word('DOC_LIST', 'match') ?>"><?php if ($r['tag'] !== null): ?><span class="tag <?= $e($r['tag']['tone']) ?>"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>

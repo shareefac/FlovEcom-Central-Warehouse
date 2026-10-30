@@ -48,7 +48,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['id']) ?>"><?= $e($r['code']) ?> <?= $e($r['name']) ?></a><?php if ($r['brand'] !== null): ?><span class="o-sub"><?= $e($r['brand']) ?></span><?php endif; ?></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('BY_HAND_STATE', $r['state']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('BY_HAND_STATE', $r['state']) ?></span></td>
         <td data-label="<?= $word('ITEM_NEW', 'who') ?>"><?= $e($r['who']) ?></td>
         <td data-label="<?= $word('ITEM_NEW', 'when') ?>"><?= $when($r['at']) ?></td>
         <td class="c-next">

@@ -81,7 +81,7 @@
 <?php foreach ($grp['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a><?php if ($r['try'] !== null): ?><span class="o-sub"><?= $e($r['try']) ?></span><?php endif; ?></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['chipWord']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['chipWord']) ?></span></td>
         <td data-label="<?= $word('SALE', 'store') ?>"><?= $e($r['store']) ?></td>
         <td data-label="<?= $word('SALE', 'placed') ?>"><?= $when($r['placed']) ?></td>
         <td data-label="<?= $word('SALE', 'paid') ?>"><?= $when($r['paid']) ?></td>

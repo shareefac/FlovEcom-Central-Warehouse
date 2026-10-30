@@ -139,7 +139,7 @@
 <?php endif; ?>
         </td>
 <?php endforeach; ?>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>" data-label="<?= $word('BY_PRODUCT', 'stores_matched') ?>"><?= $say('BY_PRODUCT', 'summary', $r['on'], count($stores)) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>" data-label="<?= $word('BY_PRODUCT', 'stores_matched') ?>"><span class="chip"><?= $say('BY_PRODUCT', 'summary', $r['on'], count($stores)) ?></span></td>
       </tr>
 <?php endforeach; ?>
     </tbody>

@@ -236,9 +236,10 @@ final class NewVariantsScreenTest extends KernelUiTestCase
 
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Simple matching', 'Mapping', 'Store products', 'New variants'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
-        self::assertSame(['By item', 'Duplicates'], array_column(self::moreTabs($page), 'label'), 'after By Item');
-        self::assertSame(['New variants', 'Matching'], [self::currentTab($page), self::currentSection($page)]);
+        self::assertSame(['By item', 'Check a match'], self::tabLabels($page), 'Store listings\' two entries (RD6)');
+        self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
+            'the other matching pages under the header\'s More, never the one shown');
+        self::assertSame([null, 'Store listings'], [self::currentTab($page), self::currentSection($page)]);
         self::assertSame([], self::segments($page), 'no segments');
         // The first store by name is chosen; the selector counts each store's variants first seen in the period, whatever their state.
         self::assertSame([['Alt Store', true, 3], ['Big Store', false, 1], ['Cee Store', false, 1]], self::storeSeg($page));
@@ -660,7 +661,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertContains('/ui/review/listing/' . $plain, $look->hrefs(), 'Open is for everyone who sees the list');
         $buyer = $this->signIn($this->uiUser('buyer'));
         self::assertSame([403, 403], [$buyer->get(self::PATH)->status, $buyer->get(self::PATH . '.csv')->status]);
-        self::assertNotContains('New variants', self::tabLabels($buyer->get('/ui/items/cards')));
+        self::assertArrayNotHasKey('Store listings', self::nav($buyer->get('/ui/items/cards')));
     }
 
     public function testCreateAsNewItemsTakesOnlyWhatTheComputerFoundNewAndSkipsEveryOtherRowWithItsReason(): void

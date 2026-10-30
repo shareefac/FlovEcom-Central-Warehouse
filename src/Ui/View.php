@@ -22,11 +22,12 @@ namespace CW\Ui;
  *   $chip($tone, $text)     a status chip: icon shape + word (tones: Words::TONES)
  *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
  *   $head($title, intro: $page, look: $who, chips:, meta:, aside:, lede:, more:, tag:, eyebrow:, side:, back:)   the statement every page
- *                           opens with (the approved mockups; docs/decisions.md DC1-DC6): the section as an UPPERCASE eyebrow (or
- *                           `eyebrow`, and `tag` after it; or `back`, [href, label], the record's list as a link and "›", the tag after
- *                           it: DC37), the heading
- *                           (`chips` inside it, `aside` beside it), `meta` (state chips), the page's create button on the right; then
- *                           the switched-off strip (no tab row: the sidebar lists the section's pages, DC28).
+ *                           opens with (the approved redesign of 30 Oct 2026; docs/decisions.md RD3): a list is its title alone (no
+ *                           eyebrow; an `eyebrow` given, Home's date, is drawn, `tag` after it); a record has `back`, [href, label]: "‹
+ *                           label" above its title (the tag after it, DC37); the heading (`chips` inside it: the record's status pill,
+ *                           `aside` beside it), `meta` (the one fact line), the page's create button on the right with More (its other
+ *                           "New …" and the section's specialist pages); then the switched-off strip and, on a page of a group, the
+ *                           group's Show when the page draws none itself.
  *                           No sentence under the heading: `intro` names the page (its words stay in Words::PAGE_INTRO) and only the
  *                           steps of View::INTRO_KEPT draw their line; `look` (who may change this) or `more` (a look-only sentence) is
  *                           a "?" beside the heading (with `aside`'s help: its last line, one "?", DC34). Text arguments are escaped;
@@ -36,6 +37,11 @@ namespace CW\Ui;
  *   $cards($cards, $notes)  Home's "Waiting for you": one row per task (its number in its colour, its name, one plain line, one button);
  *                           $notes: the quieter rows of the notes
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
+ *   $showMenu($choices = null)  the Show choice of a page (docs/decisions.md RD2): a <details> menu of links styled like a select, the current
+ *                           choice not a link; no $choices = the page's group (the pages of its sidebar entry this person may open); ''
+ *                           when there are fewer than two. Drawn by a page (its toolbar), the head draws no Show of its own.
+ *   $groupPages()           the page's group as choices (key, label, href, query, count, countWords, current, here), for a page that mixes
+ *                           its own filter choices in: $showMenu([...$groupPages(), ['label' => …, 'href' => …, 'query' => […], 'current' => …]])
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
  * fails the build when a `<?=` prints something that did not pass through one of them, when a
@@ -57,6 +63,10 @@ final class View
     private array $frame = [];
     /** Whether the page's template drew its head (then the layout draws no frame of its own) */
     private bool $headDrawn = false;
+    /** Whether the page's template drew a Show ($showMenu): then the head's slot stays empty */
+    private bool $showDrawn = false;
+    /** Where the head leaves room for the group's Show, filled once the body is drawn (page()): no template can print it (escaping). */
+    private const SHOW_SLOT = '<!--cw:show-->';
 
     /** @param array<string, mixed> $shared variables every template gets (csrf token, who, ...) */
     public function __construct(private readonly string $dir, private readonly array $shared = [])
@@ -106,6 +116,8 @@ final class View
             'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
             'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string
                 => Html::emptyState($title, $text, $href, $button),
+            'showMenu' => fn (?array $choices = null): string => $this->show($choices),
+            'groupPages' => fn (): array => is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [],
         ];
         $clash = array_keys(array_intersect_key($vars + $this->shared, $helpers));
         if ($clash !== []) {
@@ -130,21 +142,50 @@ final class View
     {
         $this->frame = $layout;
         $this->headDrawn = false;
+        $this->showDrawn = false;
         try {
             $body = $this->render($template, $vars);
+            // The group's Show under the head, unless the page drew its own (RD2); only on a page that is one of the group's choices.
+            $row = $this->showDrawn ? '' : $this->showRow();
+            $at = strpos($body, self::SHOW_SLOT);
+            $body = str_replace(self::SHOW_SLOT, '', $at === false ? $body : substr_replace($body, $row, $at, strlen(self::SHOW_SLOT)));
+            $loose = $this->headDrawn ? '' : $row;
         } finally {
             $this->frame = [];
         }
-        return $this->render('layout', $layout + ['body' => $body, 'headDrawn' => $this->headDrawn]);
+        return $this->render('layout', $layout + ['body' => $body, 'headDrawn' => $this->headDrawn, 'showRow' => $loose]);
     }
 
     /**
-     * The statement and the frame under it (the $head helper): Html::statement with the section's name as the eyebrow (the brand on a
-     * page outside every section; the record's list when `back` is given) and the page's create button, then page_frame.php: the
-     * switched-off strip (no tab row: the sidebar holds the section's pages, DC28). $side (docs/decisions.md PV27): what the header's right holds instead
-     * of the create button (a saved document's action bar); '' for nothing (the new page of what the button makes); null: the create
-     * button. No sentence under the heading (DC1): only a step of View::INTRO_KEPT draws its intro; the look-only line is a "?", the last line
-     * of the page's own "?" when it has one (ONE "?" beside a heading: DC34).
+     * The Show menu ($showMenu): the choices as links, the current one without a link (aria-current); '' for fewer than two. Each choice:
+     * label, href, query (optional), current, count (optional) and countWords.
+     *
+     * @param list<array<string, mixed>>|null $choices
+     */
+    private function show(?array $choices): string
+    {
+        $this->showDrawn = true;
+        $choices ??= is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [];
+        return count($choices) < 2 ? '' : $this->render('show_menu', ['choices' => array_values($choices)]);
+    }
+
+    /** The group's Show the head draws under itself: only on a page that is one of the group's choices (a list, not one of its records). */
+    private function showRow(): string
+    {
+        $segments = is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [];
+        if (!in_array(true, array_column($segments, 'here'), true)) {
+            return '';
+        }
+        return '<div class="show-row">' . $this->render('show_menu', ['choices' => $segments]) . '</div>';
+    }
+
+    /**
+     * The statement and the frame under it (the $head helper): Html::statement (no eyebrow but a given one: a list is its title alone,
+     * RD3; a record's way back when `back` is given) and the page's create button with More (its other "New …" and the section's
+     * specialist pages, RD6), then page_frame.php (the switched-off strip) and the slot of the group's Show (page()). $side (docs/decisions.md
+     * PV27): what the header's right holds instead (a saved document's action bar); '' for nothing (the new page of what the button
+     * makes); null: the create button and More. No sentence under the heading (DC1): only a step of View::INTRO_KEPT draws its intro; the
+     * look-only line is a "?", the last line of the page's own "?" when it has one (ONE "?" beside a heading: DC34).
      *
      * @param array{0: string, 1: string}|null $back
      */
@@ -161,9 +202,10 @@ final class View
         $sentence = $kept !== null ? $kept[0] : (string) ($lede ?? '');
         $line = $kept !== null && $lookLine === '' && $more === null ? $kept[1] : '';
         // Outside a section (no page bar) a create button is plain (DS5); Home has none: its main action is the first job (HV1).
-        $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions'], 'main' => $pagebar !== null]) : '');
-        return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $sentence, $line, $tag,
-            $chips, Html::helpWithLook($aside, $lookLine, $lookLabel), $meta, $actions, $back)
-            . $this->render('page_frame', ['switchedOff' => $f['switchedOff'] ?? null]);
+        $made = is_array($f['actions'] ?? null) ? $f['actions'] : [];
+        $pages = $pagebar !== null && is_array($pagebar['more'] ?? null) ? $pagebar['more'] : [];
+        $actions = $side ?? ($made !== [] || $pages !== [] ? $this->render('split', ['actions' => $made, 'main' => $pagebar !== null, 'pages' => $pages]) : '');
+        return Html::statement($eyebrow ?? '', $title, $sentence, $line, $tag, $chips, Html::helpWithLook($aside, $lookLine, $lookLabel), $meta, $actions, $back)
+            . $this->render('page_frame', ['switchedOff' => $f['switchedOff'] ?? null]) . ($f !== [] ? self::SHOW_SLOT : '');
     }
 }

@@ -79,10 +79,8 @@ final class WordsTest extends TestCase
             'VETO' => Veto::CODES,
             'REORDER_FLAG' => array_keys(ReorderController::FLAG_TEXT),
             'SECTION' => array_keys(Sections::MAP),
-            'SECTION_DESC' => array_keys(Sections::MAP),
             'MENU' => array_merge(...array_map(static fn (array $s): array => array_keys($s['tabs']), array_values(Sections::MAP))),
-            'MENU_HELP' => array_keys(array_merge(...array_map(static fn (array $s): array => array_filter($s['tabs'], static fn (array $t): bool => !isset($t['soon'])),
-                array_values(Sections::MAP)))),
+            'MENU_HELP' => array_keys(array_merge(...array_map(static fn (array $s): array => $s['tabs'], array_values(Sections::MAP)))),
             'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'transfers', 'releases',
                 'accounts', 'settings', 'series',
                 'integrity',
@@ -113,8 +111,7 @@ final class WordsTest extends TestCase
             // ---- end of pack D ----
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
-            'TAB' => ['more'],
-            'NAV' => [...array_keys(Sections::DAILY), 'daily', 'more'], // the sidebar's groups and daily entries (docs/decisions.md HV2)
+            'NAV' => [...array_keys(Sections::PHONE), 'more'], // the phone's bottom bar (docs/decisions.md RD5)
             'ERROR_TITLE' => ['400', '403', '404', '405', '409', '413', '422', '429', '500', '503'],
             'ERROR' => ['csrf', 'lead_only', 'not_found', 'method_not_allowed', 'too_large', 'form_truncated', 'bad_form_key', 'idempotency_key_reused',
                 'unavailable', 'busy', 'internal', 'unknown_staff', 'unknown_queue'],
@@ -951,7 +948,7 @@ final class WordsTest extends TestCase
             self::assertStringStartsWith('php bin/', $c['command']);
         }
         // The fixed 20 left the spot check's words: the size is the Approval rules page's (approvals.spot_check_size).
-        foreach ([Words::MENU_HELP['mapping'], Words::PAGE_INTRO['samples'][0], Words::PAGE_INTRO['sample'][0], Words::HELP['spot_check']] as $text) {
+        foreach ([Words::MENU_HELP['samples'], Words::PAGE_INTRO['samples'][0], Words::PAGE_INTRO['sample'][0], Words::HELP['spot_check']] as $text) {
             self::assertStringNotContainsString('20', $text);
         }
     }

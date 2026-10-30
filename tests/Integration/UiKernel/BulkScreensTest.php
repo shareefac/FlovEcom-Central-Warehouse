@@ -148,7 +148,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'link', 2), 0, 1), $text);
         self::assertStringContainsString(BulkController::why('changed', ['status' => 'ignored']), $text, 'a stale row is skipped, never overwritten, and says why');
         self::assertStringContainsString(Words::BULK['no_undo'], $text);
-        self::assertSame('Mapping', self::currentTab($result));
+        self::assertSame('Check a match', self::currentTab($result));
         $xp = new \DOMXPath($result->dom());
         self::assertSame(['/ui/review/listing/' . $c], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//table[contains(@class, "bulk-skipped")]//th/a'))), 'each skipped row links to its listing');
@@ -383,8 +383,8 @@ final class BulkScreensTest extends KernelUiTestCase
         $one = $web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt']);
         self::assertSame(['Alt strong'], self::titles($one));
         self::assertSame([false, true, false], array_column(self::storeSeg($one), 'current'));
-        self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($one), 'href'),
-            'the store travels through the segments (the one shown has no link: CV13)');
+        self::assertSame(['/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_values(array_intersect(array_column(self::moreTabs($one), 'href'),
+            ['/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'])), 'the store travels to the spot check and the second approval (the header\'s More, RD6)');
         $xp = new \DOMXPath($one->dom());
         self::assertSame('Check', $xp->evaluate('string(//select[@name="queue"]/option[2]/@value)'), 'and through the strength lists (the same Show row)');
         self::assertStringEndsWith('(0)', trim((string) $xp->evaluate('string(//select[@name="queue"]/option[2])')), 'whose counts are the store\'s');
@@ -402,8 +402,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(['Big Store'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array($oxp->query('//section[contains(@class, "by-store")]//button[@class="grp-toggle"]'))));
         self::assertSame(['Alt Store', 'Big Store'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array((new \DOMXPath($web->get('/ui/review')->dom()))->query('//section[contains(@class, "by-store")]//button[@class="grp-toggle"]'))));
-        self::assertSame('To review', self::segments($overview)[0]['label']);
-        self::assertTrue(self::segments($overview)[0]['current']);
+        self::assertSame('Check a match', self::currentTab($overview), 'the overview is Check a match (RD1)');
         // One row per strength, the products no computer check has suggested anything for, and the store's total.
         $rows = $oxp->query('//table[contains(@class, "by-store-table")]/tbody/tr');
         self::assertSame(8, $rows->length);
@@ -437,7 +436,7 @@ final class BulkScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get('/ui/review/store', ['channel' => 'alt']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame('Store products', self::currentTab($page));
+        self::assertSame(['Store listings', null], [self::currentSection($page), self::currentTab($page)], 'Store products: a specialist page of Store listings (RD6)');
         // A board (docs/decisions.md W12.6): grouped by state, what is still to match first, best sellers first (30 days) in each.
         self::assertSame(['Suggested one', 'Unmatched one', 'Waiting one', 'On hold one', 'Linked one', 'Ignored one'], self::titles($page), 'by state, then best sellers first');
         $xp = new \DOMXPath($page->dom());

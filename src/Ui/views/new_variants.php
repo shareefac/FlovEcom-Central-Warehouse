@@ -114,7 +114,7 @@
           <?= $partial('one_at_a_time', ['why' => $r['manual']]) ?>
 <?php endif; ?>
         </th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('NEW_VARIANT_STATE', $r['state'])) ?>"><?= $word('NEW_VARIANT_STATE', $r['state']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('NEW_VARIANT_STATE', $r['state'])) ?>"><span class="chip"><?= $word('NEW_VARIANT_STATE', $r['state']) ?></span></td>
         <td data-label="<?= $word('NEW_VARIANTS', 'option') ?>"><?= $e($r['variant']) ?></td>
         <td data-label="<?= $word('NEW_VARIANTS', 'barcode') ?>"><?php foreach ($r['barcodes_shown'] as $i => $b): ?><?php if ($i > 0): ?> <br><?php endif; ?><span class="code"><?= $e($b) ?></span><?php endforeach; ?><?php if ($r['barcodes_more'] > 0): ?> <span class="muted small"><?= $say('NEW_VARIANTS', 'more_barcodes', $r['barcodes_more']) ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('NEW_VARIANTS', 'price') ?>"><?= $money($r['price']) ?></td>

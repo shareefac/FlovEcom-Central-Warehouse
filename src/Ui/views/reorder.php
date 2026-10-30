@@ -145,7 +145,7 @@ foreach ($history['channels'] as $c) {
           <span class="o-line"><?= $say('REORDER', 'on_draft', $r['in_drafts']) ?> – <a href="<?= $u('/ui/purchasing/orders/' . $r['draft']) ?>"><?= $word('REORDER', 'open_draft') ?></a>. <?= $e($r['draft_note']) ?></span>
 <?php endif; ?>
         </th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $e($g['name']) ?></span></td>
 <?php if ($canDraft): ?>
         <td data-label="<?= $word('REORDER', 'buy') ?>"><label class="choice"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1"<?php if ($r['packs'] > 0 && (int) $r['in_drafts'] === 0): ?> checked<?php endif; ?>> <span class="visually-hidden"><?= $say('REORDER', 'buy_label', $r['name']) ?></span></label></td>
 <?php endif; ?>

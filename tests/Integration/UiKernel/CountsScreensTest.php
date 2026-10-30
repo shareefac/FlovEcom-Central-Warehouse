@@ -154,12 +154,11 @@ final class CountsScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
-        self::assertSame(['Counts', 'Counts'], [self::currentSection($page), self::currentTab($page)], 'Stock › Counts: the sidebar\'s Counts (HV2)');
-        self::assertSame([null, true], [array_column(self::sectionTabs($page), 'href', 'label')['Counts'], array_column(self::sectionTabs($page), 'current', 'label')['Counts']],
-            'Counts is a real tab now, the one shown (no link: CV13)');
-        self::assertNull(array_column(self::moreTabs($page), 'href', 'label')['Quality'], 'Quality stays "Soon", under the row\'s More (HV3)');
-        self::assertSame('/ui/stock/counts', array_column(self::sectionTabs($web->get(self::PATH . '/sheets')), 'href', 'label')['Counts'], 'from its other pages a link');
-        self::assertSame([['Next to count', true], ['Count sheets', false], ['Differences', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
+        self::assertSame(['Inventory', 'Stock counts'], [self::currentSection($page), self::currentTab($page)], 'Stock › Counts: the sidebar\'s Counts (HV2)');
+        self::assertSame([null, true], [array_column(self::sectionTabs($page), 'href', 'label')['Stock counts'], array_column(self::sectionTabs($page), 'current', 'label')['Stock counts']],
+            'Stock counts, the entry shown (no link: CV13)');
+        self::assertSame('/ui/stock/counts', array_column(self::sectionTabs($web->get(self::PATH . '/sheets')), 'href', 'label')['Stock counts'], 'from its other pages a link');
+        self::assertSame([['Items to count', true], ['Count sheets', false], ['Differences', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['counts'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
@@ -226,7 +225,8 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($look));
         self::assertSame(403, $this->signIn($this->uiUser('viewer'))->get(self::PATH)->status);
         // The sidebar's "Every day" opens it (docs/decisions.md HV2).
-        self::assertSame(self::PATH, self::nav($web->get('/ui/'))['Counts']['href']);
+        self::assertSame(self::PATH, array_column(self::tabs($web->get('/ui/')), 'href', 'label')['Count'], 'the phone bar\'s Count (Phone.dc.html)');
+        self::assertSame('/ui/stock', self::nav($web->get('/ui/'))['Inventory']['href']);
     }
 
     public function testTheBoardsOneCountMenuOpensEachKindOfSheetAndARefusalKeepsTheChoice(): void
@@ -294,7 +294,7 @@ final class CountsScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($open->dom());
         self::assertSame(Words::COUNTS['title_open'], trim((string) $xp->evaluate('string(//main//h1/span[contains(@class, "stmt")])')), 'the heading\'s name, before its state chip');
         self::assertStringContainsString(Words::COUNT_NOTICE['opened'], $open->text());
-        self::assertSame(['Counts', 'Counts'], [self::currentSection($open), self::currentTab($open)]);
+        self::assertSame(['Inventory', 'Stock counts'], [self::currentSection($open), self::currentTab($open)]);
         // The Codex review of f4d1126 (DC29): the opener is told, in one short line under the lines, that nothing is booked until the sheet is
         // final (its intro said it; CT_Sheet's muted line under the board is the place).
         self::assertStringContainsString('nothing is booked until you make the sheet final', trim((string) $xp->evaluate('string(//main//p[contains(@class, "count-booked")])')));

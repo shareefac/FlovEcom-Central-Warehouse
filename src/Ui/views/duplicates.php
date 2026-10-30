@@ -33,7 +33,7 @@ $start = $rows !== [] ? '<a class="btn primary" href="/ui/review/duplicates/' . 
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
 <?php if ($r['sku_code'] !== null): ?> <span class="o-sub"><?= $e($r['sku_code']) ?></span><?php endif; ?>
         </th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['state']) ?></span></td>
         <td class="num" data-label="<?= $word('DUPS', 'pages') ?>"><?= $n($r['size']) ?></td>
         <td class="num" data-label="<?= $word('DUPS', 'sold_365') ?>"><?= $n($r['units_365d']) ?></td>
         <td class="num" data-label="<?= $word('DUPS', 'sold_30') ?>"><?= $n($r['units_30d']) ?></td>
@@ -63,7 +63,7 @@ $start = $rows !== [] ? '<a class="btn primary" href="/ui/review/duplicates/' . 
 <?php foreach ($recent as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a></th>
-        <td class="c-status doc-st done"><?= $word('DUPS', 'recent_state') ?></td>
+        <td class="c-status doc-st done"><span class="chip"><?= $word('DUPS', 'recent_state') ?></span></td>
         <td data-label="<?= $word('DUPS', 'pages') ?>"><?= $say('DUPS', 'recent_line', $r['size'], $r['items'] === 1 ? \CW\Ui\Words::DUPS['recent_items_one'] : \CW\Ui\Words::say('DUPS', 'recent_items_many', $r['items'])) ?></td>
         <td data-label="<?= $word('DUPS', 'decided_on') ?>"><?php if ($r['at'] !== null): ?><?= $when($r['at']) ?><?php endif; ?></td>
       </tr>

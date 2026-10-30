@@ -29,7 +29,7 @@ final class Words
     public const ASK_ROLE = 'Fazil (the admin)';
 
     /** The groups of() accepts (the constant names below). */
-    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'MENU_HELP', 'NAV', 'TAB',
+    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'MENU', 'SEGMENT', 'NEW', 'MENU_HELP', 'NAV',
         'BADGE', 'COMING_LATER',
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
@@ -181,57 +181,41 @@ final class Words
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
-    // 2. The navigation (Ui\Sections keeps the sections, tabs, segments, paths and permissions; their words are here). Standard
-    //    business names (owner, 8 Oct 2026: "sidebar name make professional and make related tabs").
+    // 2. The navigation (Ui\Sections keeps the sections, their entries and Show choices, paths and permissions; their words are here):
+    //    the standard inventory names of the approved redesign (Sidebar.dc.html, 30 Oct 2026; docs/decisions.md RD1, RD11).
 
-    /** Section key (Sections::MAP) => its name, the same in the sidebar, the page bar and the phone bar (HV2: Home, and Sales and Matching). */
+    /**
+     * Section key (Sections::MAP) => its name in the sidebar and the phone's top bar: the standard inventory names of the approved
+     * redesign (Sidebar.dc.html, 30 Oct 2026; docs/decisions.md RD1).
+     */
     public const SECTION = [
-        'dashboard' => 'Home',
-        'products' => 'Products',
-        'matching' => 'Matching',
-        'stock' => 'Stock',
-        'purchasing' => 'Purchasing',
-        'sales' => 'Sales',
-        'reports' => 'Reports',
+        'home' => 'Home',
         'approvals' => 'Approvals',
+        'items' => 'Items',
+        'inventory' => 'Inventory',
+        'purchases' => 'Purchases',
+        'sales' => 'Sales',
+        'listings' => 'Store listings',
+        'reports' => 'Reports',
         'settings' => 'Settings',
     ];
 
-    /**
-     * The sidebar's groups and its "Every day" entries (Sections::DAILY; the approved HM_Home, 29 Oct 2026): the daily pages in front, the
-     * other sections under More.
-     */
+    /** The phone's bottom bar (Sections::PHONE, Phone.dc.html): Home, Receive, Count, Approvals, and More (the whole sidebar). */
     public const NAV = [
-        'daily' => 'Every day',
-        'more' => 'More',
-        'goods_in' => 'Goods in',
-        'counts' => 'Counts',
+        'home' => 'Home',
+        'receive' => 'Receive',
+        'count' => 'Count',
         'approvals' => 'Approvals',
-        'orders' => 'Purchase orders',
-        'products' => 'All products',
+        'more' => 'More',
     ];
 
-    /** The one line under a section's name in its page bar. */
-    public const SECTION_DESC = [
-        'dashboard' => 'What needs doing today.',
-        'products' => 'Your warehouse products, their families and multipacks.',
-        'matching' => 'How each store\'s products match the warehouse\'s items.',
-        'stock' => 'What is in each warehouse, every change to it, and the records that move it.',
-        'purchasing' => 'Buy from suppliers and receive the deliveries.',
-        'sales' => 'Each store\'s orders, what waits to be sent, and what came back or was cancelled.',
-        'reports' => 'Figures by store, and every change made in this system.',
-        'approvals' => 'Work that needs your OK before it goes ahead, or a check after.',
-        'settings' => 'Company, warehouses, stores, users and rules.',
-    ];
-
-    /** Tab (and page) key => its name. The same word in the tab, the page title and the crumbs. */
+    /** Entry (and page) key => its name: the same word in the sidebar, the page title and the way back to it (RD1). */
     public const MENU = [
         'home' => 'Home',
         // Products
-        'cards' => 'All products',
+        'cards' => 'Items',
         'simple_match' => 'Simple matching',
-        'mapping' => 'Mapping',
-        'review' => 'Mapping',
+        'review' => 'Check a match',
         'store_products' => 'Store products',
         'by_product' => 'By item',
         'new_variants' => 'New variants',
@@ -240,38 +224,37 @@ final class Words
         'duplicates' => 'Duplicates',
         'barcodes' => 'Barcodes',
         // Stock
-        'stock' => 'Overview',
-        'movements' => 'Movements',
+        'stock' => 'Stock on hand',
+        'movements' => 'Stock history',
         'stock_in' => 'Stock in',
         'stock_out' => 'Stock out',
         'transfers' => 'Transfers',
         'adjustments' => 'Adjustments',
-        'counts' => 'Counts',
-        'reservations' => 'Reservations',
-        'quality' => 'Quality',
+        'counts' => 'Stock counts',
+        'reservations' => 'Reserved stock',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
         // ---- Pack D (docs/decisions.md PD1): Sales and its three tabs (HV3: a section of its own) ----
-        'sales_orders' => 'Store orders',
-        'sales_dispatch' => 'Dispatch',
-        'sales_returns' => 'Returns and cancels',
+        'sales_orders' => 'Sales orders',
+        'sales_dispatch' => 'Shipments',
+        'sales_returns' => 'Sales returns',
         // ---- end of pack D ----
         // Purchasing
         'reorder' => 'Reorder',
         'orders' => 'Purchase orders',
-        'goods_in' => 'Goods in',
+        'goods_in' => 'Goods received',
         'suppliers' => 'Suppliers',
         'sales_history' => 'Sales history',
-        'receiving' => 'Goods in',
+        'receiving' => 'Goods received',
         'bench' => 'Checking',
         'incidents' => 'Issues',
         // Reports
-        'stock_by_store' => 'Stock by store',
+        'stock_by_store' => 'Stock summary by store',
         'sales_by_store' => 'Sales by store',
         'low_stock' => 'Low stock',
         // ---- Pack E
-        'stock_value' => 'Stock value',
-        'slow_stock' => 'Slow stock',
+        'stock_value' => 'Inventory valuation summary',
+        'slow_stock' => 'Inventory aging',
         // ---- end Pack E
         'audit' => 'Audit log',
         // Approvals
@@ -286,26 +269,23 @@ final class Words
         'people' => 'Users',
         'approvals' => 'Approval rules',
         'reasons' => 'Reasons',
-        'system' => 'System',
         'settings' => 'Settings',
         'integrity' => 'System checks',
         // Pack B: Products and Stock
-        'add_item' => 'Add item',
-        'families' => 'Families',
+        'families' => 'Item groups',
         'multipacks' => 'Multipacks',
         'packs' => 'Pack items',
         'pack_links' => 'Pack links',
         'repack' => 'Repack',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
-        'invoices' => 'Invoices',
-        'returns' => 'Returns',
-        // Pack F (docs/decisions.md PF5): Approvals › From the stores.
-        'store_queues' => 'From the stores',
+        'invoices' => 'Purchase invoices',
+        'returns' => 'Purchase returns',
         // Pack H (0038): Stock > Hand-overs.
-        'handovers' => 'Hand-overs',
+        'handovers' => 'Trade sales',
+        'customers' => 'Customers',
     ];
 
-    /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
+    /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
     public const SEGMENT = [
         'review' => 'To review',
         'samples' => 'Spot check',
@@ -317,11 +297,11 @@ final class Words
         'receiving' => 'To receive',
         'bench' => 'Checking',
         'incidents' => 'Issues',
-        'settings' => 'Settings',
+        'settings' => 'Rules and numbers',
         'series' => 'Numbering',
         'integrity' => 'System checks',
         // Stock > Counts (pack A2a)
-        'counts' => 'Next to count',
+        'counts' => 'Items to count',
         'count_sheets' => 'Count sheets',
         'count_differences' => 'Differences',
         'transfers' => 'Transfers',
@@ -333,7 +313,7 @@ final class Words
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Invoices',
         'to_match' => 'To match',
-        'not_invoiced' => 'Not invoiced yet',
+        'not_invoiced' => 'Delivered, no invoice yet',
         'credit_notes' => 'Credit notes',
         'timed' => 'Timed', // pack J (PJ10)
         'arriving' => 'Arriving', // pack J (PJ14)
@@ -348,10 +328,29 @@ final class Words
         'low_stock_levels' => 'Low-stock warnings',
         // --- end of Pack G
         // Pack H (0038): Stock > Hand-overs, and the duty register in Purchasing > Goods in.
-        'handovers' => 'Hand-overs',
+        'handovers' => 'Trade sales',
         'handover_customers' => 'Customers',
         'handover_balances' => 'Balances',
         'duty' => 'Duty register',
+        // The redesign's entries (RD2): Items, Adjustments, Approvals and Settings as one Show each.
+        'cards' => 'All items',
+        'by_hand' => 'Made by hand',
+        'adjustments' => 'Corrections',
+        'stock_in' => 'Stock in',
+        'stock_out' => 'Stock out',
+        'returns' => 'Returns to suppliers',
+        'inbox' => 'Waiting for you',
+        'reviews' => 'Documents to review',
+        'documents' => 'History',
+        'staff_requests' => 'Staff requests',
+        'company' => 'Company',
+        'warehouses' => 'Warehouses',
+        'sites' => 'Stores',
+        'people' => 'Users',
+        'access' => 'Roles and permissions',
+        'approvals' => 'Approval rules',
+        'reasons' => 'Reasons',
+        'audit' => 'Audit log',
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -369,7 +368,7 @@ final class Words
         'adjustments' => 'New adjustment',
         'counts' => 'New count sheet',
         // Pack B
-        'add_item' => 'Add an item',
+        'add_item' => 'New item', // the Items page's "+ New item" (Items.dc.html; RD1)
         'families' => 'New family',
         'packs' => 'New pack item',
         'repack' => 'New repack',
@@ -382,12 +381,11 @@ final class Words
         'handover_customers' => 'New customer',
     ];
 
-    /** One line on what each tab is for: under its name in the tab row's More (HV3; Home's "What you can use" until HV1). */
+    /** One line on what each entry is for: under a specialist page's name in the header's More (RD6). */
     public const MENU_HELP = [
         'home' => 'What is waiting for you today.',
-        'cards' => 'Every product with its legal details and barcodes.',
+        'cards' => 'Every item with its legal details and barcodes, and the items made by hand.',
         'simple_match' => 'The easy way to match: find a warehouse product, then choose its product on each website.',
-        'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
         'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
         'by_product' => 'Every warehouse item, and the variant it is matched to on each store.',
         'new_variants' => 'The variants each store added lately, and creating them as new items.',
@@ -397,8 +395,8 @@ final class Words
         'movements' => 'Every change to the stock, newest first.',
         'stock_in' => 'Stock that comes in without a supplier delivery: opening stock, found stock, a trade customer\'s return.',
         'stock_out' => 'Stock that goes out without a website sale: samples, staff use, trade sales, repairs.',
-        'transfers' => 'Stock moved between warehouses or places, stock released from another account, and what we owe it.',
-        'adjustments' => 'Corrections and write-offs of the stock figure, each line with its reason.',
+        'transfers' => 'Stock moved between warehouses or places, and what we owe another account.',
+        'adjustments' => 'Every change of the stock figure outside a sale or a delivery: corrections, stock in, stock out, releases.',
         'counts' => 'Count the shelves: what to count next, the count sheets, and the count differences to check.',
         'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
         // Pack D (docs/decisions.md PD1): the three tabs of Sales (HV3)
@@ -408,6 +406,9 @@ final class Words
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
         'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
+        'review' => 'One store product at a time: is it the same item?',
+        'pending' => 'Matches another lead made, waiting for your second OK.',
+        'samples' => 'A sample of the matches to check by hand.',
         'suppliers' => 'The companies we buy from.',
         // ---- Pack E
         'stock_by_store' => 'What each store can sell now, product by product.',
@@ -427,25 +428,19 @@ final class Words
         'people' => 'Who can use this system and what they may do.',
         'approvals' => 'Which work waits for a second person, and the limits.',
         'reasons' => 'The reasons people choose when stock goes up or down outside a sale.',
-        'system' => 'How the system is set up, how records are numbered, and the nightly checks.',
         // Pack B
-        'add_item' => 'Make an item that no store sells yet, and see the items made by hand.',
         'families' => 'Group items into families: all the flavours or strengths of one product.',
         'multipacks' => 'Sealed multipacks kept in stock as packs, and the variants that sell several units a sale.',
         'repack' => 'Break sealed packs into singles, or make packs from singles.',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Supplier invoices checked against the order and the delivery, the deliveries not invoiced yet, and credit notes.',
-        'returns' => 'Goods sent back to a supplier, each one our claim for a credit.',
-        // Pack F (PF5)
-        'store_queues' => 'What the stores sent from ERPNext that needs a person, and the orders sold without the stock.',
+        'returns' => 'Goods sent back to a supplier, each one our claim for a credit, and the supplier\'s credit notes.',
         // Pack H (0038).
         'handovers' => 'Stock handed to sister shops, our shop units and trade customers, with prices and an invoice.',
+        'customers' => 'The trade customers, their prices, and what each owes us.',
+        'settings' => 'Company, warehouses, stores, users, rules, numbering, checks and the audit log.',
     ];
 
-    /** The phone's bottom bar: Home and the sidebar's entries take their names (SECTION, NAV); the last tab opens the whole menu. */
-    public const TAB = [
-        'more' => 'More',
-    ];
 
     /** Badge name (Context::badges) => the words a screen reader hears after the number ("3 waiting for your second OK"). */
     public const BADGE = [
@@ -2799,11 +2794,8 @@ final class Words
         'my_account' => 'Change password',
         'open_menu' => 'Open the menu',
         'find' => 'Find a product',
-        'soon' => 'Soon',
-        'soon_title' => 'Coming soon: not built yet',
         'more' => 'More',
         'more_new' => 'More to create',
-        'more_tabs' => 'pages of %s', // the tab row's More, after "More" for a screen reader (HV3)
         // The toolbar under the tabs (design v4): the create button (and More), then Search, Filter, Sort, and Export at the end.
         'search' => 'Search',
         'filter' => 'Filter',
@@ -2838,6 +2830,11 @@ final class Words
         'today_at' => 'Today %s',
         'yesterday_at' => 'Yesterday %s',
         'error_eyebrow' => 'Error %s',
+        // The redesign's shell (Sidebar.dc.html, Phone.dc.html; docs/decisions.md RD1-RD5): the sidebar's find box (/ui/search finds items and
+        // store products, not orders: RD9), the Show choice of a page's group, the header's More when it also lists other pages.
+        'side_find' => 'Find an item',
+        'show' => 'Show',
+        'more_pages' => 'More pages and actions',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------

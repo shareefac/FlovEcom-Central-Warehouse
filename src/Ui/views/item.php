@@ -129,7 +129,7 @@
 <?php foreach ($ledger as $r): ?>
       <tr>
         <th scope="row" class="c-head"><?= $e(\CW\Ui\Html::near($r['at'] === null ? null : (string) $r['at'])) ?></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['kind']) ?><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['kind']) ?></span><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('ITEM', 'm_doc') ?>"><?php if (($r['record'] ?? null) !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><span class="o-sub"><?= $e(implode(' · ', array_filter([$r['record']['what'], $r['record']['why'], $r['record']['given']]))) ?></span><?php elseif ($r['ref'] !== null): ?><?= $e($r['ref']) ?><span class="o-sub"><?= $e(implode(' · ', array_filter([\CW\Ui\Words::of('MOVEMENT', $r['type']), $r['note']]))) ?></span><?php else: ?><?= $word('MOVEMENT', $r['type']) ?><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $e($r['note']) ?></span><?php endif; ?><?php endif; ?></td>
 <?php if ($moveWarehouses): ?>
         <td data-label="<?= $word('ITEM', 'warehouse') ?>"><?= $e(\CW\Ui\Words::STOCK['warehouse_' . $r['warehouse']] ?? $r['warehouse']) ?></td>

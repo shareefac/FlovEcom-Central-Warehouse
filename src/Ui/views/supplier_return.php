@@ -285,7 +285,7 @@
 <?php foreach ($creditNotes as $c): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/credit-notes/' . $c['id']) ?>"><?= $e($c['number'] ?? \CW\Ui\Words::STOCK_OPS['no_number']) ?></a></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('DOC_STATUS', (string) $c['status'])) ?>"><?= $word('DOC_STATUS', (string) $c['status']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('DOC_STATUS', (string) $c['status'])) ?>"><span class="chip"><?= $word('DOC_STATUS', (string) $c['status']) ?></span></td>
         <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($c['net_total'] !== null): ?><?= $money($c['net_total']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>

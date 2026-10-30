@@ -41,11 +41,11 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs(), 'the spreadsheet: under the card\'s More');
         self::assertSame(Words::PAGE_TITLE['reasons'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringNotContainsString('Phase', $reasons->text());
-        self::assertSame([['Company', '/ui/reference/company'], ['Warehouses', '/ui/reference/warehouses'], ['Users', '/ui/reference/access'],
-            ['Approval rules', '/ui/reference/approvals'], ['Reasons', null], ['System', '/ui/reference/settings']],
-            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($reasons)),
-            'the tabs of Settings a buyer may open (no Stores: system.view); Users opens "Roles and permissions" for them');
-        self::assertSame(['Settings', 'Reasons'], [self::currentSection($reasons), self::currentTab($reasons)]);
+        self::assertSame([['Company', '/ui/reference/company'], ['Warehouses', '/ui/reference/warehouses'], ['Roles and permissions', '/ui/reference/access'],
+            ['Approval rules', '/ui/reference/approvals'], ['Reasons', null], ['Rules and numbers', '/ui/reference/settings'], ['Numbering', '/ui/reference/series']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($reasons)),
+            'the Settings pages a buyer may open, its one Show (RD7; no Stores: system.view; no Users: staff.view)');
+        self::assertSame(['Settings', null], [self::currentSection($reasons), self::currentTab($reasons)]);
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
@@ -67,9 +67,9 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertStringStartsWith(explode('%s', Words::SETTINGS_PAGE['series_rules'])[0] . Words::SETTINGS_PAGE['none'] . ' ·', $rules[10],
             'and their second-person check starts off (0029, docs/decisions.md CT8)');
         self::assertSame(Words::PAGE_TITLE['series'], trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
-        self::assertSame(['Settings', 'System'], [self::currentSection($series), self::currentTab($series)]);
-        self::assertSame([['Settings', false], ['Numbering', true]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($series)),
-            'a buyer has no System checks (system.view)');
+        self::assertSame(['Settings', null], [self::currentSection($series), self::currentTab($series)]);
+        self::assertSame([['Rules and numbers', false], ['Numbering', true]], array_slice(array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($series)), -2),
+            'a buyer has no System checks (system.view) and no audit log (audit.view)');
         self::assertStringNotContainsString('Phase', $series->text());
         self::assertStringNotContainsString('decision 11', $series->text());
 

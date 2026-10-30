@@ -16,74 +16,60 @@
 <?php endif; ?>
 <?php if ($who !== null): ?>
 <?php
-// The shell of the approved HM_Home and HM_Phone (docs/decisions.md DC7, DC28): on a computer a white sidebar with the plain name, Home, the
-// "Every day" entries and the "More" sections (words only, a magenta count where something waits; the current section's pages under it,
-// the page's segments one more indent: no tab row on any page), the person at the bottom (their
-// account and Sign out); on a phone a top bar with the name and the person's initials, which open the same menu, and the bottom bar. A page
-// with a document bar (no bottom bar) also shows the menu button at the top bar's left (PI_New_Phone).
+// The shell of the approved redesign (Sidebar.dc.html, Phone.dc.html, 30 Oct 2026; docs/decisions.md RD1, RD5): on a computer the sidebar:
+// the CW tile with the name and the stores, the find box, then one entry per section (its coloured icon chip, its name, its count),
+// dividers above Items and Reports, the current section tinted with its pages under it (13 px; no third level: a page's group is its
+// Show), the person at the bottom (their account and Sign out). On a phone a top bar (the CW tile, the section's name, Find and Menu,
+// which opens the same sidebar as a drawer) and the bottom bar (Home, Receive, Count, Approvals, More).
 $mark = \CW\Ui\Html::initials($who->displayName) ?: '?';
-$nav = $nav ?? []; $pagebar = $pagebar ?? null; $segments = $segments ?? []; $actions = $actions ?? []; $headDrawn = $headDrawn ?? false;
-// The sidebar's tree (DC28): the current section's pages under its entry, the current page's segments one more indent; the deepest current
-// link is the page (aria-current="page"), the entries above it say they hold it (aria-current="true").
-$tree = false;
+$nav = $nav ?? []; $pagebar = $pagebar ?? null; $actions = $actions ?? []; $headDrawn = $headDrawn ?? false; $stores = $stores ?? [];
+$find = ($searchBox ?? false) === true && $nav !== [];
+$here = null;
 foreach ($nav as $navItem) {
-    $tree = $tree || in_array(true, array_column($navItem['subs'] ?? [], 'current'), true);
+    $here = $navItem['current'] ? $navItem : $here;
 }
 ?>
 <header class="appbar">
-<?php if ($nav !== []): ?>
-  <a class="icon-btn menu-btn" href="#menu" aria-controls="menu"><span class="ico ico-menu" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', 'open_menu') ?></span></a>
+  <a class="appbar-home" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="visually-hidden"><?= $word('UI', 'brand') ?></span></a>
+  <span class="appbar-title"><?php if ($here !== null): ?><?= $e($here['label']) ?><?php else: ?><?= $word('UI', 'brand') ?><?php endif; ?></span>
+<?php if ($find): ?>
+  <a class="icon-btn" href="/ui/search"><span class="ico ico-search" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', 'side_find') ?></span></a>
 <?php endif; ?>
-  <a class="brand" href="/ui/"><span class="brand-name"><?= $word('UI', 'brand') ?></span></a>
 <?php if ($nav !== []): ?>
-  <a class="appbar-me" href="#menu" aria-controls="menu" title="<?= $say('UI', 'signed_in_as', $who->displayName) ?>"><span aria-hidden="true"><?= $e($mark) ?></span><span class="visually-hidden"><?= $word('UI', 'open_menu') ?> (<?= $say('UI', 'signed_in_as', $who->displayName) ?>)</span></a>
-<?php else: ?>
-  <span class="appbar-me" title="<?= $say('UI', 'signed_in_as', $who->displayName) ?>"><span aria-hidden="true"><?= $e($mark) ?></span><span class="visually-hidden"><?= $say('UI', 'signed_in_as', $who->displayName) ?></span></span>
+  <a class="icon-btn menu-btn" href="#menu" aria-controls="menu"><span class="ico ico-menu" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', 'open_menu') ?> (<?= $say('UI', 'signed_in_as', $who->displayName) ?>)</span></a>
 <?php endif; ?>
 </header>
 <div class="shell">
   <nav class="side" id="menu" aria-label="Main">
     <div class="side-head"><span class="side-title"><?= $word('UI', 'menu') ?></span><a class="btn sm" href="#main"><?= $word('UI', 'close_menu') ?></a></div>
-    <div class="side-top">
-      <a class="brand" href="/ui/"><span class="brand-name"><?= $word('UI', 'brand') ?></span></a>
-    </div>
-<?php foreach (['home', 'daily', 'more'] as $group): ?>
-<?php if (in_array($group, array_column($nav, 'group'), true)): ?>
-<?php if ($group !== 'home'): ?>
-    <p class="side-label" id="nav-<?= $e($group) ?>"><?= $word('NAV', $group) ?></p>
+    <a class="side-brand" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="brand-text"><span class="brand-name"><?= $word('UI', 'brand') ?></span><?php if ($stores !== []): ?><span class="brand-stores"><?= $e(implode(' · ', $stores)) ?></span><?php endif; ?></span></a>
+<?php if ($find): ?>
+    <form class="side-find" method="get" action="/ui/search" role="search">
+      <label class="visually-hidden" for="side-find"><?= $word('UI', 'side_find') ?></label>
+      <span class="ico ico-search" aria-hidden="true"></span><input id="side-find" type="search" name="q" maxlength="100" placeholder="<?= $word('UI', 'side_find') ?>" autocomplete="off">
+    </form>
 <?php endif; ?>
-    <ul class="nav"<?php if ($group !== 'home'): ?> aria-labelledby="nav-<?= $e($group) ?>"<?php endif; ?>>
-<?php foreach ($nav as $item): ?>
-<?php if ($item['group'] === $group): ?>
-<?php $subs = $item['subs'] ?? []; ?>
-      <li><a class="nav-item<?php if ($item['open'] ?? false): ?> open<?php endif; ?>" href="<?= $u($item['href'], $item['query']) ?>"<?php if ($item['current']): ?> aria-current="<?php if ($tree): ?>true<?php else: ?>page<?php endif; ?>"<?php endif; ?>><span class="nav-label"><?= $e($item['label']) ?></span><?php if ($item['count'] > 0): ?><span class="count" title="<?= $n($item['count']) ?> <?= $e($item['countWords']) ?>"><?= $n($item['count']) ?><span class="visually-hidden"> <?= $e($item['countWords']) ?></span></span><?php endif; ?></a><?php if ($subs === []): ?></li><?php endif; ?>
-
+<?php if ($nav !== []): ?>
+    <ul class="nav">
+<?php foreach ($nav as $i => $item): ?>
+<?php if ($item['gap'] && $i > 0): ?>
+    </ul>
+    <hr class="nav-gap">
+    <ul class="nav">
+<?php endif; ?>
+<?php $subs = $item['subs']; $held = in_array(true, array_column($subs, 'current'), true); ?>
+      <li><a class="nav-item sec-<?= $e($item['key']) ?><?php if ($item['open']): ?> open<?php endif; ?>" href="<?= $u($item['href'], $item['query']) ?>"<?php if ($item['current']): ?> aria-current="<?php if ($held): ?>true<?php else: ?>page<?php endif; ?>"<?php endif; ?>><span class="nav-chip" aria-hidden="true"><span class="ico ico-<?= $e($item['icon']) ?>"></span></span><span class="nav-label"><?= $e($item['label']) ?></span><?php if ($item['count'] > 0): ?><span class="count" title="<?= $n($item['count']) ?> <?= $e($item['countWords']) ?>"><?= $n($item['count']) ?><span class="visually-hidden"> <?= $e($item['countWords']) ?></span></span><?php endif; ?></a>
 <?php if ($subs !== []): ?>
-        <ul class="nav-sub" aria-label="<?= $e($item['label']) ?>">
+        <ul class="nav-sub sec-<?= $e($item['key']) ?>" aria-label="<?= $e($item['label']) ?>">
 <?php foreach ($subs as $sub): ?>
-<?php $segCurrent = in_array(true, array_column($sub['segs'], 'current'), true); ?>
-<?php if ($sub['soon']): ?>
-          <li><span class="nav-sub-item more soon" aria-disabled="true" title="<?= $word('UI', 'soon_title') ?>"><span class="nav-label"><?= $e($sub['label']) ?></span><span class="count soon"><?= $word('UI', 'soon') ?></span></span></li>
-<?php continue; ?>
-<?php endif; ?>
-          <li><a class="nav-sub-item<?php if ($sub['more']): ?> more<?php endif; ?>"<?php if (!$sub['here']): ?> href="<?= $u($sub['href'], $sub['query']) ?>"<?php endif; ?><?php if ($sub['current']): ?> aria-current="<?php if ($segCurrent): ?>true<?php else: ?>page<?php endif; ?>"<?php endif; ?>><span class="nav-label"><?= $e($sub['label']) ?></span><?php if ($sub['count'] > 0): ?><span class="count" title="<?= $n($sub['count']) ?> <?= $e($sub['countWords']) ?>"><?= $n($sub['count']) ?><span class="visually-hidden"> <?= $e($sub['countWords']) ?></span></span><?php endif; ?></a>
-<?php if ($sub['segs'] !== []): ?>
-            <ul class="nav-sub nav-seg" aria-label="<?= $e($sub['label']) ?>">
-<?php foreach ($sub['segs'] as $seg): ?>
-              <li><a class="nav-sub-item"<?php if (!$seg['here']): ?> href="<?= $u($seg['href'], $seg['query']) ?>"<?php endif; ?><?php if ($seg['current']): ?> aria-current="page"<?php endif; ?>><span class="nav-label"><?= $e($seg['label']) ?></span><?php if ($seg['count'] > 0): ?><span class="count" title="<?= $n($seg['count']) ?> <?= $e($seg['countWords']) ?>"><?= $n($seg['count']) ?><span class="visually-hidden"> <?= $e($seg['countWords']) ?></span></span><?php endif; ?></a></li>
-<?php endforeach; ?>
-            </ul>
-<?php endif; ?>
-          </li>
+          <li><a class="nav-sub-item"<?php if (!$sub['here']): ?> href="<?= $u($sub['href'], $sub['query']) ?>"<?php endif; ?><?php if ($sub['current']): ?> aria-current="page"<?php endif; ?>><span class="nav-label"><?= $e($sub['label']) ?></span><?php if ($sub['count'] > 0): ?><span class="count" title="<?= $n($sub['count']) ?> <?= $e($sub['countWords']) ?>"><?= $n($sub['count']) ?><span class="visually-hidden"> <?= $e($sub['countWords']) ?></span></span><?php endif; ?></a></li>
 <?php endforeach; ?>
         </ul>
+<?php endif; ?>
       </li>
-<?php endif; ?>
-<?php endif; ?>
 <?php endforeach; ?>
     </ul>
 <?php endif; ?>
-<?php endforeach; ?>
     <div class="side-user">
       <span class="avatar" aria-hidden="true"><?= $e($mark) ?></span>
       <p class="who"><strong><?= $e($who->displayName) ?></strong><span class="who-jobs"><span class="visually-hidden"><?= $word('UI', 'you_work_as') ?> </span><span class="role"><?= $jobs($who->roles) ?></span></span></p>
@@ -100,7 +86,7 @@ foreach ($nav as $navItem) {
     </div>
   </nav>
   <a class="scrim" href="#main" tabindex="-1" aria-hidden="true"></a>
-  <main id="main" class="work" tabindex="-1">
+  <main id="main" class="work<?php if (($list ?? false) === true): ?> is-list<?php endif; ?>" tabindex="-1">
     <div class="page">
 <?php if (!$headDrawn): ?>
       <div class="frame-only">
@@ -110,6 +96,9 @@ foreach ($nav as $navItem) {
       <div class="toolbar page-actions">
         <?= $partial('split', ['actions' => $actions, 'main' => $pagebar !== null]) ?>
       </div>
+<?php endif; ?>
+<?php if (($showRow ?? '') !== ''): ?>
+      <div class="show-row"><?= $partial('show_menu', ['choices' => $segments ?? []]) ?></div>
 <?php endif; ?>
 <?php endif; ?>
 <?= $body ?>

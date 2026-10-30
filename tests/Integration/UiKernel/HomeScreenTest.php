@@ -163,10 +163,10 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(['1 to check', '/ui/review/samples/' . $sid . '#held'], [$by['set_aside']['count'], $by['set_aside']['href']]);
         self::assertSame(['1 group', '/ui/review/duplicates', Words::TASK['duplicates']['button']],
             [$by['duplicates']['count'], $by['duplicates']['href'], $by['duplicates']['button']]);
-        self::assertSame(['href' => '/ui/match', 'count' => 1], self::nav($home)['Matching'], 'the duplicates card and the sidebar\'s count agree');
-        self::assertSame([0, 1], [array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Mapping'],
-            array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Duplicates']], '... and the Duplicates tab\'s');
-        self::assertSame(1, array_column(self::moreTabs($web->get('/ui/match')), 'count', 'label')['Duplicates'], '... under the row\'s More on the other pages');
+        self::assertSame(['href' => '/ui/review/products', 'count' => 1], self::nav($home)['Store listings'], 'the duplicates card and the sidebar\'s count agree');
+        self::assertSame([0, 1], [array_column(self::moreTabs($web->get('/ui/review/products')), 'count', 'label')['Second approval'],
+            array_column(self::moreTabs($web->get('/ui/review/products')), 'count', 'label')['Duplicates']], '... and the header\'s More of By item (RD6)');
+        self::assertSame(1, array_column(self::moreTabs($web->get('/ui/match')), 'count', 'label')['Duplicates'], '... and of the other matching pages');
         self::assertSame(['25 to confirm', '/ui/review?queue=Key'], [$by['strong']['count'], $by['strong']['href']]);
         self::assertStringNotContainsString(Words::TASK['strong']['what'], $by['strong']['text'], 'one plain line: the "What happens:" line is gone (HV1)');
         self::assertStringContainsString('If your spot check home-1 passes, about 4 of them are confirmed together, so do the spot check first.', $by['strong']['text']);
@@ -348,7 +348,7 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame([], self::cardsOf($home));
         self::assertStringContainsString(Words::HOME['nothing'] . ' ' . Words::HOME['nothing_text'], $home->text());
         self::assertStringNotContainsString(Words::UI['coming_later'], $home->text(), 'stock counts are built: nothing is coming later for the warehouse');
-        self::assertSame(['href' => '/ui/stock/counts', 'count' => 0], self::nav($home)['Counts'], 'Every day: Counts');
+        self::assertSame(['label' => 'Count', 'href' => '/ui/stock/counts'], array_column(self::tabs($home), null, 'label')['Count'], 'the phone bar\'s Count (Phone.dc.html)');
         self::assertSame(0, (new \DOMXPath($home->dom()))->query('//main//*[contains(@class, "btn") and contains(@class, "primary")]')->length,
             'nothing waiting: no main button');
     }

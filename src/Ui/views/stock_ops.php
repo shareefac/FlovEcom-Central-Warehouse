@@ -100,7 +100,7 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number_line']) ?></a><span class="o-sub"><?= $e($r['date_line']) ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state_word']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['state_word']) ?></span></td>
         <td data-label="<?= $word('STOCK_OPS', 'where') ?>"><?= $e($r['where']) ?></td>
 <?php if (in_array($kind, ['in', 'out', 'release'], true)): ?>
         <td data-label="<?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'account') ?><?php else: ?><?= $word('STOCK_OPS', 'why') ?><?php endif; ?>"><?= $e($r['why']) ?><?php if ($r['given'] !== null): ?><span class="o-sub"><?= $e($r['given']) ?></span><?php endif; ?></td>

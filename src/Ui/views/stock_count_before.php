@@ -73,7 +73,7 @@
         <td class="num" data-label="<?= $word('COUNTS', 'counted') ?>"><?= $n($l['counted']) ?></td>
         <td class="num" data-label="<?= $word('COUNTS', 'col_system') ?>"><?= $n($l['held']) ?></td>
         <td class="num" data-label="<?= $word('COUNTS', 'difference') ?>"><?php if ($l['delta'] === null): ?><span class="muted"><?= $word('COUNTS', 'left_out') ?></span><?php elseif ($l['delta'] === 0): ?><?= $word('COUNTS', 'no_difference') ?><?php else: ?><?= $say('COUNTS', $l['delta'] > 0 ? 'plus' : 'minus', abs($l['delta'])) ?><?php endif; ?></td>
-        <td class="c-status doc-st <?= $e($l['st_tone']) ?>"><?= $e($l['st_word']) ?><?php if ($l['acked']): ?><span class="o-sub"><?= $word('COUNTS', 'as_counted_chip') ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($l['st_tone']) ?>"><span class="chip"><?= $e($l['st_word']) ?></span><?php if ($l['acked']): ?><span class="o-sub"><?= $word('COUNTS', 'as_counted_chip') ?></span><?php endif; ?></td>
         <td class="c-next" data-label="">
 <?php if ($mine): ?>
           <form class="inline" method="post" action="<?= $u($base . '/recount') ?>">

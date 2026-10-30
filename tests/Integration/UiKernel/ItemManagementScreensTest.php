@@ -45,7 +45,7 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get('/ui/items/new');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['All products', 'Add item'], [self::currentSection($page), self::currentTab($page)], 'under the row\'s More, in the row on its page (HV3)');
+        self::assertSame(['Items', 'Items'], [self::currentSection($page), self::currentTab($page)], 'the new item\'s form is a page of Items (RD1)');
         self::assertStringNotContainsString(Words::PAGE_INTRO['item_new'][0], $page->text(), 'no sentence under the heading (DC1)');
         $form = $page->form('/ui/items/new', true);
         self::assertArrayHasKey('form_key', $form);
@@ -107,7 +107,7 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $list = $web->get('/ui/items/families');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['All products', 'Families'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Items', 'Item groups'], [self::currentSection($list), self::currentTab($list)]);
         $r = $this->submit($web, '/ui/items/families', '/ui/items/families', ['name' => 'Elux Legend']);
         self::assertSame(303, $r->status, ($r->errorCode() ?? "") . " " . $r->describe());
         $fid = (int) self::$db->value("SELECT id FROM item_family WHERE name = 'Elux Legend'");
@@ -159,7 +159,7 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         [$box, $shot] = [$this->item('legacy', 2, 'Box 10 x 10ml'), $this->item('legacy', 30, 'Shot 10ml')];
         $page = $lead->get('/ui/items/packs');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['All products', 'Multipacks'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Items', 'Multipacks'], [self::currentSection($page), self::currentTab($page)]);
         self::assertSame(['Pack items', 'Pack links'], array_column(self::segments($page), 'label'));
         $r = $this->submit($lead, '/ui/items/packs', '/ui/items/packs', ['pack' => sprintf('CW-%06d', $box), 'single' => (string) $shot, 'units' => '10']);
         self::assertSame(303, $r->status, ($r->errorCode() ?? "") . " " . $r->describe());
@@ -198,7 +198,7 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $def = (new Packs(self::$db))->create($this->staffUser('mapping_lead'), $box, $shot, 6)['id'];
         $page = $sc->get('/ui/stock/repack');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Stock', 'Repack'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Inventory', 'Repack'], [self::currentSection($page), self::currentTab($page)]);
         $form = $page->form('/ui/stock/repack', true);
         self::assertSame([(string) $def, 'break', '1'], [$form['pack'], $form['direction'], $form['packs']]);
         $form = ['packs' => '2', 'warehouse' => (string) self::warehouseId('MAIN')] + $form;

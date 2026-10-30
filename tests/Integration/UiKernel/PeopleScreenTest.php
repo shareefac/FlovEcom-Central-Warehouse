@@ -32,7 +32,7 @@ final class PeopleScreenTest extends KernelUiTestCase
         self::assertStringNotContainsString('bin/', $list->text());
         $lx = new \DOMXPath($list->dom());
         self::assertSame(Words::MENU['people'], trim((string) $lx->evaluate('string(//main//h1)')));
-        self::assertSame(['Settings', 'Users'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Settings', null], [self::currentSection($list), self::currentTab($list)]);
         self::assertSame(1, $lx->query('//table[contains(@class, "people") and contains(@class, "stack")]')->length, 'one card per person on a phone (F432)');
         $row = trim((string) preg_replace('/\s+/', ' ', (string) $lx->evaluate('string(//tr[th/a/@href="/ui/people/' . $buyer['id'] . '"])')));
         self::assertStringStartsWith('Buyer 2 Yes Buyer ' . $buyer['email'] . ' never ', $row, 'Can sign in, jobs in words, "never" for no sign-in (F430, F431)');
@@ -237,14 +237,16 @@ final class PeopleScreenTest extends KernelUiTestCase
         $admin = $this->signIn($this->uiUser('admin'));
         $u = $this->uiUser(['reviewer', 'stock_controller']);
         $web = $this->signIn($u);
-        self::assertContains(Words::MENU['reviews'], self::tabLabels($web->get('/ui/documents')));
+        self::assertContains(Words::SEGMENT['reviews'], array_column(self::segments($web->get('/ui/documents')), 'label'));
 
         $form = $admin->get('/ui/people/' . $u['id'])->form('/ui/people/' . $u['id'] . '/roles');
         unset($form['role_reviewer']);
         self::assertSame(303, $admin->post('/ui/people/' . $u['id'] . '/roles', $form)->status);
         // A stock controller still answers the stores' queues: Waiting for you stays (docs/decisions.md AV1), the reviewer's queue goes.
-        self::assertSame([Words::MENU['inbox'], Words::MENU['documents'], Words::MENU['store_queues']], self::tabLabels($web->get('/ui/documents')), 'the same session, the next request');
-        self::assertSame(['Home', 'Goods in', 'Counts', 'Approvals', 'All products', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Settings'], array_keys(self::nav($web->get('/ui/'))),
+        self::assertSame([Words::SEGMENT['inbox'], Words::SEGMENT['documents'], Words::SEGMENT['queue_suspense'], Words::SEGMENT['queue_corrections'],
+            Words::SEGMENT['queue_modes'], Words::SEGMENT['queue_oversold'], Words::SEGMENT['queue_landing']], array_column(self::segments($web->get('/ui/documents')), 'label'),
+            'the same session, the next request');
+        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Reports', 'Settings'], array_keys(self::nav($web->get('/ui/'))),
             'a stock controller now (with the store reports, pack E)');
         $revoked = self::$db->one("SELECT revoked_at, revoked_by FROM staff_role WHERE staff_user_id = ? AND role = 'reviewer'", [$u['id']]);
         self::assertNotNull($revoked['revoked_at']);

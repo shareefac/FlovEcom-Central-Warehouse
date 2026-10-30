@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 final class UiTemplatesTest extends TestCase
 {
     private const HELPERS = ['e', 'n', 'dec', 'dt', 'u', 'pct', 'partial', 'word', 'say', 'money', 'day', 'when', 'jobs', 'chip', 'stateChip', 'intro', 'explain',
-        'cards', 'empty', 'head'];
+        'cards', 'empty', 'head', 'showMenu', 'groupPages'];
 
     /** @return array<string, string> file name => source */
     private static function templates(): array
@@ -395,105 +395,96 @@ final class UiTemplatesTest extends TestCase
     }
 
     /**
-     * I14 and the owner's request of 8 Oct 2026, in HM_Home's and HM_Phone's shell (docs/decisions.md DC7): the layout draws the person's
-     * sidebar (the plain name, each entry's words and a count with words for a screen reader, the current section marked), the person,
-     * Change password and Sign out at its bottom, the phone's top bar (the name and the initials that open the menu), the current section's
-     * page bar with its tabs (a tab not built yet without a link, the current tab marked, counts; where the page's Show replaces the tab's
-     * segments they head the row's More, DC5), the page's create button, the phone's bottom bar after the sidebar, and the two strips.
+     * I14 and the owner's request of 8 Oct 2026, in the approved redesign's shell (Sidebar.dc.html, Phone.dc.html, 30 Oct 2026; docs/decisions.md
+     * RD1, RD5): the layout draws the person's sidebar (the CW tile, the name and the stores, the find box, one row per section with its
+     * coloured icon chip and its count with words for a screen reader, dividers above Items and Reports, the current section marked and
+     * open with its entries, the page shown without a link), the person, Change password and Sign out at its bottom, the phone's top bar
+     * (the CW tile, the section's name, Find and Menu), the phone's bottom bar after the sidebar (Home, Receive, Count, Approvals, More),
+     * the page's create button and the two strips; no bell, no tab row, no third level, no svg.
      */
-    public function testTheLayoutDrawsTheSidebarTabsAndSegmentsOfTheRoles(): void
+    public function testTheLayoutDrawsTheSidebarOfThePersonsJobs(): void
     {
         $who = new StaffIdentity(7, 'b@test.invalid', 'Bea <b>', ['buyer', 'mapping_lead'], false, 'sid');
         $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $who]);
         $f = Sections::frame($who->roles, ['linking_pending' => 3], '/ui/review', ['queue' => 'pending']);
         $html = $view->page('home', ['canFind' => true] + self::homeVars($who),
             ['title' => 'Home', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'], 'segments' => $f['segments'],
-                'actions' => $f['actions'], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
+                'actions' => $f['actions'], 'list' => $f['list'], 'searchBox' => true, 'stores' => ['Vape and Go', 'Electrofag <b>', 'Vape Big'], 'tabs' => $f['phone'],
+                'testSystem' => false, 'switchedOff' => null]);
         $start = (int) strpos($html, '<nav class="side" id="menu" aria-label="Main">');
         self::assertGreaterThan(0, $start);
         $nav = substr($html, $start, (int) strpos($html, '</nav>', $start) - $start);
-        // The sidebar of HM_Home (docs/decisions.md HV2): Home, "Every day", "More", each a list named by its heading.
-        self::assertStringContainsString('<ul class="nav">' . "\n" . '      <li><a class="nav-item" href="/ui/">'
-            . '<span class="nav-label">Home</span></a></li>' . "\n" . '    </ul>', $nav);
-        self::assertStringContainsString('<p class="side-label" id="nav-daily">Every day</p>' . "\n" . '    <ul class="nav" aria-labelledby="nav-daily">', $nav);
-        self::assertStringContainsString('<p class="side-label" id="nav-more">More</p>' . "\n" . '    <ul class="nav" aria-labelledby="nav-more">', $nav);
-        self::assertStringContainsString('<a class="nav-item" href="/ui/purchasing/orders"><span class="nav-label">'
-            . 'Purchase orders</span></a>', $nav, 'a daily entry: a tab of a section');
-        self::assertStringContainsString('<a class="nav-item open" href="/ui/match" aria-current="true">'
-            . '<span class="nav-label">Matching</span><span class="count" title="3 waiting for you">3<span class="visually-hidden"> waiting for you</span></span></a>',
-            $nav, 'the current section, open, with what waits in it; it holds the page (DC28)');
-        // The open section's pages as sub-items, the current page's segments one more indent (DC28: no tab row); the page shown has no link
-        // (CV13), the set-up and specialist pages are marked as such (HV3).
-        self::assertSame(['Home', 'Counts', 'Approvals', 'Purchase orders', 'All products', 'Stock', 'Purchasing', 'Sales', 'Matching', 'Simple matching', 'Mapping',
-            'To review', 'Spot check', 'Second approval', 'Store products', 'By item', 'New variants', 'Duplicates', 'Reports', 'Settings'],
-            preg_match_all('#<span class="nav-label">([^<]*)</span>#', $nav, $labels) > 0 ? $labels[1] : [], 'a buyer\'s and matching lead\'s entries');
-        self::assertStringContainsString('<ul class="nav-sub" aria-label="Matching">' . "\n"
-            . '          <li><a class="nav-sub-item" href="/ui/match"><span class="nav-label">Simple matching</span></a>' . "\n" . '          </li>' . "\n"
-            . '          <li><a class="nav-sub-item" aria-current="true"><span class="nav-label">Mapping</span><span class="count" title="3 waiting for your second OK">3', $nav);
-        self::assertStringContainsString('<ul class="nav-sub nav-seg" aria-label="Mapping">' . "\n"
-            . '              <li><a class="nav-sub-item" href="/ui/review"><span class="nav-label">To review</span></a></li>' . "\n"
-            . '              <li><a class="nav-sub-item" href="/ui/review/samples"><span class="nav-label">Spot check</span></a></li>' . "\n"
-            . '              <li><a class="nav-sub-item" aria-current="page"><span class="nav-label">Second approval</span><span class="count" title="3 waiting for your second OK">3', $nav);
-        self::assertStringContainsString('<a class="nav-sub-item more" href="/ui/review/products"><span class="nav-label">By item</span></a>', $nav);
+        // The CW tile, the name and the stores (escaped), the find box (the item search, a GET form).
+        self::assertStringContainsString('<a class="side-brand" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="brand-text">'
+            . '<span class="brand-name">Central Warehouse</span><span class="brand-stores">Vape and Go · Electrofag &lt;b&gt; · Vape Big</span></span></a>', $nav);
+        self::assertStringContainsString('<form class="side-find" method="get" action="/ui/search" role="search">', $nav);
+        self::assertStringContainsString('<input id="side-find" type="search" name="q" maxlength="100" placeholder="' . Words::UI['side_find'] . '" autocomplete="off">', $nav);
+        // One row per section the person has, in Sidebar.dc.html's order, a divider above Items and Reports; each its icon chip in its colour.
+        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Store listings', 'By item', 'Check a match', 'Reports', 'Settings'],
+            preg_match_all('#<span class="nav-label">([^<]*)</span>#', $nav, $labels) > 0 ? $labels[1] : [], 'a buyer\'s and matching lead\'s rows, the current one open');
+        self::assertSame(2, substr_count($nav, '<hr class="nav-gap">'));
+        self::assertStringContainsString('</ul>' . "\n" . '    <hr class="nav-gap">' . "\n" . '    <ul class="nav">' . "\n"
+            . '      <li><a class="nav-item sec-items" href="/ui/items/cards"><span class="nav-chip" aria-hidden="true"><span class="ico ico-sec-items"></span></span>'
+            . '<span class="nav-label">Items</span></a>', $nav);
+        self::assertStringContainsString('<li><a class="nav-item sec-listings open" href="/ui/review/products" aria-current="page"><span class="nav-chip" aria-hidden="true">'
+            . '<span class="ico ico-sec-listings"></span></span><span class="nav-label">Store listings</span><span class="count" title="3 waiting for your second OK">3'
+            . '<span class="visually-hidden"> waiting for your second OK</span></span></a>', $nav, 'the current section: tinted, open, what waits in it');
+        self::assertStringContainsString('<ul class="nav-sub sec-listings" aria-label="Store listings">' . "\n"
+            . '          <li><a class="nav-sub-item" href="/ui/review/products"><span class="nav-label">By item</span></a></li>' . "\n"
+            . '          <li><a class="nav-sub-item" href="/ui/review"><span class="nav-label">Check a match</span></a></li>' . "\n" . '        </ul>', $nav,
+            'its entries, no specialist page and no third level (Second approval is shown: no entry is current, RD6)');
         self::assertSame(1, substr_count($nav, 'aria-current="page"'), 'one current entry');
-        self::assertStringNotContainsString('menu-group', $nav, 'no folding sections, no sub-items');
+        self::assertStringNotContainsString('nav-seg', $nav, 'two levels only');
+        self::assertStringNotContainsString('side-label', $nav, 'no "Every day" / "More" groups any more');
         self::assertStringContainsString('<span class="role">Buyer · Matching lead</span>', $nav, 'the jobs in words, not role codes');
+        self::assertStringContainsString('<span class="avatar" aria-hidden="true">B&lt;</span>', $nav);
         self::assertStringContainsString('href="/ui/password"', $nav, 'Change password at the bottom of the sidebar, in the person\'s menu');
         self::assertStringContainsString('<form class="signout" method="post" action="/ui/logout">', $nav);
         self::assertStringContainsString('<details class="user-menu">', $nav, 'the person\'s menu is a <details>: no script needed');
-        self::assertStringNotContainsString('side-find', $nav, 'HM_Home: no find link in the sidebar (DC7; Home\'s Find box finds)');
-        self::assertStringNotContainsString('icon-btn bell', $html, 'HM_Home: no bell (DC7; the Approvals entry carries the count)');
-        self::assertStringNotContainsString('/ui/#about', $html, 'no help link to an About box Home no longer has (HV1)');
+        self::assertStringNotContainsString('icon-btn bell', $html, 'no bell (the Approvals row carries the count)');
         self::assertStringContainsString('Bea &lt;b&gt;', $html);
         self::assertStringNotContainsString('buyer, mapping_lead', $html, 'no role codes in the frame');
-        // The phone's top bar of HM_Phone (before the sidebar; hidden from 700 px): the name and the initials, which open the menu; the menu
-        // button (shown only where no bottom bar is, the stylesheet: PI_New_Phone).
-        $me = (int) strpos($html, '<a class="appbar-me" href="#menu" aria-controls="menu" title="Signed in as Bea &lt;b&gt;"><span aria-hidden="true">B&lt;</span>');
-        self::assertGreaterThan(0, $me);
-        self::assertLessThan($start, $me);
-        self::assertStringNotContainsString('appbar-page', $html, 'HM_Phone: the name, not the page\'s');
-        self::assertStringContainsString('<a class="icon-btn menu-btn" href="#menu" aria-controls="menu">', $html);
-        // The statement (HM_Home): today's date as the eyebrow, the greeting (no full stop, DC2), the Find box on its right; then the section's
-        // tabs under it, inside the page.
+        // The phone's top bar (before the sidebar; hidden from 700 px): the CW tile (Home), the section's name, Find and Menu.
+        $bar = (int) strpos($html, '<header class="appbar">');
+        self::assertGreaterThan(0, $bar);
+        self::assertLessThan($start, $bar);
+        self::assertStringContainsString('<header class="appbar">' . "\n"
+            . '  <a class="appbar-home" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="visually-hidden">Central Warehouse</span></a>' . "\n"
+            . '  <span class="appbar-title">Store listings</span>' . "\n"
+            . '  <a class="icon-btn" href="/ui/search"><span class="ico ico-search" aria-hidden="true"></span><span class="visually-hidden">' . Words::UI['side_find'] . '</span></a>' . "\n"
+            . '  <a class="icon-btn menu-btn" href="#menu" aria-controls="menu"><span class="ico ico-menu" aria-hidden="true"></span><span class="visually-hidden">'
+            . 'Open the menu (Signed in as Bea &lt;b&gt;)</span></a>' . "\n" . '</header>', $html);
+        // The statement (Main.dc.html): today's date as the eyebrow, the greeting (no full stop, DC2), the Find box on its right.
         $head = substr($html, (int) strpos($html, '<header class="page-head">'));
         self::assertStringStartsWith('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">' . Html::e(Html::today()) . '</p><div class="ph-title"><h1>'
             . '<span class="stmt">Good morning, Bea</span></h1></div></div><div class="ph-actions"><form class="hm-find" method="get" action="/ui/search" role="search">',
             $head, 'Home\'s eyebrow is today\'s date; ONE Find box');
         self::assertStringNotContainsString('<p class="lede">', substr($head, 0, (int) strpos($head, '</header>')), 'no sentence under the greeting');
-        self::assertStringNotContainsString(Html::e(Words::SECTION_DESC['matching']), $html, 'one sentence: the section\'s own line is gone');
         self::assertStringNotContainsString('<nav class="tabs', $html, 'no tab row and no segment row on any page (DC28)');
-        self::assertStringNotContainsString('seg-item', $html);
         self::assertStringNotContainsString('Phase', $html, 'no phase codes');
         self::assertStringContainsString('<a class="skip" href="#main">', $html, 'a skip link first');
-        self::assertStringContainsString('<main id="main"', $html);
-        // The phone's bottom bar (the owner's, kept in design v5) comes after the sidebar.
+        self::assertStringContainsString('<main id="main" class="work is-list"', $html, 'a list (RD10)');
+        // The phone's bottom bar after the sidebar: Home, Receive (not a buyer's), Count, Approvals, More; a page of another section marks none.
         $tabs = (int) strpos($html, '<nav class="tabbar" aria-label="Main tasks">');
         self::assertGreaterThan($start, $tabs);
-        self::assertStringContainsString('<a href="/ui/"><span class="ico ico-home" aria-hidden="true"></span><span>Home</span></a>' . "\n"
-            . '  <a href="/ui/stock/counts"><span class="ico ico-counts" aria-hidden="true"></span><span>Counts</span></a>' . "\n"
-            . '  <a href="/ui/documents"><span class="ico ico-approvals" aria-hidden="true"></span><span>Approvals</span></a>' . "\n",
-            substr($html, $tabs), 'HM_Phone: Home, Goods in (not a buyer\'s), Counts, Approvals; a page under More marks none');
-        self::assertStringContainsString('<a href="#menu"><span class="ico ico-more" aria-hidden="true"></span><span>More</span></a>', substr($html, $tabs),
-            'More opens the whole menu');
+        self::assertStringContainsString('<a href="/ui/"><span class="ico ico-sec-home" aria-hidden="true"></span><span>Home</span></a>' . "\n"
+            . '  <a href="/ui/stock/counts"><span class="ico ico-count" aria-hidden="true"></span><span>Count</span></a>' . "\n"
+            . '  <a href="/ui/documents"><span class="ico ico-sec-approvals" aria-hidden="true"></span><span>Approvals</span></a>' . "\n"
+            . '  <a href="#menu"><span class="ico ico-dots" aria-hidden="true"></span><span>More</span></a>', substr($html, $tabs), 'Phone.dc.html');
         self::assertStringNotContainsString('test-system', $html);
         self::assertStringNotContainsString('admin-off', $html);
         self::assertStringNotContainsString('<svg', $html, 'the icons are the sprite drawn by the stylesheet: a page has no svg (UiSecurityTest::assertInert)');
         self::assertStringNotContainsString('class="frame-only"', $html, 'the page drew its statement, so the layout draws no frame of its own');
 
-        // A tab not built yet is in the sidebar with no link and its "Soon" (HV3's words).
-        $f = Sections::frame(['buyer'], [], '/ui/stock');
-        $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
-            'segments' => [], 'actions' => [], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<span class="nav-sub-item more soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span class="nav-label">Quality</span>'
-            . '<span class="count soon">' . Words::UI['soon'] . '</span></span>', $html);
-        self::assertStringContainsString('<a class="nav-sub-item" aria-current="page"><span class="nav-label">Overview</span></a>', $html, 'the page shown: no link (CV13)');
-        // No bell (HM_Home; DC7): the inbox's count is on the menu's Approvals, HM_Home's magenta pill.
+        // The entry of the page shown has no link (CV13); the section counts its inbox (AV10).
         $f = Sections::frame(['stock_controller'], ['approvals_inbox' => 4], '/ui/stock');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => [], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringNotContainsString('icon-btn bell', $html);
-        self::assertStringNotContainsString('bell-n', $html);
-        self::assertStringContainsString('<span class="nav-label">Approvals</span><span class="count" title="4 waiting for you">4', $html, 'the menu\'s Approvals: the inbox\'s count');
+        self::assertStringContainsString('<li><a class="nav-sub-item" aria-current="page"><span class="nav-label">Stock on hand</span></a></li>', $html);
+        self::assertStringContainsString('<a class="nav-item sec-inventory open" href="/ui/stock" aria-current="true">', $html, 'it holds the page');
+        self::assertStringContainsString('<span class="nav-label">Approvals</span><span class="count" title="4 records waiting for your answer">4', $html);
+        self::assertStringContainsString('<a href="/ui/approvals"><span class="ico ico-sec-approvals" aria-hidden="true"></span><span>Approvals</span><span class="tb-badge"', $html);
+        self::assertStringNotContainsString('nav-sub-item more', $html, 'no specialist or "not built yet" page in the menu');
         $f = Sections::frame(['buyer'], [], '/ui/purchasing/orders');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => $f['actions'], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
@@ -501,15 +492,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<div class="ph-actions"><a class="btn primary" href="/ui/purchasing/orders/new"><span class="ico ico-plus" aria-hidden="true"></span>'
             . '<span>New purchase order</span></a>' . "\n" . '</div>', $html);
         self::assertStringNotContainsString(Words::UI['more_new'], $html);
-        self::assertStringNotContainsString('/ui/purchasing/suppliers/new', $html);
         self::assertSame(1, substr_count($html, 'btn primary'), 'one main button');
-        self::assertStringNotContainsString('split', $html);
-        $f = Sections::frame(['goods_in'], [], '/ui/receiving');
-        $one = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
-            'segments' => $f['segments'], 'actions' => $f['actions'], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving/new"><span class="ico ico-plus" aria-hidden="true"></span><span>New delivery</span></a>', $one,
-            'one action: the main button alone');
-        self::assertStringNotContainsString('<details class="more">', $one);
         self::assertStringNotContainsString('class="flow"', $html, 'no buying-flow strip (DC5)');
 
         // The test system and the owner's account with Admin: the two strips.
@@ -523,8 +506,7 @@ final class UiTemplatesTest extends TestCase
             . 'Ask Fazil to take Admin off this account.', $html);
         self::assertStringContainsString('<details class="help"><summary aria-label="What does &quot;switched off&quot; mean?"', $html, 'with its "?"');
         self::assertStringContainsString('<span class="role">Admin · Matching lead (off) · Reviewer (off)</span>', $html);
-        self::assertStringNotContainsString('<nav class="tabs"', $html, 'Home has no tabs');
-
+        self::assertStringContainsString('<a class="nav-item sec-home" href="/ui/" aria-current="page">', $html, 'Home: the page itself');
 
         $none = new StaffIdentity(8, 'n@test.invalid', 'Nobody', [], false, 'sid');
         $html = (new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $none]))->page('home', self::homeVars($none),
@@ -532,6 +514,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString('<ul class="nav">', $html);
         self::assertStringNotContainsString('<nav class="tabbar"', $html);
         self::assertStringNotContainsString('href="/ui/search"', $html);
+        self::assertStringNotContainsString('menu-btn', $html, 'nothing to open');
         self::assertStringContainsString(Words::TASK['no_job']['text'], $html);
         self::assertStringContainsString('<form class="signout" method="post" action="/ui/logout">', $html, 'sign out is always there');
     }
@@ -555,7 +538,7 @@ final class UiTemplatesTest extends TestCase
         $dir = sys_get_temp_dir() . '/cw-head-' . bin2hex(random_bytes(4));
         mkdir($dir);
         try {
-            foreach (['layout', 'page_frame', 'split'] as $t) {
+            foreach (['layout', 'page_frame', 'split', 'show_menu'] as $t) {
                 copy(View::defaultDir() . '/' . $t . '.php', $dir . '/' . $t . '.php');
             }
             file_put_contents($dir . '/page.php', '<?= $head($title, intro: \'orders\', look: $look, chips: $chip(\'done\', $title), aside: $explain(\'second_ok\', \'x\'), tag: $tag) ?>' . "\n");
@@ -568,10 +551,10 @@ final class UiTemplatesTest extends TestCase
             array_map('unlink', glob($dir . '/*.php') ?: []);
             rmdir($dir);
         }
-        self::assertStringContainsString('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">Purchasing<span class="ph-tag"> · x&amp;y</span></p>'
+        self::assertStringContainsString('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow"><span class="ph-tag">x&amp;y</span></p>'
             . '<div class="ph-title"><h1><span class="stmt">PO-1 &lt;b&gt;</span> <span class="chip done">PO-1 &lt;b&gt;</span></h1><details class="help look-only">'
             . '<summary aria-label="What does &quot;x&quot; mean?" title="What does &quot;x&quot; mean?"></summary><div class="help-body"><p>', $html,
-            'the eyebrow is the section, the heading and its chips escaped');
+            'no section eyebrow (RD3: a list is its title): only the tag the page gives; the heading and its pill escaped');
         self::assertStringContainsString('<p>You can look; Buyers change this.</p></div></details></div></div><div class="ph-actions"><a class="btn primary" href="/ui/receiving/new">', $html,
             'no sentence: who changes it is the last line of the page\'s own "?"; the create button on the right');
         $at = (int) strpos($html, '<header class="page-head">');
@@ -581,6 +564,12 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString('<nav class="tabs"', $html, 'no tab row under the statement (DC28)');
         self::assertSame(1, substr_count($html, '<h1'));
         self::assertStringNotContainsString('frame-only', $html);
+        // The group's Show right under the statement (RD2), the page drawing none: the page shown is the current choice, not a link.
+        self::assertStringContainsString('</header><div class="show-row"><details class="show-menu">' . "\n"
+            . '  <summary class="show-select"><span class="visually-hidden">Show: </span><span class="show-now">' . Words::SEGMENT['receiving'] . '</span></summary>', $html);
+        self::assertStringContainsString('<li><span class="show-item" aria-current="page"><span class="show-name">' . Words::SEGMENT['receiving'] . '</span></span></li>', $html);
+        self::assertStringContainsString('<li><a class="show-item" href="/ui/receiving/bench"><span class="show-name">' . Words::SEGMENT['bench'] . '</span></a></li>', $html);
+        self::assertStringNotContainsString('<!--cw:show-->', $html, 'the slot never shows');
 
         // The statement itself: the heading as typed, no full stop added; the parts it leaves out are not drawn.
         self::assertSame('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">Error 404</p><div class="ph-title"><h1><span class="stmt">Is it the same?</span>'
@@ -605,15 +594,13 @@ final class UiTemplatesTest extends TestCase
         // DC2: no full stop, drawn or typed.
         self::assertSame('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">Purchasing</p><div class="ph-title"><h1><span class="stmt">Purchase orders</span>'
             . '</h1></div></div></header>', Html::statement('Purchasing', 'Purchase orders'));
-        // DC3: a record's eyebrow is its list, a link and "›".
-        self::assertSame('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow ph-back"><a href="/ui/stock/counts">Counts</a><span aria-hidden="true"> ›</span></p>'
+        // RD3 (was DC3): a record has "‹ list" above its title (the "‹" is the stylesheet's, so the link's words are the list's name).
+        self::assertSame('<header class="page-head"><div class="ph-text"><p class="ph-back"><a href="/ui/stock/counts">Counts</a></p>'
             . '<div class="ph-title"><h1><span class="stmt">Count sheet CNT-1</span></h1></div></div></header>',
-            Html::statement('Stock', 'Count sheet CNT-1', back: ['/ui/stock/counts', 'Counts']));
-        // DC37: with a tag (the store and how many are left), ONE separator after the list: "Store products › Electrofag · 8,767 to match"
-        // (it read "Store products › · Electrofag · …").
-        self::assertStringContainsString('<p class="ph-eyebrow ph-back"><a href="/ui/review/store">Store products</a><span aria-hidden="true"> ›</span>'
-            . '<span class="ph-tag"> Electrofag · 8,767 to match</span></p>',
-            Html::statement('Matching', 'Is this the same item?', tag: 'Electrofag · 8,767 to match', back: ['/ui/review/store', 'Store products']));
+            Html::statement('', 'Count sheet CNT-1', back: ['/ui/stock/counts', 'Counts']));
+        // DC37: with a tag (the store and how many are left) after the list: "‹ Store products · Electrofag · 8,767 to match".
+        self::assertStringContainsString('<p class="ph-back"><a href="/ui/review/store">Store products</a><span class="ph-tag"> · Electrofag · 8,767 to match</span></p>',
+            Html::statement('', 'Is this the same item?', tag: 'Electrofag · 8,767 to match', back: ['/ui/review/store', 'Store products']));
         // DC1: who may change a look-only page, under a "?".
         self::assertSame('<details class="help look-only"><summary aria-label="' . Words::UI['look_help'] . '" title="' . Words::UI['look_help'] . '"></summary>'
             . '<div class="help-body"><p>You can look; Buyers change this.</p></div></details>', Html::lookOnly(sprintf(Words::UI['look_only'], 'Buyers')));
@@ -628,7 +615,7 @@ final class UiTemplatesTest extends TestCase
         $dir = sys_get_temp_dir() . '/cw-dc-' . bin2hex(random_bytes(4));
         mkdir($dir);
         try {
-            foreach (['layout', 'page_frame', 'split'] as $t) {
+            foreach (['layout', 'page_frame', 'split', 'show_menu'] as $t) {
                 copy(View::defaultDir() . '/' . $t . '.php', $dir . '/' . $t . '.php');
             }
             file_put_contents($dir . '/page.php', '<?= $head($title, intro: $pi, look: $lk) ?>' . "\n");
@@ -661,46 +648,21 @@ final class UiTemplatesTest extends TestCase
         // DC5: no buying-flow strip.
         self::assertStringNotContainsString('class="flow"', $orders);
         self::assertArrayNotHasKey('flow', (array) Sections::frame(['buyer'], [], '/ui/purchasing/orders')['pagebar']);
-        // DC28: no tab row and no segment row; the sidebar holds Goods in's pages, its segments one more indent, each with its count.
+        // DC28, RD2: no tab row and no segment row; Goods received's pages are its Show, under the statement, each with its count; the
+        // sidebar has two levels only (every page is reached from Home: SectionsTest::testEveryPageAPersonMayOpenIsReachedFromHome).
         self::assertStringNotContainsString('<nav class="tabs', $goodsIn);
-        self::assertStringContainsString('<ul class="nav-sub nav-seg" aria-label="' . Words::MENU['goods_in'] . '">' . "\n"
-            . '              <li><a class="nav-sub-item" aria-current="page"><span class="nav-label">' . Words::SEGMENT['receiving'] . '</span></a></li>' . "\n"
-            . '              <li><a class="nav-sub-item" href="/ui/receiving/bench"><span class="nav-label">' . Words::SEGMENT['bench'] . '</span></a></li>' . "\n"
-            . '              <li><a class="nav-sub-item" href="/ui/receiving/incidents"><span class="nav-label">' . Words::SEGMENT['incidents'] . '</span><span class="count"', $goodsIn);
+        self::assertStringNotContainsString('nav-seg', $goodsIn);
+        self::assertStringContainsString('<li><span class="show-item" aria-current="page"><span class="show-name">' . Words::SEGMENT['receiving'] . '</span></span></li>' . "\n"
+            . '    <li><a class="show-item" href="/ui/receiving/bench"><span class="show-name">' . Words::SEGMENT['bench'] . '</span></a></li>' . "\n"
+            . '    <li><a class="show-item" href="/ui/receiving/incidents"><span class="show-name">' . Words::SEGMENT['incidents'] . '</span><span class="count"', $goodsIn);
         self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['goods_in'], [], '/ui/receiving/bench')['segments'], 'label'));
-        // Every page the tab rows reached (each tab's first page the person may open, and each page of a tab with segments) is in that
-        // person's sidebar tree when they are in its section (the owner: keep every page reachable; the other pages of a tab are reached
-        // from that tab's page, as before).
-        foreach (['buyer', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'mapping_lead', 'admin', 'auditor', 'accountant'] as $role) {
-            foreach (Sections::visible([$role]) as $sectionKey => $tabs) {
-                foreach ($tabs as $tab) {
-                    foreach ($tab['soon'] ? [] : ($tab['segments'] && count($tab['pages']) > 1 ? $tab['pages'] : [$tab['pages'][0]]) as $pg) {
-                        $fr = Sections::frame([$role], [], (string) $pg['path'], $pg['query'] ?? []);
-                        if ($sectionKey === 'dashboard') {
-                            continue;
-                        }
-                        $open = array_values(array_filter($fr['nav'], static fn (array $i): bool => $i['open']));
-                        self::assertCount(1, $open, "{$role} {$pg['path']}: one open section");
-                        $reach = [];
-                        foreach ($open[0]['subs'] as $sub) {
-                            $reach[] = Html::url((string) $sub['href'], $sub['query']);
-                            foreach ($sub['segs'] as $seg) {
-                                $reach[] = Html::url((string) $seg['href'], $seg['query']);
-                            }
-                        }
-                        self::assertContains(Html::url((string) $pg['path'], $pg['query'] ?? []), $reach, "{$role}: {$pg['path']} is in the sidebar");
-                    }
-                }
-            }
-        }
-        // DC7: the shell of HM_Home and HM_Phone.
-        self::assertStringNotContainsString('brand-mark', $orders, 'the plain name, no CW tile');
-        self::assertStringNotContainsString('icon-btn bell', $orders, 'no bell: the Approvals entry carries the count');
-        self::assertStringNotContainsString('side-find', $orders);
-        self::assertSame(0, preg_match('#<a class="nav-item"[^>]*><span class="ico#', $orders), 'the menu is words only');
-        self::assertStringContainsString('<a class="brand" href="/ui/"><span class="brand-name">' . Words::UI['brand'] . '</span></a>', $orders);
-        self::assertStringContainsString('<a class="appbar-me" href="#menu" aria-controls="menu" title="Signed in as Bea Smith"><span aria-hidden="true">BS</span>', $orders,
-            'HM_Phone: the initials open the menu (Sign out is there)');
+        // RD1: the shell of Sidebar.dc.html and Phone.dc.html: the CW tile, icon chips, no bell, the Menu button on the phone's top bar.
+        self::assertStringContainsString('<span class="brand-tile" aria-hidden="true">CW</span>', $orders);
+        self::assertStringNotContainsString('icon-btn bell', $orders, 'no bell: the Approvals row carries the count');
+        self::assertStringContainsString('<form class="side-find" method="get" action="/ui/search" role="search">', $orders, 'the sidebar\'s find box');
+        self::assertSame(0, preg_match('#<a class="nav-item [^"]*"[^>]*><span class="nav-label#', $orders), 'every row has its icon chip');
+        self::assertStringContainsString('<a class="icon-btn menu-btn" href="#menu" aria-controls="menu">', $orders);
+        self::assertStringNotContainsString('appbar-me', $orders, 'Phone.dc.html: Menu, not the initials');
         self::assertStringContainsString('<form class="signout" method="post" action="/ui/logout">', $orders);
         // DC6: every page name in sentence case (the proper names excepted).
         $proper = ['CW', 'ERPNext', 'VAT', 'UK', 'OK', 'Vape', 'Go', 'Excel', 'CSV', 'PDF', 'PO'];
@@ -1300,7 +1262,8 @@ final class UiTemplatesTest extends TestCase
             self::assertSame([], array_values(array_intersect(explode(' ', $value), self::REMOVED)), "app.js sets '{$value}'");
         }
         self::assertStringContainsString("b.className = 'btn ghost sm reveal';", $js, 'the password\'s Show is a quiet small button');
-        self::assertStringContainsString("var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open]';", $js, 'Esc and a click elsewhere close More');
+        self::assertStringContainsString("var menus = 'details.user-menu[open], details.tb-pop[open], details.more[open], details.show-menu[open]';", $js,
+            'Esc and a click elsewhere close More and a page\'s Show (RD2)');
         // The stylesheet keeps no rule for a removed class, and names no button variant but the five and the two sizes.
         $css = (string) file_get_contents(\CW\Ui\Assets::dir() . '/app.css');
         $rules = (string) preg_replace('#/\*.*?\*/#s', '', $css);

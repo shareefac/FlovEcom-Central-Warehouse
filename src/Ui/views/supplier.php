@@ -222,7 +222,7 @@
 <?php foreach ($recentPos as $p): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/orders/' . $p['id']) ?>"><?= $e($p['number_line']) ?></a></th>
-        <td class="c-status doc-st <?= $e($p['state_tone']) ?>"><?= $e($p['state_word']) ?></td>
+        <td class="c-status doc-st <?= $e($p['state_tone']) ?>"><span class="chip"><?= $e($p['state_word']) ?></span></td>
         <td data-label="<?= $word('SUPPLIER', 'dated') ?>"><?php if ($p['doc_date'] !== null): ?><?= $day($p['doc_date']) ?><?php endif; ?></td>
         <td data-label="<?= $word('SUPPLIER', 'expected') ?>"><?php if ($p['expected_date'] !== null): ?><?= $day($p['expected_date']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SUPPLIER', 'total') ?>"><?= $e($p['total']) ?></td>
@@ -253,7 +253,7 @@
 <?php foreach ($invoiceRows as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $e($r['date']) ?><?php if ($r['refs'] !== ''): ?> · <?= $e($r['refs']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><?= $e($r['cell_word']) ?></td>
+        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><span class="chip"><?= $e($r['cell_word']) ?></span></td>
         <td data-label="<?= $word('DOC_LIST', 'match') ?>"><?php if ($r['tag'] !== null): ?><span class="tag <?= $e($r['tag']['tone']) ?>"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $e($r['due']) ?></td>
         <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?></td>

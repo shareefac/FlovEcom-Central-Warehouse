@@ -123,7 +123,7 @@ final class Html
         return $d === false ? null : $d->setTimezone($london);
     }
 
-    /** A status pill: the tone's solid colour (in CSS) and the word. An unknown tone is `info`. */
+    /** A status pill: the tone's tint and darker ink (in CSS; the redesign's pill, RD8) and the word. An unknown tone is `info`. */
     public static function chip(string $tone, string $text): string
     {
         $tone = in_array($tone, Words::TONES, true) ? $tone : 'info';
@@ -147,13 +147,13 @@ final class Html
     }
 
     /**
-     * The statement every page opens with (the approved mockups of 29 Oct 2026; docs/decisions.md DC1-DC3): a small UPPERCASE eyebrow
-     * ($eyebrow, the section; $tag after it; or $back, the record's list as a link followed by "›", the mockups' breadcrumb), the
-     * heading ($title, the page's name, sentence case and no full stop; $chips inside it after the name, the record's status block; $aside
-     * beside it, a "?" help), a line of state chips ($meta), then the page's actions on the right. $lede and $more are the one line a few
-     * steps keep (View::INTRO_KEPT: a rule or a safety message the step needs); every other page has no sentence under its heading.
-     * $eyebrow, $tag, $title, $lede and $more are text, escaped here; $chips, $aside, $meta and $actions are HTML the helpers made;
-     * $back is [href, label].
+     * The statement every page opens with (the approved redesign of 30 Oct 2026; docs/decisions.md RD3, after DC1-DC3): a list is its title
+     * alone; a record has $back, the way to its list: "‹ Items" (the "‹" drawn by the stylesheet) above the title, $tag after it; a page
+     * that names an $eyebrow (Home's date, an error's code) has it above, $tag after it. Then the heading ($title, the page's name,
+     * sentence case and no full stop; $chips inside it after the name: the record's status pill; $aside beside it, a "?" help), the one
+     * fact line ($meta), then the page's actions on the right. $lede and $more are the one line a few steps keep (View::INTRO_KEPT: a rule
+     * or a safety message the step needs); every other page has no sentence under its heading. $eyebrow, $tag, $title, $lede and $more
+     * are text, escaped here; $chips, $aside, $meta and $actions are HTML the helpers made; $back is [href, label].
      *
      * @param array{0: string, 1: string}|null $back
      */
@@ -162,9 +162,9 @@ final class Html
     {
         $out = '<header class="page-head"><div class="ph-text">';
         if ($back !== null) {
-            // The "›" is the one separator after the list: its tag follows it ("Store products › Electrofag · 8,767 to match": docs/decisions.md DC37).
-            $out .= '<p class="ph-eyebrow ph-back"><a href="' . self::e($back[0]) . '">' . self::e($back[1]) . '</a><span aria-hidden="true"> ›</span>'
-                . ($tag === '' ? '' : '<span class="ph-tag"> ' . self::e($tag) . '</span>') . '</p>';
+            // "‹ Store products · Electrofag · 8,767 to match": the list, then the record's tag (docs/decisions.md DC37, RD3).
+            $out .= '<p class="ph-back"><a href="' . self::e($back[0]) . '">' . self::e($back[1]) . '</a>'
+                . ($tag === '' ? '' : '<span class="ph-tag"> · ' . self::e($tag) . '</span>') . '</p>';
         } elseif ($eyebrow !== '' || $tag !== '') {
             $out .= '<p class="ph-eyebrow">' . self::e($eyebrow)
                 . ($tag === '' ? '' : '<span class="ph-tag">' . ($eyebrow === '' ? '' : ' · ') . self::e($tag) . '</span>') . '</p>';
