@@ -17,9 +17,9 @@ $bar = $partial('customer_bar', ['c' => $c, 'v' => $v, 'version' => $version, 'e
 
 <section class="doc-progress rp-figs" aria-label="<?= $word('CUSTOMER', 'details') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'balance') ?></p><p class="doc-step-big"><?= $money($balance) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'handovers') ?></p><p class="doc-step-big"><?= $n(count($handovers)) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'handovers') ?></p><p class="doc-step-big"><?= $n(count($handovers)) ?><?php if (count($handovers) >= \CW\Handovers\Handovers::LIST_LIMIT): ?>+<?php endif; ?></p></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'last') ?></p><p class="doc-step-big"><?php if ($lastHandover !== null): ?><?= $day($lastHandover) ?><?php endif; ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'prices_kept') ?></p><p class="doc-step-big"><?= $n(count($prices)) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'prices_kept') ?></p><p class="doc-step-big"><?= $n(count($prices)) ?><?php if (count($prices) >= \CW\Handovers\Counterparties::PRICE_LIMIT): ?>+<?php endif; ?></p></div>
 </section>
 
 <article class="doc-view" aria-label="<?= $word('CUSTOMER', 'details') ?>">

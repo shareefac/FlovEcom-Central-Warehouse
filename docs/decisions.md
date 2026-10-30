@@ -13684,6 +13684,18 @@ reports' strips; What to buy's More); `ReorderScreensTest` (the groups and the o
 the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui` (`UiAuthTest`,
 `UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/w9_final_unit_uikernel.log`, `runs/w9_final_partc.log`, `runs/w9_final_ui.log`.
 
+## Stock moves and hand-overs: the Codex review of 589351d (`runs/w8_codex_review.txt`), two LOW (branch `w8-fixes`, 30 Oct 2026; W8.13-W8.14)
+
+**W8.13. The stock boards' "+ New" is back in the head (LOW).** The five stock boards (Stock In, Stock Out, Adjustments, Transfers,
+Releases) draw their own toolbar (`Context::OWN_TOOLBAR`), so the layout hands their create button to the page as `newActions` and draws
+none; w8 took the toolbar's split button away and drew nothing in its place, so a person who may make one saw no "+ New" at the top (only the
+last row of the Draft group). The head now draws it through its `side` (the same `split` partial as every other page's head). The drawer
+and the Draft group's last row are unchanged. `StockPatternsScreensTest` pins the head's button on Stock In.
+
+**W8.14. A customer's figures say when they reach the list's limit (LOW).** The customer's page counts the hand-overs and kept prices it
+lists, and those lists stop at `Handovers::LIST_LIMIT` (200) and `Counterparties::PRICE_LIMIT` (500). At the limit the figure now reads
+"200+" / "500+" instead of looking like the whole total. The lists and their limits are unchanged.
+
 ## The Sales pages on the approved patterns (wave `w10`, branch `wave-w10`, 30 Oct 2026; W10.1-W10.11)
 
 The owner's word of 29 Oct 2026 ("all design convert our new claude suggested design"), relayed by the coordinator as wave w10: Store orders,

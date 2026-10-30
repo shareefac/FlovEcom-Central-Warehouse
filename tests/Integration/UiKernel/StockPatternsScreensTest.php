@@ -73,6 +73,9 @@ final class StockPatternsScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         // The new form (the "+ New" of the head and of the open group): its fields in two columns.
         self::assertSame(1, self::xp($list)->query('//details[@id="new"]//form[@action="/ui/stock/in"]/fieldset[contains(@class, "doc-grid")]//select[@name="warehouse"]')->length);
+        // The head's "+ New" (the page draws its own toolbar, so the layout's create button comes in through the head's side).
+        self::assertSame(['/ui/stock/in#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array(self::xp($list)->query('//header[contains(@class, "page-head")]/div[contains(@class, "ph-actions")]/a[contains(@class, "btn") and contains(@class, "primary")]'))), 'the head: + New');
         $page = $this->start($web, 'in', ['reason_code' => 'found', 'external_ref' => 'BOX 7']);
         self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '5', 'cost' => '1.50'])->status);
 
