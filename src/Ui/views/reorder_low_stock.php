@@ -88,7 +88,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('REORDER_LOW', 'group_one') ?><?php else: ?><?= $say('REORDER_LOW', 'group_many', count($g['rows'])) ?><?php endif; ?><?php if ($pages > 1): ?> · <?= $say('REORDER', 'page', $page, $pages) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board reorder low-stock">

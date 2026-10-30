@@ -1,12 +1,13 @@
 <?php
-// Purchasing › Invoices and Credit notes (pack C, PC17), a board (the owner's approved design of 29 Oct 2026, monday.com's style;
-// docs/decisions.md PV18): one search box (our number, theirs, the supplier), one Show menu (open, all, cancelled), "+ New supplier invoice"
-// at the top right (the statement's create button: the one page, PV1); then the papers grouped: needs a look, draft (and waiting for an OK),
-// final; cancelled under Show. Each group a coloured heading with its count (it folds, app.js) over a white card with its colour on the left
-// edge; a row: the supplier's number (the order or delivery and our number under it), the status filled with its colour, the supplier, the
-// match as a soft tag, the due date (red once passed with money owed), the total, what is still owed. No "overdue" or "paid" group: CW does
-// not know the supplier payments. A row opens its paper. A credit note is still started from its fold (pack C). The URL's other filters
-// (status, supplier, match) still narrow the list and a search keeps them (hidden fields).
+// Purchasing › Purchase invoices and Credit notes (pack C, PC17), a simple list (the approved PurchaseInvoices.dc.html of 30 Oct 2026;
+// docs/decisions.md RD-B2, before PV18): one search box (our number, theirs, the supplier), one Show menu (open, all, cancelled), "+ New
+// invoice" at the top right (the statement's create button: the one page, PV1); then the papers grouped: needs a look, to match (the drafts:
+// an invoice is matched when it is made final), matched (final); cancelled under Show. Each group a heading with its coloured dot and its
+// count (it folds, app.js) over a white table card; five columns: the supplier's number (it opens the paper), the supplier, the status as a
+// small pill (its match under it: "2 differences", "Matches"), the due date (red once passed with money owed, how late beside it), the
+// total (what is still owed under it when a credit note took some off). A credit note's groups stay draft and final, its fourth column the
+// invoice it credits. No "overdue" or "paid" group: CW does not know the supplier payments. A credit note is still started from its fold
+// (pack C). The URL's other filters (status, supplier, match) still narrow the list and a search keeps them (hidden fields).
 ?>
 <?= $head((string) $k['tab'], intro: $kind === 'invoice' ? 'invoices' : 'credit_notes', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
@@ -74,48 +75,38 @@
 <?php endif; ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $e($k['group_one']) ?><?php else: ?><?= $e(sprintf($k['group_many'], count($g['rows']))) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $e($k['col']) ?></th>
-        <th scope="col" class="c-status"><?= $word('DOC_LIST', 'status') ?></th>
         <th scope="col"><?= $word('DOC_LIST', 'supplier') ?></th>
+        <th scope="col" class="c-status"><?= $word('DOC_LIST', 'status') ?></th>
 <?php if ($kind === 'invoice'): ?>
-        <th scope="col"><?= $word('DOC_LIST', 'match') ?></th>
         <th scope="col"><?= $word('DOC_LIST', 'due') ?></th>
-        <th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th>
-        <th scope="col" class="num"><?= $word('DOC_LIST', 'balance') ?></th>
 <?php else: ?>
         <th scope="col"><?= $word('INVOICES', 'credits') ?></th>
-        <th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th>
 <?php endif; ?>
+        <th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $e($r['date']) ?><?php if ($r['refs'] !== ''): ?> · <?= $e($r['refs']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><span class="chip"><?= $e($r['cell_word']) ?></span></td>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a></th>
         <td data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
+<?php // The status pill says what the invoice's own page says (Needs a look, Draft, Final; the Codex review's rule, PV31); its match under it (RD-B2). ?>
+        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><span class="chip"><?= $e($r['cell_word']) ?></span><?php if ($r['tag'] !== null): ?><span class="o-sub"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>
 <?php if ($kind === 'invoice'): ?>
-        <td data-label="<?= $word('DOC_LIST', 'match') ?>"><?php if ($r['tag'] !== null): ?><span class="tag <?= $e($r['tag']['tone']) ?>"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $e($r['due']) ?><?php if ($r['late_line'] !== null): ?> · <?= $e($r['late_line']) ?><?php endif; ?></td>
-        <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?></td>
-        <td class="num" data-label="<?= $word('DOC_LIST', 'balance') ?>"><?= $e($r['balance'] ?? '') ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?php if ($r['due'] !== ''): ?><?= $e($r['due']) ?><?php if ($r['late_line'] !== null): ?> · <?= $e($r['late_line']) ?><?php endif; ?><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></td>
 <?php else: ?>
         <td data-label="<?= $word('INVOICES', 'credits') ?>"><?= $e($r['credits'] ?? '') ?></td>
-        <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?></td>
 <?php endif; ?>
+        <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?><?php if ($kind === 'invoice' && $r['owed_line'] !== null): ?><span class="o-sub"><?= $e($r['owed_line']) ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'draft' && $canPost && $kind === 'invoice'): ?>
-      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="/ui/purchasing/invoices/new"><?= $e($k['add_row']) ?></a></td></tr>
-<?php elseif ($g['key'] === 'draft' && $formKey !== null && $kind === 'credit_note'): ?>
-      <tr class="grp-add"><td colspan="5" data-label=""><a class="add-item" href="#new"><?= $e($k['add_row']) ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

@@ -114,7 +114,7 @@ foreach ($history['channels'] as $c) {
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('REORDER', 'group_one') ?><?php else: ?><?= $say('REORDER', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list reorder">

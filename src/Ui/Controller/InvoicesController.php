@@ -93,7 +93,7 @@ final class InvoicesController
             'base' => SupplierInvoices::PATHS[$kind],
             'rows' => $rows,
             // The board (the owner's approved design, docs/decisions.md PV18): needs a look, draft, final; cancelled under Show.
-            'groups' => self::boardGroups($rows),
+            'groups' => self::boardGroups($rows, $kind),
             'limit' => SupplierInvoices::LIST_LIMIT,
             'f' => $f,
             'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['supplier'] !== null || $f['match'] !== null || $f['cancelled'] || $f['show'] !== 'open',
@@ -748,7 +748,7 @@ final class InvoicesController
      * @param list<array<string, mixed>> $rows listRow() rows
      * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
      */
-    public static function boardGroups(array $rows): array
+    public static function boardGroups(array $rows, string $kind = 'invoice'): array
     {
         $by = [];
         foreach ($rows as $r) {
@@ -757,7 +757,10 @@ final class InvoicesController
         $out = [];
         foreach (self::BOARD as $key => $tone) {
             if (isset($by[$key])) {
-                $out[] = ['key' => $key, 'tone' => $tone, 'name' => Words::INVOICES['group_' . $key], 'rows' => $by[$key]];
+                // The invoices' groups are named as the approved PurchaseInvoices.dc.html names them (RD-B2: needs a look, to match, matched); a
+                // credit note is never matched: its groups keep draft and final.
+                $out[] = ['key' => $key, 'tone' => $tone, 'name' => Words::INVOICES[($kind === 'invoice' && isset(Words::INVOICES['group_' . $key . '_inv']) ? 'group_' . $key . '_inv' : 'group_' . $key)],
+                    'rows' => $by[$key]];
             }
         }
         return $out;
@@ -839,6 +842,8 @@ final class InvoicesController
             'made_by' => (string) ($r['created_by_name'] ?? ''),
             'due' => ($r['due_date'] ?? null) === null || $reversal ? '' : Html::day((string) $r['due_date']),
             'balance' => $owed,
+            // What is still owed, under the total only when a credit note took some off (RD-B2: the old Balance column; CW does not know payments).
+            'owed_line' => $owed !== null && $owedE2 !== InvoiceMath::e2((string) $r['gross_total']) ? Words::say('INVOICES', 'owed_line', $owed) : null,
         ];
     }
 

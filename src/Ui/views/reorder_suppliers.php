@@ -32,7 +32,7 @@ $spare = count(array_filter($rows, static fn (array $r): bool => $r['safety_days
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::REORDER_SUPPLIERS['none'], \CW\Ui\Words::REORDER_SUPPLIERS['none_text']) ?>
 <?php else: ?>
-<div class="grp-block doc-group info">
+<div class="grp-block doc-group info rd-list">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-suppliers"><?= $word('REORDER_SUPPLIERS', 'group') ?></button> <span class="grp-count"><?php if (count($rows) === 1): ?><?= $word('REORDER_SUPPLIERS', 'group_one') ?><?php else: ?><?= $say('REORDER_SUPPLIERS', 'group_many', count($rows)) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-suppliers">
   <table class="stack list board brands">

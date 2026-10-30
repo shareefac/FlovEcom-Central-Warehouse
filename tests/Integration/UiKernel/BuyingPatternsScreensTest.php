@@ -52,6 +52,13 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
             $xp->query('//main//div[contains(@class, "doc-board")]//tbody/tr/td[contains(@class, "doc-st")]')->length, "{$what}: every row's status cell is filled");
     }
 
+    /** The head's "+ New …" button (the section's create button: the simple list's one way to start one, RD-B6). @return list<string> */
+    private static function headNew(UiResponse $page): array
+    {
+        return array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array(self::xp($page)->query('//main//header[contains(@class, "page-head")]//div[@class="ph-actions"]/a[contains(@class, "primary")]')));
+    }
+
     /** The report pattern (5) as served: the figures strip, and no old layout. */
     private static function assertReport(UiResponse $page, string $what): void
     {
@@ -115,7 +122,7 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
         }
         self::assertContains('/ui/purchasing/suppliers/' . $id . '/items/new', $web->get('/ui/purchasing/suppliers/' . $id, ['tab' => 'items'])->hrefs(), 'Add a product');
 
-        // The board: the draft in the Draft group, "+ New supplier" at its end.
+        // The board: the draft in the Draft group; "+ New supplier" is the head's one button, no row at a group's end (RD-B6).
         $this->activeSupplier('Pattern Approved Ltd');
         $list = $web->get('/ui/purchasing/suppliers');
         self::assertBoard($list, 'suppliers');
@@ -124,8 +131,8 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
         self::assertContains(Words::SUPPLIER_STATUS['active'], $groups);
         self::assertSame(array_values(array_intersect(array_map(static fn (array $g): string => $g[1], \CW\Ui\Controller\SuppliersController::board()), $groups)), $groups,
             'the groups in the board\'s order');
-        self::assertSame(['/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array(self::xp($list)->query('//div[contains(@class, "doc-group") and contains(@class, "waiting")]//tr[@class="grp-add"]//a'))));
+        self::assertSame(0, self::xp($list)->query('//tr[contains(@class, "grp-add")]')->length, 'no add row');
+        self::assertSame(['/ui/purchasing/suppliers/new'], self::headNew($list));
         self::assertSame(Words::SUPPLIER_STATUS['draft'], self::texts($list, '//tr[th/a[@href="/ui/purchasing/suppliers/' . $id . '"]]/td[contains(@class, "doc-st")]')[0] ?? null);
         // Home's links still narrow it.
         self::assertSame([Words::SUPPLIER_STATUS['draft']], self::texts($web->get('/ui/purchasing/suppliers', ['status' => 'draft']), '//main//div[contains(@class, "doc-group")]/h3/button'));
@@ -157,11 +164,11 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
         self::assertSame([Words::DOC['leave'], Words::STOCK_OPS['save_lines'], Words::RETURNS['post_button']], self::texts($draft, '//div[@class="doc-bar"]/a | //div[@class="doc-bar"]/button'));
         self::assertSame(1, self::xp($draft)->query('//form[@id="ret-lines"][@data-unsaved="1"]//table[contains(@class, "doc-lines")]')->length);
 
-        // The list: the draft in the Draft group, "+ New return" at its end.
+        // The list: the draft in the Draft group; "+ New return" is the head's one button (its drawer), no add row (RD-B6).
         $list = $web->get('/ui/purchasing/returns');
         self::assertBoard($list, 'returns');
-        self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array(self::xp($list)->query('//div[contains(@class, "doc-group")]//tr[@class="grp-add"]//a'))));
+        self::assertSame(0, self::xp($list)->query('//tr[contains(@class, "grp-add")]')->length, 'no add row');
+        self::assertSame(['/ui/purchasing/returns#new'], self::headNew($list));
 
         // Final (its reason given first, a return's rule): the record page (the paper card, the files and the claim on the right).
         self::assertSame(303, $web->post($page . '/details', ['reason_code' => 'damaged'] + $draft->form($page . '/details'))->status);
@@ -188,7 +195,8 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         $list = $web->get('/ui/purchasing/credit-notes');
         self::assertBoard($list, 'credit notes');
-        self::assertSame([Words::INVOICE_KIND['credit_note']['add_row']], self::texts($list, '//tr[@class="grp-add"]//a[@href="#new"]'));
+        self::assertSame(0, self::xp($list)->query('//tr[contains(@class, "grp-add")]')->length, 'no add row (RD-B6)');
+        self::assertSame(['/ui/purchasing/credit-notes#new'], self::headNew($list), 'the head\'s one button opens the drawer');
         // The lists without rows here still have their one Show row and no old pieces.
         foreach (['/ui/purchasing/invoices/to-match' => false, '/ui/purchasing/invoices/not-invoiced' => true, '/ui/receiving/incidents' => false] as $path => $search) {
             $p = $web->get($path);

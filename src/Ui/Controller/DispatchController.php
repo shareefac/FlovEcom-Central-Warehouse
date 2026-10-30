@@ -69,7 +69,8 @@ final class DispatchController
         // The Show menu (docs/decisions.md W10): the four lists, the one shown chosen; a GET form of `show`, as the links were.
         $shows = [];
         foreach (SalesViews::SHOWS as $s) {
-            $shows[] = ['value' => $s, 'label' => Words::DISPATCH['show_' . $s], 'current' => $show === $s];
+            // Each list's count beside its name (RD-B8: a list shows no figures strip; the strip's waiting, today, week and undone).
+            $shows[] = ['value' => $s, 'label' => Words::DISPATCH['show_' . $s], 'count' => (int) ($figures[$s] ?? 0), 'current' => $show === $s];
         }
         return $ctx->page('sales_dispatch', [
             'channel' => $code,

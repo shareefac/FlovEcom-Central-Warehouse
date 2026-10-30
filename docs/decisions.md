@@ -14636,3 +14636,100 @@ group's Show, Store listings' More), every page each job may open is reached, fo
 pill's, the board's and the header's CSS), and the kernel helpers: `segments()` reads the page's Show, `moreTabs()` the header's More,
 `sectionTabs()` the open section's entries. The old pins of HM_Home's sidebar, the tab-row More, the solid cell and the eyebrow were
 moved to these.
+
+## The Purchases and Sales pages on the approved redesign (step 2 B, branch `redesign-rd2b`, 30 Oct 2026; RD-B1-RD-B10)
+
+The owner approved the redesign canvas on 30 Oct 2026 ("Yes, approve all"; `cw_work/design/redesign_20261030/project/`). This build brings
+its Purchases and Sales artboards (Purchases, PurchaseOrder, GoodsReceived, PurchaseInvoices, Sales) to their pages and the simple list
+look to the other Purchases and Sales lists. Layout only: every route, permission, posted field, total, server rule, FormOnce and version
+check is as before. It was built at the same time as the shared step (rd1) and committed on main 8acedfb, so where a shared piece was not
+on main it uses rd1's announced shape (`td.c-status.doc-st` holding `span.chip`; the group heading's count) and draws the look itself in
+the `rd2b` CSS block, scoped by `.rd-list` on a list's group (RD-B9).
+
+**RD-B1. Purchase orders is the simple list of Purchases.dc.html.** Five columns: Order (its number, the row's link), Supplier, Status
+(a small pill), Expected, Total; the received meter, the initials (By) and the order's date and reference after its number are gone (the
+date, the reference and who made it are on the order; the reference is still searched). A part delivery's pill says how much came ("28
+of 30 received", `ORDERS part_of`: the old Received column's figure), a cancellation record's says so; a reviewer's "not OK" stays under
+the pill. The groups keep their meaning and names (waiting for approval, on the way, draft, received or closed lately, cancelled): the
+artboard's "Received this month" would be untrue, the window is `po.board_recent_days`. No "+ New purchase order" row at a group's end:
+the head's button is the one way (the add row of every list in this build goes the same way). The search, the Show menu, More (drafts
+too, download, clear) and every URL filter are as before.
+
+**RD-B2. Purchase invoices is the simple list of PurchaseInvoices.dc.html.** Five columns: Invoice (the supplier's number), Supplier,
+Status, Due (how late beside it, red once passed with money owed), Total. The status pill says what the invoice's own page says (Needs a
+look, Draft, Waiting for an OK, Final, Cancelled: the rule that the list and the page agree stays), the match under it ("2 differences",
+"Matches", "Accepted", "Not checked yet": the old Match column), where the artboard puts the match in the pill. The Balance column is gone: CW does not know payments, so it equalled the total except after a credit note; then "£x still owed"
+stands under the total (`owed_line`). The invoices' groups are named as the artboard names them, "Needs a look", "To match" (the drafts:
+an invoice is matched when it is made final) and "Matched" (final; one with nothing to match says "Final" in its pill);
+`InvoicesController::boardGroups($rows, $kind)`; a credit note is never matched, so its groups stay draft and final, its fourth column the
+invoice it credits. The page's name is "Purchase invoices" (`INVOICE_KIND invoice tab`, also the record's back link).
+
+**RD-B3. Sales orders is the simple list of Sales.dc.html.** Four columns: Order, Store, Placed, Units; no status column, the groups say
+it: "Waiting to ship" (blue), "Shipped" (a unit of it went to the customer, green), "Returned or cancelled" (none did, grey), then the
+store's orders not paid as before (reserved now, freed, ran out of time); `SalesController::GROUPS`, `SALE_GROUP`, `TONE SALE_GROUP`. A paid
+order whose units ended more than one way says how under its number (the old "What became of it"); the unlinked items and the try number
+stay there too. Paid and How it came in are on the order. The head's one button is Download (the artboard's; the page is read only, so
+no magenta button). The Show row is one select, the stores with their paid orders waiting to ship, and its Show button; the period links,
+From / To, the state and the way in are under More in the same GET form (the row's Show button sends them; More opens when one is set).
+The artboard's search ("order number or item") is not built: CW has no search on this page (needs a build). Its "Today" is From and To
+under More.
+
+**RD-B4. A purchase order is the record of PurchaseOrder.dc.html.** The list's link above the number, the status pill beside it, one line
+under it (the reviewer's check, then "Greenline Wholesale · ordered 19 Oct 2026 by Business owner", `ORDER fact_ordered`; a draft "started"), the
+actions at the right as before (More, then the next step). The figures strip is four steps, Approved, Sent to supplier, Received,
+Invoiced (`PurchaseOrdersController::steps()`): a step done is green with its day or its units, the first one not done is amber, the rest
+white; the figures are `progress()`'s, unchanged, and Received says what is still to come line by line (PV24) while it is part received. The paper: three blocks, the supplier (its address on one line), Deliver to (the
+company's delivery address the PDF prints: the order's snapshot once confirmed, else the details in use) and the dates (order date,
+expected, payment terms from the supplier, their reference); the lines in five columns, Item (code, their code, pack, VAT code and line
+under the name), Ordered (items; the packs under it when a pack holds more than one), Received (green when all came, amber in part; "N to
+come" beside it while the order is open), Unit cost (the pack price; "per box of 10" under it), Line total; under them the note to the
+supplier and the totals, whose rows are exactly as before (products, before VAT, VAT by code, with VAT). Related lists the order's
+deliveries (the goods-received list searched by its number) and invoices (the supplier's invoices) each with a pill of how far it got, the
+order it corrects or that correct it, its cancellation record (its PDF) and its files; History lists what happened, newest first (started
+with how it was made, OK asked, confirmed, sent with how and to whom, closed with why, cancelled with why), then its checks and OKs as
+before. The lines' downloads (Excel, CSV) and the record moved under More. The artboard's Print is not built: CW's order PDF is a download
+(it stays under More; needs a build).
+
+**RD-B5. A delivery's one page is GoodsReceived.dc.html.** The list's link above its number (a draft its title), its status pill beside
+it, one line under it: the supplier, its order (a link), "N of M lines checked" and the problems when there are any; the figures strip is
+gone (that line and "Book in N items" say it). The lines in four columns, Item, Expected, Received, Check (a pill), then the line's
+answers: the duty stamp (its select in a small pill of its answer's colour, app.js colours it as before), "All fine", "Problem" / "Open".
+The artboard's "Counted" says Received: "count" is only for shelf counts (correction b, `ReceivingWordsTest`); what is typed there is the
+packs in, the items they make under them. The details, the scan box, the problem panels, the prices fold, the files, the note, "Before
+it can be booked in" and the bar (Leave, what is left, Save, Book in) are as before; every field keeps its name and the one form posts
+the same. A phone keeps "Leave without saving" above the head (`p.crumbs.gi-crumbs`, hidden from 700 px), the bar two rows as GV24.
+
+**RD-B6. The other Purchases and Sales lists are simple lists.** Goods received, Suppliers, Purchase returns, Credit notes, Arriving,
+Incidents, To match, Delivered no invoice yet, Timed, Shipments, Sales returns, Trade sales, Customers: three to five columns besides a
+row's own action (Receive, Book its invoice, close an incident), the status a pill in its cell, no add row. What a dropped column said moved under a cell where it is still needed: a delivery being
+checked "3 / 6 lines" and a booked one's incidents under its pill; a return's credit is its pill once final; arriving units "N sold
+before they arrive"; to match's lines that differ, claims and who accepted under the pill; delivered-no-invoice's units under the value;
+a shipment's wait under Paid, its note under the order, a sent order's units now under the pill, who undid a sending under when; a sales
+return's unit under the item, where it is now under the pill; a customer's VAT code under the name. Who booked a delivery in, who made a
+return, a trade sale's products and maker, an order's made-by are on their records.
+
+**RD-B7. The reorder pages keep their figures.** What to buy, Low stock, Brand settings, Supplier lead times, Days to leave out and Sales
+data get the dot heading, the plain card and the pill; their strip stays: it says when the suggestions were worked out and warns when
+the sales data is old (a report's strip, dev.md pattern 5). Their columns hold the form's fields and are unchanged.
+
+**RD-B8. A list shows no figures strip.** Shipments' five figures are each list's count in its Show choice ("Sent today (12)"; the late
+ones are the Late group's count, and a late order says after how many hours it is late under its pill: `sales.late_hours`); the strip's
+unit totals (units waiting, units sent today or this week) are gone, the rows give each order's. Sales returns' one figure (units to
+recount) is each store's count in the store choice already (DC33).
+
+**RD-B9. Until the shared step lands, these lists draw the shared look themselves.** `.rd-list` on a list's group: the 10 px dot, the 15 px
+name, the muted count (its words as before, "2 orders": rd1 keeps `span.grp-count` as it is; the artboards' bare number would need a
+word list per list, and a number with hidden words reads "22 orders" to anything that reads the text), the card without a coloured edge, the 12 px head row, 14 px rows, the cell no longer filled and its `span.chip` a
+tint pill; the order's and the delivery's pills likewise. rd1 draws the same for every list; when both are in, the `.rd-list` rules and
+class go (the values are the artboards', so nothing moves). app.js writes "Checked" straight into a delivery line's check cell after "All
+fine" (the pill's span goes): until app.js keeps the span, that word is in the tone's ink (`td.gi-check:not(:has(.chip))`).
+
+**RD-B10. Tests.** `UiTemplatesTest::testThePurchasesAndSalesPagesFollowTheRedesign` (every list: scoped, its group's count, no add row,
+meter, initials or strip, three to five columns, the pill in the cell; the three artboard lists' columns; the order's steps, paper, five
+line columns, Related, History and More's downloads; the delivery's back link, line, no strip, columns and answers). The kernel pins of
+the pages were moved to the new design where they pinned the old: `BuyingPatternsScreensTest` (the head's "+ New" instead of an add row),
+`GoodsInOnePageScreensTest` and `ReceivingScreensTest` (the title's words, the back link, the line under it, the duty in the answers,
+Received with the items under it, the board's pill and its lines checked), `InvoiceOnePageScreensTest` (the three lists' columns, groups,
+pills; the order's steps, paper, Related, More; the part delivery's pill), `SalesScreensTest` (the groups, the rows, the Show, Download,
+the Show counts instead of the strip, a late order's hours), `StockPatternsScreensTest` (Trade sales). Each fails on 8acedfb
+(`runs/rd2b_red.log`: 24 of 93); every behaviour pin is unchanged.

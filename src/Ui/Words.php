@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -60,7 +60,7 @@ final class Words
         'LQ',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
-        'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
+        'SALE', 'SALE_STATE', 'SALE_GROUP', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
         // Pack B
         'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION',
         // --- Pack C (IM7)
@@ -1229,6 +1229,7 @@ final class Words
         'to' => 'To',
         'clear' => 'Clear the filters',
         'download' => 'Download this list as a spreadsheet (CSV)',
+        'download_short' => 'Download', // the head's one button (RD-B3, the approved Sales.dc.html)
         'store_count' => 'paid orders waiting to ship',
         'period_default' => 'Placed in the last %s days',
         'period_today' => 'Placed today',
@@ -1258,6 +1259,16 @@ final class Words
         'none_filtered_text' => 'No order fits the days, the state or the way in you chose. Clear them to see every order of this store choice.',
         'csv_more' => 'only the newest %s orders: narrow the filter for the rest',
         'csv_stopped' => 'the list stopped after reading %s orders: narrow the filter for the rest',
+    ];
+
+    /** The sales orders list's groups (RD-B3, the approved Sales.dc.html), in SalesController::GROUPS order. */
+    public const SALE_GROUP = [
+        'to_ship' => 'Waiting to ship',
+        'shipped' => 'Shipped',
+        'ended' => 'Returned or cancelled',
+        'held' => 'Reserved now (in a checkout, not paid)',
+        'released' => 'Freed by the store (not paid)',
+        'expired' => 'Ran out of time (not paid)',
     ];
 
     /** One order's page (/ui/stock/sales/{id}): its facts, its sold units, and each unit's stock changes. */
@@ -2292,6 +2303,20 @@ final class Words
         'received' => 'Received',
         'closed' => 'Closed',
         'cancelled' => 'Cancelled',
+    ];
+
+    /** A saved order's progress steps (RD-B4, the approved PurchaseOrder.dc.html), in PurchaseOrdersController::steps() order. */
+    public const PO_STEP = [
+        'approved' => 'Approved',
+        'sent' => 'Sent to supplier',
+        'received' => 'Received',
+        'invoiced' => 'Invoiced',
+        'not_yet' => 'Not yet',
+        'unit_one' => '%s unit',
+        'units' => '%s units',
+        'units_of' => '%s of %s units',
+        'done' => 'done',
+        'now' => 'now',
     ];
 
     /** Words on the purchase-order pages. */
@@ -5970,6 +5995,7 @@ final class Words
         'show_all' => 'All orders',
         'show_closed' => 'Closed and cancelled',
         'search_hint' => 'Number or supplier\'s reference',
+        'part_of' => '%s of %s received', // the list's pill of a part delivery (RD-B1)
     ];
 
     /** One purchase order and the draft editor (/ui/purchasing/orders/{id}, plan §6.19, 6.20). */
@@ -6124,6 +6150,38 @@ final class Words
         'history' => 'Checks and OKs',
         'no_history' => 'Nothing was asked for yet.',
         'about_cancel' => 'About the cancellation record %s.',
+        // The saved order as the approved PurchaseOrder.dc.html draws it (RD-B4): the line under the title, the paper, Related and History
+        'fact_ordered' => '%s · ordered %s by %s',
+        'fact_started' => '%s · started %s by %s',
+        'deliver_to' => 'Deliver to',
+        'deliver_tbc' => 'To be confirmed (Company details)',
+        'expected_short' => 'Expected',
+        'terms' => 'Payment terms',
+        'their_ref' => 'Their reference',
+        'note_title' => 'Note to supplier',
+        'col_item' => 'Item',
+        'col_ordered' => 'Ordered',
+        'col_received' => 'Received',
+        'col_cost' => 'Unit cost',
+        'col_line_total' => 'Line total',
+        'packs_of' => '%s × %s',
+        'per' => 'per %s',
+        'to_come_pill' => '%s to come',
+        'related' => 'Related',
+        'no_related' => 'Nothing yet.',
+        'rel_received' => 'Goods received',
+        'rel_invoices' => 'Purchase invoices',
+        'rel_corrects' => 'It corrects %s',
+        'rel_corrected_by' => 'Corrected by %s',
+        'history_title' => 'History',
+        'no_events' => 'Nothing happened to it yet.',
+        'ev_started' => 'Started by %s',
+        'ev_asked' => 'OK asked for by %s',
+        'ev_confirmed' => 'Confirmed by %s',
+        'ev_sent' => 'Sent by %s (%s)',
+        'ev_closed' => 'Closed by %s: %s',
+        'ev_cancelled' => 'Cancelled by %s: %s',
+        'ev_cancelled_record' => 'Cancelled: %s (cancellation record %s)',
         // The draft editor
         'order' => 'The order',
         'supplier_fixed' => 'The supplier can change only while the order has no products.',
@@ -8730,6 +8788,10 @@ final class Words
         'col_packs' => 'Packs in',
         'col_check' => 'Check',
         'col_duty' => 'Duty stamp',
+        // The approved GoodsReceived.dc.html's "Counted" (RD-B5): "count" is only for shelf counts (correction b), so it says Received: the
+        // packs in, the items they make under them.
+        'col_got' => 'Received',
+        'fact_checked' => '%s of %s lines checked', // the line under the delivery's title (RD-B5)
         'line_n' => 'line %s',
         'ordered_items' => '%s items',
         'of_items' => 'of %s',
@@ -10659,6 +10721,10 @@ final class Words
         'group_draft' => 'Draft',
         'group_final' => 'Final',
         'group_cancelled' => 'Cancelled',
+        // The invoices' groups as the approved PurchaseInvoices.dc.html names them (RD-B2): a draft is matched when it is made final.
+        'group_draft_inv' => 'To match',
+        'group_final_inv' => 'Matched',
+        'owed_line' => '%s still owed', // under a total a credit note reduced (RD-B2)
         'needs_look' => 'Needs a look',
         'tag_matches' => 'Matches',
         'tag_diff_one' => '%s difference',
@@ -10681,7 +10747,7 @@ final class Words
     /** Words that differ between an invoice and a credit note (SupplierInvoices kinds). */
     public const INVOICE_KIND = [
         'invoice' => [
-            'tab' => 'Supplier invoices',
+            'tab' => 'Purchase invoices', // the approved PurchaseInvoices.dc.html (RD-B2)
             'one' => 'Supplier invoice',
             'number' => 'Their invoice number',
             'date' => 'Date on the invoice',
@@ -11935,6 +12001,7 @@ final class Words
         'since' => 'Final since',
         'units_on_way' => 'Units on their way',
         'units_sold' => 'Of them sold before they arrive',
+        'sold_line' => '%s sold before they arrive', // under the units on their way (RD-B6)
         'late' => 'Late',
         'hours' => '%s hours',
         'receive' => 'Receive',
@@ -12036,6 +12103,8 @@ final class Words
         'BULK_RESULT' => ['done' => 'done', 'pending_second' => 'review', 'skipped' => 'needs'],
         // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],
+        // The approved Sales.dc.html's dots (RD-B3): waiting to ship blue, shipped green, returned or cancelled grey.
+        'SALE_GROUP' => ['to_ship' => 'info', 'shipped' => 'done', 'ended' => 'waiting', 'held' => 'review', 'released' => 'off', 'expired' => 'waiting'],
         'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
         // By item's cells, as Store products colours the same states.
         'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'rejected' => 'blocked', 'none' => 'waiting'],

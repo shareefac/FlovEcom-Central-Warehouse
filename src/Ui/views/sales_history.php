@@ -22,7 +22,7 @@ foreach ($channels as $c) {
 <?= $empty(\CW\Ui\Words::SALES['none'], \CW\Ui\Words::SALES['none_text']) ?>
 <?php endif; ?>
 <?php foreach ($channels as $c): ?>
-<div class="grp-block doc-group <?php if ($c['top'] === []): ?>done<?php else: ?>needs<?php endif; ?>">
+<div class="grp-block doc-group <?php if ($c['top'] === []): ?>done<?php else: ?>needs<?php endif; ?> rd-list">
   <h2 class="grp-title" id="ch-<?= $e($c['code']) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($c['code']) ?>"><?= $e($c['name']) ?></button> <span class="grp-count"><?php if (count($c['top']) === 1): ?><?= $word('SALES', 'group_one') ?><?php else: ?><?= $say('SALES', 'group_many', count($c['top'])) ?><?php endif; ?></span></h2>
   <div id="g-<?= $e($c['code']) ?>">
   <dl class="doc-facts">
