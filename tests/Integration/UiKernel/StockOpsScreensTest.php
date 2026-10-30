@@ -61,8 +61,8 @@ final class StockOpsScreensTest extends KernelUiTestCase
         self::assertSame([['Stock on hand', '/ui/stock'], ['Adjustments', '/ui/stock/adjustments'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
             ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)), 'Stock in is an Adjustments page (RD4): its entry a link from here');
-        self::assertSame([['Corrections', '/ui/stock/adjustments'], ['Stock in', null], ['Stock out', '/ui/stock/out'], ['Releases', '/ui/stock/releases']],
-            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($page)), 'Adjustments\' Show');
+        self::assertSame([['Stock in', null], ['Stock out', '/ui/stock/out'], ['Corrections', '/ui/stock/adjustments'], ['Releases', '/ui/stock/releases']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($page)), 'Adjustments\' Show, in Inventory.dc.html\'s order (RD-A5)');
         self::assertSame([], self::moreTabs($page));
         self::assertSame(['Inventory', 'Adjustments'], [self::currentSection($page), self::currentTab($page)]);
         self::assertStringContainsString(Words::STOCK_KIND['in']['none'], $page->text());

@@ -7,9 +7,12 @@
 // sells a week. For the people who count the board sits inside the "open a count sheet" form, whose bar at the bottom holds "N ticked"
 // (app.js), More (the other ways to count: the next N due, everything found, an empty sheet; the shelf; a note) and the ONE main button
 // "Count the ticked items". Enter in a field counts the ticked items (the hidden first button).
+// The head's right is rd1's (split: "Open sheets (N)", then ONE More with the list's items) without a create button: the page's ONE main
+// action is the bar's (Counts.dc.html; docs/decisions.md RD-I8).
+$side = $partial('split', ['actions' => [], 'pages' => [], 'menu' => $bar,
+    'extra' => $openSheets > 0 ? ['href' => $openSheetsHref, 'label' => \CW\Ui\Words::say('COUNTS', 'open_sheets', $openSheets)] : null]);
 ?>
-<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'counts', look: $lookOnly,
-    menu: $bar, extra: $openSheets > 0 ? ['href' => $openSheetsHref, 'label' => \CW\Ui\Words::say('COUNTS', 'open_sheets', $openSheets)] : null) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['counts'], intro: 'counts', look: $lookOnly, side: $side) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('COUNTS', 'find') ?>"></div>
 <?php if ($f['warehouse'] !== null): ?>

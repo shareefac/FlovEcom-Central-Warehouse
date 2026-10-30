@@ -160,7 +160,8 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $page = $lead->get('/ui/items/packs');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame(['Items', 'Multipacks'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame(['Pack items', 'Pack links'], array_column(self::segments($page), 'label'));
+        self::assertSame(['Pack items', 'Pack items, switched off too', 'Pack links'], array_column(self::segments($page), 'label'),
+            'Multipacks\' Show: its own choices, then Pack links (RD-A7, RD-I8)');
         $r = $this->submit($lead, '/ui/items/packs', '/ui/items/packs', ['pack' => sprintf('CW-%06d', $box), 'single' => (string) $shot, 'units' => '10']);
         self::assertSame(303, $r->status, ($r->errorCode() ?? "") . " " . $r->describe());
         $list = $lead->follow($r);

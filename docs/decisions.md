@@ -14973,9 +14973,7 @@ toolbar now draws it there:
   group's pages, then the page's own fields and Show button (its `div.tb-state`), in the same GET form as the search. Every field keeps its
   name and value; with fewer than two pages in the group the two draw nothing (the `div.tb-state` as before). History's pop-over Show
   (DC27) is its fields in that panel.
-- A page whose own choices are links (rd2a's pages) draws `$showMine($choices, $other)`: the group's pages with the page's own choices in
-  place of its entry; a choice that opens another page of the group is the group's (its permission, count and kept store: rd2a's "Made by
-  hand" was drawn for everyone).
+- A page whose own choices are links (rd2a's pages) draws `$showMine($choices, $other)` (RD-I8).
 - Settings' section list (RD-C14) is the Settings group's way between its pages (`$showNav()`): no Show row on a settings page.
 - A grouped page without a toolbar (Arriving, Timed, the duty register, Brand settings and the other reorder pages, Balances, Staff
   requests) keeps the head's Show row.
@@ -15011,8 +15009,8 @@ block. Now:
   "Made by hand" for everyone, a 403 for those who may not make items; Pack links likewise); the group's pages no choice names follow.
 - The header is rd1's: its create button (the page's `new` of `Sections::MAP`, the same link and words rd2a's `main` had) and ONE More,
   which holds the page's other "New …", then the list's items (`views/list_more.php`, rd2a's filter fold and links, via
-  `$head(…, menu: $bar)`); Stock counts' "Open sheets (N)" is `extra:`, a plain button before them. Items to count now has rd1's
-  "+ New count" (its `#new` is the count-sheet form; Counts.dc.html draws none: a reviewer's call).
+  `$head(…, menu: $bar)`). Stock counts (Items to count) draws no create button: its ONE main action is the bar's "Count the ticked
+  items" (Counts.dc.html), so its head is rd1's `split` drawn by the page (`side:`): "Open sheets (N)" (`extra`), then the ONE More.
 - `rda_show.php`, `rda_bar.php`, their CSS (`.show-pick`, `.page-more`) and the controllers' dead `main` went; the menu's height cap moved
   to rd1's Show. rd2a's three status cells without the pill (Items, Stock on hand, Reserved stock) hold it.
 - `KernelUiTestCase::storeChoice()` reads the store from the Show row's form or the header More's filter form (`form.list-filters`, rd2a):
