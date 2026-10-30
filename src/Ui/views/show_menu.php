@@ -14,7 +14,7 @@ foreach ($choices as $c) {
 }
 ?>
 <details class="show-menu">
-  <summary class="show-select"><span class="visually-hidden"><?= $word('UI', 'show') ?>: </span><span class="show-now"><?= $e($now['label'] ?? \CW\Ui\Words::UI['show']) ?></span></summary>
+  <summary class="show-select"><span class="visually-hidden"><?= $word('UI', 'show') ?>: </span><span class="show-now"><?= $e($now['label'] ?? \CW\Ui\Words::UI['show']) ?></span><?php if ($own): ?><!--cw:on--><?php endif; ?></summary>
 <?php if ($own): ?>
   <div class="show-panel">
 <?php endif; ?>

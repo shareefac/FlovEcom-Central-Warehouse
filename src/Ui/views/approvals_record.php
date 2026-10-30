@@ -7,7 +7,8 @@
 // form and note. Without the script every answer is a plain form. Its forms keep what is typed: a link that leaves the page asks first
 // (data-unsaved, CV14; AV19), and a refused answer comes back with them marked as not saved. The approved Approvals artboard of 30 Oct 2026
 // (docs/decisions.md RD-C13): the figures as tiles (the first in the kind's tint), the note under them, then "Next: …" at the left of the
-// answers, More and the main answer at the right; the kind shown on the list travels with the answer (inbox_show).
+// answers, More and the main answer at the right; the kind shown on the list travels with the answer (inbox_show). Enter in a field sends the
+// main answer: the form's first submit button is its hidden twin (More's buttons stand before the main one; docs/decisions.md RD-F1).
 ?>
 <section class="ap-record <?= $e($record['tone']) ?>" aria-labelledby="ap-h">
 <div class="card ap-card">
@@ -45,6 +46,7 @@
   <p class="error" role="alert" data-code="<?= $e($record['errorCode']) ?>"><?= $e($record['error']) ?></p>
 <?php endif; ?>
   <form class="ap-answer" id="ap-answer" method="post" action="<?= $u($record['action']) ?>" data-unsaved="1"<?php if ($record['error'] !== null && !$record['moreOpen']): ?> data-dirty="1"<?php endif; ?>>
+    <button type="submit" class="po-default" tabindex="-1" aria-hidden="true"<?php if ($record['mainName'] !== null): ?> name="<?= $e($record['mainName']) ?>" value="<?= $e($record['mainValue']) ?>"<?php endif; ?>><?= $e($record['main']) ?></button>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="inbox" value="1">
     <input type="hidden" name="inbox_pos" value="<?= $e($record['pos']) ?>">

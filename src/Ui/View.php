@@ -75,8 +75,10 @@ final class View
     private bool $headDrawn = false;
     /** Whether the page's template drew a Show ($showMenu): then the head's slot stays empty */
     private bool $showDrawn = false;
-    /** @var list<string> what $showEnd() closes, the last $showStart() first */
+    /** @var list<bool> what $showEnd() closes, the last $showStart() first: true for a Show drawn (its fields held), false for none */
     private array $showOwn = [];
+    /** Where show_menu.php leaves room on its summary for the count of filters on (filled by $showEnd(); no template can print it). */
+    private const ON_SLOT = '<!--cw:on-->';
     /** Where the head leaves room for the group's Show, filled once the body is drawn (page()): no template can print it (escaping). */
     private const SHOW_SLOT = '<!--cw:show-->';
 
@@ -132,7 +134,7 @@ final class View
             'showMenu' => fn (?array $choices = null): string => $this->show($choices),
             'groupPages' => fn (): array => is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [],
             'showStart' => fn (?array $choices = null): string => $this->showStart($choices),
-            'showEnd' => fn (): string => array_pop($this->showOwn) ?? '',
+            'showEnd' => fn (): string => $this->showEnd(),
             'showMine' => fn (array $own, ?string $other = null): string => $this->show(self::mine($this->frame['segments'] ?? [], $own, $other)),
             'showNav' => function (): string {
                 $this->showDrawn = true;
@@ -149,10 +151,15 @@ final class View
         return (static function (string $__file, array $__vars): string {
             extract($__vars, EXTR_SKIP);
             ob_start();
+            $__level = ob_get_level();
             try {
                 include $__file;
                 return (string) ob_get_contents();
             } finally {
+                // A $showStart() whose $showEnd() never ran (the template failed between them) leaves its buffer: drop it too.
+                while (ob_get_level() > $__level) {
+                    ob_end_clean();
+                }
                 ob_end_clean();
             }
         })($file, $all);
@@ -203,11 +210,58 @@ final class View
         $this->showDrawn = true;
         $choices ??= is_array($this->frame['segments'] ?? null) ? $this->frame['segments'] : [];
         if (count($choices) < 2) {
-            $this->showOwn[] = '';
+            $this->showOwn[] = false;
             return '';
         }
-        $this->showOwn[] = '</div></details>';
-        return $this->render('show_menu', ['choices' => array_values($choices), 'own' => true]);
+        $this->showOwn[] = true;
+        $menu = $this->render('show_menu', ['choices' => array_values($choices), 'own' => true]);
+        // What the template writes up to $showEnd() (the page's fields) is held, so the closed Show can say how many of them are on.
+        ob_start();
+        return $menu;
+    }
+
+    /**
+     * Closes ONE Show ($showStart … $showEnd): the menu and the page's fields as written, with the number of its filters that are on beside the
+     * choice shown on the closed control (the fix round, docs/decisions.md RD-F5: a filter on is never hidden behind a closed Show).
+     */
+    private function showEnd(): string
+    {
+        if (array_pop($this->showOwn) !== true) {
+            return '';
+        }
+        $inner = (string) ob_get_clean();
+        $at = strpos($inner, '</ul>');
+        $on = self::filtersOn($at === false ? $inner : substr($inner, $at));
+        return str_replace(self::ON_SLOT, $on === 0 ? '' : ' ' . self::onCount($on), $inner) . '</div></details>';
+    }
+
+    /**
+     * How many filters are on in a form's fields as drawn: a select whose chosen option is not its first (the first is "any" or the page's own
+     * default), a ticked box, a filter kept from the address as a hidden field with a value.
+     */
+    public static function filtersOn(string $html): int
+    {
+        $on = 0;
+        preg_match_all('#<select\b[^>]*>(.*?)</select>#s', $html, $selects);
+        foreach ($selects[1] as $body) {
+            preg_match_all('#<option\b([^>]*)>#', $body, $options);
+            foreach ($options[1] as $i => $attrs) {
+                if (preg_match('/\sselected\b/', $attrs) === 1) {
+                    $on += $i > 0 ? 1 : 0;
+                    break;
+                }
+            }
+        }
+        $on += preg_match_all('#<input\b(?=[^>]*\btype="checkbox")(?=[^>]*\schecked\b)[^>]*>#', $html);
+        $on += preg_match_all('#<input\b(?=[^>]*\btype="hidden")(?=[^>]*\bvalue="[^"]+")[^>]*>#', $html);
+        return $on;
+    }
+
+    /** The count of filters on, on a closed Show or More: "2" with its words for a screen reader and in its title. */
+    public static function onCount(int $on): string
+    {
+        $words = Html::e(Words::CARDS['filters_on']);
+        return '<span class="count" title="' . $on . ' ' . $words . '">' . $on . '<span class="visually-hidden"> ' . $words . '</span></span>';
     }
 
     /**

@@ -163,7 +163,11 @@
 <?php else: ?>
   <ul class="plain po-rel-list">
 <?php foreach ($related as $rel): ?>
+<?php if ($rel['href'] === null): ?>
+    <li><span class="po-rel-item"><span class="po-rel-text"><?= $e($rel['text']) ?><?php if (($rel['sub'] ?? null) !== null): ?><span class="o-sub"><?= $e($rel['sub']) ?></span><?php endif; ?></span><?php if (($rel['pill'] ?? null) !== null): ?><?= $chip($rel['tone'], $rel['pill']) ?><?php endif; ?></span></li>
+<?php else: ?>
     <li><a href="<?= $u($rel['href']) ?>"><span class="po-rel-text"><?= $e($rel['text']) ?><?php if (($rel['sub'] ?? null) !== null): ?><span class="o-sub"><?= $e($rel['sub']) ?></span><?php endif; ?></span><?php if (($rel['pill'] ?? null) !== null): ?><?= $chip($rel['tone'], $rel['pill']) ?><?php endif; ?></a></li>
+<?php endif; ?>
 <?php endforeach; ?>
   </ul>
 <?php endif; ?>

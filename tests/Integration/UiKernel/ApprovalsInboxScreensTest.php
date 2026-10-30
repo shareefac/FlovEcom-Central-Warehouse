@@ -375,6 +375,54 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         self::assertSame(200, $web->get(self::INBOX, ['open' => '<x>', 'pos' => 'y'])->status);
     }
 
+    /**
+     * Enter in an answer's field sends the main answer, on every kind (the fix round of 30 Oct 2026, docs/decisions.md RD-F1; the Codex
+     * review of 8cba061): the form's implicit submitter (the first submit button whose form is the answer's, in the page's order) is the main
+     * answer, never a rarer one under More (Reject, Dismiss), which since the redesign stands before the main button.
+     */
+    public function testEnterSendsTheMainAnswerOnEveryKind(): void
+    {
+        $a = $this->fill('vpg');
+        $x = $this->item('strict', 100, 'Zeta pod');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $r = $web->post('/ui/stock/counts', ['mode' => 'ticked', 'pick_' . $x => '1'] + $web->get('/ui/stock/counts')->form('/ui/stock/counts'));
+        self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        $sheet = (string) parse_url((string) $r->location(), PHP_URL_PATH);
+        $line = (int) self::$db->value('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND sku_id = ?', [(int) basename($sheet), $x]);
+        $web->post($sheet . '/lines', ['csrf' => $this->token($web), 'q_' . $line => '80']);
+        self::assertSame(303, $web->post($sheet . '/post', $web->get($sheet . '/differences')->form($sheet . '/post'))->status);
+        // Every record of the list: the one open at first, then each row's own link.
+        $queries = [[]];
+        foreach ((new \DOMXPath($web->get(self::INBOX)->dom()))->query('//a[contains(@class, "ap-row")][@href]') ?: [] as $link) {
+            /** @var \DOMElement $link */
+            parse_str((string) parse_url($link->getAttribute('href'), PHP_URL_QUERY), $query);
+            $queries[] = $query;
+        }
+        $kinds = [];
+        foreach ($queries as $query) {
+            $page = $web->get(self::INBOX, $query);
+            self::assertSame(200, $page->status, $page->describe());
+            $xp = new \DOMXPath($page->dom());
+            self::assertInstanceOf(\DOMElement::class, $xp->query('//form[@id="ap-answer"]')->item(0));
+            $kind = substr((string) $xp->evaluate('string(//a[contains(@class, "ap-row") and @aria-current="true"]/ancestor::div[contains(@class, "ap-group")]/h2/@id)'), 5);
+            // The submit buttons whose form is the answer's, in the page's order (an XPath union is in document order).
+            $buttons = array_values(array_filter(iterator_to_array($xp->query('//form[@id="ap-answer"]//button[not(@form)] | //button[@form="ap-answer"]')),
+                static fn (\DOMElement $b): bool => in_array($b->getAttribute('type'), ['', 'submit'], true)));
+            $main = $xp->query('//button[@form="ap-answer" and contains(concat(" ", @class, " "), " primary ")]')->item(0);
+            self::assertInstanceOf(\DOMElement::class, $main, $kind);
+            $first = $buttons[0];
+            self::assertFalse($first->hasAttribute('disabled'), "{$kind}: Enter answers");
+            self::assertSame('', $first->getAttribute('formaction'), "{$kind}: Enter goes to the main answer's route, not a rarer one under More");
+            self::assertSame([$main->getAttribute('name'), $main->getAttribute('value')], [$first->getAttribute('name'), $first->getAttribute('value')],
+                "{$kind}: Enter sends the main answer");
+            $kinds[$kind] = true;
+        }
+        foreach (['corrections', 'suspense', 'modes', 'oversold', 'counts'] as $kind) {
+            self::assertArrayHasKey($kind, $kinds, "{$kind} was opened");
+        }
+        unset($a);
+    }
+
     public function testWebsiteBugsFromTheInbox(): void
     {
         $site = $this->site('electrofag');

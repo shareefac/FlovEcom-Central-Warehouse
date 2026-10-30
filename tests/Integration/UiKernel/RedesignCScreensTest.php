@@ -118,14 +118,16 @@ final class RedesignCScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $xp = self::xp($page);
         self::assertSame(Words::RD_MATCH['title'], trim((string) $xp->evaluate('string(//main//h1)')));
-        // The two tabs: By item shown (no link), New on the stores with its count.
+        // The two tabs: By item shown (no link), New on the stores; its count is worked out only when that tab is open (the fix round,
+        // docs/decisions.md RD-F9: no per-store reads on every By item load).
         $tabs = $xp->query('//nav[contains(@class, "bi-tabs")]/a[@class="tab"]');
         self::assertSame(2, $tabs->length);
         self::assertSame('page', $tabs->item(0)->getAttribute('aria-current'));
         self::assertFalse($tabs->item(0)->hasAttribute('href'));
         self::assertSame('/ui/review/products?tab=new', $tabs->item(1)->getAttribute('href'));
-        $count = (int) trim((string) $xp->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[2]/span[@class="count"])'));
-        self::assertGreaterThanOrEqual(2, $count, 'the stores\' products still to match');
+        self::assertSame(0, $xp->query('//nav[contains(@class, "bi-tabs")]/a[2]/span[contains(@class, "count")]')->length, 'no count read on By item');
+        $count = (int) trim((string) self::xp($web->get('/ui/review/products', ['tab' => 'new']))->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[2]/span[@class="count"])'));
+        self::assertGreaterThanOrEqual(2, $count, 'the stores\' products still to match, on the open tab');
         // A row per item: its line says on how many stores it is matched; a chip per store.
         $row = '//div[@id="p-' . $a . '"]';
         self::assertStringContainsString(Words::say('RD_MATCH', 'stores_n', 1, 2), (string) $xp->evaluate('string(' . $row . '//span[@class="bi-on"])'));
@@ -214,6 +216,22 @@ final class RedesignCScreensTest extends KernelUiTestCase
         }
     }
 
+    /**
+     * An empty report still says how fresh its figures are (the fix round, docs/decisions.md RD-F7): the refresh never run (or switched off)
+     * is said whether or not the report has rows.
+     */
+    public function testAnEmptyReportStillSaysHowFreshItsFiguresAre(): void
+    {
+        self::$db->exec('UPDATE report_refresh SET ran_at = NULL');
+        $rev = $this->signIn($this->uiUser('reviewer'));
+        foreach (['/ui/reports/sales-by-store', '/ui/reports/slow-stock', '/ui/reports/stock-value'] as $path) {
+            $page = $rev->get($path);
+            self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
+            self::assertSame(0, self::xp($page)->query('//article[contains(@class, "rp-paper")]')->length, "{$path}: no rows");
+            self::assertStringContainsString(Words::REPORTS['never_run'], $page->text(), "{$path}: never brought up to date, said with no rows");
+        }
+    }
+
     public function testEverySettingsPageListsTheSectionsThePersonMayOpen(): void
     {
         $rev = $this->signIn($this->uiUser('reviewer'));
@@ -262,7 +280,8 @@ final class RedesignCScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//section[contains(@class, "hm-jobs")]')->length);
         $reviewer = $this->signIn($this->uiUser('reviewer'));
         $rx = self::xp($reviewer->get('/ui/'));
-        self::assertSame('value', (string) $rx->evaluate('string(//section[contains(@class, "hm-tiles")]/a[1]/@data-tile)'), 'the stock value first, for whoever sees money');
+        self::assertSame(0, $rx->query('//section[contains(@class, "hm-tiles")]/a[@data-tile="value"]')->length,
+            'no stock value tile even for whoever sees money: never the whole valuation on a Home load (the fix round, RD-F8)');
         $admin = $this->signIn($this->uiUser('admin'));
         $ax = self::xp($admin->get('/ui/'));
         self::assertSame(['VPG test site'], self::texts($ax, '//section[contains(@class, "hm-stores")]//span[@class="hm-store-t"]'), 'the Stores card for whoever sees the stores');
@@ -318,6 +337,14 @@ final class RedesignCScreensTest extends KernelUiTestCase
         $form = $one->form($action);
         self::assertSame('suspense', $form['inbox_show'] ?? null);
         self::assertSame(1, $ox->query('//div[@class="ap-actions"]/p[@class="ap-next"]/following-sibling::button[contains(@class, "primary")]')->length, 'Next at the left, the main answer last');
+        // A kind with nothing left (its last one answered, the list kept on it): the Show stays on that kind, the page says nothing of that
+        // kind waits and links to everything waiting (the fix round, docs/decisions.md RD-F6).
+        $none = $web->get(InboxController::PATH, ['show' => 'landing']);
+        $nx = self::xp($none);
+        self::assertSame('landing', (string) $nx->evaluate('string(//select[@name="show"]/option[@selected]/@value)'), 'the Show stays on the kind');
+        self::assertStringContainsString(Words::say('RD_INBOX', 'none_kind', Words::INBOX['kind_landing']), $none->text());
+        self::assertStringNotContainsString(Words::INBOX['none'], $none->text(), 'not "nothing is waiting": other kinds wait');
+        self::assertSame(1, $nx->query('//main//div[contains(@class, "empty")]//a[@href="/ui/approvals"]')->length, 'the way to everything waiting');
         // Another value is no kind: everything is shown.
         self::assertCount(4, self::texts(self::xp($web->get(InboxController::PATH, ['show' => 'nope'])), '//div[contains(@class, "ap-group")]/h2'));
         unset($a, $b);

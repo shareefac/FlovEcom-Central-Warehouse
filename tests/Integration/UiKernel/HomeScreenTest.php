@@ -181,15 +181,16 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//main//details[@id="about"] | //main//ul[@class="uses"] | //main//section[@class="progress-box"]')->length);
         self::assertStringNotContainsString(Words::HOME['coverage'], $home->text());
         self::assertStringContainsString(Words::HOME['coverage'], $web->get('/ui/review')->text());
-        // The four tinted tiles of the Main artboard (docs/decisions.md RD-C15): the stock value at cost, the units on the shelf, what waits for
-        // this person's OK, the listings to match.
-        self::assertSame(['value', 'units', 'inbox', 'matches'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+        // The four tinted tiles of the Main artboard (docs/decisions.md RD-C15): the units on the shelf, what waits for this person's OK, the
+        // listings to match, the open orders. No stock value: Home never works out the whole valuation on a load (the fix round, RD-F8); the
+        // valuation report has it.
+        self::assertSame(['units', 'inbox', 'matches', 'orders'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
             iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
-        self::assertSame(['/ui/reports/stock-value', '/ui/stock', '/ui/approvals', '/ui/review?queue=Key'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+        self::assertSame(['/ui/stock', '/ui/approvals', '/ui/review?queue=Key', '/ui/purchasing/orders'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
         self::assertMatchesRegularExpression('/^[0-9,]+$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="units"]/span[@class="hm-fig-n"])')),
             'each a number');
-        self::assertMatchesRegularExpression('/^£[0-9,]+\.\d\d$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="value"]/span[@class="hm-fig-n"])')), 'the value in money');
+        self::assertNotContains('value', \CW\Ui\DashboardTiles::ORDER, 'no tile reads the whole valuation');
 
         // One answer: 1 of 20, and the button opens the next member.
         // (the spot check's own "Same item": its own small form in the bar, docs/decisions.md W12.3)

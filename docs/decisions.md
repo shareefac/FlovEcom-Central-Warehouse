@@ -15015,3 +15015,51 @@ block. Now:
   to rd1's Show. rd2a's three status cells without the pill (Items, Stock on hand, Reserved stock) hold it.
 - `KernelUiTestCase::storeChoice()` reads the store from the Show row's form or the header More's filter form (`form.list-filters`, rd2a):
   kept. The tests' pins moved from `.show-pick` / `.page-more` to `details.show-menu` / the header's `details.more`.
+
+## The redesign's fix round (branch `redesign-fixes`, 30 Oct 2026; RD-F1-RD-F11)
+
+The Codex review of the integrated redesign (8cba061, on staging) and the coordinator's Chrome check. Each fix has a test that failed first
+(`runs/rdfix_red.log`).
+
+**RD-F1. Enter sends the main answer on every Approvals record.** Since the redesign the record's answers are "Next", More, then the main
+answer, so More's buttons of the same form (Reject a count difference, Dismiss a correction or a mode change, a note on an oversold order)
+came first in the page's order and Enter in a field sent the rarer one. The answer form now starts with a hidden twin of the main answer
+(`button.po-default`, the same name and value, no other route; out of the tab order and hidden from a screen reader), the pattern of the
+other one-form pages. `ApprovalsInboxScreensTest::testEnterSendsTheMainAnswerOnEveryKind` opens every record of every kind and checks the
+form's first submit button.
+
+**RD-F2. A purchase order's Related links only to what the person may open.** Goods received needs `receiving.view` (a buyer has not),
+the invoices `invoices.view` (goods in has not), a file `documents.view`: without it the row keeps its words and its pill, with no link.
+
+**RD-F3. Items' Show says what each choice holds.** The group "Needs a look" holds the cards still to confirm and the blocked ones, and a
+confirmed card can be blocked; its one Show choice sent `state=unconfirmed`, which leaves those out. The Show now has two truthful choices,
+"Not confirmed" (`state=unconfirmed`: a card not confirmed, or none) and "Blocked" (the existing `blocked=1`); the group keeps its name.
+Made by hand's Show says the same.
+
+**RD-F4. A cancellation record moves the units the other way on the list.** A stock in's cancellation record takes them off (−, red), a stock
+out's puts them back (+, green): `StockOpsController::unitsWay($kind, $cancellation)` (`reverses_id`).
+
+**RD-F5. A filter on is said on its closed control.** ONE Show holds a grouped page's own fields in its panel (RD-I2) and a list's More its
+filter fold (RD-I8): both were closed with nothing to say a filter was on. The closed Show now shows how many of its fields are on (a select
+not on its first choice, a ticked box, a filter kept from the address: `View::filtersOn`, worked out from the fields as drawn), and the
+closed More how many of the list's filters are (`split.php`, when its fold is open), each a count with "filters on" (DC27's words).
+
+**RD-F6. A kind with nothing left keeps its Show.** Answering the last record of the kind shown kept `inbox_show`, but the kind left the
+choices, so the Show fell back to "Everything waiting" while the page said nothing was waiting. The kind shown stays a choice (0) and the page
+says nothing under that kind waits, how many wait under the others, and links to everything waiting.
+
+**RD-F7. An empty report still says how fresh its figures are.** Sales by store, Inventory aging and the valuation drew their "brought up to
+date … / not yet / switched off" line only in the report's head, which an empty report does not draw: it is now said above the empty state too.
+
+**RD-F8. Home reads no whole valuation.** The stock value tile summed every balance with its average cost on every Home load. CW keeps no
+stored total of it, so the tile is not drawn: Home's four are the units, what waits for the person's OK, the listings to match and, filling
+in, the open orders. Needs a build: a valuation total kept by the reports' refresh (then the tile can come back as the artboard draws it).
+
+**RD-F9. By item counts no new store products.** The New on the stores tab's number was worked out on every By item load (two reads a store,
+more after an import); it is now counted only on the open New tab (its store choice needs those reads anyway), and By item's tab has no number.
+
+**RD-F10. By item's search and filter are one row.** The search, the match status and its Show button share the toolbar's row and wrap on a
+phone (the Chrome check: they were stacked full width under the search).
+
+**RD-F11. New on the stores stays per store.** "All stores" would need New variants' reads across every store merged and paged together (one
+read per store is what CW has): not built (needs a build, as RD-C7 says); the store choice lists each store with its count.

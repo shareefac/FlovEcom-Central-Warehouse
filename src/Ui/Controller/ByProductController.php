@@ -69,10 +69,11 @@ final class ByProductController
         $layout = ['title' => Words::RD_MATCH['title'], 'active' => 'by_product', 'notice' => (new ReviewController())->notice($ctx, null)];
         $lookOnly = $me->canDecide() ? null : Words::whoCan('mapping.decide');
         // The page's two tabs (the approved ByItem artboard of 30 Oct 2026; the owner asked for them; docs/decisions.md RD-C7): By item (this
-        // list) and New on the stores (`tab=new`: the stores' new products still to match, from New variants' own reads). Both count the
-        // second tab's products; the page's More holds every other matching page.
-        $fresh = $this->newOnStores($ctx, $req->param('tab') === 'new');
+        // list) and New on the stores (`tab=new`: the stores' new products still to match, from New variants' own reads). Only the open New tab
+        // counts them (its store choice needs the reads anyway): By item makes no per-store read for a count (the fix round, RD-F9). The
+        // page's More holds every other matching page.
         if ($req->param('tab') === 'new') {
+            $fresh = $this->newOnStores($ctx, true);
             if ($fresh['unknown']) {
                 return $ctx->error(404, 'unknown_store', 'no such store', [Html::url(ByProductContext::LIST_PATH, ['tab' => 'new']), Words::RD_MATCH['tab_new']]);
             }
@@ -85,7 +86,7 @@ final class ByProductController
             return $ctx->page('by_product', ['stores' => [], 'rows' => [], 'pills' => [], 'text' => '', 'coverage' => null, 'total' => 0, 'shown' => 0, 'page_no' => 1, 'pages' => 1,
                 'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'clear_search' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
                 'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => '',
-                'freshCount' => $fresh['count']],
+                'freshCount' => null],
                 200, $layout);
         }
         $cov = ByProductContext::coverage($req->param('cov'), $stores);
@@ -221,7 +222,7 @@ final class ByProductController
             'bulkMax' => BulkDecisions::maxRows($ctx->db),
             'manualNote' => array_filter($rows, static fn (array $r): bool => $r['manual']) !== [],
             'allLink' => Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page > 1 ? $page : null, 'all' => 1]),
-            'freshCount' => $fresh['count'],
+            'freshCount' => null,
         ], 200, $layout);
     }
 

@@ -18,13 +18,16 @@ final class DashboardTiles
     /** How many figures Home shows (HM_Home draws four; the approved Main artboard of 30 Oct 2026 too). */
     public const MAX = 4;
     /**
-     * The figures, first first (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15): the stock value at cost, the units on the
-     * shelf, what waits for this person's OK and the store listings to match; then, for whoever may see fewer of those, the figures Home showed
-     * before (open purchase orders, deliveries to receive, products). Each in its tile's tint (`tone`) with its icon and a line under it.
+     * The figures, first first (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15): the units on the shelf, what waits for
+     * this person's OK and the store listings to match; then, for whoever may see fewer of those, the figures Home showed before (open purchase
+     * orders, deliveries to receive, products). Each in its tile's tint (`tone`) with its icon and a line under it. The artboard's first tile,
+     * the stock value at cost, is not drawn: it is the whole valuation (every balance, its average cost), too heavy for every Home load, and CW
+     * keeps no stored total of it (the fix round, docs/decisions.md RD-F8; the valuation report has it; needs a build: a total kept by the
+     * reports' refresh).
      */
-    public const ORDER = ['value', 'units', 'inbox', 'matches', 'orders', 'deliveries', 'products'];
-    /** A figure's tint and icon (the artboard's: teal, blue, purple, magenta; the fill-ins grey). */
-    public const LOOK = ['value' => ['teal', 'reports'], 'units' => ['blue', 'stock'], 'inbox' => ['purple', 'approvals'], 'matches' => ['magenta', 'matching'],
+    public const ORDER = ['units', 'inbox', 'matches', 'orders', 'deliveries', 'products'];
+    /** A figure's tint and icon (the artboard's: blue, purple, magenta; the fill-ins grey). */
+    public const LOOK = ['units' => ['blue', 'stock'], 'inbox' => ['purple', 'approvals'], 'matches' => ['magenta', 'matching'],
         'orders' => ['grey', 'orders'], 'deliveries' => ['grey', 'goods-in'], 'products' => ['grey', 'products']];
     /** The kinds of Approvals' badges, for the inbox tile's line (its biggest kind), as Ui\Context::badges counts them. */
     private const INBOX_BADGES = ['queue_corrections' => 'kind_corrections', 'queue_suspense' => 'kind_suspense', 'counts_open' => 'kind_counts',
@@ -42,13 +45,6 @@ final class DashboardTiles
             if (count($out) >= self::MAX) {
                 break;
             }
-            if ($key === 'value' && $me->can('values.view')) {
-                // The value of our stock at average cost, as the valuation report works it out (Reports\ReportViews::valueFigures).
-                $f = (new \CW\Reports\ReportViews($db))->valueFigures();
-                $out[] = self::tile('value', (int) round((float) $f['value']), Html::money($f['value']), Words::say('RD_HOME', 'value_sub', Html::int($f['items'])),
-                    '/ui/reports/stock-value');
-                continue;
-            }
             if ($key === 'inbox' && Controller\InboxController::kinds($me->roles) !== []) {
                 $b = $ctx->badges();
                 $n = (int) ($b['approvals_inbox'] ?? 0);
@@ -62,7 +58,7 @@ final class DashboardTiles
                 continue;
             }
             $figure = match ($key) {
-                'value', 'inbox' => null,
+                'inbox' => null,
                 'orders' => $me->can('purchasing.view') ? [self::openOrders($db), '/ui/purchasing/orders'] : null,
                 'units' => $me->can('catalogue.view') ? [(int) $db->value('SELECT COALESCE(SUM(sb.on_hand), 0) FROM stock_balance sb '
                     . 'JOIN warehouse w ON w.id = sb.warehouse_id WHERE w.is_sellable = 1'), '/ui/stock'] : null,

@@ -1162,7 +1162,7 @@ final class PurchaseOrdersController
         // when it was confirmed, else the details in use now).
         $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
         $company = is_array($snapshot) ? $snapshot : $ctx->settings()->company();
-        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress) + [
+        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress, $me) + [
             'canReceive' => $canReceive,
             'canInvoice' => $canInvoice,
             'mainAction' => $main,
@@ -1288,7 +1288,8 @@ final class PurchaseOrdersController
      * @param array<string, mixed>|null $progress progress()'s
      * @return array<string, mixed>
      */
-    private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName, array $company, ?array $progress): array
+    private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName, array $company, ?array $progress,
+        \CW\Auth\StaffIdentity $me): array
     {
         $people = $data['people'];
         $place = trim(implode(' ', array_filter([(string) ($supplier['city'] ?? ''), (string) ($supplier['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
@@ -1328,15 +1329,17 @@ final class PurchaseOrdersController
             $event($doc->cancelledAt, Words::say('ORDER', 'ev_cancelled', (string) $people['cancelled'], (string) $data['cancelReason']));
         }
         usort($events, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
-        // Related: the papers around it (its deliveries and invoices as the goods-in and invoice lists find them, with how far each got).
+        // Related: the papers around it (its deliveries and invoices as the goods-in and invoice lists find them, with how far each got). A
+        // link only to what the person may open (the route's permission; docs/decisions.md RD-F2): otherwise the words and the pill alone.
         $related = [];
+        $may = static fn (string $perm, string $href): ?string => $me->can($perm) ? $href : null;
         if ($posted && $progress !== null) {
             $got = (int) $progress['received'];
-            $related[] = ['text' => Words::ORDER['rel_received'], 'href' => Html::url('/ui/receiving', ['q' => (string) $doc->number, 'show' => 'all']),
+            $related[] = ['text' => Words::ORDER['rel_received'], 'href' => $may('receiving.view', Html::url('/ui/receiving', ['q' => (string) $doc->number, 'show' => 'all'])),
                 'tone' => $got === 0 ? 'waiting' : ($got >= (int) $progress['ordered'] ? 'done' : 'needs'),
                 'pill' => $got === 0 ? Words::PO_STEP['not_yet'] : (string) $progress['received_line']];
             $billed = (int) $progress['invoiced'];
-            $related[] = ['text' => Words::ORDER['rel_invoices'], 'href' => Html::url('/ui/purchasing/invoices', ['supplier' => (int) ($supplier['id'] ?? 0), 'show' => 'all']),
+            $related[] = ['text' => Words::ORDER['rel_invoices'], 'href' => $may('invoices.view', Html::url('/ui/purchasing/invoices', ['supplier' => (int) ($supplier['id'] ?? 0), 'show' => 'all'])),
                 'tone' => $billed === 0 ? 'waiting' : ($got > 0 && $billed >= $got ? 'done' : 'needs'),
                 'pill' => $billed === 0 ? Words::PO_STEP['not_yet'] : (string) $progress['invoiced_line']];
         }
@@ -1351,7 +1354,7 @@ final class PurchaseOrdersController
                 'href' => '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf', 'sub' => Words::ORDER['cancel_pdf']];
         }
         foreach ($data['files'] as $f) {
-            $related[] = ['text' => (string) $f['original_name'], 'href' => '/ui/files/' . (int) $f['id'],
+            $related[] = ['text' => (string) $f['original_name'], 'href' => $may('documents.view', '/ui/files/' . (int) $f['id']),
                 'sub' => $f['what'] . ' · ' . Words::say('ORDER', 'file_line', (string) $f['size'], Html::day((string) $f['attached_at']))];
         }
         $count = count($data['lines']);

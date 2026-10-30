@@ -35,6 +35,9 @@ $more = array_values(array_filter([
 </form>
 
 <?php $none = $f['by'] === 'product' ? $rows === [] : ($f['by'] === 'brand' ? $brands === [] : $warehouses === []); ?>
+<?php if ($none): ?>
+<p class="note rp-asof" role="status"><?= $e($asOf) ?></p>
+<?php endif; ?>
 <?php if ($none && $filtered): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['none_filtered'], \CW\Ui\Words::REPORTS['none_filtered_text'], $all_link, \CW\Ui\Words::RD_REPORTS['clear']) ?>
 <?php elseif ($none): ?>

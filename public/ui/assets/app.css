@@ -505,6 +505,10 @@ details.show-menu > .show-list, details.show-menu > .show-panel { max-height: mi
 }
 a.show-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
 .show-item[aria-current] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.show-select > .count, details.more > summary > .count {
+  flex: none; margin-left: 6px; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-hover);
+  font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums;
+}
 .show-item > .count {
   flex: none; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-hover);
   font: 600 11px/16px var(--font); font-variant-numeric: tabular-nums;
@@ -2986,7 +2990,7 @@ form.mt-form > button.po-default { display: none; }
 .po-cards .head-help { margin: 0 0 12px; }
 .po-cards .head-help h2 { margin: 0; }
 .po-rel-list, .po-events, .po-cards .checks-history { margin: 0; padding: 0; list-style: none; }
-.po-rel-list > li > a { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--divider); color: var(--ink); text-decoration: none; }
+.po-rel-list > li > a, .po-rel-list > li > .po-rel-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--divider); color: var(--ink); text-decoration: none; }
 .po-rel-list > li > a:hover .po-rel-text { color: var(--accent-hover); }
 .po-rel-text { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .po-rel-text .o-sub { display: block; font-weight: 400; }
@@ -3064,13 +3068,12 @@ section.card.mt-compare { padding: 0; overflow: hidden; border-radius: var(--r-1
 .bi-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .bi-tabs { margin: 0; }
 .bi-tabs > .tab > .count { background: var(--accent); color: var(--on-fill); }
-form.bi-find { display: flex; flex-direction: column; gap: 10px; margin: 0; }
-form.bi-find.bi-new { flex-direction: row; flex-wrap: wrap; }
-form.bi-find > input[type="search"] { height: 44px; border: 1px solid #d9d0e1; border-radius: var(--r-10); padding: 0 14px; font: inherit; font-size: 14px; background: var(--card); }
-form.bi-find.bi-new > input[type="search"] { flex: 1 1 320px; }
+/* The search, the match status and its Show button on one row, as the other lists' toolbars; they wrap on a phone (the fix round, RD-F10) */
+form.bi-find { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+form.bi-find > input[type="search"] { flex: 1 1 280px; min-width: 0; height: 44px; border: 1px solid #d9d0e1; border-radius: var(--r-10); padding: 0 14px; font: inherit; font-size: 14px; background: var(--card); }
+form.bi-find > .bi-filters { flex: none; max-width: 100%; }
 .bi-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.bi-filters select { height: 40px; border: 1px solid #d9d0e1; border-radius: var(--r-10); padding: 0 10px; font: inherit; font-size: 13px; background: var(--card); color: var(--ink); }
-form.bi-find.bi-new .bi-filters select { height: 44px; font-size: 14px; }
+.bi-filters select { height: 44px; max-width: 100%; border: 1px solid #d9d0e1; border-radius: var(--r-10); padding: 0 10px; font: inherit; font-size: 14px; background: var(--card); color: var(--ink); }
 .bi-clear { margin-left: 4px; font-size: 13px; font-weight: 600; text-decoration: none; }
 section.card.bi-list { padding: 0; overflow: hidden; border-radius: var(--r-16); }
 .bi-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px 20px; border-top: 1px solid var(--page); }
@@ -3229,9 +3232,6 @@ section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr
 .hm-tile .hm-fig-t { color: var(--ink-body); font: 500 13px/18px var(--font); }
 .hm-tile .hm-fig-n { color: var(--ink); font: 700 26px/1.1 var(--font); }
 .hm-tile-sub { font-size: 12px; }
-.hm-tile.hm-teal { background: #e0f3f1; border-color: #bfe4df; }
-.hm-tile.hm-teal .hm-tile-ico { background: #0f7a72; }
-.hm-tile.hm-teal .hm-tile-sub { color: #0b5e56; }
 .hm-tile.hm-blue { background: var(--sf-blue); border-color: #cdd9f3; }
 .hm-tile.hm-blue .hm-tile-ico { background: var(--st-blue); }
 .hm-tile.hm-blue .hm-tile-sub { color: var(--sf-blue-ink); }
@@ -3299,7 +3299,7 @@ table.stock-records td.chg.up { color: var(--sf-green-ink); }
 table.stock-records td.chg.down { color: var(--sf-red-ink); }
 /* Stock counts (artboard Inventory: Stock counts): the bar is "N ticked", then More (the other ways to count, the shelf, a note; it opens upwards
    from the right, beside the main button) and "Count the ticked items"; the hidden first button makes Enter count the ticked items */
-form.count-open > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+form.count-open > button.po-default, form.ap-answer > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 .count-bar > details.count-more { margin: 0; }
 .count-bar > details.count-more > .more-menu { left: auto; right: 0; min-width: 280px; }
 .count-more .count-fields { display: grid; gap: 10px; padding: 12px 14px; }

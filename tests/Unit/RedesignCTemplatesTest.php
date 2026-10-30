@@ -157,6 +157,10 @@ final class RedesignCTemplatesTest extends TestCase
         $actions = substr($r, (int) strpos($r, '<div class="ap-actions">'));
         self::assertLessThan(strpos($actions, '<details class="more"'), strpos($actions, '<p class="ap-next">'), 'Next at the left');
         self::assertLessThan(strpos($actions, 'class="btn primary"'), strpos($actions, '<details class="more"'), 'the main answer last');
+        // ... and Enter still sends the main answer (the fix round, RD-F1): the form's first submit button is a hidden twin of it.
+        $form = substr($r, (int) strpos($r, '<form class="ap-answer"'));
+        self::assertStringStartsWith('<button type="submit" class="po-default" tabindex="-1" aria-hidden="true"<?php if ($record[\'mainName\'] !== null): ?> name=',
+            ltrim(substr($form, (int) strpos($form, "\n") + 1)), 'the first thing in the answer form (the line after its opening tag)');
     }
 
     /** RD-C14: every settings page draws the settings shell with its section list. */

@@ -2240,6 +2240,9 @@ final class Words
         'all_items' => 'All items',
         'holding' => 'Holding stock',
         'needs_look' => 'Needs a look',
+        // The Show's two choices of Needs a look's two kinds (the fix round, docs/decisions.md RD-F3).
+        'show_unconfirmed' => 'Not confirmed',
+        'show_blocked' => 'Blocked',
         'by_hand' => 'Made by hand',
         'col_item' => 'Item',
         'col_status' => 'Status',
@@ -10189,6 +10192,10 @@ final class Words
         'show' => 'Show',
         'show_label' => 'What the list shows',
         'everything' => 'Everything waiting (%s)',
+        // A kind shown with nothing of it left (its last one answered; the fix round, docs/decisions.md RD-F6).
+        'none_kind' => 'Nothing under "%s" is waiting for you.',
+        'others_wait' => 'Waiting under the other kinds: %s',
+        'see_all' => 'Everything waiting',
     ];
 
     /** Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in its order. */
@@ -10216,8 +10223,6 @@ final class Words
         'jobs_one' => '1 job',
         'jobs_many' => '%s jobs',
         'open_approvals' => 'Open Approvals',
-        'tile_value' => 'Stock value at cost',
-        'value_sub' => '%s items with stock',
         'tile_units' => 'Units on the shelf',
         'sub_units' => 'In the warehouses that sell',
         'tile_inbox' => 'Waiting for your OK',

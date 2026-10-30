@@ -1334,7 +1334,16 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'));
         self::assertSame(1, self::nodes($view, '//section[contains(@class, "doc-totals")]'));
         self::assertSame([Words::ORDER['rel_received'], Words::ORDER['rel_invoices']], self::texts($view, '//section[contains(@class, "po-related")]//span[@class="po-rel-text"]'));
-        self::assertContains('/ui/receiving?q=' . rawurlencode($o['number']) . '&show=all', self::hrefsIn($view, '//section[contains(@class, "po-related")]//a'));
+        // Related links only to what the person may open (the fix round, docs/decisions.md RD-F2): a buyer reads invoices, not deliveries.
+        self::assertNotContains('/ui/receiving?q=' . rawurlencode($o['number']) . '&show=all', self::hrefsIn($view, '//section[contains(@class, "po-related")]//a'),
+            'a buyer may not open Goods received (receiving.view): no link');
+        self::assertSame(1, self::nodes($view, '//section[contains(@class, "po-related")]//li/a[starts-with(@href, "/ui/purchasing/invoices?")]'), 'invoices.view: the link');
+        $gi = $this->signIn($this->uiUser('goods_in'))->get('/ui/purchasing/orders/' . $o['po']);
+        self::assertSame(200, $gi->status, $gi->describe());
+        self::assertContains('/ui/receiving?q=' . rawurlencode($o['number']) . '&show=all', self::hrefsIn($gi, '//section[contains(@class, "po-related")]//a'), 'receiving.view: the link');
+        self::assertSame(0, self::nodes($gi, '//section[contains(@class, "po-related")]//a[starts-with(@href, "/ui/purchasing/invoices")]'), 'goods in may not open invoices: no link');
+        self::assertSame([Words::ORDER['rel_received'], Words::ORDER['rel_invoices']], self::texts($gi, '//section[contains(@class, "po-related")]//span[@class="po-rel-text"]'),
+            'both still said, with how far each got');
         self::assertNotSame([], self::texts($view, '//section[contains(@class, "po-history")]//ol[contains(@class, "po-events")]/li'), 'what happened to it');
         foreach (['/lines.xlsx', '/lines.csv'] as $file) {
             self::assertContains('/ui/purchasing/orders/' . $o['po'] . $file, self::hrefsIn($view, '//div[contains(@class, "doc-actions")]/details[contains(concat(" ", @class, " "), " more ")]//a'), "under More: {$file}");

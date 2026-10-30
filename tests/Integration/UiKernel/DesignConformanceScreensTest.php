@@ -137,6 +137,16 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertSame(1, $sx->query('//main//form[contains(@class, "toolbar")]/details[@class="show-menu"]')->length,
             'the group\'s Show in the toolbar beside the search (RD2; the integration, RD-I8)');
         self::assertSame(0, $sx->query('//main//div[@class="show-row"]')->length, 'the head draws no second Show');
+        // A filter on behind a closed control is said on it (the fix round, docs/decisions.md RD-F5): History's kind and status in its Show,
+        // Stock on hand's warehouse in the page head's More.
+        $history = self::xp($web->get('/ui/documents', ['type' => 'GRN', 'status' => 'posted']));
+        self::assertSame('2', trim((string) $history->evaluate('string(//main//details[contains(@class, "show-menu")]/summary/span[@class="count"]/text())')),
+            'two filters on, said on the closed Show');
+        $verify = (string) self::warehouseId('MAIN');
+        $onHand = self::xp($web->get('/ui/stock', ['warehouse' => $verify]));
+        self::assertSame('1', trim((string) $onHand->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(concat(" ", @class, " "), " more ")]/summary/span[@class="count"]/text())')),
+            'the warehouse chosen, said on the closed More');
+        self::assertSame(0, self::xp($web->get('/ui/stock'))->query('//main//header//details[contains(concat(" ", @class, " "), " more ")]/summary/span[@class="count"]')->length, 'none on');
         $arriving = self::xp($web->get('/ui/receiving/arriving'));
         self::assertSame(1, $arriving->query('//main//header[contains(@class, "page-head")]/following-sibling::div[@class="show-row"][1]/details[@class="show-menu"]')->length,
             'a grouped page without a toolbar: the group\'s Show right under the title (RD2)');

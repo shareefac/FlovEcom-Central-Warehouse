@@ -530,7 +530,7 @@ final class UiTemplatesTest extends TestCase
         $dir = sys_get_temp_dir() . '/cw-show-' . bin2hex(random_bytes(4));
         mkdir($dir);
         try {
-            foreach (['layout', 'page_frame', 'split', 'show_menu'] as $t) {
+            foreach (['layout', 'page_frame', 'split', 'show_menu', 'list_more'] as $t) {
                 copy(View::defaultDir() . '/' . $t . '.php', $dir . '/' . $t . '.php');
             }
             file_put_contents($dir . '/page.php', "<?= \$head('Goods received') ?>\n<form class=\"toolbar\" method=\"get\">\n  <?= \$showStart() ?>\n  <div class=\"tb-state\">\n"
@@ -538,6 +538,13 @@ final class UiTemplatesTest extends TestCase
                 . "  </div>\n  <?= \$showEnd() ?>\n</form>\n");
             file_put_contents($dir . '/nav.php', "<?= \$head('Company') ?>\n<?= \$showNav() ?><nav class=\"set-nav\"></nav>\n");
             file_put_contents($dir . '/alone.php', "<?= \$head('Company') ?>\n");
+            // A filter on inside the closed Show, or inside the page head's More, is said on the control (the fix round, RD-F5).
+            file_put_contents($dir . '/onpage.php', "<?= \$head('Goods received') ?>\n<form class=\"toolbar\" method=\"get\">\n  <?= \$showStart() ?>\n  <div class=\"tb-state\">\n"
+                . "    <select name=\"show\"><option value=\"\">Open</option><option value=\"all\" selected>All</option></select>\n"
+                . "    <select name=\"kind\"><option value=\"\" selected>Any</option><option value=\"x\">X</option></select>\n"
+                . "    <label class=\"choice\"><input type=\"checkbox\" name=\"off\" value=\"1\" checked> Off too</label>\n"
+                . "    <input type=\"hidden\" name=\"supplier\" value=\"7\">\n    <button type=\"submit\" class=\"btn sm\">Show</button>\n  </div>\n  <?= \$showEnd() ?>\n</form>\n");
+            file_put_contents($dir . '/moreon.php', "<?= \$head('Stock on hand', menu: \$m) ?>\n");
             file_put_contents($dir . '/more.php', "<?= \$head('Product matching', side: '') ?>\n<?php foreach (\$sectionMore() as \$p): ?><a class=\"m\" href=\"<?= \$u((string) \$p['href'], \$p['query']) ?>\"><?= \$e(\$p['label']) ?></a>\n<?php endforeach; ?>\n");
             // One job at a time: each page's group as that job sees it.
             $view = static fn (string $job): View => new View($dir, ['csrf' => 'tok', 'who' => new StaffIdentity(7, 'b@test.invalid', 'Bea', [$job], false, 'sid')]);
@@ -558,6 +565,16 @@ final class UiTemplatesTest extends TestCase
             $one = $view('goods_in')->page('page', [], $frame('goods_in', '/ui/purchasing/orders'));
             self::assertStringNotContainsString('show-menu', $one);
             self::assertMatchesRegularExpression('#<form class="toolbar" method="get">\s*<div class="tb-state">\s*<select id="tb-show" name="show">.*</button>\s*</div>\s*</form>#s', $one);
+            $on = $view('goods_in')->page('onpage', [], $frame('goods_in', '/ui/receiving'));
+            self::assertMatchesRegularExpression('#<summary class="show-select">.*<span class="show-now">' . preg_quote(Words::SEGMENT['receiving'], '#')
+                . '</span> <span class="count" title="3 ' . Words::CARDS['filters_on'] . '">3<span class="visually-hidden"> ' . Words::CARDS['filters_on'] . '</span></span></summary>#',
+                $on, 'the chosen choice, the box ticked and the filter kept from the address: 3 on the closed Show');
+            self::assertStringNotContainsString('<span class="count"', (string) preg_replace('#<ul class="show-list".*#s', '', $html), 'none on: no count');
+            $m = ['filters' => ['action' => '/ui/stock', 'keep' => [], 'open' => true, 'selects' => [['name' => 'warehouse', 'label' => 'Warehouse', 'value' => '2',
+                'options' => ['' => 'Every warehouse', '1' => 'Main', '2' => 'Verify']]], 'ticks' => [['name' => 'below', 'label' => 'Below zero', 'checked' => false]]], 'links' => []];
+            $more = $view('stock_controller')->page('moreon', ['m' => $m], $frame('stock_controller', '/ui/stock'));
+            self::assertMatchesRegularExpression('#<details class="more">\s*<summary class="btn" aria-label="[^"]*">' . Words::UI['more'] . ' <span class="count" title="1 '
+                . Words::CARDS['filters_on'] . '">1<span class="visually-hidden"> ' . Words::CARDS['filters_on'] . '</span></span></summary>#', $more, 'the warehouse chosen: 1 on the closed More');
             // Settings' section list is the group's: no Show row under the head.
             $nav = $view('admin')->page('nav', [], $frame('admin', '/ui/reference/company'));
             self::assertStringNotContainsString('show-menu', $nav);

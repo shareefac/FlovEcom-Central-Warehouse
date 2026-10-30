@@ -167,6 +167,11 @@ final class InboxController
         foreach ($kinds as $kind) {
             $g = $this->group($ctx, $kind);
             if ($g['rows'] === []) {
+                // The kind shown stays the Show's choice when nothing of it waits (its last one just answered: the fix round, docs/decisions.md
+                // RD-F6); the page then says so for that kind.
+                if ($show === $kind) {
+                    $choices[] = ['value' => $kind, 'label' => Words::INBOX['kind_' . $kind], 'count' => 0, 'current' => true];
+                }
                 continue;
             }
             $choices[] = ['value' => $kind, 'label' => Words::INBOX['kind_' . $kind], 'count' => $g['count'], 'current' => $show === $kind];

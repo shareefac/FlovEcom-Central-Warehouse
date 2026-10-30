@@ -149,7 +149,8 @@ final class HandMadeController
             'views' => [
                 ['label' => Words::INV_LIST['all_items'], 'href' => '/ui/items/cards', 'current' => false],
                 ['label' => Words::INV_LIST['holding'], 'href' => '/ui/items/cards?stock=1', 'current' => false],
-                ['label' => Words::INV_LIST['needs_look'], 'href' => '/ui/items/cards?state=unconfirmed', 'current' => false],
+                ['label' => Words::INV_LIST['show_unconfirmed'], 'href' => '/ui/items/cards?state=unconfirmed', 'current' => false],
+                ['label' => Words::INV_LIST['show_blocked'], 'href' => '/ui/items/cards?blocked=1', 'current' => false],
                 ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(self::PATH, ['show' => 'all']), 'current' => true],
             ],
             'bar' => ['links' => [$waiting ? ['label' => Words::ITEM_NEW['show_all'], 'href' => Html::url(self::PATH, ['show' => 'all'])]

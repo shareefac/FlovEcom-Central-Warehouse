@@ -24,6 +24,7 @@ $more = [\CW\Ui\Words::say('RD_REPORTS', 'slow_line', \CW\Ui\Html::int($counts['
 </form>
 
 <?php if ($rows === []): ?>
+<p class="note rp-asof" role="status"><?= $e($asOf) ?></p>
 <?= $empty(\CW\Ui\Words::REPORTS['no_slow'], \CW\Ui\Words::REPORTS['no_slow_text']) ?>
 <?php else: ?>
 <article class="card rp-paper" aria-label="<?= $word('RD_REPORTS', 'paper') ?>">

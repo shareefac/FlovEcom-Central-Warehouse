@@ -110,6 +110,13 @@ final class StockOpsScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString(Words::say('STOCK_NOTICE', 'reversed', 'SIN-000002'), $web->follow($r)->text());
         self::assertSame(4, (int) self::$db->value("SELECT on_hand FROM stock_balance WHERE sku_id = ? AND warehouse_id = (SELECT id FROM warehouse WHERE code = 'MAIN')", [$sku]));
+        // The list says which way each record moved the stock (the fix round, docs/decisions.md RD-F4): the stock in +7 in green, its
+        // cancellation record −7 in red (it takes the units off again).
+        $after = new \DOMXPath($web->get('/ui/stock/in')->dom());
+        $units = static fn (string $number): array => [trim((string) $after->evaluate('string(//tr[th/a[normalize-space() = "' . $number . '"]]/td[contains(@class, "chg")])')),
+            trim((string) $after->evaluate('string(//tr[th/a[normalize-space() = "' . $number . '"]]/td[contains(@class, "chg")]/@class)'))];
+        self::assertSame(['+7', 'num chg up'], $units('SIN-000001'));
+        self::assertSame(['−7', 'num chg down'], $units('SIN-000002'), 'the cancellation record takes the units off');
         // The CSV of the list.
         $csv = $web->get('/ui/stock/in.csv');
         self::assertSame(200, $csv->status);

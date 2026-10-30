@@ -41,6 +41,7 @@ $line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'period_line', \CW\Ui\H
 <?php endif; ?>
 
 <?php if (!$any): ?>
+<p class="note rp-asof" role="status"><?= $e($asOf) ?></p>
 <?= $empty(\CW\Ui\Words::REPORTS['no_sales'], \CW\Ui\Words::REPORTS['no_sales_text']) ?>
 <?php else: ?>
 <article class="card rp-paper" aria-label="<?= $word('RD_REPORTS', 'paper') ?>">

@@ -1201,6 +1201,9 @@ The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/pr
 | Settings (17 pages) | each page + `settings_nav.php` | `div.set-shell` > `nav.set-nav` (`a.set-nav-item`, the current `aria-current`) + `div.set-main` |
 | Home `/ui/` | `home.php`, `home_actions.php`, `cards.php` | `div.hm-actions`; `section.hm-tiles.hm-figs` > `a.hm-tile.hm-<tint>[data-tile]` (`DashboardTiles::ORDER`, `LOOK`); `div.hm-grid` > `section.card.hm-jobs` (`div.hm-jobs-head`, rows' `a.hm-go`) + `div.hm-side` (`section.card.hm-stores`, `section.card.hm-today`) |
 
+- The fix round (RD-F1-RD-F11): the answer form's hidden first button (`approvals_record`, `form.ap-answer > button.po-default`); Related's
+  rows without a link (`span.po-rel-item`); `View::filtersOn()` / `onCount()` (the count of filters on, on a closed Show or More);
+  `StockOpsController::unitsWay()`; the empty reports' `p.rp-asof`; `RD_INBOX none_kind`, `others_wait`, `see_all`.
 - The words: `Words::RD_MATCH`, `RD_REPORTS`, `RD_INBOX`, `RD_SETTINGS`, `RD_HOME` (registered in `Words::GROUPS`); `MATCH` `to_match`, `find`,
   `units`, `units_of` say the artboard's words.
 - Tests: `tests/Unit/RedesignCTemplatesTest.php` (the templates), `tests/Integration/UiKernel/RedesignCScreensTest.php` (the pages).

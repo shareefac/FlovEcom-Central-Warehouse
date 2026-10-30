@@ -720,6 +720,7 @@ final class StockOpsController
             $status === 'reversed' => Words::STOCK_OPS['next_done'],
             default => Words::STOCK_OPS['next_stopped'],
         };
+        $dir = self::unitsWay($kind, $r['reverses_id'] !== null);
         return [
             'id' => (int) $r['id'], 'group' => $group, 'href' => StockOps::PATHS[$kind] . '/' . (int) $r['id'],
             'number_line' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
@@ -731,17 +732,25 @@ final class StockOpsController
             'made_by' => (string) ($r['created_by_name'] ?? ''), 'next' => $next,
             // The redesign's columns (docs/decisions.md RD-A5): the kind, the reason (an adjustment's are on its lines), the units with the way
             // they move (stock in: +, stock out: −; an adjustment's lines go both ways, a transfer or a release moves stock between rooms: no sign),
-            // from and to.
+            // from and to. A cancellation record (reverses_id) moves them the other way: a stock in's takes them off (−), a stock out's puts them
+            // back (+) (the fix round, docs/decisions.md RD-F4).
             'posted_at' => $r['posted_at'] === null ? null : (string) $r['posted_at'],
             'kind_word' => Words::INV_LIST['kind_' . $kind],
-            'units_shown' => match ($kind) {
-                'in' => '+' . Html::int((int) $r['units']),
-                'out' => '−' . Html::int((int) $r['units']),
+            'units_shown' => match ($dir) {
+                'up' => '+' . Html::int((int) $r['units']),
+                'down' => '−' . Html::int((int) $r['units']),
                 default => Html::int((int) $r['units']),
             },
-            'units_dir' => match ($kind) { 'in' => 'up', 'out' => 'down', default => '' },
+            'units_dir' => $dir,
             'from' => $from, 'to' => $to,
         ];
+    }
+
+    /** Which way a record of $kind moves the units on the list: up, down, or '' (both ways, or between rooms); a cancellation record the other way. */
+    public static function unitsWay(string $kind, bool $cancellation): string
+    {
+        $way = match ($kind) { 'in' => 'up', 'out' => 'down', default => '' };
+        return !$cancellation || $way === '' ? $way : ($way === 'up' ? 'down' : 'up');
     }
 
     /**

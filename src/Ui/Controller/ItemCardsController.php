@@ -80,14 +80,18 @@ final class ItemCardsController
             'rows' => $rows,
             'groups' => Html::groups($rows, ['look' => ['needs', Words::INV_LIST['g_look']], 'none' => ['waiting', Words::INV_LIST['g_none']],
                 'ready' => ['done', Words::INV_LIST['g_ready']]]),
-            // The ONE Show choice (RD-A2): the artboard's four, each a link (Made by hand is its own page).
+            // The ONE Show choice (RD-A2): each a link (Made by hand is its own page). The artboard's "Needs a look" group holds two kinds, so
+            // its choices say which (the fix round, docs/decisions.md RD-F3): Not confirmed (state=unconfirmed: no card, or a card not confirmed)
+            // and Blocked (blocked=1: a card breaking a blocking rule, confirmed or not).
             'show' => [
                 ['label' => Words::INV_LIST['all_items'], 'href' => Html::url('/ui/items/cards', $f['q'] === '' ? [] : ['q' => $f['q']]),
                     'current' => !$f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
                 ['label' => Words::INV_LIST['holding'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'stock' => '1']),
                     'current' => $f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
-                ['label' => Words::INV_LIST['needs_look'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => 'unconfirmed']),
+                ['label' => Words::INV_LIST['show_unconfirmed'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => 'unconfirmed']),
                     'current' => !$f['stock'] && $f['state'] === 'unconfirmed' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
+                ['label' => Words::INV_LIST['show_blocked'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'blocked' => '1']),
+                    'current' => !$f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && $f['blocked'] && !$f['discontinued']],
                 ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(HandMadeController::PATH, ['show' => 'all']), 'current' => false],
             ],
             'searchClear' => $f['q'] === '' ? null : array_diff_key($query, ['q' => true]),
@@ -117,8 +121,9 @@ final class ItemCardsController
     private static function bar(Context $ctx, array $f, array $query, array $states): array
     {
         $me = $ctx->me();
-        $shown = !$f['warnings'] && !$f['blocked'] && !$f['discontinued'] && $f['type'] === ''
-            && (($f['state'] === 'all') || ($f['state'] === 'unconfirmed' && !$f['stock']));
+        $shown = !$f['warnings'] && !$f['discontinued'] && $f['type'] === '' && (!$f['blocked']
+            ? $f['state'] === 'all' || ($f['state'] === 'unconfirmed' && !$f['stock'])
+            : $f['state'] === 'all' && !$f['stock']);
         $links = [];
         if ($f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued']) {
             $links[] = ['label' => Words::CARDS['clear_filters'], 'href' => '/ui/items/cards'];

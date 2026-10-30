@@ -11,7 +11,11 @@ $bar = $choices === [] ? '' : $partial('approvals_show', ['choices' => $choices,
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
-<?php if ($groups === []): ?>
+<?php if ($groups === [] && $show !== null && $everything > 0): ?>
+<?= $empty(\CW\Ui\Words::say('RD_INBOX', 'none_kind', \CW\Ui\Words::INBOX['kind_' . $show]), \CW\Ui\Words::say('RD_INBOX', 'others_wait', $everything), '/ui/approvals', \CW\Ui\Words::RD_INBOX['see_all']) ?>
+<?php elseif ($groups === [] && $show !== null): ?>
+<?= $empty(\CW\Ui\Words::say('RD_INBOX', 'none_kind', \CW\Ui\Words::INBOX['kind_' . $show]), \CW\Ui\Words::INBOX['none_text'], '/ui/approvals', \CW\Ui\Words::RD_INBOX['see_all']) ?>
+<?php elseif ($groups === []): ?>
 <?= $empty(\CW\Ui\Words::INBOX['none'], \CW\Ui\Words::INBOX['none_text']) ?>
 <?php else: ?>
 <div class="ap-inbox rd-inbox">

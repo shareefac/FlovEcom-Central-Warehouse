@@ -1592,4 +1592,21 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('left: auto; right: var(--gutter);', $rule('.mt-bar > details.mt-step > .more-menu'), 'Not the same\'s step from the right');
         self::assertStringNotContainsString('100vw', $rule('.mt-bar details.more > .more-menu'), 'the bar\'s width, not the window\'s');
     }
+
+    /**
+     * Product matching's By item (the coordinator's Chrome check of 30 Oct 2026; docs/decisions.md RD-F10): the search, the match status and its
+     * Show button on one row, as the other lists' toolbars, wrapping on a phone; never a full-width stack under the search.
+     */
+    public function testByItemsSearchAndFilterShareOneRow(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $rule = static function (string $selector) use ($css): string {
+            self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
+            return $m[1];
+        };
+        self::assertStringContainsString('display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;', $rule('form.bi-find'));
+        self::assertStringContainsString('flex: 1 1 280px;', $rule('form.bi-find > input[type="search"]'));
+        self::assertStringContainsString('flex: none;', $rule('form.bi-find > .bi-filters'));
+        self::assertSame(0, preg_match('/form\.bi-find \{[^}]*flex-direction: column/', $css), 'not stacked');
+    }
 }

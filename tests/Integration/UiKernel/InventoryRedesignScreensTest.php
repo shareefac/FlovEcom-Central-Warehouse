@@ -123,9 +123,11 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $cards->confirm(Caller::staff($who['id']), $ready, 1, true);
         $web = $this->signIn($who);
         $list = $web->get('/ui/items/cards');
-        self::assertSame([[Words::INV_LIST['all_items'], true], [Words::INV_LIST['holding'], false], [Words::INV_LIST['needs_look'], false], [Words::INV_LIST['by_hand'], false]],
-            self::assertSimpleList($list, 'items', Words::INV_LIST['items']));
-        self::assertSame(['/ui/items/cards?stock=1', '/ui/items/cards?state=unconfirmed', '/ui/items/new?show=all'],
+        // The Show says what each choice holds (the fix round, docs/decisions.md RD-F3): Not confirmed (a card not confirmed, or none) and
+        // Blocked (the existing blocked filter: a confirmed card can be blocked too); the group Needs a look holds both kinds.
+        self::assertSame([[Words::INV_LIST['all_items'], true], [Words::INV_LIST['holding'], false], [Words::INV_LIST['show_unconfirmed'], false],
+            [Words::INV_LIST['show_blocked'], false], [Words::INV_LIST['by_hand'], false]], self::assertSimpleList($list, 'items', Words::INV_LIST['items']));
+        self::assertSame(['/ui/items/cards?stock=1', '/ui/items/cards?state=unconfirmed', '/ui/items/cards?blocked=1', '/ui/items/new?show=all'],
             self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'), 'each choice a link: Made by hand is its own page');
         self::assertSame([Words::INV_LIST['items_search']], self::attrs($list, '//form[contains(@class, "toolbar")]//input[@type="search"]', 'placeholder'));
         // The groups in the artboard's order and colours, each count a figure; three columns; the name opens the item, its CW number under it.
@@ -156,13 +158,19 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(['stock'], self::attrs($holding, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));
         self::assertSame(['Tank five', 'Strong shot', 'Cola ten'], self::texts($holding, '//main//tbody/tr/th/a'));
         $look = $web->get('/ui/items/cards', ['state' => 'unconfirmed']);
-        self::assertSame([Words::INV_LIST['needs_look']], self::texts($look, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
+        self::assertSame([Words::INV_LIST['show_unconfirmed']], self::texts($look, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame(['Strong shot', 'Nothing yet'], self::texts($look, '//main//tbody/tr/th/a'));
+        // Blocked: the confirmed card that breaks a blocking rule, which Not confirmed leaves out, is on its own choice.
         $blockedOnly = $web->get('/ui/items/cards', ['blocked' => '1']);
-        self::assertSame([Words::INV_LIST['filtered']], self::texts($blockedOnly, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'a filter of More: the choice says so');
-        self::assertSame(['blocked'], self::attrs($blockedOnly, $head . '/details[contains(concat(" ", @class, " "), " more ")]//details[@open]//input[@checked]', 'name'),
-            'More\'s filters open in the menu with the one on');
+        self::assertSame([Words::INV_LIST['show_blocked']], self::texts($blockedOnly, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame(['Tank five'], self::texts($blockedOnly, '//main//tbody/tr/th/a'));
+        // Every item of Needs a look is under one of its two choices.
+        self::assertSame(['Strong shot', 'Tank five'], array_values(array_intersect(['Strong shot', 'Tank five'],
+            [...self::texts($look, '//main//tbody/tr/th/a'), ...self::texts($blockedOnly, '//main//tbody/tr/th/a')])));
+        $warned = $web->get('/ui/items/cards', ['warnings' => '1']);
+        self::assertSame([Words::INV_LIST['filtered']], self::texts($warned, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'a filter of More: the choice says so');
+        self::assertSame(['warnings'], self::attrs($warned, $head . '/details[contains(concat(" ", @class, " "), " more ")]//details[@open]//input[@checked]', 'name'),
+            'More\'s filters open in the menu with the one on');
     }
 
     // ------------------------------------------------------------------------------------------
@@ -357,8 +365,8 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         // Multipacks: its pack items and its pack links are one Show choice.
         self::assertSame([[Words::INV_LIST['packs_on'], true], [Words::INV_LIST['packs_all'], false], [Words::PAGE_TITLE['pack_links'], false]],
             self::assertSimpleList($web->get('/ui/items/packs'), 'packs', Words::INV_LIST['packs_on']));
-        // Made by hand is Items' Show choice.
-        self::assertSame([Words::INV_LIST['by_hand'], true], self::assertSimpleList($web->get('/ui/items/new', ['show' => 'all']), 'by hand', Words::INV_LIST['items'])[3]);
+        // Made by hand is Items' Show choice, last (after Not confirmed and Blocked: the fix round, RD-F3).
+        self::assertSame([Words::INV_LIST['by_hand'], true], self::assertSimpleList($web->get('/ui/items/new', ['show' => 'all']), 'by hand', Words::INV_LIST['items'])[4]);
         // Stock on hand: five columns, one On hand figure (every warehouse together).
         $stock = $web->get('/ui/stock');
         self::assertSame([Words::STOCK_VIEW['product'], Words::STOCK_VIEW['status'], Words::INV_LIST['col_on_hand'], Words::STOCK_VIEW['reserved'], Words::STOCK['available']],
