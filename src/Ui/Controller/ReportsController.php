@@ -87,7 +87,7 @@ final class ReportsController
             return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'stock-by-store-' . ($store['code'] ?? 'none') . '.csv');
         }
         $query = ['store' => $f['store'], 'q' => $f['q'], 'show' => $f['show'] === 'all' ? null : $f['show']];
-        return $ctx->page('report_store', [
+        return $ctx->page('report_store', self::shared($ctx, 'stock_by_store') + [
             'f' => $f,
             'stores' => array_map(static fn (array $s): array => $s + ['figures' => $figures[$s['id']]], $stores),
             'store' => $store,
@@ -134,7 +134,7 @@ final class ReportsController
             return FilesController::download($out->output(), 'text/csv; charset=utf-8', "sales-by-store-{$from}-{$to}.csv");
         }
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $storeId];
-        return $ctx->page('report_sales', [
+        return $ctx->page('report_sales', self::shared($ctx, 'sales_by_store') + [
             'period' => $period, 'periods' => self::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'max' => $max,
             'stores' => $stores, 'storeId' => $storeId, 'byStore' => $byStore, 'total' => $total, 'days' => $sales['days'],
             'any' => $total !== $zero,
@@ -160,7 +160,7 @@ final class ReportsController
             return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'low-stock-' . $f['show'] . '.csv');
         }
         $query = ['q' => $f['q'], 'show' => $f['show'] === 'low' ? null : $f['show']];
-        return $ctx->page('report_low', [
+        return $ctx->page('report_low', self::shared($ctx, 'low_stock') + [
             'f' => $f, 'default' => $default, 'counts' => ['low' => $result['low'], 'out' => $result['out']],
             'rows' => array_map(static fn (array $r): array => ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'],
                 'brand' => $r['brand'] === null ? null : (string) $r['brand'], 'available' => (int) $r['available'], 'low_at' => (int) $r['low_at'],
@@ -226,7 +226,7 @@ final class ReportsController
         };
         $brands = array_map(static fn (array $b): array => $b + ['share' => $share($b)], $brands);
         $warehouses = array_map(static fn (array $w): array => $w + ['share' => $share($w)], $warehouses);
-        return $ctx->page('report_value', [
+        return $ctx->page('report_value', self::shared($ctx, 'stock_value') + [
             'f' => $f, 'figures' => $figures,
             'sum' => $f['by'] === 'brand' ? $sum($brands) : $sum($warehouses),
             // "Not sold in N days" (W13.3): N is Slow Stock's own setting, so the figure and that report's lists agree.
@@ -276,7 +276,7 @@ final class ReportsController
             return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'slow-stock-' . $f['show'] . '.csv');
         }
         $query = ['q' => $f['q'], 'show' => $f['show'] === 'slow' ? null : $f['show']];
-        return $ctx->page('report_slow', [
+        return $ctx->page('report_slow', self::shared($ctx, 'slow_stock') + [
             'f' => $f, 'slowDays' => $slowDays, 'deadDays' => $deadDays, 'showValue' => $money, 'counts' => ['slow' => $result['slow'], 'dead' => $result['dead']],
             'rows' => array_map(static fn (array $r): array => ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'],
                 'brand' => $r['brand'] === null ? null : (string) $r['brand'], 'units' => (int) $r['units'],
@@ -342,6 +342,40 @@ final class ReportsController
         $off = !Settings::flag($ctx->db, 'reports.refresh_on', true);
         $line = $state['ran_at'] === null ? Words::REPORTS['never_run'] : Words::say('REPORTS', 'figures_at', Html::when((string) $state['ran_at']));
         return $off ? $line . ' ' . Words::REPORTS['job_off'] : $line;
+    }
+
+    /**
+     * What every report page shows besides its own figures (the approved Reports artboard of 30 Oct 2026; docs/decisions.md RD-C11): the
+     * company's name for the report's head (CW's company details; none set: the head says Central Warehouse alone) and the "All reports" list
+     * as this person may open it, the report shown ($current, its key in Words::RD_REPORTS) not a link. Only reports CW has: the five
+     * reports, the duty register and the reorder list, each behind the permission its route checks (Ui\Kernel).
+     *
+     * @return array{company: string, allReports: list<array{label: string, links: list<array{href: string, label: string, current: bool}>}>, today: string}
+     */
+    public static function shared(Context $ctx, string $current): array
+    {
+        $me = $ctx->me();
+        $groups = [
+            'group_inventory' => ['stock_value' => ['/ui/reports/stock-value', 'values.view'], 'stock_by_store' => ['/ui/reports/stock-by-store', 'reports.view'],
+                'slow_stock' => ['/ui/reports/slow-stock', 'reports.view'], 'low_stock' => ['/ui/reports/low-stock', 'reports.view']],
+            'group_sales' => ['sales_by_store' => ['/ui/reports/sales-by-store', 'reports.view']],
+            'group_purchases' => ['duty' => [DutyController::PATH, 'duty.view'], 'reorder' => ['/ui/purchasing/reorder', 'reorder.view']],
+        ];
+        $all = [];
+        foreach ($groups as $group => $reports) {
+            $links = [];
+            foreach ($reports as $key => [$href, $perm]) {
+                if ($me->can($perm)) {
+                    $links[] = ['href' => $href, 'label' => Words::RD_REPORTS[$key], 'current' => $key === $current];
+                }
+            }
+            if ($links !== []) {
+                $all[] = ['label' => Words::RD_REPORTS[$group], 'links' => $links];
+            }
+        }
+        $name = trim((string) ($ctx->company()->current()['legal_name'] ?? ''));
+        return ['company' => $name === '' ? Words::RD_REPORTS['cw'] : Words::say('RD_REPORTS', 'company_line', $name), 'allReports' => $all,
+            'today' => Clock::db(Clock::now())];
     }
 
     private static function slug(Context $ctx): string

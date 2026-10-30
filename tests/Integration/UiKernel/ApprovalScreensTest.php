@@ -44,7 +44,7 @@ final class ApprovalScreensTest extends KernelUiTestCase
         $page = $lead->get('/ui/review/listing/' . $l);
         self::assertTrue($page->hasForm("/ui/review/decision/{$did}/approve"));
         $xp = new \DOMXPath($page->dom());
-        $cardBox = self::squash((string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"])')); // the item's card (TP_Match, W12.1)
+        $cardBox = self::squash((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-item")])')); // our item's column (the Listings artboard, RD-C1)
         self::assertStringContainsString(Words::LISTING['new_by_decision'], $cardBox);
         self::assertStringContainsString("Name {$typed}", $cardBox);
         self::assertStringContainsString('Brand Zeta', $cardBox);
@@ -82,14 +82,15 @@ final class ApprovalScreensTest extends KernelUiTestCase
             $page = $lead->get('/ui/review/listing/' . $l, $query);
             self::assertTrue($page->hasForm("/ui/review/decision/{$d['id']}/approve"));
             $xp = new \DOMXPath($page->dom());
-            // The item's card (TP_Match, W12.1): its heading, its code; the facts beside the store product's are its own.
-            $card = self::squash((string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"])'));
-            self::assertStringStartsWith($this->skuCode($other) . ' ', self::squash((string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"]//p[@class="mt-sub"])')),
+            // Our item's column (the Listings artboard, RD-C1): its heading, its code; the facts beside the store product's are its own.
+            $card = self::squash((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-item")])') . ' '
+                . implode(' ', array_map(static fn (\DOMNode $n): string => (string) $n->textContent, iterator_to_array($xp->query('//div[contains(@class, "mt-v mt-item")]')))));
+            self::assertStringStartsWith($this->skuCode($other) . ' ', self::squash((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-item")]/p[@class="mt-sub"])')),
                 'the comparison is with the item being approved: ' . json_encode($query));
             self::assertSame(Words::LISTING['pending_target'], self::squash((string) $xp->evaluate('string(//h2[@id="mt-item-h"])')));
             self::assertStringContainsString('5056168899999', $card, "the approved item's barcode");
             self::assertStringNotContainsString($this->skuCode($proposed), $card);
-            self::assertSame('differs', (string) $xp->evaluate('string(//section[@aria-labelledby="mt-store-h"]//dt[normalize-space()="Barcodes"]/following-sibling::dd[1]/span/@data-state)'),
+            self::assertSame('differs', (string) $xp->evaluate('string(//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")][normalize-space(div[@class="mt-k"])="Barcodes"]/@data-state)'),
                 'the listing barcode is not the approved item\'s');
         }
     }

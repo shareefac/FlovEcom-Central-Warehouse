@@ -51,14 +51,15 @@ final class HomeScreenTest extends KernelUiTestCase
         $out = [];
         foreach ($xp->query('//main//*[@data-card]') ?: [] as $li) {
             /** @var \DOMElement $li */
-            $buttons = $xp->query('.//a[contains(concat(" ", @class, " "), " btn ")]', $li);
+            // (each row's action: a link at its right since the Main artboard, docs/decisions.md RD-C15; no row is the page's main button)
+            $buttons = $xp->query('.//a[contains(concat(" ", @class, " "), " hm-go ")]', $li);
             self::assertLessThanOrEqual(1, $buttons === false ? 0 : $buttons->length, 'one button per row');
             $a = $buttons !== false && $buttons->length === 1 ? $buttons->item(0) : null;
             self::assertSame(1, $xp->query('.//h3', $li)->length, 'the job\'s name');
             self::assertSame(1, $xp->query('.//p[@class="hm-d"]', $li)->length, 'one plain line');
             $out[] = ['key' => $li->getAttribute('data-card'), 'big' => $norm((string) $xp->evaluate('string(.//span[@class="hm-n"])', $li)),
                 'title' => $norm((string) $xp->evaluate('string(.//h3)', $li)), 'count' => $norm((string) $xp->evaluate('string(.//span[@class="hm-said"])', $li)),
-                'button' => $a instanceof \DOMElement ? $norm($a->textContent) : null, 'href' => $a instanceof \DOMElement ? $a->getAttribute('href') : null,
+                'button' => $a instanceof \DOMElement ? $norm(str_replace('›', '', $a->textContent)) : null, 'href' => $a instanceof \DOMElement ? $a->getAttribute('href') : null,
                 'main' => $a instanceof \DOMElement && str_contains(' ' . $a->getAttribute('class') . ' ', ' primary '),
                 'note' => $xp->query('ancestor::ul[contains(@class, "hm-notes")]', $li)->length === 1, 'text' => $norm($li->textContent)];
         }
@@ -132,18 +133,18 @@ final class HomeScreenTest extends KernelUiTestCase
         $home = $web->get('/ui/');
         self::assertSame(200, $home->status, $home->describe());
         $xp = new \DOMXPath($home->dom());
-        // The head of HM_Home: today's date, "Good morning, <first name>", one Find box.
+        // The head of the Main artboard (docs/decisions.md RD-C15): today's date, "Good morning, <first name>"; no Find box (the sidebar's).
         self::assertSame(\CW\Ui\Html::today(), trim((string) $xp->evaluate('string(//main//p[@class="ph-eyebrow"])')));
         self::assertMatchesRegularExpression('/^Good (morning|afternoon|evening), Mapping_lead-reviewer$/', trim((string) $xp->evaluate('string(//main//h1)')));
-        self::assertSame(1, $xp->query('//main//header[@class="page-head"]//form[@class="hm-find"]//input[@name="q"]')->length, 'the Find box beside the greeting');
+        self::assertSame(0, $xp->query('//main//form[@class="hm-find"]')->length, 'no Find box on Home');
         self::assertSame('Home', self::currentSection($home));
         self::assertSame('Home - Central Warehouse', trim((string) $xp->evaluate('string(//title)')));
-        self::assertSame(Words::HOME['needs'], trim((string) $xp->evaluate('string(//main//h2[@id="needs-h"])')));
+        self::assertStringStartsWith(Words::HOME['needs'] . ' · ', trim((string) $xp->evaluate('string(//main//h2[@id="needs-h"])')), '"Waiting for you · N jobs"');
         $cards = self::cardsOf($home);
         // What holds others up first (the company details, an approval), then the owner's own checks, then routine work.
         // Then a note (no job): the people this test added on the server in the last days (Y45, the reviewers' "to look at").
         self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'strong', 'watch'], array_column($cards, 'key'));
-        self::assertSame([true, false, false, false, false, false, false], array_column($cards, 'main'), 'the first job\'s button is the page\'s main action');
+        self::assertSame([false, false, false, false, false, false, false], array_column($cards, 'main'), 'no row is magenta: the page\'s main button is + New purchase order (RD-C15)');
         self::assertSame([false, false, false, false, false, false, true], array_column($cards, 'note'), 'the note after the jobs');
         self::assertSame(['!', '1', '0/20', '1', '1', '25'], array_slice(array_column($cards, 'big'), 0, 6), 'the big numbers: "!" where there is none');
         $by = self::byKey($cards);
@@ -180,13 +181,15 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//main//details[@id="about"] | //main//ul[@class="uses"] | //main//section[@class="progress-box"]')->length);
         self::assertStringNotContainsString(Words::HOME['coverage'], $home->text());
         self::assertStringContainsString(Words::HOME['coverage'], $web->get('/ui/review')->text());
-        // The small figures: the first four the owner may see.
-        self::assertSame(['orders', 'units', 'deliveries', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+        // The four tinted tiles of the Main artboard (docs/decisions.md RD-C15): the stock value at cost, the units on the shelf, what waits for
+        // this person's OK, the listings to match.
+        self::assertSame(['value', 'units', 'inbox', 'matches'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
             iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
-        self::assertSame(['/ui/purchasing/orders', '/ui/stock', '/ui/receiving', '/ui/items/cards'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+        self::assertSame(['/ui/reports/stock-value', '/ui/stock', '/ui/approvals', '/ui/review?queue=Key'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
-        self::assertMatchesRegularExpression('/^[0-9,]+$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="products"]/span[@class="hm-fig-n"])')),
+        self::assertMatchesRegularExpression('/^[0-9,]+$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="units"]/span[@class="hm-fig-n"])')),
             'each a number');
+        self::assertMatchesRegularExpression('/^£[0-9,]+\.\d\d$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="value"]/span[@class="hm-fig-n"])')), 'the value in money');
 
         // One answer: 1 of 20, and the button opens the next member.
         // (the spot check's own "Same item": its own small form in the bar, docs/decisions.md W12.3)
@@ -279,7 +282,7 @@ final class HomeScreenTest extends KernelUiTestCase
         }
         self::assertSame(['1', '!', '!'], array_column($cards, 'big'), 'a row without a number shows "!"');
         self::assertSame(['1 account', Words::HOME['needs_you'], Words::HOME['needs_you']], array_column($cards, 'count'), '... and a screen reader hears its state');
-        self::assertSame(['units', 'products', 'matches'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+        self::assertSame(['units', 'matches', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
             iterator_to_array((new \DOMXPath($home->dom()))->query('//main//section[contains(@class, "hm-figs")]/a'))), 'the figures the admin may see');
     }
 
@@ -321,7 +324,7 @@ final class HomeScreenTest extends KernelUiTestCase
         $cards = self::cardsOf($home);
         self::assertSame(['not_ok', 'not_sent', 'drafts', 'supplier_drafts', 'company_wait', 'old_sales'], array_column($cards, 'key'));
         self::assertSame([false, false, false, false, true, true], array_column($cards, 'note'));
-        self::assertSame([true, false, false, false, false, false], array_column($cards, 'main'), 'a note\'s button is never the main one');
+        self::assertSame([false, false, false, false, false, false], array_column($cards, 'main'), 'no row is the page\'s main button (+ New purchase order is, RD-C15)');
         $by = self::byKey($cards);
         self::assertSame(['1 order', '/ui/purchasing/orders?rejected=1'], [$by['not_ok']['count'], $by['not_ok']['href']]);
         self::assertSame(['2 orders', '/ui/purchasing/orders?state=approved'], [$by['not_sent']['count'], $by['not_sent']['href']]);
@@ -335,7 +338,7 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertSame(['orders', 'units', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+        self::assertSame(['units', 'orders', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
             iterator_to_array((new \DOMXPath($home->dom()))->query('//main//section[contains(@class, "hm-figs")]/a'))), 'no Goods In for a buyer: three figures');
     }
 

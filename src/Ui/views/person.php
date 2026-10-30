@@ -16,6 +16,9 @@ $facts = [['label' => \CW\Ui\Words::STAFF['jobs'], 'value' => \CW\Ui\Words::role
 <?= $head((string) $person['display_name'], intro: 'person', more: $readOnly !== null ? '' : null, back: ['/ui/people', \CW\Ui\Words::MENU['people']], side: $bar,
     chips: $person['is_active'] ? $chip('done', \CW\Ui\Words::STAFF['group_active']) : $chip('off', \CW\Ui\Words::STAFF['group_off'])) ?>
 </div>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'people']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -160,3 +163,5 @@ $facts = [['label' => \CW\Ui\Words::STAFF['jobs'], 'value' => \CW\Ui\Words::role
   </div>
 <?php endif; ?>
 </section>
+</div>
+</div>

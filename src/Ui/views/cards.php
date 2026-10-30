@@ -1,7 +1,8 @@
 <?php
 // Home's "Waiting for you" rows (HM_Home; docs/decisions.md HV1): per task its number in the task's colour (a screen reader hears it with its
-// unit, or the task's state where it has none), its name, one plain line (the changes to look at list theirs under it) and ONE button; the
-// first job's button is the page's main action. The notes ($notes: no job, after the jobs) are quieter and their buttons plain.
+// unit, or the task's state where it has none), its name, one plain line (the changes to look at list theirs under it) and its action at the
+// right, the whole row a link to it (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15: the page's main button is + New purchase
+// order, so no row is magenta). The notes ($notes: no job, after the jobs) are quieter.
 $notes = $notes ?? false;
 ?>
 <?php if ($notes): ?>
@@ -24,7 +25,7 @@ $notes = $notes ?? false;
 <?php endif; ?>
     </div>
 <?php if (isset($c['href'], $c['button'])): ?>
-    <a class="btn<?php if (!empty($c['hero'])): ?> primary<?php endif; ?>" href="<?= $e($c['href']) ?>"><?= $e($c['button']) ?></a>
+    <a class="hm-go" href="<?= $e($c['href']) ?>"><?= $e($c['button']) ?><span aria-hidden="true"> ›</span></a>
 <?php endif; ?>
   </li>
 <?php endforeach; ?>

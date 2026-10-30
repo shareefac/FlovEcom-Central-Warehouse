@@ -9,6 +9,9 @@ $groupsShown = [['key' => 'active', 'tone' => 'done', 'rows' => array_values(arr
     ['key' => 'off', 'tone' => 'off', 'rows' => array_values(array_filter($people, static fn (array $x): bool => !$x['is_active']))]];
 ?>
 <?= $head(\CW\Ui\Words::MENU['people'], intro: 'people', more: $lookOnly) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'people']) ?>
+<div class="set-main">
 <?php foreach ($warnings as $warning): ?>
 <p class="note" role="alert"><?= $e($warning) ?></p>
 <?php endforeach; ?>
@@ -153,3 +156,5 @@ $groupsShown = [['key' => 'active', 'tone' => 'done', 'rows' => array_values(arr
   </div>
 <?php endif; ?>
 </section>
+</div>
+</div>

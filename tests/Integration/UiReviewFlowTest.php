@@ -61,11 +61,11 @@ final class UiReviewFlowTest extends UiTestCase
             $page = $web->get("/ui/review/listing/{$listing}", ['queue' => 'Key', 'channel' => 'vpg']);
             self::assertSame(200, $page->status, $page->describe());
             self::assertStringNotContainsString("Listing #{$listing}", $page->text(), 'the product by its name, not a number (F171)');
-            // The approved TP_Match (docs/decisions.md W12.1): the question heads the page, the store product's name its card.
+            // The approved Listings artboard (docs/decisions.md RD-C1): the question heads the page, the store product's name its column of the card.
             self::assertSame(Words::MATCH['question'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
             self::assertStringStartsWith((string) self::$db->value('SELECT product_title FROM listing_profile WHERE listing_id = ?', [$listing]),
-                trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//section[@aria-labelledby="mt-store-h"]//p[@class="mt-name"])')));
-            self::assertStringContainsString(Words::LISTING['suggested'], $page->text());
+                trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "mt-side mt-store")]/p[@class="mt-name"])')));
+            self::assertStringContainsString(Words::MATCH['our_item'], $page->text(), 'the suggestion is "Our item"');
             self::assertStringContainsString($this->skuCode($sku), $page->text());
             // ONE form: Same item is its main answer (the quick yes above it is gone).
             self::assertSame(['link'], $page->buttons("/ui/review/listing/{$listing}/decide", 'action', true));
@@ -635,7 +635,7 @@ final class UiReviewFlowTest extends UiTestCase
         // The picked item takes the place of the proposal, and is what the form links to.
         $picked = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => (string) $b]);
         self::assertStringContainsString(Words::LISTING['picked'], $picked->text());
-        self::assertStringContainsString($this->skuCode($b), (string) (new \DOMXPath($picked->dom()))->evaluate('string(//section[@aria-labelledby="mt-item-h"])'));
+        self::assertStringContainsString($this->skuCode($b), (string) (new \DOMXPath($picked->dom()))->evaluate('string(//div[contains(@class, "mt-side mt-item")])'));
         $form = $picked->form('/decide');
         self::assertSame((string) $b, $form['sku_id']);
         self::assertArrayNotHasKey('action', $form, 'a picked item is never preselected');
@@ -823,7 +823,7 @@ final class UiReviewFlowTest extends UiTestCase
         $page = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => '999999']);
         self::assertSame(200, $page->status);
         self::assertStringContainsString(Words::LISTING['pick_missing'], $page->text());
-        self::assertStringContainsString(Words::LISTING['suggested'], $page->text(), 'a pick that failed does not claim to be the picked item');
+        self::assertStringContainsString(Words::MATCH['our_item'], $page->text(), 'a pick that failed does not claim to be the picked item (the suggestion: "Our item", RD-C1)');
         self::assertStringNotContainsString(Words::LISTING['picked'], $page->text());
         self::assertSame((string) $a, $page->form('/decide')['sku_id'], 'the proposal is still the target');
         foreach (['abc', '0', '-3', '1.5', str_repeat('9', 30)] as $junk) {

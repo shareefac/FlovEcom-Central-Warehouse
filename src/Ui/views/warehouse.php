@@ -8,6 +8,9 @@ $on = $w['is_active'];
 ?>
 <?= $head((string) $w['name'], intro: 'warehouse', more: $lookOnly, back: ['/ui/reference/warehouses', \CW\Ui\Words::MENU['warehouses']],
     chips: $w['is_active'] ? $chip('done', \CW\Ui\Words::WAREHOUSES['status_on']) : $chip('off', \CW\Ui\Words::WAREHOUSES['status_off'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'warehouses']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -236,4 +239,6 @@ $on = $w['is_active'];
   <h2 id="history-h"><?= $word('WAREHOUSES', 'history') ?></h2>
 <?= $partial('config_history', ['rows' => $history]) ?>
 </section>
+</div>
+</div>
 </div>

@@ -5,7 +5,9 @@
 // this one's place), with the fields the kind needs (the item box of Lines to place, how it was sorted out, the note), its main answer in
 // the accent, and the rarer answers under More: a button of the same form with its own route (formaction), or a fold with its own small
 // form and note. Without the script every answer is a plain form. Its forms keep what is typed: a link that leaves the page asks first
-// (data-unsaved, CV14; AV19), and a refused answer comes back with them marked as not saved.
+// (data-unsaved, CV14; AV19), and a refused answer comes back with them marked as not saved. The approved Approvals artboard of 30 Oct 2026
+// (docs/decisions.md RD-C13): the figures as tiles (the first in the kind's tint), the note under them, then "Next: …" at the left of the
+// answers, More and the main answer at the right; the kind shown on the list travels with the answer (inbox_show).
 ?>
 <section class="ap-record <?= $e($record['tone']) ?>" aria-labelledby="ap-h">
 <div class="card ap-card">
@@ -49,6 +51,9 @@
 <?php if ($record['nextKey'] !== null): ?>
     <input type="hidden" name="inbox_next" value="<?= $e($record['nextKey']) ?>">
 <?php endif; ?>
+<?php if ($show !== null): ?>
+    <input type="hidden" name="inbox_show" value="<?= $e($show) ?>">
+<?php endif; ?>
 <?php foreach ($record['hidden'] as $name => $value): ?>
     <input type="hidden" name="<?= $e($name) ?>" value="<?= $e($value) ?>">
 <?php endforeach; ?>
@@ -76,7 +81,7 @@
 <?php endif; ?>
   </form>
   <div class="ap-actions">
-    <button type="submit" form="ap-answer" class="btn primary"<?php if ($record['mainName'] !== null): ?> name="<?= $e($record['mainName']) ?>" value="<?= $e($record['mainValue']) ?>"<?php endif; ?>><?= $e($record['main']) ?></button>
+    <p class="ap-next"><?php if ($record['next'] !== null): ?><?= $e($record['next']) ?><?php else: ?><?= $word('INBOX', 'last') ?><?php endif; ?></p>
 <?php if ($record['more'] !== []): ?>
     <details class="more"<?php if ($record['moreOpen']): ?> open<?php endif; ?>>
       <summary class="btn" aria-label="<?= $word('INBOX', 'more') ?>"><?= $word('UI', 'more') ?></summary>
@@ -93,6 +98,9 @@
 <?php if ($record['nextKey'] !== null): ?>
               <input type="hidden" name="inbox_next" value="<?= $e($record['nextKey']) ?>">
 <?php endif; ?>
+<?php if ($show !== null): ?>
+              <input type="hidden" name="inbox_show" value="<?= $e($show) ?>">
+<?php endif; ?>
               <label><?= $e($m['fold']['label']) ?> <input type="text" name="note" value="<?= $e($m['fold']['value']) ?>" minlength="<?= $e($m['fold']['min']) ?>" maxlength="<?= $e($m['fold']['max']) ?>" required></label>
               <p class="actions"><button type="submit" class="btn risky"><?= $e($m['label']) ?></button></p>
             </form>
@@ -105,7 +113,7 @@
       </div>
     </details>
 <?php endif; ?>
-    <p class="ap-next"><?php if ($record['next'] !== null): ?><?= $e($record['next']) ?><?php else: ?><?= $word('INBOX', 'last') ?><?php endif; ?></p>
+    <button type="submit" form="ap-answer" class="btn primary"<?php if ($record['mainName'] !== null): ?> name="<?= $e($record['mainName']) ?>" value="<?= $e($record['mainValue']) ?>"<?php endif; ?>><?= $e($record['main']) ?></button>
   </div>
 </div>
 </section>

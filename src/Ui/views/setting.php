@@ -4,6 +4,9 @@
 // changes settings a card with its one form (the value, the agreed tick, the reason; Save), or where its rule is changed; then its History.
 ?>
 <?= $head((string) $name, intro: 'setting', more: $lookOnly, back: ['/ui/reference/settings', \CW\Ui\Words::SETTINGS_PAGE['title']]) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'settings']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -64,4 +67,6 @@
   <h2 id="history-h"><?= $word('CONFIG', 'history') ?></h2>
 <?= $partial('config_history', ['rows' => $history]) ?>
 </section>
+</div>
+</div>
 </div>

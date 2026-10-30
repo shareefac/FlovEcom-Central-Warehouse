@@ -8,6 +8,9 @@
 // last (read only), then the one line that says each change is kept.
 ?>
 <?= $head(\CW\Ui\Words::SETTINGS_PAGE['title'], intro: 'settings', look: $lookOnly) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'settings']) ?>
+<div class="set-main">
 <?php if ($codeOffUntil !== null): ?>
 <div class="alert blocked code-off" role="alert">
   <p class="alert-title"><?= $say('SETTINGS_PAGE', 'code_off', \CW\Ui\Html::when($codeOffUntil)) ?></p>
@@ -117,3 +120,5 @@
 <p class="set-foot"><?= $word('SETTINGS_PAGE', 'foot') ?></p>
 </div>
 <?php endif; ?>
+</div>
+</div>

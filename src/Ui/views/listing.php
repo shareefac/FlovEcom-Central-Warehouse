@@ -1,12 +1,12 @@
 <?php
-// Matching › a store product: is it the same item? (the approved design TP_Match of 29 Oct 2026; docs/decisions.md W12.1-W12.4). The head asks
-// the question, the store and how many are left in its eyebrow, the bar at its right; then the store product on the left (the blue edge) and
-// the item on the right (the green edge), their facts side by side (what agrees green, what differs amber), "N other suggestions" and "Or find
-// another item" in the item's card; then "One store product is N of this item" and the note; the bar at the bottom: Skip, More, Not the same,
-// Same item. ONE form holds them (the quick yes of a strong match is gone: Same item is it). Every other answer and every other part of the
-// page is under the bar's More (listing_more). A store product that is not answered here (a landing page, one waiting for a second OK, a
-// matched one, one only a lead or the spot check's owner decides, look only) says so where the units and the note are; a spot check's own
-// match keeps its three answers (Skip, Not the same behind its warning, Same item: the suggestion, as the spot check counts it).
+// Check a match (the approved Listings artboard of 30 Oct 2026; docs/decisions.md RD-C1-RD-C6): "Is this the same item?" with the store and how many
+// are left to check under it; ONE comparison card: the store product on the left (its blue dot), our item on the right (its green dot), one row
+// per fact with a green tick when the two sides are the same and an amber ! when they differ (that row lightly tinted); under it "Not this one?
+// Find another item" (its own GET form) and "1 sale on the store is N of our item"; the bar at the bottom: Skip, More, Not the same, Same item.
+// ONE decision form posts exactly what it posted before (the note is a field of it under the bar's More, open when it was refused). Every other
+// answer and every other part of the page is under the bar's More (listing_more). A store product that is not answered here (a landing page,
+// one waiting for a second OK, a matched one, one only a lead or the spot check's owner decides, look only) says so under the card; a spot
+// check's own match keeps its three answers (Skip, Not the same behind its warning, Same item: the suggestion, as the spot check counts it).
 $fieldId = match (true) {
     $error_field === null => null,
     $error_field === 'action' => 'f-action',
@@ -23,8 +23,10 @@ $one = $landing === null && $no_form === null && !$spot_mode;
 // Its main answer: Same item with an item to compare; with none, New item when the computer suggests one (what the form chose first before).
 $newMain = $one && $target === null && $preselect === 'new_item';
 $cardOpen = $one && ($form['action'] === 'new_item' || ($error_field !== null && str_starts_with($error_field, 'card.')));
-// More is closed while New item is the main answer and nothing was refused; a refused one opens it, the refused field in view (W12.20).
+// More is closed while New item is the main answer and nothing was refused; a refused one opens it, the refused field in view (W12.20); a
+// refused note opens it on the note (RD-C4).
 $changeOpen = $change_match && ($error !== null || $change_target !== null);
+$noteOpen = $one && $error_field === 'reason';
 $skip = $spot_mode ? ($strip['next'] ?? ($strip['url'] ?? '/ui/review/samples')) : ($next_link ?? $back[0]);
 $nextSpot = !$spot_mode && $strip !== null && $strip['mine'] && $strip['next'] !== null && ($spot === null || $spotDone) ? $strip['next'] : null;
 // The facts in the approved design's order (brand, line, flavour, strength, pack), then the rest of what either side states.
@@ -36,16 +38,20 @@ $others = count(array_filter($candidates, static fn (array $c): bool => $c['sku'
 $status = in_array($l['status'], ['unmapped', 'suggested'], true) ? null : \CW\Ui\Words::of('LISTING_STATUS', $l['status']);
 $count = $strip !== null ? \CW\Ui\Words::say('SPOT', 'progress', $strip['decided'], $strip['size'])
     : ($progress_left !== null ? \CW\Ui\Words::say('MATCH', 'to_match', $progress_left) : null);
-$tag = implode(' · ', array_filter([$l['channel_name'] ?? $l['channel'], $status, $count], static fn (?string $v): bool => $v !== null && $v !== ''));
-$fill = $progress_left !== null && ($progress_today ?? 0) > 0 ? max(1, min(100, (int) round(100 * $progress_today / ($progress_today + $progress_left)))) : 0;
+// The line under the question (the artboard's "Electrofag · 144 left to check"): the store, the state when it is not still to match, how many
+// are left; the progress in words for a screen reader (data-progress, the list's own words).
+$line = implode(' · ', array_filter([$l['channel_name'] ?? $l['channel'], $status, $count], static fn (?string $v): bool => $v !== null && $v !== ''));
 $more = ['l' => $l, 'why' => $why, 'partners' => $partners, 'proposal' => $proposal, 'closest' => $closest, 'closest_pick' => $closest_pick, 'show_search' => $show_search,
     'attributes' => $attributes, 'linked_sku' => $linked_sku, 'target' => $target, 'protected' => $protected, 'elsewhere' => $elsewhere, 'dup_groups' => $dup_groups,
     'strip' => $strip, 'decisions' => $decisions, 'previously_rejected' => $previously_rejected];
-$bar = $partial('listing_progress', ['strip' => $strip, 'words' => $progress, 'fill' => $fill]);
+// Opened from a spot check: its blocks at the head's right (done, wrong, this one, to do); no bar for a list (its line says how many are left).
+$bar = $strip !== null ? $partial('listing_progress', ['strip' => $strip, 'words' => null, 'fill' => 0]) : '';
 $question = \CW\Ui\Words::MATCH['question'];
+// Our item's column: "Our item" for the suggestion; the item picked, the matched one or what a waiting decision does say so.
+$ourHead = $target_heading === \CW\Ui\Words::LISTING['suggested'] ? \CW\Ui\Words::MATCH['our_item'] : $target_heading;
 ?>
 <div class="match-head">
-<?= $head($question, intro: $intro_page, look: $lookOnly, tag: $tag, side: $bar, back: [$back[0], $back[1]]) ?>
+<?= $head($question, intro: $intro_page, look: $lookOnly, meta: $progress !== null ? '<span class="mt-line" data-progress="' . $e($progress) . '">' . $e($line) . '</span>' : '<span class="mt-line">' . $e($line) . '</span>', side: $bar, back: [$back[0], $back[1]]) ?>
 </div>
 
 <?php if ($error !== null): ?>
@@ -83,148 +89,136 @@ $question = \CW\Ui\Words::MATCH['question'];
 <?php else: ?>
 <div class="mt-form" id="decide">
 <?php endif; ?>
-  <div class="mt-cards">
-    <section class="card mt-card info" aria-labelledby="mt-store-h">
-      <h2 id="mt-store-h" class="mt-h"><?= $word('MATCH', 'on_store') ?></h2>
-      <div class="mt-who">
-        <div class="mt-photo" aria-hidden="true"><?= $word('MATCH', 'no_photo') ?></div>
-        <div class="mt-id">
-          <p class="mt-name"><?= $e($l['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?><?php if ($l['variant_title'] !== null): ?> – <?= $e($l['variant_title']) ?><?php endif; ?></p>
-          <p class="mt-sub"><?= $say('MATCH', 'variant', (string) $l['variant']) ?><?php if ($l['price'] !== null): ?> · <?php if (is_numeric($l['price'])): ?><?= $money($l['price']) ?><?php else: ?><?= $e($l['price']) ?><?php endif; ?><?php endif; ?></p>
-        </div>
+  <section class="card mt-compare" aria-label="<?= $word('MATCH', 'compare') ?>">
+    <div class="mt-row mt-heads">
+      <div class="mt-k"></div>
+      <div class="mt-side mt-store">
+        <h2 id="mt-store-h" class="mt-h"><span class="mt-dot" aria-hidden="true"></span><?= $word('MATCH', 'on_store') ?></h2>
+        <p class="mt-name"><?= $e($l['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?><?php if ($l['variant_title'] !== null): ?> – <?= $e($l['variant_title']) ?><?php endif; ?></p>
+        <p class="mt-sub"><?= $say('MATCH', 'variant', (string) $l['variant']) ?><?php if ($l['price'] !== null): ?> · <?php if (is_numeric($l['price'])): ?><?= $money($l['price']) ?><?php else: ?><?= $e($l['price']) ?><?php endif; ?><?php endif; ?></p>
       </div>
-<?php if ($facts !== []): ?>
-      <dl class="mt-facts">
-<?php foreach ($facts as $r): ?>
-        <dt><?= $e($r['label']) ?></dt> <dd><span class="mt-mark <?php if ($agrees($r['state'])): ?>same<?php else: ?>diff<?php endif; ?>" data-state="<?= $e($r['state']) ?>"><?php if ($r['listing'] === ''): ?><?= $word('LISTING', 'not_stated') ?><?php else: ?><?= $e($r['listing']) ?><?php endif; ?></span><span class="visually-hidden"> (<?php if ($agrees($r['state'])): ?><?= $word('MATCH', 'agrees') ?><?php else: ?><?= $word('MATCH', 'differs') ?><?php endif; ?>)</span></dd>
-<?php endforeach; ?>
-      </dl>
-<?php elseif ($new_rows !== []): ?>
-      <dl class="mt-facts">
-<?php foreach ($new_rows as $r): ?>
-        <dt><?= $e($r['label']) ?></dt> <dd><?= $e($r['value']) ?></dd>
-<?php endforeach; ?>
-      </dl>
-<?php endif; ?>
-    </section>
-
-    <section class="card mt-card done" aria-labelledby="mt-item-h">
-      <div class="mt-card-head">
-        <h2 id="mt-item-h" class="mt-h"><?php if ($pending !== null && $pending['action'] === 'new_item'): ?><?= $word('LISTING', 'new_by_decision') ?><?php elseif ($pending !== null && $target === null): ?><?= $word('LISTING', 'decision_does') ?><?php else: ?><?= $e($target_heading) ?><?php endif; ?></h2>
-<?php if ($candidates !== [] && $others > 0): ?>
-        <details class="mt-others" id="cand">
-          <summary><?php if ($others === 1): ?><?= $word('MATCH', 'others_one') ?><?php else: ?><?= $say('MATCH', 'others_many', $others) ?><?php endif; ?></summary>
-          <div class="table-wrap">
-          <table class="stack candidates">
-            <thead>
-              <tr><th scope="col"><?= $word('LISTING', 'no') ?></th><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col" class="num"><?= $word('LISTING', 'score') ?></th><th scope="col"><?= $word('LISTING', 'problems') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
-            </thead>
-            <tbody>
-<?php foreach ($candidates as $c): ?>
-              <tr<?php if ($c['ref'] !== null): ?> id="cand-<?= $e($c['ref']) ?>"<?php endif; ?><?php if ($c['ai_picked']): ?> class="picked"<?php endif; ?>>
-                <th scope="row" class="c-head"><?= $e($c['ref']) ?></th>
-                <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag done"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag info"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
-                <td class="num" data-label="<?= $word('LISTING', 'score') ?>"><?= $e($c['prescore']) ?></td>
-                <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> blocked<?php else: ?> needs<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
-                <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn sm" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
-              </tr>
-<?php endforeach; ?>
-            </tbody>
-          </table>
-          </div>
-        </details>
-<?php endif; ?>
-      </div>
+      <div class="mt-side mt-item">
+        <h2 id="mt-item-h" class="mt-h"><span class="mt-dot" aria-hidden="true"></span><?php if ($pending !== null && $pending['action'] === 'new_item'): ?><?= $word('LISTING', 'new_by_decision') ?><?php elseif ($pending !== null && $target === null): ?><?= $word('LISTING', 'decision_does') ?><?php else: ?><?= $e($ourHead) ?><?php endif; ?></h2>
 <?php if ($pending !== null && $pending['action'] === 'new_item'): ?>
-      <p class="mt-sub"><?= $say('LISTING', 'new_by_decision_text', $pending['sale'] ?? \CW\Ui\Words::saleUses(1)) ?></p>
-      <dl class="mt-facts">
+        <p class="mt-sub"><?= $say('LISTING', 'new_by_decision_text', $pending['sale'] ?? \CW\Ui\Words::saleUses(1)) ?></p>
+        <dl class="mt-facts">
 <?php foreach ($pending['card'] as $f): ?>
-        <dt><?= $e($f['label']) ?></dt> <dd><?= $e($f['value']) ?></dd>
+          <dt><?= $e($f['label']) ?></dt> <dd><?= $e($f['value']) ?></dd>
 <?php endforeach; ?>
-      </dl>
+        </dl>
 <?php elseif ($pending !== null && $target === null): ?>
-      <p class="mt-name"><?= $partial('pending_decision', ['d' => $pending]) ?></p>
+        <p class="mt-name"><?= $partial('pending_decision', ['d' => $pending]) ?></p>
 <?php else: ?>
 <?php if ($pick_note !== null): ?>
-      <p class="error" role="alert"><?= $e($pick_note) ?></p>
+        <p class="error" role="alert"><?= $e($pick_note) ?></p>
 <?php endif; ?>
 <?php if ($target !== null): ?>
-      <div class="mt-who">
-        <div class="mt-photo" aria-hidden="true"><?= $word('MATCH', 'no_photo') ?></div>
-        <div class="mt-id">
-          <p class="mt-name"><a href="/ui/items/<?= $e($target['id']) ?>"><?= $e($target['name'] ?? $target['code']) ?></a></p>
-          <p class="mt-sub"><?= $e($target['code']) ?> · <?= $say('MATCH', 'in_stock', (int) $target_stock) ?><?php if ($protected): ?> <span class="tag needs"><?= $word('MATCH', 'protected') ?></span><?php endif; ?><?php if ($previously_rejected): ?> <span class="tag needs"><?= $word('MATCH', 'refused_before') ?></span><?php endif; ?></p>
-        </div>
-      </div>
-<?php if ($facts !== []): ?>
-      <dl class="mt-facts">
-<?php foreach ($facts as $r): ?>
-        <dt><?= $e($r['label']) ?></dt> <dd><span class="mt-mark <?php if ($agrees($r['state'])): ?>same<?php else: ?>diff<?php endif; ?>" data-state="<?= $e($r['state']) ?>"><?php if ($r['item'] === ''): ?><?= $word('LISTING', 'not_stated') ?><?php else: ?><?= $e($r['item']) ?><?php endif; ?></span><span class="visually-hidden"> (<?php if ($agrees($r['state'])): ?><?= $word('MATCH', 'agrees') ?><?php else: ?><?= $word('MATCH', 'differs') ?><?php endif; ?>)</span></dd>
-<?php endforeach; ?>
+        <p class="mt-name"><a href="/ui/items/<?= $e($target['id']) ?>"><?= $e($target['name'] ?? $target['code']) ?></a></p>
+        <p class="mt-sub"><?= $e($target['code']) ?> · <?= $say('MATCH', 'in_stock', (int) $target_stock) ?><?php if ($protected): ?> <span class="tag needs"><?= $word('MATCH', 'protected') ?></span><?php endif; ?><?php if ($previously_rejected): ?> <span class="tag needs"><?= $word('MATCH', 'refused_before') ?></span><?php endif; ?></p>
 <?php if ($pending !== null && $pending['action'] === 'merge_skus' && $pending['merge_from_id'] !== null): ?>
-        <dt><?= $word('PENDING', 'join') ?></dt> <dd><a href="/ui/items/<?= $e($pending['merge_from_id']) ?>"><?= $e($pending['merge_from_code']) ?></a> <?= $e($pending['merge_from_name']) ?> <?= $word('PENDING', 'joins') ?> <?= $e($target['code']) ?></dd>
-<?php endif; ?>
-      </dl>
+        <p class="mt-sub"><?= $word('PENDING', 'join') ?>: <a href="/ui/items/<?= $e($pending['merge_from_id']) ?>"><?= $e($pending['merge_from_code']) ?></a> <?= $e($pending['merge_from_name']) ?> <?= $word('PENDING', 'joins') ?> <?= $e($target['code']) ?></p>
 <?php endif; ?>
 <?php elseif ($proposal !== null && $proposal['new_item']): ?>
-      <p class="mt-name"><?= $word('LISTING', 'suggest_new') ?></p>
-      <p class="mt-sub"><?= $word('LISTING', 'suggest_new_text') ?></p>
+        <p class="mt-name"><?= $word('LISTING', 'suggest_new') ?></p>
+        <p class="mt-sub"><?= $word('LISTING', 'suggest_new_text') ?></p>
 <?php else: ?>
-      <p class="mt-sub"><?= $word('LISTING', 'no_suggestion') ?></p>
+        <p class="mt-sub"><?= $word('LISTING', 'no_suggestion') ?></p>
 <?php endif; ?>
-<?php endif; ?>
-<?php if ($show_search): ?>
-      <div class="field mt-find" id="f-pick">
-        <label for="mt-q"><?= $word('MATCH', 'find') ?></label>
-        <input id="mt-q" type="search" name="s" form="mt-find" value="<?= $e($search_text) ?>" maxlength="100" placeholder="<?= $word('MATCH', 'find_hint') ?>" aria-keyshortcuts="/" data-page-search>
-<?php if ($error_field === 'sku_id' && $error !== null): ?>
-        <p class="field-error"><?= $e($error) ?></p>
-<?php endif; ?>
-<?php if ($search_text !== '' && $found === []): ?>
-        <p class="muted"><?= $word('SEARCH', 'no_items') ?></p>
-<?php endif; ?>
-<?php if ($found !== []): ?>
-        <div class="table-wrap">
-        <table class="stack list found">
-          <thead>
-            <tr><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col"><?= $word('SEARCH', 'rule') ?></th><th scope="col"><?= $word('LISTING', 'barcodes') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
-          </thead>
-          <tbody>
-<?php foreach ($found as $s): ?>
-            <tr>
-              <th scope="row" class="c-head"><a href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?><?php if ($s['details'] !== ''): ?> <span class="o-sub"><?= $e($s['details']) ?></span><?php endif; ?></th>
-              <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $word('POLICY', $s['policy']) ?></td>
-              <td data-label="<?= $word('LISTING', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>
-              <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn sm" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
-            </tr>
-<?php endforeach; ?>
-          </tbody>
-        </table>
-        </div>
 <?php endif; ?>
       </div>
+      <div class="mt-m"></div>
+    </div>
+<?php if ($facts !== []): ?>
+<?php foreach ($facts as $r): ?>
+<?php $same = $agrees($r['state']); ?>
+    <div class="mt-row mt-fact <?php if ($same): ?>same<?php else: ?>diff<?php endif; ?>" data-state="<?= $e($r['state']) ?>">
+      <div class="mt-k"><?= $e($r['label']) ?></div>
+      <div class="mt-v mt-store"><span class="visually-hidden"><?= $word('MATCH', 'on_store') ?>: </span><?php if ($r['listing'] === ''): ?><span class="muted"><?= $word('LISTING', 'not_stated') ?></span><?php else: ?><?= $e($r['listing']) ?><?php endif; ?></div>
+      <div class="mt-v mt-item"><span class="visually-hidden"><?= $e($ourHead) ?>: </span><?php if ($r['item'] === ''): ?><span class="muted"><?= $word('LISTING', 'not_stated') ?></span><?php else: ?><?= $e($r['item']) ?><?php endif; ?></div>
+      <div class="mt-m"><?php if ($same): ?><span class="mt-mark same" role="img" aria-label="<?= $word('MATCH', 'mark_same') ?>">✓</span><?php else: ?><span class="mt-mark diff" role="img" aria-label="<?= $word('MATCH', 'mark_differs') ?>">!</span><?php endif; ?></div>
+    </div>
+<?php endforeach; ?>
+<?php elseif ($new_rows !== []): ?>
+<?php foreach ($new_rows as $r): ?>
+    <div class="mt-row mt-fact">
+      <div class="mt-k"><?= $e($r['label']) ?></div>
+      <div class="mt-v mt-store"><span class="visually-hidden"><?= $word('MATCH', 'on_store') ?>: </span><?= $e($r['value']) ?></div>
+      <div class="mt-v mt-item"></div>
+      <div class="mt-m"></div>
+    </div>
+<?php endforeach; ?>
 <?php endif; ?>
-    </section>
-  </div>
+  </section>
 
+<?php if ($show_search || $one): ?>
+  <div class="mt-pick">
+<?php if ($show_search): ?>
+    <div class="field mt-find" id="f-pick">
+      <label for="mt-q"><?= $word('MATCH', 'find') ?></label>
+      <input id="mt-q" type="search" name="s" form="mt-find" value="<?= $e($search_text) ?>" maxlength="100" placeholder="<?= $word('MATCH', 'find_hint') ?>" aria-keyshortcuts="/" data-page-search>
+<?php if ($error_field === 'sku_id' && $error !== null): ?>
+      <p class="field-error"><?= $e($error) ?></p>
+<?php endif; ?>
+    </div>
+<?php endif; ?>
 <?php if ($one): ?>
-  <section class="card mt-answer" aria-label="<?= $word('MATCH', 'question') ?>">
     <div class="field mt-units">
       <label for="units"><?= $word('MATCH', 'units') ?></label>
-      <span class="mt-units-row"><input class="units" type="number" id="units" name="units_per_item" min="1" max="<?= $e($max_units) ?>" inputmode="numeric" value="<?= $e($form['units']) ?>" required<?php if ($error_field === 'units_per_item'): ?> aria-invalid="true"<?php endif; ?>> <span class="muted"><?= $word('MATCH', 'units_of') ?></span></span>
+      <span class="mt-units-row"><input class="units" type="number" id="units" name="units_per_item" min="1" max="<?= $e($max_units) ?>" inputmode="numeric" value="<?= $e($form['units']) ?>" required<?php if ($error_field === 'units_per_item'): ?> aria-invalid="true"<?php endif; ?>> <span><?= $word('MATCH', 'units_of') ?></span></span>
 <?php if ($error_field === 'units_per_item' && $error !== null): ?>
       <p class="field-error"><?= $e($error) ?></p>
 <?php endif; ?>
     </div>
-    <div class="field mt-note">
-      <label for="f-reason"><?= $word('MATCH', 'note') ?></label>
-      <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" value="<?= $e($form['reason']) ?>" placeholder="<?= $word('MATCH', 'note_hint') ?>"<?php if ($error_field === 'reason'): ?> aria-invalid="true"<?php endif; ?>>
-<?php if ($error_field === 'reason' && $error !== null): ?>
-      <p class="field-error"><?= $e($error) ?></p>
 <?php endif; ?>
+  </div>
+<?php endif; ?>
+<?php if ($show_search && $search_text !== '' && $found === []): ?>
+  <p class="muted mt-none"><?= $word('SEARCH', 'no_items') ?></p>
+<?php endif; ?>
+<?php if ($show_search && $found !== []): ?>
+  <div class="table-wrap mt-found">
+  <table class="stack list found">
+    <thead>
+      <tr><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col"><?= $word('SEARCH', 'rule') ?></th><th scope="col"><?= $word('LISTING', 'barcodes') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
+    </thead>
+    <tbody>
+<?php foreach ($found as $s): ?>
+      <tr>
+        <th scope="row" class="c-head"><a href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?><?php if ($s['details'] !== ''): ?> <span class="o-sub"><?= $e($s['details']) ?></span><?php endif; ?></th>
+        <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $word('POLICY', $s['policy']) ?></td>
+        <td data-label="<?= $word('LISTING', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>
+        <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn sm" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
+<?php if ($candidates !== [] && $others > 0): ?>
+  <details class="mt-others" id="cand">
+    <summary><?php if ($others === 1): ?><?= $word('MATCH', 'others_one') ?><?php else: ?><?= $say('MATCH', 'others_many', $others) ?><?php endif; ?></summary>
+    <div class="table-wrap">
+    <table class="stack candidates">
+      <thead>
+        <tr><th scope="col"><?= $word('LISTING', 'no') ?></th><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col" class="num"><?= $word('LISTING', 'score') ?></th><th scope="col"><?= $word('LISTING', 'problems') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
+      </thead>
+      <tbody>
+<?php foreach ($candidates as $c): ?>
+        <tr<?php if ($c['ref'] !== null): ?> id="cand-<?= $e($c['ref']) ?>"<?php endif; ?><?php if ($c['ai_picked']): ?> class="picked"<?php endif; ?>>
+          <th scope="row" class="c-head"><?= $e($c['ref']) ?></th>
+          <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag done"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag info"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
+          <td class="num" data-label="<?= $word('LISTING', 'score') ?>"><?= $e($c['prescore']) ?></td>
+          <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> blocked<?php else: ?> needs<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
+          <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn sm" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
+        </tr>
+<?php endforeach; ?>
+      </tbody>
+    </table>
     </div>
-  </section>
-<?php elseif ($landing !== null): ?>
+  </details>
+<?php endif; ?>
+
+<?php if (!$one && $landing !== null): ?>
   <section class="card mt-answer landing-box" id="landing" aria-labelledby="landing-h">
     <h2 id="landing-h" class="mt-h"><?= $word('LISTING_STATUS', 'landing') ?></h2>
     <p><?= $word('LANDING', 'is_landing') ?></p>
@@ -246,7 +240,7 @@ $question = \CW\Ui\Words::MATCH['question'];
     <p class="muted"><?= $word('LANDING', 'lead_only') ?></p>
 <?php endif; ?>
   </section>
-<?php elseif ($pending !== null): ?>
+<?php elseif (!$one && $pending !== null): ?>
   <section class="card mt-answer waiting" aria-labelledby="waiting-h">
     <h2 id="waiting-h" class="mt-h"><?= $word('LISTING', 'waiting') ?></h2>
     <p><?= $partial('pending_decision', ['d' => $pending]) ?></p>
@@ -269,7 +263,7 @@ $question = \CW\Ui\Words::MATCH['question'];
 <?php endif; ?>
     <div class="actions"><?= $partial('pending_actions', ['id' => $pending['id'], 'from' => 'listing', 'can_approve' => $pending['can_approve'], 'can_withdraw' => $pending['can_withdraw'], 'own' => $pending['own'], 'decider' => $pending['decider'], 'say_wait' => $no_form === null]) ?></div>
   </section>
-<?php else: ?>
+<?php elseif (!$one): ?>
   <section class="card mt-answer<?php if ($spotOther): ?> waiting<?php endif; ?>" aria-label="<?= $word('MATCH', 'question') ?>">
 <?php if ($no_form !== null): ?>
     <p class="note read-only<?php if ($spotOther): ?> spot-check<?php endif; ?>"<?php if ($spotOther): ?> role="alert"<?php endif; ?>><?= $e($no_form) ?></p>
@@ -333,10 +327,17 @@ $question = \CW\Ui\Words::MATCH['question'];
 <?php else: ?>
   <div class="doc-bar mt-bar" id="f-action">
     <a class="btn ghost" href="<?= $e($skip) ?>" data-leave><?= $word('MATCH', 'skip') ?></a>
-    <details class="more"<?php if (($cardOpen && (!$newMain || $error !== null)) || $changeOpen): ?> open<?php endif; ?>>
+    <details class="more"<?php if (($cardOpen && (!$newMain || $error !== null)) || $changeOpen || $noteOpen): ?> open<?php endif; ?>>
       <summary class="btn"<?php if ($one): ?> aria-label="<?= $word('MATCH', 'more_label') ?>"<?php endif; ?>><?= $word('MATCH', 'more') ?></summary>
       <div class="more-menu">
 <?php if ($one): ?>
+        <div class="field mt-note">
+          <label for="f-reason"><?= $word('MATCH', 'note') ?></label>
+          <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" value="<?= $e($form['reason']) ?>" placeholder="<?= $word('MATCH', 'note_hint') ?>"<?php if ($error_field === 'reason'): ?> aria-invalid="true"<?php endif; ?>>
+<?php if ($error_field === 'reason' && $error !== null): ?>
+          <p class="field-error"><?= $e($error) ?></p>
+<?php endif; ?>
+        </div>
         <details class="doc-act mt-new" id="new-product"<?php if ($cardOpen): ?> open<?php endif; ?>>
           <summary class="btn"><?= $word('MATCH', 'new_item') ?></summary>
           <div class="doc-act-panel">

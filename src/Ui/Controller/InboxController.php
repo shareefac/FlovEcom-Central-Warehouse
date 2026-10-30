@@ -125,6 +125,11 @@ final class InboxController
         if ($pos !== null && preg_match('/^\d{1,4}$/D', $pos) === 1) {
             $q['pos'] = $pos;
         }
+        // The kind the list was showing (the page's Show; docs/decisions.md RD-C13): the list stays on it.
+        $show = $ctx->req->field('inbox_show');
+        if ($show !== null && isset(self::KINDS[$show])) {
+            $q['show'] = $show;
+        }
         return HtmlResponse::redirect(Html::url(self::PATH, $q));
     }
 
@@ -152,11 +157,20 @@ final class InboxController
         if ($kinds === []) {
             return $ctx->error(403, 'role_not_allowed', Words::INBOX['not_yours']);
         }
+        // The page's Show (the approved Approvals artboard of 30 Oct 2026: Show = kind; docs/decisions.md RD-C13): everything waiting, or one kind
+        // of it; the choice travels with an answer (inbox_show) and comes back with its refusal.
+        $show = $refused !== null ? $ctx->req->field('inbox_show') : $ctx->req->param('show');
+        $show = is_string($show) && in_array($show, $kinds, true) ? $show : null;
         $groups = [];
         $flat = [];
+        $choices = [];
         foreach ($kinds as $kind) {
             $g = $this->group($ctx, $kind);
             if ($g['rows'] === []) {
+                continue;
+            }
+            $choices[] = ['value' => $kind, 'label' => Words::INBOX['kind_' . $kind], 'count' => $g['count'], 'current' => $show === $kind];
+            if ($show !== null && $show !== $kind) {
                 continue;
             }
             $groups[] = ['kind' => $kind, 'name' => Words::INBOX['kind_' . $kind], 'tone' => self::KINDS[$kind]['tone'], 'count' => $g['count'], 'more' => $g['more'],
@@ -182,6 +196,9 @@ final class InboxController
         return $ctx->page('approvals_inbox', [
             'groups' => $groups,
             'total' => array_sum(array_column($groups, 'count')),
+            'everything' => array_sum(array_column($choices, 'count')),
+            'choices' => $choices,
+            'show' => $show,
             'record' => $record,
             // A refusal of a record that is not waiting any more (answered meanwhile): said above the list.
             'error' => $refused !== null && $refused['key'] !== $open ? $refused['error'] : null,

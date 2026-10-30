@@ -336,8 +336,8 @@ final class BehaviourItemsTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::LISTING['pick_other'], $page->text());
         self::assertStringNotContainsString(Words::LISTING['elsewhere'], $page->text(), 'its own product is no "may duplicate"');
         self::assertStringContainsString(Words::LISTING['matched_heading'], $page->text(), 'compared with the product it is matched to');
-        self::assertSame(1, (new \DOMXPath($page->dom()))->query('//section[@aria-labelledby="mt-item-h"]//dl[@class="mt-facts"]')->length,
-            'its facts beside the store product\'s (TP_Match, W12.1)');
+        self::assertGreaterThan(0, (new \DOMXPath($page->dom()))->query('//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")]/div[contains(@class, "mt-v mt-item")]')->length,
+            'its facts beside the store product\'s, a row each (the Listings artboard, RD-C1)');
 
         // A matching lead: the same note, and "Change this match" folded with the answers (none about the matched product itself).
         $lead = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.60'));

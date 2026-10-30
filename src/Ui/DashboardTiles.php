@@ -15,13 +15,23 @@ use CW\PurchaseOrders\PurchaseOrders;
  */
 final class DashboardTiles
 {
-    /** How many figures Home shows (HM_Home draws four). */
+    /** How many figures Home shows (HM_Home draws four; the approved Main artboard of 30 Oct 2026 too). */
     public const MAX = 4;
-    /** The figures, first first. */
-    public const ORDER = ['orders', 'units', 'deliveries', 'products', 'matches', 'approvals'];
+    /**
+     * The figures, first first (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15): the stock value at cost, the units on the
+     * shelf, what waits for this person's OK and the store listings to match; then, for whoever may see fewer of those, the figures Home showed
+     * before (open purchase orders, deliveries to receive, products). Each in its tile's tint (`tone`) with its icon and a line under it.
+     */
+    public const ORDER = ['value', 'units', 'inbox', 'matches', 'orders', 'deliveries', 'products'];
+    /** A figure's tint and icon (the artboard's: teal, blue, purple, magenta; the fill-ins grey). */
+    public const LOOK = ['value' => ['teal', 'reports'], 'units' => ['blue', 'stock'], 'inbox' => ['purple', 'approvals'], 'matches' => ['magenta', 'matching'],
+        'orders' => ['grey', 'orders'], 'deliveries' => ['grey', 'goods-in'], 'products' => ['grey', 'products']];
+    /** The kinds of Approvals' badges, for the inbox tile's line (its biggest kind), as Ui\Context::badges counts them. */
+    private const INBOX_BADGES = ['queue_corrections' => 'kind_corrections', 'queue_suspense' => 'kind_suspense', 'counts_open' => 'kind_counts',
+        'queue_oversold' => 'kind_oversold', 'queue_modes' => 'kind_modes', 'queue_landing' => 'kind_landing', 'reviews_open' => 'kind_documents'];
 
     /**
-     * @return list<array{key: string, title: string, value: int, href: string}>
+     * @return list<array{key: string, title: string, value: int, shown: string, sub: string, href: string, tone: string, icon: string}>
      */
     public static function build(Context $ctx, HomeCounts $counts): array
     {
@@ -32,7 +42,27 @@ final class DashboardTiles
             if (count($out) >= self::MAX) {
                 break;
             }
+            if ($key === 'value' && $me->can('values.view')) {
+                // The value of our stock at average cost, as the valuation report works it out (Reports\ReportViews::valueFigures).
+                $f = (new \CW\Reports\ReportViews($db))->valueFigures();
+                $out[] = self::tile('value', (int) round((float) $f['value']), Html::money($f['value']), Words::say('RD_HOME', 'value_sub', Html::int($f['items'])),
+                    '/ui/reports/stock-value');
+                continue;
+            }
+            if ($key === 'inbox' && Controller\InboxController::kinds($me->roles) !== []) {
+                $b = $ctx->badges();
+                $n = (int) ($b['approvals_inbox'] ?? 0);
+                $top = null;
+                foreach (self::INBOX_BADGES as $badge => $kind) {
+                    if ((int) ($b[$badge] ?? 0) > 0 && ($top === null || (int) $b[$badge] > $top[0])) {
+                        $top = [(int) $b[$badge], Words::INBOX[$kind]];
+                    }
+                }
+                $out[] = self::tile('inbox', $n, Html::int($n), $top === null ? '' : Words::say('RD_HOME', 'inbox_sub', Html::int($top[0]), $top[1]), '/ui/approvals');
+                continue;
+            }
             $figure = match ($key) {
+                'value', 'inbox' => null,
                 'orders' => $me->can('purchasing.view') ? [self::openOrders($db), '/ui/purchasing/orders'] : null,
                 'units' => $me->can('catalogue.view') ? [(int) $db->value('SELECT COALESCE(SUM(sb.on_hand), 0) FROM stock_balance sb '
                     . 'JOIN warehouse w ON w.id = sb.warehouse_id WHERE w.is_sellable = 1'), '/ui/stock'] : null,
@@ -41,14 +71,19 @@ final class DashboardTiles
                 'products' => $me->can('catalogue.view') ? [(int) $db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL'), '/ui/items/cards'] : null,
                 'matches' => $me->can('linking.view') ? [(int) array_sum(array_map(static fn (array $byChannel): int => (int) array_sum($byChannel),
                     $counts->bandCounts())), '/ui/review?queue=Key'] : null,
-                'approvals' => $me->can('documents.review') && ($checks = $ctx->checks()) !== null
-                    ? [$checks['approval'] + $checks['review'], '/ui/documents/reviews'] : null,
             };
             if ($figure !== null) {
-                $out[] = ['key' => $key, 'title' => Words::TILE[$key], 'value' => $figure[0], 'href' => $figure[1]];
+                $out[] = self::tile($key, $figure[0], Html::int($figure[0]), Words::RD_HOME['sub_' . $key], $figure[1]);
             }
         }
         return $out;
+    }
+
+    /** @return array{key: string, title: string, value: int, shown: string, sub: string, href: string, tone: string, icon: string} */
+    private static function tile(string $key, int $value, string $shown, string $sub, string $href): array
+    {
+        return ['key' => $key, 'title' => Words::RD_HOME['tile_' . $key], 'value' => $value, 'shown' => $shown, 'sub' => $sub, 'href' => $href,
+            'tone' => self::LOOK[$key][0], 'icon' => self::LOOK[$key][1]];
     }
 
     /** The purchase orders not finished: drafts, waiting for an OK, and confirmed or sent ones still open. */

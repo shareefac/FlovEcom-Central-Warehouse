@@ -82,21 +82,22 @@ final class ByItemBulkTest extends KernelUiTestCase
     private static function ids(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMElement $tr): int => (int) substr($tr->getAttribute('id'), 2), iterator_to_array($xp->query('//table[contains(@class, "by-product")]/tbody/tr')));
+        return array_map(static fn (\DOMElement $tr): int => (int) substr($tr->getAttribute('id'), 2), iterator_to_array($xp->query('//section[contains(@class, "bi-list")]/div[contains(@class, "bi-row")]')));
     }
 
     /** One cell of the list: what it reads, and its links (text => href). @return array{0: string, 1: array<string, string>} */
     private static function cellOf(UiResponse $r, int $sku, string $store): array
     {
         $xp = new \DOMXPath($r->dom());
-        $td = $xp->query('//tr[@id="p-' . $sku . '"]/td[@data-label="' . $store . '"]')->item(0);
-        self::assertNotNull($td, "item {$sku} has a cell for {$store}");
-        $links = [];
+        // (since docs/decisions.md RD-C9 a store's chip: its own link under `chip`, its lines the words a screen reader hears)
+        $td = $xp->query('//div[@id="p-' . $sku . '"]/div[@class="bi-stores"]/*[@data-label="' . $store . '"]')->item(0);
+        self::assertNotNull($td, "item {$sku} has a chip for {$store}");
+        $links = $td instanceof \DOMElement && $td->nodeName === 'a' ? ['chip' => $td->getAttribute('href')] : [];
         foreach ($xp->query('.//a', $td) as $a) {
             /** @var \DOMElement $a */
             $links[self::squash($a->textContent)] = $a->getAttribute('href');
         }
-        return [self::squash($td->textContent), $links];
+        return [trim(self::squash($xp->evaluate('string(.//span[@class="visually-hidden"][1])', $td)), ' ()'), $links];
     }
 
     /**
@@ -127,12 +128,13 @@ final class ByItemBulkTest extends KernelUiTestCase
         return array_map(static fn (\DOMElement $i): int => (int) substr($i->getAttribute('name'), 5), iterator_to_array($xp->query('//input[@data-bulk-row][@checked]')));
     }
 
-    /** @return list<array{0: string, 1: bool, 2: string}> the "Rows" choice: number, current, link */
+    /** @return list<array{0: string, 1: bool, 2: string}> the "Rows a page" choice under the page's More (RD-C8): number, current (no link), link */
     private static function sizes(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMElement $a): array => [self::squash($a->textContent), $a->getAttribute('aria-current') === 'true', $a->getAttribute('href')],
-            iterator_to_array($xp->query('//nav[@class="rows-choice"]/a')));
+        return array_map(static fn (\DOMElement $a): array => [(string) preg_replace('/\D+/', '', self::squash($a->textContent)), $a->getAttribute('aria-current') === 'true',
+            $a->getAttribute('href')], array_values(array_filter(iterator_to_array($xp->query('//header//div[@class="bi-actions"]//*[contains(@class, "menu-item")]')),
+            static fn (\DOMElement $a): bool => preg_match('/^' . preg_quote(explode('%s', Words::RD_MATCH['rows'])[0], '/') . '/', self::squash($a->textContent)) === 1)));
     }
 
     /**
@@ -238,21 +240,20 @@ final class ByItemBulkTest extends KernelUiTestCase
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
         self::assertSame(array_slice($skus, 0, 50), self::ids($page), '50 as before: the setting\'s number');
-        self::assertSame([['50', true, '/ui/review/products'], ['100', false, '/ui/review/products?n=100'], ['200', false, '/ui/review/products?n=200']], self::sizes($page));
-        self::assertSame(Words::BY_PRODUCT['rows'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//nav[@class="rows-choice"]/span)')));
+        self::assertSame([['50', true, ''], ['100', false, '/ui/review/products?n=100'], ['200', false, '/ui/review/products?n=200']], self::sizes($page), 'the size shown is not a link (CV13)');
         self::assertSame('/ui/review/products?page=2', (new \DOMXPath($page->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'),
             'a list nobody resized keeps its plain addresses');
 
         $hundred = $web->get('/ui/review/products', ['n' => '100']);
         self::assertSame(array_slice($skus, 0, 100), self::ids($hundred));
-        self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 205, 100), $hundred->text());
+        self::assertSame(Words::say('BY_PRODUCT', 'shown', 205, 100), (string) (new \DOMXPath($hundred->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertStringContainsString(Words::say('QUEUE', 'page', 1, 3), $hundred->text());
         self::assertSame('/ui/review/products?n=100&page=2', (new \DOMXPath($hundred->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'), 'the pager keeps the number');
         self::assertSame('100', $hundred->form('/ui/review/products')['n'] ?? null, 'and so does the Show row (W12.7)');
         self::assertContains('/ui/review/products.csv', $hundred->hrefs(), 'the file is every item: it has no pages');
         $second = $web->get('/ui/review/products', ['n' => '100', 'page' => '2']);
         self::assertSame(array_slice($skus, 100, 100), self::ids($second));
-        self::assertSame([['50', false, '/ui/review/products?page=3'], ['100', true, '/ui/review/products?n=100&page=2'], ['200', false, '/ui/review/products?n=200']], self::sizes($second),
+        self::assertSame([['50', false, '/ui/review/products?page=3'], ['100', true, ''], ['200', false, '/ui/review/products?n=200']], self::sizes($second),
             'another number of rows keeps the place: the page that holds this page\'s first item');
         $two = $web->get('/ui/review/products', ['n' => '200']);
         self::assertCount(200, self::ids($two));
@@ -261,7 +262,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         // Back from a variant's page at that size (`at`): the page of 100 that holds the item, and its links keep the size.
         $at = $web->get('/ui/review/products', ['n' => '100', 'at' => (string) $skus[149]]);
         self::assertSame(array_slice($skus, 100, 100), self::ids($at));
-        self::assertSame(1, (new \DOMXPath($at->dom()))->query('//tr[@id="p-' . $skus[149] . '"][contains(@class, "here")]')->length);
+        self::assertSame(1, (new \DOMXPath($at->dom()))->query('//div[@id="p-' . $skus[149] . '"][contains(@class, "here")]')->length);
         // A number that is not one of the three is the setting's number, never an error.
         foreach (['75', '0', '-100', '1000', 'abc', '100.0', ' 100', str_repeat('9', 30)] as $odd) {
             $r = $web->get('/ui/review/products', ['n' => $odd]);
@@ -275,7 +276,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame(200, ByProductController::pageSize(self::$db));
         $page = $web->get('/ui/review/products');
         self::assertCount(200, self::ids($page));
-        self::assertSame([['50', false, '/ui/review/products?n=50'], ['100', false, '/ui/review/products?n=100'], ['200', true, '/ui/review/products']], self::sizes($page));
+        self::assertSame([['50', false, '/ui/review/products?n=50'], ['100', false, '/ui/review/products?n=100'], ['200', true, '']], self::sizes($page));
         self::assertSame('/ui/review/products?page=2', (new \DOMXPath($page->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'));
         self::assertCount(50, self::ids($web->get('/ui/review/products', ['n' => '50'])), 'the person\'s choice comes first');
         $this->setting('mapping.by_item_page_size', '75');
@@ -323,8 +324,8 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame(['pick_' . $alpha, 'pick_' . $bravo], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), iterator_to_array($xp->query('//input[@data-bulk-row]'))),
             'a tick on every item a store suggests a variant for; none where there is nothing to act on');
         self::assertSame([], self::drawnTicked($page), 'nothing is ticked for the person');
-        self::assertSame(1, $xp->query('//table[contains(@class, "by-product")]/thead//input[@type="checkbox"][@data-bulk-all]')->length, '"tick all on this page" in the header');
-        self::assertSame(3, $xp->query('//table[contains(@class, "by-product")]/tbody/tr/td[contains(@class, "c-pick")]')->length, 'the tick column on every row');
+        self::assertSame(1, $xp->query('//div[@class="bi-pickall"]//input[@type="checkbox"][@data-bulk-all]')->length, '"tick all on this page" at the top of the list');
+        self::assertSame(3, $xp->query('//section[contains(@class, "bi-list")]/div[contains(@class, "bi-row")]/div[@class="bi-pick"]')->length, 'the tick on every row');
         $form = $page->form('/ui/review/products/bulk');
         self::assertSame($this->cell($a4) . ' ' . $this->cell($b1), $form['cells_' . $alpha], 'each suggested variant with the suggestion and the version the page showed');
         self::assertSame($this->cell($a2) . ' ' . $this->cell($a3), $form['cells_' . $bravo]);
@@ -348,7 +349,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame('/ui/review/products?all=1', $xp->evaluate('string(//a[@data-bulk-all-link]/@href)'));
         $all = $web->get('/ui/review/products', ['all' => '1']);
         self::assertSame([$alpha, $bravo], self::drawnTicked($all));
-        self::assertSame(2, (new \DOMXPath($all->dom()))->query('//table[contains(@class, "by-product")]/tbody/tr[contains(@class, "picked")]')->length);
+        self::assertSame(2, (new \DOMXPath($all->dom()))->query('//section[contains(@class, "bi-list")]/div[contains(@class, "bi-row")][contains(@class, "picked")]')->length);
         self::assertSame(['1', '1'], [$all->form('/ui/review/products/bulk')['pick_' . $alpha], $all->form('/ui/review/products/bulk')['pick_' . $bravo]]);
 
         // A matching lead: the same ticks and the same bar.
@@ -362,7 +363,7 @@ final class ByItemBulkTest extends KernelUiTestCase
             self::assertSame([$alpha, $bravo, $charlie], self::ids($look), $job);
             $lx = new \DOMXPath($look->dom());
             self::assertSame([0, 0, 0, 0], [$lx->query('//input[@type="checkbox"]')->length, $lx->query('//div[@data-bulkbar]')->length, $lx->query('//select[@name="on"]')->length,
-                $lx->query('//td[contains(@class, "c-pick")] | //th[contains(@class, "c-pick")]')->length], $job);
+                $lx->query('//div[@class="bi-pick"] | //div[@class="bi-pickall"]')->length], $job);
             self::assertFalse($look->hasForm('/ui/review/products/bulk'), $job);
             self::assertStringNotContainsString(Words::BY_ITEM_BULK['undo_note'], $look->text(), $job);
         }
@@ -782,7 +783,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         [$text, $links] = self::cellOf($page, $said, 'Alt Store');
         self::assertStringStartsWith(Words::PRODUCT_STORE['rejected'] . ' Said on Alt ' . Words::BAND['Key'], $text);
         self::assertStringNotContainsString(Words::PRODUCT_STORE['suggested'], $text);
-        self::assertSame("/ui/review/listing/{$r1}?via=product&product={$said}&channel=alt", $links[Words::BY_PRODUCT['review']]);
+        self::assertSame("/ui/review/listing/{$r1}?via=product&product={$said}&channel=alt", $links['chip'], 'its "+ Store" chip opens it (RD-C9)');
         self::assertStringStartsWith(Words::PRODUCT_STORE['suggested'] . ' Mix maybe on Big ' . Words::BAND['Check'] . ' ' . Words::BY_PRODUCT['more_one'], self::cellOf($page, $mix, 'Big Store')[0]);
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Has matched on Alt', self::cellOf($page, $has, 'Alt Store')[0]);
         // Its row can be ticked by hand (to send the suggestion back, say), but "tick all" leaves it alone; the page says so.
@@ -911,8 +912,8 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertArrayNotHasKey('cells_' . $vast, $form, 'never a part of them');
         self::assertArrayHasKey('cells_' . $wide, $form);
         $xp = new \DOMXPath($page->dom());
-        self::assertSame(0, $xp->query('//tr[@id="p-' . $vast . '"]//input[@type="checkbox"]')->length);
-        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'row_too_many', ByItemBulkController::MAX_PER_ITEM + 1), self::squash($xp->evaluate('string(//tr[@id="p-' . $vast . '"]/th)')));
+        self::assertSame(0, $xp->query('//div[@id="p-' . $vast . '"]//input[@type="checkbox"]')->length);
+        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'row_too_many', ByItemBulkController::MAX_PER_ITEM + 1), self::squash($xp->evaluate('string(//div[@id="p-' . $vast . '"]/div[@class="bi-item"])')));
         self::assertSame([$wide], self::drawnTicked($web->get('/ui/review/products', ['all' => '1'])));
     }
 

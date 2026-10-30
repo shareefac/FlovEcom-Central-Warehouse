@@ -210,9 +210,15 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
             self::assertSame(200, $p->status, $p->describe());
             self::assertNoOldLayout($p, $path);
         }
+        // The duty register on the standard report layout (the Reports artboard, docs/decisions.md RD-C11): its options with Run report, the
+        // report's head with its figures, All reports; no figures strip.
         $duty = $web->get('/ui/receiving/duty');
-        self::assertReport($duty, 'duty');
-        self::assertSame(4, self::xp($duty)->query('//section[contains(@class, "doc-progress")]/div[@class="doc-step"]')->length);
+        self::assertSame(200, $duty->status, $duty->describe());
+        self::assertNoOldLayout($duty, 'duty');
+        self::assertSame(1, self::xp($duty)->query('//main//form[contains(@class, "rp-options")]/button[contains(@class, "primary")]')->length);
+        self::assertSame(1, self::xp($duty)->query('//main//article[contains(@class, "rp-paper")]/div[@class="rp-paper-head"]')->length);
+        self::assertSame(0, self::xp($duty)->query('//section[contains(@class, "doc-progress")]')->length);
+        self::assertSame(1, self::xp($duty)->query('//section[@id="all-reports"]')->length);
         self::assertStringContainsString(Words::DUTY['held_title'], $duty->text());
     }
 

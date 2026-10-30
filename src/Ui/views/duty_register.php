@@ -1,12 +1,18 @@
 <?php
-// Goods In › Duty register, a report (the owner's approved TP_Report; docs/decisions.md W9.10): Export at the head's right, the alarm when
-// unstamped stock is still held, the figures strip (delivery lines, held unstamped, taken in on a declaration, the day the held place must
-// be empty), one search box and the Show row (the dates, the supplier, the stamp, the delivery's state); then the register's lines as a
-// board with the stamp filled with its colour, the unstamped stock and where it is, and what was taken in on a supplier's declaration.
-$bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Words::say('DUTY', 'download', $max)]) : '';
+// Goods received › Duty register, a report (the approved Reports artboard of 30 Oct 2026, the standard report layout; docs/decisions.md RD-C11;
+// before it W9.10): "‹ All reports" and the title, Export (the CSV) at the right; the alarm when unstamped stock is still held; the options CW
+// has (find, the dates, the supplier, the stamp, the delivery's state) and Run report; then the report: its centred head (the company, the
+// report's name, the dates, its figures), a plain table of the register's lines (the stamp a pill), then its two groups: the unstamped stock
+// held and where, what was taken in on a supplier's declaration, each with its total; "All reports" under it.
+$bar = $total > 0 ? $partial('report_bar', ['href' => $csv]) : '';
+$line = implode(' · ', array_filter([$f['from'] !== null || $f['to'] !== null ? \CW\Ui\Words::say('RD_REPORTS', 'period_line', $f['from'] !== null ? \CW\Ui\Html::day($f['from']) : '…',
+    $f['to'] !== null ? \CW\Ui\Html::day($f['to']) : \CW\Ui\Html::day($today)) : \CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)),
+    $allLines ? \CW\Ui\Words::DUTY['lines_all'] : \CW\Ui\Words::DUTY['lines_stamp']], static fn (string $v): bool => $v !== ''));
+$more = array_values(array_filter([\CW\Ui\Words::say('RD_REPORTS', 'duty_line', \CW\Ui\Html::int($total), \CW\Ui\Html::int($unstamped['held_units']), \CW\Ui\Html::int($unstamped['accepted_units'])),
+    $unstamped['held_units'] > 0 && $unstamped['from'] !== null ? \CW\Ui\Words::say('RD_REPORTS', 'empty_by', \CW\Ui\Html::day($unstamped['from'])) : null], static fn (?string $v): bool => $v !== null));
 ?>
-<div class="doc-head">
-<?= $head(\CW\Ui\Words::SEGMENT['duty'], intro: 'duty', side: $bar) ?>
+<div class="doc-head rp-head">
+<?= $head(\CW\Ui\Words::RD_REPORTS['duty'], intro: 'duty', side: $bar, back: ['#all-reports', \CW\Ui\Words::RD_REPORTS['all']]) ?>
 </div>
 <?php if ($unstamped['alarm']): ?>
 <p class="error" role="alert"><?= $say('DUTY', 'alarm', $unstamped['held_units'], \CW\Ui\Html::day($unstamped['from'])) ?></p>
@@ -14,62 +20,52 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
 <p class="note"><?= $say('DUTY', 'must_empty', $unstamped['held_units'], \CW\Ui\Html::day($unstamped['from'])) ?></p>
 <?php endif; ?>
 
-<section class="doc-progress rp-figs" aria-label="<?= $word('DUTY', 'figures') ?>">
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DUTY', 'fig_lines') ?></p><p class="doc-step-big"><?= $n($total) ?></p><p class="step-sub"><?php if ($allLines): ?><?= $word('DUTY', 'lines_all') ?><?php else: ?><?= $word('DUTY', 'lines_stamp') ?><?php endif; ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DUTY', 'fig_held') ?></p><p class="doc-step-big"><?= $n($unstamped['held_units']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DUTY', 'fig_accepted') ?></p><p class="doc-step-big"><?= $n($unstamped['accepted_units']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DUTY', 'fig_empty_by') ?></p><p class="doc-step-big"><?php if ($unstamped['held_units'] > 0 && $unstamped['from'] !== null): ?><?= $day($unstamped['from']) ?><?php else: ?><?= $word('DUTY', 'fig_none') ?><?php endif; ?></p></div>
-</section>
-
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('DUTY', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('DUTY', 'search') ?>"></div>
-  <div class="tb-state">
-    <label for="tb-from"><?= $word('DUTY', 'from') ?></label>
-    <input id="tb-from" type="date" name="from" value="<?= $e($f['from'] ?? '') ?>">
-    <label for="tb-to"><?= $word('DUTY', 'to') ?></label>
-    <input id="tb-to" type="date" name="to" value="<?= $e($f['to'] ?? '') ?>">
-  </div>
-  <div class="tb-state">
-    <label class="visually-hidden" for="tb-supplier"><?= $word('DUTY', 'supplier') ?></label>
-    <select id="tb-supplier" name="supplier">
+<form class="card rp-options" method="get" aria-label="<?= $word('RD_REPORTS', 'options') ?>">
+  <div class="rp-opt rp-find"><label for="rp-q"><?= $word('RD_REPORTS', 'find') ?></label><input id="rp-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('DUTY', 'search') ?>"></div>
+  <div class="rp-opt"><label for="rp-from"><?= $word('DUTY', 'from') ?></label><input id="rp-from" type="date" name="from" value="<?= $e($f['from'] ?? '') ?>"></div>
+  <div class="rp-opt"><label for="rp-to"><?= $word('DUTY', 'to') ?></label><input id="rp-to" type="date" name="to" value="<?= $e($f['to'] ?? '') ?>"></div>
+  <div class="rp-opt"><label for="rp-supplier"><?= $word('DUTY', 'supplier') ?></label>
+    <select id="rp-supplier" name="supplier">
       <option value=""><?= $word('DUTY', 'any_supplier') ?></option>
 <?php foreach ($suppliers as $s): ?>
       <option value="<?= $e($s['id']) ?>"<?php if ($f['supplier'] === $s['id']): ?> selected<?php endif; ?>><?= $e($s['name']) ?></option>
 <?php endforeach; ?>
     </select>
-    <label for="tb-stamp"><?= $word('DUTY', 'stamp') ?></label>
-    <select id="tb-stamp" name="stamp">
+  </div>
+  <div class="rp-opt"><label for="rp-stamp"><?= $word('DUTY', 'stamp') ?></label>
+    <select id="rp-stamp" name="stamp">
       <option value=""><?= $word('DUTY', 'any_stamp') ?></option>
 <?php foreach ($stampStates as $st): ?>
       <option value="<?= $e($st) ?>"<?php if ($f['stamp'] === $st): ?> selected<?php endif; ?>><?= $word('DUTY_STAMP', $st) ?></option>
 <?php endforeach; ?>
     </select>
-    <label for="tb-state"><?= $word('DUTY', 'state') ?></label>
-    <select id="tb-state" name="state">
+  </div>
+  <div class="rp-opt"><label for="rp-state"><?= $word('DUTY', 'state') ?></label>
+    <select id="rp-state" name="state">
       <option value=""><?= $word('DUTY', 'any_state') ?></option>
       <option value="posted"<?php if ($f['state'] === 'posted'): ?> selected<?php endif; ?>><?= $word('DUTY', 'state_posted') ?></option>
       <option value="reversed"<?php if ($f['state'] === 'reversed'): ?> selected<?php endif; ?>><?= $word('DUTY', 'state_reversed') ?></option>
     </select>
-    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <button type="submit" class="btn primary"><?= $word('RD_REPORTS', 'run') ?></button>
 <?php if ($filtered): ?>
-  <div class="tb-end"><a class="btn ghost sm" href="/ui/receiving/duty"><?= $word('DUTY', 'clear') ?></a></div>
+  <a class="rp-clear" href="/ui/receiving/duty"><?= $word('RD_REPORTS', 'clear') ?></a>
 <?php endif; ?>
 </form>
 
+<article class="card rp-paper" aria-label="<?= $word('RD_REPORTS', 'paper') ?>">
+<?= $partial('report_paper_head', ['company' => $company, 'name' => \CW\Ui\Words::RD_REPORTS['duty'], 'line' => $line, 'more' => $more]) ?>
 <?php if ($rows === [] && $filtered): ?>
-<?= $empty(\CW\Ui\Words::DUTY['none_filter'], \CW\Ui\Words::DUTY['none_filter_text'], '/ui/receiving/duty', \CW\Ui\Words::DUTY['clear']) ?>
+<?= $empty(\CW\Ui\Words::DUTY['none_filter'], \CW\Ui\Words::DUTY['none_filter_text'], '/ui/receiving/duty', \CW\Ui\Words::RD_REPORTS['clear']) ?>
 <?php elseif ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::DUTY['none'], \CW\Ui\Words::DUTY['none_text'], '/ui/receiving', \CW\Ui\Words::DUTY['none_link']) ?>
 <?php else: ?>
-<div class="grp-block doc-group info">
-  <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-register"><?= $word('DUTY', 'register') ?></button> <span class="grp-count"><?= $say('DUTY', 'count', $total) ?><?php if ($pages > 1): ?> · <?= $say('DUTY', 'page', $page, $pages) ?><?php endif; ?></span></h2>
-  <div class="table-wrap doc-board" id="g-register">
-  <table class="stack list board doc-list duty-register">
+  <div class="table-wrap">
+  <table class="stack rp-table duty-register">
     <thead>
       <tr>
-        <th scope="col" class="c-item"><?= $word('DUTY', 'arrived') ?></th>
-        <th scope="col" class="c-status"><?= $word('DUTY', 'stamp') ?></th>
+        <th scope="col"><?= $word('DUTY', 'arrived') ?></th>
+        <th scope="col"><?= $word('DUTY', 'stamp') ?></th>
         <th scope="col"><?= $word('DUTY', 'supplier') ?></th>
         <th scope="col"><?= $word('DUTY', 'item') ?></th>
         <th scope="col" class="num"><?= $word('DUTY', 'units') ?></th>
@@ -82,8 +78,8 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
     <tbody>
 <?php foreach ($rows as $r): ?>
       <tr<?php if ($r['status'] === 'reversed'): ?> class="off"<?php endif; ?>>
-        <th scope="row" class="c-head c-item"><?= $when($r['received_at']) ?><span class="o-sub"><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['number']) ?></a><?php if ($r['status'] === 'reversed'): ?> &middot; <?= $word('DUTY', 'state_reversed') ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('DUTY_STAMP', (string) $r['stamp_state'])) ?>"><span class="chip"><?= $word('DUTY_STAMP', (string) $r['stamp_state']) ?></span></td>
+        <th scope="row"><?= $when($r['received_at']) ?><span class="o-sub"><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['number']) ?></a><?php if ($r['status'] === 'reversed'): ?> &middot; <?= $word('DUTY', 'state_reversed') ?><?php endif; ?></span></th>
+        <td data-label="<?= $word('DUTY', 'stamp') ?>"><?= $chip(\CW\Ui\Words::tone('DUTY_STAMP', (string) $r['stamp_state']), \CW\Ui\Words::of('DUTY_STAMP', (string) $r['stamp_state'])) ?></td>
         <td data-label="<?= $word('DUTY', 'supplier') ?>"><?= $e($r['supplier']) ?><span class="o-sub"><?= $say('DUTY', 'invoice', (string) ($r['supplier_invoice'] ?? '')) ?><?php if ($r['delivery_note'] !== null): ?> &middot; <?= $say('DUTY', 'delivery_note', (string) $r['delivery_note']) ?><?php endif; ?></span></td>
         <td data-label="<?= $word('DUTY', 'item') ?>"><?= $e($r['sku_name']) ?><span class="o-sub"><?= $e($r['sku_code']) ?><?php if ($r['barcode'] !== null): ?> &middot; <?= $e($r['barcode']) ?><?php endif; ?><?php if ($r['duty_ml'] !== null): ?> &middot; <?= $say('DUTY', 'ml', \CW\Ui\Html::dec($r['duty_ml'])) ?><?php endif; ?></span></td>
         <td class="num" data-label="<?= $word('DUTY', 'units') ?>"><?= $n($r['units']) ?><span class="o-sub"><?= $say('DUTY', 'went', (int) ($r['accepted_units'] ?? 0), (int) ($r['quarantine_units'] ?? 0), (int) ($r['refused_units'] ?? 0)) ?></span></td>
@@ -93,25 +89,15 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
         <td class="num" data-label="<?= $word('DUTY', 'expected') ?>"><?php if ($r['expected_duty'] !== null): ?><?= $money($r['expected_duty']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
+      <tr class="rp-total">
+        <th scope="row" colspan="9"><?= $word('RD_REPORTS', 'total') ?>: <?= $say('DUTY', 'count', $total) ?><?php if ($pages > 1): ?> · <?= $say('DUTY', 'page', $page, $pages) ?><?php endif; ?></th>
+      </tr>
     </tbody>
   </table>
   </div>
-</div>
-<?php if ($pages > 1): ?>
-<p class="pager"><?php if ($prev !== null): ?><a href="<?= $e($prev) ?>"><?= $word('DUTY', 'prev') ?></a> <?php endif; ?><?= $say('DUTY', 'page', $page, $pages) ?><?php if ($next !== null): ?> <a href="<?= $e($next) ?>"><?= $word('DUTY', 'next') ?></a><?php endif; ?></p>
 <?php endif; ?>
-<?php endif; ?>
-
-<div class="grp-block doc-group <?php if ($unstamped['held'] === []): ?>done<?php else: ?>needs<?php endif; ?>">
-  <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-held"><?= $word('DUTY', 'held_title') ?></button> <span class="grp-count"><?= $say('DUTY', 'held_total', $unstamped['held_units']) ?></span></h2>
-  <div id="g-held">
-<?php if ($unstamped['warehouses'] === []): ?>
-  <p class="muted"><?= $word('DUTY', 'no_unstamped_place') ?></p>
-<?php elseif ($unstamped['held'] === []): ?>
-  <p><?= $chip('done', \CW\Ui\Words::DUTY['held_none']) ?></p>
-<?php else: ?>
-  <div class="table-wrap doc-board">
-  <table class="stack list board duty-held">
+  <div class="table-wrap">
+  <table class="stack rp-table duty-held">
     <thead>
       <tr>
         <th scope="col"><?= $word('DUTY', 'item') ?></th>
@@ -120,32 +106,28 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
       </tr>
     </thead>
     <tbody>
+      <tr class="rp-group"><th scope="rowgroup" colspan="3"><?= $word('DUTY', 'held_title') ?></th></tr>
+<?php if ($unstamped['warehouses'] === []): ?>
+      <tr><td colspan="3" class="muted rp-in" data-label=""><?= $word('DUTY', 'no_unstamped_place') ?></td></tr>
+<?php elseif ($unstamped['held'] === []): ?>
+      <tr><td colspan="3" class="rp-in" data-label=""><?= $chip('done', \CW\Ui\Words::DUTY['held_none']) ?></td></tr>
+<?php endif; ?>
 <?php foreach ($unstamped['held'] as $h): ?>
       <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $h['sku_id']) ?>"><?= $e($h['name']) ?></a><span class="o-sub"><?= $e($h['code']) ?></span></th>
+        <th scope="row"><a href="<?= $u('/ui/items/' . $h['sku_id']) ?>"><?= $e($h['name']) ?></a><span class="o-sub"><?= $e($h['code']) ?></span></th>
         <td data-label="<?= $word('DUTY', 'where') ?>"><?= $e($h['warehouse']) ?></td>
         <td class="num" data-label="<?= $word('DUTY', 'on_hand') ?>"><?= $n($h['on_hand']) ?></td>
       </tr>
 <?php endforeach; ?>
+<?php if ($unstamped['held_more']): ?>
+      <tr><td colspan="3" class="muted rp-in" data-label=""><?= $say('DUTY', 'list_more', \CW\Duty\DutyRegister::UNSTAMPED_LIMIT) ?></td></tr>
+<?php endif; ?>
+      <tr class="rp-gtotal"><th scope="row" colspan="2" class="rp-in"><?= $say('RD_REPORTS', 'total_for', \CW\Ui\Words::DUTY['held_title']) ?></th><td class="num" data-label="<?= $word('DUTY', 'on_hand') ?>"><?= $n($unstamped['held_units']) ?></td></tr>
     </tbody>
   </table>
   </div>
-<?php if ($unstamped['held_more']): ?>
-  <p class="muted"><?= $say('DUTY', 'list_more', \CW\Duty\DutyRegister::UNSTAMPED_LIMIT) ?></p>
-<?php endif; ?>
-<?php endif; ?>
-  </div>
-</div>
-
-<div class="grp-block doc-group info">
-  <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-accepted"><?= $word('DUTY', 'accepted_title') ?></button> <span class="grp-count"><?= $say('DUTY', 'accepted_total', $unstamped['accepted_units']) ?></span></h2>
-  <div id="g-accepted">
-  <p class="muted"><?= $word('DUTY', 'accepted_text') ?></p>
-<?php if ($unstamped['accepted'] === []): ?>
-  <p class="muted"><?= $word('DUTY', 'accepted_none') ?></p>
-<?php else: ?>
-  <div class="table-wrap doc-board">
-  <table class="stack list board duty-accepted">
+  <div class="table-wrap">
+  <table class="stack rp-table duty-accepted">
     <thead>
       <tr>
         <th scope="col"><?= $word('DUTY', 'item') ?></th>
@@ -156,21 +138,28 @@ $bar = $total > 0 ? $partial('export_bar', ['href' => $csv, 'title' => \CW\Ui\Wo
       </tr>
     </thead>
     <tbody>
+      <tr class="rp-group"><th scope="rowgroup" colspan="5"><?= $word('DUTY', 'accepted_title') ?> <span class="muted rp-gnote"><?= $word('DUTY', 'accepted_text') ?></span></th></tr>
+<?php if ($unstamped['accepted'] === []): ?>
+      <tr><td colspan="5" class="muted rp-in" data-label=""><?= $word('DUTY', 'accepted_none') ?></td></tr>
+<?php endif; ?>
 <?php foreach ($unstamped['accepted'] as $a): ?>
       <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $a['sku_id']) ?>"><?= $e($a['name']) ?></a><span class="o-sub"><?= $e($a['code']) ?></span></th>
+        <th scope="row"><a href="<?= $u('/ui/items/' . $a['sku_id']) ?>"><?= $e($a['name']) ?></a><span class="o-sub"><?= $e($a['code']) ?></span></th>
         <td data-label="<?= $word('DUTY', 'where') ?>"><?= $e($a['warehouse']) ?></td>
         <td class="num" data-label="<?= $word('DUTY', 'accepted_units') ?>"><?= $n($a['units']) ?></td>
         <td data-label="<?= $word('DUTY', 'last_arrived') ?>"><?= $when($a['last_received']) ?></td>
         <td class="num" data-label="<?= $word('DUTY', 'on_hand_now') ?>"><?= $n($a['on_hand']) ?></td>
       </tr>
 <?php endforeach; ?>
+<?php if ($unstamped['accepted_more']): ?>
+      <tr><td colspan="5" class="muted rp-in" data-label=""><?= $say('DUTY', 'list_more', \CW\Duty\DutyRegister::UNSTAMPED_LIMIT) ?></td></tr>
+<?php endif; ?>
+      <tr class="rp-gtotal"><th scope="row" colspan="2" class="rp-in"><?= $say('RD_REPORTS', 'total_for', \CW\Ui\Words::DUTY['accepted_title']) ?></th><td class="num" data-label="<?= $word('DUTY', 'accepted_units') ?>"><?= $n($unstamped['accepted_units']) ?></td><td colspan="2" data-label=""></td></tr>
     </tbody>
   </table>
   </div>
-<?php if ($unstamped['accepted_more']): ?>
-  <p class="muted"><?= $say('DUTY', 'list_more', \CW\Duty\DutyRegister::UNSTAMPED_LIMIT) ?></p>
+</article>
+<?php if ($pages > 1): ?>
+<p class="pager"><?php if ($prev !== null): ?><a href="<?= $e($prev) ?>"><?= $word('DUTY', 'prev') ?></a> <?php endif; ?><?= $say('DUTY', 'page', $page, $pages) ?><?php if ($next !== null): ?> <a href="<?= $e($next) ?>"><?= $word('DUTY', 'next') ?></a><?php endif; ?></p>
 <?php endif; ?>
-<?php endif; ?>
-  </div>
-</div>
+<?= $partial('report_all', ['groups' => $allReports]) ?>

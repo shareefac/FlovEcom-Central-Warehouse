@@ -8,6 +8,9 @@ $help = \CW\Ui\Words::APPROVALS['loosen_rule'] . ' ' . \CW\Ui\Words::APPROVALS['
     . \CW\Ui\Words::APPROVALS['always'] . ' ' . \CW\Ui\Words::APPROVALS['others'] . ($lookOnly !== null ? ' ' . \CW\Ui\Words::say('UI', 'look_only', $lookOnly) : '');
 ?>
 <?= $head(\CW\Ui\Words::MENU['approvals'], intro: 'approvals', more: $help, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'approvals']) ?>
+<div class="set-main">
 <?php if ($requests > 0): ?>
 <p class="note"><?= $say('APPROVALS', 'requests', $requests) ?><?php if ($canDecideRequests): ?> <a href="/ui/staff-requests"><?= $word('APPROVALS', 'requests_link') ?></a><?php endif; ?></p>
 <?php endif; ?>
@@ -137,4 +140,6 @@ $help = \CW\Ui\Words::APPROVALS['loosen_rule'] . ' ' . \CW\Ui\Words::APPROVALS['
 <?php endforeach; ?>
 </section>
 <?php endforeach; ?>
+</div>
+</div>
 </div>

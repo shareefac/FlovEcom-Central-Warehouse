@@ -216,7 +216,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('coming in Phase', $home->text());
         self::assertSame(0, $xp->query('//main//ul[@class="uses"]')->length, 'no second menu on Home: the sidebar is the menu');
         self::assertSame(0, $xp->query('//main//details[@id="about"]')->length, 'no About box');
-        self::assertSame(1, $xp->query('//main//form[@class="hm-find" and @action="/ui/search" and @method="get"]//input[@name="q"]')->length, 'ONE Find box: catalogue.view');
+        self::assertSame(0, $xp->query('//main//form[@class="hm-find"]')->length, 'no Find box on Home: the sidebar\'s (the Main artboard, docs/decisions.md RD-C15)');
         self::assertSame(1, $xp->query('//header[@class="appbar"]//a[@href="/ui/search"]')->length, 'Phone.dc.html\'s top bar: Find');
         self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//form[@class="side-find" and @action="/ui/search" and @method="get"]//input[@name="q"]')->length,
             'the sidebar\'s find box (Sidebar.dc.html)');

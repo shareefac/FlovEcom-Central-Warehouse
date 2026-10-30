@@ -5,6 +5,9 @@
 // is the heading's "?".
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['series'], intro: 'series', more: \CW\Ui\Words::SETTINGS_PAGE['series_text']) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'series']) ?>
+<div class="set-main">
 <div class="set-list">
 <section class="set-card series" aria-labelledby="series-h">
   <h2 id="series-h"><?= $word('SETTINGS_PAGE', 'series_card') ?></h2>
@@ -19,4 +22,6 @@
   </div>
 <?php endforeach; ?>
 </section>
+</div>
+</div>
 </div>

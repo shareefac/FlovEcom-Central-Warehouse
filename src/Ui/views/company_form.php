@@ -3,6 +3,9 @@
 // heading's "?", then the one form as before.
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['company_edit'], intro: 'company_edit', more: \CW\Ui\Words::COMPANY['until_confirmed'], back: ['/ui/reference/company', \CW\Ui\Words::MENU['company']]) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'company']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <div class="error" role="alert">
 <?php if ($errorCode === 'company_invalid'): ?>
@@ -106,3 +109,5 @@
   <p class="actions"><button type="submit" class="btn primary"><?= $word('COMPANY', 'save') ?></button> <a href="/ui/reference/company"><?= $word('COMPANY', 'cancel') ?></a></p>
 </form>
 <p class="muted"><?= $word('COMPANY', 'letters') ?></p>
+</div>
+</div>

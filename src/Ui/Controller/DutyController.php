@@ -40,7 +40,8 @@ final class DutyController
         $page = min($pages, max(1, (int) ($ctx->req->param('page') ?? 1)));
         $link = static fn (int $p): string => Html::url(self::PATH, array_filter(['from' => $f['from'], 'to' => $f['to'], 'supplier' => $f['supplier'],
             'stamp' => $f['stamp'], 'state' => $f['state'], 'q' => $f['q'] === '' ? null : $f['q'], 'page' => $p > 1 ? $p : null], static fn (mixed $v): bool => $v !== null));
-        return $ctx->page('duty_register', [
+        // The standard report layout (docs/decisions.md RD-C11): the company's name for the report's head and "All reports".
+        return $ctx->page('duty_register', ReportsController::shared($ctx, 'duty') + [
             'rows' => $reg->rows($f, $size, ($page - 1) * $size),
             'total' => $total,
             'page' => $page,

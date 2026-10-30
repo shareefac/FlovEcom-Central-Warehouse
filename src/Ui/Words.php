@@ -58,6 +58,8 @@ final class Words
         'ITEM_SELLS', 'MOVE_KIND',
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
+        // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
+        'RD_MATCH', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_GROUP', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
@@ -4548,7 +4550,7 @@ final class Words
      */
     public const MATCH = [
         'question' => 'Is this the same item?',
-        'to_match' => '%s to match',
+        'to_match' => '%s left to check',
         'bar' => 'Answered today against what is left on this list',
         'on_store' => 'On the store',
         'variant' => 'Variant %s',
@@ -4560,10 +4562,10 @@ final class Words
         'differs' => 'differs',
         'protected' => 'Second OK needed',
         'refused_before' => 'Said not the same before',
-        'find' => 'Or find another item',
+        'find' => 'Not this one? Find another item',
         'find_hint' => 'Type a name, CW code or barcode',
-        'units' => 'One store product is',
-        'units_of' => 'of this item',
+        'units' => '1 sale on the store is',
+        'units_of' => 'of our item',
         'note' => 'Note (when the line or pack differs)',
         'note_hint' => 'Why it is the same',
         'skip' => 'Skip',
@@ -4576,6 +4578,11 @@ final class Words
         'new_item_button' => 'Create the new item',
         'store_more' => 'More about the store product',
         'spot' => 'The spot check',
+        // The approved Listings artboard of 30 Oct 2026 (docs/decisions.md RD-C1): the one comparison card, our item's column, the marks' words.
+        'compare' => 'Compare',
+        'our_item' => 'Our item',
+        'mark_same' => 'Same',
+        'mark_differs' => 'Differs',
     ];
 
     /** Waiting for a second OK (/ui/review?queue=pending, plan §6.14) and the waiting box of a website product. */
@@ -5006,6 +5013,37 @@ final class Words
      * is a store's name, read from the channel table: no store is named here. The `quick_` words are the quick match in a cell of
      * the list (the owner's request of 20 Oct 2026); `quick_loading` and `quick_failed` are shown by app.js (data- attributes).
      */
+    /**
+     * Product matching (the approved ByItem artboard of 30 Oct 2026; docs/decisions.md RD-C7-RD-C10): its two tabs, By item (the list of every
+     * warehouse item and the stores it is matched on) and New on the stores (the stores' new products still to match), the store chips of a
+     * row and the page's More. (Part C of the redesign's step 2.)
+     */
+    public const RD_MATCH = [
+        'title' => 'Product matching',
+        'sub' => 'Which store sells each item',
+        'tabs' => 'Matching views',
+        'tab_items' => 'By item',
+        'tab_new' => 'New on the stores',
+        'match_all' => 'Match all new',
+        'search_items' => 'Search item, barcode or CW number',
+        'match_status' => 'Match status',
+        'clear' => 'Clear filters',
+        'stores_n' => '%s of %s stores',
+        'matched_on' => 'Matched on %s',
+        'match_on' => 'Match on %s',
+        'waiting_on' => 'Waiting for a second OK on %s',
+        'suggested_on' => 'A suggestion waits on %s',
+        'search_new' => 'Search new store products',
+        'store' => 'Store',
+        'store_n' => '%s (%s)',
+        'added' => 'added %s',
+        'match' => 'Match',
+        'none_new' => 'Nothing new to match on %s.',
+        'none_new_text' => 'The products a store added in the last %s days and not matched yet show here.',
+        'export' => 'Export this list',
+        'rows' => 'Rows a page: %s',
+    ];
+
     public const BY_PRODUCT = [
         'no_stores' => 'No store is set up in this system yet.',
         'no_stores_text' => 'Each store becomes a column here as soon as it is set up.',
@@ -9969,6 +10007,111 @@ final class Words
     ];
 
     /** The Reports tabs (Reports › Stock by store, Sales by store, Low stock, Stock value, Slow stock). */
+    /**
+     * The standard report layout (the approved Reports artboard of 30 Oct 2026; docs/decisions.md RD-C11): the reports' names as the
+     * artboard's "All reports" list writes them, its groups, the head's Export, the options card and its Run report, the report's own head
+     * and its totals. (Part C of the redesign's step 2.)
+     */
+    public const RD_REPORTS = [
+        'all' => 'All reports',
+        'export' => 'Export',
+        'export_title' => 'Download this report as a spreadsheet file (CSV, opens in Excel)',
+        'options' => 'Report options',
+        'run' => 'Run report',
+        'paper' => 'The report',
+        'company_line' => '%s · Central Warehouse',
+        'cw' => 'Central Warehouse',
+        'group_inventory' => 'Inventory',
+        'group_sales' => 'Sales',
+        'group_purchases' => 'Purchases',
+        'stock_value' => 'Inventory valuation summary',
+        'stock_by_store' => 'Stock summary by store',
+        'slow_stock' => 'Inventory aging',
+        'low_stock' => 'Low stock',
+        'sales_by_store' => 'Sales by store',
+        'duty' => 'Duty register',
+        'reorder' => 'Reorder suggestions',
+        'as_of' => 'As of %s',
+        'grouped_by' => 'by %s',
+        'at_cost' => 'at average cost',
+        'total' => 'Total',
+        'total_for' => 'Total for %s',
+        'cw_number' => 'CW number',
+        'on_hand' => 'Stock on hand',
+        'value' => 'Inventory value',
+        'items_n' => '%s items',
+        'not_sold' => '%s not sold in %s days',
+        'theirs' => 'Another account\'s %s units left out',
+        'no_cost' => '%s units have no cost yet',
+        'find' => 'Find',
+        'only_no_cost' => 'Only items without a cost',
+        'clear' => 'Clear',
+        'show' => 'Show',
+        'low_line' => '%s low · %s none left · low at %s units unless an item has its own level',
+        'slow_line' => '%s slow (no sale for %s days) · %s dead (no sale for %s days)',
+        'store_line' => '%s matched · %s in stock · %s out of stock',
+        'duty_line' => '%s delivery lines · %s units held unstamped · %s taken in on a declaration',
+        'empty_by' => 'Held unstamped stock must be gone by %s',
+        'period_line' => '%s to %s',
+    ];
+
+    /** Approvals' Show (the approved Approvals artboard of 30 Oct 2026; docs/decisions.md RD-C13): everything waiting, or one kind of it. */
+    public const RD_INBOX = [
+        'show' => 'Show',
+        'show_label' => 'What the list shows',
+        'everything' => 'Everything waiting (%s)',
+    ];
+
+    /** Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in its order. */
+    public const RD_SETTINGS = [
+        'sections' => 'Settings sections',
+        'company' => 'Company',
+        'warehouses' => 'Warehouses',
+        'sites' => 'Stores',
+        'people' => 'Users and roles',
+        'approvals' => 'Approval rules',
+        'reasons' => 'Reasons',
+        'settings' => 'Rules and numbers',
+        'series' => 'Numbering',
+        'integrity' => 'System checks',
+        'audit' => 'Audit log',
+    ];
+
+    /**
+     * Home (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15): the two buttons beside the greeting, the four figure tiles and
+     * their lines, "Waiting for you" with its count and Open Approvals, the Stores card and the Today card (only figures CW already has).
+     */
+    public const RD_HOME = [
+        'receive' => 'Receive a delivery',
+        'new_order' => 'New purchase order',
+        'jobs_one' => '1 job',
+        'jobs_many' => '%s jobs',
+        'open_approvals' => 'Open Approvals',
+        'tile_value' => 'Stock value at cost',
+        'value_sub' => '%s items with stock',
+        'tile_units' => 'Units on the shelf',
+        'sub_units' => 'In the warehouses that sell',
+        'tile_inbox' => 'Waiting for your OK',
+        'inbox_sub' => '%s %s',
+        'tile_matches' => 'Listings to match',
+        'sub_matches' => 'Likely matches first',
+        'tile_orders' => 'Open purchase orders',
+        'sub_orders' => 'Drafts, waiting for an OK and on the way',
+        'tile_deliveries' => 'Deliveries to receive',
+        'sub_deliveries' => 'Being checked now',
+        'tile_products' => 'Items',
+        'sub_products' => 'In the warehouse list',
+        'stores' => 'Stores',
+        'heard_min' => 'Last heard from %s minutes ago',
+        'heard_hours' => 'Last heard from %s hours ago',
+        'heard_days' => 'Last heard from %s days ago',
+        'today' => 'Today',
+        'orders_today' => 'Orders taken',
+        'units_today' => 'Units in those orders',
+        'deliveries_open' => 'Deliveries being checked',
+        'oversold' => 'Oversold',
+    ];
+
     public const REPORTS = [
         'csv' => 'Download as CSV',
         'find' => 'Find a product',

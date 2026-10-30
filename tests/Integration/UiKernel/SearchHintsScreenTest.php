@@ -109,7 +109,7 @@ final class SearchHintsScreenTest extends KernelUiTestCase
 
         // By Item: "item", the Clear keeps the filter
         $items = $web->get('/ui/review/products', ['cov' => 'missing-alt', 'q' => 'juicy hayati']);
-        self::assertSearchBox($items, Words::FIND['items']);
+        self::assertSearchBox($items, Words::RD_MATCH['search_items']); // (the ByItem artboard's words, docs/decisions.md RD-C10)
         self::assertFound($items, Words::say('FIND', 'found_one', '"juicy hayati"'), Html::url('/ui/review/products', ['cov' => 'missing-alt']));
         self::assertStringContainsString(Words::FIND['try_items'], $web->get('/ui/review/products', ['q' => 'zz nothing'])->text());
         // the quick match box of a "Not on this store" cell says what to type too
