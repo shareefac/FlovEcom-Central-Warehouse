@@ -14286,3 +14286,132 @@ on a phone it is the toolbar's full width as before.
 when a page of the section in the tree is the page, "page" when it is itself the page) and that one link of the menu is the page;
 `sectionTabs()` and `moreTabs()` assert a page's "true" (one of its segments is the page) or "page"; `segments()` asserts "page". A
 regression of DC28's marks now fails every kernel test that reads the sidebar.
+
+## The Matching pages on the approved patterns (wave w12, branch `wave-w12`, 30 Oct 2026; W12.1-W12.16)
+
+The owner's word of 29 Oct ("all design convert our new claude suggested design") for Matching and the review pages around it, and of 30 Oct
+("strictly follow our design guidelines"): a store product's decision page is the approved TP_Match (its parts, order, buttons and words), the
+lists are boards (GI_List), the pages that hand out one decision at a time are inboxes (AP_Inbox). Layout and words only: no route, permission,
+migration, setting or service rule changed; every form posts the fields it did to where it did (FormOnce, versions, CSRF as before). The
+matching rules stay where they are, in `DecisionService` and `OneAtATime`: a second OK (1 sale that is not 1 item, a protected item, a match
+marked wrong before), the units of a pack, protected items, one at a time (held back, a spot check's matches, found on arrival).
+
+**W12.1. A store product's page is TP_Match.** The head asks "Is this the same item?"; its eyebrow is the section, the store and how many are
+left to match on the list it was opened from (`MATCH to_match`; a spot check's "n of 20 checked"); at its right a bar: the part answered today
+of what is answered today and what is left (`listing_progress`, its words for a screen reader are the progress line's as before, in
+`data-progress`), a spot check's 20 blocks instead. Then the store product on the left (`section.card.mt-card.info`, the blue 6 px top edge:
+"On the store", the photo block, its name and variant title, "Variant … · £price") and the item on the right (`.mt-card.done`, green: its
+heading as before, "N other suggestions" a fold with the candidates the computer looked at, the photo block, its name, "CW-… · N in stock" (the
+stock buckets' on hand, one read by the item: `Queries::stockOf`), the small tags "Second OK needed" for a protected item and "Said not the same
+before"); their facts side by side in the approved order (brand, line, flavour, strength, pack, then the rest either side states), each value on
+the green tint where the two agree (same, or a brand spelt differently) and on the amber one where they differ or one side does not say
+(`span.mt-mark`, `data-state`, the word for a screen reader). "Or find another item" is in the item's card, its own GET form (`form="mt-find"`,
+the box `?s=`, "/" puts the cursor there) with what it finds under it. Then one card: "One store product is [N] of this item" and "Note (when the
+line or pack differs)". Then the bar at the bottom (`.doc-bar.mt-bar`): Skip (the next one, or back), More, Not the same, Same item. ONE form
+(`form#decide.mt-form`) holds the cards, the card of units and note and the bar: the answer is the button pressed (`name="action"`: link,
+reject; under More new_item and ignore), so the quick yes over the old form is gone (Same item is it) and so are the answer radios and "What
+each answer does". Its first button is a disabled hidden default (`button.po-default`, as the order editor's), so Enter in the units or the note
+answers nothing. A store product the computer suggests a new item for, with no item and no barcode clash, has New item as its main answer in
+Same item's place (what the form chose first before); with no item at all Same item is drawn faded with "Find the item first" beside it (TP_Parts:
+a button not allowed yet says why). Same item names the pack ("Same item (10 a sale)") when the units are not 1.
+
+**W12.2. The rest of the page is under the bar's More.** In this order: New item (its fold: the details of the new item, in two columns, and
+"Create the new item"), "Ignore: not a real product", "Mark as a landing page" (its own small form, `form="mark-landing"`), then the folds of
+`listing_more`: why the computer suggests this, more details (the website, its status, what it sold, its page, its attributes, what it is
+matched to, the item's family and stock rule), where its barcode is too, its duplicate groups (links), the spot check it is in (its legend and
+the way back), its history, the technical details. The comparison table is gone (the facts' marks say it); the help lines ("?", "C1, C2 … are
+the rows …", the units' hint, the second OK's paragraph) are gone; nothing else is. The menu opens upwards and scrolls (the bar's `.more-menu`).
+A refused new item opens More and its fold at the field.
+
+**W12.3. A spot check's own match keeps its three answers.** Skip (the next one, nothing saved), "Not the same" (a fold of the bar that opens
+upwards with its warning first and the answer form behind it, as before), "Same item" (its own small form: always the suggestion with the
+suggestion's units, which the spot check counts as a yes). Two forms, as before: the yes must never carry what the second step's form holds.
+Its line "Say yes only if it is right …" is where the units and the note are.
+
+**W12.4. A store product that is not answered here says so where the units and the note are.** A landing page (its box, "This is a real
+product" for a lead), one waiting for a second OK (the waiting card with its approve and cancel), a matched one (the note; a lead's "Change
+this match" is a fold of the bar's More, open when another item was picked), one only a lead or the spot check's owner decides, look only. Its
+bar: Skip, More; a finished spot check's member "Check the next one (n of 20)" as its main action.
+
+**W12.5. To review is a board.** The overview: ONE Show row (the store: the store tabs before), each store a group over a card with the coloured
+edge. A list (a match strength): one search and ONE Show row (the store, the list, what it shows, how a match was found, sold at least: the
+store tabs, the strength battery and its tabs, the show tabs and the Filter pop-over before), Clear at the right; how much is left and answered
+today under the title (`data-progress`); the list as one group (its colour, "n in all · n shown", Select all on this page), each row its status
+cell (the strength), its Check & match under its name, Open at its end; the bulk bar as before. "Same barcode" is a soft tag.
+
+**W12.6. Store Products is a board.** One search and ONE Show row (the store, the state, the sort: the store tabs, the state tabs and the Sort
+pop-over before), Clear; the page's products grouped by their state, what is still to match first (Suggested, Not matched, Waiting for a second
+OK, On hold, Matched, Ignored, Landing pages; best sellers first in each, by the sort chosen), each group its colour and count over a card with
+the coloured edge, the state the solid cell; the old heading "…: website products" with its count line and the undo-a-match note are gone
+(the groups and the Show row's counts say them; undoing a match is on the product's page). The quiet line of products not sold in a year stays.
+
+**W12.7. By Item is a board.** One search and ONE Show row (what it shows: All, On every store, Missing on …, With a suggestion waiting, each
+with its count), the number of rows (its three links as before: another number keeps the place, so it is not a choice of the form), Clear and
+Export at the right; the page's items as ONE group in their CW number order (the list's own heading and "n in all · n shown"), "Stores matched"
+the solid status cell at the row's end (green on every store, amber on some, grey on none); each store's cell as before (its state chip, its
+variant, its quick match). The note under the list is gone (help); the bulk bar's limit line stays.
+
+**W12.8. New Variants and Duplicates are boards; a duplicate group is the matching frame.** New Variants: one search and ONE Show row (the store,
+the period, what it shows), Clear and Export; the lines of what the store sends and the check on arrival (its help sentence, "Where new
+variants come from", gone); the page's variants newest first as ONE group (the store's, "n in all · n shown"), each row's state its solid
+cell. Duplicates: "Start with the first group" the head's main action; the open groups, biggest sellers first (the order "Next" follows), as
+ONE group, each row where it stands its solid cell (waiting for a second OK, partly decided, a reason against joining, to decide; the
+reasons themselves in its last column); the groups
+decided lately a board of their own with its pager. A list whose order is its point (newest first, biggest sellers first, CW number) is one
+group with the row's own status cell rather than regrouped by status: the order the person works in and "Next" stay as they were. A group's
+page: the question in the head; the reasons against joining under it when the rules found any (the tick that they were read stays required);
+the pages side by side (`.mt-card`, the kept one on the green edge); the answer card (who is kept, each page's choice when there are several);
+the bar: Skip, More (what the rules say when they found nothing, what the titles say, why the computer thinks they match, undo a wrong join),
+then the answers (keep apart, join; with several, Save my choices last), the main one as before (Keep apart when the rules found a reason
+against, else Join; Save with several). The answers send the form by `form="dup-decide"`.
+
+**W12.9. Staff requests is an inbox.** The requests on the left grouped by what is asked (changes of jobs, sign-in resets), each row the person
+and what is asked, `?open=<id>`; the open one on the right: its group and place, the person and their e-mail, the status block, its facts (what
+is asked, e-mail, account made, set up, jobs now and asked for, asked by and on), the note when they have not set up their sign-in, then ONE
+decision: OK the main button (its form as before), "Not OK" under More with its note; "Next: …". A refused answer opens its own request.
+
+**W12.10. To check is an inbox; All records is a board.** To check: ONE Show row (the kind of work: the Filter pop-over before); the two lists
+as groups (needs your OK, already done), each row what it is and when it is due ("Late"), `?open=<task>`; the open one: its facts and ONE main
+action, Open its own page, where it is decided as before (each record's page says what each answer does; the answers are not copied here, so
+no form posts from a new place). A task this person may not decide says why. All records: one search and ONE Show row (kind, status, check),
+Clear; the page's records grouped by their status, a row opening the record.
+
+**W12.11. Spot checks is an inbox.** ONE Show row (the store); the spot checks grouped by their result (in progress, failed, cannot be used, all
+right), `?open=<id>`; the open one: its result block, its 20 blocks, its facts (checked, picked from, confirmed together), who started it, and
+its one action: for its owner while in progress "Check the next one (n of 20)", else Open its page. A spot check's own page is unchanged.
+
+**W12.12. Simple matching opens one cell's picker at a time.** Every cell's box and Apply are in a fold ("Match" in an empty cell, "+" in a cell
+with a product), and the page's folds are one group (`details name="sm-pick"`): opening one closes the open one, so one picker and one Apply are
+open, the selected cell's. A refused or to-be-confirmed answer opens its cell. Without the script the folds open as before.
+
+**W12.13. Typed values are guarded (W9.15's rule).** On these pages a POST form with a field to type or choose carries `data-unsaved` with DOC's
+words (a store product's answer, its change of match and its second step, a landing page's "real product", a waiting decision's approve note,
+the bulk forms' ticks, a duplicate group's answer and undo, simple matching's box, a staff request's Not OK), and on a page with one every form
+carries `data-leaves`; a form a refusal draws again with what was sent carries `data-dirty` (W11.13's rule: the answer form, its second steps, a
+landing page's "real product", a duplicate group's answer, a simple-matching box with its text). app.js: a field inside a form that belongs to another form (`form="…"`: "Or find another item", By Item's quick match
+box inside the bulk form) no longer marks the form around it as typed in.
+
+**W12.14. Where the pages still differ from the mockups.** The shared differences are the design-conformance build's (DC1-DC28, W12.16):
+the Show button beside a choice is kept there (DC10), as here. Kept on purpose: the photo block says "No photo" (CW keeps no photos yet; the block is where they go); the crumb back to the list a
+page was opened from (the record pages' pattern); the held-back note over the cards (one at a time is a rule); a spot check's two forms
+(W12.3); To check's decision stays on each record's page (W12.10); the Check & match fold of a list row keeps its own compact layout (CM1);
+the lists keep their Open buttons and tick boxes (their rows hold the Check & match fold and the quick match, so a row link over the whole row
+would cover them); By Item's store cells keep their state chips (a state per store, not the row's) and its number of rows stays three links
+(another number keeps the place); the lists whose order is their point are one group (W12.8). No page here draws a tab row or a segment row
+of its own (the owner's word of 30 Oct, "use sidebar and sub section"): every filter is a choice of the one Show row.
+
+**W12.15. Tests.** `UiTemplatesTest::testTheMatchingPagesFollowTheApprovedPatterns` (the templates) and its guard list
+(`testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst`), `MatchingPatternsScreensTest` (the pages as served), both shown failing on
+main first (`runs/w12_red.log`); `UiResponse::buttons()` reads the answers a form sends by its buttons. The tests that pinned the old layouts
+now pin the new one: the quick yes and the preselected radio became "the main button", a refused form's answer is sent as its button would send
+it (`+ ['action' => 'link']`), the comparison table became the cards' marks, the progress line `data-progress`, Skip the bar's first link.
+
+**W12.16. Rebased on the design-conformance build (`f4d1126`, DC1-DC28).** The pages take the shared parts as they are now: no sentence under
+a heading (DC1: `intro:` still names the page), no tab or segment row (DC28: the sidebar lists Matching's and Approvals' pages and segments;
+these pages draw none of their own), sentence case. A store product's page and a duplicate group draw their way back as the eyebrow (DC3:
+`$head(back: […])`, the list they were opened from, then the store and how many are left as its tag) instead of `p.crumbs`, inside
+`div.match-head` (DC2's 24 px heading of TP_Match). A list with several filters has them in ONE Show control, DC27's pop-over
+(`details.tb-pop.tb-show` with its Show button, its count the filters on): To review's list (the store, the list, what it shows, found by,
+sold at least), Store Products (the store, the state, the sort), New Variants (the store, the period, what it shows) and All records (the
+kind, the status, the check); a list with one filter keeps the plain Show choice (By Item, the spot checks, To check, the overview). The
+kernel tests read a page's way back from either (`p.crumbs` or the eyebrow `p.ph-back`).

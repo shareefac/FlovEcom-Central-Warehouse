@@ -122,7 +122,9 @@ final class ByProductScreenTest extends KernelUiTestCase
     private static function pills(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMNode $a): string => self::squash($a->textContent), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a')));
+        // The filter is a choice of the board's one Show row since docs/decisions.md W12.7: "All (55)".
+        return array_map(static fn (\DOMNode $o): string => (string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', self::squash($o->textContent)),
+            iterator_to_array($xp->query('//form[contains(@class, "toolbar")]//select[@name="cov"]/option')));
     }
 
     /** The picker's rows of one list (`suggested` or `found`): [name, option line, state, barcode mark, Choose link]. @return list<array{0: string, 1: string, 2: string, 3: string, 4: string}> */
@@ -411,7 +413,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 53, 50), $missing->text());
         self::assertSame('/ui/review/products?cov=missing-alt&page=2', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'),
             'the pager keeps the filter');
-        self::assertSame('page', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[contains(@class, "state-tabs")]/a[3]/@aria-current)'), 'its entry is marked');
+        self::assertSame('missing-alt', (new \DOMXPath($missing->dom()))->evaluate('string(//select[@name="cov"]/option[@selected]/@value)'), 'its entry is chosen');
         self::assertSame([$bravo, $charlie, ...array_slice($fillers, 0, 48)], self::ids($web->get('/ui/review/products', ['cov' => 'missing-cee'])));
 
         // The search: words of the name, brand or flavour, a CW number, a barcode; with a filter too.
@@ -428,7 +430,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $found = $web->get('/ui/review/products', ['q' => 'Filler', 'cov' => 'missing-vbig', 'page' => '2']);
         self::assertSame(array_slice($fillers, 50), self::ids($found));
         self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 52, 2), $found->text());
-        self::assertSame(['cov' => 'missing-vbig', 'q' => 'Filler'], $found->form('/ui/review/products'), 'the search keeps the filter and what was typed');
+        self::assertSame(['q' => 'Filler', 'cov' => 'missing-vbig'], $found->form('/ui/review/products'), 'the search keeps the filter and what was typed (one Show row, W12.7)');
         self::assertSame('/ui/review/products.csv?cov=missing-vbig&q=Filler', (new \DOMXPath($found->dom()))->evaluate('string(//form[@class="toolbar"]//a[contains(@href, ".csv")]/@href)'),
             'Export takes the filter and the search');
 
@@ -654,7 +656,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame('By item', self::currentTab($page));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('BY_PRODUCT', 'pick_title', self::cw($sku), 'Alt Store'), self::squash($xp->evaluate('string(//main//h1)')));
-        self::assertSame('/ui/review/products?at=' . $sku . '#p-' . $sku, $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'back to the list, at the product');
+        self::assertSame('/ui/review/products?at=' . $sku . '#p-' . $sku, $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'), 'back to the list, at the product');
         $facts = self::squash($xp->evaluate('string(//section[@aria-labelledby="facts-h"])'));
         foreach ([self::cw($sku) . ' Elux Legend 3500 Blue Razz 20mg', Words::FIELD['brand'] . 'Elux', Words::FIELD['line'] . 'Legend', Words::FIELD['flavour'] . 'Blue Razz',
             Words::FIELD['strength_mg'] . '20', Words::FIELD['volume_ml'] . '2', Words::FIELD['barcodes'] . '5056168812345',
@@ -731,7 +733,7 @@ final class ByProductScreenTest extends KernelUiTestCase
             $this->profiled($a, 'F' . $i, ['product_title' => sprintf('Pager item %02d', $i), 'units_30d' => 100 - $i]);
         }
         $href = static fn (UiResponse $r, string $rel): string => (string) (new \DOMXPath($r->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="' . $rel . '"]/@href)');
-        $crumb = static fn (UiResponse $r): string => (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)');
+        $crumb = static fn (UiResponse $r): string => (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)');
         $first = $web->get("/ui/review/products/{$sku}/map", ['channel' => 'alt', 'q' => 'pager item']);
         self::assertCount(Queries::PICK_PER_PAGE, self::picks($first, 'found'));
         self::assertSame(['', "/ui/review/products/{$sku}/map?channel=alt&q=pager%20item&page=2"], [$href($first, 'prev'), $href($first, 'next')]);
@@ -783,7 +785,7 @@ final class ByProductScreenTest extends KernelUiTestCase
 
         // The list's filter and search travel with the person, so "back" is where they were.
         $kept = $web->get("/ui/review/products/{$sku}/map", ['channel' => 'alt', 'cov' => 'missing-alt', 'lq' => 'elux']);
-        self::assertSame('/ui/review/products?cov=missing-alt&q=elux&at=' . $sku . '#p-' . $sku, (new \DOMXPath($kept->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/products?cov=missing-alt&q=elux&at=' . $sku . '#p-' . $sku, (new \DOMXPath($kept->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         self::assertSame($choose($strong) . '&cov=missing-alt&lq=elux', self::picks($kept, 'suggested')[0][4]);
         self::assertSame(['channel' => 'alt', 'cov' => 'missing-alt', 'lq' => 'elux', 'q' => 'Elux Blue Razz'], $kept->form('/map'));
 
@@ -834,10 +836,11 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame('Mapping', self::currentTab($page), 'the existing page, where it always was');
         self::assertStringContainsString(Words::LISTING['picked'], $page->text());
-        self::assertStringContainsString(Words::say('LISTING', 'yes', $code), $page->text());
+        self::assertStringContainsString($code, $page->text());
+        self::assertSame(['link'], $page->buttons('/decide', 'action', true), 'Same item (W12.1)');
         $xp = new \DOMXPath($page->dom());
-        self::assertSame("/ui/review/products/{$sku}/map?channel=alt", $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'Back is the picker');
-        self::assertSame(Words::say('BY_PRODUCT', 'pick_crumb', 'Alt Store'), self::squash($xp->evaluate('string(//p[@class="crumbs"]/a)')));
+        self::assertSame("/ui/review/products/{$sku}/map?channel=alt", $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'), 'Back is the picker');
+        self::assertSame(Words::say('BY_PRODUCT', 'pick_crumb', 'Alt Store'), self::squash($xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a)')));
         $form = $page->form('/decide');
         self::assertSame([(string) $sku, 'product', (string) $sku, 'alt', '1'], [$form['sku_id'], $form['via'], $form['product'], $form['channel'], $form['units_per_item']]);
         self::assertArrayNotHasKey('action', $form, 'nothing is preselected: the person says yes');
@@ -848,10 +851,10 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(409, $stale->status, $stale->describe());
         self::assertStringContainsString(Words::MATCH_ERROR['map_version_conflict'], $stale->text());
         self::assertSame(['product', (string) $sku, 'alt'], [$stale->form('/decide')['via'], $stale->form('/decide')['product'], $stale->form('/decide')['channel']]);
-        self::assertSame("/ui/review/products/{$sku}/map?channel=alt", (new \DOMXPath($stale->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame("/ui/review/products/{$sku}/map?channel=alt", (new \DOMXPath($stale->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         // ... and where in the picker: the search and page it was opened with are still its Back after a refused answer.
         $again = $web->post("/ui/review/listing/{$one}/decide", ['action' => 'link', 'expected_map_version' => '7', 'pq' => ' ', 'pp' => '4'] + $form);
-        self::assertSame([409, "/ui/review/products/{$sku}/map?channel=alt&q=&page=4"], [$again->status, (new \DOMXPath($again->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)')]);
+        self::assertSame([409, "/ui/review/products/{$sku}/map?channel=alt&q=&page=4"], [$again->status, (new \DOMXPath($again->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)')]);
         self::assertSame([' ', '4'], [$again->form('/decide')['pq'], $again->form('/decide')['pp']]);
 
         // "Yes, same product": DecisionService matches it, and the person lands on By Item at that product.
@@ -942,7 +945,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $second = $this->queued($a, 'Q2', 'Key', $sku, ['product_title' => 'Queue two', 'units_365d' => 8]);
         $form = $this->decideForm($web, $first, ['queue' => 'Key', 'via' => 'product', 'product' => (string) $sku, 'channel' => 'alt']);
         self::assertArrayNotHasKey('via', $form);
-        $r = $web->post("/ui/review/listing/{$first}/decide", ['via' => 'product', 'product' => (string) $sku, 'channel' => 'alt'] + $form);
+        $r = $web->post("/ui/review/listing/{$first}/decide", ['via' => 'product', 'product' => (string) $sku, 'channel' => 'alt', 'action' => 'link'] + $form);
         self::assertSame("/ui/review/listing/{$second}?queue=Key&channel=alt&notice=decided_link&prev={$first}", $r->location());
     }
 
@@ -1066,7 +1069,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $picker = $web->get("/ui/review/products/{$sku}/map", $sent);
         self::assertSame(200, $picker->status, $picker->describe());
         self::assertSame(['Elux Legend'], array_column(self::picks($picker, 'found'), 0), 'the picker, searched with those words');
-        self::assertSame('/ui/review/products?q=elux&n=100&at=' . $sku . '#p-' . $sku, (new \DOMXPath($picker->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/products?q=elux&n=100&at=' . $sku . '#p-' . $sku, (new \DOMXPath($picker->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         self::assertSame([Words::BY_PRODUCT['quick_page'] => "/ui/review/products/{$sku}/map?channel=alt&lq=elux&ln=100"], self::links($page, $sku, 'Alt Store'));
 
         // Only "Not on this store" has it: a matched or a suggested cell keeps its links; each store's fold is its own.
@@ -1322,7 +1325,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $stale = $mapper->post("/ui/review/listing/{$one}/decide", $form);
         self::assertSame(409, $stale->status, $stale->describe());
         self::assertStringContainsString(Words::MATCH_ERROR['map_version_conflict'], $stale->text());
-        self::assertSame("/ui/review/products/{$sku}/map?channel=alt&q=legend", (new \DOMXPath($stale->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame("/ui/review/products/{$sku}/map?channel=alt&q=legend", (new \DOMXPath($stale->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         self::assertSame(['product', (string) $sku, 'alt', (string) $sku], [$stale->form('/decide')['via'], $stale->form('/decide')['product'], $stale->form('/decide')['channel'],
             $stale->form('/decide')['sku_id']], 'its answer form, with the item picked and the way back');
         self::assertSame('unmapped', $this->link($one)['status'], 'nothing was saved');
@@ -1446,7 +1449,7 @@ final class ByProductScreenTest extends KernelUiTestCase
             self::assertStringContainsString(Words::say('MATCH_ERROR', 'spot_check_other', $ownerName), $r->text());
             self::assertStringContainsString(Words::say('SPOT', 'other', $ownerName), $r->text(), 'the variant\'s page');
             self::assertFalse($r->hasForm('/decide'));
-            self::assertStringStartsWith($back, (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'Back to the picker');
+            self::assertStringStartsWith($back, (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'), 'Back to the picker');
             // ... and a Matcher's.
             $r = $mapper->post("/ui/review/listing/{$spot[1]}/decide", (array) self::quickRow($folds['mapper'], $spot[1])['match']);
             self::assertSame(403, $r->status, $r->describe());

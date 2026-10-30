@@ -488,7 +488,7 @@ final class SalesScreensTest extends KernelUiTestCase
         $page = $this->page($web, self::ORDERS . '/' . $ids['V2003']);
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('SALE_ORDER', 'title', 'V2003') . ' ' . Words::RESV_CHIP['closed'], trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))));
-        self::assertSame(self::ORDERS . '?channel=vpg', $xp->query('//main//p[@class="crumbs"]/a')->item(0)?->getAttribute('href'), 'back to the list, at its store');
+        self::assertSame(self::ORDERS . '?channel=vpg', $xp->query('//main//p[@class="crumbs" or contains(@class, "ph-back")]/a')->item(0)?->getAttribute('href'), 'back to the list, at its store');
         $facts = [];
         foreach ($xp->query('//main//dl/dt') as $dt) {
             $facts[trim((string) $dt->textContent)] = trim((string) $xp->evaluate('string(following-sibling::dd[1])', $dt));

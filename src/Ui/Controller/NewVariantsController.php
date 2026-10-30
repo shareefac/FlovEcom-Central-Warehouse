@@ -119,7 +119,7 @@ final class NewVariantsController
         }
         $periods = [];
         foreach ([...self::periods($f['default']), null] as $days) {
-            $periods[] = ['label' => self::periodLabel($days), 'current' => $f['days'] === $days,
+            $periods[] = ['value' => self::periodValue($days, $f['default']) ?? '', 'label' => self::periodLabel($days), 'current' => $f['days'] === $days,
                 'href' => Html::url(self::PATH, array_replace($base, ['period' => self::periodValue($days, $f['default'])]))];
         }
         return $ctx->page('new_variants', [

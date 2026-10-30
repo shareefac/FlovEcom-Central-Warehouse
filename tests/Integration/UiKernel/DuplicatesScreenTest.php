@@ -116,7 +116,8 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::DUPS['no_reason'], $list->text());
         self::assertStringContainsString(Words::say('DUPS', 'maybe', 'strength'), $list->text(), 'the reasons as words, comma-separated (F123)');
         self::assertContains('/ui/review/duplicates/' . $x['pb'], array_slice($list->hrefs(), 0), 'the main button starts with the first group (F124)');
-        self::assertSame('/ui/review/duplicates/' . $x['pb'], (string) (new \DOMXPath($list->dom()))->evaluate('string(//main//p[@class="actions"]/a[contains(@class, "primary")]/@href)'));
+        self::assertSame('/ui/review/duplicates/' . $x['pb'], (string) (new \DOMXPath($list->dom()))->evaluate('string(//main//header//a[contains(@class, "primary")]/@href)'),
+            'the head\'s main action (W12.8)');
 
         // The group page: both pages side by side.
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
@@ -140,9 +141,11 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame((string) $x['b']['sku'], $form['keep_sku']);
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/D', $form['form_key']);
         self::assertStringContainsString(Words::say('DUPS', 'join', sprintf('CW-%06d', $x['b']['sku'])), $t);
-        self::assertStringContainsString(Words::UI['what_each_answer_does'], $t, 'design B: what each answer does');
-        self::assertSame(Words::DUPS['apart'] . ' ' . Words::UI['safer'], trim((string) preg_replace('/\s+/', ' ',
-            (string) $xp->evaluate('string(//div[contains(@class, "answer") and contains(@class, "safe")]/dt)'))), 'keeping them apart is the safer answer');
+        // The bar at the bottom (TP_Match, W12.8): Skip, More, then the answers: keep apart, join (the main one, no reason against it).
+        self::assertSame([Words::MATCH['skip'], Words::MATCH['more'], Words::DUPS['apart'], Words::say('DUPS', 'join', sprintf('CW-%06d', $x['b']['sku']))],
+            array_map(static fn (\DOMNode $n): string => trim((string) preg_replace('/\s+/', ' ', $n->textContent)),
+                iterator_to_array($xp->query('//div[@id="dup-bar"]/a | //div[@id="dup-bar"]/details/summary | //div[@id="dup-bar"]/button'))));
+        self::assertSame('merge_all', (string) $xp->evaluate('string(//button[@form="dup-decide"][contains(@class, "primary")]/@value)'));
         // The person keeps A instead (the run's keeper).
         $g = $web->get('/ui/review/duplicates/' . $x['pb'], ['keeper' => (string) $x['a']['listing']]);
         self::assertStringContainsString(Words::say('DUPS', 'join', sprintf('CW-%06d', $x['a']['sku'])), $g->text());
@@ -213,8 +216,9 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame(200, $g->status, $g->describe());
         self::assertSame(['merge', 'separate', 'later'], $g->radios('c_' . $b['listing']));
         self::assertStringContainsString('Puffs ' . Words::DUPS['differs'], $g->text());
-        $buttons = array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'), iterator_to_array((new \DOMXPath($g->dom()))->query('//form[contains(@class, "dup-decide")]//button')));
-        self::assertSame(['save', 'separate_all', 'merge_all'], $buttons, 'one main button that takes the choices, then all-different and all-the-same (F131)');
+        $buttons = array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'), iterator_to_array((new \DOMXPath($g->dom()))->query('//button[@form="dup-decide"]')));
+        self::assertSame(['separate_all', 'merge_all', 'save'], $buttons, 'all-different and all-the-same, then the one main button that takes the choices (F131; the bar, W12.8)');
+        self::assertSame('save', (string) (new \DOMXPath($g->dom()))->evaluate('string(//button[@form="dup-decide"][contains(@class, "primary")]/@value)'));
         $form = $g->form('/ui/review/duplicates/' . $pb . '/decide');
         self::assertSame((string) $a['listing'], $form['keeper']);
         self::assertSame(['later', 'later'], [$form['c_' . $b['listing']], $form['c_' . $c['listing']]]);
@@ -361,7 +365,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertTrue($gx->query('//input[@name="confirm"]')->item(0)?->hasAttribute('required'), 'joining needs the tick (compare.md)');
         self::assertTrue($gx->query('//button[@value="separate_all"]')->item(0)?->hasAttribute('formnovalidate'), 'keeping them apart does not');
         $xp = new \DOMXPath($g->dom());
-        self::assertSame('separate_all', $xp->query('//form[contains(@class, "dup-decide")]//button[contains(@class, "primary")]')->item(0)?->getAttribute('value'));
+        self::assertSame('separate_all', $xp->query('//button[@form="dup-decide"][contains(@class, "primary")]')->item(0)?->getAttribute('value'));
         $differs = array_map(static fn (\DOMNode $n): string => trim((string) $n->firstChild?->textContent),
             iterator_to_array($xp->query('//table[contains(@class, "dup-compare")]//tr[@class="differs"]/th')));
         self::assertContains('VG/PG', $differs);

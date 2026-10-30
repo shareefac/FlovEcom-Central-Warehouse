@@ -723,7 +723,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $juice, 'packs' => 1]]);
         $page = $this->signIn($this->uiUser('goods_in'))->get("/ui/receiving/{$id}");
         $xp = new \DOMXPath($page->dom());
-        $head = $xp->query('//p[@class="crumbs"]/a[contains(@class, "gi-leave") and @data-leave]')->item(0);
+        $head = $xp->query('//p[@class="crumbs" or contains(@class, "ph-back")]/a[contains(@class, "gi-leave") and @data-leave]')->item(0);
         self::assertInstanceOf(\DOMElement::class, $head, 'Leave without saving in the page head (shown on a phone)');
         self::assertSame(['/ui/receiving', Words::DOC['leave']], [$head->getAttribute('href'), trim($head->textContent)]);
         self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, 'and in the bar (shown on a wider screen)');

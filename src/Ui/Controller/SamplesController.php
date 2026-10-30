@@ -42,8 +42,43 @@ final class SamplesController
                 'created_by' => $s['created_by'], 'created_at' => $s['created_at'], 'population' => $s['population'], 'bulk_linked' => $s['bulk_linked'],
                 'bulk_undone' => $s['bulk_undone']];
         }
-        return $ctx->page('samples', ['rows' => $rows, 'stores' => ReviewController::storeItems($stores, '/ui/review/samples', [], $store['code'] ?? null,
-            $q->spotOpenByStore(), true)], 200, ['title' => Words::title('samples'), 'active' => 'samples']);
+        // The inbox (AP_Inbox, docs/decisions.md W12.11): the spot checks grouped by their result (in progress first), each row a link
+        // `?open=<id>` (keeping the store); the open one (the one asked for, else the first) on the right: its result, its 20 blocks, its facts,
+        // and its one action: for its owner while it is in progress, the next match to check (as on its own page); else its own page.
+        $order = [];
+        foreach (['waiting', 'failed', 'unusable', 'passed'] as $res) {
+            $order[$res] = [Words::tone('SAMPLE_RESULT', $res), Words::SAMPLE_RESULT[$res]];
+        }
+        $groups = Html::groups(array_map(static fn (array $r): array => $r + ['group' => $r['result'],
+            'href' => Html::url('/ui/review/samples', ['channel' => $store['code'] ?? null, 'open' => $r['id']])], $rows), $order);
+        $flat = array_merge(...array_map(static fn (array $g): array => $g['rows'], $groups));
+        $want = \CW\Ui\UiRequest::id($ctx->req->param('open'));
+        $at = 0;
+        foreach ($flat as $i => $r) {
+            if ((int) $r['id'] === $want) {
+                $at = $i;
+            }
+        }
+        $record = null;
+        if (isset($flat[$at])) {
+            $r = $flat[$at];
+            $s = (new KeySample($ctx->db))->status((int) $r['id']);
+            $blocks = [];
+            $next = null;
+            foreach ($s['members'] as $m) {
+                $state = $m['state'] === 'confirmed' ? 'yes' : ($m['state'] === 'open' ? 'todo' : 'no');
+                $blocks[] = ['state' => $state, 'title' => Words::say('SPOT', ['yes' => 'block_yes', 'no' => 'block_wrong', 'todo' => 'block_todo'][$state], (int) $m['position'])];
+                if ($state === 'todo' && $next === null) {
+                    $next = ['position' => (int) $m['position'], 'link' => Html::url('/ui/review/listing/' . $m['listing_id'], ['sample' => $s['id']])];
+                }
+            }
+            $me = $ctx->me();
+            $mine = $s['created_by_id'] === $me->id && $me->isLead();
+            $record = $r + ['place' => Words::say('INBOX', 'of', $at + 1, count($flat)), 'blocks' => $blocks, 'tone' => Words::tone('SAMPLE_RESULT', $r['result']),
+                'next' => $mine && $s['verdict'] === 'waiting' ? $next : null, 'after' => $flat[$at + 1]['name'] ?? null];
+        }
+        return $ctx->page('samples', ['rows' => $rows, 'groups' => $groups, 'record' => $record, 'stores' => ReviewController::storeItems($stores, '/ui/review/samples', [],
+            $store['code'] ?? null, $q->spotOpenByStore(), true)], 200, ['title' => Words::title('samples'), 'active' => 'samples']);
     }
 
     public function show(Context $ctx): HtmlResponse

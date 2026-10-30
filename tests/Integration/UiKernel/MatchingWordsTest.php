@@ -54,7 +54,8 @@ final class MatchingWordsTest extends KernelUiTestCase
         self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'admin')", [$admin['id']]); // the owner's account on staging
         // Test accounts are named after their role codes; a person on staging has a name, not a code.
         self::$db->exec("UPDATE staff_user SET display_name = CONCAT('Person ', id) WHERE display_name LIKE '%\\_%'");
-        $title = static fn (int $listing): string => (string) self::$db->value('SELECT product_title FROM listing_profile WHERE listing_id = ?', [$listing]);
+        // A store product's page asks the question (TP_Match, docs/decisions.md W12.1); its name heads the store's card.
+        $title = static fn (int $listing): string => Words::MATCH['question'];
 
         // A website product in someone else's spot check says it is for looking (R2 review, 7 Oct); the draw decides whether this one is.
         $spotIntro = in_array((int) $skus[21]['listing'], array_map('intval', array_column($s['members'], 'listing_id')), true) ? 'listing_spot' : 'listing';

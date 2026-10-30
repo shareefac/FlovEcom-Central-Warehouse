@@ -336,7 +336,8 @@ final class BehaviourItemsTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::LISTING['pick_other'], $page->text());
         self::assertStringNotContainsString(Words::LISTING['elsewhere'], $page->text(), 'its own product is no "may duplicate"');
         self::assertStringContainsString(Words::LISTING['matched_heading'], $page->text(), 'compared with the product it is matched to');
-        self::assertStringContainsString(Words::LISTING['compare'], $page->text());
+        self::assertSame(1, (new \DOMXPath($page->dom()))->query('//section[@aria-labelledby="mt-item-h"]//dl[@class="mt-facts"]')->length,
+            'its facts beside the store product\'s (TP_Match, W12.1)');
 
         // A matching lead: the same note, and "Change this match" folded with the answers (none about the matched product itself).
         $lead = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.60'));
@@ -346,7 +347,7 @@ final class BehaviourItemsTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//details[@id="change-match" and not(@open)]//form[contains(@action, "/decide")]')->length, 'folded');
         self::assertSame(1, $xp->query('//details[@id="change-match"]//input[@name="action" and @value="link" and @disabled]')->length, 'pick another product first');
         self::assertSame(1, $xp->query('//details[@id="change-match"]//input[@name="action" and @value="reject" and @disabled]')->length);
-        self::assertStringContainsString(Words::LISTING['pick_other'], $page->text());
+        self::assertStringContainsString(Words::MATCH['find'], $page->text(), '"Or find another item" (W12.1)');
         $picked = $lead->get('/ui/review/listing/' . $id, ['pick' => (string) $other]);
         $xp = new \DOMXPath($picked->dom());
         self::assertSame(1, $xp->query('//details[@id="change-match" and @open]')->length, 'open once a product is picked');

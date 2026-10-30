@@ -234,7 +234,9 @@ final class UiSecurityTest extends UiTestCase
         $listing = $this->queued($site, 'V1', 'Key', $sku, ['units_30d' => 5]);
         $mine = $this->signIn($this->uiUser('mapper'));
         $theirs = $this->signIn($this->uiUser('mapper'));
-        $form = $this->decideForm($mine, $listing, ['queue' => 'Key']);
+        // The answer is the button pressed (docs/decisions.md W12.1): Same item, as a browser sends it.
+        self::assertSame(['link'], $mine->get('/ui/review/listing/' . $listing, ['queue' => 'Key'])->buttons('/decide', 'action', true));
+        $form = $this->decideForm($mine, $listing, ['queue' => 'Key']) + ['action' => 'link'];
         $base = $this->decisions();
         self::assertSame('link', $form['action']);
         $theirToken = $this->token($theirs);
@@ -305,7 +307,7 @@ final class UiSecurityTest extends UiTestCase
         $sku = $this->item('legacy', 1);
         $listing = $this->queued($site, 'V1', 'Key', $sku, ['units_30d' => 5]);
         $web = $this->signIn($this->uiUser('mapper'));
-        $form = $this->decideForm($web, $listing, ['queue' => 'Key']);
+        $form = $this->decideForm($web, $listing, ['queue' => 'Key']) + ['action' => 'link']; // its Same item (W12.1)
         $base = $this->decisions();
         $path = "/ui/review/listing/{$listing}/decide";
 

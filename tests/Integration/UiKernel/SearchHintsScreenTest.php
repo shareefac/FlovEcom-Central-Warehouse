@@ -121,10 +121,11 @@ final class SearchHintsScreenTest extends KernelUiTestCase
         $find = $web->get('/ui/search');
         self::assertSearchBox($find, '');
         self::assertStringContainsString(Words::FIND['any_order'], $find->text());
-        // the variant's page: its "Pick a different product" box answers "/" (it opens its fold)
+        // the variant's page: its "Or find another item" box answers "/" (TP_Match, W12.1: in the item's card, its own GET form)
         $own = $web->get('/ui/review/listing/' . $f['h1'], ['queue' => 'Check', 'channel' => 'alt']);
-        self::assertSame('/', self::attr($own, '//details[@id="f-pick"]//input[@name="s"]/@aria-keyshortcuts'));
-        self::assertSame(1, self::xp($own)->query('//details[@id="f-pick"]//input[@name="s"][@data-page-search]')->length);
+        self::assertSame('/', self::attr($own, '//div[@id="f-pick"]//input[@name="s"]/@aria-keyshortcuts'));
+        self::assertSame(1, self::xp($own)->query('//div[@id="f-pick"]//input[@name="s"][@data-page-search][@form="mt-find"]')->length);
+        self::assertSame(Words::MATCH['find_hint'], self::attr($own, '//div[@id="f-pick"]//input[@name="s"]/@placeholder'));
     }
 
     public function testTheProgressLineSaysWhatIsLeftAndWhatIAnsweredToday(): void
@@ -132,7 +133,8 @@ final class SearchHintsScreenTest extends KernelUiTestCase
         $f = $this->lists();
         $user = $this->uiUser('mapper');
         $web = $this->signIn($user);
-        $progress = static fn (UiResponse $r): string => self::textOf($r, '//p[@data-progress]');
+        // The words travel in data-progress: the list's line under its title, the variant page's bar in its head (W12.1).
+        $progress = static fn (UiResponse $r): string => trim((string) self::xp($r)->evaluate('string((//*[@data-progress])[1]/@data-progress)'));
 
         $list = $web->get('/ui/review', ['queue' => 'Check', 'channel' => 'alt']);
         self::assertSame(ReviewController::progress(3, 0), $progress($list));
@@ -152,7 +154,7 @@ final class SearchHintsScreenTest extends KernelUiTestCase
         self::$db->exec('UPDATE match_decision SET created_at = NOW(6) - INTERVAL 2 DAY WHERE decided_by = ?', [$user['id']]);
         self::assertSame(ReviewController::progress(2, 0), $progress($web->get('/ui/review', ['queue' => 'Check', 'channel' => 'alt'])));
         // the variant's page opened from somewhere else (no list) has no progress line
-        self::assertSame(0, self::xp($web->get('/ui/review/listing/' . $f['h2']))->query('//p[@data-progress]')->length);
+        self::assertSame(0, self::xp($web->get('/ui/review/listing/' . $f['h2']))->query('//*[@data-progress]')->length);
 
         // someone who can only look is told what is left, not what they answered: on the list and on a variant's page opened from it
         // (Codex's review of f46d19b: the page had no line for them)

@@ -49,8 +49,32 @@ final class ReviewsController
         }
         $filter['Supplier'] = Words::CHECKS['suppliers'];
         $filter['Company'] = Words::CHECKS['company'];
-        return $ctx->page('reviews', ['approvals' => $lists['approval'], 'reviews' => $lists['review'], 'type' => $type, 'types' => $filter], 200,
-            ['title' => Words::title('reviews'), 'active' => 'reviews']);
+        // The inbox (AP_Inbox, docs/decisions.md W12.10): the two lists as its groups, each row a link `?open=<task>` (keeping the Show), the
+        // open one (the one asked for, else the first) on the right with its facts; it is decided on its own page, as before.
+        $groups = [];
+        $flat = [];
+        foreach (['approval' => 'review', 'review' => 'info'] as $kind => $tone) {
+            $rows = array_map(static fn (array $r): array => $r + ['open_href' => Html::url('/ui/documents/reviews', ['type' => $type, 'open' => $r['task_id']])],
+                $lists[$kind]);
+            if ($rows !== []) {
+                $groups[] = ['key' => $kind, 'tone' => $tone, 'name' => Words::CHECK_KIND[$kind], 'rows' => $rows];
+                array_push($flat, ...$rows);
+            }
+        }
+        $want = \CW\Ui\UiRequest::id($ctx->req->param('open'));
+        $at = 0;
+        foreach ($flat as $i => $r) {
+            if ($r['task_id'] === $want) {
+                $at = $i;
+            }
+        }
+        $record = $flat[$at] ?? null;
+        if ($record !== null) {
+            $record += ['place' => Words::say('INBOX', 'of', $at + 1, count($flat)), 'next' => $flat[$at + 1]['label'] ?? null,
+                'tone' => $record['kind'] === 'approval' ? 'review' : 'info'];
+        }
+        return $ctx->page('reviews', ['approvals' => $lists['approval'], 'reviews' => $lists['review'], 'groups' => $groups, 'record' => $record, 'type' => $type,
+            'types' => $filter], 200, ['title' => Words::title('reviews'), 'active' => 'reviews']);
     }
 
     /**

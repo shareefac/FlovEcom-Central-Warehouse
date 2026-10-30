@@ -96,8 +96,14 @@ final class DocumentsController
         // The filter lists the kinds in use (and the one asked for); the note says which kinds are in use and which come later (F406).
         $kinds = array_values(array_filter($types, static fn (array $t): bool => in_array($t['code'], $live, true) || $f['type'] === $t['code']));
         $later = array_values(array_filter($types, static fn (array $t): bool => !in_array($t['code'], $live, true)));
+        // The board's groups (GI_List, docs/decisions.md W12.10): the page's records by their status, newest first in each.
+        $order = [];
+        foreach (Document::STATUSES as $st) {
+            $order[$st] = [Words::tone('DOC_STATUS', $st), Words::of('DOC_STATUS', $st)];
+        }
         return $ctx->page('documents', [
             'rows' => $rows,
+            'groups' => Html::groups(array_map(static fn (array $r): array => $r + ['group' => (string) $r['status']], $rows), $order),
             'total' => $total,
             'filters' => $f,
             'kinds' => array_map(static fn (array $t): array => ['code' => $t['code'], 'name' => Words::docType((string) $t['code'], true, (string) $t['name'])], $kinds),

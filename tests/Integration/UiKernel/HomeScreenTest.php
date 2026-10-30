@@ -189,7 +189,14 @@ final class HomeScreenTest extends KernelUiTestCase
             'each a number');
 
         // One answer: 1 of 20, and the button opens the next member.
-        $form = $this->decideForm($web, $first['listing_id'], ['sample' => (string) $sid]);
+        // (the spot check's own "Same item": its own small form in the bar, docs/decisions.md W12.3)
+        $form = [];
+        foreach ((new \DOMXPath($web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid])->dom()))->query('//form[contains(@class, "quick")]//input') ?: [] as $in) {
+            if ($in instanceof \DOMElement) {
+                $form[$in->getAttribute('name')] = $in->getAttribute('value');
+            }
+        }
+        self::assertSame('link', $form['action'] ?? null);
         self::assertSame(303, $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', $form)->status);
         $by = self::byKey(self::cardsOf($web->get('/ui/')));
         self::assertSame(['1 of 20 checked', '1/20'], [$by['spot_check']['count'], $by['spot_check']['big']]);

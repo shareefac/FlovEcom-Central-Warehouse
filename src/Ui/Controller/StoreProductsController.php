@@ -30,6 +30,8 @@ final class StoreProductsController
 {
     /** The states a row can be ticked in: the ones a store action applies to (a matched, on-hold or waiting one changes on its own page). */
     private const TICKABLE = ['suggested', 'not_matched', 'ignored'];
+    /** The board's groups in order (W12.6): still to match, then waiting or held, then settled (every state of Queries::STORE_STATES). */
+    private const GROUP_ORDER = ['suggested', 'not_matched', 'waiting', 'quarantined', 'linked', 'ignored', 'landing'];
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -39,7 +41,7 @@ final class StoreProductsController
         $stores = $q->stores();
         $store = ReviewController::store($stores, $req->param('channel')) ?? ($stores[0] ?? null);
         if ($store === null) {
-            return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
+            return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'groups' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
                 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null, 'next_link' => null, 'bulkActions' => [], 'bulkMax' => 0, 'bulkKeep' => [],
                 'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null, 'unsold' => null, 'unsoldShown' => false], 200,
                 ['title' => Words::MENU['store_products'], 'active' => 'store_products']);
@@ -114,6 +116,13 @@ final class StoreProductsController
         foreach ($rows as $i => $row) {
             $rows[$i]['check'] = $row['fold'] ? ReviewController::foldUrl($row['listing_id'], $back->query(), null, $rows[$i + 1]['listing_id'] ?? null) : null;
         }
+        // The board's groups (GI_List, docs/decisions.md W12.6): the page's rows by their state, what is still to match first (best sellers first
+        // in each), each its colour.
+        $order = [];
+        foreach (self::GROUP_ORDER as $st) {
+            $order[$st] = [Words::tone('STORE_STATE', $st), Words::STORE_STATE[$st]];
+        }
+        $groups = Html::groups(array_map(static fn (array $r): array => $r + ['group' => $r['state']], $rows), $order);
         $states = [['key' => null, 'label' => Words::STORE_STATE['all'], 'count' => array_sum($counts), 'href' => Html::url('/ui/review/store', ['state' => null] + $base),
             'current' => $state === null]];
         foreach (Queries::STORE_STATES as $s) {
@@ -129,6 +138,7 @@ final class StoreProductsController
             'store' => $store,
             'stores' => ReviewController::storeItems($stores, '/ui/review/store', [], $store['code'], $q->productsByStore(), false),
             'states' => $states,
+            'groups' => $groups,
             'state' => $state,
             'sort' => $sort,
             'sorts' => array_keys(Queries::STORE_SORTS),

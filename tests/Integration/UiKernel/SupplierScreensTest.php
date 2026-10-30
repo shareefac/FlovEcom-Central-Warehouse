@@ -139,11 +139,13 @@ final class SupplierScreensTest extends KernelUiTestCase
         $queue = $reviewer->get('/ui/documents/reviews');
         self::assertSame(200, $queue->status, $queue->describe());
         $xp = new \DOMXPath($queue->dom());
+        // To check is an inbox (docs/decisions.md W12.10): the row, then the open record, its link to the card and its one action, Open.
         self::assertSame([\CW\Ui\Words::say('CHECKS', 'supplier', 'Hollow Vapes Wholesale')], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array($xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th'))));
-        self::assertSame("/ui/purchasing/suppliers/{$id}", $xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th/a')->item(0)?->getAttribute('href'));
+            iterator_to_array($xp->query('//div[@id="approvals"]//a[contains(@class, "ap-row")]/span[@class="ap-t"]'))));
+        self::assertSame("/ui/purchasing/suppliers/{$id}", $xp->query('//h2[@id="ap-h"]/a')->item(0)?->getAttribute('href'));
         self::assertStringContainsString(\CW\Ui\Words::CHECK_REASON['new_supplier'], $queue->text());
-        self::assertSame(\CW\Ui\Words::CHECKS['open'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr/td[contains(@class, "c-next")]/a)')));
+        self::assertSame(\CW\Ui\Words::CHECKS['open'], trim((string) $xp->evaluate('string(//div[@class="ap-actions"]/a)')));
+        self::assertSame("/ui/purchasing/suppliers/{$id}", (string) $xp->evaluate('string(//div[@class="ap-actions"]/a/@href)'));
         self::assertSame(1, self::nav($queue)['Approvals']['count']);
         $rcard = $reviewer->get("/ui/purchasing/suppliers/{$id}");
         self::assertTrue($rcard->hasForm("/ui/purchasing/suppliers/tasks/{$task}/approve"));
@@ -308,7 +310,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         $reviewer = $this->signIn($first);
         $queue = $reviewer->get('/ui/documents/reviews');
         $xp = new \DOMXPath($queue->dom());
-        self::assertSame(1, $xp->query('//section[@aria-labelledby="reviews-h"]//tbody/tr')->length);
+        self::assertSame(1, $xp->query('//div[@id="reviews"]//a[contains(@class, "ap-row")]')->length);
         self::assertStringContainsString(\CW\Ui\Words::CHECK_REASON['supplier_changed'], $queue->text());
         $card = $reviewer->get("/ui/purchasing/suppliers/{$s['id']}");
         self::assertStringContainsString(Words::SUPPLIER['task_review'], $card->text());

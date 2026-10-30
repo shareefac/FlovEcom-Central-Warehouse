@@ -66,7 +66,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertStringContainsString('Not confirmed Every purchase order PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND"', $page->text());
         self::assertStringNotContainsString(Words::PAGE_INTRO['company'][0], $page->text(), 'no sentence under the heading (DC1)');
         self::assertSame([], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a'))), 'a tab of Settings: no way back needed');
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs" or contains(@class, "ph-back")]/a'))), 'a tab of Settings: no way back needed');
         self::assertStringContainsString('Still missing: legal name, company number, registered address, VAT number (or "not VAT registered"), purchasing e-mail, '
             . 'delivery address.', $page->text());
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'), 'nothing to confirm yet');
@@ -271,7 +271,10 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::COMPANY['late'], $owner->get('/ui/reference/company')->text());
         $queue = $second->get('/ui/documents/reviews');
         self::assertSame(200, $queue->status, $queue->describe());
-        self::assertStringContainsString('Company details changed (delivery address) Company details changed', $queue->text(), 'what changed, then why');
+        // To check is an inbox (docs/decisions.md W12.10): the row says what changed, the open record's facts why.
+        $qx = new \DOMXPath($queue->dom());
+        self::assertSame('Company details changed (delivery address)', trim((string) $qx->evaluate('string(//a[contains(@class, "ap-row")]/span[@class="ap-t"])')), 'what changed');
+        self::assertSame('Company details changed', trim((string) $qx->evaluate('string(//dl[@class="doc-facts"]/dd[1])')), 'then why');
         self::assertContains('/ui/reference/company', $queue->hrefs());
         self::assertSame(1, self::nav($queue)['Approvals']['count']);
         self::assertStringContainsString('Company details changed (delivery address)', $second->get('/ui/documents/reviews', ['type' => 'Company'])->text());

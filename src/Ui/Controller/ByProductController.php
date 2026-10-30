@@ -167,16 +167,16 @@ final class ByProductController
         foreach ($stores as $s) {
             $choice[] = ['value' => (string) $s['code'], 'label' => (string) $s['name']];
         }
-        $pills = [['label' => Words::BY_PRODUCT['all'], 'tone' => null, 'count' => $counts['total'], 'current' => $cov['kind'] === null,
+        $pills = [['value' => '', 'label' => Words::BY_PRODUCT['all'], 'tone' => null, 'count' => $counts['total'], 'current' => $cov['kind'] === null,
             'href' => Html::url(ByProductContext::LIST_PATH, ['cov' => null] + $base)],
-            ['label' => Words::BY_PRODUCT['every'], 'tone' => Words::tone('PRODUCT_STORE', 'matched'), 'count' => $counts['every'], 'current' => $cov['kind'] === 'every',
+            ['value' => 'every', 'label' => Words::BY_PRODUCT['every'], 'tone' => Words::tone('PRODUCT_STORE', 'matched'), 'count' => $counts['every'], 'current' => $cov['kind'] === 'every',
                 'href' => Html::url(ByProductContext::LIST_PATH, ['cov' => 'every'] + $base)]];
         foreach ($stores as $s) {
-            $pills[] = ['label' => Words::say('BY_PRODUCT', 'missing', (string) $s['name']), 'tone' => Words::tone('PRODUCT_STORE', 'none'),
+            $pills[] = ['value' => 'missing-' . $s['code'], 'label' => Words::say('BY_PRODUCT', 'missing', (string) $s['name']), 'tone' => Words::tone('PRODUCT_STORE', 'none'),
                 'count' => max(0, $counts['total'] - $counts['matched'][(int) $s['id']]), 'current' => $cov['kind'] === 'missing' && $storeId === (int) $s['id'],
                 'href' => Html::url(ByProductContext::LIST_PATH, ['cov' => 'missing-' . $s['code']] + $base)];
         }
-        $pills[] = ['label' => Words::BY_PRODUCT['suggested'], 'tone' => Words::tone('PRODUCT_STORE', 'suggested'), 'count' => $counts['suggested'],
+        $pills[] = ['value' => 'suggested', 'label' => Words::BY_PRODUCT['suggested'], 'tone' => Words::tone('PRODUCT_STORE', 'suggested'), 'count' => $counts['suggested'],
             'current' => $cov['kind'] === 'suggested', 'href' => Html::url(ByProductContext::LIST_PATH, ['cov' => 'suggested'] + $base)];
         return $ctx->page('by_product', [
             'stores' => array_map(static fn (array $s): string => (string) $s['name'], $stores),

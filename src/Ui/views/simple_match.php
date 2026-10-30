@@ -3,7 +3,8 @@
 // number and name), then one column per store in the owner's order (SimpleMatchController::STORE_ORDER; any other store after them).
 // A store's cell lists the website products matched to the row there, each with its name on the store, its ID and its status on the
 // store after it (SM11), and a match that waits for a second OK says so. For someone who may decide it has ONE box that is a plain
-// dropdown and Apply: at once in an empty cell, behind "+" (a <details>: no script) in a cell that has a product. The box's list is
+// dropdown and Apply, behind "Match" in an empty cell and "+" in a cell that has a product (a <details>: no script); the folds of the page
+// are one group (name="sm-pick"), so ONE picker and ONE Apply are open at a time, the selected cell's (docs/decisions.md W12.12). The box's list is
 // the page's own (SM11: a hidden <ul> that app.js fills from the options fragment and draws under the box, each choice on two lines;
 // a browser's <datalist> cut long names). Without app.js the box takes the store's ID, and the product it names comes back chosen in
 // the box (and in its list), with a line asking to confirm it (one more Apply). On a phone each row is a card, each cell named by its
@@ -14,7 +15,7 @@
 <?php if ($stores === []): ?>
 <?= $empty(\CW\Ui\Words::SIMPLE_MATCH['no_stores'], \CW\Ui\Words::BY_PRODUCT['no_stores_text']) ?>
 <?php else: ?>
-<form class="toolbar sm-find" method="get" action="<?= $e($path) ?>" role="search" aria-label="<?= $word('SIMPLE_MATCH', 'search') ?>">
+<form class="toolbar sm-find" method="get" action="<?= $e($path) ?>" role="search" aria-label="<?= $word('SIMPLE_MATCH', 'search') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="sm-q"><?= $word('SIMPLE_MATCH', 'search') ?></label><input id="sm-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('SIMPLE_MATCH', 'search_hint') ?>" enterkeyhint="search" data-page-search></div>
   <button type="submit" class="btn"><?= $word('UI', 'search') ?></button>
 </form>
@@ -55,11 +56,13 @@
         <p class="error sm-said" role="alert"><?= $e($c['said']['text']) ?><?php if ($c['said']['link'] !== null): ?> <a href="<?= $e($c['said']['link']) ?>"><?= $word('SIMPLE_MATCH', 'open_page') ?></a><?php endif; ?></p>
 <?php endif; ?>
 <?php if ($c['add'] !== null): ?>
+        <details class="sm-more" name="sm-pick"<?php if ($c['add']['open'] || $c['add']['chosen'] !== null): ?> open<?php endif; ?>>
 <?php if ($c['add']['plus']): ?>
-        <details class="sm-more"<?php if ($c['add']['open']): ?> open<?php endif; ?>>
           <summary class="btn sm" title="<?= $e($c['add']['more']) ?>"><?= $word('SIMPLE_MATCH', 'add_more') ?><span class="visually-hidden"> <?= $e($c['add']['more']) ?></span></summary>
+<?php else: ?>
+          <summary class="btn sm" title="<?= $e($c['add']['label']) ?>"><?= $word('SIMPLE_MATCH', 'open_pick') ?></summary>
 <?php endif; ?>
-        <form class="sm-add" method="post" action="<?= $e($apply) ?>" data-sm-add data-options="<?= $e($c['add']['options']) ?>" data-loading="<?= $word('SIMPLE_MATCH', 'loading') ?>" data-failed="<?= $word('SIMPLE_MATCH', 'failed') ?>" data-choose="<?= $word('SIMPLE_MATCH', 'choose') ?>">
+        <form class="sm-add" method="post" action="<?= $e($apply) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($c['add']['typed'] !== ''): ?> data-dirty="1"<?php endif; ?> data-sm-add data-options="<?= $e($c['add']['options']) ?>" data-loading="<?= $word('SIMPLE_MATCH', 'loading') ?>" data-failed="<?= $word('SIMPLE_MATCH', 'failed') ?>" data-choose="<?= $word('SIMPLE_MATCH', 'choose') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="sku_id" value="<?= $e($r['id']) ?>">
           <input type="hidden" name="channel" value="<?= $e($c['channel']) ?>">
@@ -77,9 +80,7 @@
           <ul class="sm-list" id="<?= $e($c['add']['id']) ?>-list" role="listbox" aria-label="<?= $e($c['add']['label']) ?>" data-sm-list hidden><?php if ($c['add']['chosen'] !== null): ?><li role="option" aria-selected="false" data-label="<?= $e($c['add']['chosen']['label']) ?>" data-listing-id="<?= $e($c['add']['chosen']['listing_id']) ?>" data-map-version="<?= $e($c['add']['chosen']['map_version']) ?>" data-proposal-id="<?= $e($c['add']['chosen']['proposal_id'] ?? '') ?>" data-option="<?= $e($c['add']['chosen']['option']) ?>"><span class="sm-opt-name"><?= $e($c['add']['chosen']['name']) ?></span> <span class="sm-opt-meta"><?= $e($c['add']['chosen']['meta']) ?></span></li><?php endif; ?></ul>
           <p class="sm-msg muted" data-sm-note aria-live="polite" hidden></p>
         </form>
-<?php if ($c['add']['plus']): ?>
         </details>
-<?php endif; ?>
 <?php endif; ?>
       </td>
 <?php endforeach; ?>

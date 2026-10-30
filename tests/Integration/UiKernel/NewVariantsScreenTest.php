@@ -160,9 +160,11 @@ final class NewVariantsScreenTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[contains(@class, "' . $class . '")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $out[] = [trim((string) preg_replace('/\s+/u', ' ', $a->textContent)), $a->getAttribute('aria-current') === 'page'];
+        // The board's one Show row since docs/decisions.md W12.8: the state and the period are its choices ("All not matched (3)").
+        $name = ['state-tabs' => 'state', 'period-tabs' => 'period'][$class] ?? $class;
+        foreach ($xp->query('//form[contains(@class, "toolbar")]//select[@name="' . $name . '"]/option') as $o) {
+            /** @var \DOMElement $o */
+            $out[] = [(string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', trim((string) preg_replace('/\s+/u', ' ', $o->textContent))), $o->hasAttribute('selected')];
         }
         return $out;
     }
@@ -172,9 +174,10 @@ final class NewVariantsScreenTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[contains(@class, "store-seg")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $out[] = [trim((string) $xp->evaluate('string(span[1])', $a)), $a->getAttribute('aria-current') === 'page', (int) $xp->evaluate('string(span[contains(@class, "count")]/@title)', $a)];
+        foreach ($xp->query('//form[contains(@class, "toolbar")]//select[@name="channel"]/option') as $o) {
+            /** @var \DOMElement $o */
+            preg_match('/^(.*?)\s*\((\d[\d,]*)\)$/', trim($o->textContent), $m);
+            $out[] = [$m[1] ?? trim($o->textContent), $o->hasAttribute('selected'), (int) str_replace(',', '', $m[2] ?? '0')];
         }
         return $out;
     }
@@ -261,7 +264,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame('1 Jul 2021, 12:30', self::row($all, 3)[Words::NEW_VARIANTS['first_seen']]);
 
         // Where new variants come from, in words: the stores send them; nothing is made up. (Whether THIS store sends: the next test.)
-        self::assertStringContainsString(Words::NEW_VARIANTS['where_from'], $page->text());
+        self::assertStringNotContainsString(Words::NEW_VARIANTS['where_from'], $page->text());
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'store_on', 'Alt Store'), $page->text());
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'newest', Html::when((string) self::$db->value('SELECT MAX(created_at) FROM channel_listing WHERE channel_id = ?', [$alt->channelId]))),
             $page->text());
@@ -276,7 +279,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame([], self::titles($empty));
         self::assertStringContainsString(Words::NEW_VARIANTS['empty'], $empty->text());
         self::assertStringContainsString(Words::NEW_VARIANTS['empty_text'], $empty->text());
-        self::assertStringContainsString(Words::NEW_VARIANTS['where_from'], $empty->text());
+        self::assertStringNotContainsString(Words::NEW_VARIANTS['where_from'], $empty->text());
         self::assertFalse($empty->hasForm('/ui/review/bulk'), 'nothing to tick');
         self::assertSame(['Cee one', 'Cee old one'], self::titles($web->get(self::PATH, ['channel' => 'cee', 'period' => 'all'])), 'Any time shows them');
     }
@@ -287,7 +290,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe());
         self::assertStringContainsString(Words::NEW_VARIANTS['no_stores'], $page->text());
-        self::assertStringContainsString(Words::NEW_VARIANTS['where_from'], $page->text());
+        self::assertStringNotContainsString(Words::NEW_VARIANTS['where_from'], $page->text());
         self::assertSame(404, $web->get(self::PATH . '.csv')->status, 'no store, no file');
     }
 
@@ -355,13 +358,13 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(['Two days', 'Ten days', 'Twenty days', 'Forty-five days', 'Two hundred days'], self::titles($any));
         self::assertSame([false, false, false, true], array_column(self::pills($any, 'period-tabs'), 1));
         self::assertSame(['Two days', 'Ten days', 'Twenty days'], self::titles($web->get(self::PATH, ['period' => '12'])), 'a period the page does not offer is the default');
-        // The default period's link carries no period, so it follows the setting; the others name theirs; the filter's pills keep the period.
+        // The Show row (docs/decisions.md W12.8): the default period is the empty choice, so it follows the setting; the others name theirs;
+        // the state's choices go with the period chosen, in the same form.
         $xp = new \DOMXPath($any->dom());
-        $hrefs = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "period-tabs")]/a')));
-        self::assertSame([self::PATH . '?channel=alt&period=7', self::PATH . '?channel=alt', self::PATH . '?channel=alt&period=90', ''], $hrefs, 'the period shown has no link (CV13)');
-        self::assertSame(['', self::PATH . '?channel=alt&period=all&state=new', self::PATH . '?channel=alt&period=all&state=suggested',
-            self::PATH . '?channel=alt&period=all&state=not_checked', self::PATH . '?channel=alt&period=all&state=all'],
-            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a'))));
+        self::assertSame(['7', '', '90', 'all'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
+            iterator_to_array($xp->query('//form[contains(@class, "toolbar")]//select[@name="period"]/option'))));
+        self::assertSame(['unmatched', 'new', 'suggested', 'not_checked', 'all'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
+            iterator_to_array($xp->query('//form[contains(@class, "toolbar")]//select[@name="state"]/option'))));
         self::assertSame(['alt', 'all'], [$any->form(self::PATH)['channel'], $any->form(self::PATH)['period']], 'and so does the search');
 
         // The setting is on the Settings page, with its allowed values in words, and is changed there with a reason.
@@ -787,8 +790,8 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(17, $xp->query('//table[contains(@class, "bulk-rows")]/tbody/tr')->length, 'every row of the batch');
         self::assertContains('/ui/review/listing/' . $neverSeen, array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//table[contains(@class, "bulk-skipped")]//th/a'))), 'a skipped row links to its page: open it and decide');
-        self::assertSame(self::PATH . '?channel=alt', $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'));
-        self::assertSame(Words::MENU['new_variants'], trim((string) $xp->evaluate('string(//p[@class="crumbs"]/a)')));
+        self::assertSame(self::PATH . '?channel=alt', $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
+        self::assertSame(Words::MENU['new_variants'], trim((string) $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a)')));
         self::assertSame(Words::NEW_VARIANT_ACTION['new_item'], trim((string) $xp->evaluate('string(//dl[@class="wide"]/dd[1])')), 'What: in this list\'s words');
         self::assertSame(Words::MENU['new_variants'] . ' · Alt Store', trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//dl[@class="wide"]/dd[3])'))), 'Where');
         self::assertStringNotContainsString(Words::BULK_ACTION['new_item'], $text, 'this list says items');
@@ -888,7 +891,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame('The computer check has not marked any variant of Big Store as New so far (it may not cover this store yet), so "Create as new items" will skip every row here. '
             . 'To make an item from one of its variants, open the variant and create the item on its own page.', $never);
         $page = $web->get(self::PATH, ['channel' => 'vbig']);
-        self::assertSame($never, trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "where-from")]/p[3])')), 'in the box at the top');
+        self::assertSame($never, trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "where-from")]/p[2])')), 'in the lines at the top (its help sentence gone, W12.8)');
         foreach (['alt' => 'Alt Store', 'cee' => 'Cee Store'] as $code => $name) {
             $text = $web->get(self::PATH, ['channel' => $code, 'state' => 'all'])->text();
             self::assertStringNotContainsString('has not marked any variant', $text, $name);
@@ -1053,7 +1056,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $done = $web->post('/ui/review/bulk', ['reason' => 'A parent page'] + $confirm);
         self::assertSame([$plain => ['done', null]], self::batchRows(self::batchOf($done)));
         self::assertSame('ignored', $this->link($plain)['status']);
-        self::assertSame(self::PATH . '?channel=alt', (new \DOMXPath($web->follow($done)->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame(self::PATH . '?channel=alt', (new \DOMXPath($web->follow($done)->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         // An action this list does not offer (posted by hand) is refused whole.
         $page = $web->get(self::PATH, ['state' => 'all']);
         foreach (['reject', 'unignore', 'send_back'] as $action) {

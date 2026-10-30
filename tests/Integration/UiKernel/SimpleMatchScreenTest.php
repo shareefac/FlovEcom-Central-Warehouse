@@ -125,8 +125,10 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         }
         $box = $xp->query('.//input[@data-sm-pick]', $form)->item(0);
         $boxId = $box instanceof \DOMElement ? $box->getAttribute('id') : '';
-        $details = $xp->query('ancestor::details[contains(@class, "sm-more")]', $form)->item(0);
-        return ['fields' => $fields, 'plus' => $details instanceof \DOMElement, 'open' => $details instanceof \DOMElement && $details->hasAttribute('open'),
+        // Every cell's picker is a fold of the page's one group (docs/decisions.md W12.12): "+" in a cell with a product, "Match" in an empty one.
+        $details = $xp->query('ancestor::details[contains(@class, "sm-more")][@name="sm-pick"]', $form)->item(0);
+        $plus = $details instanceof \DOMElement && str_starts_with(self::squash($xp->evaluate('string(summary)', $details)), Words::SIMPLE_MATCH['add_more']);
+        return ['fields' => $fields, 'plus' => $plus, 'open' => $plus && $details->hasAttribute('open'),
             'action' => $form->getAttribute('action'), 'options' => $form->getAttribute('data-options'),
             'list' => $boxId !== '' && !$box->hasAttribute('list') && $xp->query('.//datalist', $form)->length === 0
                 && $xp->query('.//ul[@id="' . $boxId . '-list"][@data-sm-list][@role="listbox"][@hidden]', $form)->length === 1,
@@ -389,7 +391,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
 
         $empty = self::addForm($page, $alpha, 'vapeandgo');
         self::assertNotNull($empty);
-        self::assertFalse($empty['plus'], 'an empty cell shows the box at once');
+        self::assertFalse($empty['plus'], 'an empty cell: its box behind "Match", not "+" (one picker at a time, W12.12)');
         self::assertSame(self::PATH . '/apply', $empty['action']);
         self::assertTrue($empty['list'], 'one box that is a plain dropdown (its own list)');
         self::assertSame(Words::SIMPLE_MATCH['apply'], $empty['button']);

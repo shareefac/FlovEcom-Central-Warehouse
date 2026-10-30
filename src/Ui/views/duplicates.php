@@ -1,4 +1,11 @@
-<?= $head(\CW\Ui\Words::MENU['duplicates'], intro: 'duplicates', look: $lookOnly, aside: $explain('join_undo', \CW\Ui\Words::DUPS['undo_button'])) ?>
+<?php
+// Matching › Duplicates as a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W12.8): "Start with the first group" the
+// head's main action; the open groups, biggest sellers first (the order "Next" follows), as ONE group with its count over a card with the
+// coloured edge, each row where it stands its solid cell (waiting for a second OK, partly decided, a reason against joining, to decide), a row
+// opening the group (its decision page, W12.8); then the groups decided lately, a board of their own with its pager.
+$start = $rows !== [] ? '<a class="btn primary" href="/ui/review/duplicates/' . $e($rows[0]['id']) . '">' . $word('DUPS', 'start') . ' &rarr;</a>' : '';
+?>
+<?= $head(\CW\Ui\Words::MENU['duplicates'], intro: 'duplicates', look: $lookOnly, side: $start) ?>
 <?php if ($look !== null): ?>
 <p class="note read-only"><?= $e($look) ?></p>
 <?php endif; ?>
@@ -6,50 +13,70 @@
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::DUPS['none'], \CW\Ui\Words::DUPS['none_text']) ?>
 <?php else: ?>
-<p><strong><?php if ($total === 1): ?><?= $word('DUPS', 'total_one') ?><?php else: ?><?= $say('DUPS', 'total_many', $total) ?><?php endif; ?></strong> <?= $word('DUPS', 'many_differ') ?></p>
-<p class="actions"><a class="btn primary" href="/ui/review/duplicates/<?= $e($rows[0]['id']) ?>"><?= $word('DUPS', 'start') ?> &rarr;</a></p>
-<div class="table-wrap">
-<table class="stack list dups">
-  <thead>
-    <tr>
-      <th scope="col"><?= $word('DUPS', 'keeper') ?></th>
-      <th scope="col" class="num"><?= $word('DUPS', 'pages') ?></th>
-      <th scope="col" class="num"><?= $word('DUPS', 'sold_365') ?></th>
-      <th scope="col" class="num"><?= $word('DUPS', 'sold_30') ?></th>
-      <th scope="col"><?= $word('DUPS', 'rules') ?></th>
-    </tr>
-  </thead>
-  <tbody>
+<div class="grp-block doc-group needs">
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-open"><?= $word('DUPS', 'open_groups') ?></button> <span class="grp-count"><?php if ($total === 1): ?><?= $word('DUPS', 'total_one') ?><?php else: ?><?= $say('DUPS', 'total_many', $total) ?><?php endif; ?></span></h3>
+  <div class="table-wrap doc-board" id="g-open">
+  <table class="stack list board doc-list dups">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('DUPS', 'keeper') ?></th>
+        <th scope="col" class="c-status"><?= $word('DUPS', 'state') ?></th>
+        <th scope="col" class="num"><?= $word('DUPS', 'pages') ?></th>
+        <th scope="col" class="num"><?= $word('DUPS', 'sold_365') ?></th>
+        <th scope="col" class="num"><?= $word('DUPS', 'sold_30') ?></th>
+        <th scope="col"><?= $word('DUPS', 'rules') ?></th>
+      </tr>
+    </thead>
+    <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr>
-      <th scope="row" class="c-head"><a class="o-name" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
 <?php if ($r['sku_code'] !== null): ?> <span class="o-sub"><?= $e($r['sku_code']) ?></span><?php endif; ?>
-<?php if ($r['waiting']): ?> <?= $chip('waiting', \CW\Ui\Words::DUPS['waiting']) ?><?php endif; ?>
-<?php if ($r['decided'] > 0): ?> <?= $chip('info', \CW\Ui\Words::DUPS['partly']) ?><?php endif; ?>
-      </th>
-      <td class="num" data-label="<?= $word('DUPS', 'pages') ?>"><?= $n($r['size']) ?></td>
-      <td class="num" data-label="<?= $word('DUPS', 'sold_365') ?>"><?= $n($r['units_365d']) ?></td>
-      <td class="num" data-label="<?= $word('DUPS', 'sold_30') ?>"><?= $n($r['units_30d']) ?></td>
-      <td data-label="<?= $word('DUPS', 'rules') ?>"><?php if ($r['against'] !== []): ?><span class="tag blocked"><?= $say('DUPS', 'maybe', implode(', ', $r['against'])) ?></span><?php elseif ($r['checked']): ?><span class="muted"><?= $word('DUPS', 'no_reason') ?></span><?php else: ?><span class="muted"><?= $word('DUPS', 'not_checked') ?></span><?php endif; ?></td>
-    </tr>
+        </th>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state']) ?></td>
+        <td class="num" data-label="<?= $word('DUPS', 'pages') ?>"><?= $n($r['size']) ?></td>
+        <td class="num" data-label="<?= $word('DUPS', 'sold_365') ?>"><?= $n($r['units_365d']) ?></td>
+        <td class="num" data-label="<?= $word('DUPS', 'sold_30') ?>"><?= $n($r['units_30d']) ?></td>
+        <td data-label="<?= $word('DUPS', 'rules') ?>"><?php if ($r['against'] !== []): ?><?= $say('DUPS', 'maybe', implode(', ', $r['against'])) ?><?php elseif ($r['checked']): ?><span class="muted"><?= $word('DUPS', 'no_reason') ?></span><?php else: ?><span class="muted"><?= $word('DUPS', 'not_checked') ?></span><?php endif; ?></td>
+      </tr>
 <?php endforeach; ?>
-  </tbody>
-</table>
+    </tbody>
+  </table>
+  </div>
 </div>
 <?php endif; ?>
 
 <?php if ($recent !== []): ?>
-<section aria-labelledby="recent-h">
-  <h2 id="recent-h"><?= $word('DUPS', 'recent') ?></h2>
-  <p class="muted"><?= $word('DUPS', 'recent_text') ?> <?php if ($recent_total === 1): ?><?= $word('DUPS', 'recent_one') ?><?php else: ?><?= $say('DUPS', 'recent_many', $recent_total) ?><?php endif; ?><?php if ($recent_pages > 1): ?> <?= $say('DUPS', 'recent_page', $recent_page, $recent_pages) ?><?php endif; ?></p>
-  <ul class="plain dups-recent">
+<div class="grp-block doc-group done" id="recent">
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-recent"><?= $word('DUPS', 'recent') ?></button> <span class="grp-count"><?php if ($recent_total === 1): ?><?= $word('DUPS', 'recent_one') ?><?php else: ?><?= $say('DUPS', 'recent_many', $recent_total) ?><?php endif; ?></span></h3>
+  <div class="table-wrap doc-board" id="g-recent">
+  <table class="stack list board doc-list dups-recent">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('DUPS', 'keeper') ?></th>
+        <th scope="col" class="c-status"><?= $word('DUPS', 'state') ?></th>
+        <th scope="col"><?= $word('DUPS', 'pages') ?></th>
+        <th scope="col"><?= $word('DUPS', 'decided_on') ?></th>
+      </tr>
+    </thead>
+    <tbody>
 <?php foreach ($recent as $r): ?>
-    <li><a href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
-      <span class="muted"><?= $say('DUPS', 'recent_line', $r['size'], $r['items'] === 1 ? \CW\Ui\Words::DUPS['recent_items_one'] : \CW\Ui\Words::say('DUPS', 'recent_items_many', $r['items'])) ?><?php if ($r['at'] !== null): ?>, <?= $when($r['at']) ?><?php endif; ?></span></li>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a></th>
+        <td class="c-status doc-st done"><?= $word('DUPS', 'recent_state') ?></td>
+        <td data-label="<?= $word('DUPS', 'pages') ?>"><?= $say('DUPS', 'recent_line', $r['size'], $r['items'] === 1 ? \CW\Ui\Words::DUPS['recent_items_one'] : \CW\Ui\Words::say('DUPS', 'recent_items_many', $r['items'])) ?></td>
+        <td data-label="<?= $word('DUPS', 'decided_on') ?>"><?php if ($r['at'] !== null): ?><?= $when($r['at']) ?><?php endif; ?></td>
+      </tr>
 <?php endforeach; ?>
-  </ul>
+    </tbody>
+  </table>
+  </div>
+</div>
 <?php if ($recent_prev !== null || $recent_next !== null): ?>
-  <p class="pager"><?php if ($recent_prev !== null): ?><a href="<?= $e($recent_prev) ?>">&larr; <?= $word('DUPS', 'newer') ?></a> <?php endif; ?><?php if ($recent_next !== null): ?><a href="<?= $e($recent_next) ?>"><?= $word('DUPS', 'older') ?> &rarr;</a><?php endif; ?></p>
+<nav class="pager" aria-label="<?= $say('DUPS', 'recent_page', $recent_page, $recent_pages) ?>">
+<?php if ($recent_prev !== null): ?><a href="<?= $e($recent_prev) ?>" rel="prev">&larr; <?= $word('DUPS', 'newer') ?></a><?php endif; ?>
+  <span><?= $say('DUPS', 'recent_page', $recent_page, $recent_pages) ?></span>
+<?php if ($recent_next !== null): ?><a href="<?= $e($recent_next) ?>" rel="next"><?= $word('DUPS', 'older') ?> &rarr;</a><?php endif; ?>
+</nav>
 <?php endif; ?>
-</section>
 <?php endif; ?>

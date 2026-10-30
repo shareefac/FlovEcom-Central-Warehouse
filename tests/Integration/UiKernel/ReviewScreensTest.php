@@ -65,16 +65,17 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::CHECK_KIND['approval'], $queue->text());
         self::assertStringContainsString(Words::CHECK_KIND['review'], $queue->text());
         $xp = new \DOMXPath($queue->dom());
-        self::assertSame(['Adjustment (no number yet)'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array($xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th'))), 'a record without a number says so (F099)');
-        self::assertSame(['Adjustment ADJ-000001', 'Adjustment ADJ-000002'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array($xp->query('//section[@aria-labelledby="reviews-h"]//tbody/tr/th'))), 'oldest first');
-        // Phone first (F100): one card per check, each cell says what it is; the reasons in words (F098), the items counted (F095).
-        self::assertSame(2, $xp->query('//table[contains(@class, "stack")]')->length);
-        self::assertSame(['Why', 'Value (no VAT)', 'Asked by', 'Asked on', 'Check by'], array_map(static fn (\DOMElement $td): string => $td->getAttribute('data-label'),
-            iterator_to_array($xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[@data-label]'))));
-        self::assertSame(Words::CHECK_REASON['positive_without_supplier_doc'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[1])')));
-        self::assertSame('25 items', trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[2])')));
+        // To check is an inbox (docs/decisions.md W12.10): the two lists as groups, each row what it is; the first one open with its facts.
+        $rowsOf = static fn (string $group): array => array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//div[@id="' . $group . '"]//a[contains(@class, "ap-row")]/span[@class="ap-t"]')));
+        self::assertSame(['Adjustment (no number yet)'], $rowsOf('approvals'), 'a record without a number says so (F099)');
+        self::assertSame(['Adjustment ADJ-000001', 'Adjustment ADJ-000002'], $rowsOf('reviews'), 'oldest first');
+        // The reasons in words (F098), the items counted (F095).
+        self::assertSame(0, $xp->query('//table')->length);
+        self::assertSame(['Why', Words::INBOX['f_items'], 'Asked by', 'Asked on', 'Check by'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//section[contains(@class, "ap-record")]//dl[@class="doc-facts"]/dt'))));
+        self::assertSame(Words::CHECK_REASON['positive_without_supplier_doc'], trim((string) $xp->evaluate('string(//section[contains(@class, "ap-record")]//dl[@class="doc-facts"]/dd[1])')));
+        self::assertSame('25', trim((string) $xp->evaluate('string(//section[contains(@class, "ap-record")]//dl[@class="doc-facts"]/dd[2])')));
         self::assertStringNotContainsString('UTC', $queue->text());
         // Pack C: + supplier invoices, returns to suppliers and supplier credit notes (SINV, DN, SCN).
         self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock in records', 'Stock out records', 'Adjustments', 'Transfers', 'Releases',
@@ -253,7 +254,7 @@ final class ReviewScreensTest extends KernelUiTestCase
 
         $list = $web->get('/ui/documents');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertStringContainsString('2 records, newest first.', $list->text());
+        self::assertSame(2, (new \DOMXPath($list->dom()))->query('//div[contains(@class, "doc-group")]//tbody/tr')->length, 'a board: the records by status (W12.10)');
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
         self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers, releases, '
             . 'supplier invoices, returns to suppliers, supplier credit notes, stock counts, hand-overs and repacks, and their cancellations.', $list->text(),
@@ -261,12 +262,12 @@ final class ReviewScreensTest extends KernelUiTestCase
             . 'pack A2a, repacks since pack B, hand-overs since pack H');
         self::assertSame(Words::MENU['documents'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
         $lxp = new \DOMXPath($list->dom());
-        self::assertSame(1, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
-        self::assertSame(['Final', 'Draft'], [trim((string) $lxp->evaluate('string(//tbody/tr[2]/td[contains(@class, "c-status")])')),
-            trim((string) $lxp->evaluate('string(//tbody/tr[1]/td[contains(@class, "c-status")])'))], 'status words (F407)');
+        self::assertSame($lxp->query('//table')->length, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
+        self::assertSame(['Final', 'Draft'], [trim((string) $lxp->evaluate('string((//tbody/tr)[2]/td[contains(@class, "c-status")])')),
+            trim((string) $lxp->evaluate('string((//tbody/tr)[1]/td[contains(@class, "c-status")])'))], 'status words (F407), each its group');
         self::assertStringNotContainsString('posted', $list->text());
-        self::assertStringContainsString(Words::RECORDS['total_one'], $web->get('/ui/documents', ['type' => 'WO'])->text());
-        self::assertStringContainsString(Words::RECORDS['total_one'], $web->get('/ui/documents', ['q' => 'SUP-PDF'])->text());
+        self::assertSame(1, (new \DOMXPath($web->get('/ui/documents', ['type' => 'WO'])->dom()))->query('//div[contains(@class, "doc-group")]//tbody/tr')->length);
+        self::assertSame(1, (new \DOMXPath($web->get('/ui/documents', ['q' => 'SUP-PDF'])->dom()))->query('//div[contains(@class, "doc-group")]//tbody/tr')->length);
         self::assertStringContainsString(Words::RECORDS['none_filter'], $web->get('/ui/documents', ['status' => 'reversed'])->text());
         self::assertSame(200, $web->get('/ui/documents', ['type' => '<script>', 'status' => 'nope', 'page' => '999'])->status, 'unknown filters are ignored');
 

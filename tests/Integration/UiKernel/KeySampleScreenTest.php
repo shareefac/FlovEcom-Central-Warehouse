@@ -77,12 +77,12 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('SPOT', 'box', 'screen-1', 1, 20), $listing->text());
         self::assertStringContainsString(Words::SPOT['mine'], $listing->text());
         $lxp = new \DOMXPath($listing->dom());
-        self::assertSame(1, $lxp->query('//ol[@class="segments"]/li[@class="now"]')->length, 'this one, in the 20 blocks');
-        // The owner's answers (design B, compare.md §2.1): "Yes" saves at once; "Not a match" is a second step that says it stops the
-        // bulk link for good before its form; "Not sure" saves nothing and opens the next one.
-        self::assertStringContainsString(Words::UI['what_each_answer_does'], $listing->text());
-        self::assertSame(Words::SPOT['unsure'] . ' ' . Words::UI['safer'], trim((string) preg_replace('/\s+/', ' ',
-            (string) $lxp->evaluate('string(//div[contains(@class, "answer") and contains(@class, "safe")]/dt)'))), 'the safe answer is marked (design B)');
+        self::assertSame(1, $lxp->query('//header//ol[contains(@class, "segments")]/li[@class="now"]')->length, 'this one, in the 20 blocks: the head\'s bar (W12.1)');
+        // The owner's answers, in the bar at the bottom (TP_Match, docs/decisions.md W12.3): Skip saves nothing and opens the next one;
+        // "Not the same" is a second step that says it stops the bulk link for good before its form; "Same item" saves at once.
+        self::assertSame([Words::MATCH['skip'], Words::MATCH['more'], Words::MATCH['not_same'], Words::MATCH['same']], array_map(static fn (\DOMElement $el): string
+            => trim($el->textContent), iterator_to_array($lxp->query('//div[contains(@class, "spot-answers")]/a | //div[contains(@class, "spot-answers")]/details/summary | '
+            . '//div[contains(@class, "spot-answers")]/form/button'))));
         $step = $lxp->query('//details[@id="not-a-match"]')->item(0);
         self::assertNotNull($step);
         self::assertFalse($step instanceof \DOMElement && $step->hasAttribute('open'), 'nothing of "Not a match" is sent with one tap');
@@ -92,18 +92,16 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(0, $lxp->query('//details[@id="not-a-match"]//input[@name="action" and @value="link"]')->length, 'Yes is its own answer');
         self::assertSame('/ui/review/listing/' . $s['members'][1]['listing_id'] . '?sample=' . $sid,
             (string) $lxp->evaluate('string(//div[contains(@class, "spot-answers")]/a/@href)'), '"Not sure" opens the next one and saves nothing');
-        // The answers come straight after the two product cards (plan F203), before "Why the computer suggests this", and the spot
-        // box leads to them.
-        $order = array_map(static fn (\DOMElement $el): string => $el->getAttribute('id'), iterator_to_array($lxp->query('//section[@id="decide" or contains(@class, "why")]')));
-        self::assertSame('decide', $order[0] ?? null, 'the answers before the evidence');
-        self::assertContains('#decide', $listing->hrefs());
+        // The answers come straight after the two product cards (plan F203); "Why the computer suggests this" is under the bar's More.
+        self::assertSame(1, $lxp->query('//div[@id="decide"]//div[contains(@class, "spot-answers")]//details[contains(@class, "more")]//details[@id="why"]')->length,
+            'the evidence under More (W12.2)');
         $yesForm = $lxp->query('//div[contains(@class, "spot-answers")]/form[contains(@class, "quick")]');
         self::assertSame(1, $yesForm->length, 'Yes is its own button');
         $proposed = (int) self::$db->value('SELECT proposed_sku_id FROM match_proposal WHERE id = ?', [$first['proposal_id']]);
 
         // R1 review (7 Oct): a refused "Not a match" (Ignore needs a note) opens the second step again and keeps the quick yes; nothing
         // in the second step can match the suggested product under the button that says it stops the bulk link.
-        $quick = $listing->form('/ui/review/listing/' . $first['listing_id'] . '/decide');
+        $quick = self::formIn($listing, '//form[contains(@class, "quick")]');
         $refused = $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', ['action' => 'ignore', 'reason' => ''] + $quick);
         self::assertSame(422, $refused->status, $refused->describe());
         $rxp = new \DOMXPath($refused->dom());
@@ -142,7 +140,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(200, $seen->status, $seen->describe());
         self::assertStringContainsString(Words::say('SPOT', 'other', 'Mapping_lead-reviewer 1') . ' ' . Words::SPOT['other_text'], $seen->text());
         self::assertFalse($seen->hasForm('/decide'), 'no quick yes and no answer form for a Matcher either');
-        $form = $listing->form('/ui/review/listing/' . $first['listing_id'] . '/decide');
+        $form = self::formIn($listing, '//form[contains(@class, "quick")]');
         self::assertSame(['link', (string) $sid], [$form['action'] ?? null, $form['sample'] ?? null]);
         $r = $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', $form);
         self::assertSame(303, $r->status, $r->describe());
@@ -179,7 +177,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
 
         // The second: "Not a match" (the form behind the second step). The spot check fails, and says so.
         $second = $s['members'][1];
-        $form = $web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid])->form('/ui/review/listing/' . $second['listing_id'] . '/decide');
+        $form = self::formIn($web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid]), '//details[@id="not-a-match"]//form');
         $r = $web->post('/ui/review/listing/' . $second['listing_id'] . '/decide', ['action' => 'reject'] + $form);
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString('sample=' . $sid, (string) $r->location());
@@ -302,7 +300,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         $decisions = static fn (int $lid): int => (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$lid]);
         $web = $this->signIn($owner);
         $path = '/ui/review/listing/' . $first['listing_id'] . '/decide';
-        $yes = $web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid])->form($path); // the owner's "Yes, same product"
+        $yes = self::formIn($web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid]), '//form[contains(@class, "quick")]'); // the owner's "Same item"
         self::assertSame(['link', '1', (string) $first['proposal_id']], [$yes['action'] ?? null, $yes['units_per_item'] ?? null, $yes['proposal_id'] ?? null]);
         $other = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.22'));
         $matcher = $this->signIn($this->uiUser('mapper'), $this->browser('198.51.100.23'));
@@ -324,7 +322,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(409, $r->status, $r->describe());
         self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
         self::assertSame(0, $decisions($first['listing_id']));
-        $r = $web->post($path, $r->form($path));
+        $r = $web->post($path, self::formIn($r, '//form[contains(@class, "quick")]'));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('confirmed', (new KeySample(self::$db))->status($sid)['members'][0]['state']);
 
@@ -409,16 +407,16 @@ final class KeySampleScreenTest extends KernelUiTestCase
         // A page drawn before the variant was set aside: refused once, then decided from the page drawn again.
         $before = $web->get('/ui/review/listing/' . $late['listing_id'], ['queue' => 'Key'])->form($path($late));
         $hold($late, 'Pack of 3 on the Vape and Go page');
-        $r = $web->post($path($late), $before);
+        $r = $web->post($path($late), $before + ['action' => 'link']); // its Same item (W12.1)
         self::assertSame(409, $r->status, $r->describe());
         self::assertStringContainsString('Check this one by hand: "Pack of 3 on the Vape and Go page"', $r->text());
         self::assertSame([0, 'suggested'], $decided((int) $late['listing_id']));
-        $r = $web->post($path($late), $r->form($path($late)));
+        $r = $web->post($path($late), $r->form($path($late)) + ['action' => 'link']); // its Same item (W12.1)
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame([1, 'mapped'], $decided((int) $late['listing_id']));
 
         // The normal path: the page's own form, drawn while the variant is held, by a Matcher.
-        $r = $web->post($path($held), $form);
+        $r = $web->post($path($held), $form + ['action' => 'link']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame([1, 'mapped'], $decided((int) $held['listing_id']));
         // A variant not held: the decision's fields are enough, as before.

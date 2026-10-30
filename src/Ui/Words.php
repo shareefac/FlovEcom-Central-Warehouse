@@ -36,7 +36,7 @@ final class Words
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
-        'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
+        'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
         'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
@@ -4373,9 +4373,9 @@ final class Words
         'none' => 'none',
         'matched_to' => 'Matched to',
         // The product on the right
-        'suggested' => 'Suggested warehouse product',
-        'picked' => 'Product you picked',
-        'pending_target' => 'Product this decision matches',
+        'suggested' => 'Suggested CW item',
+        'picked' => 'CW item you picked',
+        'pending_target' => 'CW item this decision matches',
         'new_by_decision' => 'New product this decision creates',
         'new_by_decision_text' => 'Approving creates this new product and matches the website product to it (%s).',
         'decision_does' => 'What this decision does',
@@ -4385,8 +4385,8 @@ final class Words
         'pick_merged' => 'That warehouse product was joined into another one. Search for the one it was joined into.',
         'previously_rejected' => 'Someone said before that this website product is not this warehouse product (or one joined into it), so matching it needs a second OK.',
         'suggest_new' => 'Suggested: create a new product.',
-        'suggest_new_text' => 'The details are filled in from this website product (see "Details of the new product" below). Correct them before you save.',
-        'no_suggestion' => 'No product suggested. Pick one from "Other products the AI looked at", search for it, or create a new product.',
+        'suggest_new_text' => 'Its details come from the store product: check them under More, New item.',
+        'no_suggestion' => 'No item suggested. Find it below, or make a new one under More, New item.',
         'pick_other' => 'Pick a different product',
         'elsewhere' => 'This website product\'s barcode is also on',
         'elsewhere_item' => 'Warehouse product',
@@ -4460,8 +4460,8 @@ final class Words
         // Behaviour item 13 (F184): an already matched website product has nothing to decide.
         'matched_nothing' => 'Matched to %s (%s). Nothing to decide here.',
         'matched_ask' => 'Wrong match? Ask a matching lead to change it.',
-        'matched_lead' => 'Wrong match? You are a matching lead: open "Change this match" below.',
-        'matched_heading' => 'Warehouse product it is matched to',
+        'matched_lead' => 'Wrong match? You are a matching lead: "Change this match" is under More.',
+        'matched_heading' => 'CW item it is matched to',
         'change_match' => 'Change this match',
         'unlink' => 'Undo the match: it goes back to its list (stock stops following this match). Say why below.',
         'change_match_text' => 'Only if the match is wrong. Pick the right product above ("Pick a different product"), create a new product, or ignore it. '
@@ -4517,6 +4517,43 @@ final class Words
         'found_joined' => 'Joined into %s',
         'pick_stopped' => 'That warehouse product is not sold any more (product card), so it is not offered for a match. The suggested one is shown again.',
         // ---- end of HU5
+    ];
+
+    /**
+     * A store product's decision page on the approved design (TP_Match of 29 Oct 2026; docs/decisions.md W12.1-W12.4): the question, the
+     * two cards (the store product, the item), the units and the note, the bar at the bottom (Skip, More, Not the same, Same item) and what
+     * its More holds.
+     */
+    public const MATCH = [
+        'question' => 'Is this the same item?',
+        'to_match' => '%s to match',
+        'bar' => 'Answered today against what is left on this list',
+        'on_store' => 'On the store',
+        'variant' => 'Variant %s',
+        'no_photo' => 'No photo',
+        'others_one' => '1 other suggestion',
+        'others_many' => '%s other suggestions',
+        'in_stock' => '%s in stock',
+        'agrees' => 'agrees',
+        'differs' => 'differs',
+        'protected' => 'Second OK needed',
+        'refused_before' => 'Said not the same before',
+        'find' => 'Or find another item',
+        'find_hint' => 'Type a name, CW code or barcode',
+        'units' => 'One store product is',
+        'units_of' => 'of this item',
+        'note' => 'Note (when the line or pack differs)',
+        'note_hint' => 'Why it is the same',
+        'skip' => 'Skip',
+        'more' => 'More',
+        'more_label' => 'More answers',
+        'not_same' => 'Not the same',
+        'same' => 'Same item',
+        'pick_first' => 'Find the item first',
+        'new_item' => 'New item',
+        'new_item_button' => 'Create the new item',
+        'store_more' => 'More about the store product',
+        'spot' => 'The spot check',
     ];
 
     /** Waiting for a second OK (/ui/review?queue=pending, plan §6.14) and the waiting box of a website product. */
@@ -5068,6 +5105,8 @@ final class Words
         'pick_hint' => 'Name or ID',
         'apply' => 'Apply',
         'apply_named' => 'Match the chosen %s product to %s',
+        // The selected cell's picker (docs/decisions.md W12.12): an empty cell's fold.
+        'open_pick' => 'Match',
         'add_more' => '+',
         'add_more_named' => 'Add one more %s product to %s',
         'loading' => 'Looking…',
@@ -5469,6 +5508,11 @@ final class Words
         'newer' => 'Newer',
         'older' => 'Older',
         'look' => 'You can look. Only a matching lead decides if two pages are the same product.',
+        // The list as a board (docs/decisions.md W12.8): the status column, and the decided groups' state and date.
+        'state' => 'Where it stands',
+        'open_groups' => 'Groups to decide',
+        'recent_state' => 'Decided',
+        'decided_on' => 'Decided on',
         // One group
         'title' => 'Same product on %s pages?',
         'decided_same' => 'Decided: same product – the pages now share %s',
@@ -10121,6 +10165,10 @@ final class Words
         'not_set_up_note' => 'They have not set up their sign-in yet. Check with the person that this is really them before you say OK.',
         'ok_reset' => 'OK: the admin may make it, once',
         'not_ok_reset' => 'Not OK: no reset',
+        // The page as an inbox (docs/decisions.md W12.9): its groups and the list's name.
+        'group_roles' => 'Changes of jobs',
+        'group_reset' => 'Sign-in resets',
+        'list' => 'Staff requests waiting',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------

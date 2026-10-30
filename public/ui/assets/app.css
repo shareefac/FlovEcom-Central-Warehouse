@@ -2842,3 +2842,65 @@ a.set-kt:hover { color: var(--accent-hover); text-decoration: underline; }
   .set-v input.set-in.wide { flex: 1 1 12rem; width: auto; }
 }
 /* ==== end w13 =============================================================================================================================== */
+/* ==== w12: the Matching pages on the approved patterns (wave w12, docs/decisions.md W12; the canvas's TP_Match, GI_List, AP_Inbox, TP_Parts) ======
+   A store product's decision page is TP_Match: the question in the head with the bar at its right; the store product's card (blue 6 px top edge)
+   beside the item's (green), each its photo block, its name and its short line, the facts in two columns (what agrees on the green tint, what
+   differs on the amber one); then the units and the note in one card; then the bar at the bottom: Skip and More on the left, Not the same and
+   Same item on the right (on a phone the two answers share a row). Its More opens upwards and holds the rest of the page as folds. The lists
+   are the shared boards and inboxes; here only what the decision page adds. */
+.mt-progress { display: block; width: 220px; max-width: 100%; height: 8px; border-radius: var(--r-pill); background: var(--hairline); overflow: hidden; }
+.mt-fill { display: block; height: 100%; background: var(--accent); }
+.ph-actions > ol.mt-blocks { width: 260px; max-width: 100%; margin: 0; }
+.mt-form { display: flex; flex-direction: column; gap: 20px; }
+.mt-cards { display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch; }
+.mt-card { flex: 1 1 380px; min-width: 0; display: grid; gap: 14px; align-content: start; margin: 0; border-top: 6px solid var(--t-fill); }
+@media (min-width: 1024px) { .mt-card { padding: 20px 22px; } }
+.card > h2.mt-h, .mt-h { margin: 0; color: var(--ink-muted); font: 700 13px/20px var(--font); letter-spacing: .06em; text-transform: uppercase; }
+.mt-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.mt-others > summary { display: inline-flex; align-items: center; min-height: 32px; color: var(--ink-muted); font: 400 13px/20px var(--font); cursor: pointer; }
+.mt-others[open] { flex: 1 1 100%; }
+.mt-others[open] > summary { color: var(--accent-hover); }
+.mt-who { display: flex; gap: 14px; align-items: flex-start; }
+.mt-photo { flex: none; display: grid; place-items: center; width: 96px; height: 96px; border-radius: var(--r-12); background: var(--page); color: var(--ink-muted);
+  font: 400 11px/14px var(--font); text-align: center; }
+.mt-id { min-width: 0; }
+.mt-name { margin: 0; color: var(--ink); font: 700 17px/1.35 var(--font); overflow-wrap: anywhere; }
+.mt-name a { color: inherit; }
+.mt-sub { margin: 2px 0 0; color: var(--ink-muted); font: 400 13px/20px var(--font); }
+.mt-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; }
+.mt-facts dt { margin: 0; color: var(--ink-muted); }
+.mt-facts dd { margin: 0; color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.mt-mark { padding: 0 6px; border-radius: 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mt-mark.same { background: var(--sf-green); }
+.mt-mark.diff { background: var(--sf-amber); color: var(--sf-amber-ink); font-weight: 700; }
+.mt-find { margin: 0; }
+.mt-answer { display: grid; gap: 10px; margin: 0; }
+.mt-answer:has(> .mt-units) { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; padding: 16px 22px; }
+.mt-answer > p { margin: 0; }
+.mt-note { flex: 1 1 280px; }
+.mt-units-row { display: flex; align-items: center; gap: 8px; }
+.mt-units-row > input.units { width: 80px; text-align: right; }
+form.mt-form > button.po-default { display: none; }
+/* The bar: Skip and More on the left, the answers on the right; its menus open upwards, wide enough for the new item's fields */
+.mt-bar > a.btn.ghost { margin-right: 0; }
+.mt-bar > details.more:first-of-type { margin-right: auto; }
+.mt-bar > form { margin: 0; }
+.mt-bar details.more > .more-menu { width: min(36rem, calc(100vw - 32px)); }
+.mt-bar > details.mt-step > .more-menu { left: auto; right: 0; }
+.mt-bar > details.mt-step > summary::after { content: none; }
+.mt-bar .more-menu .doc-act-panel fieldset.doc-grid { margin: 0; padding: 0; border: 0; background: none; }
+.mt-bar .more-menu .doc-act-panel > :last-child, .mt-bar .more-menu .doc-act-panel dl > :last-child { margin-bottom: 0; }
+@media (max-width: 699.98px) {
+  .mt-who { gap: 12px; }
+  .mt-photo { width: 64px; height: 64px; }
+  .mt-answer:has(> .mt-units) { padding: 16px; }
+  .mt-units, .mt-note { flex: 1 1 100%; }
+  .mt-bar > a.btn.ghost { flex: 1 1 0; order: 0; }
+  .mt-bar > details.more:first-of-type { flex: 1 1 0; min-width: 0; margin-right: 0; }
+  .mt-bar > details.more > summary { width: 100%; }
+  .mt-bar > details.more[open] { flex: 1 1 100%; }
+  .mt-bar > details.mt-step, .mt-bar > form { flex: 1 1 0; min-width: 0; }
+  .mt-bar > form > .btn { width: 100%; }
+  .mt-bar > .btn-why { flex: 1 1 100%; order: -1; text-align: center; }
+}
+/* ==== end w12 =============================================================================================================================== */

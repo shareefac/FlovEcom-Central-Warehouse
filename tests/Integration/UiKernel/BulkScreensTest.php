@@ -73,10 +73,11 @@ final class BulkScreensTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[contains(@class, "store-seg")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'current' => $a->getAttribute('aria-current') === 'page',
-                'href' => $a->getAttribute('href')];
+        // The store is a choice of the one Show row since the boards (docs/decisions.md W12.5): "Alt Store (3)".
+        foreach ($xp->query('//form[contains(@class, "toolbar")]//select[@name="channel"]/option') as $o) {
+            /** @var \DOMElement $o */
+            $out[] = ['label' => trim((string) preg_replace('/\s*\(\d[\d,]*\)$/', '', trim($o->textContent))), 'current' => $o->hasAttribute('selected'),
+                'value' => $o->getAttribute('value')];
         }
         return $out;
     }
@@ -152,7 +153,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(['/ui/review/listing/' . $c], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//table[contains(@class, "bulk-skipped")]//th/a'))), 'each skipped row links to its listing');
         self::assertSame(3, $xp->query('//table[contains(@class, "bulk-rows")]/tbody/tr')->length, 'every row of the batch');
-        self::assertSame('/ui/review?queue=Key&channel=alt', $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'back to the list it came from');
+        self::assertSame('/ui/review?queue=Key&channel=alt', $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'), 'back to the list it came from');
         $batch = (int) substr((string) $r->location(), strlen('/ui/review/batches/'));
         self::assertSame(['screen:' . $batch], array_values(array_unique(self::$db->column('SELECT bulk_batch_id FROM match_decision WHERE listing_id IN (?, ?) AND action = \'link\'', [$a, $b]))));
         self::assertSame(404, $web->get('/ui/review/batches/' . ($batch + 99))->status);
@@ -385,8 +386,8 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($one), 'href'),
             'the store travels through the segments (the one shown has no link: CV13)');
         $xp = new \DOMXPath($one->dom());
-        self::assertSame('/ui/review?queue=Check&channel=alt', $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)'), 'and through the strength lists');
-        self::assertSame('0', trim((string) $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/span[@class="count"])')), 'whose counts are the store\'s');
+        self::assertSame('Check', $xp->evaluate('string(//select[@name="queue"]/option[2]/@value)'), 'and through the strength lists (the same Show row)');
+        self::assertStringEndsWith('(0)', trim((string) $xp->evaluate('string(//select[@name="queue"]/option[2])')), 'whose counts are the store\'s');
         // Second approval and the overview.
         $pending = $web->get('/ui/review', ['queue' => 'pending', 'channel' => 'vbig']);
         self::assertSame(['Big pack'], self::titles($pending));
@@ -433,26 +434,27 @@ final class BulkScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/review/store', ['channel' => 'alt']);
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame('Store products', self::currentTab($page));
-        self::assertSame(['Linked one', 'Suggested one', 'Unmatched one', 'Ignored one', 'Waiting one', 'On hold one'], self::titles($page), 'best sellers first (30 days)');
+        // A board (docs/decisions.md W12.6): grouped by state, what is still to match first, best sellers first (30 days) in each.
+        self::assertSame(['Suggested one', 'Unmatched one', 'Waiting one', 'On hold one', 'Linked one', 'Ignored one'], self::titles($page), 'by state, then best sellers first');
         $xp = new \DOMXPath($page->dom());
-        $state = static fn (int $row): string => trim((string) $xp->evaluate('string(//tbody/tr[' . $row . ']/td[contains(@class, "c-status")])'));
-        self::assertSame([Words::STORE_STATE['linked'], Words::STORE_STATE['suggested'], Words::STORE_STATE['not_matched'], Words::STORE_STATE['ignored'],
-            Words::STORE_STATE['waiting'], Words::STORE_STATE['quarantined']], array_map($state, range(1, 6)));
+        $state = static fn (int $row): string => trim((string) $xp->evaluate('string((//tbody/tr)[' . $row . ']/td[contains(@class, "c-status")])'));
+        self::assertSame([Words::STORE_STATE['suggested'], Words::STORE_STATE['not_matched'], Words::STORE_STATE['waiting'], Words::STORE_STATE['quarantined'],
+            Words::STORE_STATE['linked'], Words::STORE_STATE['ignored']], array_map($state, range(1, 6)));
         $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku]);
-        self::assertStringContainsString($code, (string) $xp->evaluate('string(//tbody/tr[1]/td[contains(@class, "c-wide")])'));
-        self::assertStringContainsString(Words::saleUses(1), (string) $xp->evaluate('string(//tbody/tr[1]/td[contains(@class, "c-wide")])'));
-        self::assertStringContainsString(Words::BAND['Key'], (string) $xp->evaluate('string(//tbody/tr[2]/td[contains(@class, "c-wide")])'));
-        self::assertStringContainsString(Words::say('STORE_PRODUCTS', 'pending', Words::ACTION['link']), (string) $xp->evaluate('string(//tbody/tr[5]/td[contains(@class, "c-wide")])'));
+        self::assertStringContainsString($code, (string) $xp->evaluate('string((//tbody/tr)[5]/td[contains(@class, "c-wide")])'));
+        self::assertStringContainsString(Words::saleUses(1), (string) $xp->evaluate('string((//tbody/tr)[5]/td[contains(@class, "c-wide")])'));
+        self::assertStringContainsString(Words::BAND['Key'], (string) $xp->evaluate('string((//tbody/tr)[1]/td[contains(@class, "c-wide")])'));
+        self::assertStringContainsString(Words::say('STORE_PRODUCTS', 'pending', Words::ACTION['link']), (string) $xp->evaluate('string((//tbody/tr)[3]/td[contains(@class, "c-wide")])'));
         // Only the rows a store action applies to can be ticked: a matched, waiting or on-hold one changes on its own page.
         $boxes = array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), iterator_to_array($xp->query('//input[@data-bulk-row]')));
         self::assertSame(['pick_' . $suggested, 'pick_' . $unmatched, 'pick_' . $ignored], $boxes);
         self::assertSame(['ignore', 'unignore', 'send_back'], self::barActions($page));
         // The state filter, with each state's count, and the sort.
-        $pills = array_map(static fn (\DOMNode $a): string => trim((string) preg_replace('/\s+/', ' ', $a->textContent)), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a')));
-        self::assertSame(['All 6', 'Waiting for a second OK 1', 'On hold 1', 'Ignored 1', 'Matched 1', 'Suggested 1', 'Not matched 1'], $pills);
+        $pills = array_map(static fn (\DOMNode $a): string => trim((string) preg_replace('/\s+/', ' ', $a->textContent)), iterator_to_array($xp->query('//select[@name="state"]/option')));
+        self::assertSame(['All (6)', 'Waiting for a second OK (1)', 'On hold (1)', 'Ignored (1)', 'Matched (1)', 'Suggested (1)', 'Not matched (1)'], $pills, 'the Show row\'s state (W12.6)');
         self::assertSame(['Ignored one'], self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'state' => 'ignored'])));
-        self::assertSame(['Suggested one', 'Waiting one', 'Ignored one', 'Unmatched one', 'Linked one', 'On hold one'],
-            self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'sort' => 'sold_365'])));
+        self::assertSame(['Suggested one', 'Unmatched one', 'Waiting one', 'On hold one', 'Linked one', 'Ignored one'],
+            self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'sort' => 'sold_365'])), 'by state, then the sort');
         self::assertSame(['Unmatched one'], self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'q' => 'Unmatch'])));
         self::assertSame(['Other store one'], self::titles($web->get('/ui/review/store', ['channel' => 'vbig'])));
         self::assertSame([['Alt Store', true], ['Big Store', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::storeSeg($page)),
@@ -464,7 +466,7 @@ final class BulkScreensTest extends KernelUiTestCase
         $done = $web->post('/ui/review/bulk', ['reason' => 'A parent page'] + $step->form('/ui/review/bulk'));
         self::assertSame(303, $done->status, $done->describe());
         self::assertSame('ignored', $this->link($unmatched)['status']);
-        self::assertSame('/ui/review/store?channel=alt', (new \DOMXPath($web->follow($done)->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/store?channel=alt', (new \DOMXPath($web->follow($done)->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         $page = $web->get('/ui/review/store', ['channel' => 'alt']);
         $r = $web->post('/ui/review/bulk', self::ticked($page, [$ignored], 'unignore'));
         self::assertSame(303, $r->status, $r->describe());
@@ -474,7 +476,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(303, $web->post('/ui/review/bulk', $step->form('/ui/review/bulk'))->status);
         self::assertSame('unmapped', $this->link($suggested)['status']);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM match_proposal WHERE open_listing_id = ?', [$suggested]));
-        self::assertStringContainsString(Words::STORE_PRODUCTS['unlink_note'], $page->text());
+        self::assertStringNotContainsString(Words::STORE_PRODUCTS['unlink_note'], $page->text(), 'no help paragraph on the board: undoing a match is on its page (W12.6)');
     }
 
     public function testAMatchIsUndoneOneAtATimeOnItsPageWithANote(): void

@@ -715,8 +715,8 @@ final class ReviewController
             if ($r['listing'] === '' && $r['item'] === '') {
                 continue;
             }
-            $compare[] = ['label' => $r['label'], 'listing' => self::fieldValue($r['field'], $r['listing']), 'item' => self::fieldValue($r['field'], $r['item']),
-                'state' => $r['state']];
+            $compare[] = ['field' => $r['field'], 'label' => $r['label'], 'listing' => self::fieldValue($r['field'], $r['listing']),
+                'item' => self::fieldValue($r['field'], $r['item']), 'state' => $r['state']];
         }
         $newRows = [];
         if ($target === null) {
@@ -733,6 +733,12 @@ final class ReviewController
         // Behaviour item 11 (F207, provisional): the sales are the sales history's when it is loaded for the site, as on Possible
         // duplicates (one source, so the two pages agree), else the website's own figures; the page says which.
         $sold = $dups->soldFromHistory([$id => $l])[$id] ?? null;
+        // The head's progress (TP_Match, docs/decisions.md W12.1): opened from a list, how many it still holds and, for someone who may
+        // decide, how many they answered today (the words as before, SX6; the bar is the part answered today of the two together).
+        $left = $qc !== null ? $q->listLeft($qc->band, $qc->channelId) : null;
+        $today = $qc !== null && $me->canDecide() ? $q->answeredToday($me->id) : null;
+        // The item card's "N in stock" (TP_Match): what CW holds of the compared item on every shelf (its stock buckets, one read by the item).
+        $targetStock = $target !== null ? array_sum(array_map(static fn (array $b): int => (int) $b['on_hand'], $q->stockOf((int) $target['id']))) : null;
 
         return $ctx->page('listing', [
             'l' => [
@@ -796,7 +802,10 @@ final class ReviewController
             'qq' => $qq,
             // Opened from a list: how many it still holds and, for someone who may decide, how many they answered today (docs/decisions.md
             // SX6; someone who can only look is told the first: Codex's review of f46d19b)
-            'progress' => $qc !== null ? self::progress($q->listLeft($qc->band, $qc->channelId), $me->canDecide() ? $q->answeredToday($me->id) : null) : null,
+            'progress' => $left !== null ? self::progress($left, $today) : null,
+            'progress_left' => $left,
+            'progress_today' => $today,
+            'target_stock' => $targetStock,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
                 : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
                 : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)]

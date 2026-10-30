@@ -71,10 +71,11 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
     {
         $out = [];
         $xp = self::xp($r);
-        foreach ($xp->query('//nav[contains(@class, "state-tabs")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $count = (int) str_replace(',', '', self::squash($xp->evaluate('string(span[@class="count"])', $a)));
-            $out[trim(str_replace((string) $count, '', self::squash($a->textContent)))] = $count;
+        // The state is a choice of the board's one Show row since docs/decisions.md W12.6: "Not matched (5)".
+        foreach ($xp->query('//form[contains(@class, "toolbar")]//select[@name="state"]/option') as $o) {
+            /** @var \DOMElement $o */
+            preg_match('/^(.*?)\s*\((\d[\d,]*)\)$/', self::squash($o->textContent), $m);
+            $out[$m[1] ?? self::squash($o->textContent)] = (int) str_replace(',', '', $m[2] ?? '0');
         }
         return $out;
     }
@@ -200,7 +201,7 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         $pills = self::pills($page);
         self::assertSame([Words::STORE_STATE['all'] => 6, Words::STORE_STATE['waiting'] => 1, Words::STORE_STATE['quarantined'] => 0, Words::STORE_STATE['ignored'] => 1,
             Words::STORE_STATE['linked'] => 1, Words::STORE_STATE['suggested'] => 0, Words::STORE_STATE['not_matched'] => 3], $pills, 'the counts are of what is listed');
-        self::assertStringContainsString(Words::say('STORE_PRODUCTS', 'shown', 6, 6), $page->text());
+        self::assertSame(6, self::xp($page)->query('//div[contains(@class, "doc-group")]//tbody/tr')->length, 'the board lists what is counted (W12.6)');
         $line = self::unsoldLine($page);
         self::assertSame(self::hiddenLine(3), $line['text'] ?? null, 'one quiet line says how many are hidden');
         self::assertSame(Words::STORE_PRODUCTS['unsold_show'], $line['link'] ?? null);
@@ -217,9 +218,8 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         self::assertSame([Words::STORE_PRODUCTS['unsold_shown'] . ' ' . Words::STORE_PRODUCTS['unsold_hide'], Words::STORE_PRODUCTS['unsold_hide']],
             [$hide['text'] ?? null, $hide['link'] ?? null], 'the same line hides them again');
         self::assertSame([self::STORE, ['channel' => 'electrofag']], [parse_url((string) $hide['href'], PHP_URL_PATH), self::queryOf((string) $hide['href'])]);
-        foreach (self::xp($all)->query('//nav[contains(@class, "state-tabs")]/a/@href') as $href) {
-            self::assertSame('1', self::queryOf($href->nodeValue ?? '')['unsold'] ?? null, 'a state chosen while they are shown still shows them');
-        }
+        self::assertSame(1, self::xp($all)->query('//form[contains(@class, "toolbar")][.//select[@name="state"]]/input[@name="unsold"][@value="1"]')->length,
+            'a state chosen while they are shown still shows them (the state is a choice of the same form, W12.6)');
         // (Codex's review of d65d1f2, MEDIUM) the search box and the sort are one GET form: while they are shown it sends `unsold=1` too, so a
         // search or a new sort keeps showing them; while they are hidden it sends no such field.
         self::assertSame('1', $all->form(self::STORE)['unsold'] ?? null, 'the toolbar keeps "Show them"');
@@ -353,8 +353,8 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         $list = $web->get('/ui/review', ['queue' => 'Check', 'channel' => 'electrofag']);
         self::assertSame(200, $list->status, $list->describe() . implode("\n", self::$log));
         self::assertSame([$new, $sold], self::queueRows($list));
-        $legend = self::squash(self::xp($list)->evaluate('string(//nav[contains(@class, "legend")]/a[@aria-current="page"]/span[@class="count"])'));
-        self::assertSame('2', $legend, 'the list\'s own count leaves them out too');
+        $legend = self::squash(self::xp($list)->evaluate('string(//select[@name="queue"]/option[@selected])'));
+        self::assertStringEndsWith('(2)', $legend, 'the list\'s own count leaves them out too');
         self::assertSame(2, (new Queries(self::$db))->listLeft('Check', (int) $site->channelId), 'and the progress line of a product opened from it');
         self::assertSame([$new, $sold], self::queueRows($web->get('/ui/review', ['queue' => 'Check', 'channel' => 'electrofag', 'q' => 'elux'])), 'words do not bring it back');
         foreach (['201', '5056168800028'] as $exact) {

@@ -36,7 +36,7 @@ final class UiTemplatesTest extends TestCase
     public function testThereAreTemplatesToCheck(): void
     {
         $names = array_keys(self::templates());
-        foreach (['layout', 'login', 'password', 'matching_coverage', 'queue', 'listing', 'listing_form', 'listing_decide', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
+        foreach (['layout', 'login', 'password', 'matching_coverage', 'queue', 'listing', 'listing_form', 'listing_more', 'listing_progress', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
             'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
             'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
@@ -181,7 +181,8 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         // Settings, reasons and numbering are TP_Settings' rows since wave w13 (no table: UiTemplatesTest::testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns).
-        foreach (['reviews', 'documents', 'document', 'people', 'person'] as $name) {
+        // (To check is an inbox since W12.10: no table)
+        foreach (['documents', 'document', 'people', 'person'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/<table\b[^>]*>/i', $src, $tables);
             self::assertNotSame([], $tables[0], $name);
@@ -206,7 +207,7 @@ final class UiTemplatesTest extends TestCase
     public function testTheMatchingPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {
         $templates = self::templates();
-        foreach (['queue', 'listing', 'listing_form', 'listing_decide', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
+        foreach (['queue', 'listing', 'listing_form', 'listing_more', 'listing_progress', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
             'search', 'item', 'item_bar', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
             'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time', 'listing_check', 'check_fold', 'search_note', 'store_new_preview',
             'simple_match', 'simple_match_options'] as $name) {
@@ -1476,7 +1477,8 @@ final class UiTemplatesTest extends TestCase
                 self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
             }
         }
-        self::assertGreaterThanOrEqual(11, $tabs, 'every tab row was read (fewer since the boards\' and the reports\' Show menus replaced the show tabs, W11.3, W11.8, W13.3-W13.6)');
+        self::assertGreaterThanOrEqual(5, $tabs, 'every tab row was read (fewer since the boards\' and the reports\' Show menus replaced the show tabs, W11.3, W11.8, W13.3-W13.6, '
+            . 'and the matching pages\' store, state, period and show tabs, W12.5-W12.8)');
         $templates = self::templates();
         foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
@@ -1782,6 +1784,10 @@ final class UiTemplatesTest extends TestCase
             'reasons' => ['reasons'], 'reason' => ['reason'], 'warehouses' => ['warehouses'], 'warehouse' => ['warehouse'], 'approvals' => ['approvals'],
             'access' => ['access'], 'access_permission' => ['access_permission'], 'company' => ['company'], 'company_form' => ['company_form'],
             'people' => ['people'], 'person' => ['person', 'person_bar'], 'sites' => ['sites'], 'integrity' => ['integrity'],
+            // The Matching pages (wave w12, docs/decisions.md W12.13): the same rule.
+            'listing' => ['listing', 'listing_form', 'listing_more', 'pending_actions'], 'queue' => ['queue'], 'store_products' => ['store_products'],
+            'by_product' => ['by_product'], 'new_variants' => ['new_variants'], 'duplicate_group' => ['duplicate_group'], 'simple_match' => ['simple_match'],
+            'staff_requests' => ['staff_requests'],
         ];
         $tagRe = '(?:<\?(?:php|=).*?\?>|[^>])*>';
         $counts = [];
@@ -1827,7 +1833,9 @@ final class UiTemplatesTest extends TestCase
             'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1,
             'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 3, 'packs' => 1, 'barcode_reviews' => 1,
             'settings' => 1, 'setting' => 1, 'reasons' => 1, 'reason' => 4, 'warehouses' => 1, 'warehouse' => 7, 'approvals' => 1, 'access_permission' => 1,
-            'company' => 2, 'company_form' => 1, 'people' => 1, 'person' => 5], array_filter($counts), 'every guarded form was read');
+            'company' => 2, 'company_form' => 1, 'people' => 1, 'person' => 5,
+            'listing' => 4, 'queue' => 1, 'store_products' => 1, 'by_product' => 1, 'new_variants' => 1, 'duplicate_group' => 2, 'simple_match' => 1, 'staff_requests' => 1],
+            array_filter($counts), 'every guarded form was read');
     }
 
     /**
@@ -2007,6 +2015,79 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString('btn primary', $t['person_bar.php']);
         // Stores: still no form.
         self::assertStringNotContainsString('<form', $t['sites.php']);
+    }
+
+    /**
+     * Wave w12 (docs/decisions.md W12): the Matching pages on the approved patterns. A store product's page is TP_Match: the question in the
+     * head, the store product's card beside the item's (their facts marked agrees / differs), the units and the note, ONE decision form whose
+     * bar at the bottom is Skip, More, Not the same, Same item (the quick yes above it gone; the rest of the page under the bar's More); a
+     * duplicate group the same frame. To review, Store Products, By Item, New Variants, Duplicates and All records are boards; the spot checks,
+     * To check and Staff requests are inboxes; Simple matching opens one cell's picker at a time.
+     */
+    public function testTheMatchingPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $pins = [
+            'board' => ['<div class="grp-block doc-group ', '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-', '<span class="grp-count">',
+                '<div class="table-wrap doc-board" id="g-', 'class="c-status doc-st '],
+            'toolbar' => ['<form class="toolbar" method="get"', '<div class="tb-state">', '<select id="tb-show" name="'],
+            'search' => ['<div class="tb-search">', '<input id="tb-q" type="search"'],
+            'inbox' => ['<div class="ap-inbox">', '<section class="card ap-list"', '<div class="ap-group ', '<a class="ap-row', '<section class="ap-record ',
+                '<div class="ap-actions">', '<p class="ap-next">'],
+            'match' => ['<div class="mt-cards', '<section class="card mt-card ', '<div class="doc-bar mt-bar', '<a class="btn ghost" href=', '<details class="more">',
+                '<?= $word(\'MATCH\', \'skip\') ?>', '<?= $word(\'MATCH\', \'more\') ?>'],
+        ];
+        $pages = [
+            'queue' => ['board', 'toolbar', 'search'], 'store_products' => ['board', 'toolbar', 'search'], 'by_product' => ['board', 'toolbar', 'search'],
+            'new_variants' => ['board', 'toolbar', 'search'], 'duplicates' => ['board'], 'documents' => ['board', 'toolbar', 'search'],
+            'samples' => ['inbox'], 'reviews' => ['inbox'], 'staff_requests' => ['inbox'], 'listing' => ['match'], 'duplicate_group' => ['match'],
+        ];
+        foreach ($pages as $name => $patterns) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($patterns as $p) {
+                foreach ($pins[$p] as $part) {
+                    self::assertStringContainsString($part, $src, "{$name}: the {$p} pattern's {$part}");
+                }
+            }
+            foreach (['class="tb-pop"', "\$partial('store_seg'", 'class="tabs state-tabs"', 'class="tabs period-tabs"', 'class="tabs show-tabs"', 'class="battery"',
+                'class="answers"', 'answer-list', "\$explain(", 'class="next-link"', 'board-title', 'class="card request"', 'class="filters"'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            if (in_array('board', $patterns, true)) {
+                self::assertSame(0, substr_count($src, '$stateChip(\'') - substr_count($src, '$stateChip(\'PRODUCT_STORE\''), "{$name}: a row's status is the solid cell");
+            }
+            foreach (['div', 'details', 'form', 'section', 'table', 'nav', 'ul', 'dl'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+        // A store product's page (TP_Match): the question; ONE decision form, the quick yes gone; its answers by the button pressed (Same item
+        // the main one, Not the same, and under More New item and Ignore), never a radio; Enter answers nothing (a disabled hidden default);
+        // the units and the note in the approved words; "Or find another item" its own GET form (form="mt-find"); the rest under More.
+        $l = $t['listing.php'];
+        self::assertStringContainsString("\$question = \\CW\\Ui\\Words::MATCH['question'];", $l);
+        self::assertStringContainsString('<?= $head($question, ', $l);
+        self::assertSame(1, substr_count($l, '<form class="mt-form" id="decide" method="post" action="/ui/review/listing/'));
+        self::assertStringNotContainsString("\$partial('listing_decide'", $l);
+        self::assertStringNotContainsString('type="radio"', $l, 'the answer is the button pressed');
+        self::assertStringContainsString('<button type="submit" class="po-default" disabled hidden tabindex="-1" aria-hidden="true">', $l);
+        foreach (['name="action" value="link" class="btn primary"', 'name="action" value="reject" class="btn"', 'name="action" value="new_item" class="btn"',
+            'name="action" value="ignore" class="btn"', 'form="mark-landing" class="btn"', 'name="units_per_item"', 'name="reason"', 'form="mt-find"',
+            '<form id="mt-find" method="get"', "\$partial('listing_more', \$more)", '<span class="mt-mark ', 'class="mt-photo"'] as $part) {
+            self::assertStringContainsString($part, $l, "listing: {$part}");
+        }
+        foreach (['on_store', 'units', 'units_of', 'note', 'note_hint', 'find', 'find_hint', 'not_same', 'same'] as $w) {
+            self::assertStringContainsString("\$word('MATCH', '{$w}')", $l, "listing: the words {$w}");
+        }
+        self::assertSame(['question' => 'Is this the same item?', 'on_store' => 'On the store', 'find' => 'Or find another item',
+            'find_hint' => 'Type a name, CW code or barcode', 'units' => 'One store product is', 'units_of' => 'of this item', 'note' => 'Note (when the line or pack differs)',
+            'note_hint' => 'Why it is the same', 'skip' => 'Skip', 'more' => 'More', 'more_label' => 'More answers', 'not_same' => 'Not the same', 'same' => 'Same item'],
+            array_intersect_key(Words::MATCH, array_flip(['question', 'on_store', 'find', 'find_hint', 'units', 'units_of', 'note', 'note_hint', 'skip', 'more', 'more_label',
+                'not_same', 'same'])), 'the approved design\'s words');
+        // Simple matching: every cell's picker is a fold of ONE group, so one picker and one Apply are open at a time.
+        self::assertStringContainsString('<details class="sm-more" name="sm-pick"', $t['simple_match.php']);
+        self::assertSame(1, substr_count($t['simple_match.php'], '<form class="sm-add"'));
+        self::assertLessThan(strpos($t['simple_match.php'], '<form class="sm-add"'), strpos($t['simple_match.php'], '<details class="sm-more" name="sm-pick"'),
+            'no picker outside its fold');
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

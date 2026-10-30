@@ -1,66 +1,84 @@
+<?php
+// To check › Waiting for me as an inbox (the approved design of 29 Oct 2026, AP_Inbox; docs/decisions.md W12.10): ONE Show row (the kind of
+// work: the Filter pop-over before); the two lists on the left as its groups (needs your OK first, then already done: check it), each row
+// what it is and when it is due ("Late" when it is), a link `?open=<task>`; the open one on the right (first on a phone): its list and
+// place, its name, the status block, its facts, and ONE main action: "Open" its own page, where it is decided as before (what each answer
+// does is said there). A task this person may not decide says why instead. The open row is the page shown: no link.
+$filtered = $type !== null;
+?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['reviews'], intro: 'reviews') ?>
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <details class="tb-pop">
-    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($type !== null): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
-    <div class="pop pop-form">
-      <label><?= $word('CHECKS', 'kind') ?>
-        <select name="type">
-          <option value=""><?= $word('CHECKS', 'everything') ?></option>
+<form class="toolbar" method="get" action="/ui/documents/reviews" aria-label="<?= $word('UI', 'filter') ?>">
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('CHECKS', 'kind') ?></label>
+    <select id="tb-show" name="type">
+      <option value=""><?= $word('CHECKS', 'everything') ?></option>
 <?php foreach ($types as $code => $name): ?>
-          <option value="<?= $e($code) ?>"<?php if ($type === $code): ?> selected<?php endif; ?>><?= $e($name) ?></option>
+      <option value="<?= $e($code) ?>"<?php if ($type === $code): ?> selected<?php endif; ?>><?= $e($name) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <div class="pop-actions"><?php if ($type !== null): ?><a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
-    </div>
-  </details>
-</form>
-<div class="head-help">
-  <p class="muted"><?= $word('CHECKS', 'how') ?></p>
-  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-</div>
-<?php if ($approvals === [] && $reviews === []): ?>
-<?php if ($type !== null): ?>
-<?= $empty(\CW\Ui\Words::CHECKS['none_kind'], \CW\Ui\Words::CHECKS['none_kind_text'], '/ui/documents/reviews', \CW\Ui\Words::CHECKS['show_all']) ?>
-<?php else: ?>
-<?= $empty(\CW\Ui\Words::CHECKS['none'], \CW\Ui\Words::CHECKS['none_text']) ?>
-<?php endif; ?>
-<?php else: ?>
-<?php foreach ([['id' => 'approvals', 'kind' => 'approval', 'rows' => $approvals, 'tone' => 'review'], ['id' => 'reviews', 'kind' => 'review', 'rows' => $reviews, 'tone' => 'info']] as $list): ?>
-<section class="grp-block" id="<?= $e($list['id']) ?>" aria-labelledby="<?= $e($list['id']) ?>-h">
-  <h2 class="grp-title <?= $e($list['tone']) ?>" id="<?= $e($list['id']) ?>-h"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="<?= $e($list['id']) ?>-t"><?= $word('CHECK_KIND', $list['kind']) ?></button><span class="grp-count"><?= $n(count($list['rows'])) ?></span></h2>
-<?php if ($list['rows'] === []): ?>
-  <p class="muted"><?= $word('CHECKS', 'empty_list') ?></p>
-<?php else: ?>
-  <div class="table-wrap" id="<?= $e($list['id']) ?>-t">
-  <table class="stack list checks board <?= $e($list['tone']) ?>">
-    <thead>
-      <tr>
-        <th scope="col"><?= $word('CHECKS', 'what') ?></th>
-        <th scope="col"><?= $word('CHECKS', 'why') ?></th>
-        <th scope="col" class="num"><?= $word('CHECKS', 'value') ?></th>
-        <th scope="col"><?= $word('CHECKS', 'asked_by') ?></th>
-        <th scope="col"><?= $word('CHECKS', 'asked_on') ?></th>
-        <th scope="col"><?= $word('CHECKS', 'check_by') ?></th>
-        <th scope="col"><?= $word('CHECKS', 'next') ?></th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($list['rows'] as $r): ?>
-      <tr class="<?php if ($r['overdue']): ?>blocked<?php elseif ($r['refusal'] === null): ?>needs<?php else: ?>off<?php endif; ?>">
-        <th scope="row" class="c-head"><a class="o-name" href="<?= $u($r['href']) ?>"><?= $e($r['label']) ?></a></th>
-        <td data-label="<?= $word('CHECKS', 'why') ?>"><?= $word('CHECK_REASON', $r['reason']) ?></td>
-        <td data-label="<?= $word('CHECKS', 'value') ?>" class="num"><?php if ($r['money'] !== null): ?><?= $money($r['money']) ?><?php elseif ($r['items'] !== null): ?><?= $say('CHECKS', 'items', $r['items']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('CHECKS', 'asked_by') ?>"><?= $e($r['opened_by']) ?></td>
-        <td data-label="<?= $word('CHECKS', 'asked_on') ?>"><?= $when($r['opened_at']) ?></td>
-        <td data-label="<?= $word('CHECKS', 'check_by') ?>"><?= $day($r['due_at']) ?><?php if ($r['overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::CHECKS['late']) ?><?php endif; ?></td>
-        <td class="c-next"><?php if ($r['refusal'] === null): ?><a class="btn sm" href="<?= $u($r['href']) ?>"><?= $word('CHECKS', 'open') ?></a><?php else: ?><span class="muted"><?= $e($r['refusal']) ?></span><?php endif; ?></td>
-      </tr>
-<?php endforeach; ?>
-    </tbody>
-  </table>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+  <div class="tb-end">
+<?php if ($filtered): ?>
+    <a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a>
 <?php endif; ?>
-</section>
+  </div>
+</form>
+<?php if ($record === null && $filtered): ?>
+<?= $empty(\CW\Ui\Words::CHECKS['none_kind'], \CW\Ui\Words::CHECKS['none_kind_text'], '/ui/documents/reviews', \CW\Ui\Words::CHECKS['show_all']) ?>
+<?php elseif ($record === null): ?>
+<?= $empty(\CW\Ui\Words::CHECKS['none'], \CW\Ui\Words::CHECKS['none_text']) ?>
+<?php else: ?>
+<div class="ap-inbox">
+  <section class="card ap-list" aria-label="<?= $word('PAGE_TITLE', 'reviews') ?>">
+<?php foreach ($groups as $g): ?>
+    <div class="ap-group <?= $e($g['tone']) ?>" id="<?= $e($g['key'] === 'approval' ? 'approvals' : 'reviews') ?>">
+      <h2 class="ap-gh"><span class="ap-dot" aria-hidden="true"></span><span class="ap-gname"><?= $e($g['name']) ?></span> <span class="ap-gcount"><?= $n(count($g['rows'])) ?></span></h2>
+      <ul class="ap-rows">
+<?php foreach ($g['rows'] as $r): ?>
+<?php $sel = $r['task_id'] === $record['task_id']; ?>
+        <li><a class="ap-row<?php if ($sel): ?> sel<?php endif; ?>"<?php if ($sel): ?> aria-current="true"<?php else: ?> href="<?= $e($r['open_href']) ?>"<?php endif; ?>><span class="ap-t"><?= $e($r['label']) ?></span><span class="ap-m"><?= $word('CHECK_REASON', $r['reason']) ?> · <?= $word('CHECKS', 'check_by') ?> <?= $day($r['due_at']) ?><?php if ($r['overdue']): ?> · <?= $word('CHECKS', 'late') ?><?php endif; ?></span></a></li>
 <?php endforeach; ?>
+      </ul>
+    </div>
+<?php endforeach; ?>
+  </section>
+  <section class="ap-record <?= $e($record['tone']) ?>" aria-labelledby="ap-h">
+  <div class="card ap-card" id="task-<?= $e($record['task_id']) ?>">
+    <div class="ap-rhead">
+      <div class="ap-rtitle">
+        <p class="ap-kind"><?= $word('CHECK_KIND', $record['kind']) ?> · <?= $e($record['place']) ?></p>
+        <h2 id="ap-h"><a href="<?= $u($record['href']) ?>"><?= $e($record['label']) ?></a></h2>
+      </div>
+<?php if ($record['overdue']): ?>
+      <?= $chip('blocked', \CW\Ui\Words::CHECKS['late']) ?>
+<?php else: ?>
+      <?= $chip($record['tone'], \CW\Ui\Words::INBOX['waiting']) ?>
+<?php endif; ?>
+    </div>
+    <dl class="doc-facts">
+      <dt><?= $word('CHECKS', 'why') ?></dt><dd><?= $word('CHECK_REASON', $record['reason']) ?></dd>
+<?php if ($record['money'] !== null): ?>
+      <dt><?= $word('CHECKS', 'value') ?></dt><dd><?= $money($record['money']) ?></dd>
+<?php elseif ($record['items'] !== null): ?>
+      <dt><?= $word('INBOX', 'f_items') ?></dt><dd><?= $n($record['items']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('CHECKS', 'asked_by') ?></dt><dd><?= $e($record['opened_by'] ?? '') ?></dd>
+      <dt><?= $word('CHECKS', 'asked_on') ?></dt><dd><?= $when($record['opened_at']) ?></dd>
+      <dt><?= $word('CHECKS', 'check_by') ?></dt><dd><?= $day($record['due_at']) ?></dd>
+    </dl>
+<?php if ($record['refusal'] !== null): ?>
+    <p class="note read-only"><?= $e($record['refusal']) ?></p>
+<?php endif; ?>
+    <div class="ap-actions">
+<?php if ($record['refusal'] === null): ?>
+      <a class="btn primary" href="<?= $u($record['href']) ?>"><?= $word('CHECKS', 'open') ?></a>
+<?php else: ?>
+      <a class="btn" href="<?= $u($record['href']) ?>"><?= $word('CHECKS', 'open') ?></a>
+<?php endif; ?>
+      <p class="ap-next"><?php if ($record['next'] !== null): ?><?= $say('INBOX', 'next', $record['next']) ?><?php else: ?><?= $word('INBOX', 'last') ?><?php endif; ?></p>
+    </div>
+  </div>
+  </section>
+</div>
 <?php endif; ?>

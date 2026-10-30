@@ -1,5 +1,12 @@
 <?php
-// Where a refused field is, so the message at the top can lead to it (plan F213).
+// Matching › a store product: is it the same item? (the approved design TP_Match of 29 Oct 2026; docs/decisions.md W12.1-W12.4). The head asks
+// the question, the store and how many are left in its eyebrow, the bar at its right; then the store product on the left (the blue edge) and
+// the item on the right (the green edge), their facts side by side (what agrees green, what differs amber), "N other suggestions" and "Or find
+// another item" in the item's card; then "One store product is N of this item" and the note; the bar at the bottom: Skip, More, Not the same,
+// Same item. ONE form holds them (the quick yes of a strong match is gone: Same item is it). Every other answer and every other part of the
+// page is under the bar's More (listing_more). A store product that is not answered here (a landing page, one waiting for a second OK, a
+// matched one, one only a lead or the spot check's owner decides, look only) says so where the units and the note are; a spot check's own
+// match keeps its three answers (Skip, Not the same behind its warning, Same item: the suggestion, as the spot check counts it).
 $fieldId = match (true) {
     $error_field === null => null,
     $error_field === 'action' => 'f-action',
@@ -11,102 +18,38 @@ $fieldId = match (true) {
 };
 $spotOther = $spot !== null && !$spot['mine'];
 $spotDone = $spot !== null && $spot['done'];
-// The answers come straight after the two product cards for a spot check's match and a strong match's quick yes (plan F203), else
-// after "Why the computer suggests this".
-$showDecide = $landing === null && ($no_form === null || (!$spotOther && $pending === null));
-$early = $spot_mode || $quick_link;
-$decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'change_spot' => $change_spot, 'change_target' => $change_target,
-    'form' => $form, 'qq' => $qq, 'proposal' => $proposal, 'target' => $target, 'can_link' => $can_link, 'protected' => $protected,
-    'max_units' => $max_units, 'max_reason' => $max_reason, 'card_fields' => $card_fields, 'error' => $error, 'error_field' => $error_field,
-    'spot_mode' => $spot_mode, 'spot' => $spot, 'strip' => $strip, 'spot_yes' => $spot_yes, 'spot_instead' => $spot_instead, 'spot_open' => $spot_open,
-    'quick_link' => $quick_link, 'next_link' => $next_link, 'skip_href' => $next_link ?? $back[0],
-    'skip_label' => \CW\Ui\Words::say('LISTING', 'skip_back', $back[1])];
+// The one decision form: someone who may decide, a store product still to answer, not the spot check's own answers.
+$one = $landing === null && $no_form === null && !$spot_mode;
+// Its main answer: Same item with an item to compare; with none, New item when the computer suggests one (what the form chose first before).
+$newMain = $one && $target === null && $preselect === 'new_item';
+$cardOpen = $one && ($form['action'] === 'new_item' || ($error_field !== null && str_starts_with($error_field, 'card.')));
+$changeOpen = $change_match && ($error !== null || $change_target !== null);
+$skip = $spot_mode ? ($strip['next'] ?? ($strip['url'] ?? '/ui/review/samples')) : ($next_link ?? $back[0]);
+$nextSpot = !$spot_mode && $strip !== null && $strip['mine'] && $strip['next'] !== null && ($spot === null || $spotDone) ? $strip['next'] : null;
+// The facts in the approved design's order (brand, line, flavour, strength, pack), then the rest of what either side states.
+$rank = ['brand' => 0, 'line' => 1, 'flavour' => 2, 'strength_mg' => 3, 'pack_units' => 4];
+$facts = $compare;
+usort($facts, static fn (array $a, array $b): int => ($rank[$a['field']] ?? 9) <=> ($rank[$b['field']] ?? 9));
+$agrees = static fn (string $state): bool => in_array($state, ['same', 'alike'], true);
+$others = count(array_filter($candidates, static fn (array $c): bool => $c['sku'] === null || $target === null || (int) $c['sku']['id'] !== (int) $target['id']));
+$status = in_array($l['status'], ['unmapped', 'suggested'], true) ? null : \CW\Ui\Words::of('LISTING_STATUS', $l['status']);
+$count = $strip !== null ? \CW\Ui\Words::say('SPOT', 'progress', $strip['decided'], $strip['size'])
+    : ($progress_left !== null ? \CW\Ui\Words::say('MATCH', 'to_match', $progress_left) : null);
+$tag = implode(' · ', array_filter([$l['channel_name'] ?? $l['channel'], $status, $count], static fn (?string $v): bool => $v !== null && $v !== ''));
+$fill = $progress_left !== null && ($progress_today ?? 0) > 0 ? max(1, min(100, (int) round(100 * $progress_today / ($progress_today + $progress_left)))) : 0;
+$more = ['l' => $l, 'why' => $why, 'partners' => $partners, 'proposal' => $proposal, 'closest' => $closest, 'closest_pick' => $closest_pick, 'show_search' => $show_search,
+    'attributes' => $attributes, 'linked_sku' => $linked_sku, 'target' => $target, 'protected' => $protected, 'elsewhere' => $elsewhere, 'dup_groups' => $dup_groups,
+    'strip' => $strip, 'decisions' => $decisions, 'previously_rejected' => $previously_rejected];
+$bar = $partial('listing_progress', ['strip' => $strip, 'words' => $progress, 'fill' => $fill]);
+$question = \CW\Ui\Words::MATCH['question'];
 ?>
-<p class="crumbs">
-  <a href="<?= $e($back[0]) ?>"><?= $e($back[1]) ?></a>
-<?php if ($next_link !== null): ?>
-  <a class="next-link" href="<?= $e($next_link) ?>"><?= $word('LISTING', 'skip') ?> &rarr;</a>
-<?php endif; ?>
-</p>
-<?php if ($progress !== null): ?>
-<p class="progress-line" data-progress><?= $e($progress) ?></p>
-<?php endif; ?>
-
 <div class="match-head">
-<?= $head((string) ($l['title'] ?? \CW\Ui\Words::LISTING['no_title']), intro: $intro_page, look: $lookOnly,
-    aside: $l['variant_title'] !== null ? '<p class="title subtitle">' . $e($l['variant_title']) . '</p>' : '',
-    meta: $e($l['channel_name'] ?? $l['channel']) . ' · ' . $stateChip('LISTING_STATUS', $l['status'])) ?>
+<?= $head($question, intro: $intro_page, look: $lookOnly, tag: $tag, side: $bar, back: [$back[0], $back[1]]) ?>
 </div>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($fieldId !== null): ?> <a href="#<?= $e($fieldId) ?>"><?= $word('LISTING', 'go_to_field') ?></a><?php endif; ?></p>
 <?php endif; ?>
-
-<?php if ($landing !== null): ?>
-<section class="card landing-box" id="landing" aria-labelledby="landing-h">
-  <h2 id="landing-h"><?= $word('LISTING_STATUS', 'landing') ?></h2>
-  <p><?= $word('LANDING', 'is_landing') ?></p>
-  <p class="muted"><?= $e($landing['why']) ?></p>
-<?php if ($landing['can_real']): ?>
-  <details class="confirm-step" id="real-product"<?php if ($error_field === 'reason'): ?> open<?php endif; ?>>
-    <summary class="btn"><?= $word('ACTION', 'not_landing') ?></summary>
-    <p><?= $word('LANDING', 'real_text') ?></p>
-    <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
-      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-      <input type="hidden" name="action" value="not_landing">
-      <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
-      <input type="hidden" name="seen" value="<?= $e($form['seen'] ?? '') ?>">
-      <label for="f-reason"><?= $word('LANDING', 'real_why') ?></label>
-      <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" required value="<?= $e($form['reason'] ?? '') ?>">
-      <p class="actions"><button type="submit" class="btn"><?= $word('LANDING', 'real_button') ?></button></p>
-    </form>
-  </details>
-<?php else: ?>
-  <p class="muted"><?= $word('LANDING', 'lead_only') ?></p>
-<?php endif; ?>
-</section>
-<?php endif; ?>
-
-<?php if ($strip !== null): ?>
-<section class="card spot-box<?php if ($spotOther): ?> waiting<?php endif; ?>" aria-labelledby="spot-h">
-  <div class="head-help">
-    <h2 id="spot-h"><?php if ($strip['position'] !== null): ?><?= $say('SPOT', 'box', $strip['name'], $strip['position'], $strip['size']) ?><?php else: ?><?= $say('SAMPLE', 'title', $strip['name']) ?><?php endif; ?></h2>
-    <?= $explain('spot_check', \CW\Ui\Words::MENU['samples']) ?>
-  </div>
-  <p class="progress-line"><strong><?= $say('SPOT', 'progress', $strip['decided'], $strip['size']) ?></strong></p>
-  <ol class="segments" aria-hidden="true">
-<?php foreach ($strip['blocks'] as $b): ?>
-    <li class="<?= $e($b['state']) ?>" title="<?= $e($b['title']) ?>"></li>
-<?php endforeach; ?>
-  </ol>
-  <ul class="segments-legend">
-    <li><span class="key yes"></span><?= $say('SPOT', 'legend_yes', $strip['yes']) ?></li>
-<?php if ($strip['wrong'] > 0): ?>
-    <li><span class="key no"></span><?= $say('SPOT', 'legend_wrong', $strip['wrong']) ?></li>
-<?php endif; ?>
-<?php if ($strip['position'] !== null): ?>
-    <li><span class="key now"></span><?= $say('SPOT', 'legend_now', $strip['position']) ?></li>
-<?php endif; ?>
-    <li><span class="key"></span><?= $say('SPOT', 'legend_todo', $strip['todo']) ?></li>
-  </ul>
-<?php if ($spotOther && $spotDone): ?>
-  <p class="note spot-check" role="alert"><?= $say('SPOT', 'other_done', $spot['owner']) ?> <?= $word('SPOT', 'other_done_text') ?></p>
-<?php elseif ($spotOther): ?>
-  <p class="note spot-check" role="alert"><?= $say('SPOT', 'other', $spot['owner']) ?> <?= $word('SPOT', 'other_text') ?></p>
-<?php elseif ($spotDone): ?>
-  <p class="spot-check"><?= $word('SPOT', 'mine_done') ?></p>
-<?php elseif ($spot !== null): ?>
-  <p class="spot-check"><?= $word('SPOT', 'mine') ?></p>
-<?php endif; ?>
-<?php if ($strip['mine'] && $strip['next'] !== null && ($spot === null || $spotDone)): ?>
-  <p class="actions"><a class="btn primary" href="<?= $e($strip['next']) ?>"><?= $say('SPOT', 'next', $strip['next_position'], $strip['size']) ?> &rarr;</a></p>
-<?php elseif ($strip['mine'] && $strip['next'] === null && ($spot === null || $spotDone)): ?>
-  <p class="muted"><?= $word('SPOT', 'all_answered') ?></p>
-<?php endif; ?>
-  <p class="see-also"><?php if ($spot_mode): ?><a href="#decide"><?= $word('SPOT', 'to_answers') ?> &darr;</a> <?php endif; ?><a href="<?= $e($strip['url']) ?>"><?= $word('SPOT', 'back') ?></a></p>
-</section>
-<?php endif; ?>
-
 <?php if ($held !== null): ?>
 <div class="alert needs held-back" role="note">
   <p class="alert-title"><?= $say('LISTING', 'held', $held['reason'], $held['by'], \CW\Ui\Html::day($held['at'])) ?></p>
@@ -116,346 +59,377 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
   <p><?= $word('LISTING', 'held_newer') ?></p>
 <?php endif; ?>
   <p><a href="<?= $e($held['url']) ?>"><?= $say('SAMPLE', 'title', $held['sample']) ?></a></p>
-  <?= $explain('set_aside', \CW\Ui\Words::SAMPLE['held']) ?>
 </div>
 <?php endif; ?>
 
-<?php if ($pending !== null): ?>
-<section class="card waiting" aria-labelledby="waiting-h">
-  <div class="head-help">
-    <h2 id="waiting-h"><?= $word('LISTING', 'waiting') ?></h2>
-    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-  </div>
-  <p><?= $partial('pending_decision', ['d' => $pending]) ?></p>
-  <p><?= $say('LISTING', 'decided_by', $pending['decider'] ?? \CW\Ui\Words::LISTING['h_computer'], \CW\Ui\Html::when($pending['created_at'])) ?></p>
-<?php if ($pending['needs'] !== []): ?>
-  <p><span class="muted"><?= $word('LISTING', 'why_second') ?>:</span>
-<?php foreach ($pending['needs'] as $need): ?>
-    <span class="tag"><?= $word('NEEDS_SECOND', $need) ?></span>
+<?php if ($one): ?>
+<form class="mt-form" id="decide" method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($error !== null): ?> data-dirty="1"<?php endif; ?>>
+  <button type="submit" class="po-default" disabled hidden tabindex="-1" aria-hidden="true"><?= $word('MATCH', 'same') ?></button>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+<?php if ($proposal !== null): ?>
+  <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
+<?php endif; ?>
+  <input type="hidden" name="sku_id" value="<?= $e($form['sku_id']) ?>">
+<?php if (($form['seen'] ?? '') !== ''): ?>
+  <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
+<?php endif; ?>
+<?php foreach ($qq as $key => $value): ?>
+<?php if ($value !== null && $value !== ''): ?>
+  <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endif; ?>
 <?php endforeach; ?>
-  </p>
-<?php endif; ?>
-<?php if ($pending['reason'] !== null): ?>
-  <p class="muted"><?= $say('PENDING', 'note_line', $pending['reason']) ?></p>
-<?php endif; ?>
-<?php foreach ($pending['stale'] as $stale): ?>
-  <p class="error"><?= $e($stale) ?> <?= $word('LISTING', 'stale_fix') ?></p>
-<?php endforeach; ?>
-<?php if ($no_form !== null): ?>
-  <p><?= $e($no_form) ?></p>
-<?php endif; ?>
-  <div class="actions"><?= $partial('pending_actions', ['id' => $pending['id'], 'from' => 'listing', 'can_approve' => $pending['can_approve'], 'can_withdraw' => $pending['can_withdraw'], 'own' => $pending['own'], 'decider' => $pending['decider'], 'say_wait' => $no_form === null]) ?></div>
-</section>
-<?php endif; ?>
-
-<?php if ($dup_groups !== []): ?>
-<p class="muted dup-groups"><?= $word('LISTING', 'dup_link') ?> <?php foreach ($dup_groups as $g): ?><a href="/ui/review/duplicates/<?= $e($g['id']) ?>"><?= $say('LISTING', 'group', $g['number']) ?></a> <?php endforeach; ?></p>
-<?php endif; ?>
-
-<div class="cols">
-  <section class="card" aria-labelledby="listing-h">
-    <h2 id="listing-h"><?= $word('LISTING', 'on_website') ?></h2>
-    <dl>
-      <dt><?= $word('LISTING', 'website') ?></dt><dd><?= $e($l['channel_name'] ?? $l['channel']) ?></dd>
-      <dt><?= $word('LISTING', 'option') ?></dt><dd><?= $e($l['variant']) ?></dd>
-<?php if ($l['brand'] !== null): ?>
-      <dt><?= $word('LISTING', 'brand') ?></dt><dd><?= $e($l['brand']) ?></dd>
-<?php endif; ?>
-<?php if ($l['price'] !== null): ?>
-      <dt><?= $word('LISTING', 'price') ?></dt><dd><?php if (is_numeric($l['price'])): ?><?= $money($l['price']) ?><?php else: ?><?= $e($l['price']) ?><?php endif; ?></dd>
-<?php endif; ?>
-      <dt><?= $word('LISTING', 'sold') ?></dt><dd><?= $say('LISTING', 'sold_line', (int) ($l['units_30d'] ?? 0), (int) ($l['units_365d'] ?? 0)) ?> <span class="muted"><?php if ($l['units_to'] !== null): ?><?= $say('DUPS', 'from_history', \CW\Ui\Html::day($l['units_to'])) ?><?php else: ?><?= $word('DUPS', 'from_profile') ?><?php endif; ?></span></dd>
-<?php if ($l['url'] !== null): ?>
-      <dt><?= $word('LISTING', 'page') ?></dt><dd><a href="<?= $e($l['url']) ?>" rel="noopener noreferrer nofollow" target="_blank"><?= $word('LISTING', 'open_page') ?></a></dd>
-<?php endif; ?>
-<?php foreach ($attributes as $a): ?>
-      <dt><?= $e($a['name']) ?></dt><dd><?= $e($a['value']) ?></dd>
-<?php endforeach; ?>
-      <dt><?= $word('LISTING', 'barcodes') ?></dt><dd><?php if ($listing_barcodes === []): ?><span class="muted"><?= $word('LISTING', 'none') ?></span><?php else: ?><?= $e(implode(', ', $listing_barcodes)) ?><?php endif; ?></dd>
-<?php if ($linked_sku !== null): ?>
-      <dt><?= $word('LISTING', 'matched_to') ?></dt><dd><a href="/ui/items/<?= $e($linked_sku['id']) ?>"><?= $e($linked_sku['code']) ?></a> <?= $e($linked_sku['name']) ?> (<?= $e(\CW\Ui\Words::saleUses($l['units_per_item'])) ?>)</dd>
-<?php endif; ?>
-    </dl>
-  </section>
-
-  <section class="card" aria-labelledby="item-h">
-<?php if ($pending !== null && $pending['action'] === 'new_item'): ?>
-    <h2 id="item-h"><?= $word('LISTING', 'new_by_decision') ?></h2>
-    <p class="muted"><?= $say('LISTING', 'new_by_decision_text', $pending['sale'] ?? \CW\Ui\Words::saleUses(1)) ?></p>
-    <dl>
-<?php foreach ($pending['card'] as $f): ?>
-      <dt><?= $e($f['label']) ?></dt>
-      <dd><?= $e($f['value']) ?></dd>
-<?php endforeach; ?>
-    </dl>
-<?php elseif ($pending !== null && $target === null): ?>
-    <h2 id="item-h"><?= $word('LISTING', 'decision_does') ?></h2>
-    <p class="title"><?= $partial('pending_decision', ['d' => $pending]) ?></p>
 <?php else: ?>
-    <h2 id="item-h"><?= $e($target_heading) ?></h2>
+<div class="mt-form" id="decide">
+<?php endif; ?>
+  <div class="mt-cards">
+    <section class="card mt-card info" aria-labelledby="mt-store-h">
+      <h2 id="mt-store-h" class="mt-h"><?= $word('MATCH', 'on_store') ?></h2>
+      <div class="mt-who">
+        <div class="mt-photo" aria-hidden="true"><?= $word('MATCH', 'no_photo') ?></div>
+        <div class="mt-id">
+          <p class="mt-name"><?= $e($l['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?><?php if ($l['variant_title'] !== null): ?> – <?= $e($l['variant_title']) ?><?php endif; ?></p>
+          <p class="mt-sub"><?= $say('MATCH', 'variant', (string) $l['variant']) ?><?php if ($l['price'] !== null): ?> · <?php if (is_numeric($l['price'])): ?><?= $money($l['price']) ?><?php else: ?><?= $e($l['price']) ?><?php endif; ?><?php endif; ?></p>
+        </div>
+      </div>
+<?php if ($facts !== []): ?>
+      <dl class="mt-facts">
+<?php foreach ($facts as $r): ?>
+        <dt><?= $e($r['label']) ?></dt> <dd><span class="mt-mark <?php if ($agrees($r['state'])): ?>same<?php else: ?>diff<?php endif; ?>" data-state="<?= $e($r['state']) ?>"><?php if ($r['listing'] === ''): ?><?= $word('LISTING', 'not_stated') ?><?php else: ?><?= $e($r['listing']) ?><?php endif; ?></span><span class="visually-hidden"> (<?php if ($agrees($r['state'])): ?><?= $word('MATCH', 'agrees') ?><?php else: ?><?= $word('MATCH', 'differs') ?><?php endif; ?>)</span></dd>
+<?php endforeach; ?>
+      </dl>
+<?php elseif ($new_rows !== []): ?>
+      <dl class="mt-facts">
+<?php foreach ($new_rows as $r): ?>
+        <dt><?= $e($r['label']) ?></dt> <dd><?= $e($r['value']) ?></dd>
+<?php endforeach; ?>
+      </dl>
+<?php endif; ?>
+    </section>
+
+    <section class="card mt-card done" aria-labelledby="mt-item-h">
+      <div class="mt-card-head">
+        <h2 id="mt-item-h" class="mt-h"><?php if ($pending !== null && $pending['action'] === 'new_item'): ?><?= $word('LISTING', 'new_by_decision') ?><?php elseif ($pending !== null && $target === null): ?><?= $word('LISTING', 'decision_does') ?><?php else: ?><?= $e($target_heading) ?><?php endif; ?></h2>
+<?php if ($candidates !== [] && $others > 0): ?>
+        <details class="mt-others" id="cand">
+          <summary><?php if ($others === 1): ?><?= $word('MATCH', 'others_one') ?><?php else: ?><?= $say('MATCH', 'others_many', $others) ?><?php endif; ?></summary>
+          <div class="table-wrap">
+          <table class="stack candidates">
+            <thead>
+              <tr><th scope="col"><?= $word('LISTING', 'no') ?></th><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col" class="num"><?= $word('LISTING', 'score') ?></th><th scope="col"><?= $word('LISTING', 'problems') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
+            </thead>
+            <tbody>
+<?php foreach ($candidates as $c): ?>
+              <tr<?php if ($c['ref'] !== null): ?> id="cand-<?= $e($c['ref']) ?>"<?php endif; ?><?php if ($c['ai_picked']): ?> class="picked"<?php endif; ?>>
+                <th scope="row" class="c-head"><?= $e($c['ref']) ?></th>
+                <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag done"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag info"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
+                <td class="num" data-label="<?= $word('LISTING', 'score') ?>"><?= $e($c['prescore']) ?></td>
+                <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> blocked<?php else: ?> needs<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
+                <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn sm" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
+              </tr>
+<?php endforeach; ?>
+            </tbody>
+          </table>
+          </div>
+        </details>
+<?php endif; ?>
+      </div>
+<?php if ($pending !== null && $pending['action'] === 'new_item'): ?>
+      <p class="mt-sub"><?= $say('LISTING', 'new_by_decision_text', $pending['sale'] ?? \CW\Ui\Words::saleUses(1)) ?></p>
+      <dl class="mt-facts">
+<?php foreach ($pending['card'] as $f): ?>
+        <dt><?= $e($f['label']) ?></dt> <dd><?= $e($f['value']) ?></dd>
+<?php endforeach; ?>
+      </dl>
+<?php elseif ($pending !== null && $target === null): ?>
+      <p class="mt-name"><?= $partial('pending_decision', ['d' => $pending]) ?></p>
+<?php else: ?>
 <?php if ($pick_note !== null): ?>
-    <p class="error" role="alert"><?= $e($pick_note) ?></p>
+      <p class="error" role="alert"><?= $e($pick_note) ?></p>
 <?php endif; ?>
 <?php if ($target !== null): ?>
-    <p class="title"><a href="/ui/items/<?= $e($target['id']) ?>"><?= $e($target['code']) ?></a> <?= $e($target['name']) ?></p>
-    <dl>
-<?php if (($target['family'] ?? null) !== null): ?>
-      <dt><?= $word('FAMILY', 'item_box_short') ?></dt><dd><?= $e($target['family']) ?></dd>
-<?php endif; ?>
-      <dt><?= $word('LISTING', 'stock_rule') ?></dt><dd><?= $stateChip('POLICY', $target['policy']) ?><?php if ($protected): ?> <span class="muted">(<?= $word('LISTING', 'protected') ?>)</span><?php endif; ?> <?= $explain('stock_rule', \CW\Ui\Words::LISTING['stock_rule']) ?></dd>
-      <dt><?= $word('LISTING', 'barcodes') ?></dt><dd><?php if ($target_barcodes === []): ?><span class="muted"><?= $word('LISTING', 'none') ?></span><?php else: ?><?= $e(implode(', ', $target_barcodes)) ?><?php endif; ?></dd>
+      <div class="mt-who">
+        <div class="mt-photo" aria-hidden="true"><?= $word('MATCH', 'no_photo') ?></div>
+        <div class="mt-id">
+          <p class="mt-name"><a href="/ui/items/<?= $e($target['id']) ?>"><?= $e($target['name'] ?? $target['code']) ?></a></p>
+          <p class="mt-sub"><?= $e($target['code']) ?> · <?= $say('MATCH', 'in_stock', (int) $target_stock) ?><?php if ($protected): ?> <span class="tag needs"><?= $word('MATCH', 'protected') ?></span><?php endif; ?><?php if ($previously_rejected): ?> <span class="tag needs"><?= $word('MATCH', 'refused_before') ?></span><?php endif; ?></p>
+        </div>
+      </div>
+<?php if ($facts !== []): ?>
+      <dl class="mt-facts">
+<?php foreach ($facts as $r): ?>
+        <dt><?= $e($r['label']) ?></dt> <dd><span class="mt-mark <?php if ($agrees($r['state'])): ?>same<?php else: ?>diff<?php endif; ?>" data-state="<?= $e($r['state']) ?>"><?php if ($r['item'] === ''): ?><?= $word('LISTING', 'not_stated') ?><?php else: ?><?= $e($r['item']) ?><?php endif; ?></span><span class="visually-hidden"> (<?php if ($agrees($r['state'])): ?><?= $word('MATCH', 'agrees') ?><?php else: ?><?= $word('MATCH', 'differs') ?><?php endif; ?>)</span></dd>
+<?php endforeach; ?>
 <?php if ($pending !== null && $pending['action'] === 'merge_skus' && $pending['merge_from_id'] !== null): ?>
-      <dt><?= $word('PENDING', 'join') ?></dt><dd><a href="/ui/items/<?= $e($pending['merge_from_id']) ?>"><?= $e($pending['merge_from_code']) ?></a> <?= $e($pending['merge_from_name']) ?> <?= $word('PENDING', 'joins') ?> <?= $e($target['code']) ?></dd>
+        <dt><?= $word('PENDING', 'join') ?></dt> <dd><a href="/ui/items/<?= $e($pending['merge_from_id']) ?>"><?= $e($pending['merge_from_code']) ?></a> <?= $e($pending['merge_from_name']) ?> <?= $word('PENDING', 'joins') ?> <?= $e($target['code']) ?></dd>
 <?php endif; ?>
-    </dl>
-<?php if ($previously_rejected): ?>
-    <p class="note"><?= $word('LISTING', 'previously_rejected') ?></p>
+      </dl>
 <?php endif; ?>
 <?php elseif ($proposal !== null && $proposal['new_item']): ?>
-    <p class="title"><?= $word('LISTING', 'suggest_new') ?></p>
-    <p class="muted"><?= $word('LISTING', 'suggest_new_text') ?></p>
+      <p class="mt-name"><?= $word('LISTING', 'suggest_new') ?></p>
+      <p class="mt-sub"><?= $word('LISTING', 'suggest_new_text') ?></p>
 <?php else: ?>
-    <p class="muted"><?= $word('LISTING', 'no_suggestion') ?></p>
+      <p class="mt-sub"><?= $word('LISTING', 'no_suggestion') ?></p>
 <?php endif; ?>
 <?php endif; ?>
 <?php if ($show_search): ?>
-    <details class="fold pick" id="f-pick"<?php if ($search_text !== '' || $error_field === 'sku_id'): ?> open<?php endif; ?>>
-      <summary><?= $word('LISTING', 'pick_other') ?></summary>
-      <form class="filters" method="get" action="/ui/review/listing/<?= $e($l['id']) ?>#f-pick">
-<?php foreach ($qq as $key => $value): ?>
-<?php if ($value !== null && $value !== ''): ?>
-        <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+      <div class="field mt-find" id="f-pick">
+        <label for="mt-q"><?= $word('MATCH', 'find') ?></label>
+        <input id="mt-q" type="search" name="s" form="mt-find" value="<?= $e($search_text) ?>" maxlength="100" placeholder="<?= $word('MATCH', 'find_hint') ?>" aria-keyshortcuts="/" data-page-search>
+<?php if ($error_field === 'sku_id' && $error !== null): ?>
+        <p class="field-error"><?= $e($error) ?></p>
 <?php endif; ?>
-<?php endforeach; ?>
-        <label><?= $word('UI', 'search_placeholder') ?>
-          <input type="search" name="s" value="<?= $e($search_text) ?>" maxlength="100" aria-keyshortcuts="/" data-page-search>
-        </label>
-        <button class="btn" type="submit"><?= $word('SEARCH', 'button') ?></button>
-      </form>
 <?php if ($search_text !== '' && $found === []): ?>
-      <p class="muted"><?= $word('SEARCH', 'no_items') ?></p>
+        <p class="muted"><?= $word('SEARCH', 'no_items') ?></p>
 <?php endif; ?>
 <?php if ($found !== []): ?>
-      <div class="table-wrap">
-      <table class="stack list found">
-        <thead>
-          <tr><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col"><?= $word('SEARCH', 'rule') ?></th><th scope="col"><?= $word('LISTING', 'barcodes') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
-        </thead>
-        <tbody>
+        <div class="table-wrap">
+        <table class="stack list found">
+          <thead>
+            <tr><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col"><?= $word('SEARCH', 'rule') ?></th><th scope="col"><?= $word('LISTING', 'barcodes') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
+          </thead>
+          <tbody>
 <?php foreach ($found as $s): ?>
-          <tr>
-            <th scope="row" class="c-head"><a href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?><?php if ($s['details'] !== ''): ?> <span class="o-sub"><?= $e($s['details']) ?></span><?php endif; ?></th>
-            <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $word('POLICY', $s['policy']) ?></td>
-            <td data-label="<?= $word('LISTING', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>
-            <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
-          </tr>
+            <tr>
+              <th scope="row" class="c-head"><a href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?><?php if ($s['details'] !== ''): ?> <span class="o-sub"><?= $e($s['details']) ?></span><?php endif; ?></th>
+              <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $word('POLICY', $s['policy']) ?></td>
+              <td data-label="<?= $word('LISTING', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>
+              <td class="c-next"><?php if ($s['stop'] === null): ?><a class="btn sm" href="<?= $u('/ui/review/listing/' . $l['id'], $qq + ['pick' => $s['id']]) ?>#decide"><?= $word('LISTING', 'use') ?></a><?php else: ?><span class="muted"><?= $e($s['stop']) ?></span><?php endif; ?></td>
+            </tr>
 <?php endforeach; ?>
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+        </div>
+<?php endif; ?>
       </div>
 <?php endif; ?>
+    </section>
+  </div>
+
+<?php if ($one): ?>
+  <section class="card mt-answer" aria-label="<?= $word('MATCH', 'question') ?>">
+    <div class="field mt-units">
+      <label for="units"><?= $word('MATCH', 'units') ?></label>
+      <span class="mt-units-row"><input class="units" type="number" id="units" name="units_per_item" min="1" max="<?= $e($max_units) ?>" inputmode="numeric" value="<?= $e($form['units']) ?>" required<?php if ($error_field === 'units_per_item'): ?> aria-invalid="true"<?php endif; ?>> <span class="muted"><?= $word('MATCH', 'units_of') ?></span></span>
+<?php if ($error_field === 'units_per_item' && $error !== null): ?>
+      <p class="field-error"><?= $e($error) ?></p>
+<?php endif; ?>
+    </div>
+    <div class="field mt-note">
+      <label for="f-reason"><?= $word('MATCH', 'note') ?></label>
+      <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" value="<?= $e($form['reason']) ?>" placeholder="<?= $word('MATCH', 'note_hint') ?>"<?php if ($error_field === 'reason'): ?> aria-invalid="true"<?php endif; ?>>
+<?php if ($error_field === 'reason' && $error !== null): ?>
+      <p class="field-error"><?= $e($error) ?></p>
+<?php endif; ?>
+    </div>
+  </section>
+<?php elseif ($landing !== null): ?>
+  <section class="card mt-answer landing-box" id="landing" aria-labelledby="landing-h">
+    <h2 id="landing-h" class="mt-h"><?= $word('LISTING_STATUS', 'landing') ?></h2>
+    <p><?= $word('LANDING', 'is_landing') ?></p>
+    <p class="muted"><?= $e($landing['why']) ?></p>
+<?php if ($landing['can_real']): ?>
+    <details class="confirm-step" id="real-product"<?php if ($error_field === 'reason'): ?> open<?php endif; ?>>
+      <summary class="btn"><?= $word('ACTION', 'not_landing') ?></summary>
+      <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($error !== null): ?> data-dirty="1"<?php endif; ?>>
+        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="action" value="not_landing">
+        <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+        <input type="hidden" name="seen" value="<?= $e($form['seen'] ?? '') ?>">
+        <label for="f-reason"><?= $word('LANDING', 'real_why') ?></label>
+        <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" required value="<?= $e($form['reason'] ?? '') ?>">
+        <p class="actions"><button type="submit" class="btn"><?= $word('LANDING', 'real_button') ?></button></p>
+      </form>
     </details>
+<?php else: ?>
+    <p class="muted"><?= $word('LANDING', 'lead_only') ?></p>
 <?php endif; ?>
   </section>
-</div>
-
-<?php if ($elsewhere['items'] !== [] || $elsewhere['listings'] !== []): ?>
-<section class="card elsewhere" aria-labelledby="elsewhere-h">
-  <h2 id="elsewhere-h"><?= $word('LISTING', 'elsewhere') ?></h2>
-  <ul class="plain">
-<?php foreach ($elsewhere['items'] as $x): ?>
-    <li><?= $word('LISTING', 'elsewhere_item') ?> <a href="/ui/items/<?= $e($x['id']) ?>"><?= $e($x['code']) ?></a> <?= $e($x['name']) ?> <span class="muted">(<?= $e($x['barcode']) ?>)</span></li>
+<?php elseif ($pending !== null): ?>
+  <section class="card mt-answer waiting" aria-labelledby="waiting-h">
+    <h2 id="waiting-h" class="mt-h"><?= $word('LISTING', 'waiting') ?></h2>
+    <p><?= $partial('pending_decision', ['d' => $pending]) ?></p>
+    <p><?= $say('LISTING', 'decided_by', $pending['decider'] ?? \CW\Ui\Words::LISTING['h_computer'], \CW\Ui\Html::when($pending['created_at'])) ?></p>
+<?php if ($pending['needs'] !== []): ?>
+    <p><span class="muted"><?= $word('LISTING', 'why_second') ?>:</span>
+<?php foreach ($pending['needs'] as $need): ?>
+      <span class="tag needs"><?= $word('NEEDS_SECOND', $need) ?></span>
 <?php endforeach; ?>
-<?php foreach ($elsewhere['listings'] as $x): ?>
-    <li><?= $say('LISTING', 'elsewhere_listing', (string) $x['channel']) ?> <a href="/ui/review/listing/<?= $e($x['id']) ?>"><?= $e($x['title'] ?? $x['variant']) ?></a>
-      <span class="muted">(<?= $word('LISTING_STATUS', $x['status']) ?><?php if ($x['site_status'] !== null): ?>; <?= $say('LISTING', 'elsewhere_site', $x['site_status']) ?><?php endif; ?><?php if ($x['sku_code'] !== null): ?>; <?= $say('LISTING', 'elsewhere_matched', $x['sku_code']) ?><?php endif; ?>)</span></li>
+    </p>
+<?php endif; ?>
+<?php if ($pending['reason'] !== null): ?>
+    <p class="muted"><?= $say('PENDING', 'note_line', $pending['reason']) ?></p>
+<?php endif; ?>
+<?php foreach ($pending['stale'] as $stale): ?>
+    <p class="error"><?= $e($stale) ?> <?= $word('LISTING', 'stale_fix') ?></p>
 <?php endforeach; ?>
-  </ul>
-  <p class="muted"><?= $word('LISTING', 'elsewhere_note') ?></p>
-</section>
+<?php if ($no_form !== null): ?>
+    <p><?= $e($no_form) ?></p>
 <?php endif; ?>
-
-<?php if ($early && $showDecide): ?>
-<?= $partial('listing_decide', $decide) ?>
+    <div class="actions"><?= $partial('pending_actions', ['id' => $pending['id'], 'from' => 'listing', 'can_approve' => $pending['can_approve'], 'can_withdraw' => $pending['can_withdraw'], 'own' => $pending['own'], 'decider' => $pending['decider'], 'say_wait' => $no_form === null]) ?></div>
+  </section>
+<?php else: ?>
+  <section class="card mt-answer<?php if ($spotOther): ?> waiting<?php endif; ?>" aria-label="<?= $word('MATCH', 'question') ?>">
+<?php if ($no_form !== null): ?>
+    <p class="note read-only<?php if ($spotOther): ?> spot-check<?php endif; ?>"<?php if ($spotOther): ?> role="alert"<?php endif; ?>><?= $e($no_form) ?></p>
+<?php elseif ($spot_mode): ?>
+    <p class="spot-check"><?= $word('SPOT', 'mine') ?></p>
+<?php if ($spot_yes !== null && $spot_instead !== null): ?>
+    <p class="note"><?= $say('SPOT', 'picked_other', $spot_instead, $spot_yes['code'], $spot_instead) ?></p>
 <?php endif; ?>
-
-<?php if ($why !== null): ?>
-<section class="card why" aria-labelledby="why-h">
-  <h2 id="why-h"><?= $word('LISTING', 'why') ?></h2>
-  <dl class="why-lines">
-    <dt><?= $word('LISTING', 'how_sure') ?></dt><dd><strong><?= $e($why['band']) ?></strong> – <?= $e($why['band_help']) ?> <?= $explain('how_sure', \CW\Ui\Words::THING['band']) ?></dd>
-<?php if ($why['barcode'] !== null): ?>
-    <dt><?= $word('LISTING', 'barcode') ?></dt><dd><?= $chip($why['barcode']['tone'], $why['barcode']['text']) ?></dd>
 <?php endif; ?>
-<?php if ($why['ai'] !== null): ?>
-    <dt><?= $word('LISTING', 'ai') ?></dt><dd><?= $e($why['ai']) ?></dd>
+<?php if ($spotDone && !$spotOther): ?>
+    <p class="spot-check"><?= $word('SPOT', 'mine_done') ?></p>
 <?php endif; ?>
-<?php if ($why['here'] !== null): ?>
-    <dt><?= $word('LISTING', 'here') ?></dt><dd><?= $e($why['here']) ?></dd>
-<?php endif; ?>
-<?php if ($why['cannot'] !== [] || $why['watch'] !== []): ?>
-    <dt><?= $word('LISTING', 'watch') ?></dt><dd><ul class="plain watch">
-<?php foreach ($why['cannot'] as $c): ?>
-      <li><span class="tag blocked"><?= $e($c) ?></span></li>
-<?php endforeach; ?>
-<?php foreach ($why['watch'] as $w): ?>
-      <li><span class="tag needs"><?= $e($w) ?></span></li>
-<?php endforeach; ?>
-    </ul></dd>
-<?php endif; ?>
-<?php if ($why['renamed'] !== null): ?>
-    <dt><?= $word('LISTING', 'renamed') ?></dt><dd><?= $e($why['renamed']) ?> <?= $word('LISTING', 'renamed_text') ?></dd>
-<?php endif; ?>
-<?php if ($partners !== []): ?>
-    <dt><?= $word('LISTING', 'partners') ?></dt><dd><ul class="plain">
-<?php foreach ($partners as $p): ?>
-      <li><?php if ($p['sku'] !== null): ?><a href="/ui/items/<?= $e($p['sku']['id']) ?>"><?= $e($p['sku']['code']) ?></a> <?= $e($p['sku']['name']) ?><?php else: ?><?= $e($p['title']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($p['pick'] !== null && $show_search): ?> &middot; <a href="<?= $e($p['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></li>
-<?php endforeach; ?>
-    </ul></dd>
-<?php endif; ?>
-<?php if ($proposal['ai']['chosen'] !== null && !$proposal['ai']['chosen']['is_target']): ?>
-    <dt><?= $word('LISTING', 'ai_pick') ?></dt><dd><?php if ($proposal['ai']['chosen']['sku'] !== null): ?><a href="/ui/items/<?= $e($proposal['ai']['chosen']['sku']['id']) ?>"><?= $e($proposal['ai']['chosen']['sku']['code']) ?></a> <?= $e($proposal['ai']['chosen']['sku']['name']) ?><?php else: ?><?= $e($proposal['ai']['chosen']['title']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($proposal['ai']['chosen']['pick'] !== null && $show_search): ?> &middot; <a href="<?= $e($proposal['ai']['chosen']['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></dd>
-<?php elseif ($proposal['ai']['chosen'] !== null): ?>
-    <dt><?= $word('LISTING', 'ai_pick') ?></dt><dd><?php if ($proposal['ai']['chosen']['sku'] !== null): ?><?= $e($proposal['ai']['chosen']['sku']['code']) ?> <?= $e($proposal['ai']['chosen']['sku']['name']) ?> <?php endif; ?><span class="muted"><?= $word('LISTING', 'ai_pick_same') ?></span></dd>
-<?php endif; ?>
-<?php if ($closest !== null): ?>
-    <dt><?= $word('LISTING', 'closest') ?></dt><dd><a href="/ui/items/<?= $e($closest['id']) ?>"><?= $e($closest['code']) ?></a> <?= $e($closest['name']) ?><?php if ($closest_pick !== null && $show_search): ?> &middot; <a href="<?= $e($closest_pick) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></dd>
-<?php endif; ?>
-<?php if ($why['reason'] !== null): ?>
-    <dt><?= $word('LISTING', 'ai_reason') ?></dt><dd><?php foreach ($why['reason'] as $part): ?><?php if ($part['ref']): ?><a href="#cand-<?= $e($part['text']) ?>"><?= $e($part['text']) ?></a><?php else: ?><?= $e($part['text']) ?><?php endif; ?><?php endforeach; ?><?php if ($candidates !== []): ?> <span class="muted">(<?= $word('LISTING', 'ai_refs') ?>)</span><?php endif; ?></dd>
-<?php endif; ?>
-  </dl>
-</section>
+  </section>
 <?php endif; ?>
 
-<?php if (!$early && $showDecide): ?>
-<?= $partial('listing_decide', $decide) ?>
-<?php endif; ?>
-
-<?php if ($mark_landing): ?>
-<details class="fold mark-landing" id="mark-landing">
-  <summary><?= $word('LANDING', 'mark_legend') ?></summary>
-  <p><?= $word('LANDING', 'mark_text') ?></p>
-  <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="action" value="landing">
-    <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+<?php if ($spot_mode): ?>
+  <div class="doc-bar mt-bar spot-answers" id="f-action">
+    <a class="btn ghost" href="<?= $e($skip) ?>" data-leave><?= $word('MATCH', 'skip') ?></a>
+    <details class="more">
+      <summary class="btn"><?= $word('MATCH', 'more') ?></summary>
+      <div class="more-menu">
+<?= $partial('listing_more', $more) ?>
+      </div>
+    </details>
+    <details class="more mt-step" id="not-a-match"<?php if ($spot_open): ?> open<?php endif; ?>>
+      <summary class="btn"><?= $word('MATCH', 'not_same') ?></summary>
+      <div class="more-menu">
+        <div class="alert blocked" role="note">
+          <p class="alert-title"><?= $word('SPOT', 'no_confirm_title') ?></p>
+          <p><?= $word('SPOT', 'no_confirm_text') ?></p>
+          <p><?= $word('SPOT', 'no_confirm_what') ?></p>
+        </div>
+        <?= $partial('listing_form', ['l' => $l, 'form' => $form, 'qq' => $qq, 'proposal' => $proposal, 'target' => $target, 'can_link' => $spot_instead !== null,
+            'offer_link' => $spot_instead !== null, 'link_label' => $spot_instead !== null ? \CW\Ui\Words::say('SPOT', 'instead_link', $spot_instead) : null,
+            'protected' => $protected, 'max_units' => $max_units, 'max_reason' => $max_reason, 'card_fields' => $card_fields,
+            'error' => $error, 'error_field' => $error_field, 'button' => \CW\Ui\Words::SPOT['no_confirm_button'], 'danger' => true]) ?>
+      </div>
+    </details>
+<?php if ($spot_yes !== null): ?>
+    <form class="quick" method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide" data-leaves="1">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="action" value="link">
+      <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
 <?php if ($proposal !== null): ?>
-    <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
+      <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
+<?php endif; ?>
+      <input type="hidden" name="sku_id" value="<?= $e($spot_yes['sku_id']) ?>">
+      <input type="hidden" name="units_per_item" value="<?= $e($spot_yes['units']) ?>">
+<?php if (($form['seen'] ?? '') !== ''): ?>
+      <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
+<?php endif; ?>
+<?php foreach ($qq as $key => $value): ?>
+<?php if ($value !== null && $value !== ''): ?>
+      <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endif; ?>
+<?php endforeach; ?>
+      <button type="submit" class="btn primary"><?= $word('MATCH', 'same') ?><?php if ($spot_yes['units'] !== '1'): ?> (<?= $e(\CW\Ui\Words::saleUses($spot_yes['units'])) ?>)<?php endif; ?></button>
+    </form>
+<?php endif; ?>
+  </div>
+<?php else: ?>
+  <div class="doc-bar mt-bar" id="f-action">
+    <a class="btn ghost" href="<?= $e($skip) ?>" data-leave><?= $word('MATCH', 'skip') ?></a>
+    <details class="more"<?php if (($cardOpen && !$newMain) || $changeOpen): ?> open<?php endif; ?>>
+      <summary class="btn"<?php if ($one): ?> aria-label="<?= $word('MATCH', 'more_label') ?>"<?php endif; ?>><?= $word('MATCH', 'more') ?></summary>
+      <div class="more-menu">
+<?php if ($one): ?>
+        <details class="doc-act mt-new" id="new-product"<?php if ($cardOpen): ?> open<?php endif; ?>>
+          <summary class="btn"><?= $word('MATCH', 'new_item') ?></summary>
+          <div class="doc-act-panel">
+          <fieldset class="doc-grid">
+            <legend class="visually-hidden"><?= $word('LISTING', 'new_details') ?></legend>
+<?php foreach ($card_fields as $f): ?>
+<?php $bad = $error_field === 'card.' . $f['name']; ?>
+            <div class="field">
+              <label for="card_<?= $e($f['name']) ?>"><?= $e($f['label']) ?></label>
+<?php if ($f['options'] !== null): ?>
+              <select id="card_<?= $e($f['name']) ?>" name="card_<?= $e($f['name']) ?>"<?php if ($bad): ?> aria-invalid="true"<?php endif; ?>>
+<?php foreach ($f['options'] as $value => $label): ?>
+                <option value="<?= $e($value) ?>"<?php if ((string) $value === $f['value']): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+              </select>
+<?php else: ?>
+              <input type="text" id="card_<?= $e($f['name']) ?>" name="card_<?= $e($f['name']) ?>" value="<?= $e($f['value']) ?>" maxlength="300"<?php if ($bad): ?> aria-invalid="true"<?php endif; ?>>
+<?php endif; ?>
+<?php if ($bad && $error !== null): ?>
+              <p class="field-error"><?= $e($error) ?></p>
+<?php endif; ?>
+            </div>
+<?php endforeach; ?>
+          </fieldset>
+<?php if (!$newMain): ?>
+          <p class="actions"><button type="submit" name="action" value="new_item" class="btn"><?= $word('MATCH', 'new_item_button') ?></button></p>
+<?php endif; ?>
+          </div>
+        </details>
+        <button type="submit" name="action" value="ignore" class="btn"><?= $word('ACTION', 'ignore') ?></button>
+<?php if ($mark_landing): ?>
+        <button type="submit" form="mark-landing" class="btn"><?= $word('ACTION', 'landing') ?></button>
+<?php endif; ?>
+<?php endif; ?>
+<?php if ($change_match): ?>
+        <details class="doc-act change-match<?php if ($change_spot): ?> spot-change<?php endif; ?>" id="change-match"<?php if ($changeOpen): ?> open<?php endif; ?>>
+          <summary class="btn<?php if ($change_spot): ?> risky<?php endif; ?>"><?php if ($change_spot): ?><?= $word('SPOT', 'change') ?><?php else: ?><?= $word('LISTING', 'change_match') ?><?php endif; ?></summary>
+          <div class="doc-act-panel">
+<?php if ($change_spot): ?>
+          <div class="alert blocked" role="note">
+            <p class="alert-title"><?= $word('SPOT', 'no_confirm_title') ?></p>
+            <p><?= $word('SPOT', 'no_confirm_text') ?></p>
+          </div>
+<?php endif; ?>
+          <?= $partial('listing_form', ['l' => $l, 'form' => ['sku_id' => (string) ($change_target['id'] ?? '')] + $form, 'qq' => $qq, 'proposal' => $proposal,
+              'target' => $change_target, 'can_link' => $change_target !== null, 'offer_link' => true, 'link_label' => null,
+              // On a spot check's confirmed member every answer left here changes the match, so the button's words are true; "No, wrong
+              // product" about another product would change nothing, so it is not offered there.
+              'offer_reject' => !$change_spot, 'offer_unlink' => true, 'protected' => $protected,
+              'max_units' => $max_units, 'max_reason' => $max_reason, 'card_fields' => $card_fields, 'error' => $error, 'error_field' => $error_field,
+              'button' => $change_spot ? \CW\Ui\Words::SPOT['change_button'] : \CW\Ui\Words::LISTING['save'], 'danger' => $change_spot]) ?>
+          </div>
+        </details>
+<?php endif; ?>
+<?= $partial('listing_more', $more) ?>
+      </div>
+    </details>
+<?php if ($one && $newMain): ?>
+    <button type="submit" name="action" value="new_item" class="btn primary"><?= $word('MATCH', 'new_item') ?></button>
+<?php elseif ($one): ?>
+    <button type="submit" name="action" value="reject" class="btn"<?php if ($target === null): ?> disabled<?php endif; ?>><?= $word('MATCH', 'not_same') ?></button>
+<?php if (!$can_link): ?>
+    <span class="btn-why"><?= $word('MATCH', 'pick_first') ?></span>
+<?php endif; ?>
+    <button type="submit" name="action" value="link" class="btn primary"<?php if (!$can_link): ?> disabled<?php endif; ?>><?= $word('MATCH', 'same') ?><?php if ($form['units'] !== '1' && $can_link): ?> (<?= $e(\CW\Ui\Words::saleUses($form['units'])) ?>)<?php endif; ?></button>
+<?php elseif ($nextSpot !== null): ?>
+    <a class="btn primary" href="<?= $e($nextSpot) ?>"><?= $say('SPOT', 'next', $strip['next_position'], $strip['size']) ?></a>
+<?php endif; ?>
+  </div>
+<?php endif; ?>
+<?php if ($one): ?>
+</form>
+<?php else: ?>
+</div>
+<?php endif; ?>
+<?php if ($show_search): ?>
+<form id="mt-find" method="get" action="/ui/review/listing/<?= $e($l['id']) ?>#f-pick" data-leaves="1">
+<?php foreach ($qq as $key => $value): ?>
+<?php if ($value !== null && $value !== ''): ?>
+  <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endif; ?>
+<?php endforeach; ?>
+</form>
+<?php endif; ?>
+<?php if ($one && $mark_landing): ?>
+<form id="mark-landing" method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide" data-leaves="1">
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="action" value="landing">
+  <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+<?php if ($proposal !== null): ?>
+  <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
 <?php endif; ?>
 <?php if (($form['seen'] ?? '') !== ''): ?>
-    <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
+  <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="btn"><?= $word('ACTION', 'landing') ?></button></p>
-  </form>
-</details>
-<?php endif; ?>
-
-<?php if ($compare !== []): ?>
-<section aria-labelledby="compare-h">
-  <h2 id="compare-h"><?= $word('LISTING', 'compare') ?></h2>
-  <div class="table-wrap">
-  <table class="stack compare">
-    <thead>
-      <tr>
-        <th scope="col"><?= $word('LISTING', 'compare_what') ?></th>
-        <th scope="col"><?= $word('LISTING', 'compare_website') ?></th>
-        <th scope="col"><?= $e($target['code'] ?? \CW\Ui\Words::THING['item']) ?></th>
-        <th scope="col"><?= $word('LISTING', 'compare_result') ?></th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($compare as $r): ?>
-      <tr<?php if ($r['state'] === 'differs'): ?> class="differs"<?php endif; ?>>
-        <th scope="row" class="c-head"><?= $e($r['label']) ?></th>
-        <td data-label="<?= $word('LISTING', 'compare_website') ?>"><?php if ($r['listing'] === ''): ?><span class="muted"><?= $word('LISTING', 'not_stated') ?></span><?php else: ?><?= $e($r['listing']) ?><?php endif; ?></td>
-        <td data-label="<?= $e($target['code'] ?? \CW\Ui\Words::THING['item']) ?>"><?php if ($r['item'] === ''): ?><span class="muted"><?= $word('LISTING', 'not_stated') ?></span><?php else: ?><?= $e($r['item']) ?><?php endif; ?></td>
-        <td class="state c-status"><?= $stateChip('FIELD_STATE', $r['state']) ?></td>
-      </tr>
-<?php endforeach; ?>
-    </tbody>
-  </table>
-  </div>
-</section>
-<?php elseif ($new_rows !== []): ?>
-<section class="card" aria-labelledby="compare-h">
-  <h2 id="compare-h"><?= $word('LISTING', 'new_compare') ?></h2>
-  <dl>
-<?php foreach ($new_rows as $r): ?>
-    <dt><?= $e($r['label']) ?></dt><dd><?= $e($r['value']) ?></dd>
-<?php endforeach; ?>
-  </dl>
-</section>
-<?php endif; ?>
-
-<?php if ($candidates !== []): ?>
-<section aria-labelledby="cand-h">
-  <h2 id="cand-h"><?= $word('LISTING', 'candidates') ?></h2>
-  <div class="table-wrap">
-  <table class="stack candidates">
-    <thead>
-      <tr><th scope="col"><?= $word('LISTING', 'no') ?></th><th scope="col"><?= $word('LISTING', 'product') ?></th><th scope="col" class="num"><?= $word('LISTING', 'score') ?></th><th scope="col"><?= $word('LISTING', 'problems') ?></th><th scope="col"><span class="visually-hidden"><?= $word('LISTING', 'use') ?></span></th></tr>
-    </thead>
-    <tbody>
-<?php foreach ($candidates as $c): ?>
-      <tr<?php if ($c['ref'] !== null): ?> id="cand-<?= $e($c['ref']) ?>"<?php endif; ?><?php if ($c['ai_picked']): ?> class="picked"<?php endif; ?>>
-        <th scope="row" class="c-head"><?= $e($c['ref']) ?></th>
-        <td data-label="<?= $word('LISTING', 'product') ?>"><?php if ($c['sku'] !== null): ?><a href="/ui/items/<?= $e($c['sku']['id']) ?>"><?= $e($c['sku']['code']) ?></a> <?= $e($c['sku']['name']) ?><?php else: ?><?= $e($c['cw_id']) ?> <span class="muted"><?= $word('LISTING', 'not_in_cw') ?></span><?php endif; ?><?php if ($c['ai_picked']): ?> <span class="tag done"><?= $word('LISTING', 'tag_ai') ?></span><?php endif; ?><?php if ($c['proposed']): ?> <span class="tag"><?= $word('LISTING', 'tag_suggested') ?></span><?php endif; ?></td>
-        <td class="num" data-label="<?= $word('LISTING', 'score') ?>"><?= $e($c['prescore']) ?></td>
-        <td data-label="<?= $word('LISTING', 'problems') ?>"><?php foreach ($c['problems'] as $p): ?><span class="tag<?php if ($p['bad']): ?> blocked<?php else: ?> needs<?php endif; ?>"><?= $e($p['text']) ?></span> <?php endforeach; ?></td>
-        <td class="c-next"><?php if ($c['pick'] !== null && $show_search): ?><a class="btn" href="<?= $e($c['pick']) ?>"><?= $word('LISTING', 'use') ?></a><?php endif; ?></td>
-      </tr>
-<?php endforeach; ?>
-    </tbody>
-  </table>
-  </div>
-</section>
-<?php endif; ?>
-
-<?php if ($proposal !== null || ($target['cwp'] ?? null) !== null): ?>
-<details class="fold tech-details">
-  <summary><?= $word('LISTING', 'tech') ?></summary>
-  <dl class="tech">
-<?php if ($proposal !== null): ?>
-    <dt><?= $word('LISTING', 'tech_band') ?></dt><dd><code><?= $e($proposal['band']) ?></code><?php if ($proposal['run_band'] !== null): ?> (<?= $word('LISTING', 'tech_run_band') ?> <code><?= $e($proposal['run_band']) ?></code>)<?php endif; ?></dd>
-<?php if ($proposal['lane'] !== null): ?>
-    <dt><?= $word('LISTING', 'tech_lane') ?></dt><dd><code><?= $e($proposal['lane']) ?></code></dd>
-<?php endif; ?>
-<?php if ($proposal['band_reasons'] !== []): ?>
-    <dt><?= $word('LISTING', 'tech_reasons') ?></dt><dd><code><?= $e(implode(', ', $proposal['band_reasons'])) ?></code></dd>
-<?php endif; ?>
-<?php if ($proposal['flags'] !== [] || $proposal['lane_flags'] !== []): ?>
-    <dt><?= $word('LISTING', 'tech_flags') ?></dt><dd><code><?= $e(implode(', ', [...$proposal['flags'], ...$proposal['lane_flags']])) ?></code></dd>
-<?php endif; ?>
-<?php if ($proposal['ai']['fields'] !== [] || $proposal['ai']['vetoes'] !== [] || $proposal['ai']['soft'] !== []): ?>
-    <dt><?= $word('LISTING', 'tech_fields') ?></dt><dd><code><?= $e(implode(', ', [...$proposal['ai']['fields'], ...$proposal['ai']['vetoes'], ...$proposal['ai']['soft']])) ?></code></dd>
-<?php endif; ?>
-<?php if ($proposal['ai']['warnings'] !== []): ?>
-    <dt><?= $word('LISTING', 'tech_warnings') ?></dt><dd><code><?= $e(implode(', ', $proposal['ai']['warnings'])) ?></code></dd>
-<?php endif; ?>
-<?php if ($proposal['ai']['roles'] !== []): ?>
-    <dt><?= $word('LISTING', 'tech_role') ?></dt><dd><code><?= $e(implode(', ', $proposal['ai']['roles'])) ?></code></dd>
-<?php endif; ?>
-    <dt><?= $word('LISTING', 'tech_run') ?></dt><dd><code><?= $e($proposal['run']) ?></code><?php if ($proposal['ai']['model'] !== null): ?>, <code><?= $e($proposal['ai']['model']) ?></code><?php endif; ?>, <?= $when($proposal['created_at']) ?></dd>
-<?php endif; ?>
-<?php if (($target['cwp'] ?? null) !== null): ?>
-    <dt><?= $word('LISTING', 'tech_cwp') ?></dt><dd><code><?= $e($target['cwp']) ?></code></dd>
-<?php endif; ?>
-    <dt><?= $word('LISTING', 'tech_ids') ?></dt><dd><?= $say('LISTING', 'tech_ids_text', '#' . $l['id'], $proposal !== null ? '#' . $proposal['id'] : '-') ?></dd>
-  </dl>
-</details>
-<?php endif; ?>
-
-<?php if ($decisions !== []): ?>
-<section aria-labelledby="hist-h">
-  <h2 id="hist-h"><?= $word('LISTING', 'history') ?></h2>
-  <ol class="plain history">
-<?php foreach ($decisions as $d): ?>
-<?php if ($d['action'] === 'suggest'): ?>
-    <li><?= $when($d['created_at']) ?> · <?php if ($d['sku_code'] !== null): ?><?= $say('LISTING', 'h_suggest', $d['sku_code']) ?><?php else: ?><?= $word('LISTING', 'h_suggest_none') ?><?php endif; ?></li>
-<?php continue; endif; ?>
-    <li><?= $when($d['created_at']) ?> · <?= $e($d['decider']) ?>: <?= $word('ACTION', $d['action']) ?><?php if ($d['sku_code'] !== null): ?> <?= $e($d['sku_code']) ?><?php endif; ?><?php if ($d['units'] !== null): ?> (<?= $e($d['units']) ?>)<?php endif; ?> – <?= $word('DECISION_STATE', $d['state']) ?>.<?php if ($d['reason'] !== null): ?> <span class="muted"><?= $say('LISTING', 'h_note', $d['reason']) ?></span><?php endif; ?></li>
-<?php endforeach; ?>
-  </ol>
-</section>
+</form>
 <?php endif; ?>

@@ -190,7 +190,14 @@
   // words come from the page (data-unsaved-text on the edited form, data-busy-text on the leaving one), English if a page has none.
   var guarded = document.querySelectorAll('form[data-unsaved]');
   each(guarded, function (form) {
-    var mark = function () { form.setAttribute('data-dirty', '1'); };
+    // (a field inside it that belongs to another form, form="…", is that form's: a store product's "Or find another item", By Item's
+    // quick match box inside the bulk form, docs/decisions.md W12.1)
+    var mark = function (ev) {
+      if (ev && ev.target && ev.target.form && ev.target.form !== form) {
+        return;
+      }
+      form.setAttribute('data-dirty', '1');
+    };
     form.addEventListener('input', mark);
     form.addEventListener('change', mark);
     // Sent: nothing of it is left unsaved, unless the send was stopped (Cancel on the question below: a stock record's lines form both

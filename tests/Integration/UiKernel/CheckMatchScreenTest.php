@@ -266,7 +266,7 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         $back = $web->follow($r);
         self::assertNotNull(self::fold($back, $f['warned']), 'the row the list comes back to has its fold, for app.js to open');
         // (the judged one and the warned one are left; this person answered one today)
-        self::assertSame(\CW\Ui\Controller\ReviewController::progress(2, 1), trim((string) (new \DOMXPath($back->dom()))->evaluate('string(//p[@data-progress])')));
+        self::assertSame(\CW\Ui\Controller\ReviewController::progress(2, 1), trim((string) (new \DOMXPath($back->dom()))->evaluate('string((//*[@data-progress])[1]/@data-progress)')));
     }
 
     public function testACleanRowsFragmentShowsTheFactsAndHasBothAnswersWithWhatTheDecideRouteNeeds(): void
@@ -462,7 +462,7 @@ final class CheckMatchScreenTest extends KernelUiTestCase
             self::assertSame($status, $r->status, $what . ': ' . $r->describe());
             self::assertStringContainsString($words, $r->text(), $what);
             self::assertSame($answer, $r->hasForm('/ui/review/listing/' . $id . '/decide'), $what . ': the variant\'s page, to answer there if this person may');
-            self::assertStringContainsString(Words::LISTING['on_website'], $r->text(), $what . ': the variant\'s page');
+            self::assertStringContainsString(Words::MATCH['on_store'], $r->text(), $what . ': the variant\'s page');
             self::assertSame('suggested', $this->link($id)['status'], $what . ': nothing was saved');
         };
         $decisions = $this->decisions();
@@ -497,7 +497,7 @@ final class CheckMatchScreenTest extends KernelUiTestCase
             self::assertSame($status, $r->status, $what . ': ' . $r->describe());
             self::assertStringContainsString($words, $r->text(), $what);
             self::assertSame($answer, $r->hasForm('/ui/review/listing/' . $id . '/decide'), $what . ': the variant\'s page, to answer there if this person may');
-            self::assertStringContainsString(Words::LISTING['on_website'], $r->text(), $what . ': the variant\'s page');
+            self::assertStringContainsString(Words::MATCH['on_store'], $r->text(), $what . ': the variant\'s page');
             self::assertSame('suggested', $this->link($id)['status'], $what . ': nothing was saved');
         };
         $decisions = $this->decisions();
@@ -541,7 +541,7 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         self::assertSame('/ui/review/listing/' . $f['warned'] . '?via=store&channel=alt&state=suggested', $open);
         $page = self::open($web, $open);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame('/ui/review/store?channel=alt&state=suggested#l-' . $f['warned'], (string) (new \DOMXPath($page->dom()))->evaluate('string(//p[@class="crumbs"]/a[1]/@href)'));
+        self::assertSame('/ui/review/store?channel=alt&state=suggested#l-' . $f['warned'], (string) (new \DOMXPath($page->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a[1]/@href)'));
         // Its own answer goes back to the list at the row (it may have left the filter: the list says what was done).
         $form = $page->form('/ui/review/listing/' . $f['warned'] . '/decide');
         self::assertSame(['store', 'alt', 'suggested'], [$form['via'] ?? null, $form['channel'] ?? null, $form['state'] ?? null]);
@@ -639,7 +639,7 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         $refused = function (UiResponse $r, string $what) use ($id): void {
             self::assertSame(409, $r->status, $what . ': ' . $r->describe());
             self::assertStringContainsString(Words::MATCH_ERROR['check_changed'], $r->text(), $what);
-            self::assertStringContainsString(Words::LISTING['on_website'], $r->text(), $what . ': the variant\'s page');
+            self::assertStringContainsString(Words::MATCH['on_store'], $r->text(), $what . ': the variant\'s page');
             self::assertTrue($r->hasForm('/ui/review/listing/' . $id . '/decide'), $what . ': to answer there');
             self::assertSame('suggested', $this->link($id)['status'], $what . ': nothing was saved');
         };

@@ -1,4 +1,9 @@
 <?php
+// Matching › Duplicates, one group: are these pages the same item? (the approved design TP_Match of 29 Oct 2026; docs/decisions.md W12.8). The
+// head asks it; the reasons against joining, when the rules found any, under it; the pages side by side (the kept one on the green edge, the
+// others on the blue), each its facts; the answer (who is kept, each page's choice when there are several, the tick that the reasons were
+// read); the bar at the bottom: Skip, More (what the rules say, what the titles say, why the computer thinks they match, undo a wrong join),
+// then the answers, the main one last. The answer's buttons send its form (form="dup-decide"); every form posts what and where it did.
 $title = static fn (array $r): string => trim(($r['title'] ?? '') . ' ' . ($r['variant_title'] ?? ''));
 $byVariant = [];
 foreach ($rows as $r) {
@@ -8,16 +13,11 @@ $several = count($open_rows) > 1;
 // The comparison shows only the rows some page states (F136).
 $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($f['values'], static fn (mixed $v): bool => $v !== null && $v !== [] && $v !== '') !== []);
 ?>
-<p class="crumbs">
-  <a href="/ui/review/duplicates"><?= $word('MENU', 'duplicates') ?></a>
-<?php if ($next_link !== null): ?>
-  <a class="next-link" href="<?= $e($next_link) ?>"><?= $word('DUPS', 'skip') ?> &rarr;</a>
-<?php endif; ?>
-</p>
-
-<?= $head($heading, intro: 'duplicate_group', look: $lookOnly, aside: $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']),
+<div class="match-head">
+<?= $head($heading, intro: 'duplicate_group', look: $lookOnly, back: ['/ui/review/duplicates', \CW\Ui\Words::MENU['duplicates']],
     meta: $say('DUPS', 'group', (string) ($g['group'] ?? $g['id'])) . ($kind !== null ? ' · ' . $e($kind) : '')
         . ($g['open'] > 0 && $g['decided'] > 0 ? ' · ' . $word('DUPS', 'partly_decided') : '')) ?>
+</div>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
@@ -26,7 +26,7 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 <p class="note"><?= $word('DUPS', 'joined_note') ?></p>
 <?php endif; ?>
 
-<?php if ($keeper !== null && $open_rows !== []): ?>
+<?php if ($keeper !== null && $open_rows !== [] && $against !== []): ?>
 <section class="dup-rules<?php if ($against !== []): ?> doubt<?php endif; ?>" aria-labelledby="dup-rules-h">
   <h2 id="dup-rules-h"><?= $word('DUPS', 'rules') ?></h2>
 <?php if ($against === []): ?>
@@ -52,12 +52,89 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 </section>
 <?php endif; ?>
 
+<div class="mt-form" id="dup-page">
+  <div class="mt-cards dup-cards">
+<?php foreach ($rows as $r): ?>
+    <section class="card mt-card dup-card <?php if ($r['state'] === 'keeper'): ?>keeper done<?php else: ?>info<?php endif; ?>" aria-labelledby="dup-<?= $e($r['id']) ?>-h">
+      <p class="dup-state">
+<?php if ($r['state'] === 'keeper'): ?>
+        <?= $chip('done', \CW\Ui\Words::DUPS['state_keeper']) ?>
+<?php elseif ($r['state'] === 'same'): ?>
+        <?= $chip('done', \CW\Ui\Words::DUPS['state_same']) ?>
+<?php elseif ($r['state'] === 'separate'): ?>
+        <?= $chip('off', \CW\Ui\Words::DUPS['state_separate']) ?>
+<?php elseif ($r['state'] === 'waiting'): ?>
+        <?= $chip('waiting', \CW\Ui\Words::DUPS['state_waiting']) ?> <a href="/ui/review?queue=pending"><?= $word('MENU', 'pending') ?></a>
+<?php elseif ($r['state'] === 'elsewhere'): ?>
+        <?= $chip('needs', \CW\Ui\Words::DUPS['state_elsewhere']) ?> <a href="/ui/review/listing/<?= $e($r['id']) ?>"><?= $word('DUPS', 'open_page') ?></a>
+<?php elseif ($r['state'] === 'not_linked'): ?>
+        <?= $chip('off', \CW\Ui\Words::DUPS['state_not_linked']) ?>
+<?php elseif ($r['verdict'] !== null && $r['verdict']['checked'] && !$r['verdict']['ok']): ?>
+        <?= $chip('blocked', \CW\Ui\Words::DUPS['state_doubt']) ?>
+<?php else: ?>
+        <?= $chip('needs', \CW\Ui\Words::DUPS['state_open']) ?>
+<?php endif; ?>
+<?php if ($r['is_suggested'] && $r['state'] !== 'keeper'): ?> <span class="muted"><?= $word('DUPS', 'suggested_keeper') ?></span><?php endif; ?>
+      </p>
+      <h2 id="dup-<?= $e($r['id']) ?>-h"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></h2>
+<?php if ($r['variant_title'] !== null): ?>
+      <p class="title"><?= $e($r['variant_title']) ?></p>
+<?php endif; ?>
+      <dl class="mt-facts">
+        <dt><?= $word('LISTING', 'website') ?></dt><dd><a href="/ui/review/listing/<?= $e($r['id']) ?>"><?= $say('DUPS', 'page_on', $names[$r['channel']] ?? $r['channel'], $r['variant']) ?></a> <?= $stateChip('LISTING_STATUS', $r['status']) ?></dd>
+<?php if ($r['brand'] !== null): ?>
+        <dt><?= $word('DUPS', 'brand') ?></dt><dd><?= $e($r['brand']) ?></dd>
+<?php endif; ?>
+        <dt><?= $word('DUPS', 'price') ?></dt><dd><?php if ($r['price'] === null): ?><span class="muted"><?= $word('DUPS', 'not_known') ?></span><?php elseif (is_numeric($r['price'])): ?><?= $money($r['price']) ?><?php else: ?><?= $e($r['price']) ?><?php endif; ?></dd>
+        <dt><?= $word('DUPS', 'sold') ?></dt><dd><?= $say('DUPS', 'sold_line', $r['units_30d'], $r['units_365d']) ?> <span class="muted"><?php if ($r['units_to'] !== null): ?><?= $say('DUPS', 'from_history', \CW\Ui\Html::day($r['units_to'])) ?><?php else: ?><?= $word('DUPS', 'from_profile') ?><?php endif; ?></span></dd>
+        <dt><?= $word('DUPS', 'site_stock') ?></dt><dd><?php if ($r['site_stock'] === null): ?><span class="muted"><?= $word('DUPS', 'not_known') ?></span><?php else: ?><?= $n($r['site_stock']) ?><?php if ($r['site_mode'] !== null): ?> (<?= $e($r['site_mode']) ?>)<?php endif; ?><?php if ($r['site_sellable'] === false): ?>, <?= $word('DUPS', 'not_for_sale') ?><?php endif; ?> <span class="muted"><?= $say('DUPS', 'on', \CW\Ui\Html::day($r['site_date'])) ?></span><?php endif; ?></dd>
+        <dt><?= $word('DUPS', 'live_page') ?></dt><dd><?php if ($r['page'] === null): ?><span class="muted"><?= $word('DUPS', 'no_link') ?></span><?php else: ?><a href="<?= $e($r['page']) ?>" rel="noopener noreferrer nofollow" target="_blank"><?= $word('DUPS', 'live') ?></a><?php endif; ?></dd>
+        <dt><?= $word('DUPS', 'barcodes') ?></dt><dd><?php if ($r['barcodes'] === []): ?><span class="muted"><?= $word('DUPS', 'none_value') ?></span><?php else: ?><?= $e(implode(', ', $r['barcodes'])) ?><?php endif; ?></dd>
+        <dt><?= $word('DUPS', 'product') ?></dt><dd>
+<?php if ($r['sku'] === null): ?>
+          <span class="muted"><?= $word('DUPS', 'none_value') ?></span>
+<?php else: ?>
+          <a href="/ui/items/<?= $e($r['sku']['id']) ?>"><?= $e($r['sku']['code']) ?></a> <?= $e($r['sku']['name']) ?>
+          <br><span class="muted"><?= $e($r['sku']['counted'] ? \CW\Ui\Words::DUPS['counted'] : \CW\Ui\Words::DUPS['not_counted']) ?> · <?= $word('POLICY', $r['sku']['policy']) ?> · <?= $say('DUPS', 'free', $r['sku']['available']) ?></span>
+<?php if ($r['sku']['policy'] !== 'legacy'): ?> <span class="tag needs"><?= $word('DUPS', 'protected') ?></span><?php elseif ($r['sku']['counted'] || $r['units_per_item'] !== 1): ?> <span class="tag needs"><?= $word('DUPS', 'needs_second') ?></span><?php endif; ?>
+<?php if ($r['sku']['others'] !== []): ?>
+          <br><span class="muted"><?= $word('DUPS', 'also_on') ?>
+<?php foreach ($r['sku']['others'] as $o): ?>
+            <a href="/ui/review/listing/<?= $e($o['id']) ?>"><?= $say('DUPS', 'page_on', $names[$o['channel']] ?? $o['channel'], $o['variant']) ?></a>
+<?php endforeach; ?>
+          </span>
+<?php endif; ?>
+<?php endif; ?>
+        </dd>
+<?php if (count($r['attributes']) <= 6): ?>
+<?php foreach ($r['attributes'] as $a): ?>
+        <dt><?= $e($a['name']) ?></dt><dd><?= $e($a['value']) ?></dd>
+<?php endforeach; ?>
+<?php endif; ?>
+      </dl>
+<?php if (count($r['attributes']) > 6): ?>
+      <details class="dup-attrs">
+        <summary><?= $say('DUPS', 'all_attrs', count($r['attributes'])) ?></summary>
+        <dl>
+<?php foreach ($r['attributes'] as $a): ?>
+          <dt><?= $e($a['name']) ?></dt><dd><?= $e($a['value']) ?></dd>
+<?php endforeach; ?>
+        </dl>
+      </details>
+<?php endif; ?>
+<?php if ($r['keeper_link'] !== null && $g['open'] > 0): ?>
+      <p><a href="<?= $e($r['keeper_link']) ?>"><?= $word('DUPS', 'keep_instead') ?></a></p>
+<?php endif; ?>
+    </section>
+<?php endforeach; ?>
+  </div>
+
 <?php if ($no_form !== null): ?>
-<p class="note read-only"><?= $e($no_form) ?></p>
+<p class="note read-only mt-answer"><?= $e($no_form) ?></p>
 <?php elseif ($can_decide): ?>
-<section class="card decide-box" aria-labelledby="dup-decide-h">
-  <h2 id="dup-decide-h"><?= $word('DUPS', 'decide') ?></h2>
-  <form class="decide dup-decide" id="dup-decide" method="post" action="/ui/review/duplicates/<?= $e($g['id']) ?>/decide">
+<section class="card mt-answer" aria-labelledby="dup-decide-h">
+  <h2 id="dup-decide-h" class="mt-h"><?= $word('DUPS', 'decide') ?></h2>
+  <form class="decide dup-decide" id="dup-decide" method="post" action="/ui/review/duplicates/<?= $e($g['id']) ?>/decide" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($error !== null): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($form_key) ?>">
     <input type="hidden" name="keeper" value="<?= $e($keeper['id']) ?>">
@@ -87,118 +164,28 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 <?php endforeach; ?>
     </fieldset>
 <?php endif; ?>
-    <div class="answers">
-      <h3 class="section-title"><?= $word('UI', 'what_each_answer_does') ?></h3>
-      <dl class="answer-list">
-<?php if ($several): ?>
-        <div class="answer info"><dt><?= $word('DUPS', 'save') ?></dt><dd><?= $word('DUPS', 'does_save') ?></dd></div>
-<?php endif; ?>
-        <div class="answer done"><dt><?php if ($several): ?><?= $say('DUPS', 'join_all', $keeper['sku']['code']) ?><?php else: ?><?= $say('DUPS', 'join', $keeper['sku']['code']) ?><?php endif; ?></dt>
-          <dd><?= $say('DUPS', 'does_join', $keeper['sku']['code'], \CW\Ui\Words::say('DUPS', 'free_short', $merge_units)) ?><?php if ($against !== []): ?> <strong><?= $word('DUPS', 'does_join_tick') ?></strong><?php endif; ?></dd></div>
-        <div class="answer blocked safe"><dt><?php if ($several): ?><?= $word('DUPS', 'apart_all') ?><?php else: ?><?= $word('DUPS', 'apart') ?><?php endif; ?> <span class="safe-tag"><?= $word('UI', 'safer') ?></span></dt>
-          <dd><?= $word('DUPS', 'does_apart') ?></dd></div>
-        <div class="answer waiting"><dt><?= $word('DUPS', 'later') ?></dt><dd><?= $word('DUPS', 'does_later') ?> <?php if ($next_link !== null): ?><a href="<?= $e($next_link) ?>"><?= $word('DUPS', 'skip') ?></a><?php else: ?><a href="/ui/review/duplicates"><?= $say('LISTING', 'skip_back', \CW\Ui\Words::MENU['duplicates']) ?></a><?php endif; ?></dd></div>
-      </dl>
-    </div>
 <?php if ($against !== []): ?>
     <label class="choice dup-confirm"><input type="checkbox" name="confirm" value="1" required<?php if ($confirmed): ?> checked<?php endif; ?>> <?= $word('DUPS', 'confirm') ?></label>
 <?php endif; ?>
-    <div class="actions">
-<?php if ($several): ?>
-      <button type="submit" name="do" value="save" class="btn primary" formnovalidate><?= $word('DUPS', 'save') ?></button>
-      <button type="submit" name="do" value="separate_all" class="btn" formnovalidate><?= $word('DUPS', 'apart_all') ?></button>
-      <button type="submit" name="do" value="merge_all" class="btn"><?= $say('DUPS', 'join_all', $keeper['sku']['code']) ?></button>
-<?php elseif ($against !== []): ?>
-      <button type="submit" name="do" value="separate_all" class="btn primary" formnovalidate><?= $word('DUPS', 'apart') ?></button>
-      <button class="btn" type="submit" name="do" value="merge_all"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
-<?php else: ?>
-      <button type="submit" name="do" value="merge_all" class="btn primary"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
-      <button class="btn" type="submit" name="do" value="separate_all" formnovalidate><?= $word('DUPS', 'apart') ?></button>
-<?php endif; ?>
-    </div>
   </form>
 </section>
 <?php endif; ?>
 
-<div class="dup-cards">
-<?php foreach ($rows as $r): ?>
-  <section class="card dup-card<?php if ($r['state'] === 'keeper'): ?> keeper<?php endif; ?>" aria-labelledby="dup-<?= $e($r['id']) ?>-h">
-    <p class="dup-state">
-<?php if ($r['state'] === 'keeper'): ?>
-      <?= $chip('done', \CW\Ui\Words::DUPS['state_keeper']) ?>
-<?php elseif ($r['state'] === 'same'): ?>
-      <?= $chip('done', \CW\Ui\Words::DUPS['state_same']) ?>
-<?php elseif ($r['state'] === 'separate'): ?>
-      <?= $chip('off', \CW\Ui\Words::DUPS['state_separate']) ?>
-<?php elseif ($r['state'] === 'waiting'): ?>
-      <?= $chip('waiting', \CW\Ui\Words::DUPS['state_waiting']) ?> <a href="/ui/review?queue=pending"><?= $word('MENU', 'pending') ?></a>
-<?php elseif ($r['state'] === 'elsewhere'): ?>
-      <?= $chip('needs', \CW\Ui\Words::DUPS['state_elsewhere']) ?> <a href="/ui/review/listing/<?= $e($r['id']) ?>"><?= $word('DUPS', 'open_page') ?></a>
-<?php elseif ($r['state'] === 'not_linked'): ?>
-      <?= $chip('off', \CW\Ui\Words::DUPS['state_not_linked']) ?>
-<?php elseif ($r['verdict'] !== null && $r['verdict']['checked'] && !$r['verdict']['ok']): ?>
-      <?= $chip('blocked', \CW\Ui\Words::DUPS['state_doubt']) ?>
-<?php else: ?>
-      <?= $chip('needs', \CW\Ui\Words::DUPS['state_open']) ?>
+  <div class="doc-bar mt-bar" id="dup-bar">
+    <a class="btn ghost" href="<?php if ($next_link !== null): ?><?= $e($next_link) ?><?php else: ?>/ui/review/duplicates<?php endif; ?>" data-leave><?= $word('MATCH', 'skip') ?></a>
+    <details class="more">
+      <summary class="btn"><?= $word('MATCH', 'more') ?></summary>
+      <div class="more-menu">
+<?php if ($keeper !== null && $open_rows !== [] && $against === []): ?>
+<details class="doc-act dup-rules-fold">
+  <summary class="btn"><?= $word('DUPS', 'rules') ?></summary>
+  <div class="doc-act-panel"><p><?= $word('DUPS', 'rules_ok') ?></p></div>
+</details>
 <?php endif; ?>
-<?php if ($r['is_suggested'] && $r['state'] !== 'keeper'): ?> <span class="muted"><?= $word('DUPS', 'suggested_keeper') ?></span><?php endif; ?>
-    </p>
-    <h2 id="dup-<?= $e($r['id']) ?>-h"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></h2>
-<?php if ($r['variant_title'] !== null): ?>
-    <p class="title"><?= $e($r['variant_title']) ?></p>
-<?php endif; ?>
-    <dl>
-      <dt><?= $word('LISTING', 'website') ?></dt><dd><a href="/ui/review/listing/<?= $e($r['id']) ?>"><?= $say('DUPS', 'page_on', $names[$r['channel']] ?? $r['channel'], $r['variant']) ?></a> <?= $stateChip('LISTING_STATUS', $r['status']) ?></dd>
-<?php if ($r['brand'] !== null): ?>
-      <dt><?= $word('DUPS', 'brand') ?></dt><dd><?= $e($r['brand']) ?></dd>
-<?php endif; ?>
-      <dt><?= $word('DUPS', 'price') ?></dt><dd><?php if ($r['price'] === null): ?><span class="muted"><?= $word('DUPS', 'not_known') ?></span><?php elseif (is_numeric($r['price'])): ?><?= $money($r['price']) ?><?php else: ?><?= $e($r['price']) ?><?php endif; ?></dd>
-      <dt><?= $word('DUPS', 'sold') ?></dt><dd><?= $say('DUPS', 'sold_line', $r['units_30d'], $r['units_365d']) ?> <span class="muted"><?php if ($r['units_to'] !== null): ?><?= $say('DUPS', 'from_history', \CW\Ui\Html::day($r['units_to'])) ?><?php else: ?><?= $word('DUPS', 'from_profile') ?><?php endif; ?></span></dd>
-      <dt><?= $word('DUPS', 'site_stock') ?></dt><dd><?php if ($r['site_stock'] === null): ?><span class="muted"><?= $word('DUPS', 'not_known') ?></span><?php else: ?><?= $n($r['site_stock']) ?><?php if ($r['site_mode'] !== null): ?> (<?= $e($r['site_mode']) ?>)<?php endif; ?><?php if ($r['site_sellable'] === false): ?>, <?= $word('DUPS', 'not_for_sale') ?><?php endif; ?> <span class="muted"><?= $say('DUPS', 'on', \CW\Ui\Html::day($r['site_date'])) ?></span><?php endif; ?></dd>
-      <dt><?= $word('DUPS', 'live_page') ?></dt><dd><?php if ($r['page'] === null): ?><span class="muted"><?= $word('DUPS', 'no_link') ?></span><?php else: ?><a href="<?= $e($r['page']) ?>" rel="noopener noreferrer nofollow" target="_blank"><?= $word('DUPS', 'live') ?></a><?php endif; ?></dd>
-      <dt><?= $word('DUPS', 'barcodes') ?></dt><dd><?php if ($r['barcodes'] === []): ?><span class="muted"><?= $word('DUPS', 'none_value') ?></span><?php else: ?><?= $e(implode(', ', $r['barcodes'])) ?><?php endif; ?></dd>
-      <dt><?= $word('DUPS', 'product') ?></dt><dd>
-<?php if ($r['sku'] === null): ?>
-        <span class="muted"><?= $word('DUPS', 'none_value') ?></span>
-<?php else: ?>
-        <a href="/ui/items/<?= $e($r['sku']['id']) ?>"><?= $e($r['sku']['code']) ?></a> <?= $e($r['sku']['name']) ?>
-        <br><span class="muted"><?= $e($r['sku']['counted'] ? \CW\Ui\Words::DUPS['counted'] : \CW\Ui\Words::DUPS['not_counted']) ?> · <?= $word('POLICY', $r['sku']['policy']) ?> · <?= $say('DUPS', 'free', $r['sku']['available']) ?></span>
-<?php if ($r['sku']['policy'] !== 'legacy'): ?> <span class="tag needs"><?= $word('DUPS', 'protected') ?></span><?php elseif ($r['sku']['counted'] || $r['units_per_item'] !== 1): ?> <span class="tag needs"><?= $word('DUPS', 'needs_second') ?></span><?php endif; ?>
-<?php if ($r['sku']['others'] !== []): ?>
-        <br><span class="muted"><?= $word('DUPS', 'also_on') ?>
-<?php foreach ($r['sku']['others'] as $o): ?>
-          <a href="/ui/review/listing/<?= $e($o['id']) ?>"><?= $say('DUPS', 'page_on', $names[$o['channel']] ?? $o['channel'], $o['variant']) ?></a>
-<?php endforeach; ?>
-        </span>
-<?php endif; ?>
-<?php endif; ?>
-      </dd>
-<?php if (count($r['attributes']) <= 6): ?>
-<?php foreach ($r['attributes'] as $a): ?>
-      <dt><?= $e($a['name']) ?></dt><dd><?= $e($a['value']) ?></dd>
-<?php endforeach; ?>
-<?php endif; ?>
-    </dl>
-<?php if (count($r['attributes']) > 6): ?>
-    <details class="dup-attrs">
-      <summary><?= $say('DUPS', 'all_attrs', count($r['attributes'])) ?></summary>
-      <dl>
-<?php foreach ($r['attributes'] as $a): ?>
-        <dt><?= $e($a['name']) ?></dt><dd><?= $e($a['value']) ?></dd>
-<?php endforeach; ?>
-      </dl>
-    </details>
-<?php endif; ?>
-<?php if ($r['keeper_link'] !== null && $g['open'] > 0): ?>
-    <p><a href="<?= $e($r['keeper_link']) ?>"><?= $word('DUPS', 'keep_instead') ?></a></p>
-<?php endif; ?>
-  </section>
-<?php endforeach; ?>
-</div>
-
 <?php if ($shownRows !== []): ?>
-<section aria-labelledby="dup-compare-h">
-  <h2 id="dup-compare-h"><?= $word('DUPS', 'compare') ?></h2>
+<details class="doc-act dup-compare-fold" id="dup-compare">
+  <summary class="btn"><?= $word('DUPS', 'compare') ?></summary>
+  <div class="doc-act-panel">
   <p class="muted"><?= $word('DUPS', 'compare_text') ?></p>
   <div class="scroll">
   <table class="compare dup-compare">
@@ -223,12 +210,14 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
     </tbody>
   </table>
   </div>
-</section>
+  </div>
+</details>
 <?php endif; ?>
 
 <?php if (($g['sweep'] ?? null) !== null && $g['sweep']['pairs'] !== []): ?>
-<section aria-labelledby="dup-sweep-h">
-  <h2 id="dup-sweep-h"><?= $word('DUPS', 'sweep') ?></h2>
+<details class="doc-act dup-sweep-fold" id="dup-sweep">
+  <summary class="btn"><?= $word('DUPS', 'sweep') ?></summary>
+  <div class="doc-act-panel">
   <p class="muted"><?= $word('DUPS', 'sweep_text') ?><?php if ($g['sweep']['score'] !== null): ?> <?= $say('DUPS', 'sweep_score', $g['sweep']['score']) ?><?php endif; ?></p>
   <ul class="plain dup-sweep">
 <?php foreach ($g['sweep']['pairs'] as $p): ?>
@@ -237,20 +226,19 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
       <?php if ($p['score'] !== null): ?><?= $say('DUPS', 'sweep_score_pair', $p['score']) ?>; <?php endif; ?><?= $say('DUPS', 'sweep_same', $p['agree'] === [] ? '–' : implode(', ', $p['agree'])) ?><?php if ($p['unknown'] !== []): ?>; <?= $say('DUPS', 'sweep_unknown', implode(', ', $p['unknown'])) ?><?php endif; ?><?php if ($p['barcode'] !== null): ?>; <?= $e($p['barcode']) ?><?php endif; ?><?php if ($pa !== null && $pb !== null && is_numeric($pa['price']) && is_numeric($pb['price'])): ?>; <?= $say('DUPS', 'sweep_prices', \CW\Ui\Html::money($pa['price']), \CW\Ui\Html::money($pb['price'])) ?><?php elseif ($p['price_ratio'] !== null): ?>; <?= $word('DUPS', 'sweep_close') ?><?php endif; ?><?php if ($p['same_product_page']): ?>; <?= $word('DUPS', 'sweep_one_page') ?><?php endif; ?>.</li>
 <?php endforeach; ?>
   </ul>
-</section>
+  </div>
+</details>
 <?php endif; ?>
 
 <?php if ($merged_rows !== [] && $can_split): ?>
-<section aria-labelledby="dup-undo-h">
-  <div class="head-help">
-    <h2 id="dup-undo-h"><?= $word('DUPS', 'undo') ?></h2>
-    <?= $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']) ?>
-  </div>
+<details class="doc-act dup-undo-fold" id="dup-undo">
+  <summary class="btn"><?= $word('DUPS', 'undo') ?></summary>
+  <div class="doc-act-panel">
   <p class="muted"><?= $word('DUPS', 'undo_text') ?></p>
 <?php foreach ($merged_rows as $r): ?>
 <?php if ($r['undo'] !== null): ?>
 <?php $uu = $r['undo']; ?>
-  <form class="dup-undo" method="post" action="/ui/review/duplicates/<?= $e($g['id']) ?>/split">
+  <form class="dup-undo" method="post" action="/ui/review/duplicates/<?= $e($g['id']) ?>/split" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($r['undo_key']) ?>">
     <input type="hidden" name="listing" value="<?= $e($r['id']) ?>">
@@ -270,5 +258,23 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
   </form>
 <?php endif; ?>
 <?php endforeach; ?>
-</section>
+  </div>
+</details>
 <?php endif; ?>
+      </div>
+    </details>
+<?php if ($no_form === null && $can_decide): ?>
+<?php if ($several): ?>
+    <button type="submit" form="dup-decide" name="do" value="separate_all" class="btn" formnovalidate><?= $word('DUPS', 'apart_all') ?></button>
+    <button type="submit" form="dup-decide" name="do" value="merge_all" class="btn"><?= $say('DUPS', 'join_all', $keeper['sku']['code']) ?></button>
+    <button type="submit" form="dup-decide" name="do" value="save" class="btn primary" formnovalidate><?= $word('DUPS', 'save') ?></button>
+<?php elseif ($against !== []): ?>
+    <button type="submit" form="dup-decide" name="do" value="separate_all" class="btn primary" formnovalidate><?= $word('DUPS', 'apart') ?></button>
+    <button class="btn" type="submit" form="dup-decide" name="do" value="merge_all"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
+<?php else: ?>
+    <button class="btn" type="submit" form="dup-decide" name="do" value="separate_all" formnovalidate><?= $word('DUPS', 'apart') ?></button>
+    <button type="submit" form="dup-decide" name="do" value="merge_all" class="btn primary"><?= $say('DUPS', 'join', $keeper['sku']['code']) ?></button>
+<?php endif; ?>
+<?php endif; ?>
+  </div>
+</div>

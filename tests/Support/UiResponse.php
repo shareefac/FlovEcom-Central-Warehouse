@@ -177,6 +177,41 @@ final class UiResponse
         return $out;
     }
 
+    /**
+     * The answers the first form with this action sends by its buttons (docs/decisions.md W12.1: a store product's one form says its answer
+     * by the button pressed, `name="action"`): the values of its enabled submit buttons named $name, its own or naming it with form="…",
+     * in the page's order; with $main, only the main (magenta) one's.
+     *
+     * @return list<string>
+     */
+    public function buttons(string $action, string $name = 'action', bool $main = false): array
+    {
+        $dom = $this->dom();
+        foreach ($dom->getElementsByTagName('form') as $form) {
+            if (!str_contains($form->getAttribute('action'), $action)) {
+                continue;
+            }
+            $id = $form->getAttribute('id');
+            $out = [];
+            foreach ($dom->getElementsByTagName('button') as $b) {
+                $own = $b->hasAttribute('form') && $id !== '' && $b->getAttribute('form') === $id;
+                for ($p = $b->parentNode; !$b->hasAttribute('form') && $p !== null; $p = $p->parentNode) {
+                    if ($p instanceof \DOMElement && strtolower($p->nodeName) === 'form') {
+                        $own = $p->isSameNode($form);
+                        break;
+                    }
+                }
+                $classes = preg_split('/\s+/', $b->getAttribute('class')) ?: [];
+                if ($own && $b->getAttribute('name') === $name && !$b->hasAttribute('disabled') && strtolower($b->getAttribute('type') ?: 'submit') === 'submit'
+                    && (!$main || in_array('primary', $classes, true))) {
+                    $out[] = $b->getAttribute('value');
+                }
+            }
+            return $out;
+        }
+        return [];
+    }
+
     public function describe(): string
     {
         return "HTTP {$this->status} " . substr($this->text(), 0, 300);

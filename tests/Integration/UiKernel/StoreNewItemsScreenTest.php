@@ -272,7 +272,7 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
         $xp = new \DOMXPath($preview->dom());
         self::assertSame(Words::say('STORE_NEW', 'go', 2), self::squash($xp->evaluate('string(//form[contains(@action, "/new-items/apply")]//button[@type="submit"])')));
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $preview->form('/ui/review/store/new-items/apply')['form_key'] ?? '');
-        self::assertSame('/ui/review/store?channel=vbig', $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/store?channel=vbig', $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
     }
 
     public function testApplyMakesOneItemPerRowMatchedOneToOneAndTheBatchPageCountsAndSendingAgainMakesNothingTwice(): void
@@ -319,7 +319,7 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
             self::assertContains('/ui/items/' . $this->link($lid)['sku_id'], $result->hrefs(), 'a link to each new item');
         }
         self::assertStringContainsString(Words::STORE_NEW['result_what'], $text);
-        self::assertSame('/ui/review/store?channel=vbig', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/store?channel=vbig', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
 
         // The same form again (a double click, Back and send): the same batch page, nothing made or recorded twice.
         $counts = self::counts();

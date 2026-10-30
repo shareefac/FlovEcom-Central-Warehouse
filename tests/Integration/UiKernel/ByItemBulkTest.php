@@ -248,7 +248,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 205, 100), $hundred->text());
         self::assertStringContainsString(Words::say('QUEUE', 'page', 1, 3), $hundred->text());
         self::assertSame('/ui/review/products?n=100&page=2', (new \DOMXPath($hundred->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'), 'the pager keeps the number');
-        self::assertContains('/ui/review/products?cov=missing-alt&n=100', $hundred->hrefs(), 'and so do the filters');
+        self::assertSame('100', $hundred->form('/ui/review/products')['n'] ?? null, 'and so does the Show row (W12.7)');
         self::assertContains('/ui/review/products.csv', $hundred->hrefs(), 'the file is every item: it has no pages');
         $second = $web->get('/ui/review/products', ['n' => '100', 'page' => '2']);
         self::assertSame(array_slice($skus, 100, 100), self::ids($second));
@@ -497,12 +497,12 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertStringContainsString(BulkController::why('changed', ['status' => 'ignored'], 'BY_ITEM_SKIP'), $rt);
         self::assertStringNotContainsString('website product', strtolower($rt), 'items and variants on this result page too');
         $rx = new \DOMXPath($result->dom());
-        self::assertSame('/ui/review/products', $rx->evaluate('string(//p[@class="crumbs"]/a/@href)'));
-        self::assertSame(Words::MENU['by_product'], self::squash($rx->evaluate('string(//p[@class="crumbs"]/a)')));
+        self::assertSame('/ui/review/products', $rx->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
+        self::assertSame(Words::MENU['by_product'], self::squash($rx->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a)')));
         self::assertSame(7, $rx->query('//table[contains(@class, "bulk-skipped")]/tbody/tr')->length);
         self::assertSame(10, $rx->query('//table[contains(@class, "bulk-rows")]/tbody/tr')->length);
         // The same batch opened without the mark of where it came from is still By Item's (its record says so).
-        self::assertSame('/ui/review/products', (new \DOMXPath($web->get('/ui/review/batches/' . $batch)->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/products', (new \DOMXPath($web->get('/ui/review/batches/' . $batch)->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         // Second approval lists the two, from this bulk action.
         self::assertStringContainsString(Words::say('BULK', 'from_batch', $batch), $web->get('/ui/review', ['queue' => 'pending'])->text());
     }
@@ -703,7 +703,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame(200, $preview->status, $preview->describe() . implode("\n", self::$log));
         $back = "/ui/review/products?q=kit&page=2&on=alt&ticked={$late}.{$last}";
         $xp = new \DOMXPath($preview->dom());
-        self::assertSame($back, $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame($back, $xp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         self::assertSame([$back, Words::BY_ITEM_BULK['back']], [$xp->evaluate('string(//form[contains(@action, "/bulk/apply")]//p[contains(@class, "actions")]/a/@href)'),
             self::squash($xp->evaluate('string(//form[contains(@action, "/bulk/apply")]//p[contains(@class, "actions")]/a)'))]);
         $again = $web->get('/ui/review/products', ['q' => 'kit', 'page' => '2', 'on' => 'alt', 'ticked' => "{$late}.{$last}"]);
@@ -716,14 +716,14 @@ final class ByItemBulkTest extends KernelUiTestCase
         $page = $web->get('/ui/review/products', ['cov' => 'suggested', 'n' => '100']);
         self::assertSame([$fill[0], $late, $last], self::ids($page));
         $preview = $web->post('/ui/review/products/bulk', self::ticked($page, [$late], 'link'));
-        self::assertSame("/ui/review/products?cov=suggested&n=100&ticked={$late}", (new \DOMXPath($preview->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame("/ui/review/products?cov=suggested&n=100&ticked={$late}", (new \DOMXPath($preview->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         $apply = $preview->form('/ui/review/products/bulk/apply');
         self::assertSame(['suggested', '100', (string) $late], [$apply['cov'], $apply['n'], $apply['ticked']]);
         $done = $web->post('/ui/review/products/bulk/apply', $apply);
         self::assertSame(303, $done->status, $done->describe());
         self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+\?from=item&cov=suggested&n=100$#', (string) $done->location());
         $result = $web->follow($done);
-        self::assertSame('/ui/review/products?cov=suggested&n=100', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/products?cov=suggested&n=100', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         self::assertSame(['mapped', 'suggested'], [$this->link($l1)['status'], $this->link($l2)['status']]);
         // Ticks that are no item numbers, or of items not on the page, tick nothing; an unknown store chooses none.
         foreach (['x', '0', "{$last},{$late}", str_repeat('9', 12), '1.2.3.x', '//evil.example'] as $odd) {
@@ -737,7 +737,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         $evil = $web->post('/ui/review/products/bulk', ['cov' => '//evil.example', 'q' => "x\r\nLocation: //evil.example", 'page' => '//evil.example', 'n' => 'javascript:alert(1)']
             + self::ticked($web->get('/ui/review/products', ['page' => '2']), [$last], 'link'));
         self::assertSame(200, $evil->status, $evil->describe());
-        self::assertSame('/ui/review/products?q=x%0D%0ALocation%3A%20%2F%2Fevil.example&ticked=' . $last, (new \DOMXPath($evil->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame('/ui/review/products?q=x%0D%0ALocation%3A%20%2F%2Fevil.example&ticked=' . $last, (new \DOMXPath($evil->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
     }
 
     /**
@@ -1040,7 +1040,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         foreach ([['from' => ['item']], ['from' => 'item', 'cov' => ['x'], 'q' => ['y'], 'page' => ['2'], 'n' => ['100']], ['from' => 'item', 'cov' => '//evil.example', 'q' => "\xFF", 'page' => '-1', 'n' => '7']] as $query) {
             $r = $web->send('GET', $path, $query, []);
             self::assertSame(200, $r->status, json_encode($query, JSON_INVALID_UTF8_SUBSTITUTE) . ': ' . $r->describe());
-            self::assertStringStartsWith('/ui/review/products', (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+            self::assertStringStartsWith('/ui/review/products', (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         }
     }
 }

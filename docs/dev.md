@@ -1082,6 +1082,43 @@ The classes it added (CSS: the "w13" block of `app.css`); a new Settings page us
 - Tests: `UiTemplatesTest::testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns` (the templates),
   `tests/Integration/UiKernel/ReportsSettingsPatternsScreensTest.php` (the pages as served).
 
+### The Matching pages on the approved patterns (`docs/decisions.md` W12)
+
+Every page keeps its address, its routes and its forms; only the layout follows the pattern (1 board, 4 inbox, 7 matching = TP_Match).
+
+| Page | Template (+ partials) | Pattern |
+|---|---|---|
+| a store product `/ui/review/listing/{id}` | `listing` (+ `listing_progress` the head's bar, `listing_more` the folds of the bar's More, `listing_form` the second steps) | 7: the question, the two cards, units and note, ONE form `#decide`, the bar Skip / More / Not the same / Same item |
+| `/ui/review` (overview), `/ui/review?queue=…` | `mapping_overview`, `queue` | 1 board: ONE Show row (store, list, show, found by, sold at least); the list one group |
+| `/ui/review/store` | `store_products` | 1 board by state (`StoreProductsController::GROUP_ORDER`, `groups`) |
+| `/ui/review/products` | `by_product` | 1 board, one group in CW number order (`pills` carry their `value`; the rows links stay links) |
+| `/ui/review/new-variants` | `new_variants` | 1 board, one group newest first (`periods` carry their `value`) |
+| `/ui/review/duplicates`, a group `/{id}` | `duplicates`, `duplicate_group` | 1 board, one group biggest sellers first (each row its `tone`, `state`); a group 7 (cards side by side, the answers in the bar, `form="dup-decide"`) |
+| `/ui/review/samples` | `samples` | 4 inbox (`SamplesController::index` `groups`, `record`: the open one's blocks and next) |
+| `/ui/match` | `simple_match` | one picker at a time: every cell's fold in `details.sm-more[name="sm-pick"]` |
+| `/ui/documents`, `/ui/documents/reviews` | `documents`, `reviews` | 1 board by status; 4 inbox (`ReviewsController::queue` `groups`, `record`; its action opens the task's page) |
+| `/ui/staff-requests` | `staff_requests` | 4 inbox (`StaffRequestsController` `GROUPS`, `?open=`; OK main, Not OK under More) |
+
+The classes it added (CSS: the "w12" block of `app.css`), for pattern 7 only:
+
+| Piece | Class | Notes |
+|---|---|---|
+| The head's bar | `span.mt-progress` > `span.mt-fill.w-N`; a spot check's `ol.segments.mt-blocks` | passed to `$head(..., side:)`; its words in `aria-label` and `data-progress` |
+| The page's one form | `form.mt-form#decide` (a `div.mt-form` when there is no answer here) | its first button the disabled hidden `button.po-default` (Enter answers nothing) |
+| The two cards | `div.mt-cards` > `section.card.mt-card` + a tone (`info` the store, `done` the item) | the 6 px top edge in the tone's colour; heading `h2.mt-h`; `div.mt-who` > `div.mt-photo` + `div.mt-id` (`p.mt-name`, `p.mt-sub`) |
+| The facts | `dl.mt-facts` > `dd` > `span.mt-mark.same` / `.diff` (`data-state`) | green where they agree, amber where they differ or one side does not say; the state's word for a screen reader |
+| Other suggestions | `details.mt-others#cand` in `div.mt-card-head` | the candidates table (`#cand-C1` …) |
+| Units and note | `section.card.mt-answer` > `div.field.mt-units` (`span.mt-units-row`), `div.field.mt-note` | a state that is not answered here uses `.mt-answer` for its note or box |
+| The bar | `div.doc-bar.mt-bar` (spot: `.spot-answers`) | Skip `a.btn.ghost[data-leave]`, `details.more` (its menu opens upwards), the answers; a step of the bar `details.more.mt-step` |
+
+- A store product's answer is the button pressed: `name="action"`, `value` link / reject / new_item / ignore (no radio). In a kernel test the
+  form is `$page->form('/decide')` (its fields, no `action`) and its answers `$page->buttons('/decide')`, the main one
+  `$page->buttons('/decide', 'action', true)`; send `$form + ['action' => 'link']` as the button does.
+- A field inside a form that belongs to another (`form="mt-find"`) does not mark the form around it as typed in (app.js, W12.13).
+- A list with several filters puts them in DC27's one Show pop-over (`details.tb-pop.tb-show`, its count `CARDS filters_on`); a store product's
+  page and a duplicate group draw their way back with `$head(back:)` inside `div.match-head` (W12.16).
+- Tests: `UiTemplatesTest::testTheMatchingPagesFollowTheApprovedPatterns`, `tests/Integration/UiKernel/MatchingPatternsScreensTest.php`.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

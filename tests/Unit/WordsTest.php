@@ -940,8 +940,8 @@ final class WordsTest extends TestCase
         foreach ([Words::CONFIG_ERROR, Words::SETTING_NOTICE, Words::REASON_NOTICE, Words::WAREHOUSE_NOTICE, Words::STAFF_REQUESTS] as $texts) {
             foreach ($texts as $code => $text) {
                 if (in_array($code, ['none', 'person', 'now', 'asked', 'by', 'on', 'ok', 'note', 'not_ok', 'yours', 'what', 'email', 'made', 'set_up', 'set_up_at',
-                    'set_up_not_yet', 'set_up_server', 'ok_reset', 'not_ok_reset'], true)) {
-                    continue; // labels, not refusals
+                    'set_up_not_yet', 'set_up_server', 'ok_reset', 'not_ok_reset', 'group_roles', 'group_reset', 'list'], true)) {
+                    continue; // labels, not refusals (the inbox's groups and names: docs/decisions.md W12.9)
                 }
                 self::assertMatchesRegularExpression('/^[A-Z"].*[.:]$/s', $text, "{$code}: a full sentence (writing rule 7)");
             }

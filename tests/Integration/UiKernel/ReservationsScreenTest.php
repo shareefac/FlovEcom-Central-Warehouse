@@ -308,7 +308,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('RESV', 'title', 'V1001') . ' ' . Words::RESV_CHIP['to_ship'], trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))));
-        self::assertSame(self::PATH . '?channel=vpg', $xp->query('//main//p[@class="crumbs"]/a')->item(0)?->getAttribute('href'), 'back to the list, at its store');
+        self::assertSame(self::PATH . '?channel=vpg', $xp->query('//main//p[@class="crumbs" or contains(@class, "ph-back")]/a')->item(0)?->getAttribute('href'), 'back to the list, at its store');
         $facts = [];
         foreach ($xp->query('//main//dl/dt') as $dt) {
             $facts[trim((string) $dt->textContent)] = trim((string) $xp->evaluate('string(following-sibling::dd[1])', $dt));

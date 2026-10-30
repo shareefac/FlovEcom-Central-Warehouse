@@ -1,4 +1,4 @@
-<form class="decide" method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
+<form class="decide" method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($error !== null): ?> data-dirty="1"<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
 <?php if ($proposal !== null): ?>

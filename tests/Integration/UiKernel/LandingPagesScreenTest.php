@@ -79,7 +79,10 @@ final class LandingPagesScreenTest extends KernelUiTestCase
         [, $option] = $this->store();
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get('/ui/review/listing/' . $option);
-        self::assertStringContainsString(Words::LANDING['mark_legend'], $page->text());
+        // Under the bar's More (W12.2): its button sends the page's own small form (form="mark-landing").
+        self::assertSame(1, (new \DOMXPath($page->dom()))->query('//details[contains(@class, "more")]//button[@form="mark-landing" and normalize-space()="'
+            . Words::ACTION['landing'] . '"]')->length);
+        self::assertSame('landing', (string) (new \DOMXPath($page->dom()))->evaluate('string(//form[@id="mark-landing"]/input[@name="action"]/@value)'));
         $r = $web->post('/ui/review/listing/' . $option . '/decide', ['csrf' => $this->token($web), 'action' => 'landing',
             'expected_map_version' => (string) $this->version($option), 'seen' => '']);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));

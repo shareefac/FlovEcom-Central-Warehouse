@@ -58,6 +58,16 @@ final class DuplicatesController
                 'units_30d' => $g['units_30d'], 'units_365d' => $g['units_365d'], 'differs' => $g['differs'], 'against' => $g['against'], 'checked' => $g['checked'],
                 'waiting' => $g['waiting'], 'title' => $k === null ? null : trim(($k['title'] ?? '') . ' ' . ($k['variant_title'] ?? '')), 'sku_code' => $k['sku']['code'] ?? null];
         }
+        // A board (GI_List, docs/decisions.md W12.8): the open groups as ONE group, biggest sellers first (the order "Next" follows), each row's
+        // state its solid cell: waiting for a second OK, a reason against joining, partly decided, to decide.
+        foreach ($rows as $i => $r) {
+            [$rows[$i]['tone'], $rows[$i]['state']] = match (true) {
+                $r['waiting'] => ['review', Words::DUPS['waiting']],
+                $r['decided'] > 0 => ['info', Words::DUPS['partly']],
+                $r['against'] !== [] => ['blocked', Words::DUPS['state_doubt']],
+                default => ['needs', Words::DUPS['state_open']],
+            };
+        }
         $page = max(1, min(10000, (int) (UiRequest::id($ctx->req->param('page')) ?? 1)));
         $recent = $dup->decidedGroups(($page - 1) * self::RECENT_PER_PAGE, self::RECENT_PER_PAGE);
         $pages = max(1, (int) ceil($recent['total'] / self::RECENT_PER_PAGE));

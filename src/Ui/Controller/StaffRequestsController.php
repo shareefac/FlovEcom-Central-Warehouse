@@ -7,7 +7,9 @@ namespace CW\Ui\Controller;
 use CW\CwException;
 use CW\Staff\RoleRequests;
 use CW\Ui\Context;
+use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
@@ -20,6 +22,9 @@ use CW\Ui\Words;
  */
 final class StaffRequestsController
 {
+    /** The inbox's groups (W12.9): what is asked => [tone, its words]. */
+    private const GROUPS = ['roles' => ['info', Words::STAFF_REQUESTS['group_roles']], 'reset' => ['review', Words::STAFF_REQUESTS['group_reset']]];
+
     public const NOTICES = ['approved' => Words::STAFF_NOTICE['request_approved'], 'rejected' => Words::STAFF_NOTICE['request_rejected'],
         'stale' => Words::STAFF_NOTICE['request_stale'], 'reset_approved' => Words::STAFF_NOTICE['reset_approved'],
         'reset_rejected' => Words::STAFF_NOTICE['reset_rejected']];
@@ -57,17 +62,38 @@ final class StaffRequestsController
         return HtmlResponse::redirect('/ui/staff-requests?notice=' . $r['result']);
     }
 
+    /**
+     * The page as an inbox (the approved design AP_Inbox; docs/decisions.md W12.9): the requests grouped by what is asked (a change of jobs, a
+     * sign-in reset), each row a link that opens it (`?open=<id>`); the open one (the one asked for, the refused one, else the first) on the
+     * right with its facts and its one decision: OK the main button, Not OK under More with its note. Its forms post where they always did.
+     */
     private function page(Context $ctx, int $status, ?int $errorId, ?CwException $error, ?string $notice = null): HtmlResponse
     {
         $rows = [];
         foreach ((new RoleRequests($ctx->db))->pending($ctx->me()->id) as $r) {
             $rows[] = $r + ['error' => $errorId === $r['id'] && $error !== null
                 ? (Words::STAFF_REQUESTS[$error->errorCode] ?? Words::error($error->errorCode, $error->getMessage())) : null,
-                'setup' => \CW\Staff\StaffAdmin::setupInfo($ctx->db, (int) $r['staff_user_id'])];
+                'setup' => \CW\Staff\StaffAdmin::setupInfo($ctx->db, (int) $r['staff_user_id']),
+                'group' => $r['kind'] === 'roles' ? 'roles' : 'reset', 'href' => Html::url('/ui/staff-requests', ['open' => (int) $r['id']])];
         }
         $general = $error !== null && !in_array($errorId, array_column($rows, 'id'), true)
             ? (Words::STAFF_REQUESTS[$error->errorCode] ?? Words::error($error->errorCode, $error->getMessage())) : null;
-        return $ctx->page('staff_requests', ['requests' => $rows, 'error' => $general], $status,
+        $groups = Html::groups($rows, self::GROUPS);
+        $flat = array_merge(...array_map(static fn (array $g): array => $g['rows'], $groups ?: [['rows' => []]]));
+        $want = $errorId ?? UiRequest::id($ctx->req->param('open'));
+        $at = 0;
+        foreach ($flat as $i => $r) {
+            if ((int) $r['id'] === $want) {
+                $at = $i;
+            }
+        }
+        $record = $flat[$at] ?? null;
+        if ($record !== null) {
+            $record += ['place' => Words::say('INBOX', 'of', $at + 1, count($flat)), 'next' => $flat[$at + 1]['person'] ?? null,
+                'tone' => self::GROUPS[$record['group']][0], 'groupName' => self::GROUPS[$record['group']][1],
+                'moreOpen' => $error !== null && $errorId === (int) $record['id'] && str_ends_with($ctx->req->path, '/reject')];
+        }
+        return $ctx->page('staff_requests', ['groups' => $groups, 'record' => $record, 'error' => $general], $status,
             ['title' => Words::title('staff_requests'), 'active' => 'staff_requests', 'notice' => $notice]);
     }
 }

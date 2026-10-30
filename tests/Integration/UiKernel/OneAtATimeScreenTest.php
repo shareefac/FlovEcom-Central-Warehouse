@@ -143,13 +143,14 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
     /** @return list<string> the "Show" filter: each choice with its count ("Held back 2") */
     private static function shows(UiResponse $r): array
     {
-        return array_map(static fn (\DOMNode $a): string => self::squash($a->textContent),
-            iterator_to_array((new \DOMXPath($r->dom()))->query('//nav[contains(@class, "show-tabs")]/a')));
+        // A choice of the board's one Show row since docs/decisions.md W12.5: "Held back (2)".
+        return array_map(static fn (\DOMNode $o): string => (string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', self::squash($o->textContent)),
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//form[contains(@class, "toolbar")]//select[@name="show"]/option')));
     }
 
     private static function shown(UiResponse $r): string
     {
-        return self::squash((new \DOMXPath($r->dom()))->evaluate('string(//nav[contains(@class, "show-tabs")]/a[@aria-current="page"])'));
+        return (string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', self::squash((new \DOMXPath($r->dom()))->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="show"]/option[@selected])')));
     }
 
     /** @return array{0: string, 1: string} the notice above the list (its text, and where its link leads; '' for none) */
@@ -294,13 +295,14 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             self::assertSame(['All 12', 'Ready for a bulk action 5', 'Held back 3', 'In a spot check 4'], self::shows($page), "{$show}: each choice with its count");
             self::assertSame(Words::QUEUE_SHOW[$show] . ' ' . count($ids), self::shown($page), "{$show}: the count of the choice is its list");
             self::assertStringContainsString(Words::say('QUEUE', 'in_all', count($ids), count($ids)), $page->text(), $show);
-            self::assertSame(Words::QUEUE['show'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//nav[contains(@class, "show-tabs")]/@aria-label)')));
+            self::assertSame(Words::QUEUE['show'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//select[@name="show"]/@aria-label)')));
         }
         self::assertSame(12, count($parts['ready']) + count($parts['held']) + count($parts['spot']), 'All is the sum of the three');
-        self::assertSame(['/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt&show=ready', '',
-            '/ui/review?queue=Key&channel=alt&show=spot'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($web->get('/ui/review', $query + ['show' => 'held', 'page' => '1'])->dom()))->query('//nav[contains(@class, "show-tabs")]/a'))),
-            'a choice opens the list from its first page (the one shown has no link: CV13)');
+        $hx = new \DOMXPath($web->get('/ui/review', $query + ['show' => 'held', 'page' => '1'])->dom());
+        self::assertSame(['', 'ready', 'held', 'spot'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
+            iterator_to_array($hx->query('//form[contains(@class, "toolbar")]//select[@name="show"]/option'))), 'a choice of the Show row');
+        self::assertSame('held', $hx->evaluate('string(//select[@name="show"]/option[@selected]/@value)'));
+        self::assertSame(0, $hx->query('//form[contains(@class, "toolbar")]//input[@name="page"]')->length, 'it opens the list from its first page');
 
         // The three parts are OneAtATime's own answer for each row: what the list shows and what a bulk action skips cannot disagree.
         $never = OneAtATime::of(self::$db, $f['all']);
@@ -385,14 +387,11 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         self::assertSame($list . '&page=1', (new \DOMXPath($p2->dom()))->evaluate('string(//nav[contains(@class, "pager")]/a[@rel="prev"]/@href)'));
         self::assertSame([], array_intersect(self::listed($p1), self::listed($p2)));
         self::assertEqualsCanonicalizing($f['ready'], [...self::listed($p1), ...self::listed($p2)]);
-        // The store selector, the strength tabs and the search box keep it.
-        $stores = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "store-seg")]/a')));
-        self::assertContains('/ui/review?queue=Key&show=ready', $stores, 'All stores');
-        self::assertContains('', $stores, 'the store shown has no link (CV13)');
-        self::assertSame(['', '/ui/review?queue=Check&channel=alt&show=ready'],
-            [$xp->evaluate('string(//nav[contains(@class, "legend")]/a[1]/@href)'), $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)')]);
-        self::assertSame('ready', $xp->evaluate('string(//form[contains(@class, "toolbar")]/input[@name="show"]/@value)'));
-        self::assertSame(0, (new \DOMXPath($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])->dom()))->query('//form[contains(@class, "toolbar")]/input[@name="show"]')->length);
+        // The store, the list and the search box keep it: one Show row sends them together (docs/decisions.md W12.5).
+        self::assertSame(['alt', 'Key', 'ready'], [$xp->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="channel"]/option[@selected]/@value)'),
+            $xp->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="queue"]/option[@selected]/@value)'),
+            $xp->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="show"]/option[@selected]/@value)')]);
+        self::assertSame('', (new \DOMXPath($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])->dom()))->evaluate('string(//form[contains(@class, "toolbar")]//select[@name="show"]/option[@selected]/@value)'));
         // The pages around the lists do not take it: the segments of Mapping lead where they always led.
         self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($p1), 'href'));
 
@@ -402,13 +401,13 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         $lxp = new \DOMXPath($page->dom());
         self::assertSame([$list, '/ui/review/listing/' . $second . '?queue=Key&channel=alt&show=ready'],
-            [$lxp->evaluate('string(//p[@class="crumbs"]/a[1]/@href)'), $lxp->evaluate('string(//p[@class="crumbs"]/a[@class="next-link"]/@href)')]);
+            [$lxp->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a[1]/@href)'), $lxp->evaluate('string(//div[contains(@class, "mt-bar")]/a[contains(@class, "ghost")]/@href)')]);
         self::assertSame('/ui/review/listing/' . $f['held'][0] . '?queue=Key&channel=alt', (new \DOMXPath($web->get('/ui/review/listing/' . $first, ['queue' => 'Key', 'channel' => 'alt'])->dom()))
-            ->evaluate('string(//p[@class="crumbs"]/a[@class="next-link"]/@href)'), 'every row: the next one is the next of them all');
+            ->evaluate('string(//div[contains(@class, "mt-bar")]/a[contains(@class, "ghost")]/@href)'), 'every row: the next one is the next of them all');
         self::assertSame('/ui/review/listing/' . $f['held'][1] . '?queue=Key&channel=alt&show=held', (new \DOMXPath($web->get('/ui/review/listing/' . $f['held'][0],
-            ['show' => 'held'] + $query)->dom()))->evaluate('string(//p[@class="crumbs"]/a[@class="next-link"]/@href)'), 'the held ones: the next held one');
+            ['show' => 'held'] + $query)->dom()))->evaluate('string(//div[contains(@class, "mt-bar")]/a[contains(@class, "ghost")]/@href)'), 'the held ones: the next held one');
         self::assertSame('/ui/review/listing/' . $f['spot'][1] . '?queue=Key&channel=alt&show=spot', (new \DOMXPath($web->get('/ui/review/listing/' . $f['spot'][0],
-            ['show' => 'spot'] + $query)->dom()))->evaluate('string(//p[@class="crumbs"]/a[@class="next-link"]/@href)'), 'a spot check\'s: its next one');
+            ['show' => 'spot'] + $query)->dom()))->evaluate('string(//div[contains(@class, "mt-bar")]/a[contains(@class, "ghost")]/@href)'), 'a spot check\'s: its next one');
         $q = new Queries(self::$db);
         $alt = (int) $this->altSite->channelId;
         self::assertSame([$f['held'][0], $second, $f['held'][0], $f['spot'][0], $f['held'][0]], [$q->nextInQueue('Key', $alt, '', null, 0, $first),
@@ -416,8 +415,9 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             $q->nextInQueue('Key', $alt, '', null, 0, $first, 'nonsense')], 'the next one of each choice after the same row; an unknown word is every row');
         // Deciding it there opens the next ready one, with the choice carried on.
         $form = $page->form('/ui/review/listing/' . $first . '/decide');
-        self::assertSame(['Key', 'alt', 'ready', 'link'], [$form['queue'] ?? null, $form['channel'] ?? null, $form['show'] ?? null, $form['action'] ?? null]);
-        $r = $web->post('/ui/review/listing/' . $first . '/decide', $form);
+        self::assertSame(['Key', 'alt', 'ready'], [$form['queue'] ?? null, $form['channel'] ?? null, $form['show'] ?? null]);
+        self::assertSame(['link'], $page->buttons('/ui/review/listing/' . $first . '/decide', 'action', true), 'Same item (W12.1)');
+        $r = $web->post('/ui/review/listing/' . $first . '/decide', $form + ['action' => 'link']);
         self::assertSame(303, $r->status, $r->describe());
         parse_str((string) parse_url((string) $r->location(), PHP_URL_QUERY), $to);
         self::assertSame(['/ui/review/listing/' . $second, ['queue' => 'Key', 'channel' => 'alt', 'show' => 'ready', 'notice' => 'decided_link', 'prev' => (string) $first]],
@@ -432,17 +432,17 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         $step = $web->post('/ui/review/bulk', ['pick_' . $third => '1', 'action' => 'reject'] + $bulk);
         self::assertSame(200, $step->status, $step->describe());
         self::assertSame('ready', $step->form('/ui/review/bulk')['show'] ?? null);
-        self::assertSame($list, (new \DOMXPath($step->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame($list, (new \DOMXPath($step->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         // The result page leads back to the list as it was shown.
         $done = $web->post('/ui/review/bulk', $step->form('/ui/review/bulk'));
         self::assertSame(303, $done->status, $done->describe());
         self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+\?show=ready$#', (string) $done->location());
         $result = $web->follow($done);
         self::assertSame(200, $result->status, $result->describe());
-        self::assertSame($list, (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame($list, (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
         $batch = (string) parse_url((string) $done->location(), PHP_URL_PATH);
         self::assertSame(['/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt&show=held'], array_map(
-            static fn (array $more): string => (string) (new \DOMXPath($web->get($batch, $more)->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'),
+            static fn (array $more): string => (string) (new \DOMXPath($web->get($batch, $more)->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'),
             [[], ['show' => 'nonsense'], ['show' => 'held']]), 'the batch page reads the choice as the list does: one of its own, or none');
         // A refusal's way back keeps it too.
         $refused = $web->post('/ui/review/bulk', ['action' => 'link'] + $bulk);
@@ -648,7 +648,7 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             self::assertSame(Words::QUEUE_SHOW[$show] . ' ' . count($ids), self::shown($p), $show);
         }
         self::assertSame(4, array_sum(array_map('count', $parts)), 'All is the sum of the four');
-        self::assertContains('/ui/review?queue=Check&channel=alt&show=arrival', $page->hrefs());
+        self::assertSame(1, (new \DOMXPath($page->dom()))->query('//form[contains(@class, "toolbar")]//select[@name="show"]/option[@value="arrival"]')->length, 'a choice of the Show row (W12.5)');
         $q = new Queries(self::$db);
         $alt = (int) $this->altSite->channelId;
         $runs = OneAtATime::arrivalRuns(self::$db);
