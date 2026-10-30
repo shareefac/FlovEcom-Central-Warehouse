@@ -2881,12 +2881,17 @@ a.set-kt:hover { color: var(--accent-hover); text-decoration: underline; }
 .mt-units-row { display: flex; align-items: center; gap: 8px; }
 .mt-units-row > input.units { width: 80px; text-align: right; }
 form.mt-form > button.po-default { display: none; }
-/* The bar: Skip and More on the left, the answers on the right; its menus open upwards, wide enough for the new item's fields */
+/* The bar: Skip and More on the left, the answers on the right; its menus open upwards, wide enough for the new item's fields. They are
+   placed against the bar, not their button (W12.18: at 800 px with the sidebar More's menu began after Skip and ran off the screen): More's
+   from the bar's left gutter, Not the same's from its right, never wider than the bar inside its gutters. */
 .mt-bar > a.btn.ghost { margin-right: 0; }
 .mt-bar > details.more:first-of-type { margin-right: auto; }
 .mt-bar > form { margin: 0; }
-.mt-bar details.more > .more-menu { width: min(36rem, calc(100vw - 32px)); }
-.mt-bar > details.mt-step > .more-menu { left: auto; right: 0; }
+.mt-bar > details.more { position: static; }
+.mt-bar details.more > .more-menu { left: var(--gutter); right: auto; width: min(36rem, calc(100% - 2 * var(--gutter))); max-width: calc(100% - 2 * var(--gutter)); }
+.mt-bar > details.mt-step > .more-menu { left: auto; right: var(--gutter); }
+/* (on a phone the menus are in the flow under their button, as every menu there: the width of the row) */
+@media (max-width: 639.98px) { .mt-bar details.more > .more-menu { width: auto; max-width: none; } }
 .mt-bar > details.mt-step > summary::after { content: none; }
 .mt-bar .more-menu .doc-act-panel fieldset.doc-grid { margin: 0; padding: 0; border: 0; background: none; }
 .mt-bar .more-menu .doc-act-panel > :last-child, .mt-bar .more-menu .doc-act-panel dl > :last-child { margin-bottom: 0; }

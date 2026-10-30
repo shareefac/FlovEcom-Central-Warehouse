@@ -83,18 +83,15 @@ final class ReferenceController
     {
         $q = mb_substr(trim((string) $ctx->req->param('q')), 0, 100);
         $canChange = $ctx->me()->can('settings.manage');
-        // The version each setting's row is drawn with (its form's `seen`, as the setting's page sends it): one read for every setting.
-        $versions = [];
-        foreach ($ctx->db->all("SELECT subject_key, MAX(version) AS v FROM config_change WHERE subject_type = 'setting' GROUP BY subject_key") as $r) {
-            $versions[(string) $r['subject_key']] = (int) $r['v'];
-        }
+        // Every setting with the version its row is drawn with (its form's `seen`, as the setting's page sends it): the value and its version
+        // read together, in one statement (docs/decisions.md W13.21), before anything else of the page.
+        $all = $ctx->settings()->allWithVersions();
         $topics = [];
         $names = [];
         foreach ($ctx->db->all("SELECT id, display_name FROM staff_user WHERE id IN (SELECT CAST(SUBSTRING(updated_actor, 7) AS UNSIGNED) FROM app_setting "
             . "WHERE updated_actor LIKE 'staff:%')") as $u) {
             $names['staff:' . $u['id']] = (string) $u['display_name'];
         }
-        $all = $ctx->settings()->all();
         $values = array_column($all, 'value', 'key');
         foreach ($all as $s) {
             $key = (string) $s['key'];
@@ -121,7 +118,7 @@ final class ReferenceController
                 'type' => $type,
                 'inline' => $inline,
                 'raw' => is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value),
-                'seen' => $versions[$key] ?? 0,
+                'seen' => (int) $s['version'],
                 'unit' => self::unit($key, $type),
                 // Who changed it last, under what it does; a value as it was set up says nothing (its page's History has it all).
                 'changed_shown' => !in_array($actor, ['system:migrate', 'system:history'], true),

@@ -149,6 +149,44 @@ final class ReportsSettingsPatternsScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::SETTINGS_PAGE['none_found'], $rev->get('/ui/reference/settings', ['q' => 'nothing like this'])->text());
     }
 
+    /**
+     * The final fixes of w12 (docs/decisions.md W13.21; the Codex review of b12544a, LOW): a settings row is drawn with a value and the version
+     * of that same value, read together. Another person's save between two separate reads drew the new value with the old version, and the
+     * row's valid save was refused as "changed meanwhile". Here that save comes exactly between the page's reads: the row shows the value
+     * and version as they were together, never one of each.
+     */
+    public function testASettingsRowsValueAndVersionAreReadTogether(): void
+    {
+        $other = $this->uiUser('reviewer');
+        $rev = $this->signIn($this->uiUser('reviewer'));
+        $pdo = self::$appDb->pdo();
+        $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        try {
+            // Another person saves 6 while the page is being read (between its read of the versions and its read of the names before).
+            \CW\Tests\Support\HookedStatement::$before['SELECT id, display_name FROM staff_user WHERE id IN'] = static function () use ($other): void {
+                (new Settings(self::$db))->set(\CW\Caller::staff($other['id']), self::KEY, '6', 'another reviewer, meanwhile');
+            };
+            $page = $rev->get('/ui/reference/settings');
+        } finally {
+            $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+            \CW\Tests\Support\HookedStatement::$before = [];
+        }
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertSame(6, (new Settings(self::$db))->get(self::KEY), 'the other save happened while the page was read');
+        $xp = self::xp($page);
+        $row = '//form[@data-key="' . self::KEY . '"]';
+        $drawn = [(string) $xp->evaluate('string(' . $row . '//input[@name="value"]/@value)'), (string) $xp->evaluate('string(' . $row . '//input[@name="seen"]/@value)')];
+        self::assertContains($drawn, [['5', '1'], ['6', '2']], 'a value with its own version');
+        // A row drawn with the value before the other save and its version: its save is refused (it did not see 6); one drawn after it is saved.
+        $fields = [];
+        foreach ($xp->query($row . '//input') ?: [] as $in) {
+            /** @var \DOMElement $in */
+            $fields[$in->getAttribute('name')] = $in->getAttribute('value');
+        }
+        $r = $rev->post('/ui/reference/settings/setting', ['value' => '7', 'reason' => 'seven, from the row'] + $fields);
+        self::assertSame($drawn === ['6', '2'] ? 303 : 409, $r->status, $r->describe());
+    }
+
     public function testTheOtherSettingsPagesAreCardsOfRows(): void
     {
         $rev = $this->signIn($this->uiUser('reviewer'));

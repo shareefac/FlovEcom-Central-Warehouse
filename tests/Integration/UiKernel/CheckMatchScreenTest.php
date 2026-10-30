@@ -219,8 +219,10 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         self::assertNull(self::fold($store, $strong));
         self::assertStringStartsWith('/ui/review/listing/' . $f['clean'] . '/check?via=store&channel=alt&state=suggested&sort=sold_365', (string) self::fold($store, $f['clean']));
         self::assertNotNull(self::fold($store, $f['warned']));
-        self::assertSame(['/ui/review/listing/' . $f['clean'], Words::QUEUE['open']], [(string) (new \DOMXPath($store->dom()))->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]/td[@class="c-next"]/a/@href)'),
-            trim((string) (new \DOMXPath($store->dom()))->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]/td[@class="c-next"]/a)'))], 'Open is as it was');
+        // (Open names the list as the fold does, so the page leads back to it: docs/decisions.md W12.21)
+        self::assertSame(['/ui/review/listing/' . $f['clean'] . '?via=store&channel=alt&state=suggested&sort=sold_365', Words::QUEUE['open']],
+            [(string) (new \DOMXPath($store->dom()))->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]/td[@class="c-next"]/a/@href)'),
+            trim((string) (new \DOMXPath($store->dom()))->evaluate('string(//tr[@id="l-' . $f['clean'] . '"]/td[@class="c-next"]/a)'))], 'Open is the plain button it was');
 
         // New Variants draws the same rows with the same line, and no fold (not this change).
         $new = $web->get('/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all', 'period' => 'all']);
@@ -241,6 +243,37 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         self::assertStringNotContainsString('data-check-fold', $own->body);
         self::assertSame(OneAtATime::ARRIVAL . ':' . $this->proposalOf($f['clean']), $own->form('/ui/review/listing/' . $f['clean'] . '/decide')['seen'] ?? null);
         self::assertArrayNotHasKey('from', $own->form('/ui/review/listing/' . $f['clean'] . '/decide'));
+    }
+
+    /**
+     * The final fixes of w12 (docs/decisions.md W12.19; the Codex review of da7c620, MEDIUM): Store Products is a board grouped by state (still
+     * to match first), so the row after a fold's row is the one the board shows under it, not the next one sold. With A suggested, B matched
+     * and C suggested (best sellers first), the board shows A, C, then B; A's fold goes on to C, and its Yes comes back to the list at C.
+     */
+    public function testStoreProductsFoldGoesOnToTheRowTheBoardShowsUnderIt(): void
+    {
+        $f = $this->arrivals();
+        $matched = $this->profiled($this->altSite, 'M1', ['product_title' => 'Matched one'], $f['judged_sku']);
+        foreach ([$f['clean'] => 30, $matched => 20, $f['warned'] => 10, $f['judged'] => 5] as $id => $units) {
+            self::$db->exec('UPDATE listing_profile SET units_30d = ?, units_365d = ? WHERE listing_id = ?', [$units, $units, $id]);
+        }
+        $web = $this->signIn($this->uiUser('mapper'));
+        $store = $web->get('/ui/review/store', ['channel' => 'alt']);
+        self::assertSame(200, $store->status, $store->describe());
+        $shown = array_map(static fn (\DOMElement $tr): int => (int) substr($tr->getAttribute('id'), 2),
+            iterator_to_array((new \DOMXPath($store->dom()))->query('//tr[starts-with(@id, "l-")]')));
+        self::assertSame([$f['clean'], $f['warned'], $f['judged'], $matched], $shown, 'still to match first, best sellers first in each');
+        $nx = static function (?string $url): ?string {
+            $q = [];
+            parse_str((string) parse_url((string) $url, PHP_URL_QUERY), $q);
+            return is_string($q['nx'] ?? null) ? $q['nx'] : null;
+        };
+        self::assertSame((string) $f['warned'], $nx(self::fold($store, $f['clean'])), 'the row under it on the board, not the matched one sold more');
+        self::assertSame((string) $f['judged'], $nx(self::fold($store, $f['warned'])));
+        $frag = self::open($web, (string) self::fold($store, $f['clean']));
+        $r = $web->post('/ui/review/listing/' . $f['clean'] . '/decide', (array) self::answer($frag, 'yes'));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringEndsWith('#l-' . $f['warned'], (string) $r->location(), 'back at the row the board shows next');
     }
 
     /**

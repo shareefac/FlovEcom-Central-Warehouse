@@ -2090,6 +2090,54 @@ final class UiTemplatesTest extends TestCase
             'no picker outside its fold');
     }
 
+    /**
+     * The final fixes of w12 (docs/decisions.md W12.17; the Codex review of da7c620): a field typed in marks the form it belongs to, also one
+     * that names its form from elsewhere (form="…": an invoice's planned date, an order's cancel reason, a line to place's item), and every
+     * POST form that owns such a field guards what is typed in it (data-unsaved), so leaving the page asks first.
+     */
+    public function testAFieldMarksTheFormItBelongsToAndEveryFormOwningAFieldElsewhereIsGuarded(): void
+    {
+        $js = (string) file_get_contents(\CW\Ui\Assets::dir() . '/app.js');
+        self::assertStringContainsString("var owner = t && (t.form || (t.closest ? t.closest('form') : null));", $js, 'the owning form, not the one around it');
+        self::assertStringContainsString("document.addEventListener('input', markOwner, true);", $js);
+        self::assertStringContainsString("document.addEventListener('change', markOwner, true);", $js);
+        self::assertStringNotContainsString("form.addEventListener('input', mark);", $js, 'no form marks itself for a field of another');
+        $t = self::templates();
+        $tagRe = '(?:<\?(?:php|=).*?\?>|[^>])*>';
+        $norm = static fn (string $id): string => (string) preg_replace('/<\?=.*?\?>/s', '*', $id);
+        $forms = [];
+        foreach ($t as $name => $src) {
+            preg_match_all('/<form\b' . $tagRe . '/s', $src, $m);
+            foreach ($m[0] as $tag) {
+                if (preg_match('/\bid="((?:<\?=.*?\?>|[^"])*)"/s', $tag, $id) === 1) {
+                    $forms[$norm($id[1])][] = ['where' => $name, 'tag' => $tag];
+                }
+            }
+        }
+        $owners = 0;
+        foreach ($t as $name => $src) {
+            preg_match_all('/<(?:input|select|textarea)\b' . $tagRe . '/s', $src, $m);
+            foreach ($m[0] as $field) {
+                if (preg_match('/\bform="((?:<\?=.*?\?>|[^"])*)"/s', $field, $f) !== 1 || preg_match('/\btype="(hidden|submit|button)"/', $field) === 1) {
+                    continue;
+                }
+                $id = $norm($f[1]);
+                if ($id === '*') {
+                    continue; // a partial's form named by its caller (lq_item_box): its callers' forms are read where they are drawn
+                }
+                self::assertArrayHasKey($id, $forms, "{$name}: {$field} names a form that is drawn");
+                foreach ($forms[$id] as $owner) {
+                    if (str_contains($owner['tag'], 'method="post"')) {
+                        $owners++;
+                        self::assertStringContainsString(' data-unsaved="1" data-unsaved-text="<?= $word(\'DOC\', \'unsaved\') ?>"', $owner['tag'],
+                            "{$owner['where']}: {$owner['tag']} owns {$field}: what is typed there is guarded");
+                    }
+                }
+            }
+        }
+        self::assertGreaterThanOrEqual(3, $owners, 'the owners were read (an invoice\'s plan, an order\'s cancel, a line to place)');
+    }
+
     public function testTheLintItselfCatchesWhatItIsFor(): void
     {
         self::assertTrue(self::onlyHelperCalls('$e($r["a"])'));

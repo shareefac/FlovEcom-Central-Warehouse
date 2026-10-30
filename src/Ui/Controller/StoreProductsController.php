@@ -75,6 +75,9 @@ final class StoreProductsController
         // Why each landing page of the page is one (docs/decisions.md LP6): the reason of its mark, and who and when.
         $landing = $q->landingWhy(array_values(array_map(static fn (array $r): int => (int) $r['listing_id'],
             array_filter($result['rows'], static fn (array $r): bool => (string) $r['state'] === 'landing'))));
+        // The list as the person has it (StoreContext): the address of a row's Open and of its Check & match fold names it, so the page opened
+        // from here leads back to it (its eyebrow, its picks, its answers: docs/decisions.md CM3, W12.21).
+        $back = new StoreContext((string) $store['code'], $state, $sort === 'sold_30' ? null : $sort, $text, $result['page'] > 1 ? $result['page'] : null);
         $rows = [];
         foreach ($result['rows'] as $r) {
             $st = (string) $r['state'];
@@ -100,7 +103,7 @@ final class StoreProductsController
                 'proposed_new' => (bool) ($r['proposed_new_item'] ?? false),
                 'pending' => $r['pending_action'] === null ? null : Words::of('ACTION', (string) $r['pending_action']),
                 'landing_why' => $st === 'landing' ? self::landingWhy($landing[(int) $r['listing_id']] ?? null) : null,
-                'link' => '/ui/review/listing/' . (int) $r['listing_id'],
+                'link' => Html::url('/ui/review/listing/' . (int) $r['listing_id'], $back->query()),
                 'map_version' => (int) $r['map_version'],
                 'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'],
                 'pickable' => $pickable,
@@ -110,9 +113,13 @@ final class StoreProductsController
                     (bool) ($r['proposed_new_item'] ?? false), $me->canDecide()),
             ];
         }
+        // The rows in the board's order (GI_List, docs/decisions.md W12.6): grouped by state, what is still to match first, best sellers first
+        // in each (a stable sort keeps the list's order within a group).
+        $rank = array_flip(self::GROUP_ORDER);
+        usort($rows, static fn (array $a, array $b): int => ($rank[$a['state']] ?? PHP_INT_MAX) <=> ($rank[$b['state']] ?? PHP_INT_MAX));
         // The Check & match fold (docs/decisions.md CM1) of a row found by the check on arrival with a Likely suggestion: its address
-        // names the list as the person has it (StoreContext), and the row after it. Whether the row is clean is asked when it is opened.
-        $back = new StoreContext((string) $store['code'], $state, $sort === 'sold_30' ? null : $sort, $text, $result['page'] > 1 ? $result['page'] : null);
+        // names the list as the person has it (StoreContext), and the row the board shows after it (W12.19: not the next one sold, which
+        // may be in a group further down). Whether the row is clean is asked when it is opened.
         foreach ($rows as $i => $row) {
             $rows[$i]['check'] = $row['fold'] ? ReviewController::foldUrl($row['listing_id'], $back->query(), null, $rows[$i + 1]['listing_id'] ?? null) : null;
         }

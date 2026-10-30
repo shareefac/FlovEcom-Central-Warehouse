@@ -188,18 +188,20 @@
   // Unsaved edits (a delivery's page, a stock record's lines): another form on the page (import, copy, cancel) leaves the page, so it
   // says so first in that form instead of throwing the typed edits away; pressing its button again goes on without them (GV11). The
   // words come from the page (data-unsaved-text on the edited form, data-busy-text on the leaving one), English if a page has none.
+  // A field typed in marks the form it BELONGS to (docs/decisions.md W12.17): the one around it, or the one it names with form="…" wherever
+  // it stands (an invoice's planned date, an order's cancel reason, a line to place's item; a store product's "Or find another item" inside
+  // the decision form is its own GET form's, never the decision form's). Listened to on the document, so a field outside its form counts.
+  var markOwner = function (ev) {
+    var t = ev.target;
+    var owner = t && (t.form || (t.closest ? t.closest('form') : null));
+    if (owner && owner.hasAttribute('data-unsaved')) {
+      owner.setAttribute('data-dirty', '1');
+    }
+  };
+  document.addEventListener('input', markOwner, true);
+  document.addEventListener('change', markOwner, true);
   var guarded = document.querySelectorAll('form[data-unsaved]');
   each(guarded, function (form) {
-    // (a field inside it that belongs to another form, form="…", is that form's: a store product's "Or find another item", By Item's
-    // quick match box inside the bulk form, docs/decisions.md W12.1)
-    var mark = function (ev) {
-      if (ev && ev.target && ev.target.form && ev.target.form !== form) {
-        return;
-      }
-      form.setAttribute('data-dirty', '1');
-    };
-    form.addEventListener('input', mark);
-    form.addEventListener('change', mark);
     // Sent: nothing of it is left unsaved, unless the send was stopped (Cancel on the question below: a stock record's lines form both
     // guards its edits and leaves the page, docs/decisions.md OV5).
     form.addEventListener('submit', function (ev) {

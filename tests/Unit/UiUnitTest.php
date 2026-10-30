@@ -1541,4 +1541,25 @@ final class UiUnitTest extends TestCase
         // Codex's review: a box the person emptied is their search (every waiting variant, as the picker's `q=`), not the opening.
         self::assertStringContainsString('return touched ? input.value.trim() : null;', $js);
     }
+
+    /**
+     * The final fixes of w12 (docs/decisions.md W12.18; the Codex review of da7c620): a store product's bar has its menus placed against the
+     * bar, inside its width (at 800 px with the sidebar the More menu began after Skip and ran off the screen): the More is not their box,
+     * the bar is; the menu starts at the bar's gutter and is never wider than the bar inside it.
+     */
+    public function testTheMatchingBarsMenusStayInsideTheBar(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $rule = static function (string $selector) use ($css): string {
+            self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
+            return $m[1];
+        };
+        self::assertStringContainsString('position: static;', $rule('.mt-bar > details.more'), 'the bar, not its More, places the menu');
+        $menu = $rule('.mt-bar details.more > .more-menu');
+        foreach (['left: var(--gutter);', 'right: auto;', 'width: min(36rem, calc(100% - 2 * var(--gutter)));', 'max-width: calc(100% - 2 * var(--gutter));'] as $part) {
+            self::assertStringContainsString($part, $menu, 'never wider than the bar, from its gutter');
+        }
+        self::assertStringContainsString('left: auto; right: var(--gutter);', $rule('.mt-bar > details.mt-step > .more-menu'), 'Not the same\'s step from the right');
+        self::assertStringNotContainsString('100vw', $rule('.mt-bar details.more > .more-menu'), 'the bar\'s width, not the window\'s');
+    }
 }

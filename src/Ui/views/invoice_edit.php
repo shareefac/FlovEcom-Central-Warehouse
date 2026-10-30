@@ -279,7 +279,7 @@
     ['value' => 'post', 'label' => \CW\Ui\Words::PI_ONE['final'], 'primary' => true]]]) ?>
 </form>
 <?php if (!$isNew): ?>
-<form id="pi-schedule" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/schedule') ?>">
+<form id="pi-schedule" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/schedule') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
 </form>

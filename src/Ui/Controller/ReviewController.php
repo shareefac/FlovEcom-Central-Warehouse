@@ -737,6 +737,14 @@ final class ReviewController
         // decide, how many they answered today (the words as before, SX6; the bar is the part answered today of the two together).
         $left = $qc !== null ? $q->listLeft($qc->band, $qc->channelId) : null;
         $today = $qc !== null && $me->canDecide() ? $q->answeredToday($me->id) : null;
+        // Opened from another list (Store Products, By Item, New Variants, Simple matching …) or from nowhere known, the eyebrow still says how
+        // many are left to match: in the store, what Store Products has as suggested and not matched (docs/decisions.md W12.21). A spot check
+        // says its own progress. No bar: the part answered today is a list's.
+        $storeLeft = null;
+        if ($qc === null && $sample === null) {
+            $c = $q->storeStateCounts((int) $l['channel_id']);
+            $storeLeft = $c['suggested'] + $c['not_matched'];
+        }
         // The item card's "N in stock" (TP_Match): what CW holds of the compared item on every shelf (its stock buckets, one read by the item).
         $targetStock = $target !== null ? array_sum(array_map(static fn (array $b): int => (int) $b['on_hand'], $q->stockOf((int) $target['id']))) : null;
 
@@ -803,13 +811,13 @@ final class ReviewController
             // Opened from a list: how many it still holds and, for someone who may decide, how many they answered today (docs/decisions.md
             // SX6; someone who can only look is told the first: Codex's review of f46d19b)
             'progress' => $left !== null ? self::progress($left, $today) : null,
-            'progress_left' => $left,
+            'progress_left' => $left ?? $storeLeft,
             'progress_today' => $today,
             'target_stock' => $targetStock,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
                 : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
                 : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)]
-                : ($store !== null ? [$store->listUrl([], $id), Words::MENU['store_products']] : self::back($req)))),
+                : ($store !== null ? [$store->listUrl([], $id), Words::MENU['store_products']] : self::back($req, (string) $l['channel_code'])))),
             'sample' => $sample,
             'spot' => $spot,
             'spot_mode' => $spotMode,
@@ -1635,13 +1643,21 @@ final class ReviewController
     }
 
     /**
-     * Where "Back" goes when the page was not opened from a list or a spot check (F217): the page the person came from when it
-     * is one of these screens (the Referer, same origin, a known path only), else Home.
+     * Where "Back" goes when the page was not opened from a list that says so in its address (F217): the page the person came from when it
+     * is one of these screens (the Referer, same origin, a known path only, only the list's own filters kept), else the section's list of
+     * the store product's store, Store Products (docs/decisions.md W12.21: never Home; DC3, the eyebrow is a list).
      *
      * @return array{0: string, 1: string}
      */
-    private static function back(UiRequest $req): array
+    private static function back(UiRequest $req, string $channel): array
     {
+        $keep = static function (array $query, array $keys): array {
+            $out = [];
+            foreach ($keys as $k) {
+                $out[$k] = is_string($query[$k] ?? null) ? mb_substr($query[$k], 0, 100) : null;
+            }
+            return $out;
+        };
         $ref = $req->header('referer');
         if ($ref !== null) {
             $path = parse_url($ref, PHP_URL_PATH);
@@ -1659,9 +1675,19 @@ final class ReviewController
                 if (preg_match('#^/ui/review/duplicates(/\d{1,10})?$#D', $path, $m) === 1) {
                     return [$path, Words::LISTING['back']];
                 }
+                // The Matching lists whose rows link the page without naming themselves.
+                if ($path === StoreContext::LIST_PATH) {
+                    return [Html::url($path, $keep($query, ['channel', 'state', 'sort', 'q', 'unsold', 'page'])), Words::MENU['store_products']];
+                }
+                if ($path === NewVariantsController::PATH) {
+                    return [Html::url($path, $keep($query, ['channel', 'period', 'state', 'q', 'page'])), Words::MENU['new_variants']];
+                }
+                if ($path === SimpleMatchController::PATH) {
+                    return [Html::url($path, $keep($query, ['q', 'page'])), Words::MENU['simple_match']];
+                }
             }
         }
-        return ['/ui/', Words::MENU['home']];
+        return [Html::url(StoreContext::LIST_PATH, ['channel' => $channel]), Words::MENU['store_products']];
     }
 
     /** @param list<array{id: int, code: string, name: string}> $channels @return array<string, string> code => name */

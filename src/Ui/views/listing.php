@@ -23,6 +23,7 @@ $one = $landing === null && $no_form === null && !$spot_mode;
 // Its main answer: Same item with an item to compare; with none, New item when the computer suggests one (what the form chose first before).
 $newMain = $one && $target === null && $preselect === 'new_item';
 $cardOpen = $one && ($form['action'] === 'new_item' || ($error_field !== null && str_starts_with($error_field, 'card.')));
+// More is closed while New item is the main answer and nothing was refused; a refused one opens it, the refused field in view (W12.20).
 $changeOpen = $change_match && ($error !== null || $change_target !== null);
 $skip = $spot_mode ? ($strip['next'] ?? ($strip['url'] ?? '/ui/review/samples')) : ($next_link ?? $back[0]);
 $nextSpot = !$spot_mode && $strip !== null && $strip['mine'] && $strip['next'] !== null && ($spot === null || $spotDone) ? $strip['next'] : null;
@@ -332,7 +333,7 @@ $question = \CW\Ui\Words::MATCH['question'];
 <?php else: ?>
   <div class="doc-bar mt-bar" id="f-action">
     <a class="btn ghost" href="<?= $e($skip) ?>" data-leave><?= $word('MATCH', 'skip') ?></a>
-    <details class="more"<?php if (($cardOpen && !$newMain) || $changeOpen): ?> open<?php endif; ?>>
+    <details class="more"<?php if (($cardOpen && (!$newMain || $error !== null)) || $changeOpen): ?> open<?php endif; ?>>
       <summary class="btn"<?php if ($one): ?> aria-label="<?= $word('MATCH', 'more_label') ?>"<?php endif; ?>><?= $word('MATCH', 'more') ?></summary>
       <div class="more-menu">
 <?php if ($one): ?>

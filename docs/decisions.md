@@ -14415,3 +14415,50 @@ these pages draw none of their own), sentence case. A store product's page and a
 sold at least), Store Products (the store, the state, the sort), New Variants (the store, the period, what it shows) and All records (the
 kind, the status, the check); a list with one filter keeps the plain Show choice (By Item, the spot checks, To check, the overview). The
 kernel tests read a page's way back from either (`p.crumbs` or the eyebrow `p.ph-back`).
+
+## The Matching pages and settings: the last fix round (branch `final-fixes`, 30 Oct 2026; W12.17-W12.22, W13.21)
+
+The Codex review of `da7c620` (`runs/w12_codex_findings.txt`), two MEDIUM and two LOW, the w13 LOW (`runs/w13_codex_findings.txt`) and the
+owner's Chrome check of the decision page's eyebrow. Each was shown failing first (`runs/final_fix_red.log`).
+
+**W12.17. A field typed in marks the form it belongs to.** app.js listens on the document (input, change) and marks the field's OWNING form
+(`field.form`: the form around it, or the one it names with `form="…"` wherever it stands) when that form guards its values
+(`data-unsaved`). w12 stopped a form marking itself for a field of another form, and so lost an invoice's planned date: its fields stand in
+the invoice's form but belong to `pi-schedule`, which was not guarded, so a sidebar link left without asking. Every POST form that owns a
+field from elsewhere now carries `data-unsaved` with DOC's words: an invoice's planned date (`pi-schedule`), an order's cancel reason
+(`po-cancel`), a line to place's item, units and note (`lq-pick-<id>`); the approvals' and barcode reviews' answers already did. GET forms
+(a store product's "Or find another item", By Item's quick match box) are not guarded and their fields mark nothing.
+
+**W12.18. The bar's menus stay inside the bar.** `.mt-bar > details.more` is not their box (`position: static`): the sticky bar is. More's
+menu starts at the bar's left gutter, Not the same's (a spot check) at its right one, each `min(36rem, 100% - 2 gutters)` wide, never wider
+than the bar (at 800 px with the sidebar the menu began after Skip and ran off the screen). On a phone the menus are in the flow, the row's
+width, as every menu there.
+
+**W12.19. Store Products' fold goes on to the row the board shows under it.** The rows are put in the board's order (the groups' order,
+still to match first, a stable sort keeping best sellers first in each) BEFORE each fold's next row (`nx`) is taken. With A suggested,
+B matched and C suggested, A's Yes came back at B, a group further down, and C was skipped.
+
+**W12.20. A refused New item opens More.** When New item is the main answer (no item to compare, the computer suggests a new one) its
+details are under More, closed while nothing was refused. A New item the service refused (a strength that is not a number: the field is
+marked; no name: the item as a whole) is drawn again with More open and the New item fold open in it.
+
+**W12.21. A store product's eyebrow is the list it was opened from, never Home.** Store Products' Open (the row's name and its button)
+carries the list as the person has it (`via=store` and the store, state, sort, search and page: StoreContext, as its Check & match fold
+did), so the page's eyebrow, Skip, picks and answers lead back to it (CM3). A list whose rows link the page without naming themselves is
+read from the Referer (same origin, its own filters only): New Variants, Simple matching, Store Products, as before Search, an item's page
+and Possible duplicates. Opened from nowhere known, the eyebrow is the section's list: Store Products of the store product's store. Its tag
+always says the store and how many are left: a list's own count when opened from To review (and its bar), a spot check's progress, else
+the store's still to match (Store Products' suggested and not matched), with no bar.
+
+**W12.22. Tests.** `UiTemplatesTest::testAFieldMarksTheFormItBelongsToAndEveryFormOwningAFieldElsewhereIsGuarded` (app.js marks the owner;
+every POST form a `form="…"` field names is guarded), `UiUnitTest::testTheMatchingBarsMenusStayInsideTheBar`,
+`CheckMatchScreenTest::testStoreProductsFoldGoesOnToTheRowTheBoardShowsUnderIt`,
+`MatchingPatternsScreensTest::testARefusedNewItemIsDrawnWithMoreAndItsDetailsOpen` and `::testAStoreProductsEyebrowIsTheListItWasOpenedFrom`.
+`CheckMatchScreenTest`'s pin of Store Products' Open now has the list in its address.
+
+**W13.21. A settings row's value and version are read together.** The settings page read every setting's version, then the names of who
+changed them, then the values: another person's save in between drew the new value with the old version, and the row's valid save was
+refused (409 changed_meanwhile). `Settings::allWithVersions()` reads each value with its version in ONE statement (one read view; the
+sessions are READ COMMITTED, so two statements are two snapshots), first of the page's reads, never from rows read earlier.
+`ReportsSettingsPatternsScreensTest::testASettingsRowsValueAndVersionAreReadTogether` puts another reviewer's save exactly between the
+page's reads: the row shows a value with its own version, and its save is refused only when it did not see the other's.

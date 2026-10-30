@@ -47,7 +47,7 @@
         <td class="num" data-label="<?= $word('LQ', 'col_each') ?>"><input type="number" name="units" form="lq-pick-<?= $e($r['id']) ?>" class="short" min="1" max="10000" step="1" value="<?= $e($r['typed_units']) ?>" required aria-label="<?= $word('LQ', 'col_each') ?>"></td>
         <td data-label="<?= $word('LQ', 'col_note') ?>"><input type="text" name="note" form="lq-pick-<?= $e($r['id']) ?>" value="<?= $e($r['typed_note']) ?>" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required placeholder="<?= $word('LQ', 'note_hint') ?>" aria-label="<?= $word('LQ', 'col_note') ?>"></td>
         <td class="c-next" data-label="">
-          <form class="lq-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/pick') ?>" id="lq-pick-<?= $e($r['id']) ?>">
+          <form class="lq-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/pick') ?>" id="lq-pick-<?= $e($r['id']) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <button type="submit" class="btn sm<?php if (!$r['correction']): ?> primary<?php endif; ?>"><?php if ($r['correction']): ?><?= $word('LQ', 'to_corrections') ?><?php else: ?><?= $word('LQ', 'place') ?><?php endif; ?></button>
           </form>

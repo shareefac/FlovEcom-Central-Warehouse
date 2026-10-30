@@ -312,20 +312,50 @@ final class Settings
     {
         $out = [];
         foreach ($this->rows() as $key => $r) {
-            $value = self::decode((string) $r['value_type'], (string) $r['value_json']);
-            $out[] = [
-                'key' => $key,
-                'type' => (string) $r['value_type'],
-                'value' => self::isSecret($key) && $value !== '' ? self::masked($value) : $value,
-                'display' => self::isSecret($key) && $value !== '' ? self::masked($value) : self::display($value),
-                'provisional' => (int) $r['provisional'] === 1,
-                'decision' => $r['decision'] === null ? null : (string) $r['decision'],
-                'description' => (string) $r['description'],
-                'updated_actor' => (string) $r['updated_actor'],
-                'updated_at' => (string) $r['updated_at'],
-            ];
+            $out[] = self::shown((string) $key, $r);
         }
         return $out;
+    }
+
+    /**
+     * Every setting as all() gives it, with the version of its history that value is (`version`: what a form drawn with it sends as
+     * `seen`; 0 when it has none), the value and its version read in ONE statement, so another person's change between two reads never
+     * pairs the new value with the old version (docs/decisions.md W13.21: the row's valid save was refused as changed meanwhile). Read
+     * now, never from the rows read before.
+     *
+     * @return list<array{key: string, type: string, value: mixed, display: string, provisional: bool, decision: ?string, description: string, updated_actor: string, updated_at: string, version: int}>
+     */
+    public function allWithVersions(): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT s.setting_key, s.value_type, CAST(s.value_json AS CHAR) AS value_json, s.provisional, s.decision, s.description, '
+            . "s.updated_actor, s.updated_at, (SELECT MAX(c.version) FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key) AS version "
+            . 'FROM app_setting s ORDER BY s.setting_key') as $r) {
+            $out[] = self::shown((string) $r['setting_key'], $r) + ['version' => (int) ($r['version'] ?? 0)];
+        }
+        return $out;
+    }
+
+    /**
+     * A setting's row as the screen and the CLI get it (all()).
+     *
+     * @param array<string, mixed> $r an app_setting row
+     * @return array{key: string, type: string, value: mixed, display: string, provisional: bool, decision: ?string, description: string, updated_actor: string, updated_at: string}
+     */
+    private static function shown(string $key, array $r): array
+    {
+        $value = self::decode((string) $r['value_type'], (string) $r['value_json']);
+        return [
+            'key' => $key,
+            'type' => (string) $r['value_type'],
+            'value' => self::isSecret($key) && $value !== '' ? self::masked($value) : $value,
+            'display' => self::isSecret($key) && $value !== '' ? self::masked($value) : self::display($value),
+            'provisional' => (int) $r['provisional'] === 1,
+            'decision' => $r['decision'] === null ? null : (string) $r['decision'],
+            'description' => (string) $r['description'],
+            'updated_actor' => (string) $r['updated_actor'],
+            'updated_at' => (string) $r['updated_at'],
+        ];
     }
 
     /** A typed value as people read it: true/false, '' as "(not set)". */
