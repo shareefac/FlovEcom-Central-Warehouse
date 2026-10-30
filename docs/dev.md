@@ -860,6 +860,9 @@ decision logic: each answer is a form of the kind's own route, which leads back 
 
 ### The item page, stock first (`docs/decisions.md` IV1-IV12)
 
+Since the redesign of 30 Oct 2026 (RD-A4) the page has no tabs: its sections and folds are in "The Items and Inventory pages on the approved
+redesign" below; what follows is the history of the stock-first page.
+
 The approved design (`IT_Item`, `IT_Phone`) on the shared pieces: the head is `.doc-head` with the actions in `.doc-actions` + More, the
 strip is `.doc-progress`, the movements a board with `td.doc-st`, the parts under the ONE tabs component (CSS: the "item-stock-first" block).
 
@@ -1136,3 +1139,25 @@ The classes it added (CSS: the "w12" block of `app.css`), for pattern 7 only:
   the cut-off is the database clock, as `stock_ledger.created_at`; the script run out of process on the test schema),
   `tests/Integration/Ops/RollbackListsTest.php` (extends `PurchaseOrderTestCase`), `Migration0046Test`. A new movement type is either in
   `CARRIED_TYPES` or in `WEBSITE_TYPES`; anything else is listed as `unknown_type` and never carried.
+
+### The Items and Inventory pages on the approved redesign (`docs/decisions.md` RD-A1-RD-A9)
+
+The artboards Items, Item, Inventory (Adjustments) and Counts (Stock counts) of the approved redesign of 30 Oct 2026, and the same simple list on
+every other Items and Inventory page. Layout and view data only.
+
+| Path | What |
+|---|---|
+| views `rda_show` | a list's ONE Show choice: `details.more.show-pick` > `summary.btn.show-select` + `.more-menu` of `a.menu-item` (the shown one a `span.menu-item.is-current[aria-current]`); `$choices` (label, href, current), `$label`, `$other` (said when none is shown). Page-scoped until step 1's shared helper is in (RD-A1) |
+| views `rda_bar` | the head's right: `details.more.page-more` (the "More filters" fold: a GET form of `selects` and `ticks`, `keep` as hidden fields; then `links`) and the ONE main button (`main`: label, href) |
+| views `item_cards`, `stock_ops`, `stock_counts`, `stock_count_sheets`, `stock_count_reviews`, `families`, `packs`, `pack_links`, `barcode_reviews`, `items_by_hand`, `repacks`, `stock_reservations`, `stock_movements`, `stock` | the lists: `$head(…, side: $partial('rda_bar', $bar))`, `form.toolbar` (one search, the kept filters as hidden fields, `rda_show`), the groups (`.doc-group` > `h3.grp-title` with the count as a figure, `.doc-board`), 3-5 columns |
+| views `item` (+ `item_bar`) | the item page in sections: `section.item-strip`, `div.item-cols` > `div.item-main` (`section#card.item-details` with `div.facts-group.facts-<key>`, `section.item-moves` > `table.item-history`, the folds `details.it-fold#it-wh`, `#it-selling`, `#it-groups`, `#it-history`) + `aside.item-side` (`section.item-stores`, `section#barcodes` with `details.card-add` and `details.bc-change`, `section.item-suppliers`) |
+| `src/Ui/Controller/ItemController.php` | `PARTS`, `NOTICE_PARTS`, `OLD_TABS`, `openPart()`; `facts()` (PRODUCT, BUYING, LEGAL), `storeRows()`; the view data `barcodeLines`, `supplierRows` |
+| `src/Ui/Controller/StockOpsController.php` | `LIST_GROUPS`, `ADJUSTMENT_KINDS`, `weekStart()`, `groupNames()`, `showChoices()`, `bar()`; `listRow()`'s `kind_word`, `units_shown`, `units_dir`, `from`, `to` |
+| `src/Ui/Controller/CountsController.php` | `views()` (Stock counts' Show), the boards' `bar`; `PLAN_TONES` (never counted grey) |
+| `src/Ui/Words.php` | `INV_LIST`, `ITEM_PAGE` |
+
+- CSS: the "rd2a" block at the end of `app.css` (`.show-pick`, `.page-more`, `table.stock-records td.chg`, `.count-more`, the item page's
+  `.item-cols`, `.card-head`, `.card-link`, `dl.item-facts-grid`, `table.item-history`, `.side-row`, `.side-line`, `.side-sub`).
+- A new Items or Inventory list: `rda_bar` + `rda_show`, the view data `show` and `bar` from its controller; no `div.tb-state`, no `rp-figs`,
+  no `tr.grp-add`.
+- Tests: `tests/Integration/UiKernel/InventoryRedesignScreensTest.php` (`assertSimpleList()` is the list's pin).

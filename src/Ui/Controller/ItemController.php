@@ -28,9 +28,10 @@ use CW\Ui\Words;
  * the confirmation, the history), its barcodes (with the forms to add, remove and set units per scan for catalogue.edit),
  * every listing linked to it (now or before), the selling mode CW writes on each website with the switch (IM10, SellingModeController),
  * its stock and (suppliers.view) who supplies it. ItemCardsController's actions
- * redraw this page with their error (page()). Stock first (docs/decisions.md IV1-IV12): the head with the status block, the identity line
- * and the actions this person may use (top()), the stock strip, the recent movements, where it sells, then the parts above under tabs
- * (TABS; which one opens: openTab()).
+ * redraw this page with their error (page()). One page in sections (the approved redesign of 30 Oct 2026, artboard Item; docs/decisions.md
+ * RD-A4; stock first since IV1-IV12): the head with the status label, the fact line and the actions this person may use (top()), the stock
+ * card, Details (facts()), the recent stock history, the side cards (storeRows(), the barcodes, the suppliers), and the closed folds of
+ * what the tabs of before held (PARTS; which one opens: openPart()).
  */
 final class ItemController
 {
@@ -38,15 +39,18 @@ final class ItemController
     public const NOTICES = Words::CARD_NOTICE;
 
     /**
-     * The page's tabs, in order (docs/decisions.md IV6): Details (the product card and what the matching knows), Barcodes, Suppliers and
-     * packs (who supplies it, its family and packs), Store matching (its website products and the selling mode), History (the card's changes).
+     * The page is one page in sections (the approved redesign of 30 Oct 2026, artboard Item; docs/decisions.md RD-A4): no tab row. What the
+     * tabs of before held that the artboard does not draw is a closed fold under the history: these parts, which a refused form, a redirect's
+     * notice or an old `?tab=` link opens (openPart()). `barcodes` is the Barcodes card's add form (open after a refused one).
      */
-    public const TABS = ['details', 'barcodes', 'packs', 'stores', 'history'];
+    public const PARTS = ['barcodes', 'warehouses', 'selling', 'groups', 'history'];
 
-    /** The tab a redirect's notice opens (IV7): where the change was made. Any other notice opens Details. */
-    public const NOTICE_TABS = ['barcode_added' => 'barcodes', 'barcode_added_unusable' => 'barcodes', 'barcode_removed' => 'barcodes', 'units_saved' => 'barcodes',
-        'units_unchanged' => 'barcodes', 'selling_mode_set' => 'stores', 'selling_mode_unchanged' => 'stores', 'family_set' => 'packs', 'family_out' => 'packs',
-        'unchanged' => 'packs'];
+    /** The part a redirect's notice opens: where the change was made. Any other notice opens none. */
+    public const NOTICE_PARTS = ['selling_mode_set' => 'selling', 'selling_mode_unchanged' => 'selling', 'family_set' => 'groups', 'family_out' => 'groups',
+        'unchanged' => 'groups'];
+
+    /** An old link's tab (the tab row of before, IV6) => the part it opens now; Details and Barcodes are always shown. */
+    private const OLD_TABS = ['details' => null, 'barcodes' => null, 'packs' => 'groups', 'stores' => 'selling', 'history' => 'history'];
 
     /** The weeks after which "lasts about N weeks" says "over a year" (a year's weeks: a fact of the calendar, not a setting). */
     private const YEAR_WEEKS = 52;
@@ -222,11 +226,18 @@ final class ItemController
         $cardVars = self::cardVars($ctx, $id, $canEdit);
         $top = self::top($ctx, $id, $sku, $cardVars, $totals, $ledger);
         $activeSupplies = $suppliers === null ? null : count(array_filter($suppliers, static fn (array $r): bool => $r['active']));
+        $groupVars = self::groupVars($ctx, $id, $sku);
         return $ctx->page('item', $cardVars + $top + [
-            'tab' => self::openTab($ctx),
-            'tabCounts' => ['barcodes' => count($barcodes), 'packs' => $activeSupplies, 'stores' => count(array_filter($rows, static fn (array $r): bool => $r['linked']))],
+            'open' => self::openPart($ctx),
+            // The redesign's sections (RD-A4): the Details groups, the side cards' lines.
+            'facts' => self::facts($ctx, $id, $sku, $cardVars, $suppliers, $stock, $madeFrom, $cwp === null ? null : 'CWP-' . $cwp),
+            'storeRows' => self::storeRows($ctx, $id, $sku, $top['sells'], $rows),
+            'barcodeLines' => array_map(static fn (array $b): array => $b + ['units_words' => $b['units'] === 1 ? Words::ITEM_PAGE['single']
+                : Words::say('ITEM_PAGE', 'box_of', $b['units'])], $barcodes),
+            'supplierRows' => $suppliers === null ? null : array_values(array_filter($suppliers, static fn (array $r): bool => $r['active'])),
+            'supplierRowsOff' => $suppliers === null ? [] : array_values(array_filter($suppliers, static fn (array $r): bool => !$r['active'])),
             // Pack B: the family and pack box, and its refusals in its words.
-            'groups' => self::groupVars($ctx, $id, $sku),
+            'groups' => $groupVars,
             'error' => $error === null ? null : (isset(Words::ITEMS_ERROR[$error->errorCode]) ? FamiliesController::plain($error) : ItemCardsController::plain($error)),
             'errorCode' => $error?->errorCode,
             'errorDetail' => $error?->detail ?? [],
@@ -408,14 +419,16 @@ final class ItemController
             $selling => ['done', Words::ITEM['st_selling']],
             default => ['waiting', Words::ITEM['st_not_selling']],
         };
+        // The fact line under the name (the redesign's artboard Item, RD-A4): "CW-003167 · Elux Legend · 10 ml · 10 mg nic salt" (what is known).
         $identity = [(string) $sku['code']];
-        foreach ([self::s($sku['brand']), $sku['nic_type'] === null || $sku['nic_type'] === '' ? null : mb_strtolower(Words::of('NIC_TYPE', (string) $sku['nic_type']))] as $part) {
-            if ($part !== null) {
+        $ml = Html::dec($sku['volume_ml']);
+        $mg = Html::dec($sku['strength_mg']);
+        $nic = $sku['nic_type'] === null || $sku['nic_type'] === '' ? null : mb_strtolower(Words::of('NIC_TYPE', (string) $sku['nic_type']));
+        foreach ([self::s($sku['brand']), $ml === '' ? null : Words::say('ITEM_PAGE', 'ml', $ml),
+            $mg === '' ? $nic : trim(Words::say('ITEM_PAGE', 'mg', $mg) . ' ' . ($nic ?? ''))] as $part) {
+            if ($part !== null && $part !== '') {
                 $identity[] = $part;
             }
-        }
-        if ($supply !== null && $me->can('suppliers.view')) {
-            $identity[] = Words::say('ITEM', 'pack_from', PurchaseOrdersController::pack($supply['purchase_unit'], $supply['units_per_pack']), $supply['supplier_name']);
         }
         // The actions (IV2): only what this person may use; none on an item joined into another (its stock and orders moved there).
         $roles = $me->roles;
@@ -556,26 +569,137 @@ final class ItemController
     }
 
     /**
-     * The tab the page opens on (docs/decisions.md IV7): after a refused form, the form's own tab (the page is drawn again for its POST: its
-     * address says which form); else the address's `tab`; else the tab of the change a redirect's notice names; else Details.
+     * The part the page opens (docs/decisions.md RD-A4, IV7 of before): after a refused form, the form's own part (the page is drawn again
+     * for its POST: its address says which form); else the address's `part` (or an old link's `tab`); else the part of the change a
+     * redirect's notice names; else none (Details, the history and the side cards are always shown).
      */
-    private static function openTab(Context $ctx): string
+    private static function openPart(Context $ctx): ?string
     {
         $req = $ctx->req;
         if ($req->method === 'POST') {
             $rest = (string) preg_replace('#^/ui/items/[0-9]+#', '', $req->path);
             return match (true) {
                 str_starts_with($rest, '/barcodes') => 'barcodes',
-                $rest === '/selling-mode' => 'stores',
-                $rest === '/family' => 'packs',
-                default => 'details',
+                $rest === '/selling-mode' => 'selling',
+                $rest === '/family' => 'groups',
+                default => null,
             };
         }
-        $tab = $req->param('tab');
-        if ($tab !== null && in_array($tab, self::TABS, true)) {
-            return $tab;
+        $part = $req->param('part');
+        if ($part !== null && in_array($part, self::PARTS, true)) {
+            return $part;
         }
-        return self::NOTICE_TABS[(string) $req->param('notice')] ?? 'details';
+        $tab = (string) $req->param('tab');
+        if (array_key_exists($tab, self::OLD_TABS)) {
+            return self::OLD_TABS[$tab];
+        }
+        return self::NOTICE_PARTS[(string) $req->param('notice')] ?? null;
+    }
+
+    /**
+     * The Details section's groups (the redesign's artboard Item, docs/decisions.md RD-A4): PRODUCT (what the item is, as the matching knows it,
+     * with its stock rule, what it was made from, when it was added and last counted), BUYING (who may see suppliers: the main supplier, the
+     * box it is bought in, the average cost so far) and LEGAL (the product card's every field and the card's state). A fact with no value is
+     * left out of PRODUCT and BUYING; the card's are all shown ("not known").
+     *
+     * @param array<string, mixed> $sku Queries::sku()
+     * @param array<string, mixed> $cardVars cardVars()
+     * @param list<array<string, mixed>>|null $suppliers
+     * @param list<array<string, mixed>> $stock
+     * @param array{id: int, text: string}|null $madeFrom the store product it was made from (its page), else its origin is said in words
+     * @return list<array{key: string, title: string, facts: list<array{label: string, value: ?string, href?: ?string}>}>
+     */
+    private static function facts(Context $ctx, int $id, array $sku, array $cardVars, ?array $suppliers, array $stock, ?array $madeFrom, ?string $cwp): array
+    {
+        $v = static fn (mixed $x): ?string => self::s($x);
+        $product = [];
+        $add = static function (array &$list, string $label, ?string $value, ?string $href = null): void {
+            if ($value !== null && $value !== '') {
+                $list[] = ['label' => $label, 'value' => $value, 'href' => $href];
+            }
+        };
+        $add($product, Words::FIELD['brand'], $v($sku['brand']));
+        $add($product, Words::FIELD['line'], $v($sku['line']));
+        $add($product, Words::FIELD['flavour'], $v($sku['flavour']));
+        $mg = Html::dec($sku['strength_mg']);
+        $add($product, Words::ITEM_PAGE['strength'], $mg === '' ? null : Words::say('ITEM_PAGE', 'mg', $mg));
+        $ml = Html::dec($sku['volume_ml']);
+        $add($product, Words::ITEM_PAGE['size'], $ml === '' ? null : Words::say('ITEM_PAGE', 'ml', $ml));
+        $form = $v($sku['form']);
+        $add($product, Words::ITEM_PAGE['kind'], $form === null ? null : (Words::has('FORM_VALUE', $form) ? Words::of('FORM_VALUE', $form) : $form));
+        $add($product, Words::FIELD['puffs'], $v($sku['puffs']));
+        $add($product, Words::FIELD['pack_units'], $v($sku['pack_units']));
+        $nic = $v($sku['nic_type']);
+        $add($product, Words::FIELD['nic_type'], $nic === null ? null : (Words::has('NIC_TYPE', $nic) ? Words::of('NIC_TYPE', $nic) : $nic));
+        $add($product, Words::ITEM['rule'], Words::of('POLICY', (string) $sku['sell_policy']));
+        // What it was made from, by name (plan F249): the store product's page, else the origin in words.
+        $origin = $v($sku['origin']);
+        $add($product, Words::ITEM['made_from'], $madeFrom['text'] ?? ($origin === null ? Words::LISTING['not_stated'] : Words::of('ORIGIN', $origin)),
+            $madeFrom === null ? null : '/ui/review/listing/' . $madeFrom['id']);
+        $add($product, Words::LISTING['tech_cwp'], $cwp);
+        $add($product, Words::ITEM_PAGE['added'], Html::when((string) $sku['created_at']));
+        $counted = self::latest(array_column($stock, 'counted_at'));
+        $product[] = ['label' => Words::ITEM['last_counted'], 'value' => $counted === null ? Words::ITEM['never'] : Html::when($counted), 'href' => null];
+        $out = [['key' => 'product', 'title' => Words::ITEM_PAGE['g_product'], 'facts' => $product]];
+        if ($suppliers !== null) {
+            $main = null;
+            foreach ($suppliers as $r) {
+                if ($r['preferred'] && $r['active']) {
+                    $main = $r;
+                    break;
+                }
+            }
+            $buying = [];
+            $add($buying, Words::ITEM_PAGE['main_supplier'], $main['name'] ?? null, $main === null ? null : '/ui/purchasing/supplier-items/' . $main['id']);
+            $add($buying, Words::ITEM_PAGE['buys_in'], $main['pack'] ?? null);
+            $avg = (new \CW\StockOps\CostHints($ctx->db))->average([$id])[$id] ?? null;
+            $add($buying, Words::ITEM_PAGE['avg_cost'], $avg === null ? null : Html::money($avg));
+            if ($buying === []) {
+                $buying[] = ['label' => Words::ITEM_PAGE['main_supplier'], 'value' => Words::ITEM_PAGE['none_yet'], 'href' => null];
+            }
+            $out[] = ['key' => 'buying', 'title' => Words::ITEM_PAGE['g_buying'], 'facts' => $buying];
+        }
+        $legal = array_map(static fn (array $f): array => ['label' => (string) $f['label'], 'value' => $f['shown'], 'href' => null], $cardVars['card']['values']);
+        $legal[] = ['label' => Words::ITEM_PAGE['card'], 'value' => Words::of('CARD_STATE', (string) $cardVars['card']['state']), 'href' => null];
+        $out[] = ['key' => 'legal', 'title' => Words::ITEM_PAGE['g_legal'], 'facts' => $legal];
+        return $out;
+    }
+
+    /**
+     * The Store listings card (the redesign's artboard Item, RD-A4): each store in the owner's order with its state as a small label (where it
+     * sells, IV5), the store products matched to the item there (their page: Change, for who may look at matching) and, where none is, Match…
+     * (the store's picker for who may decide).
+     *
+     * @param array<string, mixed> $sku Queries::sku()
+     * @param list<array{store: string, state: string, text: string, tone: string}> $sells
+     * @param list<array<string, mixed>> $listings the page's listing rows
+     * @return list<array<string, mixed>>
+     */
+    private static function storeRows(Context $ctx, int $id, array $sku, array $sells, array $listings): array
+    {
+        $me = $ctx->me();
+        $look = $me->can('linking.view');
+        $decide = $me->can(\CW\Ui\Route::DECIDE) && $sku['merged_into_sku_id'] === null;
+        $codes = [];
+        foreach ($ctx->queries()->everyStore() as $st) {
+            $codes[(string) $st['name']] = (string) $st['code'];
+        }
+        $out = [];
+        foreach ($sells as $st) {
+            $mine = array_values(array_filter($listings, static fn (array $l): bool => $l['linked'] && $l['channel'] === $st['store']));
+            $out[] = [
+                'store' => $st['store'], 'tone' => $st['tone'], 'state' => ucfirst(Words::of('ITEM_SELLS', $st['state'] === 'not_on_sale' ? 'matched' : $st['state'])),
+                'title' => $st['text'],
+                'listings' => array_map(static fn (array $l): array => [
+                    'line' => Words::say('ITEM_PAGE', 'listing_line', trim(((string) ($l['title'] ?? Words::LISTING['no_title'])) . ' ' . ((string) ($l['variant_title'] ?? ''))),
+                        (string) $l['variant'], Words::saleUses($l['units_per_item'])),
+                    'href' => $look ? '/ui/review/listing/' . $l['id'] : null,
+                ], $mine),
+                'match' => $mine === [] && $decide && isset($codes[$st['store']])
+                    ? Html::url('/ui/review/products/' . $id . '/map', ['channel' => $codes[$st['store']]]) : null,
+            ];
+        }
+        return $out;
     }
 
     /** A change with its sign: "+20", "−4" (a true minus), "0". */

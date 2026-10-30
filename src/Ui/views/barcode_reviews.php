@@ -1,27 +1,18 @@
 <?php
-// Products › Barcodes, an inbox (the approved design of 29 Oct 2026, AP_Inbox; docs/decisions.md W11.8): the barcode search and one Show row
-// (waiting, decided), Clear at the right; then the barcodes grouped by why they wait (a coloured dot, the reason and its count), each row a link
+// Items › Barcodes, an inbox (the approved design of 29 Oct 2026, AP_Inbox; docs/decisions.md W11.8; the redesign's simple list head, RD-A7):
+// the barcode search and ONE Show choice (waiting, decided), Clear under the head's More; then the barcodes grouped by why they wait (a coloured dot, the reason and its count), each row a link
 // that opens it; the open one on the right (first on a phone), with its facts and its one decision: the answers, the items per scan where they
 // matter, the note, and ONE main button naming the form, with the one its save opens named beside it (W11.14). The open row is the page shown:
 // no link. A decided barcode shows what was decided and has no form. A refusal is said in the record it concerns (W11.12), or over the list
 // when that one no longer waits.
 ?>
-<?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes') ?>
+<?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes', side: $partial('rda_bar', $bar)) ?>
 <form class="toolbar" method="get" action="/ui/items/barcodes" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('BARCODE', 'find') ?></label><input id="tb-q" type="search" name="barcode" value="<?= $e($barcode) ?>" inputmode="numeric" maxlength="40" placeholder="<?= $word('BARCODE', 'find') ?>"></div>
-  <div class="tb-state">
-    <label for="tb-show"><?= $word('BARCODE', 'show') ?></label>
-    <select id="tb-show" name="show">
-      <option value=""><?= $say('BARCODE', 'open', $open) ?></option>
-      <option value="decided"<?php if ($show === 'decided'): ?> selected<?php endif; ?>><?= $word('BARCODE', 'decided') ?></option>
-    </select>
-    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
-  </div>
-  <div class="tb-end">
-<?php if ($barcode !== ''): ?>
-    <a class="btn ghost sm" href="<?= $u('/ui/items/barcodes', ['show' => $show === 'decided' ? 'decided' : null]) ?>"><?= $word('BARCODE', 'clear') ?></a>
+<?php if ($show === 'decided'): ?>
+  <input type="hidden" name="show" value="decided">
 <?php endif; ?>
-  </div>
+  <?= $partial('rda_show', ['choices' => $views, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
 </form>
 <?php if ($error !== null && ($record === null || $errorId !== (int) $record['id'])): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

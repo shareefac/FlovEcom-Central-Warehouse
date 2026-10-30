@@ -121,6 +121,17 @@ final class CountsScreensTest extends KernelUiTestCase
     }
 
     /** @return array<string, string> a select's options (value => words) */
+    /** The bar's ways to count: the buttons that send `mode` (the main one and More's), value => words (RD-A6). @return array<string, string> */
+    private static function modes(UiResponse $page): array
+    {
+        $out = [];
+        foreach ((new \DOMXPath($page->dom()))->query('//form[@method="post"]//div[contains(@class, "count-bar")]//button[@name="mode"]') ?: [] as $b) {
+            /** @var \DOMElement $b */
+            $out[$b->getAttribute('value')] = trim((string) $b->textContent);
+        }
+        return $out;
+    }
+
     private static function options(UiResponse $page, string $name): array
     {
         $out = [];
@@ -161,14 +172,15 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame('/ui/stock/counts', array_column(self::sectionTabs($web->get(self::PATH . '/sheets')), 'href', 'label')['Counts'], 'from its other pages a link');
         self::assertSame([['Next to count', true], ['Count sheets', false], ['Differences', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
         $xp = new \DOMXPath($page->dom());
-        self::assertSame(Words::MENU['counts'], trim((string) $xp->evaluate('string(//main//h1)')));
+        self::assertSame(Words::INV_LIST['counts'], trim((string) $xp->evaluate('string(//main//h1)')), 'the artboard\'s title (RD-A6)');
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
-        // The board (docs/decisions.md CV1): Overdue (red), Never counted (purple), Inside the plan (green, folded at first); each heading
-        // with the plan's figure for the warehouse (overdue here: counted, but longer ago than the plan); each row's status a solid cell.
-        self::assertSame([['overdue', 'blocked', 'Overdue', '1 item', false], ['never', 'review', 'Never counted', '2 items', false]], self::boardGroups($page));
-        self::assertStringContainsString(Words::say('COUNTS', 'plan', 120), $page->text());
+        // The board (docs/decisions.md CV1; the redesign's Stock counts artboard, RD-A6): Overdue (red), Never counted (grey), Inside the plan (green,
+        // folded at first); each heading with the plan's figure for the warehouse (overdue here: counted, but longer ago than the plan); no
+        // status column (the group says it).
+        self::assertSame([['overdue', 'blocked', 'Overdue', '1', false], ['never', 'waiting', 'Never counted', '2', false]], self::boardGroups($page));
+        self::assertStringContainsString(Words::say('INV_LIST', 'plan_days', 120), $page->text(), 'the plan\'s days, under the head\'s More (RD-A6)');
         self::assertSame(['Counted last year', 'Best seller pod', 'Slow liquid'], self::names($page), 'overdue first, then never counted (best sellers first)');
-        self::assertSame(['Overdue', 'Never counted', 'Never counted'], self::cells($page));
+        self::assertSame([], self::cells($page));
         // "Sells a week" as CT_Board draws it (docs/decisions.md DC36; it read "Sold a day" 216.3417): the same figure (reorder_demand.rate,
         // units a day) times 7, a whole number rounded half up as the item page's (7.5 a day: 52.5, shown 53; 0.25 a day: 1.75, shown 2).
         self::assertSame(['Sells a week'], array_values(array_unique(array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
@@ -179,33 +191,35 @@ final class CountsScreensTest extends KernelUiTestCase
             'a tick box a row');
         self::assertSame(0, $xp->query('//table[contains(@class, "count-next")]//th[normalize-space() = "' . Words::COUNTS['stock_now'] . '"]')->length,
             'no stock figure on the board: a blind count would show it before the count (CV4)');
-        // The bar (CV2): "N ticked", ONE Count menu, the shelf, ONE button. The four open buttons went; the next N is the Show choice.
+        // The bar (CV2; RD-A6): "N ticked", More (the next N due, an empty sheet, the shelf, a note), ONE main button "Count the ticked items";
+        // the hidden first button makes Enter count the ticked items. The next N is the list size under the head's More.
         $form = $page->form(self::PATH);
         self::assertArrayHasKey('form_key', $form);
-        self::assertSame(['ticked' => Words::COUNTS['count_ticked'], 'next' => Words::say('COUNTS', 'count_next', 50), 'empty' => Words::COUNTS['count_empty']],
-            self::options($page, 'mode'));
-        self::assertSame(['ticked', '50'], [$form['mode'] ?? null, $form['n'] ?? null]);
+        self::assertSame(['next' => Words::say('COUNTS', 'count_next', 50), 'empty' => Words::COUNTS['count_empty'], 'ticked' => Words::INV_LIST['count_ticked']],
+            self::modes($page), 'More\'s two, then the main one');
+        self::assertSame('50', $form['n'] ?? null);
         $bar = '//form[@action="' . self::PATH . '"]//div[contains(@class, "doc-bar")]';
-        self::assertSame(1, $xp->query('//form[@action="' . self::PATH . '"]//button[@type="submit"]')->length, 'one button opens the sheet');
-        self::assertSame(Words::COUNTS['open_button'], trim((string) $xp->evaluate('string(' . $bar . '//button[@type="submit" and contains(@class, "primary")])')));
-        self::assertSame(1, $xp->query($bar . '//select[@name="mode"]')->length);
+        self::assertSame(['ticked'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
+            iterator_to_array($xp->query('//form[@action="' . self::PATH . '"]/button[@type="submit"][1]'))), 'Enter: the ticked items');
+        self::assertSame(Words::INV_LIST['count_ticked'], trim((string) $xp->evaluate('string(' . $bar . '/button[@type="submit" and contains(@class, "primary")])')));
+        self::assertSame(1, $xp->query($bar . '/details[contains(@class, "more")]//select[@name="location"] | ' . $bar . '/details[contains(@class, "more")]//input[@name="note"]')->length);
         self::assertSame(1, $xp->query($bar . '//*[@data-ticked and @hidden]')->length, '"N ticked" is the script\'s: without it nothing says 0');
         self::assertNotContains('/ui/stock/counts/sheets?state=draft&warehouse=1', $page->hrefs(), 'no open sheet yet');
         // The setting moves the figures: with two years of days the old count is inside the plan, folded at first.
         $this->setting('counts.plan_days', '730');
         $wide = $web->get(self::PATH);
-        self::assertSame([['never', 'review', 'Never counted', '2 items', false], ['inside', 'done', 'Inside the plan', '1 item', true]], self::boardGroups($wide));
+        self::assertSame([['never', 'waiting', 'Never counted', '2', false], ['inside', 'done', 'Inside the plan', '1', true]], self::boardGroups($wide));
         self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($wide), 'without the script every group is open');
         // The Show choice is the N of "the next N due".
         $more = $web->get(self::PATH, ['show' => '100']);
-        self::assertSame(Words::say('COUNTS', 'count_next', 100), self::options($more, 'mode')['next'] ?? null);
+        self::assertSame(Words::say('COUNTS', 'count_next', 100), self::modes($more)['next'] ?? null);
         self::assertSame('100', $more->form(self::PATH)['n'] ?? null);
         // A search shows what it finds, whatever its turn: the menu offers everything found instead of the next ones.
         $found = $web->get(self::PATH, ['q' => 'liquid']);
         self::assertSame(['Slow liquid'], self::names($found));
-        self::assertSame(['ticked' => Words::COUNTS['count_ticked'], 'found' => Words::say('COUNTS', 'count_found', 1), 'empty' => Words::COUNTS['count_empty']],
-            self::options($found, 'mode'));
-        self::assertSame([['never', 'review', 'Never counted', '1 item', false]], self::boardGroups($found), 'a search counts what it found');
+        self::assertSame(['found' => Words::say('COUNTS', 'count_found', 1), 'empty' => Words::COUNTS['count_empty'], 'ticked' => Words::INV_LIST['count_ticked']],
+            self::modes($found));
+        self::assertSame([['never', 'waiting', 'Never counted', '1', false]], self::boardGroups($found), 'a search counts what it found');
         self::assertStringContainsString(Words::COUNTS['none_found'], $web->get(self::PATH, ['q' => 'no such thing'])->text());
         // The two other segments, empty.
         $sheets = $web->get(self::PATH . '/sheets');
@@ -260,12 +274,12 @@ final class CountsScreensTest extends KernelUiTestCase
         // The ticked items.
         $ticked = $open(['mode' => 'ticked', 'pick_' . $c => '1']);
         self::assertSame([$c], $lines($ticked));
-        // A refused open (a hand-made N) keeps the ticked boxes, the menu's choice, the shelf and the note.
+        // A refused open (a hand-made N) keeps the ticked boxes, the shelf and the note (the way to count is the button pressed: RD-A6).
         $r = $web->post(self::PATH, ['mode' => 'next', 'n' => '0', 'pick_' . $a => '1', 'location' => (string) $place, 'note' => 'aisle 3'] + $web->get(self::PATH)->form(self::PATH));
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('COUNT_ERROR', 'bad_next', 200), $r->text());
         $again = $r->form(self::PATH);
-        self::assertSame(['next', '1', (string) $place, 'aisle 3', '50'], [$again['mode'] ?? null, $again['pick_' . $a] ?? null, $again['location'] ?? null, $again['note'] ?? null, $again['n'] ?? null]);
+        self::assertSame(['1', (string) $place, 'aisle 3', '50'], [$again['pick_' . $a] ?? null, $again['location'] ?? null, $again['note'] ?? null, $again['n'] ?? null]);
         self::assertArrayNotHasKey('pick_' . $b, $again);
         // The open sheets of the warehouse: a plain link in the head to the list of them (the four above).
         $list = $web->get(self::PATH);

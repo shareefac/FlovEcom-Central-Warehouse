@@ -1,28 +1,17 @@
 <?php
-// Stock › Repack, a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W8): one search (the repack's number, a CW
-// number) and one Show row (the state), Clear at the right; the head's "+ New …" and the last row of the Draft group open the booking form
-// (its fields in two columns). The groups follow the statuses, each a coloured heading with its count over a card with its colour on the
-// left edge, the status cell filled with it. A row opens its record (Approvals › History); a draft left by its maker is made final or
-// stopped from its row, one waiting for an OK taken back (each its own small form, as before).
+// Inventory › Repack, a simple list (the approved redesign of 30 Oct 2026, the Adjustments artboard's look; docs/decisions.md RD-A7; W8
+// before): the title, More (Clear) and the ONE main button "+ New repack" (it opens the booking form, its fields in two columns); one
+// search (the repack's number, a CW number) and ONE Show choice (the state); then the groups by status, four columns: the record (it opens
+// it, Approvals › History; its date under it), what it does, where, and a draft's or a waiting one's own small forms (make it final, stop
+// it, take it back, as before).
 ?>
-<?= $head(\CW\Ui\Words::MENU['repack'], intro: 'repack', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['repack'], intro: 'repack', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPACK', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPACK', 'search') ?>"></div>
-  <div class="tb-state">
-    <label for="tb-show"><?= $word('REPACK', 'state') ?></label>
-    <select id="tb-show" name="state">
-      <option value=""><?= $word('REPACK', 'any_state') ?></option>
-<?php foreach ($states as $code => $label): ?>
-      <option value="<?= $e($code) ?>"<?php if ($f['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
-<?php endforeach; ?>
-    </select>
-    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
-  </div>
-  <div class="tb-end">
-<?php if ($filtered): ?>
-    <a class="btn ghost sm" href="/ui/stock/repack"><?= $word('REPACK', 'clear') ?></a>
+<?php if ($f['state'] !== null): ?>
+  <input type="hidden" name="state" value="<?= $e($f['state']) ?>">
 <?php endif; ?>
-  </div>
+  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
 </form>
 
 <?php if ($done !== null): ?>
@@ -89,16 +78,14 @@
 <?php foreach ($groups as $g => $list): ?>
 <?php $tone = \CW\Ui\Words::tone('DOC_STATUS', $g); ?>
 <div class="grp-block doc-group <?= $e($tone) ?>">
-  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $word('DOC_STATUS', $g) ?></button> <span class="grp-count"><?php if (count($list) === 1): ?><?= $word('STOCK_OPS', 'group_one') ?><?php else: ?><?= $say('STOCK_OPS', 'group_many', count($list)) ?><?php endif; ?></span></h3>
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $word('DOC_STATUS', $g) ?></button> <span class="grp-count"><?= $n(count($list)) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list repacks">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('REPACK', 'record') ?></th>
-        <th scope="col" class="c-status"><?= $word('REPACK', 'status') ?></th>
         <th scope="col"><?= $word('REPACK', 'what') ?></th>
         <th scope="col"><?= $word('REPACK', 'where') ?></th>
-        <th scope="col"><?= $word('REPACK', 'made_by') ?></th>
 <?php if ($canPost && in_array($g, ['draft', 'awaiting_approval'], true)): ?>
         <th scope="col" class="c-next"><span class="visually-hidden"><?= $word('REPACK', 'actions') ?></span></th>
 <?php endif; ?>
@@ -108,10 +95,8 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $when($r['date']) ?></span></th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('DOC_STATUS', $r['status']) ?></td>
         <td data-label="<?= $word('REPACK', 'what') ?>"><?= $e($r['way']) ?><span class="o-sub"><?= $e($r['what']) ?></span></td>
-        <td data-label="<?= $word('REPACK', 'where') ?>"><?= $e($r['where']) ?></td>
-        <td data-label="<?= $word('REPACK', 'made_by') ?>"><?= $e($r['made_by']) ?></td>
+        <td data-label="<?= $word('REPACK', 'where') ?>"><?= $e($r['where']) ?><span class="o-sub"><?= $e($r['made_by']) ?></span></td>
 <?php if ($canPost && in_array($g, ['draft', 'awaiting_approval'], true)): ?>
         <td class="c-next">
 <?php if ($r['canFinal']): ?>
@@ -140,9 +125,6 @@
 <?php endif; ?>
       </tr>
 <?php endforeach; ?>
-<?php if ($g === 'draft' && $formKey !== null): ?>
-      <tr class="grp-add"><td colspan="6" data-label=""><a class="add-item" href="#new"><?= $word('REPACK', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

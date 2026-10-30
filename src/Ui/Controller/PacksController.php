@@ -54,6 +54,10 @@ final class PacksController
             'q' => $q,
             'off' => $off,
             'filtered' => $q !== '' || $off,
+            // The redesign's simple list (docs/decisions.md RD-A7): Multipacks' ONE Show choice, the head's More (Clear) and "+ New pack item".
+            'show' => self::views($ctx, $off ? 'all' : 'on', $q),
+            'bar' => ['links' => $q !== '' || $off ? [['label' => Words::PACKS['clear_list'], 'href' => self::PATH]] : [],
+                'main' => $can ? ['label' => Words::NEW['packs'], 'href' => self::PATH . '#new'] : null],
             'page_no' => $list['page'],
             'pages' => $list['pages'],
             'prev_link' => $list['page'] > 1 ? Html::url(self::PATH, $base + ['page' => $list['page'] - 1]) : null,
@@ -104,6 +108,22 @@ final class PacksController
         return HtmlResponse::redirect(Html::url(self::PATH, ['notice' => !$r['changed'] ? 'unchanged' : ($on ? 'pack_on' : 'pack_off'), 'off' => $on ? null : '1']));
     }
 
+    /**
+     * Multipacks' ONE Show choice (the redesign, docs/decisions.md RD-A7): the pack items in use, with the switched-off ones too, and the pack
+     * links (for who may look at matching: the page's own permission).
+     *
+     * @return list<array{label: string, href: string, current: bool}>
+     */
+    private static function views(Context $ctx, string $here, string $q): array
+    {
+        $out = [['label' => Words::INV_LIST['packs_on'], 'href' => Html::url(self::PATH, ['q' => $q === '' ? null : $q]), 'current' => $here === 'on'],
+            ['label' => Words::INV_LIST['packs_all'], 'href' => Html::url(self::PATH, ['q' => $q === '' ? null : $q, 'off' => '1']), 'current' => $here === 'all']];
+        if ($ctx->me()->can('linking.view')) {
+            $out[] = ['label' => Words::PAGE_TITLE['pack_links'], 'href' => self::LINKS_PATH, 'current' => $here === 'links'];
+        }
+        return $out;
+    }
+
     public function links(Context $ctx): HtmlResponse
     {
         $page = max(1, min(10_000, UiRequest::id($ctx->req->param('page')) ?? 1));
@@ -119,6 +139,7 @@ final class PacksController
             ], $list['rows']);
         return $ctx->page('pack_links', [
             'rows' => $rows,
+            'show' => self::views($ctx, 'links', ''),
             // The board (wave w11, docs/decisions.md W11.7): the variants something needs a look at first.
             'groups' => Html::groups($rows, ['check' => ['needs', Words::PACKS['group_check']], 'fine' => ['done', Words::PACKS['group_fine']]]),
             'total' => $list['total'],

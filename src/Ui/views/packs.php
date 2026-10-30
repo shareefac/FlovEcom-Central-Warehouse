@@ -1,27 +1,18 @@
 <?php
-// Products › Multipacks › Pack items, a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W11.6): one search (CW number
-// or name) and one Show row (in use, or in use and switched off), Clear at the right; the head's "+ New pack item" and the last row of the In
-// use group open the form (its fields in two columns; what a refused one brings back is guarded as typed, W11.13). The groups: in use,
-// switched off; each a coloured heading with its count over a card with its colour on the left edge, the status cell filled with it. A row
-// opens the pack item; its single, what to check (soft tags, the variants that could sell singles) and its actions (Repack it, switch off or
-// on) sit above the row's link.
+// Items › Multipacks › Pack items, a simple list (the approved redesign of 30 Oct 2026, the Items artboard's look; docs/decisions.md RD-A7;
+// W11.6 before): the title, More (Clear) and the ONE main button "+ New pack item" (it opens the form, its fields in two columns; what a
+// refused one brings back is guarded as typed, W11.13); one search (CW number or name) and Multipacks' ONE Show choice (in use, with the
+// switched-off ones, Pack links); then the groups in use and switched off, five columns: the pack item (it opens it; how many singles it
+// is under it), its single, the stock of both, what to check (soft tags, the variants that could sell singles), its actions (Repack it,
+// switch off or on).
 ?>
-<?= $head(\CW\Ui\Words::PAGE_TITLE['packs'], intro: 'packs', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::INV_LIST['packs_on'], intro: 'packs', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('PACKS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('PACKS', 'search') ?>"></div>
-  <div class="tb-state">
-    <label for="tb-show"><?= $word('PACKS', 'show') ?></label>
-    <select id="tb-show" name="off">
-      <option value=""><?= $word('PACKS', 'show_on') ?></option>
-      <option value="1"<?php if ($off): ?> selected<?php endif; ?>><?= $word('PACKS', 'show_all') ?></option>
-    </select>
-    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
-  </div>
-  <div class="tb-end">
-<?php if ($filtered): ?>
-    <a class="btn ghost sm" href="/ui/items/packs"><?= $word('PACKS', 'clear_list') ?></a>
+<?php if ($off): ?>
+  <input type="hidden" name="off" value="1">
 <?php endif; ?>
-  </div>
+  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -64,13 +55,12 @@
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
 <div class="grp-block doc-group <?= $e($g['tone']) ?>">
-  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('PACKS', 'group_one') ?><?php else: ?><?= $say('PACKS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?= $n(count($g['rows'])) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list packs">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('PACKS', 'pack_item') ?></th>
-        <th scope="col" class="c-status"><?= $word('PACKS', 'state') ?></th>
         <th scope="col"><?= $word('PACKS', 'single') ?></th>
         <th scope="col"><?= $word('PACKS', 'stock') ?></th>
         <th scope="col"><?= $word('PACKS', 'checks') ?></th>
@@ -83,7 +73,6 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['pack']['id']) ?>"><?= $e($r['pack']['code']) ?> <?= $e($r['pack']['name']) ?></a><span class="o-sub"><?= $say('PACKS', 'equals', $r['units']) ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $e($g['name']) ?></td>
         <td class="c-next" data-label="<?= $word('PACKS', 'single') ?>"><a href="<?= $u('/ui/items/' . $r['single']['id']) ?>"><?= $e($r['single']['code']) ?></a> <?= $e($r['single']['name']) ?></td>
         <td data-label="<?= $word('PACKS', 'stock') ?>"><?= $e($r['stock']) ?></td>
         <td class="c-next c-wide" data-label="<?= $word('PACKS', 'checks') ?>">
@@ -123,9 +112,6 @@
 <?php endif; ?>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'on' && $formKey !== null): ?>
-      <tr class="grp-add"><td data-label="" colspan="<?php if ($canEdit || $canRepack): ?>6<?php else: ?>5<?php endif; ?>"><a class="add-item" href="#new"><?= $word('PACKS', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

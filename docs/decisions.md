@@ -14523,3 +14523,79 @@ store and kept filters), and check one "?" with the page's help and who changes 
 `MatchingPatternsScreensTest` the whole eyebrow; `DesignConformanceScreensTest` and `ItemCardScreensTest` the look-only "?" as the one
 "?" (Purchase orders for an auditor; the cards' rules, then who changes them, for a buyer). The tab-link floor of
 `testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves` is 3 (the item's two and the supplier's).
+
+## The Items and Inventory pages on the approved redesign (branch `redesign-rd2a`, 30 Oct 2026; RD-A1-RD-A9)
+
+The owner approved the redesign canvas on 30 Oct 2026 ("Yes, approve all"; `cw_work/design/redesign_20261030/project/`). This build is step 2
+for the Items and Inventory pages, on the artboards Items, Item, Inventory (Adjustments) and Counts (Stock counts), and the same simple list on
+every other page of the two sections. Layout and view data only: every address, permission, posted field, rule and safety message is as before.
+
+**RD-A1. Built on 8acedfb without step 1.** The shared pieces of step 1 (the sidebar, the page header, the pill status, the dot group heading,
+the grouped-pages Show helper) are another branch built at the same time (`redesign-shared`). On the coordinator's word (30 Oct: finish on
+8acedfb, do not wait), the two pieces these pages need are page-scoped here and go when step 1's own are in: `views/rda_show.php` (the ONE Show
+choice) and `views/rda_bar.php` (the head's More and ONE main button), styled in the "rd2a" block at the end of `app.css`. The group heading,
+the table card and the status cell keep the shared classes (`.doc-group`, `.grp-title`, `.doc-board`, `td.doc-st`), so step 1's restyle reaches
+these pages unchanged.
+
+**RD-A2. One search, ONE Show choice, More, ONE main button.** A list's Show is a menu of links drawn as the artboards' select (the More menu's
+engine, `details.more.show-pick`: no script needed, Esc and a click elsewhere close it); the choice shown is not a link (CV13); each choice is
+another page of the group or the same page with its filter, the search and the other filters kept. What the artboard does not show goes under
+the head's More: the filters of before as a GET form in a fold ("More filters", open in the menu when one the Show choice does not name is on,
+the Show button then saying "Chosen filters"), Clear, Import, the download, the other links. The head's right is More, then the page's ONE main
+button (its "+ New …", a `#new` link to the create fold of before). GET forms carry no `action` (they send to the page itself), so a test's
+`form('<path>')` still finds the page's POST form.
+
+**RD-A3. Items.** Three columns (the item: its name opens it, its CW number under it; the status label; on hand) in the artboard's three
+groups: Needs a look (a blocked card, "Blocked" in red, or a card still to confirm, "Check the card" in amber), No card yet ("No card"), Ready
+("Ready", a confirmed card); most stock first in each. Show: All items, Holding stock (`stock=1`), Needs a look (`state=unconfirmed`: a card
+not confirmed or no card), Made by hand (`/ui/items/new?show=all`, which shows the same Show and the title Items). A block's rules and a
+warning stay a small line under the name (safety). Left the list, kept elsewhere: the card's six columns (the item page's LEGAL, the CSV) and
+"Fill in the card" (the item page's Change). The search box says "name, brand or CW number": it does not find barcodes (the artboard's
+placeholder names them: needs a build).
+
+**RD-A4. The item page is one page in sections.** No tab row: the head (back to Items, the name with its status label, the fact line "CW
+number · brand · size · strength and nicotine type", More and the ONE main button: Order more, else Count it, else Move stock; the others under
+More), the stock card (on the shelf; held for orders, a link to Reserved stock when some are held; free to sell, with "includes N on its way"
+when it does; coming in, with "Sells about N a week" and the first order coming), Details (PRODUCT: what the matching knows, the stock rule,
+when it was added and last counted; BUYING, for who sees suppliers: the main supplier, the box it is bought in, the average cost so far
+(`CostHints::average`, the figure a release's price falls back to); LEGAL: every field of the product card and the card's state; under them the
+card's rules, its confirmation, the file's flavour and the suggestions, as before; Change opens the card's form), the recent stock history
+(when, what and its record, the units; All history). Beside them: Store listings (each store, its state, the store product matched there and
+Change, or Match… for who may decide; Matching opens By item for the item), Barcodes (+ Add opens the add form; each barcode "single" or "box
+of N", its Change holds the items per scan and Remove), Suppliers (each with Main, the box and the last price). What the tabs held that the
+artboard does not draw is a closed fold under the history: Stock in each warehouse, Selling on the stores (the website products with their
+history, the selling-mode switch), Item group and packs, Card history. `ItemController::PARTS`/`openPart()` open the fold a refused form, a
+notice (`NOTICE_PARTS`) or an old `?tab=` link names (`OLD_TABS`); the Barcodes' add form opens after a refused add. Left: "lasts about N
+weeks", the held figure's paid/unpaid split (Reserved stock shows it), who made each change in the recent history (All history shows it).
+
+**RD-A5. Adjustments and Transfers.** Stock in, Stock out, Corrections (`/ui/stock/adjustments`) and Releases are one page to staff, titled
+Adjustments, the kind its Show choice (each its own address, the filters kept; the artboard's "All kinds" has no page: needs a build). Groups:
+Waiting for an OK, Draft, Done this week (made final since Monday 00:00, UK time), then, when the list holds them, Done before this week,
+Cancelled, Cancellation records, Stopped. Four columns: the record (its number opens it, its date under it), the kind, the reason (a stock in's
+or out's reason, a release's account; a correction's reasons are on its lines: "On each line"), the units (stock in "+N" green, stock out
+"−N" red; a correction's lines go both ways and a release moves stock between rooms: no sign). The state and the warehouse are under More,
+with Goods received on Stock in. Transfers keep their page: Show = the state; Transfer, From, To, Units.
+
+**RD-A6. Stock counts.** Items to count, Count sheets and Differences are one page to staff, titled Stock counts, the view its Show choice. Items
+to count: Overdue (red) and Never counted (grey, the artboard's dot; it was purple), each heading the plan's figure; four columns (the tick,
+the item, last counted, sells a week; the status column went: the group says it). The bar: "N ticked", More (the next N due or everything
+found, an empty sheet, the shelf, a note) and ONE main button "Count the ticked items" (`mode=ticked`); Enter in a field counts the ticked items
+(the hidden first button). The warehouse and how many to list are under the head's More with the plan's days; "Open sheets (N)" beside it.
+Count sheets: four columns (the sheet with what waits on it, where, counted of lines with the units changed, who opened it), the Filter of
+before under More. Differences: five columns (the item with its sheet, the difference with what CW held and what was counted, who counted,
+why it waits, the answer); the approval rules under More; the second-check line stays (safety).
+
+**RD-A7. Every other Items and Inventory page.** Item groups (Show: in use / with the switched-off ones), Multipacks (Show: pack items in use,
+with the switched-off ones, Pack links for who may look at matching), Barcodes (Show: waiting / decided), Repack (Show: the state; four
+columns), Reserved stock (Show: the state; the store under More; five columns: the order with when it started, the store, the status, the
+units with how many products, until when it is kept and what became of it), Stock history (Show: the kind of change; the warehouse and the
+figure under More; five columns, the record and who under what changed), Stock on hand (Show: with stock / every item / below zero; the
+warehouse under More; five columns: one On hand figure, every warehouse together or the one chosen; each warehouse's own is on the item page).
+No figures strip on a list (the owner: tiles only on Home), no "+ Add" row (the head's main button), a group's count is a figure.
+
+**RD-A8. Words.** `Words::INV_LIST` (the lists) and `Words::ITEM_PAGE` (the item page) hold the artboards' names; nothing else changed name.
+
+**RD-A9. Tests.** `tests/Integration/UiKernel/InventoryRedesignScreensTest.php` (shown failing first on 8acedfb: the lists' simple shape, their
+groups, columns, Show choices and More; the counts bar; the item page's sections and folds) and the pins of before brought to the new shape
+(`ItemPageScreensTest`, `ItemPageUnitTest`, `ItemCardScreensTest`, `ProductPatternsScreensTest`, `StockPatternsScreensTest`, `CountsScreensTest`,
+`UiTemplatesTest` and the others the full suite named).

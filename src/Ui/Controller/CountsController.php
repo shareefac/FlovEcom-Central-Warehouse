@@ -54,7 +54,8 @@ final class CountsController
     public const GROUPS = ['draft', 'posted', 'reversed', 'put_back', 'cancelled'];
     /** The groups of "Next to count", in the approved design's order, and their colours (docs/decisions.md CV1). */
     public const PLAN_GROUPS = ['overdue', 'never', 'inside'];
-    private const PLAN_TONES = ['overdue' => 'blocked', 'never' => 'review', 'inside' => 'done'];
+    /** The groups' colours as the redesign's Stock counts artboard draws them (docs/decisions.md RD-A6): overdue red, never counted grey. */
+    private const PLAN_TONES = ['overdue' => 'blocked', 'never' => 'waiting', 'inside' => 'done'];
     /** Lines a sheet's page shows. */
     public const LINES = 50;
 
@@ -117,7 +118,7 @@ final class CountsController
                 continue;
             }
             $words = $n === 1 ? Words::COUNTS['group_item'] : Words::say('COUNTS', 'group_items', $n);
-            $groups[] = ['key' => $g, 'tone' => self::PLAN_TONES[$g], 'rows' => $list, 'folded' => $g === 'inside',
+            $groups[] = ['key' => $g, 'tone' => self::PLAN_TONES[$g], 'rows' => $list, 'folded' => $g === 'inside', 'n' => $n,
                 'count' => count($list) < $n ? $words . ' · ' . Words::say('COUNTS', 'group_listed', count($list)) : $words];
         }
         // The bar's one Count menu (CV2): what the four buttons were. "The next N due" takes N from the Show choice (the list is the next
@@ -137,8 +138,19 @@ final class CountsController
         // The open sheets of this warehouse: drafts are sheets (the record index (doc_type, status, id): CT13).
         $openSheets = $f['warehouse'] === null ? 0 : (int) $ctx->db->value("SELECT COUNT(*) FROM document WHERE doc_type = ? AND status = 'draft' AND warehouse_id = ?",
             [CountSheets::TYPE, $f['warehouse']]);
+        $warehouseNames = array_column(array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $warehouses), 'name', 'id');
         return $ctx->page('stock_counts', [
             'f' => $f,
+            'show' => self::views('items', $f['warehouse']),
+            // The head's right (RD-A6): More holds the warehouse and how many to list (the toolbar's of before), the plan's days, Clear.
+            'bar' => ['filters' => ['action' => self::PATH, 'keep' => $f['q'] === '' ? [] : ['q' => $f['q']], 'open' => false, 'selects' => [
+                ['name' => 'warehouse', 'label' => Words::COUNTS['warehouse'], 'value' => (string) $f['warehouse'], 'options' => $warehouseNames],
+                ['name' => 'show', 'label' => Words::INV_LIST['list_size'], 'value' => (string) $f['show'],
+                    'options' => array_combine(CountPlan::SHOW, array_map(static fn (int $size): string => Words::say('COUNTS', 'show_n_link', $size), CountPlan::SHOW))],
+            ]], 'links' => array_values(array_filter([
+                ['label' => Words::say('INV_LIST', 'plan_days', $days), 'href' => Html::url('/ui/reference/settings/setting', ['key' => 'counts.plan_days'])],
+                $filtered ? ['label' => Words::COUNTS['clear'], 'href' => Html::url(self::PATH, ['warehouse' => $f['warehouse']])] : null,
+            ]))],
             'warehouses' => array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $warehouses),
             'filtered' => $filtered,
             'shows' => CountPlan::SHOW,
@@ -205,7 +217,21 @@ final class CountsController
             $groups[$row['group']][] = $row;
         }
         $query = ['q' => $f['q'] === '' ? null : $f['q'], 'state' => $f['state'], 'warehouse' => $f['warehouse']];
+        $warehouses = $ctx->db->all('SELECT id, name FROM warehouse ORDER BY sort_order, id');
+        $filtered = $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null;
         return $ctx->page('stock_count_sheets', [
+            'show' => self::views('sheets', null),
+            // The head's right (RD-A6): More holds the Filter of before (the state, the warehouse), Clear and the download.
+            'bar' => ['filters' => ['action' => self::PATH . '/sheets', 'keep' => $f['q'] === '' ? [] : ['q' => $f['q']], 'open' => $f['state'] !== null || $f['warehouse'] !== null,
+                'selects' => [
+                    ['name' => 'state', 'label' => Words::INV_LIST['state'], 'value' => (string) $f['state'],
+                        'options' => ['' => Words::COUNTS['any_state']] + array_intersect_key(Words::DOC_STATUS, array_flip(CountSheets::STATES))],
+                    ['name' => 'warehouse', 'label' => Words::COUNTS['warehouse'], 'value' => (string) $f['warehouse'],
+                        'options' => ['' => Words::COUNTS['any_warehouse']] + array_column($warehouses, 'name', 'id')],
+                ]], 'links' => array_values(array_filter([
+                    $filtered ? ['label' => Words::COUNTS['clear_sheets'], 'href' => self::PATH . '/sheets'] : null,
+                    $page['rows'] !== [] ? ['label' => Words::COUNTS['download_list'], 'href' => Html::url(self::PATH . '/sheets.csv', $query), 'download' => true] : null,
+                ]))],
             'f' => $f,
             'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null,
             'narrowed' => $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null || $f['before'] !== null,
@@ -261,6 +287,8 @@ final class CountsController
         $open = self::differences($ctx, $warehouse);
         $rule = $ctx->documents()->typeInfo(CountSheets::TYPE);
         return $ctx->page('stock_count_reviews', [
+            'show' => self::views('differences', $warehouse),
+            'bar' => ['links' => [['label' => Words::INV_LIST['rules_link'], 'href' => '/ui/reference/approvals']]],
             'groups' => $open['groups'],
             'tones' => ['line' => 'needs', 'count_after_movements' => 'blocked', 'count_near_ship' => 'review', 'ship_near_count' => 'review', 'unship_near_count' => 'review'],
             'rows_n' => $open['n'],
@@ -995,6 +1023,21 @@ final class CountsController
      * @param array<string, mixed>|null $typed
      * @return array{q: string, warehouse: ?int, show: int}
      */
+    /**
+     * Stock counts' ONE Show choice (the redesign's artboard, docs/decisions.md RD-A6): Items to count, Count sheets, Differences, each its own
+     * page; the warehouse chosen goes along where the page reads one.
+     *
+     * @return list<array{label: string, href: string, current: bool}>
+     */
+    private static function views(string $here, ?int $warehouse): array
+    {
+        return [
+            ['label' => Words::INV_LIST['view_items'], 'href' => Html::url(self::PATH, ['warehouse' => $warehouse]), 'current' => $here === 'items'],
+            ['label' => Words::INV_LIST['view_sheets'], 'href' => self::PATH . '/sheets', 'current' => $here === 'sheets'],
+            ['label' => Words::INV_LIST['view_differences'], 'href' => Html::url(self::PATH . '/differences', ['warehouse' => $warehouse]), 'current' => $here === 'differences'],
+        ];
+    }
+
     private static function planFilters(UiRequest $req, array $warehouses, ?array $typed): array
     {
         $ids = array_map(static fn (array $w): int => (int) $w['id'], $warehouses);

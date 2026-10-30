@@ -11,9 +11,9 @@ use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The item page, stock first (docs/decisions.md IV1-IV12): "Sells a week" and how long it lasts, the words and colours of a movement's
- * solid cell and of a store's chip, the tabs and the notices that open them, and the CSS and markup the approved design needs (the strip,
- * the panels that open without the script, the bar at the bottom of a phone).
+ * The item page, stock first (docs/decisions.md IV1-IV12) and one page in sections since the redesign (RD-A4): "Sells a week" and how long
+ * it lasts, the words and colours of a movement and of a store's state, the folds the notices open, and the CSS and markup the approved
+ * design needs (the stock card, the two columns, the bar at the bottom of a phone).
  */
 final class ItemPageUnitTest extends TestCase
 {
@@ -56,51 +56,39 @@ final class ItemPageUnitTest extends TestCase
         self::assertSame('Vape and Go · matched, Draft', Words::say('ITEM', 'sells_chip', 'Vape and Go', Words::say('ITEM_SELLS', 'not_on_sale', 'Draft')));
     }
 
-    public function testEveryTabHasItsWordAndEveryNoticeOpensOne(): void
+    public function testEveryPartANoticeOrAnOldTabOpensIsAFoldOfThePage(): void
     {
-        self::assertSame(['details', 'barcodes', 'packs', 'stores', 'history'], ItemController::TABS);
-        foreach (ItemController::TABS as $tab) {
-            self::assertTrue(Words::has('ITEM', 'tab_' . $tab), $tab);
-        }
-        foreach (ItemController::NOTICE_TABS as $notice => $tab) {
-            self::assertContains($tab, ItemController::TABS, $notice);
+        // The redesign (docs/decisions.md RD-A4): no tab row; what the tabs held that the artboard does not draw is a fold a notice opens.
+        self::assertSame(['barcodes', 'warehouses', 'selling', 'groups', 'history'], ItemController::PARTS);
+        foreach (ItemController::NOTICE_PARTS as $notice => $part) {
+            self::assertContains($part, ItemController::PARTS, $notice);
             self::assertTrue(isset(Words::CARD_NOTICE[$notice]) || isset(Words::SELLING_NOTICE[$notice]) || isset(Words::ITEMS_NOTICE[$notice]), "{$notice}: a notice of the page");
         }
-        foreach (array_keys(Words::CARD_NOTICE) as $notice) {
-            if (str_starts_with($notice, 'barcode_') || str_starts_with($notice, 'units_')) {
-                self::assertSame('barcodes', ItemController::NOTICE_TABS[$notice] ?? null, "{$notice}: the barcodes' tab");
-            }
+        $src = (string) file_get_contents(View::defaultDir() . '/item.php');
+        foreach (['warehouses' => 'it-wh', 'selling' => 'it-selling', 'groups' => 'it-groups', 'history' => 'it-history'] as $part => $id) {
+            self::assertStringContainsString('<details class="fold it-fold' . ($id === 'it-wh' ? ' item-wh' : '') . '" id="' . $id . '"<?php if ($open === \'' . $part . '\'): ?> open<?php endif; ?>>', $src, $part);
         }
+        self::assertStringContainsString('<details class="card-add"<?php if ($open === \'barcodes\' && $error !== null): ?> open<?php endif; ?>>', $src, 'a refused barcode keeps its form open');
     }
 
     public function testTheCssAndMarkupOfTheApprovedDesign(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
-        foreach (['/^\.it-panel \{ display: none; \}/m' => 'a closed part takes no room',
-            '/^\.it-panel\.open, \.it-panel:target, \.it-panel:has\(:target\) \{ display: block; \}/m' => 'the open part, and one a #fragment points into (no script)',
-            '/^\.it-panels:has\(:target\) > \.it-panel\.open:not\(:target\):not\(:has\(:target\)\) \{ display: none; \}/m' => 'one part at a time',
-            '/@media \(min-width: 640px\) \{ \.item-strip \{ grid-template-columns: none; grid-auto-flow: column;/' => 'the strip in one row',
+        foreach (['/@media \(min-width: 640px\) \{ \.item-strip \{ grid-template-columns: none; grid-auto-flow: column;/' => 'the stock card in one row',
             '/\.item-head \.ph-actions > \.item-bar \{\s*position: fixed;[^}]*bottom: 0;/' => 'phone: the actions at the bottom of the screen',
             '/body:has\(\.item-bar\) \.tabbar \{ display: none; \}/' => 'phone: in the tab bar\'s place',
-            // IV16: a #fragment that shows another part makes the tabs say so, and the open tab a link again (its twin).
-            '/^\.item-tabs > \.tab-back \{ display: none; \}/m' => 'the twin is hidden until a #fragment shows another part',
-            '/\.item-parts:has\(\.it-panel:not\(\.open\):target, \.it-panel:not\(\.open\) :target\) \.item-tabs > \.tab\[aria-current\] \{ display: none; \}/'
-                => 'then the open tab gives way',
-            '/\.item-parts:has\(\.it-panel:not\(\.open\):target, \.it-panel:not\(\.open\) :target\) \.item-tabs > \.tab-back \{ display: inline-flex; \}/'
-                => 'to its twin, a link',
-            '/\.item-parts:has\(#t-barcodes:target, #t-barcodes :target\) \.item-tabs > \.tab\[data-tab="barcodes"\]:not\(\.tab-back\)/' => 'the shown part\'s tab looks open',
-            '/\.item-bar > details\.more > \.more-menu \{\s*position: absolute; top: auto; bottom: calc\(100% \+ 6px\);/' => 'phone: More opens upwards'] as $rule => $why) {
+            '/\.item-bar > details\.more > \.more-menu \{\s*position: absolute; top: auto; bottom: calc\(100% \+ 6px\);/' => 'phone: More opens upwards',
+            '/^\.item-cols \{ display: flex; flex-wrap: wrap;/m' => 'the main column and the side cards side by side, the side cards under it on a phone',
+            '/^dl\.item-facts-grid \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/m' => 'Details\' facts three a row'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
+        self::assertSame(0, preg_match('/\.it-panel|\.item-tabs|\.tab-back/', $css), 'the tab row\'s CSS went with it');
         $src = (string) file_get_contents(View::defaultDir() . '/item.php');
-        self::assertStringContainsString('<nav class="tabs item-tabs"', $src, 'the ONE tabs component (DS2)');
-        self::assertStringContainsString('<a class="tab" data-tab="<?= $e($t) ?>"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="', $src, 'the open tab has no link (CV13)');
-        foreach (\CW\Ui\Controller\ItemController::TABS as $k) {
-            self::assertSame(1, preg_match('/\.item-parts:has\(#t-' . $k . ':target, #t-' . $k . ' :target\) \.item-tabs > \.tab\[data-tab="' . $k . '"\]:not\(\.tab-back\)/', $css), "{$k}: its tab looks open when a #fragment shows its part");
-        }
-        self::assertStringContainsString('class="c-status doc-st <?= $e($r[\'tone\']) ?>"', $src, 'the movements\' solid cells');
-        foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'p', 'nav'] as $tag) {
+        self::assertStringNotContainsString('class="tabs', $src, 'no tab row (RD-A4)');
+        foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'p', 'nav', 'aside', 'ul', 'li', 'dl'] as $tag) {
             self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "item: every <{$tag}> closed");
         }
+        $bar = (string) file_get_contents(View::defaultDir() . '/item_bar.php');
+        self::assertSame(3, substr_count($bar, 'btn primary'), 'one main action of three, drawn once (Order more, else Count it, else Move stock)');
     }
 }

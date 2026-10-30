@@ -155,6 +155,11 @@ final class BarcodesController
             'record' => $record === null ? null : $record + ['tone' => self::TONES[(string) $record['reason']] ?? 'info', 'place' => Words::say('BARCODE', 'place', $at + 1, count($order)),
                 'next' => $record['status'] === 'open' ? self::nextAfter($svc, (int) $record['id']) : null],
             'show' => $show,
+            // The redesign's simple list (docs/decisions.md RD-A7): the ONE Show choice (waiting, decided) and the head's More (Clear).
+            'views' => [['label' => Words::say('BARCODE', 'open', $svc->openCount()), 'href' => Html::url('/ui/items/barcodes', ['barcode' => $q === '' ? null : $q]),
+                'current' => $show !== 'decided'], ['label' => Words::BARCODE['decided'], 'href' => Html::url('/ui/items/barcodes', ['barcode' => $q === '' ? null : $q,
+                'show' => 'decided']), 'current' => $show === 'decided']],
+            'bar' => ['links' => $q === '' ? [] : [['label' => Words::BARCODE['clear'], 'href' => Html::url('/ui/items/barcodes', ['show' => $show === 'decided' ? 'decided' : null])]]],
             'barcode' => $q,
             'open' => $svc->openCount(),
             'error' => $error === null ? null : ItemCardsController::plain($error),

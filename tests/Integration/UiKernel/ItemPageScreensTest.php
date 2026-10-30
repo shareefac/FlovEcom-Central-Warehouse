@@ -14,16 +14,15 @@ use CW\Suppliers\Suppliers;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
-use CW\Ui\Controller\ItemController;
 use CW\Ui\Html;
 use CW\Ui\Words;
 
 /**
- * The item page, stock first (docs/decisions.md IV1-IV12; the owner's approved design IT_Item, IT_Phone of 29 Oct 2026), through the real
- * kernel: the head (the name, the status block, the code and its short identity line, the actions the person may use: Count it, Move stock,
- * Order more, More), the stock strip (on the shelf, held for orders, free to sell, coming in with its first order, sells a week and how long it
- * lasts), the recent movements with their solid cells and the way to all of them, where it sells, and the tabs that hold the sections and
- * forms of before (Details, Barcodes, Suppliers and packs, Store matching, History), which open where the work is.
+ * The item page, stock first (docs/decisions.md IV1-IV12) and one page in sections since the redesign of 30 Oct 2026 (artboard Item, RD-A4),
+ * through the real kernel: the head (the name, its status label, the fact line, More and the ONE main action the person may use: Order more,
+ * else Count it, else Move stock), the stock card (on the shelf, held for orders, free to sell, coming in with what it sells a week and its
+ * first order), the recent stock history and the way to all of it, the Store listings card, and the folds that hold what the tabs of before
+ * held (each warehouse, selling on the stores, the item group and packs, the card's history), which open where the work is.
  */
 final class ItemPageScreensTest extends KernelUiTestCase
 {
@@ -95,17 +94,17 @@ final class ItemPageScreensTest extends KernelUiTestCase
         return trim((string) preg_replace('/\s+/u', ' ', (string) $s));
     }
 
-    /** The head's status block and identity line. @return array{0: string, 1: string, 2: string} [status words, its tone, the identity line] */
+    /** The head's status label and fact line. @return array{0: string, 1: string, 2: string} [status words, its tone, the fact line] */
     private static function head(UiResponse $r): array
     {
         $xp = self::xp($r);
-        $chip = $xp->query('//div[contains(@class, "item-head")]//p[@class="ph-meta"]/span[contains(concat(" ", @class, " "), " chip ")]')->item(0);
-        self::assertInstanceOf(\DOMElement::class, $chip, 'the status block: ' . $r->describe());
-        $tone = array_values(array_diff(explode(' ', $chip->getAttribute('class')), ['chip']))[0] ?? '';
-        return [self::squash($chip->textContent), $tone, self::squash($xp->evaluate('string(//div[contains(@class, "item-head")]//span[@class="item-id"])'))];
+        $tag = $xp->query('//div[contains(@class, "item-head")]//div[@class="ph-title"]/span[contains(concat(" ", @class, " "), " tag ")]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $tag, 'the status label: ' . $r->describe());
+        $tone = array_values(array_diff(explode(' ', $tag->getAttribute('class')), ['tag']))[0] ?? '';
+        return [self::squash($tag->textContent), $tone, self::squash($xp->evaluate('string(//div[contains(@class, "item-head")]//span[@class="item-id"])'))];
     }
 
-    /** The head's actions as their words, in order, the main one marked "*". @return list<string> */
+    /** The head's actions as their words, in order (More, then the main one marked "*"). @return list<string> */
     private static function actions(UiResponse $r): array
     {
         $xp = self::xp($r);
@@ -119,7 +118,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
         return $out;
     }
 
-    /** The More menu's entries: words => link. @return array<string, string> */
+    /** The More menu's links: words => link. @return array<string, string> */
     private static function more(UiResponse $r): array
     {
         $out = [];
@@ -130,57 +129,38 @@ final class ItemPageScreensTest extends KernelUiTestCase
         return $out;
     }
 
-    /** The stock strip: label => [the figure, the line under it]. @return array<string, array{0: string, 1: string}> */
+    /** The stock card: label => [the figure, its lines under it joined by " · "]. @return array<string, array{0: string, 1: string}> */
     private static function strip(UiResponse $r): array
     {
         $xp = self::xp($r);
         $out = [];
         foreach ($xp->query('//section[contains(@class, "item-strip")]/div[contains(@class, "doc-step")]') ?: [] as $step) {
+            $subs = array_map(static fn (\DOMNode $p): string => self::squash($p->textContent), iterator_to_array($xp->query('p[contains(@class, "step-sub")]', $step) ?: []));
             $out[self::squash($xp->evaluate('string(p[contains(@class, "doc-step-label")])', $step))] = [
-                self::squash($xp->evaluate('string(p[contains(@class, "doc-step-big")])', $step)), self::squash($xp->evaluate('string(p[contains(@class, "step-sub")])', $step))];
+                self::squash($xp->evaluate('string(p[contains(@class, "doc-step-big")])', $step)), implode(' · ', $subs)];
         }
         return $out;
     }
 
-    /** Where it sells: one chip a store, its words => its tone. @return array<string, string> */
+    /** The Store listings card: store => [its state's words, its tone] ("Match…" for a store to match). @return array<string, array{0: string, 1: string}> */
     private static function sells(UiResponse $r): array
-    {
-        $out = [];
-        foreach (self::xp($r)->query('//section[contains(@class, "item-sells")]//span[contains(concat(" ", @class, " "), " chip ")]') ?: [] as $c) {
-            /** @var \DOMElement $c */
-            $out[self::squash($c->textContent)] = array_values(array_diff(explode(' ', $c->getAttribute('class')), ['chip']))[0] ?? '';
-        }
-        return $out;
-    }
-
-    /** The item's tabs: key => [label, link ('' for the open one: CV13), current, its panel open]. @return array<string, array{0: string, 1: string, 2: bool, 3: bool}> */
-    private static function itemTabs(UiResponse $r): array
     {
         $xp = self::xp($r);
         $out = [];
-        foreach ($xp->query('//nav[contains(concat(" ", @class, " "), " item-tabs ")]/a[not(contains(@class, "tab-back"))]') ?: [] as $i => $a) {
-            /** @var \DOMElement $a */
-            self::assertSame('tab', $a->getAttribute('class'), 'the one tabs component (DS2)');
-            $key = ItemController::TABS[$i];
-            if ($a->hasAttribute('href')) {
-                parse_str((string) parse_url($a->getAttribute('href'), PHP_URL_QUERY), $q);
-                self::assertSame($key, $q['tab'] ?? null, 'the tabs in their order');
-            }
-            $panel = $xp->query('//div[@id="t-' . $key . '"]')->item(0);
-            self::assertInstanceOf(\DOMElement::class, $panel, "the panel of {$key}");
-            $out[$key] = [self::squash($xp->evaluate('string(span[1])', $a)), $a->getAttribute('href'), $a->getAttribute('aria-current') === 'page',
-                str_contains(' ' . $panel->getAttribute('class') . ' ', ' open ')];
+        foreach ($xp->query('//section[contains(@class, "item-stores")]/div[contains(@class, "side-row")][p[@class="side-line"]]') ?: [] as $row) {
+            $tag = $xp->query('p[@class="side-line"]/span[contains(concat(" ", @class, " "), " tag ")]', $row)->item(0);
+            $out[self::squash($xp->evaluate('string(p[@class="side-line"]/span[@class="side-name"])', $row))] = $tag instanceof \DOMElement
+                ? [self::squash($tag->textContent), array_values(array_diff(explode(' ', $tag->getAttribute('class')), ['tag']))[0] ?? '']
+                : [self::squash($xp->evaluate('string(p[@class="side-line"]/a)', $row)), 'match'];
         }
         return $out;
     }
 
-    /** The key of the one open tab (marked current, its panel open), failing when there is not exactly one. */
-    private static function openTab(UiResponse $r): string
+    /** The folds open on the page (what the tabs of before held: RD-A4). @return list<string> their ids */
+    private static function openFolds(UiResponse $r): array
     {
-        $open = array_keys(array_filter(self::itemTabs($r), static fn (array $t): bool => $t[2] && $t[3]));
-        self::assertCount(1, $open, 'one tab open: ' . json_encode(self::itemTabs($r)));
-        self::assertCount(1, array_filter(self::itemTabs($r), static fn (array $t): bool => $t[2] || $t[3]), 'and only it');
-        return $open[0];
+        return array_map(static fn (\DOMElement $d): string => $d->getAttribute('id'),
+            array_values(iterator_to_array(self::xp($r)->query('//div[contains(@class, "item-main")]/details[contains(@class, "it-fold") and @open]') ?: [])));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -208,9 +188,10 @@ final class ItemPageScreensTest extends KernelUiTestCase
         // The buyer: Order more is the main action; the main supplier's box is named.
         $buyer = $this->signIn($this->uiUser('buyer'));
         $page = $buyer->get("/ui/items/{$sku}");
-        self::assertSame([Words::ITEM['st_selling'], 'done', $code . ' · Pod Salt · nic salt · ' . Words::say('ITEM', 'pack_from', 'box of 10', 'Prime Vape Supply')],
-            self::head($page));
-        self::assertSame([Words::ITEM['order_more'] . '*', Words::DOC['more']], self::actions($page));
+        self::assertSame([Words::ITEM['st_selling'], 'done', $code . ' · Pod Salt · nic salt'], self::head($page), 'the box is the Details\' BUYING (RD-A4)');
+        self::assertSame([Words::ITEM_PAGE['more'], Words::ITEM['order_more'] . '*'], self::actions($page));
+        self::assertSame(['Prime Vape Supply', \CW\Ui\Controller\PurchaseOrdersController::pack('box', 10)],
+            array_slice(array_map(static fn (\DOMNode $d): string => self::squash($d->textContent), iterator_to_array(self::xp($page)->query('//div[contains(@class, "facts-buying")]//dd') ?: [])), 0, 2));
         self::assertSame([Words::ITEM['more_reorder'] => "/ui/purchasing/reorder/items/{$sku}"], self::more($page));
         $order = (string) self::xp($page)->evaluate('string(//div[contains(@class, "item-bar")]/a[contains(@class, "primary")]/@href)');
         parse_str((string) parse_url($order, PHP_URL_QUERY), $q);
@@ -228,12 +209,12 @@ final class ItemPageScreensTest extends KernelUiTestCase
         self::assertSame([[$sku, (int) $si['id'], 10]], array_map(static fn (array $l): array => [(int) $l['sku_id'], (int) $l['supplier_item_id'], (int) $l['units_per_pack']],
             self::$db->all('SELECT dl.sku_id, pl.supplier_item_id, pl.units_per_pack FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no')));
 
-        // The stock controller: Count it is the main action (no order); Move stock; the other stock records under More.
+        // The stock controller: Count it is the main action (no order); Move stock and the other stock records under More.
         $stock = $this->signIn($this->uiUser('stock_controller'));
         $page = $stock->get("/ui/items/{$sku}");
-        self::assertSame([Words::COUNTS['item_count_it'] . '*', Words::ITEM['move_stock'], Words::DOC['more']], self::actions($page));
-        self::assertSame([Words::ITEM['more_in'] => "/ui/stock/in?item={$sku}#new", Words::ITEM['more_out'] => "/ui/stock/out?item={$sku}#new",
-            Words::ITEM['more_adjust'] => "/ui/stock/adjustments?item={$sku}#new"], self::more($page));
+        self::assertSame([Words::ITEM_PAGE['more'], Words::COUNTS['item_count_it'] . '*'], self::actions($page));
+        self::assertSame([Words::ITEM['move_stock'] => "/ui/stock/transfers?item={$sku}#new", Words::ITEM['more_in'] => "/ui/stock/in?item={$sku}#new",
+            Words::ITEM['more_out'] => "/ui/stock/out?item={$sku}#new", Words::ITEM['more_adjust'] => "/ui/stock/adjustments?item={$sku}#new"], self::more($page));
         // Count it opens a count sheet of this item through the count route (the board's own form: FormOnce, CSRF).
         $f = $page->form('/ui/stock/counts');
         self::assertSame(['csrf', 'form_key', 'warehouse', 'mode', 'pick_' . $sku], array_keys($f));
@@ -246,7 +227,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
         unset($f['csrf']);
         self::assertSame(403, $stock->post('/ui/stock/counts', $f)->status, 'no token: refused');
         // Move stock: the transfer's new form with this item; the draft's add box holds it.
-        $move = (string) self::xp($page)->evaluate('string(//div[contains(@class, "item-bar")]/a[normalize-space() = "' . Words::ITEM['move_stock'] . '"]/@href)');
+        $move = (string) self::xp($page)->evaluate('string(//div[contains(@class, "item-bar")]//a[normalize-space() = "' . Words::ITEM['move_stock'] . '"]/@href)');
         self::assertSame("/ui/stock/transfers?item={$sku}#new", $move);
         $list = $stock->get('/ui/stock/transfers', ['item' => (string) $sku]);
         self::assertSame(200, $list->status, $list->describe());
@@ -311,17 +292,18 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $buyer = $this->signIn($this->uiUser('buyer'));
         $page = $buyer->get("/ui/items/{$sku}");
         $strip = self::strip($page);
-        self::assertSame([Words::ITEM['on_shelf'], Words::ITEM['held_orders'], Words::ITEM['free'], Words::ITEM['coming'], Words::ITEM['weekly']], array_keys($strip));
-        self::assertSame(['160', Words::say('COUNTS', 'item_counted', Html::day('2026-09-26 13:00:00.000000'))], $strip[Words::ITEM['on_shelf']]);
-        self::assertSame(['3', Words::say('ITEM', 'held_paid', 2) . ' · ' . Words::say('ITEM', 'held_unpaid', 1)], $strip[Words::ITEM['held_orders']]);
+        self::assertSame([Words::ITEM['on_shelf'], Words::ITEM['held_orders'], Words::ITEM['free'], Words::ITEM['coming']], array_keys($strip), 'the artboard\'s four (RD-A4)');
+        self::assertSame(['160', ''], $strip[Words::ITEM['on_shelf']]);
+        self::assertSame(['3', ''], $strip[Words::ITEM['held_orders']], '2 sold and waiting to ship, 1 in a checkout');
         self::assertSame(['157', ''], $strip[Words::ITEM['free']], 'available: what the websites may sell');
-        self::assertSame(['90', $first['number'] . ' · ' . Words::say('ITEM', 'coming_due', Html::day('2026-11-02'))], $strip[Words::ITEM['coming']],
-            'every open order\'s units; the first one due');
-        self::assertSame(['22', Words::say('ITEM', 'lasts_many', 7)], $strip[Words::ITEM['weekly']], '157 free at 22 a week');
+        self::assertSame(['90', Words::say('ITEM_PAGE', 'sells_week', '22') . ' · ' . $first['number'] . ' · ' . Words::say('ITEM', 'coming_due', Html::day('2026-11-02'))],
+            $strip[Words::ITEM['coming']], 'every open order\'s units; what it sells a week; the first one due');
         $links = array_values(array_filter($page->hrefs(), static fn (string $h): bool => str_starts_with($h, '/ui/stock/reservations')
             || preg_match('#^/ui/purchasing/orders/[0-9]+$#D', $h) === 1));
-        self::assertSame(['/ui/stock/reservations?q=' . $code . '&state=committed', '/ui/stock/reservations?q=' . $code . '&state=held', '/ui/purchasing/orders/' . $first['id']], $links,
-            'the held figures lead to the orders that hold them, the first order to its page');
+        self::assertSame(['/ui/stock/reservations?q=' . $code, '/ui/purchasing/orders/' . $first['id']], $links,
+            'the held figure leads to the orders that hold them, the first order to its page');
+        self::assertContains(Html::when('2026-09-26 13:00:00.000000'), array_map(static fn (\DOMNode $d): string => self::squash($d->textContent),
+            iterator_to_array(self::xp($page)->query('//div[contains(@class, "facts-product")]//dd') ?: [])), 'when it was last counted: a fact of PRODUCT');
         self::assertNotContains('/ui/purchasing/orders/' . $later['id'], $page->hrefs());
         // Someone who may not open an order sees its number, not a link.
         $viewer = $this->signIn($this->uiUser('viewer'))->get("/ui/items/{$sku}");
@@ -334,24 +316,23 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $quiet = $this->item('strict', 5, 'Quiet coil');
         self::assertSame([Words::ITEM['on_shelf'], Words::ITEM['held_orders'], Words::ITEM['free'], Words::ITEM['coming']],
             array_keys(self::strip($buyer->get("/ui/items/{$quiet}"))));
-        self::assertSame(['0', ''], self::strip($buyer->get("/ui/items/{$quiet}"))[Words::ITEM['coming']]);
-        foreach ([['0.0000', ['0', '']], ['0.0100', [Words::ITEM['weekly_less'], Words::ITEM['lasts_year']]], ['0.5000', ['4', Words::ITEM['lasts_one']]],
-            ['2.0000', ['14', Words::ITEM['lasts_less']]]] as [$rate, $want]) {
+        self::assertSame(['0', ''], self::strip($buyer->get("/ui/items/{$quiet}"))[Words::ITEM['coming']], 'no sales rate known: no "sells a week"');
+        foreach ([['0.0000', '0'], ['0.0100', Words::ITEM['weekly_less']], ['0.5000', '4'], ['2.0000', '14']] as [$rate, $want]) {
             self::$db->exec('DELETE FROM reorder_demand WHERE sku_id = ?', [$quiet]);
             self::rate($quiet, $rate);
-            self::assertSame($want, self::strip($buyer->get("/ui/items/{$quiet}"))[Words::ITEM['weekly']], $rate);
+            self::assertSame(['0', Words::say('ITEM_PAGE', 'sells_week', $want)], self::strip($buyer->get("/ui/items/{$quiet}"))[Words::ITEM['coming']], $rate);
         }
         $empty = $this->item('strict', 0, 'Empty coil');
         self::rate($empty, '1.0000');
-        self::assertSame(['7', ''], self::strip($buyer->get("/ui/items/{$empty}"))[Words::ITEM['weekly']], 'nothing free: no "lasts"');
-        self::assertSame(['0', Words::COUNTS['item_never']], self::strip($buyer->get("/ui/items/{$empty}"))[Words::ITEM['on_shelf']]);
+        self::assertSame(['0', Words::say('ITEM_PAGE', 'sells_week', '7')], self::strip($buyer->get("/ui/items/{$empty}"))[Words::ITEM['coming']]);
+        self::assertSame(['0', ''], self::strip($buyer->get("/ui/items/{$empty}"))[Words::ITEM['on_shelf']]);
     }
 
     // ------------------------------------------------------------------------------------------
     // Recent movements
     // ------------------------------------------------------------------------------------------
 
-    public function testRecentMovementsAreSolidByKindAndLeadToAllOfThem(): void
+    public function testTheRecentStockHistorySaysWhatChangedAndLeadsToAllOfIt(): void
     {
         $vpg = $this->site('vapeandgo');
         $sku = $this->item('strict', 20, 'Moving liquid');
@@ -366,27 +347,23 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $xp = self::xp($page);
         $rows = [];
         foreach ($xp->query('//section[contains(@class, "item-moves")]//table/tbody/tr') ?: [] as $tr) {
-            $cell = $xp->query('td[contains(@class, "doc-st")]', $tr)->item(0);
-            self::assertInstanceOf(\DOMElement::class, $cell, 'each row has its solid cell');
-            $tone = array_values(array_intersect(explode(' ', $cell->getAttribute('class')), Words::TONES));
-            $rows[] = [self::squash($xp->evaluate('string(text())', $cell)), $tone, self::squash($xp->evaluate('string(td[@data-label="' . Words::ITEM['m_units'] . '"])', $tr))];
+            $rows[] = [self::squash($xp->evaluate('string(td/span[@class="m-what"])', $tr)), self::squash($xp->evaluate('string(td[@data-label="' . Words::ITEM['m_units'] . '"])', $tr))];
         }
         self::assertSame([
-            [Words::MOVE_KIND['commit'], [Words::tone('MOVE_KIND', 'commit')], '+1'],
-            [Words::MOVE_KIND['commit'], [Words::tone('MOVE_KIND', 'commit')], '−1'],
-            [Words::MOVE_KIND['reserve'], [Words::tone('MOVE_KIND', 'reserve')], '+1'],
-            [Words::MOVE_KIND['count'], [Words::tone('MOVE_KIND', 'count')], '−4'],
-            [Words::MOVE_KIND['goods_in'], [Words::tone('MOVE_KIND', 'goods_in')], '+20'],
-        ], $rows, 'newest first, each cell in its kind\'s colour');
-        self::assertSame(['review', 'done', 'info'], [Words::tone('MOVE_KIND', 'count'), Words::tone('MOVE_KIND', 'goods_in'), Words::tone('MOVE_KIND', 'commit')],
-            'the design\'s colours: a count purple, goods in green, a sale blue');
-        $all = (string) $xp->evaluate('string(//section[contains(@class, "item-moves")]//a[normalize-space() = "' . Words::ITEM['all_moves'] . '"]/@href)');
+            [Words::MOVE_KIND['commit'], '+1'],
+            [Words::MOVE_KIND['commit'], '−1'],
+            [Words::MOVE_KIND['reserve'], '+1'],
+            [Words::MOVE_KIND['count'], '−4'],
+            [Words::MOVE_KIND['goods_in'], '+20'],
+        ], $rows, 'newest first: when, what, the units (the artboard Item, RD-A4)');
+        self::assertSame(3, $xp->query('//section[contains(@class, "item-moves")]//table/tbody/tr[1]/td')->length, 'three columns');
+        $all = (string) $xp->evaluate('string(//section[contains(@class, "item-moves")]//a[normalize-space() = "' . Words::ITEM_PAGE['all_history'] . '"]/@href)');
         self::assertSame('/ui/stock/movements?q=' . $code . '&figure=all', $all);
         $moves = self::open($web, $all);
         self::assertSame(200, $moves->status, $moves->describe());
         self::assertStringContainsString('Moving liquid', $moves->text());
         self::assertStringNotContainsString('Not this one', $moves->text(), 'only this item');
-        self::assertStringContainsString(Words::ITEM['no_movements'], $web->get('/ui/items/' . self::makeSku('Never moved'))->text());
+        self::assertStringContainsString(Words::ITEM_PAGE['no_history'], $web->get('/ui/items/' . self::makeSku('Never moved'))->text());
         unset($other);
     }
 
@@ -394,7 +371,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
     // Where it sells
     // ------------------------------------------------------------------------------------------
 
-    public function testWhereItSellsSaysEachStoreInOneSolidChip(): void
+    public function testTheStoreListingsCardSaysEachStoresStateAndItsMatch(): void
     {
         $vpg = $this->site('vapeandgo');
         $big = $this->site('vapebig');
@@ -410,21 +387,31 @@ final class ItemPageScreensTest extends KernelUiTestCase
         self::$db->exec("UPDATE channel_listing SET status = 'quarantined' WHERE id = ?", [$held]);
         $web = $this->signIn($this->uiUser('viewer'));
         $name = static fn (Caller $c): string => (string) self::$db->value('SELECT name FROM channel WHERE id = ?', [$c->channelId]);
-        $chip = static fn (Caller $c, string $state, string ...$args): string => Words::say('ITEM', 'sells_chip', $name($c), Words::say('ITEM_SELLS', $state, ...$args));
-        self::assertSame([$chip($vpg, 'on_sale') => 'done', $chip($big, 'not_on_sale', 'Draft') => 'needs', $chip($ef, 'suggested') => 'needs',
-            $chip($alt, 'on_hold') => 'blocked'], self::sells($web->get("/ui/items/{$sku}")), 'the owner\'s order of the stores, then the others');
-        // Matched with nothing known of its state; and a store with nothing for it.
+        $state = static fn (string $s): string => ucfirst(Words::of('ITEM_SELLS', $s));
+        $page = $web->get("/ui/items/{$sku}");
+        self::assertSame([$name($vpg) => [$state('on_sale'), 'done'], $name($big) => [$state('matched'), 'needs'], $name($ef) => [$state('suggested'), 'needs'],
+            $name($alt) => [$state('on_hold'), 'blocked']], self::sells($page), 'the owner\'s order of the stores, then the others');
+        self::assertSame(Words::say('ITEM', 'sells_chip', $name($big), Words::say('ITEM_SELLS', 'not_on_sale', 'Draft')),
+            (string) self::xp($page)->evaluate('string(//section[contains(@class, "item-stores")]/div[contains(@class, "side-row")][2]/@title)'), 'why it is not on sale, in full');
+        self::assertSame(['/ui/review/listing/' . $onSale], array_slice(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array(self::xp($page)->query('//section[contains(@class, "item-stores")]//a[normalize-space() = "' . Words::ITEM_PAGE['listing_change'] . '"]') ?: [])), 0, 1),
+            'the store product matched there, its Change');
+        // Matched with nothing known of its state; and a store with nothing for it (Match… for who may decide).
         $plain = $this->item('strict', 0, 'Plain pod');
         $this->listing($vpg, 'V2', $plain);
-        self::assertSame([$chip($vpg, 'matched') => 'done', $chip($big, 'not_linked') => 'waiting', $chip($ef, 'not_linked') => 'waiting',
-            $chip($alt, 'not_linked') => 'waiting'], self::sells($web->get("/ui/items/{$plain}")));
+        self::assertSame([$name($vpg) => [$state('matched'), 'done'], $name($big) => [$state('not_linked'), 'waiting'], $name($ef) => [$state('not_linked'), 'waiting'],
+            $name($alt) => [$state('not_linked'), 'waiting']], self::sells($web->get("/ui/items/{$plain}")));
+        $mapper = $this->signIn($this->uiUser('mapper'))->get("/ui/items/{$plain}");
+        self::assertSame([$name($big), Words::ITEM_PAGE['match'], 'match'], [array_keys(self::sells($mapper))[1], ...self::sells($mapper)[$name($big)]]);
+        self::assertSame('/ui/review/products/' . $plain . '/map?channel=vapebig', (string) self::xp($mapper)->evaluate('string(//section[contains(@class, "item-stores")]//a[normalize-space() = "'
+            . Words::ITEM_PAGE['match'] . '"]/@href)'), 'the store\'s picker');
     }
 
     // ------------------------------------------------------------------------------------------
-    // The tabs
+    // The sections and the folds (no tab row: RD-A4)
     // ------------------------------------------------------------------------------------------
 
-    public function testTheTabsHoldTheSectionsAndOpenWhereTheWorkIs(): void
+    public function testTheSectionsHoldWhatTheTabsHeldAndAFoldOpensWhereTheWorkIs(): void
     {
         $vpg = $this->site('vapeandgo');
         $sku = $this->item('legacy', 4, 'Tabbed liquid');
@@ -434,56 +421,46 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $this->supply((int) $s['id'], $sku, 10, 'TB-10');
         $lead = $this->signIn($this->uiUser(['mapping_lead', 'stock_controller']));
         $page = $lead->get("/ui/items/{$sku}");
-        $tabs = self::itemTabs($page);
-        $href = static fn (string $k): string => "/ui/items/{$sku}?tab={$k}#it-tabs";
-        self::assertSame([
-            'details' => [Words::ITEM['tab_details'], '', true, true],
-            'barcodes' => [Words::ITEM['tab_barcodes'], $href('barcodes'), false, false],
-            'packs' => [Words::ITEM['tab_packs'], $href('packs'), false, false],
-            'stores' => [Words::ITEM['tab_stores'], $href('stores'), false, false],
-            'history' => [Words::ITEM['tab_history'], $href('history'), false, false],
-        ], $tabs, 'Details first and open, and no link: a click never reloads the page (CV13)');
-        self::assertSame($href('details'), self::itemTabs($lead->get("/ui/items/{$sku}", ['tab' => 'barcodes']))['details'][1], 'a closed tab is a link');
-        $count = static fn (UiResponse $r, string $k): string => self::squash((string) self::xp($r)->evaluate('string(//nav[contains(@class, "item-tabs")]/a[@data-tab="' . $k . '"][1]/span[contains(@class, "count")])'));
-        self::assertSame(['2', '1', '1'], [$count($page, 'barcodes'), $count($page, 'packs'), $count($page, 'stores')], 'how many barcodes, supplies and matched products');
-        // Each part in its tab, with its forms as before.
-        $in = static fn (UiResponse $r, string $panel, string $xpath): int => self::xp($r)->query('//div[@id="t-' . $panel . '"]' . $xpath)->length;
-        self::assertSame(1, $in($page, 'details', '//section[@id="card"]'));
-        self::assertSame(1, $in($page, 'details', '//a[@href="/ui/items/' . $sku . '/card"]'));
-        self::assertSame(1, $in($page, 'barcodes', '//form[contains(@action, "/barcodes")]//input[@name="barcode" and @type="text"]'));
-        self::assertSame(1, $in($page, 'packs', '//section[@id="groups"]'));
-        self::assertSame(1, $in($page, 'packs', '//table[contains(@class, "item-suppliers")]'));
-        self::assertSame(1, $in($page, 'stores', '//table[contains(@class, "item-listings")]'));
-        self::assertSame(1, $in($page, 'stores', '//section[@id="selling-mode"]'));
-        self::assertSame(1, $in($page, 'history', '//*[contains(@class, "card-history")]'));
+        $xp = self::xp($page);
+        self::assertSame(0, $xp->query('//main//nav[contains(@class, "tabs")]')->length, 'no tab row');
+        self::assertSame([], self::openFolds($page), 'every fold closed at first');
+        // Each part where the artboard puts it, with its forms as before.
+        self::assertSame(1, $xp->query('//div[contains(@class, "item-main")]/section[@id="card"]//a[@href="/ui/items/' . $sku . '/card"]')->length, 'Details and its Change');
+        self::assertSame(1, $xp->query('//aside[contains(@class, "item-side")]/section[@id="barcodes"]//form[contains(@action, "/barcodes")]//input[@name="barcode" and @type="text"]')->length);
+        self::assertSame(2, $xp->query('//section[@id="barcodes"]//li[contains(@class, "side-row")]')->length, 'the two barcodes');
+        self::assertSame(1, $xp->query('//aside[contains(@class, "item-side")]/section[contains(@class, "item-suppliers")]')->length);
+        self::assertSame(1, $xp->query('//details[@id="it-groups"]//section[@id="groups"]')->length);
+        self::assertSame(1, $xp->query('//details[@id="it-selling"]//table[contains(@class, "item-listings")]')->length);
+        self::assertSame(1, $xp->query('//details[@id="it-selling"]//section[@id="selling-mode"]')->length);
+        self::assertSame(1, $xp->query('//details[@id="it-history"]//*[contains(@class, "card-history")]')->length);
+        self::assertSame(1, $xp->query('//details[@id="it-wh"]')->length);
 
-        // Plain links: each opens its tab; a nonsense one opens Details.
-        foreach (['barcodes', 'packs', 'stores', 'history', 'details'] as $k) {
-            self::assertSame($k, self::openTab($lead->get("/ui/items/{$sku}", ['tab' => $k])), $k);
+        // An old link's tab opens its fold; Details and Barcodes are always shown; a nonsense one opens none.
+        foreach (['barcodes' => [], 'packs' => ['it-groups'], 'stores' => ['it-selling'], 'history' => ['it-history'], 'details' => [], 'x<b>' => []] as $k => $want) {
+            self::assertSame($want, self::openFolds($lead->get("/ui/items/{$sku}", ['tab' => $k])), $k);
         }
-        self::assertSame('details', self::openTab($lead->get("/ui/items/{$sku}", ['tab' => 'x<b>'])));
-        // After a change, the tab of what was changed; after a refusal too.
+        self::assertSame(['it-wh'], self::openFolds($lead->get("/ui/items/{$sku}", ['part' => 'warehouses'])));
+        // After a change, the barcode is in its card; after a refusal its form is open with what was typed.
         $f = $page->form("/ui/items/{$sku}/barcodes");
         $r = $lead->post("/ui/items/{$sku}/barcodes", ['barcode' => '96385074', 'units' => '1'] + $f);
         self::assertSame("/ui/items/{$sku}?notice=barcode_added", $r->location(), $r->describe());
-        self::assertSame('barcodes', self::openTab($lead->follow($r)));
+        self::assertSame(3, self::xp($lead->follow($r))->query('//section[@id="barcodes"]//li[contains(@class, "side-row")]')->length);
         $f = $lead->get("/ui/items/{$sku}")->form("/ui/items/{$sku}/barcodes");
         $bad = $lead->post("/ui/items/{$sku}/barcodes", ['barcode' => '123', 'units' => '1'] + $f);
         self::assertSame(422, $bad->status, $bad->describe());
-        self::assertSame('barcodes', self::openTab($bad), 'the refusal is said in its tab');
+        self::assertSame(1, self::xp($bad)->query('//section[@id="barcodes"]/details[contains(@class, "card-add") and @open]')->length, 'the refusal opens the add form');
         self::assertSame(1, self::xp($bad)->query('//p[@class="error"]')->length);
         self::assertSame('123', (string) self::xp($bad)->evaluate('string(//form[@action="/ui/items/' . $sku . '/barcodes"]//input[@name="barcode"]/@value)'), 'what was typed is kept');
-        self::assertSame('stores', self::openTab($lead->get("/ui/items/{$sku}", ['notice' => 'selling_mode_set'])));
-        self::assertSame('packs', self::openTab($lead->get("/ui/items/{$sku}", ['notice' => 'family_set'])));
-        self::assertSame('details', self::openTab($lead->get("/ui/items/{$sku}", ['notice' => 'card_saved'])));
-        self::assertSame('barcodes', self::openTab($lead->get("/ui/items/{$sku}", ['notice' => 'barcode_added', 'tab' => 'barcodes'])));
+        self::assertSame(['it-selling'], self::openFolds($lead->get("/ui/items/{$sku}", ['notice' => 'selling_mode_set'])));
+        self::assertSame(['it-groups'], self::openFolds($lead->get("/ui/items/{$sku}", ['notice' => 'family_set'])));
+        self::assertSame([], self::openFolds($lead->get("/ui/items/{$sku}", ['notice' => 'card_saved'])));
 
-        // Someone who only looks: the same tabs, no form to change anything.
+        // Someone who only looks: the same sections, no form to change anything, no suppliers.
         $viewer = $this->signIn($this->uiUser('viewer'))->get("/ui/items/{$sku}");
-        self::assertSame(array_keys($tabs), array_keys(self::itemTabs($viewer)));
-        self::assertSame(0, self::xp($viewer)->query('//div[contains(@class, "it-panel")]//form[@method="post"]')->length);
+        self::assertSame(0, self::xp($viewer)->query('//main//form[@method="post"]')->length);
         self::assertNotContains("/ui/items/{$sku}/card", $viewer->hrefs());
-        self::assertSame('', $count($viewer, 'packs'), 'no count of the supplies for someone who may not see them');
+        self::assertSame(0, self::xp($viewer)->query('//section[contains(@class, "item-suppliers")] | //div[contains(@class, "facts-buying")]')->length,
+            'no supplier for someone who may not see them');
     }
 
     public function testTheLookOnlyAndTheEmptyHistory(): void
@@ -491,9 +468,9 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $sku = $this->item('strict', 0, 'Quiet item');
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $web->get("/ui/items/{$sku}", ['tab' => 'history']);
-        self::assertSame('history', self::openTab($page));
-        self::assertStringContainsString(Words::ITEM['history_none'], self::squash((string) self::xp($page)->evaluate('string(//div[@id="t-history"])')));
-        self::assertSame([], self::sells($page), 'no store yet: no chip');
+        self::assertSame(['it-history'], self::openFolds($page));
+        self::assertStringContainsString(Words::ITEM['history_none'], self::squash((string) self::xp($page)->evaluate('string(//details[@id="it-history"])')));
+        self::assertSame([], self::sells($page), 'no store yet');
         self::assertStringContainsString(Words::ITEM['sells_none'], $page->text());
     }
     // ------------------------------------------------------------------------------------------
@@ -529,11 +506,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
         }
         sort($editable);
         self::assertSame(['/barcodes', '/barcodes/remove', '/barcodes/units', '/family', '/selling-mode'], $editable);
-        foreach (self::itemTabs($page) as $key => $t) {
-            if ($t[1] !== '') {
-                self::assertStringStartsWith("/ui/items/{$sku}?tab={$key}", $t[1], 'a tab is a link that leaves (the guard asks), never a #fragment (it would not ask)');
-            }
-        }
+        self::assertSame(0, $xp->query('//main//nav[contains(@class, "tabs")]')->length, 'no tab link to leave by (RD-A4): the folds are on the page');
     }
 
     /**
@@ -595,36 +568,16 @@ final class ItemPageScreensTest extends KernelUiTestCase
     }
 
     /**
-     * IV16 (the Codex review, LOW): an old link into a part (#barcodes) shows that part without the script; the tabs then say so and the open
-     * tab is a link again (its hidden twin, shown only then), so there is always a way back to it.
+     * IV16 then, RD-A4 now: an old link into a part (#barcodes, #card) lands on a section that is always shown (no tab row to keep in step).
      */
-    public function testTheOpenTabHasAWayBackWhenAFragmentShowsAnotherPart(): void
+    public function testAnOldFragmentLinkLandsOnASectionAlwaysShown(): void
     {
         $sku = $this->item('strict', 0, 'Fragment item');
-        $web = $this->signIn($this->uiUser('viewer'));
-        foreach (['details', 'barcodes'] as $open) {
-            $page = $web->get("/ui/items/{$sku}", ['tab' => $open]);
-            $xp = self::xp($page);
-            $tabs = $xp->query('//nav[contains(@class, "item-tabs")]/a');
-            $keys = [];
-            foreach ($tabs ?: [] as $a) {
-                /** @var \DOMElement $a */
-                $keys[] = $a->getAttribute('data-tab') . ($a->getAttribute('aria-current') === 'page' ? '*' : '') . (str_contains($a->getAttribute('class'), 'tab-back') ? '<' : '');
-            }
-            $want = [];
-            foreach (ItemController::TABS as $k) {
-                $want[] = $k === $open ? $k . '*' : $k;
-                if ($k === $open) {
-                    $want[] = $k . '<';
-                }
-            }
-            self::assertSame($want, $keys, 'each tab names its part; the open one has its twin right after it');
-            $back = $xp->query('//nav[contains(@class, "item-tabs")]/a[contains(@class, "tab-back")]')->item(0);
-            self::assertInstanceOf(\DOMElement::class, $back);
-            self::assertSame("/ui/items/{$sku}?tab={$open}#it-tabs", $back->getAttribute('href'));
-            self::assertSame('tab tab-back', $back->getAttribute('class'));
-            self::assertFalse($back->hasAttribute('aria-current'));
-            self::assertSame(1, $xp->query('//div[@id="t-' . $open . '" and contains(@class, "open")]')->length);
+        $page = $this->signIn($this->uiUser('viewer'))->get("/ui/items/{$sku}", ['tab' => 'barcodes']);
+        $xp = self::xp($page);
+        foreach (['barcodes', 'card'] as $id) {
+            self::assertSame(1, $xp->query('//*[@id="' . $id . '"]')->length, $id);
+            self::assertSame(0, $xp->query('//details//*[@id="' . $id . '"]')->length, "{$id}: not inside a fold");
         }
     }
 }

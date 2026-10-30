@@ -1,25 +1,16 @@
 <?php
-// Products › Families, a board (the approved design of 29 Oct 2026, GI_List; docs/decisions.md W11.4): one search (the family's name) and one
-// Show row (in use, or in use and switched off), Clear at the right; the head's "+ New family" and the last row of the In use group open the
-// add form (its fields in two columns; what a refused one brings back is guarded as typed, W11.13). The groups: in use, switched off; each a
-// coloured heading with its count over a card with its colour on the left edge, the status cell filled with it. A row opens the family.
+// Items › Item groups (families), a simple list (the approved redesign of 30 Oct 2026, the Items artboard's look; docs/decisions.md RD-A7;
+// W11.4 before): the title, More (Clear) and the ONE main button "+ New family" (it opens the add form, its fields in two columns; what a
+// refused one brings back is guarded as typed, W11.13); one search (the family's name) and ONE Show choice (in use, or in use and switched
+// off); then the groups in use and switched off, three columns: the family (it opens it), its state, how many items it holds.
 ?>
-<?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly, side: $partial('rda_bar', $bar)) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('FAMILY', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('FAMILY', 'search') ?>"></div>
-  <div class="tb-state">
-    <label for="tb-show"><?= $word('FAMILY', 'show') ?></label>
-    <select id="tb-show" name="off">
-      <option value=""><?= $word('FAMILY', 'show_on') ?></option>
-      <option value="1"<?php if ($off): ?> selected<?php endif; ?>><?= $word('FAMILY', 'show_all') ?></option>
-    </select>
-    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
-  </div>
-  <div class="tb-end">
-<?php if ($filtered): ?>
-    <a class="btn ghost sm" href="/ui/items/families"><?= $word('FAMILY', 'clear_list') ?></a>
+<?php if ($off): ?>
+  <input type="hidden" name="off" value="1">
 <?php endif; ?>
-  </div>
+  <?= $partial('rda_show', ['choices' => $show, 'label' => \CW\Ui\Words::INV_LIST['show']]) ?>
 </form>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -54,7 +45,7 @@
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
 <div class="grp-block doc-group <?= $e($g['tone']) ?>">
-  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('FAMILY', 'group_one') ?><?php else: ?><?= $say('FAMILY', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?= $n(count($g['rows'])) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list families">
     <thead>
@@ -72,9 +63,6 @@
         <td class="num" data-label="<?= $word('FAMILY', 'items') ?>"><?= $n($r['items']) ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'on' && $formKey !== null): ?>
-      <tr class="grp-add"><td colspan="3" data-label=""><a class="add-item" href="#new"><?= $word('FAMILY', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

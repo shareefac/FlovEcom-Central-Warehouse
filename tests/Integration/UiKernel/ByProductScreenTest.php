@@ -999,7 +999,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         $item = $web->get('/ui/items/' . $sku);
         self::assertSame(200, $item->status, $item->describe());
         $href = '/ui/review/products?q=' . self::cw($sku);
-        self::assertSame(Words::ITEM['coverage_link'], self::squash((new \DOMXPath($item->dom()))->evaluate('string(//a[@href="' . $href . '"])')));
+        self::assertSame(Words::ITEM_PAGE['matching'], self::squash((new \DOMXPath($item->dom()))->evaluate('string(//section[contains(@class, "item-stores")]//a[@href="' . $href . '"])')),
+            'the Store listings card\'s Matching (the redesign\'s artboard Item, docs/decisions.md RD-A4)');
         $row = self::open($web, $href);
         self::assertSame([$sku], self::ids($row));
         self::assertSame('/ui/review/listing/' . $l, self::links($row, $sku, 'Alt Store')['Kit one on Alt']);

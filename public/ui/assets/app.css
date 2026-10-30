@@ -2624,15 +2624,15 @@ table.gi-lines .gi-why:empty { display: none; }
   .ap-next { flex: 1 1 100%; text-align: left; }
 }
 /* ==== item-stock-first (branch item-stock-first, docs/decisions.md IV1-IV12; the approved design IT_Item and IT_Phone of 29 Oct 2026) ======
-   The item page on the shared pieces: the head is .doc-head (the status block and a short identity line in .ph-meta, the actions at the head's
-   right in .doc-actions with More), the stock strip is .doc-progress, the recent movements a board (.doc-board, td.doc-st by kind), where it
-   sells solid chips, the parts under the ONE tabs component. Here only what the item page adds. */
+   The item page on the shared pieces: the head is .doc-head (the status label and the fact line in .ph-meta, the actions at the head's right
+   in .doc-actions with More), the stock card is .doc-progress. Since the redesign of 30 Oct 2026 (RD-A4) one page in sections: no tab row;
+   its sections and side cards are in the rd2a block at the end. Here only what the item page adds. */
 /* The item's and the matching page's heading are the smaller one of IT_Item and TP_Match (24 px; DC2) */
 .item-head .ph-title h1, .match-head .ph-title h1 { font-size: 24px; line-height: 1.3; }
 @media (max-width: 699.98px) { .item-head .ph-title h1, .match-head .ph-title h1 { font-size: 22px; } }
 .item-head .ph-meta .item-id { color: var(--ink-muted); font: 500 13px/20px var(--font); overflow-wrap: anywhere; }
 .item-bar > form { display: inline-flex; margin: 0; }
-/* The strip: five figures in one row (four when no sales rate is known), two a row on a phone; the line under a figure */
+/* The stock card (the redesign's artboard Item, RD-A4): four figures in one row, two a row on a phone; the line under a figure */
 .item-strip > .doc-step { border-left: 1px solid var(--divider); border-top: 0; }
 .item-strip > .doc-step:first-of-type { border-left: 0; }
 .item-strip .doc-step-big { font-size: 26px; line-height: 1.2; }
@@ -2647,34 +2647,6 @@ table.gi-lines .gi-why:empty { display: none; }
   .item-strip .doc-step-big { font-size: 22px; }
 }
 .item-wh { margin: 0 0 24px; }
-/* The recent movements: the board's title with "All movements" at its right */
-.item-moves .board-head > a { margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
-.item-moves { margin: 0 0 24px; }
-/* Where it sells: one solid chip a store, wrapping */
-.item-sells { margin: 0 0 24px; }
-.item-sells > h2 { margin: 0 0 12px; }
-.item-chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
-.item-chips .chip { min-height: 30px; font-size: 13px; white-space: normal; text-align: left; }
-/* The parts under their tabs: plain links (?tab=) open one part; a #fragment inside a closed part opens that one instead (no script) */
-.item-parts { scroll-margin-top: 16px; }
-.item-parts > .item-tabs { margin: 0 0 16px; }
-.it-panel { display: none; }
-.it-panel.open, .it-panel:target, .it-panel:has(:target) { display: block; }
-.it-panels:has(:target) > .it-panel.open:not(:target):not(:has(:target)) { display: none; }
-.it-panel > section, .it-panel > .card { margin: 0 0 16px; }
-.it-panel > section.item-card { margin-top: 0; }
-/* A #fragment that shows another part (an old link: #barcodes, #card) keeps the tabs in step without the script (IV16): that part's tab looks
-   open, and the open tab gives way to its twin, a link back to it (the open tab itself is no link, CV13). */
-.item-tabs > .tab-back { display: none; }
-.item-parts:has(.it-panel:not(.open):target, .it-panel:not(.open) :target) .item-tabs > .tab[aria-current] { display: none; }
-.item-parts:has(.it-panel:not(.open):target, .it-panel:not(.open) :target) .item-tabs > .tab-back { display: inline-flex; }
-.item-parts:has(#t-details:target, #t-details :target) .item-tabs > .tab[data-tab="details"]:not(.tab-back),
-.item-parts:has(#t-barcodes:target, #t-barcodes :target) .item-tabs > .tab[data-tab="barcodes"]:not(.tab-back),
-.item-parts:has(#t-packs:target, #t-packs :target) .item-tabs > .tab[data-tab="packs"]:not(.tab-back),
-.item-parts:has(#t-stores:target, #t-stores :target) .item-tabs > .tab[data-tab="stores"]:not(.tab-back),
-.item-parts:has(#t-history:target, #t-history :target) .item-tabs > .tab[data-tab="history"]:not(.tab-back) {
-  color: var(--accent-hover); border-bottom-color: var(--accent);
-}
 /* A phone (IT_Phone): the actions are a bar at the bottom of the screen in the tab bar's place, their buttons side by side; More opens upwards */
 @media (max-width: 699.98px) {
   .item-head .ph-actions > .item-bar {
@@ -2909,3 +2881,95 @@ form.mt-form > button.po-default { display: none; }
   .mt-bar > .btn-why { flex: 1 1 100%; order: -1; text-align: center; }
 }
 /* ==== end w12 =============================================================================================================================== */
+/* ==== rd2a: Items and Inventory on the approved redesign of 30 Oct 2026 (artboards Items, Item, Inventory, Counts; docs/decisions.md RD-A1+) ==== */
+/* A list's ONE Show choice (views/rda_show; TEMPORARY until the redesign's shared grouped-pages helper is on main): the More menu's engine,
+   its button drawn as the artboards' select (44 px, the search box's edge, 10 px corners, white, 14 px plain words, the arrow at the right),
+   its menu from the left edge; the choice shown is not a link (the accent's tint). The search beside it is 44 px too. */
+details.show-pick > summary.show-select {
+  min-height: 44px; padding: 0 14px; gap: 10px; border: 1px solid var(--field); border-radius: var(--r-10); background: var(--card);
+  color: var(--ink); font: 400 14px/20px var(--font); justify-content: space-between;
+}
+details.show-pick[open] > summary.show-select { border-color: var(--accent); background: var(--card); color: var(--ink); }
+details.show-pick > .more-menu { left: 0; right: auto; min-width: max(100%, 220px); }
+details.show-pick .menu-item.is-current { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.toolbar:has(> details.show-pick) .tb-search input[type="search"] { height: 44px; min-height: 44px; }
+.toolbar:has(> details.show-pick) { gap: 10px; margin-bottom: 20px; }
+/* The head's More beside the ONE main button (a list's rest: filters, import, the download, Clear); its filter form in a fold of the menu */
+.ph-actions > details.page-more > .more-menu { min-width: 260px; }
+.page-more .doc-act-panel form.record { display: grid; gap: 10px; margin: 0; }
+.page-more .doc-act-panel form.record select { width: 100%; }
+.page-more .doc-act-panel form.record .tb-check { min-height: 44px; }
+.page-more .doc-act-panel p.actions { margin: 4px 0 0; justify-content: flex-end; }
+@media (max-width: 639.98px) { details.show-pick { flex: 1 1 100%; } details.show-pick > summary.show-select { width: 100%; } }
+/* Adjustments and Transfers (artboard Inventory: Adjustments): the units in their colour, + green and − red; the reason on an adjustment's lines muted */
+table.stock-records td.chg { font-weight: 600; color: var(--ink); }
+table.stock-records td.chg.up { color: var(--sf-green-ink); }
+table.stock-records td.chg.down { color: var(--sf-red-ink); }
+/* Stock counts (artboard Inventory: Stock counts): the bar is "N ticked", then More (the other ways to count, the shelf, a note; it opens upwards
+   from the right, beside the main button) and "Count the ticked items"; the hidden first button makes Enter count the ticked items */
+form.count-open > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+.count-bar > details.count-more { margin: 0; }
+.count-bar > details.count-more > .more-menu { left: auto; right: 0; min-width: 280px; }
+.count-more .count-fields { display: grid; gap: 10px; padding: 12px 14px; }
+.count-bar .count-more .count-field { display: grid; gap: 4px; }
+.count-bar .count-more .count-field select, .count-bar .count-more .count-note input { width: 100%; max-width: none; }
+/* The item page (artboard Item, RD-A4): the status label beside the name; the stock card; Details and the history in the main column, the
+   side cards (Store listings, Barcodes, Suppliers) beside it; a card's head is its title with its link at the right (13 px, the accent);
+   Details' groups are a small uppercase title over a three-column grid of facts; the folds of what the tabs of before held under the history */
+.item-head .ph-title > .tag { margin: 0; padding: 4px 12px; font-size: 12px; }
+.item-head .ph-meta .item-id { font: 400 14px/20px var(--font); }
+.item-strip { margin: 0 0 20px; }
+.item-strip .doc-step-label { font-size: 12px; }
+.item-strip .doc-step-big { font-size: 24px; font-weight: 700; }
+.item-strip .doc-step-big a { color: inherit; text-decoration: none; }
+.item-strip .doc-step-big a:hover { color: var(--accent-hover); text-decoration: underline; }
+.item-cols { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.item-main { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.item-side { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.item-cols section.card { position: relative; margin: 0; padding: 0; border-radius: var(--r-14); overflow: hidden; }
+.item-cols .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--divider); }
+.item-side .card-head { padding: 14px 18px; }
+.item-cols .card-head > h2 { margin: 0; font: 600 15px/22px var(--font); color: var(--ink); }
+.item-cols .card-link { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent-hover); font: 600 13px/20px var(--font); text-decoration: none; cursor: pointer; }
+.item-cols .card-link:hover { color: var(--accent); text-decoration: underline; }
+.item-details .facts-group { padding: 14px 20px; border-top: 1px solid #f7f3f9; }
+.item-details .card-head + .facts-group { border-top: 0; }
+.item-details .facts-title { margin: 0 0 8px; color: var(--ink-muted); font: 600 12px/18px var(--font); letter-spacing: .06em; }
+dl.item-facts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin: 0; }
+dl.item-facts-grid dt { color: var(--ink-muted); font: 400 12px/18px var(--font); }
+dl.item-facts-grid dd { margin: 2px 0 0; color: var(--ink); font: 500 14px/20px var(--font); overflow-wrap: anywhere; }
+.item-details .facts-more { padding: 0 20px; }
+.item-details .facts-more > :first-child { margin-top: 4px; }
+.item-details .facts-more > :last-child { margin-bottom: 16px; }
+.item-moves > .scroll { margin: 0; border: 0; border-radius: 0; }
+table.item-history { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.item-history tr + tr > td { border-top: 1px solid #f7f3f9; }
+table.item-history td { padding: 12px 20px; vertical-align: top; border: 0; background: none; height: auto; }
+table.item-history td.h-when { color: var(--ink-muted); white-space: nowrap; }
+table.item-history .m-what { color: var(--ink); font-weight: 500; }
+table.item-history td.h-what a { font-size: 13px; text-decoration: none; }
+table.item-history td.chg { text-align: right; font-weight: 600; white-space: nowrap; color: var(--ink); }
+table.item-history td.chg.up { color: var(--sf-green-ink); }
+table.item-history td.chg.down { color: var(--sf-red-ink); }
+.item-main > details.it-fold { margin: 0; }
+.item-main > details.it-fold > summary > h2.fold-h { margin: 0; font: inherit; color: inherit; }
+.item-side .side-row { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 12px 18px; border-top: 1px solid #f7f3f9; }
+.item-side .card-head + .side-row, .item-side .card-head + details + .side-row, .item-side ul.side-list > .side-row:first-child { border-top: 0; }
+.item-side ul.side-list { margin: 0; padding: 0; list-style: none; }
+.item-side .side-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0; color: var(--ink); font: 500 14px/20px var(--font); }
+.item-side .side-sub { margin: 0; color: var(--ink-muted); font: 400 13px/18px var(--font); overflow-wrap: anywhere; }
+.item-side .side-row > .card-link { align-self: flex-start; }
+.item-side .tag { margin: 0; }
+.item-side details { border: 0; border-radius: 0; padding: 0; margin: 0; background: none; }
+.item-side details > summary { min-height: 32px; font-weight: 600; }
+.item-side details.card-add > summary { position: absolute; top: 9px; right: 18px; }
+.item-side details.card-add[open] { padding: 12px 18px; border-bottom: 1px solid var(--divider); }
+.item-side details.card-add form.add-barcode { margin: 0; }
+.item-side details.bc-change > summary { color: var(--accent-hover); font-size: 13px; }
+.item-side details.bc-change form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 4px 0 8px; }
+.item-side details.bc-change input.units { width: 6rem; }
+.item-side p.note { margin: 12px 18px; }
+@media (max-width: 639.98px) { dl.item-facts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table.item-history td { padding: 12px 16px; } }
+details.show-pick > .more-menu { max-height: min(60vh, 32rem); overflow-y: auto; }
+@media (max-width: 699.98px), (pointer: coarse) { .item-cols .card-link, .item-side details > summary { min-height: 44px; } }
+/* ==== end rd2a ============================================================================================================================== */

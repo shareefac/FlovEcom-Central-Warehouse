@@ -70,6 +70,12 @@ final class RepackController
             'f' => ['state' => $state, 'q' => $q],
             'filtered' => $state !== null || $q !== '',
             'states' => array_intersect_key(Words::DOC_STATUS, array_flip(Document::STATUSES)),
+            // The redesign's simple list (docs/decisions.md RD-A7): the state is the ONE Show choice; the head's More (Clear) and "+ New repack".
+            'show' => [['label' => Words::REPACK['any_state'], 'href' => Html::url(RepackController::PATH, ['q' => $q === '' ? null : $q]), 'current' => $state === null],
+                ...array_map(static fn (string $st): array => ['label' => Words::of('DOC_STATUS', $st), 'href' => Html::url(RepackController::PATH, ['q' => $q === '' ? null : $q,
+                    'state' => $st]), 'current' => $state === $st], Document::STATUSES)],
+            'bar' => ['links' => $state !== null || $q !== '' ? [['label' => Words::REPACK['clear'], 'href' => RepackController::PATH]] : [],
+                'main' => $canPost ? ['label' => Words::NEW['repack'], 'href' => RepackController::PATH . '#new'] : null],
             'canPost' => $canPost,
             'formKey' => $canPost ? ($typed['form_key'] ?? FormOnce::newKey()) : null,
             'warehouses' => array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $choices['warehouses']),
