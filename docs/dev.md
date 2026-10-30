@@ -986,7 +986,8 @@ Every page keeps its address, its filters and its CSV; only the layout follows t
 |---|---|---|
 | Days typed in a Show row | `div.tb-state` > `label.tb-day` (its word + `input[type=date]`) | as tall as the row's selects; on a phone each a share of the row, 44 px high (CSS: the "w10" block of `app.css`) |
 | A card holding a line instead of a table | `div.table-wrap.doc-board > p` | padded like a row (an order's unit with no stock change) |
-| A status cell on a phone | `table.stack td.doc-st` (not Goods in's `.gi-duty`) | keeps its fill: the stacked list's `td { background: none }` took it before (every board) |
+| A status cell on a phone | `table.stack td.doc-st` (not Goods in's `.gi-duty`) | keeps its fill: the stacked list's `td { background: none }` took it before (every board); its own column word (`td[data-label]::before`, Lines to place's "Status") is in the cell's white (W10.13) |
+| An order's sold units on a phone | `table.stack.doc-lines.sales-units` | two columns, not the lines' three: the item the rest, the status its own width up to half the card, wrapping inside it (W10.12) |
 
 - The controllers hand the groups over: `SalesController::index()` `groups` (+ the row's `group`), `show()` `party`, `docFacts`, `strip`;
   `DispatchController` each list's `groups` (`id`, `name`, `tone`, `rows`) and `shows` (`value`, `label`, `current`); `SalesReturnsController`

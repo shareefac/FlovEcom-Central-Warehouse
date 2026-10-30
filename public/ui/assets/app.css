@@ -2753,4 +2753,14 @@ form.doc-details { margin: 0 0 20px; }
 /* A phone: a status cell keeps its fill, the pill-like block docs/dev.md describes. The stacked list's `table.stack td { background: none }`
    outranked `td.doc-st`, so its white words sat on the white card (GV23 found it on Goods in, whose duty cell stays a white field there) */
 @container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty) { background: var(--t-fill, var(--st-grey)); } }
+/* ...and its own word for its column (Lines to place's "Status") is in the cell's white, not the muted grey of a label on the white card
+   (the Codex review of a260cba, W10.13); the duty cell keeps its grey word beside its white field */
+@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; } }
+/* An order's sold units on a phone (W10.12): the status takes its own width, up to half the card, and wraps inside it; the item has the rest.
+   The lines' three equal columns put it in the last third on one line, so a long status lay over a long item name */
+@container (max-width: 640px) {
+  table.stack.doc-lines.sales-units tr { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
+  table.stack.doc-lines.sales-units tr > th.c-head { grid-column: 1; }
+  table.stack.doc-lines.sales-units tr > td.c-status { grid-column: 2; white-space: normal; }
+}
 /* ==== end w10 =============================================================================================================================== */

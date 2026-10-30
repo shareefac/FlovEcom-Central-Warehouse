@@ -1316,6 +1316,41 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * The Codex review of a260cba (docs/decisions.md W10.12): on a phone an order's sold units are cards whose status takes its own width
+     * (at most half the card) and wraps inside it, the item has the rest. The lines' three equal columns put the status in the last third
+     * and kept it on one line, so at 500 px "Returned by the customer" lay over a long item name.
+     */
+    public function testAnOrdersUnitStatusTakesItsOwnWidthOnAPhone(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertGreaterThan(0, preg_match_all('/^@container \(max-width: 640px\) \{\n((?:  [^\n]*\n)*?)\}$/m', $css, $all));
+        $blocks = array_values(array_filter($all[1], static fn (string $b): bool => str_contains($b, '.sales-units')));
+        self::assertCount(1, $blocks, 'one phone block for an order\'s units');
+        $rule = static function (string $selector) use ($blocks): string {
+            self::assertSame(1, preg_match('/^  ' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $blocks[0], $m), "the rule {$selector}");
+            return $m[1];
+        };
+        self::assertStringContainsString('grid-template-columns: minmax(0, 1fr) fit-content(50%)', $rule('table.stack.doc-lines.sales-units tr'),
+            'the item the rest, the status its own width up to half the card');
+        self::assertStringContainsString('grid-column: 1', $rule('table.stack.doc-lines.sales-units tr > th.c-head'), 'the item in the first column only');
+        $status = $rule('table.stack.doc-lines.sales-units tr > td.c-status');
+        self::assertStringContainsString('grid-column: 2', $status, 'the status in its own column');
+        self::assertStringContainsString('white-space: normal', $status, 'a long status wraps inside its column');
+    }
+
+    /**
+     * The Codex review of a260cba (docs/decisions.md W10.13): on a phone a filled status cell's own word for its column (Lines to place's
+     * "Status") is in the cell's white, not the muted grey of a label on the white card; Goods in's duty cell, a white field there, keeps
+     * its grey word.
+     */
+    public function testAFilledStatusCellsLabelIsInTheCellsWhiteOnAPhone(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertStringContainsString('@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; } }', $css);
+        self::assertStringContainsString('table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: var(--ink-muted); }', $css, 'the duty cell keeps its grey word');
+    }
+
+    /**
      * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
      * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
      * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that

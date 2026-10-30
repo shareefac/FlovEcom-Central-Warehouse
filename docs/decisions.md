@@ -13782,3 +13782,27 @@ its GET form without a script, a group a day, the record's head, bar, strip, car
 reads the strip, the two boards, the Show row's fields, the download and the "?". The existing sales tests read the board's order through
 `onBoard()` (grouped, newest first in each), the row texts with the status cell after the order, the figures from the strip and the store from
 the card's party. `UiUnitTest::testTheShowRowHoldsTheDaysTypedAtEveryWidth` pins the CSS. Red first: `runs/w10_red.log`.
+
+## Sales: the Codex review of a260cba (`runs/w10_codex_review.txt`), one MEDIUM and one LOW (branch `wave-w10`, 30 Oct 2026; W10.12-W10.14)
+
+Codex reviewed a260cba (read only); it found one MEDIUM and one LOW, both on a phone, and nothing in the Show rows, the grouping, the
+controllers, the figures or the record page. The w8 review's fix (W8.13-W8.14, `509a74a`) came in first as its own commit. Layout only. Red
+first: `runs/w10_fix_red.log`.
+
+**W10.12. An order's unit status never lies over the item on a phone (MEDIUM).** The units became the card's lines (`doc-lines`), whose
+phone card has three equal columns: the status cell went to the last third and kept its one line (`td.c-status { white-space: nowrap }`).
+At 500 px a returned unit with a long name had "Returned by the customer" drawn over the name; before, the stacked list gave the status its
+full width. Now, on a phone (container 640 px or less), `table.stack.doc-lines.sales-units` rows have two columns: the item the rest
+(`minmax(0, 1fr)`), the status its own width up to half the card (`fit-content(50%)`), wrapping inside it (`white-space: normal`). Other
+lines tables are unchanged. `UiUnitTest::testAnOrdersUnitStatusTakesItsOwnWidthOnAPhone` pins the rules.
+
+**W10.13. A filled status cell's own label is readable on a phone (LOW).** W10's phone rule fills every board's status cell (except Goods
+in's duty cell); a status cell that carries a `data-label` (Lines to place's "Status") also draws that word before its value, in the stacked
+list's muted grey, so on the blue fill of an open line it was hard to read. Now that word takes the cell's white
+(`table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit }`); the duty cell, a white field there, keeps its grey word.
+`UiUnitTest::testAFilledStatusCellsLabelIsInTheCellsWhiteOnAPhone` pins it.
+
+**W10.14. Stock In and the other stock boards: the head's "+ New" through a variable.** W8.13 handed the head its button as
+`side: $partial('split', ['actions' => ...])`; the head lint (`UiTemplatesTest::testTheStatementsRawPartsAreOnlyHelperOutput`) cannot read
+an array's `=>` inside a `$head` call, so it failed. The partial is now made before the head (`$split`) and passed as `side: $split`, the way
+the record pages pass their bars. Same output.
