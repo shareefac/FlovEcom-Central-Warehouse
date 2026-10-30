@@ -78,42 +78,58 @@ final class ByProductScreenTest extends KernelUiTestCase
         return trim((string) preg_replace('/\s+/u', ' ', (string) $text));
     }
 
-    /** @return list<string> the list's column heads */
+    /**
+     * The list's columns as the approved ByItem artboard has them since docs/decisions.md RD-C9: the item, a chip per store (its store's name in
+     * `data-label`, in the channel table's order), and on how many stores it is matched ("N of M stores" in the item's line). The first row's.
+     *
+     * @return list<string>
+     */
     private static function heads(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        // (the tick column of a person who may decide is not one of the list's own columns: ByItemBulkTest has it)
-        return array_map(static fn (\DOMNode $n): string => self::squash($n->textContent),
-            iterator_to_array($xp->query('//table[contains(@class, "by-product")]/thead/tr/th[not(contains(@class, "c-pick"))]')));
+        $stores = array_map(static fn (\DOMElement $c): string => $c->getAttribute('data-label'),
+            iterator_to_array($xp->query('(//section[contains(@class, "bi-list")]/div[contains(@class, "bi-row")])[1]/div[@class="bi-stores"]/*[@data-label]')));
+        return [Words::BY_PRODUCT['item'], ...$stores, Words::BY_PRODUCT['stores_matched']];
     }
 
     /** @return list<int> the products of the list's rows, in order */
     private static function ids(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMElement $tr): int => (int) substr($tr->getAttribute('id'), 2), iterator_to_array($xp->query('//table[contains(@class, "by-product")]/tbody/tr')));
+        return array_map(static fn (\DOMElement $tr): int => (int) substr($tr->getAttribute('id'), 2),
+            iterator_to_array($xp->query('//section[contains(@class, "bi-list")]/div[contains(@class, "bi-row")]')));
     }
 
-    /** A product's row: store name (the cell's phone label) => the cell's text. @return array<string, string> */
+    /**
+     * A product's row: store name (its chip's `data-label`) => what the chip says (its state and its lines, the words a screen reader hears),
+     * and "Stores matched" => the item line's "N of M stores" (RD-C9). @return array<string, string>
+     */
     private static function cells(UiResponse $r, int $sku): array
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//tr[@id="p-' . $sku . '"]/td[not(contains(@class, "c-pick"))]') as $td) {
-            /** @var \DOMElement $td */
-            $out[$td->getAttribute('data-label')] = self::squash($td->textContent);
+        foreach ($xp->query('//div[@id="p-' . $sku . '"]/div[@class="bi-stores"]/*[@data-label]') as $chip) {
+            /** @var \DOMElement $chip */
+            $out[$chip->getAttribute('data-label')] = trim(self::squash($xp->evaluate('string(.//span[@class="visually-hidden"][1])', $chip)), ' ()');
         }
+        $out[Words::BY_PRODUCT['stores_matched']] = self::squash($xp->evaluate('string(//div[@id="p-' . $sku . '"]//span[@class="bi-on"])'));
         return $out;
     }
 
-    /** The links of one cell: link text => href. @return array<string, string> */
+    /** The links of one store's chip: `chip` => the chip's own link, and the quick match's links by their text. @return array<string, string> */
     private static function links(UiResponse $r, int $sku, string $store): array
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//tr[@id="p-' . $sku . '"]/td[@data-label="' . $store . '"]//a') as $a) {
-            /** @var \DOMElement $a */
-            $out[self::squash($a->textContent)] = $a->getAttribute('href');
+        foreach ($xp->query('//div[@id="p-' . $sku . '"]/div[@class="bi-stores"]/*[@data-label="' . $store . '"]') as $chip) {
+            /** @var \DOMElement $chip */
+            if ($chip->nodeName === 'a') {
+                $out['chip'] = $chip->getAttribute('href');
+            }
+            foreach ($xp->query('.//a', $chip) as $a) {
+                /** @var \DOMElement $a */
+                $out[self::squash($a->textContent)] = $a->getAttribute('href');
+            }
         }
         return $out;
     }
@@ -124,7 +140,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $xp = new \DOMXPath($r->dom());
         // The filter is a choice of the board's one Show row since docs/decisions.md W12.7: "All (55)".
         return array_map(static fn (\DOMNode $o): string => (string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', self::squash($o->textContent)),
-            iterator_to_array($xp->query('//form[contains(@class, "toolbar")]//select[@name="cov"]/option')));
+            iterator_to_array($xp->query('//form[@class="bi-find"]//select[@name="cov"]/option')));
     }
 
     /** The picker's rows of one list (`suggested` or `found`): [name, option line, state, barcode mark, Choose link]. @return list<array{0: string, 1: string, 2: string, 3: string, 4: string}> */
@@ -142,7 +158,7 @@ final class ByProductScreenTest extends KernelUiTestCase
     /** The quick match fold of one cell ("Match…" on a store that has no variant for the item), or null. */
     private static function fold(UiResponse $r, int $sku, string $store): ?\DOMElement
     {
-        $n = (new \DOMXPath($r->dom()))->query('//tr[@id="p-' . $sku . '"]/td[@data-label="' . $store . '"]//details[@data-quick-pick]')->item(0);
+        $n = (new \DOMXPath($r->dom()))->query('//div[@id="p-' . $sku . '"]//details[@data-quick-pick][@data-label="' . $store . '"]')->item(0);
         return $n instanceof \DOMElement ? $n : null;
     }
 
@@ -224,38 +240,41 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame('By item', self::currentTab($page));
         self::assertSame(['Simple matching', 'Mapping', 'Store products', 'By item'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
         self::assertSame(['New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
-        self::assertSame(Words::MENU['by_product'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(Words::RD_MATCH['title'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')), 'Product matching (the ByItem artboard, RD-C7)');
         self::assertSame([Words::BY_PRODUCT['item'], 'Alt Store', 'Big Store', 'Cee Store', Words::BY_PRODUCT['stores_matched']], self::heads($page),
             'one column per store, by name: the channel table says which');
         self::assertSame([$alpha, $bravo, $charlie], self::ids($page), 'by CW number; a product joined into another one is not listed');
 
         $xp = new \DOMXPath($page->dom());
-        self::assertSame('/ui/items/' . $alpha, $xp->evaluate('string(//tr[@id="p-' . $alpha . '"]/th/a[@class="o-name"]/@href)'));
-        self::assertSame('Alpha kit', self::squash($xp->evaluate('string(//tr[@id="p-' . $alpha . '"]/th/a[@class="o-name"])')));
-        self::assertSame(self::cw($alpha) . ' · Alpha Co', self::squash($xp->evaluate('string(//tr[@id="p-' . $alpha . '"]/th/span[@class="o-sub"][1])')));
+        self::assertSame('/ui/items/' . $alpha, $xp->evaluate('string(//div[@id="p-' . $alpha . '"]/div[@class="bi-item"]/a[@class="o-name"]/@href)'));
+        self::assertSame('Alpha kit', self::squash($xp->evaluate('string(//div[@id="p-' . $alpha . '"]/div[@class="bi-item"]/a[@class="o-name"])')));
+        self::assertSame(self::cw($alpha) . ' · Alpha Co · ' . Words::say('RD_MATCH', 'stores_n', 3, 3), self::squash($xp->evaluate('string(//div[@id="p-' . $alpha . '"]/div[@class="bi-item"]/span[@class="o-sub"][1])')));
         // Under the item, its parent product: the product name of its best-selling matched variant (U122).
-        self::assertSame(Words::say('BY_PRODUCT', 'parent', 'Alpha big seller'), self::squash($xp->evaluate('string(//tr[@id="p-' . $alpha . '"]/th/span[contains(@class, "parent")])')));
-        self::assertSame(0, $xp->query('//tr[@id="p-' . $bravo . '"]/th/span[contains(@class, "parent")]')->length, 'no variant is matched to Bravo: no "Product:" line');
+        self::assertSame(Words::say('BY_PRODUCT', 'parent', 'Alpha big seller'), self::squash($xp->evaluate('string(//div[@id="p-' . $alpha . '"]/div[@class="bi-item"]/span[contains(@class, "parent")])')));
+        self::assertSame(0, $xp->query('//div[@id="p-' . $bravo . '"]/div[@class="bi-item"]/span[contains(@class, "parent")]')->length, 'no variant is matched to Bravo: no "Product:" line');
         $cells = self::cells($page, $alpha);
         self::assertSame(['Alt Store', 'Big Store', 'Cee Store', Words::BY_PRODUCT['stores_matched']], array_keys($cells), 'on a phone each cell is labelled with its store');
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Alpha on Alt Blue', $cells['Alt Store']);
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Alpha big seller ' . Words::BY_PRODUCT['more_one'], $cells['Big Store']);
         self::assertStringNotContainsString('1 sale', $cells['Big Store'], 'one for one is not said');
         self::assertStringContainsString(Words::PRODUCT_STORE['matched'] . ' Alpha ten pack ' . Words::saleUses(10), $cells['Cee Store']);
-        self::assertSame(Words::say('BY_PRODUCT', 'summary', 3, 3), $cells[Words::BY_PRODUCT['stores_matched']]);
-        self::assertSame('/ui/review/listing/' . $a1, self::links($page, $alpha, 'Alt Store')['Alpha on Alt Blue']);
-        self::assertSame('/ui/review/listing/' . $b2, self::links($page, $alpha, 'Big Store')['Alpha big seller']);
-        self::assertSame('done', $xp->evaluate('string(//tr[@id="p-' . $alpha . '"]/@class)'), 'on every store: the row\'s strip is green');
+        self::assertSame(Words::say('RD_MATCH', 'stores_n', 3, 3), $cells[Words::BY_PRODUCT['stores_matched']]);
+        // (a matched store's chip leads someone who may decide to that store's picker: the match, and one more variant; RD-C9)
+        self::assertSame("/ui/review/products/{$alpha}/map?channel=alt", self::links($page, $alpha, 'Alt Store')['chip']);
+        self::assertSame("/ui/review/products/{$alpha}/map?channel=vbig", self::links($page, $alpha, 'Big Store')['chip']);
+        unset($a1, $b2);
+        self::assertSame(0, $xp->query('//div[@id="p-' . $alpha . '"]//*[contains(@class, "bi-chip open")]')->length, 'on every store: every chip green (RD-C9)');
 
         $cells = self::cells($page, $bravo);
         self::assertStringStartsWith(Words::PRODUCT_STORE['suggested'] . ' Bravo on Alt ' . Words::BAND['Key'], $cells['Alt Store']);
         self::assertStringStartsWith(Words::PRODUCT_STORE['waiting'] . ' Bravo on Big ' . Words::saleUses(6), $cells['Big Store']);
         self::assertStringStartsWith(Words::PRODUCT_STORE['none'], $cells['Cee Store']);
-        self::assertSame(Words::say('BY_PRODUCT', 'summary', 0, 3), $cells[Words::BY_PRODUCT['stores_matched']]);
-        self::assertSame('/ui/review/listing/' . $b3, self::links($page, $bravo, 'Big Store')['Bravo on Big']);
+        self::assertSame(Words::say('RD_MATCH', 'stores_n', 0, 3), $cells[Words::BY_PRODUCT['stores_matched']]);
+        self::assertSame('/ui/review/listing/' . $b3, self::links($page, $bravo, 'Big Store')['chip'], 'waiting for a second OK: the variant\'s page');
         // (the quick match's fold: "Match…", its Search and the way to the matching page; its search box holds no text node)
-        self::assertSame(array_fill_keys(['Alt Store', 'Big Store', 'Cee Store'], Words::PRODUCT_STORE['none'] . ' ' . Words::BY_PRODUCT['map'] . ' ' . Words::UI['search']
-            . ' ' . Words::BY_PRODUCT['quick_page']), array_slice(self::cells($page, $charlie), 0, 3));
+        self::assertSame(array_fill_keys(['Alt Store', 'Big Store', 'Cee Store'], Words::PRODUCT_STORE['none']), array_slice(self::cells($page, $charlie), 0, 3));
+        self::assertSame(3, (new \DOMXPath($page->dom()))->query('//div[@id="p-' . $charlie . '"]//details[@data-quick-pick]/summary[contains(@class, "bi-chip open")]')->length,
+            '"+ Store": the quick match\'s fold');
         self::assertSame(['suggested', 'suggested'], [$this->link($a2)['status'], $this->link($b3)['status']], 'looking decides nothing');
 
         // A fourth row in the channel table is a fourth column, with no code change: also before its product list is loaded.
@@ -265,8 +284,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame([Words::BY_PRODUCT['item'], 'Alt Store', 'Big Store', 'Cee Store', 'Dee Store', Words::BY_PRODUCT['stores_matched']], self::heads($four));
         $cells = self::cells($four, $alpha);
         self::assertStringStartsWith(Words::PRODUCT_STORE['none'], $cells['Dee Store']);
-        self::assertSame(Words::say('BY_PRODUCT', 'summary', 3, 4), $cells[Words::BY_PRODUCT['stores_matched']]);
-        self::assertSame('needs', (new \DOMXPath($four->dom()))->evaluate('string(//tr[@id="p-' . $alpha . '"]/@class)'));
+        self::assertSame(Words::say('RD_MATCH', 'stores_n', 3, 4), $cells[Words::BY_PRODUCT['stores_matched']]);
         self::assertContains(Words::say('BY_PRODUCT', 'missing', 'Dee Store') . ' 3', self::pills($four));
     }
 
@@ -299,10 +317,10 @@ final class ByProductScreenTest extends KernelUiTestCase
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
         $xp = new \DOMXPath($page->dom());
-        $parent = static fn (int $sku): string => self::squash($xp->evaluate('string(//tr[@id="p-' . $sku . '"]/th/span[contains(@class, "parent")])'));
+        $parent = static fn (int $sku): string => self::squash($xp->evaluate('string(//div[@id="p-' . $sku . '"]/div[@class="bi-item"]/span[contains(@class, "parent")])'));
         self::assertSame([Words::say('BY_PRODUCT', 'parent', 'Made first'), Words::say('BY_PRODUCT', 'parent', 'Fast page'), '', '', '', ''],
             array_map($parent, [$tie, $best, $blank, $same, $unmatched, $bare]), 'the year decides, not the last 30 days; the product\'s name, not the option\'s');
-        self::assertSame(2, $xp->query('//table[contains(@class, "by-product")]//span[contains(@class, "parent")]')->length);
+        self::assertSame(2, $xp->query('//section[contains(@class, "bi-list")]//span[contains(@class, "parent")]')->length);
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'], self::cells($page, $bare)['Alt Store']);
 
         $lines = explode("\r\n", rtrim(substr($web->get('/ui/review/products.csv')->body, strlen(CsvWriter::BOM)), "\r\n"));
@@ -327,14 +345,12 @@ final class ByProductScreenTest extends KernelUiTestCase
         $mapper = $this->signIn($this->uiUser('mapper'));
         $page = $mapper->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['Alpha on Alt' => '/ui/review/listing/' . self::$db->value('SELECT id FROM channel_listing WHERE external_variant_id = ?', ['A1']),
-            Words::BY_PRODUCT['map_more'] => "/ui/review/products/{$alpha}/map?channel=alt"], self::links($page, $alpha, 'Alt Store'),
-            'a matched item can get one more variant of the store');
+        self::assertSame(['chip' => "/ui/review/products/{$alpha}/map?channel=alt"], self::links($page, $alpha, 'Alt Store'),
+            'a matched item can get one more variant of the store: its chip opens the picker (RD-C9)');
         self::assertSame([Words::BY_PRODUCT['quick_page'] => "/ui/review/products/{$alpha}/map?channel=cee"], self::links($page, $alpha, 'Cee Store'),
             'the quick match\'s fold keeps the plain way to the picker');
         $review = "/ui/review/listing/{$a2}?via=product&product={$bravo}&channel=alt";
-        self::assertSame(['Bravo on Alt' => $review, Words::BY_PRODUCT['review'] => $review, Words::BY_PRODUCT['map_other'] => "/ui/review/products/{$bravo}/map?channel=alt"],
-            self::links($page, $bravo, 'Alt Store'), 'a suggestion is answered on its own page, which leads back here');
+        self::assertSame(['chip' => $review], self::links($page, $bravo, 'Alt Store'), 'a suggestion is answered on its own page, which leads back here');
         self::assertStringNotContainsString('You can look', $page->text());
 
         // Someone who can only look: the same cells, no "Match…", no "Review"; the picker is not theirs.
@@ -343,7 +359,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(200, $look->status, $look->describe());
         self::assertStringContainsString(sprintf(Words::UI['look_only'], Words::whoCan('mapping.decide')), $look->text());
         self::assertSame(self::ids($page), self::ids($look));
-        self::assertSame(['Bravo on Alt' => '/ui/review/listing/' . $a2], self::links($look, $bravo, 'Alt Store'));
+        self::assertSame(['chip' => '/ui/review/listing/' . $a2], self::links($look, $bravo, 'Alt Store'));
+        self::assertSame(['chip' => '/ui/review/listing/' . self::$db->value('SELECT id FROM channel_listing WHERE external_variant_id = ?', ['A1'])],
+            self::links($look, $alpha, 'Alt Store'), 'someone who only looks: a matched chip is the variant\'s page');
         self::assertSame([], self::links($look, $alpha, 'Cee Store'));
         self::assertSame(Words::PRODUCT_STORE['none'], self::cells($look, $alpha)['Cee Store']);
         foreach ($look->hrefs() as $href) {
@@ -397,7 +415,7 @@ final class ByProductScreenTest extends KernelUiTestCase
             Words::say('BY_PRODUCT', 'missing', 'Big Store') . ' 54', Words::say('BY_PRODUCT', 'missing', 'Cee Store') . ' 54', Words::BY_PRODUCT['suggested'] . ' 1'],
             self::pills($page), 'each entry with its count; one "Missing on" per store');
         self::assertCount(Queries::PER_PAGE, self::ids($page));
-        self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 55, 50), $page->text());
+        self::assertSame(Words::say('BY_PRODUCT', 'shown', 55, 50), (string) (new \DOMXPath($page->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertStringContainsString(Words::say('QUEUE', 'page', 1, 2), $page->text());
         $xp = new \DOMXPath($page->dom());
         self::assertSame('/ui/review/products?page=2', $xp->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'));
@@ -410,7 +428,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame([$bravo], self::ids($web->get('/ui/review/products', ['cov' => 'suggested'])));
         $missing = $web->get('/ui/review/products', ['cov' => 'missing-alt']);
         self::assertSame([$bravo, ...array_slice($fillers, 0, 49)], self::ids($missing), 'Alpha and Charlie are on Alt');
-        self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 53, 50), $missing->text());
+        self::assertSame(Words::say('BY_PRODUCT', 'shown', 53, 50), (string) (new \DOMXPath($missing->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertSame('/ui/review/products?cov=missing-alt&page=2', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'),
             'the pager keeps the filter');
         self::assertSame('missing-alt', (new \DOMXPath($missing->dom()))->evaluate('string(//select[@name="cov"]/option[@selected]/@value)'), 'its entry is chosen');
@@ -429,9 +447,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::BY_PRODUCT['empty_filter'], $none->text());
         $found = $web->get('/ui/review/products', ['q' => 'Filler', 'cov' => 'missing-vbig', 'page' => '2']);
         self::assertSame(array_slice($fillers, 50), self::ids($found));
-        self::assertStringContainsString(Words::say('BY_PRODUCT', 'shown', 52, 2), $found->text());
+        self::assertSame(Words::say('BY_PRODUCT', 'shown', 52, 2), (string) (new \DOMXPath($found->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertSame(['q' => 'Filler', 'cov' => 'missing-vbig'], $found->form('/ui/review/products'), 'the search keeps the filter and what was typed (one Show row, W12.7)');
-        self::assertSame('/ui/review/products.csv?cov=missing-vbig&q=Filler', (new \DOMXPath($found->dom()))->evaluate('string(//form[@class="toolbar"]//a[contains(@href, ".csv")]/@href)'),
+        self::assertSame('/ui/review/products.csv?cov=missing-vbig&q=Filler', (new \DOMXPath($found->dom()))->evaluate('string(//header//div[@class="bi-actions"]//a[contains(@href, ".csv")]/@href)'),
             'Export takes the filter and the search');
 
         // Odd values are answered in words or read as "none", never as a failure.
@@ -479,8 +497,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(array_slice($fillers, 47), self::ids($at));
         $xp = new \DOMXPath($at->dom());
         // (`here`, not the lists' `picked`: since U124 that one is a ticked row, and app.js sets and clears it with the tick)
-        self::assertSame('waiting here', $xp->evaluate('string(//tr[@id="p-' . $last . '"]/@class)'));
-        self::assertSame(1, $xp->query('//tr[contains(@class, "here")]')->length);
+        self::assertSame('bi-row here', $xp->evaluate('string(//div[@id="p-' . $last . '"]/@class)'));
+        self::assertSame(1, $xp->query('//div[contains(@class, "bi-row")][contains(@class, "here")]')->length);
         self::assertStringContainsString(Words::BY_PRODUCT['back_here'], $at->text());
         self::assertStringNotContainsString(Words::BY_PRODUCT['pinned'], $at->text());
         $pinned = $web->get('/ui/review/products', ['cov' => 'suggested', 'at' => (string) $alpha]);
@@ -560,7 +578,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe());
         self::assertCount(66, self::heads($page), 'a column for each of the 64, between the product and the summary');
-        self::assertSame(Words::say('BY_PRODUCT', 'summary', 3, 64), self::cells($page, $skus[0])[Words::BY_PRODUCT['stores_matched']]);
+        self::assertSame(Words::say('RD_MATCH', 'stores_n', 3, 64), self::cells($page, $skus[0])[Words::BY_PRODUCT['stores_matched']]);
     }
 
     public function testTheCsvHoldsEveryItemOfTheFilterWithOneColumnPerStoreAndEachVariantsOwnNote(): void
@@ -867,10 +885,10 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame('By item', self::currentTab($back));
         self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', $code), $back->text());
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Elux Legend Blue Razz', self::cells($back, $sku)['Alt Store']);
-        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));
+        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//div[@id="p-' . $sku . '"]/@class)'));
 
         // One sale of the box uses 10: it is sent to Second approval, and By Item says so.
-        $more = self::open($web, self::links($back, $sku, 'Alt Store')[Words::BY_PRODUCT['map_more']]);
+        $more = self::open($web, self::links($back, $sku, 'Alt Store')['chip']);
         self::assertStringContainsString(Words::BY_PRODUCT['pick_now_more'], $more->text());
         self::assertSame(['Elux Legend Blue Razz box of 10', 'Elux Legend Blue Razz second page'], array_column(self::picks($more, 'found'), 0), 'the matched one is not offered again');
         $form = self::open($web, array_column(self::picks($more, 'found'), 4, 0)['Elux Legend Blue Razz box of 10'])->form('/decide');
@@ -1002,7 +1020,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(Words::ITEM['coverage_link'], self::squash((new \DOMXPath($item->dom()))->evaluate('string(//a[@href="' . $href . '"])')));
         $row = self::open($web, $href);
         self::assertSame([$sku], self::ids($row));
-        self::assertSame('/ui/review/listing/' . $l, self::links($row, $sku, 'Alt Store')['Kit one on Alt']);
+        self::assertSame('/ui/review/listing/' . $l, self::links($row, $sku, 'Alt Store')['chip']);
         self::assertStringNotContainsString('/ui/review/products?q=', implode(' ', $web->get('/ui/items/' . $gone)->hrefs()), 'a product joined away has no row');
         self::assertStringNotContainsString('/ui/review/products?q=', implode(' ', $this->signIn($this->uiUser('buyer'))->get('/ui/items/' . $sku)->hrefs()),
             'no link to a page the person cannot open');
@@ -1046,7 +1064,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(["/ui/review/products/{$sku}/map/options?channel=alt&lq=elux&ln=100", (string) $sku, 'alt', Words::BY_PRODUCT['quick_loading'], Words::BY_PRODUCT['quick_failed']],
             [$fold->getAttribute('data-options'), $fold->getAttribute('data-sku-id'), $fold->getAttribute('data-channel'), $fold->getAttribute('data-loading'),
                 $fold->getAttribute('data-failed')], 'the fragment\'s address and the words app.js shows come from the page');
-        self::assertSame(Words::BY_PRODUCT['map'], self::squash($xp->evaluate('string(summary)', $fold)), 'it opens with "Match…"');
+        self::assertSame('+ Alt Store', self::squash($xp->evaluate('string(summary/text())', $fold)), 'it opens with "+ Store" (the ByItem artboard, RD-C9)');
         $box = $xp->query('.//input[@name="q"]', $fold)->item(0);
         self::assertInstanceOf(\DOMElement::class, $box);
         $id = $box->getAttribute('form');
@@ -1074,7 +1092,7 @@ final class ByProductScreenTest extends KernelUiTestCase
 
         // Only "Not on this store" has it: a matched or a suggested cell keeps its links; each store's fold is its own.
         self::assertNull(self::fold($page, $matched, 'Alt Store'));
-        self::assertSame(Words::BY_PRODUCT['map_more'], array_key_last(self::links($page, $matched, 'Alt Store')));
+        self::assertStringContainsString('/map?channel=alt', self::links($page, $matched, 'Alt Store')['chip'], 'a matched chip opens the picker');
         self::assertNull(self::fold($page, $suggested, 'Alt Store'));
         $big = self::fold($page, $sku, 'Big Store');
         self::assertNotNull($big);
@@ -1287,7 +1305,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame([$sku], self::ids($back), 'it is on Alt now: shown once, first');
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Elux Legend Blue Razz', self::cells($back, $sku)['Alt Store']);
         self::assertNull(self::fold($back, $sku, 'Alt Store'), 'a matched cell has no fold');
-        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));
+        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//div[@id="p-' . $sku . '"]/@class)'));
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action = 'link' AND state = 'applied'", [$one]));
 
         // A box of 10: the number is changed in the fold; a matching lead gives the second OK, and the list says it waits.

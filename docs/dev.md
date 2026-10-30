@@ -1136,3 +1136,18 @@ The classes it added (CSS: the "w12" block of `app.css`), for pattern 7 only:
   the cut-off is the database clock, as `stock_ledger.created_at`; the script run out of process on the test schema),
   `tests/Integration/Ops/RollbackListsTest.php` (extends `PurchaseOrderTestCase`), `Migration0046Test`. A new movement type is either in
   `CARRIED_TYPES` or in `WEBSITE_TYPES`; anything else is listed as `unknown_type` and never carried.
+
+### The redesign, step 2 part C (`docs/decisions.md` RD-C1-RD-C16; the approved canvas of 30 Oct 2026)
+
+| Page | Template(s) | The parts (CSS: the "rd2c" block of `app.css`) |
+|---|---|---|
+| Check a match `/ui/review/listing/{id}` | `listing.php` | `section.card.mt-compare` > `div.mt-row.mt-heads` (`div.mt-side.mt-store` / `.mt-item`, `span.mt-dot`) + `div.mt-row.mt-fact.same|.diff[data-state]` (`div.mt-k`, `div.mt-v`, `div.mt-m` > `span.mt-mark[role=img]`); `div.mt-pick` (find + units); the note `div.field.mt-note` first in the bar's More; the head's line `span.mt-line[data-progress]` |
+| Product matching `/ui/review/products` (+ `?tab=new`) | `by_product.php`, `by_product_new.php`, `by_product_tabs.php`, `by_product_bar.php` | `nav.tabs.bi-tabs`; `form.bi-find` (`select#bi-cov`, `a.bi-clear`); `section.card.bi-list` > `div.bi-row#p-<item>` (`div.bi-item`, `div.bi-stores` > `.bi-chip.on|.wait|.open[.suggested|.off][data-state]`, `details.quick-pick.bi-quick`); New: `div.bi-row#l-<variant>`, `span.bi-hint.likely`; More: `ByProductController::morePages()` |
+| The five reports, the duty register | `report_*.php`, `duty_register.php`, `report_bar.php`, `report_paper_head.php`, `report_all.php` | `back: ['#all-reports', …]`; `form.card.rp-options` (`div.rp-opt`, Run report the main button); `article.card.rp-paper` > `div.rp-paper-head` + `table.rp-table` (`tr.rp-group`, `tr.rp-gtotal`, `tr.rp-total`); `section.card.rp-all#all-reports`; data: `ReportsController::shared()` (company, all reports, today) |
+| Approvals `/ui/approvals` | `approvals_inbox.php`, `approvals_show.php`, `approvals_record.php` | `form.ap-show` (`?show=<kind>`), `div.ap-inbox.rd-inbox` (scoped look), the answer's `inbox_show` |
+| Settings (17 pages) | each page + `settings_nav.php` | `div.set-shell` > `nav.set-nav` (`a.set-nav-item`, the current `aria-current`) + `div.set-main` |
+| Home `/ui/` | `home.php`, `home_actions.php`, `cards.php` | `div.hm-actions`; `section.hm-tiles.hm-figs` > `a.hm-tile.hm-<tint>[data-tile]` (`DashboardTiles::ORDER`, `LOOK`); `div.hm-grid` > `section.card.hm-jobs` (`div.hm-jobs-head`, rows' `a.hm-go`) + `div.hm-side` (`section.card.hm-stores`, `section.card.hm-today`) |
+
+- The words: `Words::RD_MATCH`, `RD_REPORTS`, `RD_INBOX`, `RD_SETTINGS`, `RD_HOME` (registered in `Words::GROUPS`); `MATCH` `to_match`, `find`,
+  `units`, `units_of` say the artboard's words.
+- Tests: `tests/Unit/RedesignCTemplatesTest.php` (the templates), `tests/Integration/UiKernel/RedesignCScreensTest.php` (the pages).

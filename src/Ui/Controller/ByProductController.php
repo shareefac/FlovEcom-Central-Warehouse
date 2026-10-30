@@ -66,13 +66,26 @@ final class ByProductController
         $req = $ctx->req;
         $q = $ctx->queries();
         $me = $ctx->me();
-        $stores = $q->everyStore();
-        $layout = ['title' => Words::MENU['by_product'], 'active' => 'by_product', 'notice' => (new ReviewController())->notice($ctx, null)];
+        $layout = ['title' => Words::RD_MATCH['title'], 'active' => 'by_product', 'notice' => (new ReviewController())->notice($ctx, null)];
         $lookOnly = $me->canDecide() ? null : Words::whoCan('mapping.decide');
+        // The page's two tabs (the approved ByItem artboard of 30 Oct 2026; the owner asked for them; docs/decisions.md RD-C7): By item (this
+        // list) and New on the stores (`tab=new`: the stores' new products still to match, from New variants' own reads). Both count the
+        // second tab's products; the page's More holds every other matching page.
+        $fresh = $this->newOnStores($ctx, $req->param('tab') === 'new');
+        if ($req->param('tab') === 'new') {
+            if ($fresh['unknown']) {
+                return $ctx->error(404, 'unknown_store', 'no such store', [Html::url(ByProductContext::LIST_PATH, ['tab' => 'new']), Words::RD_MATCH['tab_new']]);
+            }
+            return $ctx->page('by_product_new', ['fresh' => $fresh, 'pages_more' => self::morePages(), 'lookOnly' => $lookOnly,
+                'matchAll' => $me->canDecide() && $fresh['store'] !== null ? Html::url(NewVariantsController::PATH, ['channel' => $fresh['store']['code']]) : null],
+                200, $layout);
+        }
+        $stores = $q->everyStore();
         if ($stores === []) {
             return $ctx->page('by_product', ['stores' => [], 'rows' => [], 'pills' => [], 'text' => '', 'coverage' => null, 'total' => 0, 'shown' => 0, 'page_no' => 1, 'pages' => 1,
                 'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'clear_search' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
-                'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => ''],
+                'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => '',
+                'freshCount' => $fresh['count'], 'pages_more' => self::morePages()],
                 200, $layout);
         }
         $cov = ByProductContext::coverage($req->param('cov'), $stores);
@@ -208,7 +221,103 @@ final class ByProductController
             'bulkMax' => BulkDecisions::maxRows($ctx->db),
             'manualNote' => array_filter($rows, static fn (array $r): bool => $r['manual']) !== [],
             'allLink' => Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page > 1 ? $page : null, 'all' => 1]),
+            'freshCount' => $fresh['count'],
+            'pages_more' => self::morePages(),
         ], 200, $layout);
+    }
+
+    /**
+     * Every other matching page, for the page's More (the approved ByItem artboard: "its More holds every other matching page"; docs/decisions.md
+     * RD-C8). Each is a route of linking.view, the permission of this page: whoever sees this page may open every one of them.
+     *
+     * @return list<array{href: string, label: string}>
+     */
+    public static function morePages(): array
+    {
+        return [
+            ['href' => '/ui/review/store', 'label' => Words::MENU['store_products']],
+            ['href' => SimpleMatchController::PATH, 'label' => Words::MENU['simple_match']],
+            ['href' => '/ui/review', 'label' => Words::SEGMENT['review']],
+            ['href' => '/ui/review/samples', 'label' => Words::MENU['samples']],
+            ['href' => Html::url('/ui/review', ['queue' => 'pending']), 'label' => Words::MENU['pending']],
+            ['href' => NewVariantsController::PATH, 'label' => Words::MENU['new_variants']],
+            ['href' => '/ui/review/duplicates', 'label' => Words::MENU['duplicates']],
+        ];
+    }
+
+    /**
+     * The "New on the stores" tab (docs/decisions.md RD-C7): the stores' products first seen in New variants' period (its setting) that are
+     * still to match, from the reads New variants already makes (Queries::seenRange, newVariantCounts, newVariants, newVariantRows; no read of
+     * its own). The count of every store is the tab's number; with $rows, the chosen store's page of them (`channel`, the first store with any
+     * by default; `q` its search; `page`), each with its name, when it was first seen and its likely match.
+     *
+     * @return array{count: int, unknown: bool, stores: list<array{code: string, name: string, count: int, current: bool, href: string}>, store: ?array<string, mixed>,
+     *     rows: list<array<string, mixed>>, text: string, total: int, page_no: int, pages: int, prev_link: ?string, next_link: ?string, days: int, clear_link: string}
+     */
+    private function newOnStores(Context $ctx, bool $rows): array
+    {
+        $q = $ctx->queries();
+        $days = NewVariantsController::defaultDays($ctx);
+        $since = \CW\Clock::db(\CW\Clock::now()->modify('-' . $days . ' days'));
+        $counts = [];
+        $total = 0;
+        foreach ($q->stores() as $s) {
+            $range = $q->seenRange((int) $s['id']);
+            $c = $q->newVariantCounts((int) $s['id'], $since, $range);
+            $counts[] = ['store' => $s, 'range' => $range, 'counts' => $c, 'n' => Queries::newVariantTotal($c, 'unmatched')];
+            $total += Queries::newVariantTotal($c, 'unmatched');
+        }
+        $out = ['count' => $total, 'unknown' => false, 'stores' => [], 'store' => null, 'rows' => [], 'text' => '', 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null,
+            'next_link' => null, 'days' => $days, 'clear_link' => Html::url(ByProductContext::LIST_PATH, ['tab' => 'new'])];
+        if (!$rows || $counts === []) {
+            return $out;
+        }
+        $req = $ctx->req;
+        $code = $req->param('channel');
+        $chosen = null;
+        foreach ($counts as $c) {
+            if ($code !== null && $code !== '' ? (string) $c['store']['code'] === $code : $c['n'] > 0) {
+                $chosen = $c;
+                break;
+            }
+        }
+        $chosen ??= $code !== null && $code !== '' ? null : $counts[0];
+        if ($chosen === null) {
+            return ['unknown' => true] + $out; // a store that is not there: the page answers 404, as New variants does
+        }
+        $text = ByProductContext::text($req->param('q') ?? '');
+        $store = $chosen['store'];
+        $result = $q->newVariants((int) $store['id'], $since, 'unmatched', $text, UiRequest::id($req->param('page')) ?? 1, $chosen['counts']);
+        $base = ['tab' => 'new', 'channel' => (string) $store['code'], 'q' => $text === '' ? null : $text];
+        foreach ($counts as $c) {
+            $out['stores'][] = ['code' => (string) $c['store']['code'], 'name' => (string) $c['store']['name'], 'count' => $c['n'],
+                'current' => (int) $c['store']['id'] === (int) $store['id']];
+        }
+        foreach ($q->newVariantRows($result['ids']) as $r) {
+            $kind = (string) $r['kind'];
+            $band = $r['proposal_id'] !== null ? (string) $r['band'] : null;
+            $code = $kind === 'suggested' && $r['proposed_code'] !== null ? (string) $r['proposed_code'] : null;
+            $title = trim((string) ($r['product_title'] ?? ''));
+            $variant = trim((string) ($r['variant_title'] ?? ''));
+            $out['rows'][] = [
+                'listing_id' => (int) $r['listing_id'],
+                'name' => $title === '' ? Words::LISTING['no_title'] : ($variant === '' ? $title : $title . ' – ' . $variant),
+                'store' => (string) $store['name'],
+                'seen' => (string) $r['created_at'],
+                // The likely match (the artboard's hint): the suggested item with the suggestion's strength, else what the computer said.
+                'hint' => match (true) {
+                    $code !== null && $band !== null => Words::say('NEW_VARIANTS', 'suggested_item', Words::of('BAND', $band), $code),
+                    $kind === 'suggested' && $band !== null => Words::of('BAND', $band),
+                    default => Words::of('NEW_VARIANT_STATE', $kind),
+                },
+                'likely' => $kind === 'suggested',
+                'link' => Html::url('/ui/review/listing/' . (int) $r['listing_id']),
+            ];
+        }
+        return array_replace($out, ['store' => $store, 'text' => $text, 'total' => $result['total'], 'page_no' => $result['page'], 'pages' => $result['pages'],
+            'prev_link' => $result['page'] > 1 ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $result['page'] > 2 ? $result['page'] - 1 : null]) : null,
+            'next_link' => $result['page'] < $result['pages'] ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $result['page'] + 1]) : null,
+            'clear_link' => Html::url(ByProductContext::LIST_PATH, ['tab' => 'new', 'channel' => (string) $store['code']])]);
     }
 
     /** How many items a page shows unless the person chose (setting mapping.by_item_page_size, read now; 50 on a schema before 0025). */

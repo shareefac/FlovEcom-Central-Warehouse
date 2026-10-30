@@ -50,7 +50,7 @@ final class ReportsSettingsPatternsScreensTest extends KernelUiTestCase
         $xp = self::xp($page);
         self::assertSame(1, $xp->query('//main//header[contains(@class, "page-head")]//a[@download and starts-with(@href, "' . $csv . '")]')->length,
             "{$csv}: Download at the head's right");
-        self::assertSame(Words::REPORTS['download'], trim((string) $xp->evaluate('string(//main//header//a[@download])')));
+        self::assertSame(Words::RD_REPORTS['export'], trim((string) $xp->evaluate('string(//main//header//a[@download])')), 'Export (the Reports artboard, RD-C11)');
         self::assertSame(0, $xp->query('//main//form//a[@download]')->length, "{$csv}: not in the toolbar");
         self::assertSame($strip ? 1 : 0, $xp->query('//main//section[contains(@class, "rp-figs")]')->length, "{$csv}: the figures strip");
         self::assertSame(1, $xp->query('//main//form[contains(@class, "toolbar") and @method="get"]//div[@class="tb-state"]')->length, "{$csv}: one Show row");
@@ -65,29 +65,52 @@ final class ReportsSettingsPatternsScreensTest extends KernelUiTestCase
         }
     }
 
+    /**
+     * The standard report layout (the approved Reports artboard of 30 Oct 2026; docs/decisions.md RD-C11): "‹ All reports", Export at the head's
+     * right, the options card with Run report, the report (its centred head and a plain table), All reports under it; no strip, no toolbar.
+     */
+    private static function assertStandardReport(UiResponse $page, string $csv, bool $paper = true): void
+    {
+        self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
+        $xp = self::xp($page);
+        self::assertSame(1, $xp->query('//main//header[contains(@class, "page-head")]//a[@download and starts-with(@href, "' . $csv . '")]')->length, "{$csv}: Export");
+        self::assertSame(Words::RD_REPORTS['export'], trim((string) $xp->evaluate('string(//main//header//a[@download])')));
+        self::assertSame('#all-reports', (string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'), "{$csv}: ‹ All reports");
+        self::assertSame(1, $xp->query('//main//form[contains(@class, "rp-options") and @method="get"]/button[contains(@class, "primary")]')->length, "{$csv}: Run report");
+        if ($paper) {
+            self::assertSame(1, $xp->query('//main//article[contains(@class, "rp-paper")]/div[@class="rp-paper-head"]')->length, "{$csv}: the report's head");
+            self::assertGreaterThan(0, $xp->query('//main//article[contains(@class, "rp-paper")]//table[contains(@class, "rp-table")]')->length, "{$csv}: the table");
+        }
+        self::assertSame(1, $xp->query('//main//section[@id="all-reports"]')->length, "{$csv}: All reports");
+        foreach (['//main//nav[contains(@class, "tabs")]', '//main//*[contains(@class, "kpis")]', '//main//p[@class="lede"]', '//main//details[contains(@class, "tb-pop")]',
+            '//main//section[contains(@class, "rp-figs")]', '//main//form[contains(@class, "toolbar")]'] as $gone) {
+            self::assertSame(0, $xp->query($gone)->length, "{$csv}: {$gone} is the old layout");
+        }
+    }
+
     public function testTheReportsAndTheAuditLogAreTheApprovedReport(): void
     {
         $vpg = $this->site('vpg');
         $a = $this->item('strict', 3, 'Alpha 10ml');
         $this->listing($vpg, 'VA', $a);
         $rev = $this->signIn($this->uiUser('reviewer'));
-        self::assertReport($rev->get('/ui/reports/stock-by-store'), '/ui/reports/stock-by-store.csv');
-        self::assertReport($rev->get('/ui/reports/low-stock'), '/ui/reports/low-stock.csv');
-        self::assertReport($rev->get('/ui/reports/slow-stock'), '/ui/reports/slow-stock.csv', true, false);
+        self::assertStandardReport($rev->get('/ui/reports/stock-by-store'), '/ui/reports/stock-by-store.csv');
+        self::assertStandardReport($rev->get('/ui/reports/low-stock'), '/ui/reports/low-stock.csv');
+        self::assertStandardReport($rev->get('/ui/reports/slow-stock'), '/ui/reports/slow-stock.csv', false);
         self::assertReport($rev->get('/ui/system/audit'), '/ui/system/audit.csv', false);
         $value = $this->signIn($this->uiUser('accountant'))->get('/ui/reports/stock-value');
-        self::assertReport($value, '/ui/reports/stock-value.csv');
+        self::assertStandardReport($value, '/ui/reports/stock-value.csv');
         // Group by: Item, Brand, Warehouse (the tab row went); the search finds a brand or an item.
         self::assertSame([Words::REPORTS['group_product'], Words::REPORTS['group_brand'], Words::REPORTS['group_warehouse']],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array(self::xp($value)->query('//select[@name="by"]/option'))));
         self::assertSame(Words::REPORTS['find_value'], self::xp($value)->evaluate('string(//input[@type="search"]/@placeholder)'));
-        // The store is chosen in the Show row, its figures are the strip.
+        // The store is chosen among the options; its status a pill (the shared chip).
         $store = $rev->get('/ui/reports/stock-by-store', ['store' => (string) $vpg->channelId]);
         self::assertSame(['VPG test site'], array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent),
             iterator_to_array(self::xp($store)->query('//select[@name="store"]/option[@selected]'))));
-        self::assertSame(Words::REPORTS['in_stock'], trim((string) self::xp($store)->evaluate('string(//table[contains(@class, "report-store")]//td[contains(@class, "doc-st")])')),
-            'the status cell filled solid');
-        self::assertStringContainsString(' done', (string) self::xp($store)->evaluate('string(//table[contains(@class, "report-store")]//td[contains(@class, "doc-st")]/@class)'));
+        self::assertSame(Words::REPORTS['in_stock'], trim((string) self::xp($store)->evaluate('string(//table[contains(@class, "report-store")]//span[contains(@class, "chip")])')),
+            'the status a pill');
+        self::assertStringContainsString(' done', (string) self::xp($store)->evaluate('string(//table[contains(@class, "report-store")]//span[contains(@class, "chip")]/@class)'));
     }
 
     public function testASettingsRowSavesThatSettingAloneAndItsHistoryKeepsIt(): void

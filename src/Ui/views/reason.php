@@ -6,6 +6,9 @@
 ?>
 <?= $head((string) $r['label'], intro: 'reason', more: $lookOnly, back: ['/ui/reference/reasons', \CW\Ui\Words::PAGE_TITLE['reasons']],
     chips: $r['is_active'] ? $chip('done', \CW\Ui\Words::REASONS_EDIT['status_on']) : $chip('off', \CW\Ui\Words::REASONS_EDIT['status_off'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'reasons']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -108,4 +111,6 @@
   <h2 id="history-h"><?= $word('CONFIG', 'history') ?></h2>
 <?= $partial('config_history', ['rows' => $history]) ?>
 </section>
+</div>
+</div>
 </div>

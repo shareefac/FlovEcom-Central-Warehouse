@@ -4,6 +4,9 @@
 // the warning when it is late, what it found folded open when it found something); then a card of the earlier checks, a row each.
 ?>
 <?= $head(\CW\Ui\Words::MENU['integrity'], intro: 'integrity', aside: $explain('safety_check', \CW\Ui\Words::MENU['integrity'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'integrity']) ?>
+<div class="set-main">
 <?php if ($latest === null): ?>
 <?= $empty(\CW\Ui\Words::INTEGRITY['none']) ?>
 <?php else: ?>
@@ -51,3 +54,5 @@
 <?php endif; ?>
 </div>
 <?php endif; ?>
+</div>
+</div>

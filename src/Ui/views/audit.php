@@ -8,6 +8,9 @@ $bar = $partial('report_bar', ['href' => $csv]);
 <div class="doc-head">
 <?= $head(\CW\Ui\Words::MENU['audit'], intro: 'audit', side: $bar) ?>
 </div>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'audit']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -81,3 +84,5 @@ $bar = $partial('report_bar', ['href' => $csv]);
 <p class="pager"><a href="<?= $e($next) ?>"><?= $word('AUDIT', 'older') ?></a></p>
 <?php endif; ?>
 <?php endif; ?>
+</div>
+</div>

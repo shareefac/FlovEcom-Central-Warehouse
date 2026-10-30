@@ -5,6 +5,9 @@
 // each; then the History, a version each.
 ?>
 <?= $head(\CW\Ui\Words::MENU['company'], intro: 'company') ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'company']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($errorMissing !== null): ?> <span class="visually-hidden"><?= $say('COMPANY', 'missing', implode(', ', $errorMissing)) ?></span><?php endif; ?></p>
 <?php endif; ?>
@@ -186,4 +189,6 @@
   </ol>
 <?php endif; ?>
 </section>
+</div>
+</div>
 </div>

@@ -14523,3 +14523,146 @@ store and kept filters), and check one "?" with the page's help and who changes 
 `MatchingPatternsScreensTest` the whole eyebrow; `DesignConformanceScreensTest` and `ItemCardScreensTest` the look-only "?" as the one
 "?" (Purchase orders for an auditor; the cards' rules, then who changes them, for a buyer). The tab-link floor of
 `testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves` is 3 (the item's two and the supplier's).
+
+## The redesign, step 2 part C: Product matching, Check a match, the reports, Approvals, Settings, Home (branch `redesign-rd2c`, 30 Oct 2026; RD-C1-RD-C16)
+
+The owner approved the canvas "CW Redesign: All Modules" on 30 Oct 2026 ("Yes, approve all"; `cw_work/design/redesign_20261030/project`).
+Part C builds six of its artboards: ByItem, Listings, Reports, Approvals, Settings and Main. Only these pages' templates, their controllers'
+view data, a page-scoped "rd2c" block in `app.css`, their words and their tests change. No query, rule, route or permission changes.
+The shared pieces (sidebar, page head, list style, phone bar) belong to step 1 (rd1). Until the branches are combined, these pages use
+main's shared code, and a small page-scoped version of a shared look lives in the "rd2c" block.
+
+**RD-C1. Check a match is ONE comparison card.** `listing.php` draws `section.card.mt-compare`. Its first row
+(`div.mt-row.mt-heads`) has the store product's column (`div.mt-side.mt-store`: its blue dot, "On the store", the name, "Variant N ·
+price") and our item's column (`div.mt-side.mt-item`: its green dot, "Our item" for the suggestion, else what the column holds: the item
+you picked, the item it is matched to, what a waiting decision does; then the name as a link, "CW-… · N in stock" and the protected or
+refused-before tags). After it comes one `div.mt-row.mt-fact` per fact, with four cells: the label, the store's value, our value, and a
+mark. The mark is a green tick (`span.mt-mark.same`, role img, "Same") where the two sides agree, or an amber "!" (`.diff`, "Differs")
+where they differ or one side does not say. A row that differs is tinted (`.diff`, #fffaf1). The facts keep the old order (brand,
+line, flavour, strength, pack, then the rest). A store product with no item to compare lists its own facts with our column empty. The
+old photo blocks ("No photo") are gone: the artboard has none.
+
+**RD-C2. The head is the question and one line.** The head shows "Is this the same item?" and under it "<store> · N left to check"
+(`MATCH to_match`, now "%s left to check"). The list's progress words stay on that line (`span.mt-line[data-progress]`) for a screen
+reader and the tests. The list's progress bar is gone (the line says how many are left). A spot check's 20 blocks stay at the head's
+right (`listing_progress`), because they belong to the spot check. The way back to the list stays as the head's `back:` (step 1 draws it
+as "‹ list").
+
+**RD-C3. Under the card: "Not this one? Find another item" and "1 sale on the store is N of our item".** These sit side by side in
+`div.mt-pick`. The search is still its own GET form (`form="mt-find"`). The units are the decision form's `units_per_item` as before.
+The search's results and "N other suggestions" (`details.mt-others#cand`, its "Use" links) follow under them. The why-evidence's
+`#cand-…` links still reach it.
+
+**RD-C4. The note is under the bar's More.** The artboard draws no note, and the rule "what an artboard does not show goes under More"
+applies. It is the same field of the same form (`name="reason"`, `#f-reason`), so the form posts exactly what it posted before. When a
+note is refused, More opens on it (`$noteOpen`) and the error's "go to the field" link reaches it.
+
+**RD-C5. The bar: Skip at the left; More, Not the same and Same item at the right.** More stays. It holds New item, Ignore, "It is a
+landing page", Change this match, the note and the evidence (`listing_more`): nothing of the page is removed.
+
+**RD-C6. Nothing about deciding changes.** The one decision form, its hidden fields and its answers (the button pressed) are as before:
+`expected_map_version`, the proposal, the item, `seen`, the way back, and the disabled hidden default button. The second OK, pack units,
+protected items, one-at-a-time and the spot check's own three answers are untouched (template and words only;
+`ReviewController` adds only the way back to the New on the stores tab, RD-C7).
+
+**RD-C7. Product matching has two tabs: By item and New on the stores.** The owner asked for these (the one tab row outside a record,
+`nav.tabs.bi-tabs`; the tab shown has no link). The page title is "Product matching" with "Which store sells each item" under it.
+New on the stores (`/ui/review/products?tab=new`, the same route and permission) lists the stores' products first seen in New variants'
+period (`mapping.new_variants_days`) that are still to match. It reads them with New variants' own reads (`Queries::seenRange`,
+`newVariantCounts`, `newVariants`, `newVariantRows`). Its count is the tab's number, so both tabs make those reads, about two small reads
+a store.
+
+The tab has a search and the store choice, each store with its count; "All stores" is not offered (the reads are per store; needs a
+build). Each row shows the name, "<store> · added <day>", the likely match (the suggested item with its strength on the amber pill,
+otherwise what the computer said, on the grey one) and Match, which opens the product's own decision page. That page's way back leads to
+this tab (`ReviewController::back`). "Match all new" is the tab's one main button, for whoever may decide. It opens New variants for the
+store shown: CW's way to match or create many at once is that page's bar. A store that does not exist answers 404, as New variants does.
+
+**RD-C8. The page's More holds every other matching page.** These are Store products, Simple matching, To review, Spot check, Second
+approval, New variants and Duplicates (`ByProductController::morePages`; all `linking.view`, this page's permission). By item's list
+file and its rows a page (50 / 100 / 200, the current one not a link) are there too.
+
+**RD-C9. A By item row is the item and a chip per store.** The row's name links to the item's page. Its line is "CW-… · brand · N of
+M stores". Each store has one chip:
+
+- green with a tick: matched. Someone who may decide goes to that store's picker, which shows the match and lets them match one more
+  variant ("Match another…" was there). Anyone else goes to the variant's page.
+- amber: waiting for a second OK. It opens the variant's page.
+- dashed "+ Store": a suggestion waits. It opens the suggestion's page with the way back (the old "Review").
+- dashed "+ Store" as the quick match's fold (`details.quick-pick.bi-quick`): not on the store, for someone who may decide. Its
+  search runs in place with the script, and its GET form opens the picker without it. For anyone else it is a plain dashed name.
+
+The cell's other lines (the variant, its strength, a sale's units, on hold, also waiting or suggested, more variants) are in the chip's
+title and its screen-reader words. An item on hold is amber. The bulk ticks stay on the row (a function), and "Select all on this page"
+is at the top of the card. The bar, the preview and the apply are unchanged.
+
+**RD-C10. The filters are only what the page supports.** The artboard draws Store, Match status, Brand, Kind and Stock. CW's By item has
+ONE filter (`cov`), whose choices already name the store ("Missing on Electrofag"). So it is one select (all, on every store, missing
+on each store, a suggestion waiting, each with its count) with its Show button and "Clear filters". A separate store filter, "On no
+store", Brand, Kind and Stock are needs-a-build.
+
+**RD-C11. One report layout for the five reports and the duty register.** Each has:
+
+- "‹ All reports" (the head's `back:` to `#all-reports`: no page lists the reports, so the link leads to the list on the same page),
+  the title (the artboard's names, `RD_REPORTS`), and Export at the right.
+- The options card (`form.card.rp-options`): only the options each report has, each with its label above it, and Run report (the
+  magenta button).
+- The report (`article.card.rp-paper`). Its centred head (`report_paper_head`) shows the company's name from CW's company details
+  ("<name> · Central Warehouse"; with no name, Central Warehouse alone), the report's name, its line (the day or the days, how it is
+  run) and the lines its figure strip used to show. Then a plain `table.rp-table`:
+  - a group is a heading row (`tr.rp-group`) with its rows indented and its total (`tr.rp-gtotal`);
+  - the report's Total row (`tr.rp-total`, under a 2 px rule) is drawn where CW has the total: the value and units of all stock
+    unfiltered, a store's units it can sell, each brand or warehouse view, the sales totals, the duty register's lines and its two groups;
+  - otherwise the Total row is the number of items.
+- "All reports" (`report_all`): Inventory, Sales and Purchases, each report behind its route's permission
+  (`ReportsController::shared`), the one shown not a link. Reorder suggestions links to the reorder list.
+
+The figure strips are gone (the artboard: figure tiles only on Home), and their figures are in the report's head.
+
+**RD-C12. Left out of the report layout (needs a build).**
+
+- Print: a button needs a script, and the page must work without one. The browser's own print works: the print style leaves out the menus.
+- Excel and PDF: CW makes only the CSV for reports.
+- "As of" a past date: the valuation is today's.
+- A warehouse filter on the valuation: it groups by warehouse but does not filter by it.
+- The artboard's items under brand headings: CW has the brand totals and the item list, not both at once.
+
+**RD-C13. Approvals: Show = kind.** The heading's right has a GET form (`form.ap-show`) offering "Everything waiting (N)" or one kind,
+each with its count. `?show=` keeps only that kind's group, and every count is still read. Rows keep it. An answer carries it
+(`inbox_show`, read by `InboxController::answered` and `refused`), so the list stays on that kind. The record's figures are tiles. The
+first tile is in the kind's tint, and a rise is on the green tint (`.rd-inbox`, scoped: the other inboxes keep their look). The note's
+label is above it. "Next: …" sits at the left of More and the main answer. "Answered today" is needs-a-build: the inbox lists only what
+waits.
+
+**RD-C14. One settings shell.** Every settings page (17 templates) draws `settings_nav` at the left of `div.set-main`. The ten sections
+appear in the artboard's order, each behind the permission its route checks; the one shown is tinted and not a link. Users and roles
+opens the people, or who can do what for someone who may not see the people. The cards' headings sit on the quiet fill in a topic colour,
+taken in turn. The rows (name, "Not agreed yet", the value, its unit, Why, Save) keep their own form and fields (W13.9).
+
+**RD-C15. Home.** The parts, top to bottom:
+
+- The date and the greeting, with Receive a delivery (`doc.GRN.post`) and "+ New purchase order" (`doc.PO.post`, the main button)
+  beside them.
+- Four tinted tiles (`DashboardTiles`): the stock value at cost (`values.view`, the valuation report's own figures), the units on the
+  shelf, what waits for this person's OK (Approvals' badge and its biggest kind), and the listings to match. For fewer permissions, the
+  figures Home showed before fill in.
+- "Waiting for you" with "· N jobs" and Open Approvals; each task row is a link with its action at the right (no magenta row: the
+  page's main button is the new order).
+- The Stores card (`system.view`): each store's mode in CW and when its connector was last heard from (`Queries::storeLink`).
+- The Today card: only figures CW has. These are the store orders taken today and their units (`reports.view`, the sales report's
+  day), the deliveries being checked (`receiving.view`) and the oversold records (`queues.oversell`'s badge).
+
+"Deliveries expected" is needs-a-build. Home's Find box is gone: the artboard draws none, and step 1's sidebar has "Find an item or an
+order". A phone shows the greeting and "Waiting for you", as the Phone artboard does.
+
+**RD-C16. Tests.** `tests/Unit/RedesignCTemplatesTest.php` pins each page's parts in its template. The old pins of these pages in
+`UiTemplatesTest` are moved there. `tests/Integration/UiKernel/RedesignCScreensTest.php` pins:
+
+- the comparison card, its marks, the find and units row, the note under More, and the form's fields as before;
+- the two tabs, the New tab's rows and its way back, the chips, and More's pages;
+- a report's layout, Total row and All reports per permission;
+- Approvals' Show kept through an answer;
+- the settings list per role;
+- Home's tiles, buttons and cards.
+
+The existing screen tests of these pages read the new markup.

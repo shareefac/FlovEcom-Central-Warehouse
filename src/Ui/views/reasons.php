@@ -7,6 +7,9 @@
 $help = \CW\Ui\Words::SETTINGS_PAGE['reasons_text'] . ($lookOnly !== null ? ' ' . \CW\Ui\Words::say('UI', 'look_only', $lookOnly) : '');
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['reasons'], intro: 'reasons', more: $help) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'reasons']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -80,4 +83,6 @@ $help = \CW\Ui\Words::SETTINGS_PAGE['reasons_text'] . ($lookOnly !== null ? ' ' 
 </section>
 <?php endif; ?>
 <?php endforeach; ?>
+</div>
+</div>
 </div>

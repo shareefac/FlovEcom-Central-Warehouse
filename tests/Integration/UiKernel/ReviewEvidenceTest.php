@@ -162,16 +162,17 @@ final class ReviewEvidenceTest extends KernelUiTestCase
             }
             $page = $web->get('/ui/review/listing/' . $l, ['queue' => 'Key']);
             $xp = new \DOMXPath($page->dom());
-            $card = trim(preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"])')) ?? '');
-            // The item's card (TP_Match, W12.1): its facts beside the store product's, each value marked agrees or differs.
-            self::assertSame(self::GTIN_A, trim((string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"]//dt[normalize-space()="' . Words::FIELD['barcodes']
-                . '"]/following-sibling::dd[1]/span[contains(@class, "mt-mark")])')), $when);
+            $card = trim(preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//section[contains(@class, "mt-compare")])')) ?? '');
+            // The comparison card (the Listings artboard, docs/decisions.md RD-C1): a row per fact, our item's value beside the store's, marked.
+            $fact = '//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")][normalize-space(div[@class="mt-k"])="' . Words::FIELD['barcodes'] . '"]';
+            self::assertSame(self::GTIN_A, trim((string) $xp->evaluate('string(' . $fact . '/div[contains(@class, "mt-v mt-item")]/text())')), $when);
             self::assertStringNotContainsString('CWP-4711', $card, 'the first-match id is for the matching files (F189)');
             self::assertStringContainsString('CWP-4711', (string) $xp->evaluate('string(//details[contains(@class, "tech-details")])'), 'in Technical details');
             $compare = [];
-            foreach ($xp->query('//section[@aria-labelledby="mt-store-h"]//dl[@class="mt-facts"]/dt') ?: [] as $dt) {
-                $mark = $xp->query('following-sibling::dd[1]/span[contains(@class, "mt-mark")]', $dt)->item(0);
-                $compare[trim($dt->textContent)] = $mark instanceof \DOMElement ? $mark->getAttribute('data-state') . ' ' . $mark->getAttribute('class') : '';
+            foreach ($xp->query('//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")]') ?: [] as $row) {
+                /** @var \DOMElement $row */
+                $mark = $xp->query('div[@class="mt-m"]/span[contains(@class, "mt-mark")]', $row)->item(0);
+                $compare[trim((string) $xp->evaluate('string(div[@class="mt-k"])', $row))] = $mark instanceof \DOMElement ? $row->getAttribute('data-state') . ' ' . $mark->getAttribute('class') : '';
             }
             self::assertSame('same mt-mark same', $compare[Words::FIELD['barcodes']], $when);
             self::assertSame('alike mt-mark same', $compare[Words::FIELD['brand']], 'a brand spelt differently is not a difference: on the green');

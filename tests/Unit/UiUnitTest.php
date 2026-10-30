@@ -1443,7 +1443,7 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('--page-w: 1180px;', $css);
         self::assertStringContainsString('padding: 28px var(--gutter) 48px', $rule('.work'));
         self::assertStringContainsString('max-width: var(--page-w); margin: 0 auto;', $rule('.page'), 'the column centred');
-        self::assertSame(' max-width: 1100px; ', $rule('body:has(.hm-find) .page'), 'Home\'s column');
+        self::assertSame(' max-width: 1100px; ', $rule('body:has(.hm-grid) .page'), 'Home\'s column (the Main artboard, RD-C15)');
         // DC9: TP_Parts' tabs wrap from 700 px up, 12 by 14 px, the open tab's bar over the row's line.
         self::assertSame(1, preg_match('/@media \(min-width: 700px\) \{\n  \.tabs \{ flex-wrap: wrap; overflow: visible; box-shadow: none; border-bottom: 1px solid var\(--hairline\); \}\n'
             . '  \.tabs > \.tab \{ margin-bottom: -1px; \}/', $css));

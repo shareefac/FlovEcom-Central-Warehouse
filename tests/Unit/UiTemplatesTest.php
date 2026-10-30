@@ -55,7 +55,6 @@ final class UiTemplatesTest extends TestCase
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D
             'sales_order_bar', // an order's bar in its head (docs/decisions.md W10)
-            'home_find', // Home's Find box (docs/decisions.md HV1; the bell went with HM_Home's shell, DC7)
             // Suppliers and buying on the approved patterns (docs/decisions.md W9): the bars, the supplier form's field, the products board
             'supplier_bar', 'supplier_field', 'supplier_items_board', 'supplier_items_bar', 'return_bar', 'return_files', 'reorder_bar', 'low_stock_bar',
             'recheck_bar', 'export_bar',
@@ -406,7 +405,7 @@ final class UiTemplatesTest extends TestCase
         $who = new StaffIdentity(7, 'b@test.invalid', 'Bea <b>', ['buyer', 'mapping_lead'], false, 'sid');
         $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $who]);
         $f = Sections::frame($who->roles, ['linking_pending' => 3], '/ui/review', ['queue' => 'pending']);
-        $html = $view->page('home', ['canFind' => true] + self::homeVars($who),
+        $html = $view->page('home', ['newOrder' => '/ui/purchasing/orders/new'] + self::homeVars($who),
             ['title' => 'Home', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'], 'segments' => $f['segments'],
                 'actions' => $f['actions'], 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
         $start = (int) strpos($html, '<nav class="side" id="menu" aria-label="Main">');
@@ -453,12 +452,12 @@ final class UiTemplatesTest extends TestCase
         self::assertLessThan($start, $me);
         self::assertStringNotContainsString('appbar-page', $html, 'HM_Phone: the name, not the page\'s');
         self::assertStringContainsString('<a class="icon-btn menu-btn" href="#menu" aria-controls="menu">', $html);
-        // The statement (HM_Home): today's date as the eyebrow, the greeting (no full stop, DC2), the Find box on its right; then the section's
-        // tabs under it, inside the page.
+        // The statement (the Main artboard, RD-C15): today's date as the eyebrow, the greeting (no full stop, DC2), + New purchase order on its
+        // right (the Find box is the sidebar's).
         $head = substr($html, (int) strpos($html, '<header class="page-head">'));
         self::assertStringStartsWith('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">' . Html::e(Html::today()) . '</p><div class="ph-title"><h1>'
-            . '<span class="stmt">Good morning, Bea</span></h1></div></div><div class="ph-actions"><form class="hm-find" method="get" action="/ui/search" role="search">',
-            $head, 'Home\'s eyebrow is today\'s date; ONE Find box');
+            . '<span class="stmt">Good morning, Bea</span></h1></div></div><div class="ph-actions"><div class="hm-actions">',
+            $head, 'Home\'s eyebrow is today\'s date; its buttons at the right');
         self::assertStringNotContainsString('<p class="lede">', substr($head, 0, (int) strpos($head, '</header>')), 'no sentence under the greeting');
         self::assertStringNotContainsString(Html::e(Words::SECTION_DESC['matching']), $html, 'one sentence: the section\'s own line is gone');
         self::assertStringNotContainsString('<nav class="tabs', $html, 'no tab row and no segment row on any page (DC28)');
@@ -978,7 +977,9 @@ final class UiTemplatesTest extends TestCase
     {
         $home = HomeTasks::build($who->id, $who->roles, []);
         return ['greeting' => 'Good morning, Bea', 'tasks' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['jobs']),
-            'notes' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['notes']), 'figures' => [], 'canFind' => false, 'later' => ''];
+            'notes' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['notes']), 'figures' => [], 'later' => '',
+            // (the Main artboard's buttons, the Stores and Today cards: docs/decisions.md RD-C15)
+            'receive' => null, 'newOrder' => null, 'inbox' => null, 'stores' => [], 'today' => []];
     }
 
     /** Codex's sixth review of ui-v5: the layout prints its `body` as it is, so only View::page() draws it, never the $partial helper. */
@@ -1036,10 +1037,11 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<p class="hm-d"><span class="visually-hidden"><span class="hm-said">0 of 20 checked</span>. </span>If all 20 are right, the rest are '
             . 'confirmed together.</p>', $html, 'a screen reader hears the number with its unit; one plain line');
         self::assertStringNotContainsString('You see one at a time.', $html, 'no "What happens:" line (HV1)');
-        self::assertStringContainsString('<a class="btn primary" href="/ui/review/samples/1">Check the next one</a>', $html, 'the first job: the page\'s main action');
+        self::assertStringContainsString('<a class="hm-go" href="/ui/review/samples/1">Check the next one<span aria-hidden="true"> ›</span></a>', $html,
+            'each row a link to its action (the Main artboard: the page\'s main button is + New purchase order, RD-C15)');
         self::assertStringContainsString('<span class="hm-n" aria-hidden="true">!</span>', $html, 'a task without a number');
         self::assertStringContainsString('<span class="hm-said">Waiting</span>', $html, '... says its state');
-        self::assertSame(1, substr_count($html, 'class="btn'), 'the second row has no button');
+        self::assertSame(1, substr_count($html, 'class="hm-go"'), 'the second row has no action');
         $notes = $view->render('cards', ['list' => [$list[1]], 'notes' => true]);
         self::assertStringStartsWith('<ul class="hm-list hm-notes" aria-labelledby="notes-h">', $notes, 'the notes: a list under "Good to know"');
         self::assertSame('<span class="chip info">x &amp; y</span>', Html::chip('nonsense', 'x & y'), 'an unknown tone is info');
@@ -1269,7 +1271,7 @@ final class UiTemplatesTest extends TestCase
                 foreach ($navs[1] as $cls) {
                     $words = preg_split('/\s+/', $cls) ?: [];
                     // A nav is the sidebar, the phone bar, a pager, or a row of tabs: nothing else draws a choice of lists.
-                    self::assertNotSame([], array_intersect($words, ['tabs', 'side', 'tabbar', 'pager', 'rows-choice']), "{$name}: <nav class=\"{$cls}\">");
+                    self::assertNotSame([], array_intersect($words, ['tabs', 'side', 'tabbar', 'pager', 'rows-choice', 'set-nav']), "{$name}: <nav class=\"{$cls}\">");
                 }
             }
         }
@@ -1356,7 +1358,8 @@ final class UiTemplatesTest extends TestCase
             $attrs = $m['attrs'][0];
             if ($name === 'form') {
                 $id = preg_match('/\bid="([^"<]*)"/', $attrs, $i) === 1 ? $i[1] : null;
-                $get = preg_match('/\bmethod="post"/i', $attrs) !== 1;
+                // (a report's options, `form.rp-options`, run the report: the report page's one main action, the artboard's magenta Run report; RD-C11)
+                $get = preg_match('/\bmethod="post"/i', $attrs) !== 1 && !str_contains($attrs, 'class="card rp-options"');
                 $action = preg_match('#\baction="((?:[^"<]|' . $php . ')*)"#s', $attrs, $a) === 1 ? $a[1] : '';
                 $tokens[] = ['kw' => $m['close'][0] === '/' ? 'form_close' : 'form_open', 'line' => $line,
                     'key' => ($get ? 'GET ' : '') . ($id !== null ? "form #{$id}" : "form at line {$line}"), 'action' => $action];
@@ -1662,7 +1665,7 @@ final class UiTemplatesTest extends TestCase
             'invoices' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'],
             'invoices_to_match' => ['board', 'toolbar', 'row_link'], 'invoices_not_invoiced' => ['board', 'toolbar', 'search', 'row_link'],
             'invoices_timed' => ['board', 'row_link'], 'arrivals' => ['board', 'row_link'], 'incidents' => ['board', 'toolbar'],
-            'duty_register' => ['report', 'toolbar', 'search'], 'reorder' => ['report', 'toolbar', 'search'], 'reorder_low_stock' => ['report', 'toolbar', 'search'],
+            'reorder' => ['report', 'toolbar', 'search'], 'reorder_low_stock' => ['report', 'toolbar', 'search'],
             'reorder_brands' => ['report'], 'reorder_anomalies' => ['report'], 'reorder_suppliers' => ['report'], 'sales_history' => ['report'],
         ];
         foreach ($pages as $name => $patterns) {
@@ -1743,9 +1746,7 @@ final class UiTemplatesTest extends TestCase
                 "\$partial('doc_party'", 'class="stack list board doc-lines sales-units"', '<td class="c-status doc-st ', '<section class="doc-related"',
                 '<div class="grp-block doc-group info">', 'class="table-wrap doc-board" id="u-'],
             'sales_order_bar' => ['<div class="doc-actions" role="group"'],
-            'report_sales' => ['<form class="toolbar" method="get"', '<div class="tb-state">', '<label class="tb-day">', "\$bar = \$partial('report_bar'", 'side: $bar',
-                '<section class="doc-progress rp-figs"', '<section class="doc-related"', '<div class="table-wrap doc-board info">', 'class="stack list board doc-list report-sales"',
-                'class="stack list board doc-list report-days"', '<tr class="grp-foot">'],
+            // (Sales by store: the standard report layout since docs/decisions.md RD-C11, tests/Unit/RedesignCTemplatesTest.php)
         ];
         foreach ($pins as $name => $parts) {
             $src = $t[$name . '.php'] ?? '';
@@ -1964,8 +1965,8 @@ final class UiTemplatesTest extends TestCase
                 "\$partial('doc_party'", '<section class="doc-related"'],
         ];
         $pages = [
-            'report_value' => ['report', 'figures', 'search', 'more'], 'report_store' => ['report', 'figures', 'search', 'more'], 'report_low' => ['report', 'figures', 'search'],
-            'report_slow' => ['report', 'figures', 'search'], 'report_sales' => ['report', 'figures'], 'audit' => ['report', 'search', 'more'],
+            // (the five reports: the standard report layout of the redesign, tests/Unit/RedesignCTemplatesTest.php, docs/decisions.md RD-C11)
+            'audit' => ['report', 'search', 'more'],
             'settings' => ['shell', 'rows', 'search'], 'setting' => ['shell', 'history', 'record'], 'series' => ['shell', 'rows'], 'reasons' => ['shell', 'rows'],
             'reason' => ['shell', 'rows', 'fold', 'history', 'record'], 'warehouses' => ['shell', 'rows'], 'warehouse' => ['shell', 'rows', 'fold', 'history', 'record'],
             'approvals' => ['shell', 'fold'], 'access' => ['shell', 'rows'], 'access_permission' => ['shell', 'history', 'record'], 'company' => ['shell', 'rows'],
@@ -1998,12 +1999,9 @@ final class UiTemplatesTest extends TestCase
                 self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
             }
         }
-        // The head's file: one plain bordered button (TP_Report's "Download (Excel)"), not a ghost.
-        self::assertStringContainsString('<a class="btn" href="<?= $e($href) ?>" title="<?= $word(\'REPORTS\', \'download_title\') ?>" download>', $t['report_bar.php']);
-        // Stock value: Group by (item, brand, warehouse) in the Show row; Share and the total row on brand and warehouse.
-        self::assertStringContainsString('<select id="tb-by" name="by">', $t['report_value.php']);
-        self::assertSame(2, substr_count($t['report_value.php'], '<meter class="rp-share" min="0" max="100"'));
-        self::assertSame(2, substr_count($t['report_value.php'], '<tr class="grp-foot">'));
+        // Stock value: Group by (item, brand, warehouse) among its options; the total row on brand and warehouse (RD-C11).
+        self::assertStringContainsString('<select id="rp-by" name="by">', $t['report_value.php']);
+        self::assertSame(3, substr_count($t['report_value.php'], '<tr class="rp-total">'));
         // Low and slow stock: the two lists are the Show choices with their counts (the tab row went).
         self::assertStringContainsString("\$say('REPORTS', 'show_none_n', \$counts['out'])", $t['report_low.php']);
         self::assertStringContainsString("\$say('REPORTS', 'show_dead_n', \$counts['dead'])", $t['report_slow.php']);
@@ -2047,9 +2045,9 @@ final class UiTemplatesTest extends TestCase
                 '<?= $word(\'MATCH\', \'skip\') ?>', '<?= $word(\'MATCH\', \'more\') ?>'],
         ];
         $pages = [
-            'queue' => ['board', 'toolbar', 'search'], 'store_products' => ['board', 'toolbar', 'search'], 'by_product' => ['board', 'toolbar', 'search'],
+            'queue' => ['board', 'toolbar', 'search'], 'store_products' => ['board', 'toolbar', 'search'],
             'new_variants' => ['board', 'toolbar', 'search'], 'duplicates' => ['board'], 'documents' => ['board', 'toolbar', 'search'],
-            'samples' => ['inbox'], 'reviews' => ['inbox'], 'staff_requests' => ['inbox'], 'listing' => ['match'], 'duplicate_group' => ['match'],
+            'samples' => ['inbox'], 'reviews' => ['inbox'], 'staff_requests' => ['inbox'], 'duplicate_group' => ['match'],
         ];
         foreach ($pages as $name => $patterns) {
             $src = $t[$name . '.php'] ?? '';
@@ -2081,14 +2079,15 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<button type="submit" class="po-default" disabled hidden tabindex="-1" aria-hidden="true">', $l);
         foreach (['name="action" value="link" class="btn primary"', 'name="action" value="reject" class="btn"', 'name="action" value="new_item" class="btn"',
             'name="action" value="ignore" class="btn"', 'form="mark-landing" class="btn"', 'name="units_per_item"', 'name="reason"', 'form="mt-find"',
-            '<form id="mt-find" method="get"', "\$partial('listing_more', \$more)", '<span class="mt-mark ', 'class="mt-photo"'] as $part) {
+            '<form id="mt-find" method="get"', "\$partial('listing_more', \$more)", '<span class="mt-mark '] as $part) {
             self::assertStringContainsString($part, $l, "listing: {$part}");
         }
         foreach (['on_store', 'units', 'units_of', 'note', 'note_hint', 'find', 'find_hint', 'not_same', 'same'] as $w) {
             self::assertStringContainsString("\$word('MATCH', '{$w}')", $l, "listing: the words {$w}");
         }
-        self::assertSame(['question' => 'Is this the same item?', 'on_store' => 'On the store', 'find' => 'Or find another item',
-            'find_hint' => 'Type a name, CW code or barcode', 'units' => 'One store product is', 'units_of' => 'of this item', 'note' => 'Note (when the line or pack differs)',
+        // (the Listings artboard of 30 Oct 2026: "Not this one? Find another item", "1 sale on the store is N of our item"; docs/decisions.md RD-C3)
+        self::assertSame(['question' => 'Is this the same item?', 'on_store' => 'On the store', 'find' => 'Not this one? Find another item',
+            'find_hint' => 'Type a name, CW code or barcode', 'units' => '1 sale on the store is', 'units_of' => 'of our item', 'note' => 'Note (when the line or pack differs)',
             'note_hint' => 'Why it is the same', 'skip' => 'Skip', 'more' => 'More', 'more_label' => 'More answers', 'not_same' => 'Not the same', 'same' => 'Same item'],
             array_intersect_key(Words::MATCH, array_flip(['question', 'on_store', 'find', 'find_hint', 'units', 'units_of', 'note', 'note_hint', 'skip', 'more', 'more_label',
                 'not_same', 'same'])), 'the approved design\'s words');
@@ -2158,7 +2157,8 @@ final class UiTemplatesTest extends TestCase
     public function testNoPageDrawsATabOrSegmentRowOutsideARecordAMockupDraws(): void
     {
         $t = self::templates();
-        $records = ['item.php' => 'item-tabs', 'supplier.php' => 'record-tabs'];
+        // (and Product matching's two tabs, which the owner asked for: the approved ByItem artboard; docs/decisions.md RD-C7)
+        $records = ['item.php' => 'item-tabs', 'supplier.php' => 'record-tabs', 'by_product_tabs.php' => 'bi-tabs'];
         $rows = 0;
         foreach ($t as $name => $src) {
             self::assertStringNotContainsString('role="tablist"', $src, "{$name}: no tab list");
@@ -2173,7 +2173,7 @@ final class UiTemplatesTest extends TestCase
                 }
             }
         }
-        self::assertSame(2, $rows, 'the item\'s tabs and the supplier\'s');
+        self::assertSame(3, $rows, 'the item\'s tabs, the supplier\'s and Product matching\'s');
         self::assertArrayNotHasKey('store_seg.php', $t, 'the store tab row is gone');
         foreach (['pending' => '/ui/review', 'sales_orders' => null, 'sales_dispatch' => null, 'sales_returns' => null, 'stock_reservations' => null] as $name => $action) {
             $src = $t[$name . '.php'];

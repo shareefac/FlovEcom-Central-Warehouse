@@ -7,6 +7,9 @@ $help = \CW\Ui\Words::ACCESS['rule_own'] . ' ' . \CW\Ui\Words::say('ACCESS', 'ru
     . \CW\Ui\Words::ACCESS['rule_approvals'] . ' ' . \CW\Ui\Words::ACCESS['rule_give'];
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['access'], intro: 'access', more: $help) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'people']) ?>
+<div class="set-main">
 <div class="set-list">
 <section class="set-card tasks" aria-labelledby="tasks-h">
   <h2 id="tasks-h"><?= $word('ACCESS', 'by_task') ?></h2>
@@ -32,4 +35,6 @@ $help = \CW\Ui\Words::ACCESS['rule_own'] . ' ' . \CW\Ui\Words::say('ACCESS', 'ru
   </div>
 <?php endforeach; ?>
 </section>
+</div>
+</div>
 </div>

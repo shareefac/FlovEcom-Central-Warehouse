@@ -27,32 +27,34 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/review/listing/' . $l1, ['queue' => 'Key', 'channel' => 'vpg']);
         self::assertSame(200, $page->status, $page->describe());
         $xp = new \DOMXPath($page->dom());
-        // The head asks the question; the store and how many are left in its eyebrow; the bar at its right says the progress in words.
+        // The head asks the question; the store and how many are left on the line under it (RD-C2), the progress in words for a screen reader.
         self::assertSame(Words::MATCH['question'], trim((string) $xp->evaluate('string(//main//h1)')));
-        // The eyebrow (DC3): the list it was opened from, then the store and how many are left.
+        // The way back (DC3): the list it was opened from.
         self::assertSame('/ui/review?queue=Key&channel=vpg', (string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'));
-        self::assertStringContainsString('VPG test site · ' . Words::say('MATCH', 'to_match', 2), trim((string) $xp->evaluate('string(//main//p[contains(@class, "ph-eyebrow")])')));
-        self::assertSame(1, $xp->query('//header//span[@class="mt-progress"][@data-progress]')->length);
-        // The store product on the left (the blue edge), the item on the right (the green edge), in that order, each its facts.
-        self::assertSame(['card mt-card info', 'card mt-card done'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('class'),
-            iterator_to_array($xp->query('//div[@class="mt-cards"]/section'))));
-        self::assertSame([Words::MATCH['on_store'], Words::LISTING['suggested']], self::texts($xp, '//div[@class="mt-cards"]/section//h2[@class="mt-h"]'));
-        self::assertSame('Elux Legend – Blue Razz', trim((string) $xp->evaluate('string(//section[@aria-labelledby="mt-store-h"]//p[@class="mt-name"])')));
-        self::assertStringStartsWith(Words::say('MATCH', 'variant', 'W1'), trim((string) $xp->evaluate('string(//section[@aria-labelledby="mt-store-h"]//p[@class="mt-sub"])')));
+        self::assertSame('VPG test site · ' . Words::say('MATCH', 'to_match', 2), trim((string) $xp->evaluate('string(//header//span[@class="mt-line"])')));
+        self::assertSame(1, $xp->query('//header//span[@class="mt-line"][@data-progress]')->length);
+        // ONE comparison card (RD-C1): the store product's column, then our item's, each its name and short line.
+        self::assertSame([Words::MATCH['on_store'], Words::MATCH['our_item']], self::texts($xp, '//section[contains(@class, "mt-compare")]//h2[@class="mt-h"]'));
+        self::assertSame('Elux Legend – Blue Razz', trim((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-store")]/p[@class="mt-name"])')));
+        self::assertStringStartsWith(Words::say('MATCH', 'variant', 'W1'), trim((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-store")]/p[@class="mt-sub"])')));
         self::assertSame(sprintf('CW-%06d', $a) . ' · ' . Words::say('MATCH', 'in_stock', 0),
-            trim((string) $xp->evaluate('string(//section[@aria-labelledby="mt-item-h"]//p[@class="mt-sub"])')));
-        // Each fact of the two sides is marked: what agrees on the green, what differs (or one side does not state) on the amber; brand first.
-        $marks = $xp->query('//section[@aria-labelledby="mt-store-h"]//dl[@class="mt-facts"]/dd/span[contains(@class, "mt-mark")]');
+            trim((string) $xp->evaluate('string(//div[contains(@class, "mt-side mt-item")]/p[@class="mt-sub"])')));
+        // A row per fact, marked: what agrees the green tick, what differs (or one side does not state) the amber "!"; brand first.
+        $marks = $xp->query('//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")]//span[contains(@class, "mt-mark")]');
         self::assertGreaterThan(0, $marks->length);
         foreach ($marks as $m) {
+            /** @var \DOMElement $m */
+            $row = $m->parentNode?->parentNode;
+            self::assertInstanceOf(\DOMElement::class, $row);
             self::assertContains($m->getAttribute('class'), ['mt-mark same', 'mt-mark diff']);
-            self::assertSame(in_array($m->getAttribute('data-state'), ['same', 'alike'], true), $m->getAttribute('class') === 'mt-mark same');
+            self::assertSame(in_array($row->getAttribute('data-state'), ['same', 'alike'], true), $m->getAttribute('class') === 'mt-mark same');
         }
-        self::assertSame(Words::FIELD['brand'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="mt-store-h"]//dl[@class="mt-facts"]/dt[1])')));
-        self::assertSame(1, $xp->query('//section[@aria-labelledby="mt-item-h"]//input[@name="s"][@form="mt-find"][@placeholder="' . Words::MATCH['find_hint'] . '"]')->length,
-            '"Or find another item" in the item\'s card, its own GET form');
-        // The units and the note, in the approved words.
-        self::assertSame([Words::MATCH['units'], Words::MATCH['note']], self::texts($xp, '//section[contains(@class, "mt-answer")]//label'));
+        self::assertSame(Words::FIELD['brand'], trim((string) $xp->evaluate('string((//section[contains(@class, "mt-compare")]/div[contains(@class, "mt-fact")])[1]/div[@class="mt-k"])')));
+        self::assertSame(1, $xp->query('//div[@class="mt-pick"]//input[@name="s"][@form="mt-find"][@placeholder="' . Words::MATCH['find_hint'] . '"]')->length,
+            '"Not this one? Find another item" under the card, its own GET form');
+        // The units under the card and the note under the bar's More, in the approved words (RD-C3, RD-C4).
+        self::assertSame([Words::MATCH['find'], Words::MATCH['units']], self::texts($xp, '//div[@class="mt-pick"]/div/label'));
+        self::assertSame(Words::MATCH['note'], trim((string) $xp->evaluate('string(//div[contains(@class, "mt-bar")]/details[contains(@class, "more")]//div[contains(@class, "mt-note")]/label)')));
         self::assertSame(Words::MATCH['note_hint'], (string) $xp->evaluate('string(//input[@id="f-reason"]/@placeholder)'));
         // ONE decision form (the quick yes is gone); its bar: Skip (the next one), More, Not the same, Same item (the main one).
         self::assertSame(1, $xp->query('//form[contains(@action, "/decide")]')->length - $xp->query('//form[@id="mark-landing"]')->length);
@@ -149,7 +151,8 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
             self::assertSame(200, $page->status, $page->describe());
             $xp = new \DOMXPath($page->dom());
             return [(string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'), trim((string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a)')),
-                trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//p[contains(@class, "ph-eyebrow")])')))];
+                // (the store and how many are left: the line under the question since docs/decisions.md RD-C2)
+                trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//header//span[@class="mt-line"])')))];
         };
         $left = 'VPG test site · ' . Words::say('MATCH', 'to_match', 2);
 
@@ -163,7 +166,7 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         self::assertSame(['/ui/review/store?channel=vpg&sort=sold_365#l-' . $l1, Words::MENU['store_products']], [$href, $label]);
         self::assertStringContainsString($left, $line, 'the store and how many are left to match');
         // One separator after the list (docs/decisions.md DC37; the coordinator's Chrome check read "Store products › · Electrofag · …").
-        self::assertSame(Words::MENU['store_products'] . ' › ' . $left, $line);
+        self::assertSame($left, $line);
 
         // From New Variants or Simple matching (their rows link the page bare): that list, as the person had it.
         $from = static fn (string $ref): \CW\Tests\Support\UiResponse => $web->send('GET', '/ui/review/listing/' . $l1, [], [], ['referer' => 'http://cw-ui.review.invalid' . $ref]);
@@ -177,7 +180,7 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         foreach ([$from('/ui/'), $web->send('GET', '/ui/review/listing/' . $l1, [], [], ['referer' => 'https://evil.example/ui/match?q=x']), $web->get('/ui/review/listing/' . $l1)] as $page) {
             [$href, $label, $line] = $eyebrow($page);
             self::assertSame(['/ui/review/store?channel=vpg', Words::MENU['store_products']], [$href, $label]);
-            self::assertSame(Words::MENU['store_products'] . ' › ' . $left, $line);
+            self::assertSame($left, $line);
         }
     }
 

@@ -89,7 +89,8 @@ final class MainButtons
                 if ($form !== null) {
                     $formOf[$key] = $form;
                     $method = strtolower($el->getAttribute('formmethod') !== '' ? $el->getAttribute('formmethod') : $form->getAttribute('method'));
-                    if ($method !== 'post') {
+                    // A report's options run the report: the report page's one main action (the Reports artboard's Run report; docs/decisions.md RD-C11).
+                    if ($method !== 'post' && !in_array('rp-options', explode(' ', $form->getAttribute('class')), true)) {
                         // A form that only filters or searches is never the page's main action (DS5).
                         $out[] = "a filter (GET) {$key}: a main button (" . self::text($el) . ')';
                     }

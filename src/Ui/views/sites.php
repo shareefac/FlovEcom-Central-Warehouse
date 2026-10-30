@@ -7,6 +7,9 @@
 $modes = ['live', 'shadow', 'off'];
 ?>
 <?= $head(\CW\Ui\Words::MENU['sites'], intro: 'sites', aside: $explain('site_modes', \CW\Ui\Words::SITES['mode'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'sites']) ?>
+<div class="set-main">
 <?php if ($sites === []): ?>
 <?= $empty(\CW\Ui\Words::SITES['none']) ?>
 <?php else: ?>
@@ -83,3 +86,5 @@ $modes = ['live', 'shadow', 'off'];
 </section>
 <?php endforeach; ?>
 <?php endif; ?>
+</div>
+</div>

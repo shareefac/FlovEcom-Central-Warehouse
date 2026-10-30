@@ -71,6 +71,33 @@ final class ReferenceController
     }
 
     /**
+     * Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in the artboard's
+     * order: section => [its page, the permission that page's route checks (Ui\Kernel)]. Users and roles opens the people for whoever may see
+     * them, else who can do what (reference.view).
+     */
+    public const SETTINGS_SECTIONS = [
+        'company' => ['/ui/reference/company', 'reference.view'], 'warehouses' => ['/ui/reference/warehouses', 'reference.view'],
+        'sites' => ['/ui/system/sites', 'system.view'], 'people' => ['/ui/people', 'staff.view'], 'approvals' => ['/ui/reference/approvals', 'reference.view'],
+        'reasons' => ['/ui/reference/reasons', 'reference.view'], 'settings' => ['/ui/reference/settings', 'reference.view'],
+        'series' => ['/ui/reference/series', 'reference.view'], 'integrity' => ['/ui/system/checks', 'system.view'], 'audit' => ['/ui/system/audit', 'audit.view'],
+    ];
+
+    /** The sections this person may open, in order. @return list<array{key: string, href: string}> */
+    public static function settingsSections(?\CW\Auth\StaffIdentity $who): array
+    {
+        $out = [];
+        foreach (self::SETTINGS_SECTIONS as $key => [$href, $perm]) {
+            if ($key === 'people' && $who !== null && !$who->can($perm) && $who->can('reference.view')) {
+                [$href, $perm] = ['/ui/reference/access', 'reference.view'];
+            }
+            if ($who !== null && $who->can($perm)) {
+                $out[] = ['key' => $key, 'href' => $href];
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Rules and numbers (app_setting, I38-I41; plan §6.33; the approved TP_Settings, docs/decisions.md W13.9): every setting by topic, a
      * card each, one row per setting with its plain name, what it does, whether the owner has agreed it and who last changed it (UK
      * time); for whoever changes settings (settings.manage) a simple value (a number, a date, a short text, yes or no) is changed in its

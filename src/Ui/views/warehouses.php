@@ -6,6 +6,9 @@
 // the right what is in the building.
 ?>
 <?= $head(\CW\Ui\Words::MENU['warehouses'], intro: 'warehouses', look: $lookOnly, aside: $explain('stock_owner', \CW\Ui\Words::WAREHOUSES['owner'])) ?>
+<div class="set-shell">
+<?= $partial('settings_nav', ['current' => 'warehouses']) ?>
+<div class="set-main">
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -66,4 +69,6 @@
 </section>
 <?php endif; ?>
 <?php endforeach; ?>
+</div>
+</div>
 </div>
