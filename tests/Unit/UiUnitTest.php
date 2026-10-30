@@ -1216,8 +1216,10 @@ final class UiUnitTest extends TestCase
             '/table\.stack\.doc-lines\.gi-lines tr\.gi-row > td\.gi-check \{[^}]*background: var\(--t-fill, var\(--st-grey\)\);[^}]*color: var\(--on-fill\);/'
                 => 'phone: the check a chip in its colour at the top right',
             '/table\.stack\.gi-lines tr\.gi-row > td\.gi-check::before \{ content: none; \}/' => 'phone: the chip without the column\'s name',
-            '/table\.stack\.gi-lines tr\.gi-row > td\.gi-duty::before \{ color: var\(--ink-muted\); \}/' => 'phone: the duty stamp\'s label visible',
-            '/table\.stack\.gi-lines tr\.gi-row > td\.gi-duty select \{[^}]*background-color: var\(--card\);[^}]*color: var\(--ink\);/' => 'phone: the duty stamp\'s value visible',
+            // The duty stamp is in the line's answers (RD-B5, the approved GoodsReceived.dc.html): its name and its value visible on a phone.
+            '/table\.stack\.gi-lines \.gi-acts > \.gi-duty \.gi-duty-name \{ color: var\(--ink-muted\); \}/' => 'phone: the duty stamp\'s label visible',
+            '/table\.stack\.gi-lines \.gi-acts > \.gi-duty select \{[^}]*background-color: var\(--card\);[^}]*color: var\(--ink\);/' => 'phone: the duty stamp\'s value visible',
+            '/^table\.gi-lines \.gi-duty \{[^}]*background: var\(--t-soft, var\(--sf-grey\)\);[^}]*color: var\(--t-ink, var\(--sf-grey-ink\)\);/m' => 'the duty stamp a small pill of its answer\'s colour',
             '/table\.stack\.gi-lines \.gi-acts \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/' => 'phone: All fine and Problem side by side',
             '/^\.crumbs \.gi-leave \{ display: none; \}/m' => 'Leave without saving in the head: a phone\'s only',
             '/@media \(max-width: 699\.98px\) \{ \.gi-form \.doc-bar > a\[data-leave\] \{ display: none; \} \.crumbs \.gi-leave \{ display: inline-flex; \} \}/'
@@ -1341,7 +1343,7 @@ final class UiUnitTest extends TestCase
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertStringContainsString('@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty)[data-label]::before { color: inherit; } }', $css);
-        self::assertStringContainsString('table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: var(--ink-muted); }', $css, 'the duty cell keeps its grey word');
+        self::assertStringContainsString('table.stack.gi-lines .gi-acts > .gi-duty .gi-duty-name { color: var(--ink-muted); }', $css, 'the duty stamp keeps its grey word (RD-B5)');
     }
 
     /**

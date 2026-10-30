@@ -22,7 +22,7 @@ foreach ($channels as $c) {
 <?= $empty(\CW\Ui\Words::SALES['none'], \CW\Ui\Words::SALES['none_text']) ?>
 <?php endif; ?>
 <?php foreach ($channels as $c): ?>
-<div class="grp-block doc-group <?php if ($c['top'] === []): ?>done<?php else: ?>needs<?php endif; ?>">
+<div class="grp-block doc-group <?php if ($c['top'] === []): ?>done<?php else: ?>needs<?php endif; ?> rd-list">
   <h2 class="grp-title" id="ch-<?= $e($c['code']) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($c['code']) ?>"><?= $e($c['name']) ?></button> <span class="grp-count"><?php if (count($c['top']) === 1): ?><?= $word('SALES', 'group_one') ?><?php else: ?><?= $say('SALES', 'group_many', count($c['top'])) ?><?php endif; ?></span></h2>
   <div id="g-<?= $e($c['code']) ?>">
   <dl class="doc-facts">
@@ -52,7 +52,7 @@ foreach ($channels as $c) {
       <tr>
         <th scope="row" class="c-head"><?php if ($canLink && $t['listing_id'] !== null): ?><a class="o-name" href="<?= $u('/ui/review/listing/' . $t['listing_id']) ?>"><?= $e($t['product_title'] ?? $t['variant']) ?></a><?php else: ?><span class="o-name"><?= $e($t['product_title'] ?? $t['variant']) ?></span><?php endif; ?>
           <span class="o-sub"><?php if ($t['variant_title'] !== null): ?><?= $e($t['variant_title']) ?> · <?php endif; ?><?= $say('SALES', 'option', $t['variant']) ?><?php if ($t['brand'] !== null): ?> · <?= $e($t['brand']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?php if ($t['listing_id'] === null): ?>off<?php else: ?>needs<?php endif; ?>"><?= $e($t['problem']) ?></td>
+        <td class="c-status doc-st <?php if ($t['listing_id'] === null): ?>off<?php else: ?>needs<?php endif; ?>"><span class="chip"><?= $e($t['problem']) ?></span></td>
         <td class="num" data-label="<?= $word('SALES', 'sold') ?>"><?= $n($t['units']) ?></td>
         <td data-label="<?= $word('SALES', 'last_sale') ?>"><?= $day($t['last_sale']) ?></td>
       </tr>

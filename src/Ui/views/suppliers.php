@@ -1,9 +1,9 @@
 <?php
-// Purchasing › Suppliers, a board (the owner's approved design of 29 Oct 2026; docs/decisions.md W9.2): one search box (name, code, VAT
-// number), one Show menu (every supplier or one status, with the two ticks: background check due soon, approved by one person), Export and
-// "+ New supplier" at the right; then the suppliers grouped by whether we can order from them, each group a coloured heading with its count
-// over a card with the group's colour on its left edge, the status cell filled with its colour, "+ New supplier" at the end of the Draft
-// group. A row opens its supplier. Home's links (?status=draft, ?due=1) still narrow the list.
+// Purchasing › Suppliers, a simple list (the approved redesign of 30 Oct 2026, docs/decisions.md RD-B6; before it W9.2): one search box
+// (name, code, VAT number), one Show menu (every supplier or one status, with the two ticks: background check due soon, approved by one
+// person), Export and "+ New supplier" at the right; then the suppliers grouped by whether we can order from them, each group a heading with
+// its coloured dot and its count over a white table card, the status a small pill. A row opens its supplier. Home's links (?status=draft,
+// ?due=1) still narrow the list.
 ?>
 <?= $head(\CW\Ui\Words::MENU['suppliers'], intro: 'suppliers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -33,7 +33,7 @@
 <?= $empty(\CW\Ui\Words::SUPPLIERS['none'], \CW\Ui\Words::SUPPLIERS[$canManage ? 'none_text' : 'none_look']) ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('SUPPLIERS', 'group_one') ?><?php else: ?><?= $say('SUPPLIERS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list suppliers">
@@ -50,15 +50,12 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ((int) $r['is_overseas'] === 1): ?> · <?= $word('SUPPLIERS', 'abroad') ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?><?php if ($r['alone_open']): ?><span class="o-sub"><?= $word('SUPPLIERS', 'alone_chip') ?></span><?php endif; ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></span><?php if ($r['alone_open']): ?><span class="o-sub"><?= $word('SUPPLIERS', 'alone_chip') ?></span><?php endif; ?></td>
         <td data-label="<?= $word('SUPPLIERS', 'next_check') ?>"<?php if ($r['dd_overdue']): ?> class="late"<?php endif; ?>><?php if ($r['dd_next_review_on'] !== null): ?><?= $day($r['dd_next_review_on']) ?><?php endif; ?><?php if ($r['dd_overdue']): ?> · <?= $word('SUPPLIERS', 'overdue') ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
         <td data-label="<?= $word('SUPPLIERS', 'approved') ?>"><?php if ($r['approved_at'] !== null): ?><?= $say('SUPPLIERS', 'approved_line', \CW\Ui\Html::when($r['approved_at']), (string) ($r['approved_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><span class="muted"><?= $word('SUPPLIERS', 'not_yet') ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'draft' && $canManage): ?>
-      <tr class="grp-add"><td colspan="5" data-label=""><a class="add-item" href="/ui/purchasing/suppliers/new"><?= $word('SUPPLIERS', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

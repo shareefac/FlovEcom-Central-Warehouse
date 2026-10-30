@@ -1,8 +1,8 @@
 <?php
-// Goods In › Incidents, a board (docs/decisions.md W9.9): the Show row (open, dealt with, nothing needed or all; the kind of problem); then
-// the incidents grouped by their state, each group a coloured heading with its count over a card with its colour on the left edge, the
-// status cell filled. A row: the problem, its state, the delivery line it came from, where the items are, who found it; an open one closes
-// from its own fold (incidents.resolve).
+// Goods In › Incidents, a simple list (the approved redesign of 30 Oct 2026, docs/decisions.md RD-B6; before it W9.9): the Show row (open,
+// dealt with, nothing needed or all; the kind of problem); then the incidents grouped by their state, each group a heading with its
+// coloured dot and its count over a white table card, the status a small pill. A row: the problem, its state, the delivery line it came
+// from, where the items are, who found it; an open one closes from its own fold (incidents.resolve).
 ?>
 <?= $head(\CW\Ui\Words::MENU['incidents'], intro: 'incidents', look: $lookOnly, aside: $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label'])) ?>
 <form class="toolbar" method="get" action="/ui/receiving/incidents" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
@@ -32,7 +32,7 @@
 <?= $empty(\CW\Ui\Words::INCIDENTS['none'], \CW\Ui\Words::INCIDENTS['none_text'], '/ui/receiving/incidents', \CW\Ui\Words::INCIDENTS['show_open']) ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('INCIDENTS', 'group_one') ?><?php else: ?><?= $say('INCIDENTS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list incidents">
@@ -51,7 +51,7 @@
 <?php foreach ($g['rows'] as $r): ?>
       <tr id="incident-<?= $e($r['id']) ?>">
         <th scope="row" class="c-head c-item"><span class="o-name"><?= $e($r['title']) ?></span><span class="o-sub"><?= $e($r['where']) ?></span></th>
-        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('INCIDENT_STATE', (string) $r['status']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('INCIDENT_STATE', (string) $r['status']) ?></span></td>
         <td data-label="<?= $word('INCIDENTS', 'came_from') ?>"><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['from']) ?></a></td>
         <td data-label="<?= $word('INCIDENTS', 'found') ?>"><?= $e($r['opened']) ?><?php if ($r['closed'] !== null): ?><span class="o-sub"><?= $e($r['closed']) ?></span><?php endif; ?></td>
 <?php if ($canResolve && $g['key'] === 'open'): ?>

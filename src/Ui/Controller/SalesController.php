@@ -32,6 +32,9 @@ final class SalesController
 {
     public const PATH = '/ui/stock/sales';
 
+    /** The list's groups in their order (RD-B3): the approved Sales.dc.html's three, then the store's orders not paid. */
+    public const GROUPS = ['to_ship', 'shipped', 'ended', 'held', 'released', 'expired'];
+
     public function index(Context $ctx): HtmlResponse
     {
         $views = new SalesViews($ctx->db);
@@ -48,9 +51,9 @@ final class SalesController
             $byGroup[$row['group']][] = $row;
         }
         $groups = [];
-        foreach (ReservationViews::GROUPS as $g) {
+        foreach (self::GROUPS as $g) {
             if (isset($byGroup[$g])) {
-                $groups[$g] = ['name' => Words::RESV_GROUP[$g], 'tone' => Words::tone('RESV_GROUP', $g), 'rows' => $byGroup[$g]];
+                $groups[$g] = ['name' => Words::SALE_GROUP[$g], 'tone' => Words::tone('SALE_GROUP', $g), 'rows' => $byGroup[$g]];
             }
         }
         $waiting = $views->waitingCounts($storeIds);
@@ -221,13 +224,21 @@ final class SalesController
      */
     private static function row(array $r, array $names): array
     {
-        $group = (string) $r['group'];
         [$outcome, $at] = ReservationsController::outcome($r);
+        $by = array_filter(is_array($r['by_state'] ?? null) ? $r['by_state'] : [], static fn (int $n): bool => $n > 0);
+        // The list's groups (RD-B3, the approved Sales.dc.html): waiting to ship, shipped (a unit of it went to the customer), returned or
+        // cancelled (none did); the store's unpaid ones after them as before. A paid order whose units ended more than one way says how under
+        // its number (the old "What became of it" column).
+        $group = match ((string) $r['group']) {
+            'closed' => ($by['shipped'] ?? 0) > 0 ? 'shipped' : 'ended',
+            default => (string) $r['group'],
+        };
         return [
             'href' => self::PATH . '/' . (int) $r['id'], 'ref' => (string) $r['ref'], 'store' => (string) ($names[$r['channel_id']] ?? ''),
-            'group' => $group, 'tone' => Words::tone('RESV_GROUP', $group), 'chipWord' => Words::RESV_CHIP[$group],
+            'group' => $group, 'tone' => Words::tone('SALE_GROUP', $group), 'chipWord' => Words::RESV_CHIP[(string) $r['group']],
             'placed' => (string) $r['created_at'], 'paid' => $r['committed_at'], 'origin' => $r['status'] === 'committed' ? (Words::SALE_ORIGIN[$r['origin']] ?? null) : null,
             'units' => (int) $r['units'], 'outcome' => $outcome, 'outcome_at' => $at,
+            'mixed' => $r['status'] === 'committed' && count($by) > 1 ? $outcome : null,
             'unlinked' => $r['unlinked'] === 0 ? null : ($r['unlinked'] === 1 ? Words::RESV['unlinked_one'] : Words::say('RESV', 'unlinked_many', (int) $r['unlinked'])),
             'try' => $r['attempt'] > 1 ? Words::say('RESV', 'try', (int) $r['attempt']) : null,
         ];

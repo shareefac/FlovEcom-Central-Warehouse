@@ -33,7 +33,7 @@ $spare = count(array_filter($rows, static fn (array $r): bool => $r['safety_days
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::BRANDS['none'], \CW\Ui\Words::BRANDS['none_text']) ?>
 <?php else: ?>
-<div class="grp-block doc-group info">
+<div class="grp-block doc-group info rd-list">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-brands"><?= $word('BRANDS', 'group') ?></button> <span class="grp-count"><?php if (count($rows) === 1): ?><?= $word('BRANDS', 'group_one') ?><?php else: ?><?= $say('BRANDS', 'group_many', count($rows)) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-brands">
   <table class="stack list board brands">

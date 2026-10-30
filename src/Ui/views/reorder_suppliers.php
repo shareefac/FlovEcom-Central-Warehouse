@@ -32,7 +32,7 @@ $spare = count(array_filter($rows, static fn (array $r): bool => $r['safety_days
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::REORDER_SUPPLIERS['none'], \CW\Ui\Words::REORDER_SUPPLIERS['none_text']) ?>
 <?php else: ?>
-<div class="grp-block doc-group info">
+<div class="grp-block doc-group info rd-list">
   <h2 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-suppliers"><?= $word('REORDER_SUPPLIERS', 'group') ?></button> <span class="grp-count"><?php if (count($rows) === 1): ?><?= $word('REORDER_SUPPLIERS', 'group_one') ?><?php else: ?><?= $say('REORDER_SUPPLIERS', 'group_many', count($rows)) ?><?php endif; ?></span></h2>
   <div class="table-wrap doc-board" id="g-suppliers">
   <table class="stack list board brands">
@@ -55,7 +55,7 @@ $spare = count(array_filter($rows, static fn (array $r): bool => $r['safety_days
 <?php foreach ($rows as $r): ?>
       <tr>
         <th scope="row" class="c-head"><a href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $e($r['name']) ?></a> <span class="o-sub"><?= $e($r['code']) ?></span></th>
-        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('SUPPLIER_STATUS', (string) $r['status'])) ?>"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></td>
+        <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('SUPPLIER_STATUS', (string) $r['status'])) ?>"><span class="chip"><?= $word('SUPPLIER_STATUS', (string) $r['status']) ?></span></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'delivery') ?>"><?php if ($r['default_lead_days'] !== null): ?><?= $say('REORDER_SUPPLIERS', 'n_days', (int) $r['default_lead_days']) ?><?php else: ?><span class="muted"><?= $say('REORDER_SUPPLIERS', 'normal_days', $defaults['lead']) ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('REORDER_SUPPLIERS', 'every') ?>"><?php if ($r['review_days'] !== null): ?><?= $say('REORDER_SUPPLIERS', 'n_days', (int) $r['review_days']) ?><?php else: ?><span class="muted"><?= $say('REORDER_SUPPLIERS', 'normal_days', $defaults['review']) ?></span><?php endif; ?></td>

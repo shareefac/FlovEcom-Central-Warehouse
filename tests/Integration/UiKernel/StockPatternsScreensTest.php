@@ -145,8 +145,10 @@ final class StockPatternsScreensTest extends KernelUiTestCase
         self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '5', 'price' => '2.40'])->status);
         $list = $web->get('/ui/stock/handovers');
         self::assertBoard($list, 'hand-overs');
-        self::assertSame(['#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array(self::xp($list)->query('//div[@id="g-draft"]//tr[contains(@class, "grp-add")]//a[contains(@class, "add-item")]'))));
+        // Trade sales is a simple list (docs/decisions.md RD-B6): no add row; "+ New …" is the head's one button, it opens the drawer.
+        self::assertSame(0, self::xp($list)->query('//tr[contains(@class, "grp-add")]')->length);
+        self::assertSame(['/ui/stock/handovers#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array(self::xp($list)->query('//main//header[contains(@class, "page-head")]//div[@class="ph-actions"]/a[contains(@class, "primary")]'))));
 
         $draft = $web->get($page);
         $xp = self::xp($draft);

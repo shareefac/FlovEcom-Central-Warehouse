@@ -1,10 +1,10 @@
 <?php
-// Stock › Hand-overs, a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W8): one search (the number, the customer,
-// their reference, a note) and one Show row (the state: every hand-over not stopped unless another is chosen), Clear and Export at the
-// right; the head's "+ New …" and the last row of the Draft group open the new form (its fields in two columns). The groups: draft, waiting
-// for an OK, final, cancelled, the cancellation records, stopped; each a coloured heading with its count over a card with its colour on the
-// left edge, the status cell filled with it. A row opens its hand-over. A customer's own link (counterparty=) and an old "stopped too"
-// (cancelled=1) are kept by the search.
+// Sales › Trade sales (hand-overs), a simple list (the approved redesign of 30 Oct 2026, docs/decisions.md RD-B6; before it W8): one search
+// (the number, the customer, their reference, a note) and one Show row (the state: every hand-over not stopped unless another is chosen),
+// Clear and Export at the right; the head's "+ New …" opens the new form (its fields in two columns). The groups: draft, waiting for an OK,
+// final, cancelled, the cancellation records, stopped; each a heading with its coloured dot and its count over a white table card; five
+// columns: the record (it opens it), the customer (its kind under it), the status as a small pill, the units, the value (before VAT while it
+// is not final). A customer's own link (counterparty=) and an old "stopped too" (cancelled=1) are kept by the search.
 ?>
 <?= $head(\CW\Ui\Words::SEGMENT['handovers'], intro: 'handovers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -64,36 +64,29 @@
 <?php else: ?>
 <?php foreach ($groups as $g => $list): ?>
 <?php $tone = $list[0]['tone']; $name = $g === 'reversal' ? \CW\Ui\Words::HANDOVER['group_reversal'] : \CW\Ui\Words::of('DOC_STATUS', $g); ?>
-<div class="grp-block doc-group <?= $e($tone) ?>">
+<div class="grp-block doc-group <?= $e($tone) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $e($name) ?></button> <span class="grp-count"><?= $say('HANDOVER', 'group_count', count($list)) ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list handover-records">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('HANDOVER', 'record') ?></th>
-        <th scope="col" class="c-status"><?= $word('HANDOVER', 'status') ?></th>
         <th scope="col"><?= $word('HANDOVER', 'customer') ?></th>
-        <th scope="col" class="num"><?= $word('HANDOVER', 'products') ?></th>
+        <th scope="col" class="c-status"><?= $word('HANDOVER', 'status') ?></th>
         <th scope="col" class="num"><?= $word('HANDOVER', 'units') ?></th>
         <th scope="col" class="num"><?= $word('HANDOVER', 'value') ?></th>
-        <th scope="col"><?= $word('HANDOVER', 'made_by') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($list as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number_line']) ?></a><span class="o-sub"><?= $e($r['date_line']) ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state_word']) ?></td>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number_line']) ?></a></th>
         <td data-label="<?= $word('HANDOVER', 'customer') ?>"><?= $e($r['customer']) ?><span class="o-sub"><?= $e($r['kind']) ?></span></td>
-        <td class="num" data-label="<?= $word('HANDOVER', 'products') ?>"><?= $n($r['products']) ?></td>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><span class="chip"><?= $e($r['state_word']) ?></span></td>
         <td class="num" data-label="<?= $word('HANDOVER', 'units') ?>"><?= $n($r['units']) ?></td>
         <td class="num" data-label="<?= $word('HANDOVER', 'value') ?>"><?php if ($r['value'] !== null): ?><?= $money($r['value']) ?><?php if (!$r['final']): ?><span class="o-sub"><?= $word('HANDOVER', 'before_vat') ?></span><?php endif; ?><?php endif; ?></td>
-        <td data-label="<?= $word('HANDOVER', 'made_by') ?>"><?= $e($r['made_by']) ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g === 'draft' && $formKey !== null): ?>
-      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="#new"><?= $word('HANDOVER', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

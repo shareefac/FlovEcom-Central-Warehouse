@@ -161,7 +161,9 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertContains("/ui/receiving/{$id}", $bl->hrefs());
         $bv = $bench->get("/ui/receiving/{$id}");
         self::assertSame(200, $bv->status, $bv->describe());
-        self::assertSame('15', trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/text()[1])')), '3 boxes of 5');
+        // Received (GoodsReceived.dc.html, docs/decisions.md RD-B5): the packs, the items they make under them.
+        self::assertSame(['3', Words::say('GI', 'ordered_items', '15')], [trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/text()[1])')),
+            trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/span[@class="o-sub"])'))], '3 boxes of 5');
         $bf = $bv->form("/ui/receiving/{$id}/lines", true);
         self::assertArrayHasKey('b_1_duty', $bf);
         $notMine = $bench->post("/ui/receiving/{$id}/lines", ['csrf' => $this->token($bench), 'action' => 'save'] + $page->form('/lines'));
@@ -488,7 +490,8 @@ final class ReceivingScreensTest extends KernelUiTestCase
     {
         self::assertSame(200, $page->status, $where . ': ' . $page->describe());
         $xp = new \DOMXPath($page->dom());
-        self::assertSame($title, trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))), "{$where}: the title");
+        // The title's words (a delivery's status pill stands beside them: RD-B5).
+        self::assertSame($title, trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1/span[@class="stmt"])'))), "{$where}: the title");
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, "{$where}: no sentence under the heading (DC1; its intro {$intro} stays in Words)");
         if ($lookOnly) {
             self::assertStringContainsString('You can look;', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])'),

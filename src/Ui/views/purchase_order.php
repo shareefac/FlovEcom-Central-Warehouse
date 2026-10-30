@@ -1,18 +1,21 @@
 <?php
-// A purchase order, read like a document (docs/decisions.md PV12, PV19: the owner's approved design; the order's rules and actions as
-// before): its status a solid block beside the title, one action bar at the head's right (po_bar, PV27: the next step in the accent:
-// confirm, send, receive the goods, record its invoice, take it back or copy; the others under More: the PDF, correct, close, reopen,
-// cancel ...; a step that needs a reason or a choice opens under the bar: po_action), the progress strip (ordered, received, invoiced, expected and what is still to come), the
-// supplier's block beside its facts, the lines, the totals on the right with its files to download, then its files and its history.
+// A purchase order, read like a document as the approved PurchaseOrder.dc.html draws it (docs/decisions.md RD-B4; before it PV12, PV19; the
+// order's rules and actions as before): the list's link above the title, the order's number with its status pill beside it, one line under
+// it (the reviewer's check, the supplier, when it was ordered and by whom), the actions at the head's right (po_bar, PV27: More,
+// then the next step in the accent; a step that needs a reason or a choice opens under the bar: po_action). The progress steps (approved,
+// sent to the supplier, received, invoiced). The paper: the supplier, where it delivers and the dates in three blocks, the lines (item,
+// ordered, received with what is still to come, unit cost, line total), the note to the supplier and the totals. Then Related (its
+// deliveries and invoices, the orders it corrects or that correct it, its cancellation, its files) and History (what happened to it, and
+// its checks and OKs).
 ?>
 <?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
     'supplier' => $supplier, 'sendVia' => $sendVia, 'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey,
     'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
 <div class="doc-head">
-<?php // PO_View (DC22): the heading is the order's number with its status block beside it (a draft without a number keeps its title, its status under it). ?>
+<?php // PO_View (DC22): the heading is the order's number with its status beside it (a draft without a number keeps its title, its status in the line under it). ?>
 <?= $head((string) ($doc->number ?? $title), intro: 'order', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']], chips: $doc->number !== null ? $stateChip('PO_STATE', $state) : '',
     meta: ($doc->number === null ? $stateChip('PO_STATE', $state) . ' ' : '') . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
-    ? '<span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
+    ? '<span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span> ' : '') . $e($factLine)) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
@@ -77,18 +80,37 @@
 </section>
 <?php endforeach; ?>
 
-<?php if ($progress !== null): ?>
-<section class="doc-progress" aria-label="<?= $word('DOC', 'progress') ?>">
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'ordered') ?></p><p class="doc-step-big"><?= $n($progress['ordered']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'received') ?></p><p class="doc-step-big"><?= $e($progress['received_line']) ?></p><progress class="done" max="<?= $e(max(1, $progress['ordered'])) ?>" value="<?= $e(min($progress['received'], max(1, $progress['ordered']))) ?>"></progress></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'invoiced') ?></p><p class="doc-step-big"><?= $e($progress['invoiced_line']) ?></p><progress class="review" max="<?= $e(max(1, $progress['received'])) ?>" value="<?= $e(min($progress['invoiced'], max(1, $progress['received']))) ?>"></progress></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'expected') ?></p><p class="doc-step-big"><?php if ($progress['expected'] !== null): ?><?= $day($progress['expected']) ?><?php endif; ?></p><?php if ($progress['to_come'] > 0): ?><p class="muted"><?= $say('DOC', 'to_come', $progress['to_come']) ?></p><?php endif; ?></div>
-</section>
+<?php if ($steps !== null): ?>
+<ol class="po-steps" aria-label="<?= $word('DOC', 'progress') ?>">
+<?php foreach ($steps as $i => $st): ?>
+  <li class="po-step <?= $e($st['state']) ?>"<?php if ($st['state'] === 'now'): ?> aria-current="step"<?php endif; ?>><span class="po-step-mark" aria-hidden="true"><?php if ($st['state'] === 'done'): ?>✓<?php else: ?><?= $e($i + 1) ?><?php endif; ?></span><span class="po-step-text"><span class="po-step-name"><?= $e($st['name']) ?></span><span class="po-step-sub"><?= $e($st['sub']) ?></span></span></li>
+<?php endforeach; ?>
+</ol>
 <?php endif; ?>
 
-<article class="doc-view" aria-labelledby="lines-h">
-<?= $partial('doc_party', ['party' => $party, 'facts' => $docFacts]) ?>
-  <h2 id="lines-h" class="doc-label"><?= $word('ORDER', 'lines') ?></h2>
+<article class="doc-view po-paper" aria-labelledby="lines-h">
+  <div class="po-paper-head">
+    <section class="doc-party" aria-label="<?= $e($party['label']) ?>">
+      <p class="doc-label"><?= $e($party['label']) ?></p>
+      <p class="doc-party-name"><a href="<?= $u($party['href']) ?>"><?= $e($party['name']) ?></a></p>
+<?php foreach ($party['lines'] as $line): ?>
+      <p><?= $e($line) ?></p>
+<?php endforeach; ?>
+    </section>
+    <section class="doc-party po-deliver" aria-label="<?= $e($deliverTo['label']) ?>">
+      <p class="doc-label"><?= $e($deliverTo['label']) ?></p>
+      <p class="doc-party-name"><?= $e($deliverTo['name']) ?></p>
+<?php foreach ($deliverTo['lines'] as $line): ?>
+      <p><?= $e($line) ?></p>
+<?php endforeach; ?>
+    </section>
+    <dl class="doc-facts po-dates">
+<?php foreach ($dates as $d): ?>
+      <dt><?= $e($d['label']) ?></dt><dd><?= $e($d['value']) ?></dd>
+<?php endforeach; ?>
+    </dl>
+  </div>
+  <h2 id="lines-h" class="visually-hidden"><?= $word('ORDER', 'lines') ?></h2>
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('ORDER', 'no_lines') ?></p>
 <?php else: ?>
@@ -96,35 +118,28 @@
   <table class="stack po-lines doc-lines">
     <thead>
       <tr>
-        <th scope="col"><?= $word('ORDER', 'product') ?></th>
-        <th scope="col"><?= $word('ORDER', 'pack') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'packs') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'items') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'delivered') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'per_pack') ?></th>
-        <th scope="col"><?= $word('ORDER', 'vat') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'total') ?></th>
+        <th scope="col"><?= $word('ORDER', 'col_item') ?></th>
+        <th scope="col" class="num"><?= $word('ORDER', 'col_ordered') ?></th>
+        <th scope="col" class="num"><?= $word('ORDER', 'col_received') ?></th>
+        <th scope="col" class="num"><?= $word('ORDER', 'col_cost') ?></th>
+        <th scope="col" class="num"><?= $word('ORDER', 'col_line_total') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($lines as $l): ?>
       <tr>
 <?php if ($l['kind'] === 'charge'): ?>
-        <th scope="row" class="c-head"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?> <span class="o-sub"><?= $say('ORDER', 'line', (int) $l['line_no']) ?></span></th>
-        <td data-label="<?= $word('ORDER', 'pack') ?>"></td>
-        <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"></td>
-        <td class="num" data-label="<?= $word('ORDER', 'items') ?>"></td>
-        <td class="num" data-label="<?= $word('ORDER', 'delivered') ?>"></td>
+        <th scope="row" class="c-head"><span class="o-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span> <span class="o-sub"><?= $word('ORDER', 'charge') ?> · <?= $e($l['vat_code']) ?> · <?= $say('ORDER', 'line', (int) $l['line_no']) ?></span></th>
+        <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"></td>
+        <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"></td>
 <?php else: ?>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="o-sub"><?= $e($l['sku_code']) ?><?php if (($l['code'] ?? null) !== null && $l['code'] !== ''): ?> · <?= $e($l['code']) ?><?php endif; ?> · <?= $say('ORDER', 'line', (int) $l['line_no']) ?></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
-        <td data-label="<?= $word('ORDER', 'pack') ?>"><?= $e($l['pack_label']) ?></td>
-        <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"><?= $n($l['packs']) ?></td>
-        <td class="num" data-label="<?= $word('ORDER', 'items') ?>"><?= $n($l['qty']) ?></td>
-        <td class="num" data-label="<?= $word('ORDER', 'delivered') ?>"><?= $n($l['received_units']) ?></td>
+<?php $toCome = in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, (int) $l['qty'] - (int) $l['received_units']) : 0; ?>
+        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="o-sub"><?= $e($l['sku_code']) ?><?php if (($l['code'] ?? null) !== null && $l['code'] !== ''): ?> · <?= $e($l['code']) ?><?php endif; ?> · <?= $e($l['pack_label']) ?> · <?= $word('ORDER', 'vat') ?> <?= $e($l['vat_code']) ?> · <?= $say('ORDER', 'line', (int) $l['line_no']) ?></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
+        <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"><?= $n($l['qty']) ?><?php if ((int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'packs_of', \CW\Ui\Html::int($l['packs']), (string) $l['pack_label']) ?></span><?php endif; ?></td>
+        <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"><span class="po-got<?php if ((int) $l['received_units'] >= (int) $l['qty']): ?> done<?php elseif ((int) $l['received_units'] > 0): ?> part<?php endif; ?>"><?= $n($l['received_units']) ?></span><?php if ($toCome > 0 && (int) $l['received_units'] > 0): ?> <?= $chip('needs', \CW\Ui\Words::say('ORDER', 'to_come_pill', \CW\Ui\Html::int($toCome))) ?><?php endif; ?></td>
 <?php endif; ?>
-        <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>">£<?= $e($l['price']) ?></td>
-        <td data-label="<?= $word('ORDER', 'vat') ?>"><?= $e($l['vat_code']) ?></td>
-        <td class="num" data-label="<?= $word('ORDER', 'total') ?>"><?= $e($l['net']) ?></td>
+        <td class="num" data-label="<?= $word('ORDER', 'col_cost') ?>">£<?= $e($l['price']) ?><?php if ($l['kind'] !== 'charge' && (int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'per', (string) $l['pack_label']) ?></span><?php endif; ?></td>
+        <td class="num strong" data-label="<?= $word('ORDER', 'col_line_total') ?>"><?= $e($l['net']) ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
@@ -133,36 +148,44 @@
 <?php endif; ?>
   <div class="doc-foot">
     <div class="doc-notes">
-      <ul class="plain links">
-        <li><a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.xlsx') ?>"><?= $word('ORDER', 'xlsx') ?></a> · <a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.csv') ?>"><?= $word('ORDER', 'csv') ?></a></li>
-        <li><a href="<?= $u('/ui/documents/' . $doc->id) ?>"><?= $word('ORDER', 'record') ?></a></li>
-      </ul>
+      <p class="doc-label"><?= $word('ORDER', 'note_title') ?></p>
+      <p><?php if ($doc->note !== null && $doc->note !== ''): ?><?= $e($doc->note) ?><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></p>
     </div>
 <?= $partial('doc_totals', ['label' => \CW\Ui\Words::DOC['totals'], 'rows' => $totalRows]) ?>
   </div>
 </article>
 
-<section aria-labelledby="files-h">
-  <h2 id="files-h"><?= $word('ORDER', 'files') ?></h2>
-<?php if ($files === []): ?>
-  <p class="muted"><?php if ($doc->status === 'posted'): ?><?= $word('ORDER', 'no_files') ?><?php else: ?><?= $word('ORDER', 'no_files_draft') ?><?php endif; ?></p>
+<div class="po-cards">
+<section class="card po-related" aria-labelledby="related-h">
+  <h2 id="related-h"><?= $word('ORDER', 'related') ?></h2>
+<?php if ($related === []): ?>
+  <p class="muted"><?= $word('ORDER', 'no_related') ?></p>
 <?php else: ?>
-  <ul class="plain">
-<?php foreach ($files as $f): ?>
-    <li><?= $e($f['what']) ?> – <a href="<?= $u('/ui/files/' . $f['id']) ?>"><?= $e($f['original_name']) ?></a> <span class="muted">(<?= $say('ORDER', 'file_line', $f['size'], \CW\Ui\Html::day((string) $f['attached_at'])) ?>)</span></li>
+  <ul class="plain po-rel-list">
+<?php foreach ($related as $rel): ?>
+    <li><a href="<?= $u($rel['href']) ?>"><span class="po-rel-text"><?= $e($rel['text']) ?><?php if (($rel['sub'] ?? null) !== null): ?><span class="o-sub"><?= $e($rel['sub']) ?></span><?php endif; ?></span><?php if (($rel['pill'] ?? null) !== null): ?><?= $chip($rel['tone'], $rel['pill']) ?><?php endif; ?></a></li>
 <?php endforeach; ?>
   </ul>
 <?php endif; ?>
 </section>
 
-<section aria-labelledby="history-h">
+<section class="card po-history" aria-labelledby="history-h">
   <div class="head-help">
-    <h2 id="history-h"><?= $word('ORDER', 'history') ?></h2>
+    <h2 id="history-h"><?= $word('ORDER', 'history_title') ?></h2>
     <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
   </div>
-<?php if ($history === []): ?>
+<?php if ($events === [] && $history === []): ?>
   <p class="muted"><?= $word('ORDER', 'no_history') ?></p>
-<?php else: ?>
+<?php endif; ?>
+<?php if ($events !== []): ?>
+  <ol class="plain po-events">
+<?php foreach ($events as $ev): ?>
+    <li><strong><?= $e($ev['when']) ?></strong> · <?= $e($ev['text']) ?></li>
+<?php endforeach; ?>
+  </ol>
+<?php endif; ?>
+<?php if ($history !== []): ?>
+  <h3 class="doc-label"><?= $word('ORDER', 'history') ?></h3>
   <ol class="plain checks-history">
 <?php foreach ($history as $h): ?>
     <li>
@@ -173,3 +196,4 @@
   </ol>
 <?php endif; ?>
 </section>
+</div>

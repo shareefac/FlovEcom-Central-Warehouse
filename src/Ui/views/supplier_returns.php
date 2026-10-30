@@ -1,9 +1,10 @@
 <?php
-// Purchasing › Returns to suppliers, a board (the owner's approved design of 29 Oct 2026; docs/decisions.md W9.5): one search box (our
-// number, theirs, the supplier), one Show menu (any status or one, with the tick for cancelled drafts), "+ New return" at the top right
-// (the head's create button) and at the end of the Draft group; then the returns grouped: draft, waiting for an OK, final with the credit
-// still to come, credited, cancelled. Each group a coloured heading with its count over a card with its colour on the left edge; the status
-// cell filled with its colour. The new return's fields in two columns in its drawer (#new), with the quick way from a delivery first.
+// Purchasing › Returns to suppliers, a simple list (the approved redesign of 30 Oct 2026, docs/decisions.md RD-B6; before it W9.5): one
+// search box (our number, theirs, the supplier), one Show menu (any status or one, with the tick for cancelled drafts), "+ New return" at the
+// top right (the head's create button: the drawer #new); then the returns grouped: draft, waiting for an OK, final with the credit still to
+// come, credited, cancelled. Each group a heading with its coloured dot and its count over a white table card; five columns: the return
+// (it opens it), the supplier, the status as a small pill (a final one says how far it is credited), the reason, the claim. The new return's
+// fields in two columns in its drawer (#new), with the quick way from a delivery first.
 ?>
 <?= $head(\CW\Ui\Words::MENU['returns'], intro: 'returns', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
@@ -91,36 +92,30 @@
 <?php endif; ?>
 <?php else: ?>
 <?php foreach ($groups as $g): ?>
-<div class="grp-block doc-group <?= $e($g['tone']) ?>">
+<div class="grp-block doc-group <?= $e($g['tone']) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('RETURNS', 'group_one') ?><?php else: ?><?= $say('RETURNS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
-  <table class="stack list board doc-list">
+  <table class="stack list board doc-list returns">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('INVOICES', 'record') ?></th>
-        <th scope="col" class="c-status"><?= $word('STOCK_OPS', 'status') ?></th>
         <th scope="col"><?= $word('INVOICES', 'supplier') ?></th>
+        <th scope="col" class="c-status"><?= $word('STOCK_OPS', 'status') ?></th>
         <th scope="col"><?= $word('RETURNS', 'reason') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK_OPS', 'units') ?></th>
         <th scope="col" class="num"><?= $word('RETURNS', 'claim') ?></th>
-        <th scope="col"><?= $word('RETURNS', 'credited') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['sub']) ?><?php if ($r['delivery'] !== null): ?> · <?= $e($r['delivery']) ?><?php endif; ?></span></th>
-        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['state_word']) ?><?php if ($r['made_by'] !== ''): ?><span class="o-sub"><?= $e($r['made_by']) ?></span><?php endif; ?></td>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number']) ?></a></th>
         <td data-label="<?= $word('INVOICES', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
+<?php // The status pill (RD-B6): a final return says how far its supplier credited it (the old Credited column), else its status. ?>
+        <td class="c-status doc-st <?= $e($r['credit'] !== null ? $r['credit_tone'] : $r['tone']) ?>"><span class="chip"><?= $e($r['credit'] !== null ? $r['credit_word'] : $r['state_word']) ?></span></td>
         <td data-label="<?= $word('RETURNS', 'reason') ?>"><?= $e($r['reason'] ?? '') ?></td>
-        <td class="num" data-label="<?= $word('STOCK_OPS', 'units') ?>"><?= $n($r['units']) ?></td>
         <td class="num" data-label="<?= $word('RETURNS', 'claim') ?>"><?php if ($r['claim'] !== null): ?><?= $money($r['claim']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('RETURNS', 'credited') ?>"><?php if ($r['credit'] !== null): ?><span class="tag <?= $e($r['credit_tone']) ?>"><?= $e($r['credit_word']) ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'draft' && $canPost): ?>
-      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="#new"><?= $word('RETURNS', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

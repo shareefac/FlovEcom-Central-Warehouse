@@ -213,10 +213,14 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $page = $desk->follow($r);
         self::assertSame(200, $page->status, $page->describe());
         self::assertStringContainsString(Words::RECEIPT_NOTICE['copied'], $page->text());
-        self::assertSame(Words::say('RECEIPT', 'title_draft', 'One Page Supplies'), self::textOf($page, '//main//h1'));
-        self::assertSame(Words::of('GI_STATE', 'todo'), self::textOf($page, '//div[contains(@class, "doc-head")]//span[contains(@class, "chip")]'));
-        self::assertSame(['1', '0'], [self::textOf($page, '//section[contains(@class, "doc-progress")]/div[1]/p[2]'),
-            self::textOf($page, '//section[contains(@class, "doc-progress")]/div[2]/p[2]/text()[1]')], 'Lines 1, checked 0 of 1');
+        // GoodsReceived.dc.html (docs/decisions.md RD-B5): the list's link above the title, the status pill beside it, the line under it.
+        self::assertSame(Words::say('RECEIPT', 'title_draft', 'One Page Supplies'), self::textOf($page, '//main//h1/span[@class="stmt"]'));
+        self::assertSame(Words::of('GI_STATE', 'todo'), self::textOf($page, '//div[contains(@class, "doc-head")]//h1/span[contains(@class, "chip")]'));
+        self::assertSame('/ui/receiving', (string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "doc-head")]//p[contains(@class, "ph-back")]/a/@href)'));
+        self::assertSame('One Page Supplies · ' . $o['number'] . ' · ' . Words::say('GI', 'fact_checked', 0, 1), self::textOf($page, '//div[contains(@class, "doc-head")]//p[@class="ph-meta"]'),
+            'the supplier, its order, then lines checked: 0 of 1');
+        self::assertSame('/ui/purchasing/orders/' . $o['po'], (string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "doc-head")]//p[@class="ph-meta"]/a/@href)'));
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//section[contains(@class, "doc-progress")]')->length, 'no figures strip');
         $f = self::onePage($page, $id);
         self::assertSame(['csrf', 'version', 'page'], array_slice(array_keys($f), 0, 3), 'the version comes first');
         self::assertSame(['one', '1', '3', ''], [$f['page'], $f['line_count'], $f['line_1_packs'], $f['b_1_duty']]);
@@ -341,7 +345,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $page = $desk->follow($r);
         self::assertSame(Words::of('GI_CHECK', 'problem'), self::textOf($page, '//tr[@id="line-1"]/td[contains(@class, "gi-check")]'));
         self::assertStringContainsString(Words::say('RECEIPT', 'finding', Words::RECEIPT['finding_damaged'], 2), self::textOf($page, '//tr[@id="line-1"]/th'));
-        self::assertSame('1', self::textOf($page, '//section[contains(@class, "doc-progress")]/div[3]/p[2]'), 'Problems: 1 line');
+        self::assertStringEndsWith(' · ' . Words::GI['problems_one'], self::textOf($page, '//div[contains(@class, "doc-head")]//p[@class="ph-meta"]'), 'Problems: 1 line (RD-B5)');
 
         // Taken in on the supplier's proof (before the refusal date), and more extra than the line: confirmed in a second step.
         $f = self::onePage($page, $id);
@@ -723,12 +727,13 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $juice, 'packs' => 1]]);
         $page = $this->signIn($this->uiUser('goods_in'))->get("/ui/receiving/{$id}");
         $xp = new \DOMXPath($page->dom());
-        $head = $xp->query('//p[@class="crumbs" or contains(@class, "ph-back")]/a[contains(@class, "gi-leave") and @data-leave]')->item(0);
+        $head = $xp->query('//p[contains(@class, "crumbs") or contains(@class, "ph-back")]/a[contains(@class, "gi-leave") and @data-leave]')->item(0);
         self::assertInstanceOf(\DOMElement::class, $head, 'Leave without saving in the page head (shown on a phone)');
         self::assertSame(['/ui/receiving', Words::DOC['leave']], [$head->getAttribute('href'), trim($head->textContent)]);
         self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, 'and in the bar (shown on a wider screen)');
-        self::assertSame(Words::GI['col_duty'], (string) $xp->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/@data-label)'), 'the duty stamp\'s label');
-        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/select[@name="b_1_duty"]')->length);
+        // The duty stamp is in the line's answers (RD-B5): its name beside its select, in its pill.
+        self::assertSame(Words::GI['col_duty'], trim((string) $xp->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-acts")]/label[contains(@class, "gi-duty")]/span[@class="gi-duty-name"])')), 'the duty stamp\'s label');
+        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-acts")]/label[contains(@class, "gi-duty")]/select[@name="b_1_duty"]')->length);
         self::assertSame(Words::GI_CHECK['todo'], self::textOf($page, '//tr[@id="line-1"]/td[contains(@class, "gi-check")]'), 'the check\'s words');
         self::assertSame([Words::GI['all_fine'], Words::GI['problem']], array_map(static fn (\DOMNode $b): string => trim($b->textContent),
             iterator_to_array($xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-acts")]/*[contains(@class, "btn")]'))), 'All fine and Problem');
@@ -927,7 +932,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//tr[@id="line-1"]//a[@href="#gi-p-1"]')->length, 'Problem opens the panel without the script');
         self::assertSame(1, $xp->query('//tr[@id="line-1"]//select[@name="b_1_duty"]')->length);
         // The row's place for what "All fine" has to say (GV11: never a browser dialog), next to the duty stamp cell.
-        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/following-sibling::td[1]//*[@data-gi-why and @role="alert"]')->length);
+        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-acts")]/label[contains(@class, "gi-duty")]/following-sibling::*[1][@data-gi-why and @role="alert"]')->length);
         self::assertSame(1, $xp->query('//form[contains(@class, "gi-form")]//input[@type="file" and @name="file" and @id="gi-file"]')->length);
         self::assertSame(1, $xp->query('//tr[@id="gi-p-1"]//input[@type="file" and @name="photo_1" and @capture="environment"]')->length, '"Take a photo": the line\'s own photo field (GV16)');
         self::assertStringNotContainsString('<script>', $body);
@@ -1042,10 +1047,11 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertCount(2, $groups[Words::GI['group_checking']]);
         self::assertCount(1, $groups[Words::GI['group_ready']]);
         $xp = new \DOMXPath($board->dom());
-        self::assertSame(Words::of('GI_STATE', 'todo'), trim((string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $todo . '")]]/td[contains(@class, "doc-st")])')));
-        self::assertSame(Words::of('GI_STATE', 'checking'), trim((string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]/td[contains(@class, "doc-st")])')));
-        self::assertStringContainsString(Words::say('GI', 'lines_of', 1, 2), (string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]])'));
-        self::assertSame(1, $xp->query('//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]//span[contains(@class, "doc-meter")]/progress[@max="2" and @value="1"]')->length);
+        self::assertSame(Words::of('GI_STATE', 'todo'), trim((string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $todo . '")]]/td[contains(@class, "doc-st")]/span[@class="chip"])')));
+        self::assertSame(Words::of('GI_STATE', 'checking'), trim((string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]/td[contains(@class, "doc-st")]/span[@class="chip"])')));
+        // The simple list (RD-B6): how many lines are checked under the pill, no bar.
+        self::assertSame(Words::say('GI', 'lines_of', 1, 2), trim((string) $xp->evaluate('string(//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]/td[contains(@class, "doc-st")]/span[@class="o-sub"])')));
+        self::assertSame(0, $xp->query('//tr[.//a[contains(@href, "/ui/receiving/' . $part . '")]]//progress')->length);
         self::assertSame(Words::say('GI', 'orders_one'), trim((string) $xp->evaluate('string(//div[contains(@class, "doc-group") and contains(@class, "info")]//span[contains(@class, "grp-count")])')));
         self::assertSame(1, $xp->query('//select[@name="show"]')->length, 'one Show menu');
         self::assertSame(1, $xp->query('//input[@type="search" and @name="q"]')->length, 'one search');

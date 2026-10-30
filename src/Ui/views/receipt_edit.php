@@ -1,16 +1,17 @@
 <?php
-// One delivery on ONE page (the owner's approved design of 29 Oct 2026, Main and GI_Phone; docs/decisions.md GV2-GV7): the editor and the
-// goods-in bench together, for everyone who receives goods while it is not booked in. The head: where it is on the board (a solid block),
-// the supplier and the order, More (its keyer's: copy the order, import the sheet, cancel). The progress strip: lines, checked, problems,
-// items in. The details (three columns, one on a phone): the keyer's supplier, order and arrival time, then the delivery note, the supplier's
-// invoice number and the paperwork answer for everyone; the rarely used fields in "More details". A big scan box over the lines (Enter adds,
-// or with the script finds the line). The lines as a board: item, ordered, packs in (the keyer's), items, the check and the duty stamp as
-// solid cells, "All fine" (the counted tick with no problem: a submit button without the script) and "Problem" (a link to the panel row:
-// CSS :target without the script), "Open" once checked; the panel holds the problems, what to do with items without a stamp, the stamp code,
-// the proof, the note, the photo and the tick. The prices fold for the buying desk only (invoices.view). Photos and papers (a file of the
-// same form) and the note. "Before it can be booked in". The sticky bar: leave, what is left to check, Save, "Book in N items".
+// One delivery on ONE page as the approved GoodsReceived.dc.html draws it (docs/decisions.md RD-B5; before it GV2-GV7): the editor and
+// the goods-in bench together, for everyone who receives goods while it is not booked in. The head: the list's link above the title, the
+// delivery with its status pill, one line under it (the supplier, its order, how many lines are checked and how many have a problem),
+// More at its right (its keyer's: copy the order, import the sheet, cancel). The details (three columns, one on a phone): the keyer's
+// supplier, order and arrival time, then the delivery note, the supplier's invoice number and the paperwork answer for everyone; the
+// rarely used fields in "More details". A big scan box over the lines (Enter adds, or with the script finds the line). The lines: item,
+// expected, received (the artboard's "Counted": the keyer's packs in, the items they make under it), the check as a pill, then the
+// line's own answers: the duty stamp (a select in its pill) and "All fine" (the counted tick with no problem: a submit button without
+// the script) and "Problem" (a link to the panel row: CSS :target without the script), "Open" once checked; the panel holds the
+// problems, what to do with items without a stamp, the stamp code, the proof, the note, the photo and the tick. The prices fold for the
+// buying desk only (invoices.view). Photos and papers (a file of the same form) and the note. "Before it can be booked in". The sticky
+// bar: leave, what is left to check, Save, "Book in N items".
 $bar = $partial('gi_more', ['keyer' => $keyer, 'canCancel' => $canCancel, 'doc' => $doc, 'canCopy' => $canCopy, 'importErrors' => $importErrors, 'maxMb' => $maxMb]);
-$who = (string) ($supplier['name'] ?? '') . ($po !== null ? ' · ' . \CW\Ui\Words::say('GI', 'from_po', (string) $po['number']) : '');
 $left = $left === 0 ? \CW\Ui\Words::GI['left_none'] : ($left === 1 ? \CW\Ui\Words::GI['left_one'] : \CW\Ui\Words::say('GI', 'left_many', $left));
 $book = $progress['in'] === 1 ? \CW\Ui\Words::GI['book_one'] : \CW\Ui\Words::say('GI', 'book', $progress['in']);
 $buttons = [['value' => 'save', 'label' => \CW\Ui\Words::GI['save']]];
@@ -19,9 +20,13 @@ if ($paged && $from + $pageSize <= $count) {
 }
 $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 ?>
-<p class="crumbs"><a href="/ui/receiving"><?= $word('MENU', 'receiving') ?></a> <a class="gi-leave" href="/ui/receiving" data-leave><?= $word('DOC', 'leave') ?></a></p>
+<p class="crumbs gi-crumbs"><a class="gi-leave" href="/ui/receiving" data-leave><?= $word('DOC', 'leave') ?></a></p>
+<?php // The line under the title (RD-B5): the supplier, its order (a link, as in the details), how many lines are checked, the problems. ?>
 <div class="doc-head">
-<?= $head($title, intro: $keyer ? 'receipt_draft' : 'receipt_other', side: $bar, meta: $stateChip('GI_STATE', $state) . ' <span class="muted">' . $e($who) . '</span>') ?>
+<?= $head($doc->number ?? $title, intro: $keyer ? 'receipt_draft' : 'receipt_other', side: $bar, back: ['/ui/receiving', \CW\Ui\Words::MENU['receiving']],
+    chips: $stateChip('GI_STATE', $state), meta: $e((string) ($supplier['name'] ?? '')) . ($po !== null ? ' · <a href="' . $u('/ui/purchasing/orders/' . $po['id']) . '">' . $e($po['number']) . '</a>' : '')
+    . ' · ' . $say('GI', 'fact_checked', $progress['checked'], $progress['lines']) . ($progress['problems'] > 0 ? ' · ' . ($progress['problems'] === 1 ? $word('GI', 'problems_one')
+    : $say('GI', 'problems_many', $progress['problems'])) : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <div class="error gi-refused" role="alert" data-code="<?= $e($errorCode) ?>">
@@ -69,12 +74,6 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <p class="note"><?= $say('RECEIPT', 'not_approved_supplier', (string) $supplier['name']) ?></p>
 <?php endif; ?>
 
-<section class="doc-progress gi-progress" aria-label="<?= $word('GI', 'strip') ?>">
-  <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_lines') ?></p><p class="doc-step-big"><?= $n($progress['lines']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_checked') ?></p><p class="doc-step-big"><?= $n($progress['checked']) ?> <span class="muted"><?= $say('GI', 'strip_of', $progress['lines']) ?></span></p><progress class="review" max="<?= $e(max(1, $progress['lines'])) ?>" value="<?= $e($progress['checked']) ?>"></progress></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_problems') ?></p><p class="doc-step-big<?php if ($progress['problems'] > 0): ?> gi-warn<?php endif; ?>"><?= $n($progress['problems']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_in') ?></p><p class="doc-step-big"><?= $n($progress['in']) ?> <span class="muted"><?= $say('GI', 'strip_of', $progress['of']) ?></span></p></div>
-</section>
 
 <form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($postMax) ?>" data-max-files="<?= $e($maxFiles) ?>" data-total-words="<?= $say('GI', 'files_too_big', $postMaxMb) ?>" data-files-words="<?= $say('GI', 'files_too_many', $maxFiles - 1) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -203,11 +202,9 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
       <thead>
         <tr>
           <th scope="col" class="c-item"><?= $word('GI', 'col_item') ?></th>
-          <th scope="col" class="num"><?= $word('GI', 'col_ordered') ?></th>
-          <th scope="col" class="num"><?= $word('GI', 'col_packs') ?></th>
-          <th scope="col" class="num"><?= $word('GI', 'col_items') ?></th>
+          <th scope="col" class="num"><?= $word('GI', 'col_expected') ?></th>
+          <th scope="col" class="num"><?= $word('GI', 'col_got') ?></th>
           <th scope="col" class="c-status"><?= $word('GI', 'col_check') ?></th>
-          <th scope="col" class="c-status"><?= $word('GI', 'col_duty') ?></th>
           <th scope="col" class="c-next"><span class="visually-hidden"><?= $word('GI', 'col_action') ?></span></th>
         </tr>
       </thead>
@@ -230,22 +227,20 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
             <span class="field-error"><?= $e($p) ?></span>
 <?php endforeach; ?>
           </th>
-          <td class="num" data-label="<?= $word('GI', 'col_ordered') ?>"><?php if (isset($l['ordered']['packs'])): ?><?= $n($l['ordered']['packs']) ?><?php elseif (isset($l['ordered']['items'])): ?><?= $say('GI', 'ordered_items', $l['ordered']['items']) ?><?php else: ?>&mdash;<?php endif; ?></td>
-          <td class="num" data-label="<?= $word('GI', 'col_packs') ?>"><?php if ($keyer): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_packs') ?>"><?php if ($l['supplier_item_id'] === null): ?><label class="gi-upp"><?= $word('GI', 'upp') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short"></label><?php endif; ?><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
-          <td class="num gi-items" data-label="<?= $word('GI', 'col_items') ?>"><?= $n($l['accepted']) ?><?php if ($l['accepted'] !== (int) $l['units']): ?><span class="o-sub"><?= $say('GI', 'of_items', (int) $l['units']) ?></span><?php endif; ?></td>
-          <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?> gi-check" data-label="<?= $word('GI', 'col_check') ?>" data-words="<?= $word('GI_CHECK', 'done') ?>"><?= $word('GI_CHECK', $l['check']) ?></td>
-          <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?> gi-duty" data-label="<?= $word('GI', 'col_duty') ?>"><?php if ($l['stamp_req']): ?><select name="b_<?= $e($no) ?>_duty" id="gi-duty-<?= $e($no) ?>" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1">
+          <td class="num" data-label="<?= $word('GI', 'col_expected') ?>"><?php if (isset($l['ordered']['packs'])): ?><?= $n($l['ordered']['packs']) ?><?php elseif (isset($l['ordered']['items'])): ?><?= $say('GI', 'ordered_items', $l['ordered']['items']) ?><?php else: ?>&mdash;<?php endif; ?></td>
+          <td class="num gi-items" data-label="<?= $word('GI', 'col_got') ?>"><?php if ($keyer): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_packs') ?>"><?php if ($l['supplier_item_id'] === null): ?><label class="gi-upp"><?= $word('GI', 'upp') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short"></label><?php endif; ?><?php else: ?><?= $n($l['packs']) ?><?php endif; ?><span class="o-sub"><?= $say('GI', 'ordered_items', \CW\Ui\Html::int($l['accepted'])) ?><?php if ($l['accepted'] !== (int) $l['units']): ?> <?= $say('GI', 'of_items', (int) $l['units']) ?><?php endif; ?></span></td>
+          <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?> gi-check" data-label="<?= $word('GI', 'col_check') ?>" data-words="<?= $word('GI_CHECK', 'done') ?>"><span class="chip"><?= $word('GI_CHECK', $l['check']) ?></span></td>
+          <td class="c-next gi-acts"><?php if ($l['stamp_req']): ?><label class="gi-duty <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?>"><span class="gi-duty-name"><?= $word('GI', 'col_duty') ?></span> <select name="b_<?= $e($no) ?>_duty" id="gi-duty-<?= $e($no) ?>" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1">
               <option value=""><?= $word('GI_DUTY', 'unchecked') ?></option>
 <?php foreach ($duties as $d): ?>
 <?php if ($d !== 'yes' || $duty === 'yes'): ?>
               <option value="<?= $e($d) ?>"<?php if ($duty === $d): ?> selected<?php endif; ?>><?= $word('GI_DUTY', $d) ?></option>
 <?php endif; ?>
 <?php endforeach; ?>
-            </select><?php else: ?><?= $word('GI_DUTY', 'not_needed') ?><?php endif; ?></td>
-          <td class="c-next gi-acts"><span class="gi-why" role="alert" data-gi-why="1"></span><?php if ($l['check'] === 'todo'): ?><button type="submit" name="fine" value="<?= $e($no) ?>" class="btn ok sm" data-gi-fine="<?= $e($no) ?>" data-needs-stamp="<?= $word('GI', 'needs_stamp') ?>" data-none-stamp="<?= $word('GI', 'none_stamp') ?>" aria-label="<?= $say('GI', 'fine_label', $no) ?>"><?= $word('GI', 'all_fine') ?></button> <a class="btn sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'problem_label', $no) ?>"><?= $word('GI', 'problem') ?></a><?php else: ?><a class="btn ghost sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'open_label', $no) ?>"><?= $word('GI', 'open') ?></a><?php endif; ?></td>
+            </select></label><?php endif; ?><span class="gi-why" role="alert" data-gi-why="1"></span><?php if ($l['check'] === 'todo'): ?><button type="submit" name="fine" value="<?= $e($no) ?>" class="btn ok sm" data-gi-fine="<?= $e($no) ?>" data-needs-stamp="<?= $word('GI', 'needs_stamp') ?>" data-none-stamp="<?= $word('GI', 'none_stamp') ?>" aria-label="<?= $say('GI', 'fine_label', $no) ?>"><?= $word('GI', 'all_fine') ?></button> <a class="btn sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'problem_label', $no) ?>"><?= $word('GI', 'problem') ?></a><?php else: ?><a class="btn ghost sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'open_label', $no) ?>"><?= $word('GI', 'open') ?></a><?php endif; ?></td>
         </tr>
         <tr class="gi-panel<?php if ($l['open']): ?> open<?php endif; ?>" id="gi-p-<?= $e($no) ?>">
-          <td colspan="7" class="c-head">
+          <td colspan="5" class="c-head">
             <div class="gi-mini">
               <label><?= $word('GI', 'short') ?> <input type="number" name="b_<?= $e($no) ?>_short" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_short'] ?? $l['short_units']) ?>"></label>
               <label><?= $word('GI', 'over') ?> <input type="number" name="b_<?= $e($no) ?>_over" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_over'] ?? $l['over_units']) ?>"></label>

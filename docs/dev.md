@@ -1121,6 +1121,25 @@ The classes it added (CSS: the "w12" block of `app.css`), for pattern 7 only:
   page and a duplicate group draw their way back with `$head(back:)` inside `div.match-head` (W12.16).
 - Tests: `UiTemplatesTest::testTheMatchingPagesFollowTheApprovedPatterns`, `tests/Integration/UiKernel/MatchingPatternsScreensTest.php`.
 
+### The Purchases and Sales pages on the redesign (`docs/decisions.md` RD-B1-RD-B10)
+
+Layout only on the approved redesign of 30 Oct 2026; every page keeps its address, routes, permissions and forms.
+
+| Page | Template (+ partials) | What it is now |
+|---|---|---|
+| `/ui/purchasing/orders` | `purchase_orders` | simple list: Order, Supplier, Status (`pill_word`: "28 of 30 received"), Expected, Total (`PurchaseOrdersController::screenRow`) |
+| an order `/ui/purchasing/orders/{id}` | `purchase_order` (+ `po_bar` with the lines' downloads and the record under More, `po_action`) | record: `ol.po-steps` (`steps()`), `article.doc-view.po-paper` (`div.po-paper-head`: supplier, `section.po-deliver`, `dl.po-dates`), five line columns, `doc_totals`, `div.po-cards` (`section.po-related`, `section.po-history`); `docView()` gives `party`, `deliverTo`, `dates`, `factLine`, `related`, `events`, `totalRows` |
+| a draft delivery `/ui/receiving/{id}` | `receipt_edit` | the one page: head with `back:`, the fact line (`GI fact_checked`), lines Item / Expected / Received / Check / the line's answers (`label.gi-duty` holds the duty select) |
+| `/ui/purchasing/invoices`, `/credit-notes` | `invoices` | simple list: Invoice, Supplier, Status (`pill_word`, `pill_tone`: the match), Due, Total (`owed_line` under it); `boardGroups($rows, $kind)` |
+| `/ui/stock/sales` | `sales_orders` | simple list: Order, Store, Placed, Units; groups `SalesController::GROUPS` / `SALE_GROUP`; Download in the head (`side:`); the Show select the stores, the rest under More |
+| the other lists | `receipts`, `suppliers`, `supplier_returns`, `arrivals`, `incidents`, `invoices_to_match`, `invoices_not_invoiced`, `invoices_timed`, `sales_dispatch`, `sales_returns`, `handovers`, `handover_customers` | simple lists: three to five columns besides a row's action; Shipments' counts in its Show choices (`DispatchController` `shows[].count`) |
+| the reorder pages | `reorder`, `reorder_low_stock`, `reorder_brands`, `reorder_suppliers`, `reorder_anomalies`, `sales_history` | the dot heading and the pill; strip and columns unchanged (RD-B7) |
+
+- A list's group is `div.grp-block.doc-group.<tone>.rd-list`; its count `span.grp-count` (its words, as before); a status
+  `td.c-status.doc-st.<tone>` > `span.chip` (+ `span.o-sub`). CSS: the "rd2b" block of `app.css` (the `.rd-list` rules are a stand-in
+  for the shared list style: RD-B9).
+- Tests: `UiTemplatesTest::testThePurchasesAndSalesPagesFollowTheRedesign`; the pages' kernel tests.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

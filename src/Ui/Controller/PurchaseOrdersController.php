@@ -157,6 +157,10 @@ final class PurchaseOrdersController
             'state_code' => $code,
             'state_word' => $cancellation ? Words::ORDERS['cancellation'] : Words::of('PO_STATE', $code),
             'state_tone' => $cancellation ? 'off' : Words::tone('PO_STATE', $code),
+            // The list's status pill (RD-B1, the approved Purchases.dc.html): a part delivery says how much came ("28 of 30 received"), the
+            // received column's figure; every other state its word.
+            'pill_word' => !$cancellation && $code === 'part_received' && (int) $r['units'] > 0
+                ? Words::say('ORDERS', 'part_of', (int) ($r['received'] ?? 0), (int) $r['units']) : ($cancellation ? Words::ORDERS['cancellation'] : Words::of('PO_STATE', $code)),
             'next' => $next,
             'date_line' => $r['doc_date'] === null ? null : Words::say('ORDERS', $r['number'] === null ? 'started' : 'dated', Html::day((string) $r['doc_date'])),
             'expected_line' => $r['expected_date'] === null ? null : Words::say('ORDERS', 'expected', Html::day((string) $r['expected_date'])),
@@ -1153,12 +1157,18 @@ final class PurchaseOrdersController
         $canReceive = $receivable && Documents::mayPost($me->roles, 'GRN');
         $canInvoice = $receivable && Documents::mayPost($me->roles, 'SINV');
         [$main, $more] = self::actions($data['can'], $state, $canReceive, $canInvoice);
-        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName) + [
+        $progress = self::progress($ctx, $doc, $po, $state, (int) $data['units'], (int) $data['received'], $data['lines']);
+        // The approved PurchaseOrder.dc.html (RD-B4): where it delivers is the company's delivery address the PDF prints (the snapshot taken
+        // when it was confirmed, else the details in use now).
+        $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
+        $company = is_array($snapshot) ? $snapshot : $ctx->settings()->company();
+        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress) + [
             'canReceive' => $canReceive,
             'canInvoice' => $canInvoice,
             'mainAction' => $main,
             'moreActions' => $more,
-            'progress' => self::progress($ctx, $doc, $po, $state, (int) $data['units'], (int) $data['received'], $data['lines']),
+            'progress' => $progress,
+            'steps' => $progress === null ? null : self::steps($doc, $po, $progress),
         ], $status, $layout);
     }
 
@@ -1213,6 +1223,44 @@ final class PurchaseOrdersController
             'to_come' => in_array($state, ['approved', 'sent', 'part_received'], true) ? self::toCome($lines) : 0];
     }
 
+    /**
+     * The saved order's progress steps (RD-B4, the approved PurchaseOrder.dc.html): approved, sent to the supplier, received, invoiced; each
+     * done (with its day, or how many units), the first one not done is the step now, the rest still to come. The figures are progress()'s.
+     *
+     * @param array<string, mixed> $po
+     * @param array{ordered: int, received: int, invoiced: int, expected: ?string, to_come: int, received_line: string, invoiced_line: string} $p
+     * @return list<array{key: string, name: string, state: string, sub: string}>
+     */
+    public static function steps(Document $doc, array $po, array $p): array
+    {
+        $state = (string) ($po['state'] ?? '');
+        $units = static fn (int $n): string => Words::say('PO_STEP', $n === 1 ? 'unit_one' : 'units', $n);
+        $receivedDone = in_array($state, ['received', 'closed'], true) || ($p['ordered'] > 0 && $p['received'] >= $p['ordered']);
+        $steps = [
+            ['key' => 'approved', 'done' => $doc->postedAt !== null, 'sub' => $doc->postedAt === null ? Words::PO_STEP['not_yet'] : Html::day($doc->postedAt)],
+            ['key' => 'sent', 'done' => ($po['sent_at'] ?? null) !== null, 'sub' => ($po['sent_at'] ?? null) === null ? Words::PO_STEP['not_yet'] : Html::day((string) $po['sent_at'])],
+            ['key' => 'received', 'done' => $receivedDone, 'sub' => match (true) {
+                $p['received'] === 0 => Words::PO_STEP['not_yet'],
+                $p['received'] > $p['ordered'] => $p['received_line'],
+                $receivedDone && $p['received'] === $p['ordered'] => $units($p['received']),
+                default => Words::say('PO_STEP', 'units_of', $p['received'], $p['ordered']),
+            } . ($p['to_come'] > 0 && $p['received'] > 0 ? ' · ' . Words::say('DOC', 'to_come', $p['to_come']) : '')], // PV24: each line's own
+            ['key' => 'invoiced', 'done' => $receivedDone && $p['received'] > 0 && $p['invoiced'] >= $p['received'], 'sub' => match (true) {
+                $p['invoiced'] === 0 => Words::PO_STEP['not_yet'],
+                $p['invoiced'] > $p['received'] => $p['invoiced_line'],
+                default => Words::say('PO_STEP', 'units_of', $p['invoiced'], $p['received']),
+            }],
+        ];
+        $out = [];
+        $now = false;
+        foreach ($steps as $st) {
+            $mark = $st['done'] ? 'done' : ($now ? 'todo' : 'now');
+            $now = $now || !$st['done'];
+            $out[] = ['key' => $st['key'], 'name' => Words::PO_STEP[$st['key']], 'state' => $mark, 'sub' => $st['sub']];
+        }
+        return $out;
+    }
+
     /** What the order's lines still wait for, line by line (PV24). @param list<array<string, mixed>> $lines */
     public static function toCome(array $lines): int
     {
@@ -1226,54 +1274,86 @@ final class PurchaseOrdersController
     }
 
     /**
-     * A saved order's head and totals as a document (PV; the shared doc_party and doc_totals): the supplier's block, the order's facts (its
-     * state, check, dates, reference, note, source, the orders it corrects or that correct it, who did what and when), the totals.
+     * A saved order read as the approved PurchaseOrder.dc.html draws it (RD-B4; before it PV, the shared doc_party): the line under the title
+     * (the supplier, when it was ordered and by whom), the paper's three blocks (the supplier with its address, where it delivers, the dates:
+     * order date, expected, payment terms, their reference), the note to the supplier, the totals (as before: products, net, VAT by code, the
+     * total), the Related card (its deliveries, its invoices, the orders it corrects or that correct it, its cancellation and that PDF, its
+     * files) and the History card (who started, asked, confirmed, sent, closed or cancelled it and when, newest first). Every fact the old
+     * facts list said is in one of them; status and check are beside the title.
      *
      * @param array<string, mixed> $data page()'s and viewData()'s
      * @param array<string, mixed> $po
      * @param array<string, mixed> $supplier
-     * @return array{party: array<string, mixed>, docFacts: list<array<string, mixed>>, totalRows: list<array<string, mixed>>}
+     * @param array<string, mixed> $company the company details the PDF prints (Settings::company or the order's snapshot)
+     * @param array<string, mixed>|null $progress progress()'s
+     * @return array<string, mixed>
      */
-    private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName): array
+    private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName, array $company, ?array $progress): array
     {
         $people = $data['people'];
-        $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('ORDER', 'by', Html::when($at), (string) $who);
         $place = trim(implode(' ', array_filter([(string) ($supplier['city'] ?? ''), (string) ($supplier['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
-        $facts = [
-            ['label' => Words::ORDER['status'], 'value' => Words::of('PO_STATE', (string) $data['state'])],
-            ['label' => Words::ORDER['check'], 'value' => $doc->reviewState === null ? Words::ORDER['not_confirmed'] : Words::of('CHECK_STATE', $doc->reviewState)],
-            ['label' => Words::ORDER['order_date'], 'value' => $doc->docDate === null ? null : Html::day($doc->docDate)],
-            ['label' => Words::ORDER['expected'], 'value' => ($po['expected_date'] ?? null) === null ? null : Html::day((string) $po['expected_date'])],
-            ['label' => Words::ORDER['ref'], 'value' => $doc->externalRef],
-            ['label' => Words::ORDER['note'], 'value' => $doc->note],
-            ['label' => Words::ORDER['source'], 'value' => Words::of('PO_SOURCE', (string) ($po['source'] ?? 'manual'))],
-            ['label' => Words::ORDER['corrects'], 'value' => $data['amends'] === null ? null : (string) $data['amends']['number'],
-                'href' => $data['amends'] === null ? null : '/ui/purchasing/orders/' . (int) $data['amends']['id']],
-        ];
-        foreach ($data['amendedBy'] as $a) {
-            $facts[] = ['label' => Words::ORDER['corrected_by'], 'value' => (string) $a['label'], 'href' => '/ui/purchasing/orders/' . (int) $a['id']];
+        $address = implode(' · ', array_filter([trim((string) ($supplier['address_line1'] ?? '')), trim((string) ($supplier['address_line2'] ?? '')), $place],
+            static fn (string $v): bool => $v !== ''));
+        $terms = ($supplier['payment_terms'] ?? null) === null || $supplier['payment_terms'] === '' ? null
+            : (($supplier['payment_terms_days'] ?? null) !== null ? Words::say('SUPPLIER', 'payment_days', (string) $supplier['payment_terms'], (int) $supplier['payment_terms_days'])
+                : (string) $supplier['payment_terms']);
+        $deliver = array_values(array_filter(array_map('trim', preg_split('/\R/', (string) ($company['delivery_address'] ?? '')) ?: []), static fn (string $v): bool => $v !== ''));
+        $posted = $doc->postedAt !== null && $doc->number !== null;
+        $factLine = $posted && $doc->docDate !== null
+            ? Words::say('ORDER', 'fact_ordered', $supplierName, Html::day($doc->docDate), (string) ($people['posted'] ?? $people['created']))
+            : Words::say('ORDER', 'fact_started', $supplierName, Html::day(substr($doc->createdAt, 0, 10)), (string) $people['created']);
+        // History: what happened to it, newest first (the old facts' started, asked, confirmed, sent, closed and cancelled lines).
+        $events = [];
+        $event = static function (?string $at, string $text) use (&$events): void {
+            if ($at !== null && $at !== '') {
+                $events[] = ['at' => $at, 'when' => Html::when($at), 'text' => $text];
+            }
+        };
+        $source = (string) ($po['source'] ?? 'manual');
+        $event($doc->createdAt, Words::say('ORDER', 'ev_started', (string) $people['created']) . ($source === 'manual' ? '' : ' · ' . Words::of('PO_SOURCE', $source)));
+        $event($doc->submittedAt, Words::say('ORDER', 'ev_asked', (string) $people['submitted']));
+        $event($doc->postedAt, Words::say('ORDER', 'ev_confirmed', (string) $people['posted']));
+        if (($po['sent_at'] ?? null) !== null) {
+            $event((string) $po['sent_at'], Words::say('ORDER', 'ev_sent', (string) $people['sent'], lcfirst(Words::of('SEND_VIA', (string) $po['sent_via'])))
+                . (($po['sent_to'] ?? null) !== null ? ' ' . Words::say('ORDER', 'sent_to', (string) $po['sent_to']) : ''));
         }
-        $sent = ($po['sent_at'] ?? null) === null ? null : Words::say('ORDER', 'sent_line', Html::when((string) $po['sent_at']), (string) $people['sent'],
-            lcfirst(Words::of('SEND_VIA', (string) $po['sent_via']))) . (($po['sent_to'] ?? null) !== null ? ' ' . Words::say('ORDER', 'sent_to', (string) $po['sent_to']) : '');
-        $cancelled = null;
+        if (($po['closed_at'] ?? null) !== null) {
+            $event((string) $po['closed_at'], Words::say('ORDER', 'ev_closed', (string) $people['closed'], (string) $po['close_reason']));
+        }
         if ($data['reversal'] !== null) {
             $r = $data['reversal'];
-            $cancelled = $r->number === null ? Words::ORDER['cancel_waiting'] : Html::day($r->docDate) . ' · ' . (string) ($data['reversalReason'] ?? '')
-                . ($r->note !== null && $r->note !== '' ? ' – ' . $r->note : '') . ' (' . Words::say('ORDER', 'cancel_record', (string) $r->number) . ')';
+            $event($r->createdAt, $r->number === null ? Words::ORDER['cancel_waiting'] : Words::say('ORDER', 'ev_cancelled_record', (string) ($data['reversalReason'] ?? '')
+                . ($r->note !== null && $r->note !== '' ? ' – ' . $r->note : ''), (string) $r->number));
         } elseif ($doc->cancelledAt !== null) {
-            $cancelled = Words::say('ORDER', 'with_reason', Words::say('ORDER', 'by', Html::when($doc->cancelledAt), (string) $people['cancelled']), (string) $data['cancelReason']);
+            $event($doc->cancelledAt, Words::say('ORDER', 'ev_cancelled', (string) $people['cancelled'], (string) $data['cancelReason']));
         }
-        array_push($facts,
-            ['label' => Words::ORDER['started'], 'value' => $by($doc->createdAt, (string) $people['created'])],
-            ['label' => Words::ORDER['asked'], 'value' => $by($doc->submittedAt, (string) $people['submitted'])],
-            ['label' => Words::ORDER['confirmed'], 'value' => $by($doc->postedAt, (string) $people['posted'])],
-            ['label' => Words::ORDER['sent'], 'value' => $sent],
-            ['label' => Words::ORDER['closed'], 'value' => ($po['closed_at'] ?? null) === null ? null : Words::say('ORDER', 'with_reason',
-                Words::say('ORDER', 'by', Html::when((string) $po['closed_at']), (string) $people['closed']), (string) $po['close_reason'])],
-            ['label' => Words::ORDER['cancelled'], 'value' => $cancelled],
-            ['label' => Words::ORDER['cancel_pdf'], 'value' => $data['reversal'] === null ? null : Words::ORDER['cancel_pdf'],
-                'href' => $data['reversal'] === null ? null : '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf'],
-        );
+        usort($events, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
+        // Related: the papers around it (its deliveries and invoices as the goods-in and invoice lists find them, with how far each got).
+        $related = [];
+        if ($posted && $progress !== null) {
+            $got = (int) $progress['received'];
+            $related[] = ['text' => Words::ORDER['rel_received'], 'href' => Html::url('/ui/receiving', ['q' => (string) $doc->number, 'show' => 'all']),
+                'tone' => $got === 0 ? 'waiting' : ($got >= (int) $progress['ordered'] ? 'done' : 'needs'),
+                'pill' => $got === 0 ? Words::PO_STEP['not_yet'] : (string) $progress['received_line']];
+            $billed = (int) $progress['invoiced'];
+            $related[] = ['text' => Words::ORDER['rel_invoices'], 'href' => Html::url('/ui/purchasing/invoices', ['supplier' => (int) ($supplier['id'] ?? 0), 'show' => 'all']),
+                'tone' => $billed === 0 ? 'waiting' : ($got > 0 && $billed >= $got ? 'done' : 'needs'),
+                'pill' => $billed === 0 ? Words::PO_STEP['not_yet'] : (string) $progress['invoiced_line']];
+        }
+        if ($data['amends'] !== null) {
+            $related[] = ['text' => Words::say('ORDER', 'rel_corrects', (string) $data['amends']['number']), 'href' => '/ui/purchasing/orders/' . (int) $data['amends']['id']];
+        }
+        foreach ($data['amendedBy'] as $a) {
+            $related[] = ['text' => Words::say('ORDER', 'rel_corrected_by', (string) $a['label']), 'href' => '/ui/purchasing/orders/' . (int) $a['id']];
+        }
+        if ($data['reversal'] !== null) {
+            $related[] = ['text' => $data['reversal']->number === null ? Words::ORDER['cancel_waiting'] : Words::say('ORDER', 'cancel_record', (string) $data['reversal']->number),
+                'href' => '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf', 'sub' => Words::ORDER['cancel_pdf']];
+        }
+        foreach ($data['files'] as $f) {
+            $related[] = ['text' => (string) $f['original_name'], 'href' => '/ui/files/' . (int) $f['id'],
+                'sub' => $f['what'] . ' · ' . Words::say('ORDER', 'file_line', (string) $f['size'], Html::day((string) $f['attached_at']))];
+        }
         $count = count($data['lines']);
         $rows = [['label' => Words::ORDER['products'], 'value' => Words::say('ORDER', $count === 1 ? 'products_line_one' : 'products_line', $count, (int) $data['units'])
             . ((int) $data['received'] > 0 ? ', ' . Words::say('ORDER', 'delivered_line', (int) $data['received']) : '')],
@@ -1282,12 +1362,21 @@ final class PurchaseOrdersController
             $rows[] = ['label' => Words::say('ORDER', 'vat_line', (string) $code, $data['vatLabels'][$code] ?? $v['rate'] . '%'), 'value' => (string) $v['vat']];
         }
         $rows[] = ['label' => Words::ORDER['gross'], 'value' => (string) $data['totals']['gross'], 'grand' => true];
+        $none = Words::DOC_LIST['none'];
         return [
             'party' => ['label' => Words::DOC['party'], 'name' => $supplierName, 'href' => '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0),
-                'lines' => array_values(array_filter([(string) ($supplier['address_line1'] ?? ''), (string) ($supplier['address_line2'] ?? ''), $place,
-                    (string) ($supplier['email'] ?? ''), (string) ($supplier['phone'] ?? '')], static fn (string $v): bool => trim($v) !== ''))],
-            'docFacts' => array_values(array_map(static fn (array $f): array => array_filter($f, static fn (mixed $v): bool => $v !== null),
-                array_filter($facts, static fn (array $f): bool => $f['value'] !== null && $f['value'] !== ''))),
+                'lines' => $address === '' ? [] : [$address]],
+            'deliverTo' => ['label' => Words::ORDER['deliver_to'], 'name' => trim((string) ($company['trading_name'] ?? '')) !== '' ? (string) $company['trading_name']
+                : (string) ($company['legal_name'] ?? ''), 'lines' => $deliver === [] ? [Words::ORDER['deliver_tbc']] : [implode(' · ', $deliver)]],
+            'dates' => [
+                ['label' => Words::ORDER['order_date'], 'value' => $doc->docDate === null ? $none : Html::day($doc->docDate)],
+                ['label' => Words::ORDER['expected_short'], 'value' => ($po['expected_date'] ?? null) === null ? $none : Html::day((string) $po['expected_date'])],
+                ['label' => Words::ORDER['terms'], 'value' => $terms ?? $none],
+                ['label' => Words::ORDER['their_ref'], 'value' => $doc->externalRef === null || $doc->externalRef === '' ? $none : $doc->externalRef],
+            ],
+            'factLine' => $factLine,
+            'events' => $events,
+            'related' => $related,
             'totalRows' => $rows,
         ];
     }

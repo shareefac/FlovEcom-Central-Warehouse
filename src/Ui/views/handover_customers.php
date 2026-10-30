@@ -1,9 +1,10 @@
 <?php
-// Stock › Hand-overs › Customers, a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W8): one search (the name, the
-// company number, the VAT number, the e-mail) and one Show row (the kind of customer, and switched-off customers too), Clear at the right;
-// the head's "+ New …" and the last row of the In use group open the add form (its fields in two columns). The groups: in use, switched
-// off; each a coloured heading with its count over a card with its colour on the left edge, the status cell filled with it. A row opens
-// the customer. Loading the prices of old trade invoices is a fold under the toolbar; its result (and every skipped row) comes first.
+// Sales › Customers (trade sales' customers), a simple list (the approved redesign of 30 Oct 2026, docs/decisions.md RD-B6; before it W8):
+// one search (the name, the company number, the VAT number, the e-mail) and one Show row (the kind of customer, and switched-off customers
+// too), Clear at the right; the head's "+ New …" opens the add form (its fields in two columns). The groups: in use, switched off; each a
+// heading with its coloured dot and its count over a white table card; five columns: the name (its kind and VAT code under it), the status
+// as a small pill, hand-overs, balance, the last one. A row opens the customer. Loading the prices of old trade invoices is a fold under
+// the toolbar; its result (and every skipped row) comes first.
 ?>
 <?= $head(\CW\Ui\Words::SEGMENT['handover_customers'], intro: 'handover_customers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -84,7 +85,7 @@
 <?php else: ?>
 <?php foreach ($groups as $g => $list): ?>
 <?php $tone = $g === 'on' ? 'done' : 'off'; ?>
-<div class="grp-block doc-group <?= $e($tone) ?>">
+<div class="grp-block doc-group <?= $e($tone) ?> rd-list">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $word('CUSTOMER', $g) ?></button> <span class="grp-count"><?php if (count($list) === 1): ?><?= $word('CUSTOMER', 'group_one') ?><?php else: ?><?= $say('CUSTOMER', 'group_many', count($list)) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
   <table class="stack list board doc-list customers">
@@ -92,7 +93,6 @@
       <tr>
         <th scope="col" class="c-item"><?= $word('CUSTOMER', 'name') ?></th>
         <th scope="col" class="c-status"><?= $word('CUSTOMER', 'state') ?></th>
-        <th scope="col"><?= $word('CUSTOMER', 'vat_code') ?></th>
         <th scope="col" class="num"><?= $word('CUSTOMER', 'handovers') ?></th>
         <th scope="col" class="num"><?= $word('CUSTOMER', 'balance') ?></th>
         <th scope="col"><?= $word('CUSTOMER', 'last') ?></th>
@@ -101,17 +101,13 @@
     <tbody>
 <?php foreach ($list as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/stock/handovers/customers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $word('CUSTOMER_KIND', (string) $r['kind']) ?></span></th>
-        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('CUSTOMER', $g) ?></td>
-        <td data-label="<?= $word('CUSTOMER', 'vat_code') ?>"><?php if ($r['vat_code'] === null): ?><?= $word('CUSTOMER', 'vat_company') ?><?php else: ?><?= $e($r['vat_code']) ?><?php endif; ?></td>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/stock/handovers/customers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $word('CUSTOMER_KIND', (string) $r['kind']) ?> · <?= $word('CUSTOMER', 'vat_code') ?> <?php if ($r['vat_code'] === null): ?><?= $word('CUSTOMER', 'vat_company') ?><?php else: ?><?= $e($r['vat_code']) ?><?php endif; ?></span></th>
+        <td class="c-status doc-st <?= $e($tone) ?>"><span class="chip"><?= $word('CUSTOMER', $g) ?></span></td>
         <td class="num" data-label="<?= $word('CUSTOMER', 'handovers') ?>"><?= $n($r['handovers']) ?></td>
         <td class="num" data-label="<?= $word('CUSTOMER', 'balance') ?>"><?= $money($r['balance']) ?></td>
         <td data-label="<?= $word('CUSTOMER', 'last') ?>"><?php if ($r['last_handover'] !== null): ?><?= $day($r['last_handover']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g === 'on' && $formKey !== null): ?>
-      <tr class="grp-add"><td colspan="6" data-label=""><a class="add-item" href="#new"><?= $word('CUSTOMER', 'add_row') ?></a></td></tr>
-<?php endif; ?>
     </tbody>
   </table>
   </div>

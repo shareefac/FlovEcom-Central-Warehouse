@@ -1656,10 +1656,11 @@ final class UiTemplatesTest extends TestCase
             'report' => ['<section class="doc-progress rp-figs"', '<div class="grp-block doc-group ', 'class="table-wrap doc-board'],
         ];
         $pages = [
-            'suppliers' => ['board', 'toolbar', 'search', 'row_link', 'add_row'], 'supplier_items_board' => ['board', 'row_link', 'add_row'],
+            // The simple lists (RD-B6): "+ New …" is the head's one button, no add row at a group's end.
+            'suppliers' => ['board', 'toolbar', 'search', 'row_link'], 'supplier_items_board' => ['board', 'row_link', 'add_row'],
             'supplier' => ['record', 'tabs', 'related'], 'supplier_form' => ['form'],
-            'supplier_returns' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'], 'supplier_return' => ['record', 'form', 'related'],
-            'invoices' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'],
+            'supplier_returns' => ['board', 'toolbar', 'search', 'row_link', 'new'], 'supplier_return' => ['record', 'form', 'related'],
+            'invoices' => ['board', 'toolbar', 'search', 'row_link', 'new'],
             'invoices_to_match' => ['board', 'toolbar', 'row_link'], 'invoices_not_invoiced' => ['board', 'toolbar', 'search', 'row_link'],
             'invoices_timed' => ['board', 'row_link'], 'arrivals' => ['board', 'row_link'], 'incidents' => ['board', 'toolbar'],
             'duty_register' => ['report', 'toolbar', 'search'], 'reorder' => ['report', 'toolbar', 'search'], 'reorder_low_stock' => ['report', 'toolbar', 'search'],
@@ -1735,10 +1736,11 @@ final class UiTemplatesTest extends TestCase
         $board = ['<form class="toolbar" method="get"', '<div class="tb-state">', '<select id="tb-show" name="', '<div class="grp-block doc-group ',
             '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="', '<div class="table-wrap doc-board" id="', '<td class="c-status doc-st '];
         $pins = [
-            'sales_orders' => [...$board, '<a class="o-name row-link"', 'class="stack list board doc-list sales-orders"', '<div class="tb-end">'],
+            // The approved Sales.dc.html (RD-B3, RD-B8): Sales orders has no status column (its groups say it); a list has no figures strip.
+            'sales_orders' => [...array_diff($board, ['<td class="c-status doc-st ']), '<a class="o-name row-link"', 'class="stack list board doc-list sales-orders"', '<div class="tb-end">'],
             'sales_dispatch' => [...$board, '<a class="o-name row-link"', 'class="stack list board doc-list dispatch-waiting"', 'class="stack list board doc-list dispatch-sent"',
-                'class="stack list board doc-list dispatch-undone"', '<section class="doc-progress rp-figs"'],
-            'sales_returns' => [...$board, 'class="stack list board doc-list sales-returns"', '<section class="doc-progress rp-figs"', '<div class="tb-end">'],
+                'class="stack list board doc-list dispatch-undone"', '<span class="chip">'],
+            'sales_returns' => [...$board, 'class="stack list board doc-list sales-returns"', '<span class="chip">', '<div class="tb-end">'],
             'sales_order' => ['<div class="doc-head">', 'side: $bar', 'chips: $chip($tone, $chipWord)', '<section class="doc-progress rp-figs"', '<article class="doc-view"',
                 "\$partial('doc_party'", 'class="stack list board doc-lines sales-units"', '<td class="c-status doc-st ', '<section class="doc-related"',
                 '<div class="grp-block doc-group info">', 'class="table-wrap doc-board" id="u-'],
@@ -1765,6 +1767,77 @@ final class UiTemplatesTest extends TestCase
             self::assertSame(1, substr_count($t[$name . '.php'], '<div class="tb-state">'), "{$name}: one Show row");
         }
         self::assertSame(2, substr_count($t['sales_orders.php'], '<label class="tb-day">'), 'the days typed: From and Until, in the Show row');
+    }
+
+    /**
+     * The Purchases and Sales pages on the approved redesign of 30 Oct 2026 (docs/decisions.md RD-B1 to RD-B8; Purchases.dc.html,
+     * PurchaseOrder.dc.html, GoodsReceived.dc.html, PurchaseInvoices.dc.html, Sales.dc.html): every list is the simple list (a group's
+     * heading with its count; a white card scoped .rd-list; three to five columns besides a row's
+     * own action; the status a small pill in the cell, rd1's shape; no add row, no progress bar, no initials, no figures strip); the order's
+     * page has the four steps, the paper's three blocks, five line columns, Related and History; the delivery's page the list's link above
+     * its title, the line under it, no figures strip and four columns besides the line's answers.
+     */
+    public function testThePurchasesAndSalesPagesFollowTheRedesign(): void
+    {
+        $t = self::templates();
+        $lists = ['purchase_orders', 'invoices', 'sales_orders', 'receipts', 'suppliers', 'supplier_returns', 'arrivals', 'incidents', 'sales_dispatch', 'sales_returns',
+            'handovers', 'handover_customers', 'invoices_to_match', 'invoices_not_invoiced', 'invoices_timed'];
+        foreach ($lists as $name) {
+            $src = $t[$name . '.php'];
+            self::assertMatchesRegularExpression('/<div class="grp-block doc-group <\?= \$e\([^\n]*\) \?> rd-list">/', $src, "{$name}: the group scoped as a simple list");
+            self::assertStringContainsString('<span class="grp-count">', $src, "{$name}: the group's count (its words as before: RD-B9)");
+            foreach (['<tr class="grp-add">', 'doc-meter', '<progress', 'class="initials', 'c-by', 'rp-figs'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is not on a simple list");
+            }
+            preg_match_all('#<thead>(.*?)</thead>#s', $src, $heads);
+            self::assertNotSame([], $heads[1], "{$name}: a table");
+            foreach ($heads[1] as $head) {
+                $cols = preg_match_all('/<th scope="col"(?! class="c-next")/', (string) preg_replace('/<\?php if \(\$show === \'accepted\'\): \?>.*?<\?php endif; \?>/s', '', $head));
+                self::assertGreaterThanOrEqual(3, $cols, "{$name}: three to five columns");
+                self::assertLessThanOrEqual(5, $cols - (str_contains($head, "<?php if (\$kind === 'invoice'): ?>") ? 1 : 0), "{$name}: three to five columns");
+            }
+            preg_match_all('/<td class="c-status doc-st [^"]*">(.{0,40})/', $src, $cells);
+            self::assertSame($name !== 'sales_orders', $cells[1] !== [], "{$name}: a status column (Sales orders' groups say it: Sales.dc.html)");
+            foreach ($cells[1] as $after) {
+                self::assertStringStartsWith('<span class="chip">', $after, "{$name}: the status a pill in its cell");
+            }
+        }
+        self::assertSame([], array_values(array_filter(['purchase_orders', 'invoices', 'sales_orders'], static fn (string $n): bool => !str_contains($t[$n . '.php'], 'rd-list'))));
+        // Purchase orders: Order, Supplier, Status, Expected, Total (Purchases.dc.html).
+        preg_match('#<thead>(.*?)</thead>#s', $t['purchase_orders.php'], $po);
+        self::assertSame(["'order'", "'supplier'", "'status'", "'expected'", "'total'"], preg_match_all("/DOC_LIST', ('[a-z]+')/", $po[1], $m) > 0 ? $m[1] : []);
+        self::assertStringContainsString("\$e(\$r['pill_word'])", $t['purchase_orders.php'], 'a part delivery says how much came');
+        // Purchase invoices: Invoice, Supplier, Status, Due, Total; the pill the page's own word, the match under it.
+        self::assertStringContainsString('<span class="chip"><?= $e($r[\'cell_word\']) ?></span><?php if ($r[\'tag\'] !== null): ?><span class="o-sub"><?= $e($r[\'tag\'][\'text\']) ?></span>', $t['invoices.php']);
+        // Sales orders: Order, Store, Placed, Units; Download the head's one button.
+        preg_match('#<thead>(.*?)</thead>#s', $t['sales_orders.php'], $so);
+        self::assertSame(["'order'", "'store'", "'placed'", "'units'"], preg_match_all("/SALE', ('[a-z]+')/", $so[1], $m) > 0 ? $m[1] : []);
+        self::assertStringContainsString("\$word('SALE', 'download_short')", $t['sales_orders.php']);
+        self::assertSame(1, substr_count($t['sales_orders.php'], '<select id="tb-show" name="channel"'), 'one Show: the stores');
+        // The order's page.
+        $order = $t['purchase_order.php'];
+        foreach (['<ol class="po-steps"', '<div class="po-paper-head">', '<section class="doc-party po-deliver"', '<dl class="doc-facts po-dates">',
+            "\$word('ORDER', 'col_item')", "\$word('ORDER', 'col_ordered')", "\$word('ORDER', 'col_received')", "\$word('ORDER', 'col_cost')",
+            "\$word('ORDER', 'col_line_total')", "\$partial('doc_totals'", '<section class="card po-related"', '<section class="card po-history"', 'back: [',
+            'meta: ', "\$e(\$factLine)"] as $part) {
+            self::assertStringContainsString($part, $order, "the order's page: {$part}");
+        }
+        self::assertSame(5, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'five line columns');
+        self::assertStringNotContainsString('doc-progress', $order, 'the steps, not the figures strip');
+        foreach (['lines.xlsx', 'lines.csv', "'/ui/documents/' . \$doc->id"] as $link) {
+            self::assertStringContainsString($link, $t['po_bar.php'], "under More: {$link}");
+            self::assertStringNotContainsString($link, $order, "not on the paper: {$link}");
+        }
+        // The delivery's page.
+        $gr = $t['receipt_edit.php'];
+        self::assertStringContainsString("back: ['/ui/receiving', \\CW\\Ui\\Words::MENU['receiving']]", $gr);
+        self::assertStringContainsString("\$say('GI', 'fact_checked', \$progress['checked'], \$progress['lines'])", $gr);
+        self::assertStringNotContainsString('doc-progress', $gr, 'no figures strip: the line under the title says it');
+        preg_match('#<table class="stack list board doc-lines gi-lines">\s*<thead>(.*?)</thead>#s', $gr, $gh);
+        self::assertSame(["'col_item'", "'col_expected'", "'col_got'", "'col_check'", "'col_action'"], preg_match_all("/GI', ('[a-z_]+')/", $gh[1], $m) > 0 ? $m[1] : []);
+        self::assertMatchesRegularExpression('#<td class="c-next gi-acts"><\?php if \(\$l\[\'stamp_req\'\]\): \?><label class="gi-duty #', $gr, 'the duty stamp in the line\'s answers');
+        self::assertStringContainsString('data-gi-duty="1"', $gr);
+        self::assertStringContainsString('data-gi-fine=', $gr);
     }
 
     /**
