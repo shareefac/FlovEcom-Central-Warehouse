@@ -113,6 +113,7 @@
     </table>
     </div>
   </form>
+  <p class="muted count-booked"><?= $word('COUNTS', 'not_booked') ?></p>
 <?php else: ?>
   <div class="table-wrap">
   <table class="stack lines count-sheet">

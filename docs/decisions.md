@@ -14251,3 +14251,38 @@ board; a settings row saved on its own through the setting's route and kept in i
 moved to the new markup, never dropped (`ReportsScreenTest`, `ReferenceScreensTest`, `SetItYourselfScreensTest`, `SupplierScreensTest`'s
 settings page, `CompanyScreensTest`, `InvoiceScreensTest`, `StartSettingsWordsTest`). The W9.15 guard covers these pages: a POST form with a
 field to type carries `data-unsaved`, and on a page with one every form carries `data-leaves`.
+
+## Design conformance: the Codex review of f4d1126 (branch `ds-conform-fix`, 30 Oct 2026; DC29-DC32)
+
+Three MEDIUM and one note, each fixed with a test that failed first (`runs/dsc_fix_red.log`: main `b12544a` with the new tests).
+
+**DC29. A count sheet's opener is told nothing is booked yet (MEDIUM).** DC1 dropped `count_sheet_open`'s intro, and its "nothing is booked
+until you make it final" was said nowhere else: the opener saw quantities "Saved". CT_Sheet draws one muted line under the board (how the
+numbers are saved); that is where it is now, one short line under an open sheet's lines (`p.muted.count-booked`, `COUNTS['not_booked']`:
+"Each number is saved with the time you typed it; nothing is booked until you make the sheet final."), not a paragraph under the heading.
+The other dropped intros were swept for a safety or permission line a person needs before acting; each is said where they act:
+- `card_import`: "nothing is saved until you choose…" is the page's own hint (`CARD_IMPORT['how']`) and its report says "nothing was saved";
+- `queue_corrections`: each card says what confirming books, and closing books nothing;
+- `reviews` and the records waiting for an OK: "Nothing is booked until they say OK" on the record and its notice;
+- `order_draft`: the editor's button asks a reviewer's OK over the limit and says so; `suppliers`: the order editor marks a supplier not
+  approved yet ("you can prepare an order, but not confirm it yet");
+- `timed`: the board's column "Becomes final at"; `supplier_*_final`, `supplier_paper_reversal`: their Final / Cancelled status block;
+- `staff_sheet`: its red "shown only once" alert; `audit`, `documents`: read only, nothing to act on;
+- `queue_Conflict`: the decide box's "Only a matching lead can decide these. You can look."; `listing_spot`, `reservations`, `sales_orders`,
+  `sales_dispatch`: `Words::INTRO_LOOK`, the "?" (DC1); a claim-only return: its eyebrow's tag (DC1);
+- `count_before`, `count_differences`, `to_match`, `not_invoiced`, `arriving`, `queue_suspense`: their buttons say what they do.
+
+**DC30. The purchase orders' More keeps every filter (MEDIUM).** At `?state=sent&drafts=1` "Hide the drafts again" led to the whole list
+(the old checkbox kept the hidden `state`). The More's links now carry every filter on: the status, the supplier, the search, sent back and
+the view.
+
+**DC31. A toolbar's panel stays inside the toolbar (MEDIUM).** The search that takes the free width (DC10) puts Filter or Show at the
+toolbar's right edge, and the panel opened from the button's left edge, 300 px wide, ran past the screen (Mapping at 1,280 px; All
+Products' Show at tablet widths). Every toolbar panel (`details.tb-pop > .pop`) is now placed against the toolbar (`.tb-pop` is not its
+box), right-aligned under it and never wider than it (`max-width: min(400px, 100%)`, the form `min-width: min(300px, 100%)`), at every width;
+on a phone it is the toolbar's full width as before.
+
+**DC32. The sidebar helpers check the exact aria-current (note).** `KernelUiTestCase::currentSection()` asserts the entry's value ("true"
+when a page of the section in the tree is the page, "page" when it is itself the page) and that one link of the menu is the page;
+`sectionTabs()` and `moreTabs()` assert a page's "true" (one of its segments is the page) or "page"; `segments()` asserts "page". A
+regression of DC28's marks now fails every kernel test that reads the sidebar.

@@ -1492,6 +1492,25 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('width: 44px; height: 44px;', $rule('  .appbar-me'), 'the initials: 44 px to tap');
     }
 
+    /**
+     * The Codex review of f4d1126 (docs/decisions.md DC31): a search that takes the free width puts Filter or Show at the toolbar's right edge,
+     * and a panel opened from its left edge (300 px wide) ran past the screen (Apply out of reach at 1,280 px on Mapping, at tablet widths on
+     * All Products). A toolbar's panel is placed against the toolbar, right-aligned and never wider than it, at every width.
+     */
+    public function testAToolbarsPanelStaysInsideTheToolbar(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match('/^\.tb-pop \{([^}]*)\}/m', $css, $pop));
+        self::assertStringContainsString('position: static', $pop[1], 'the toolbar (position: relative) is the panel\'s box, not its button');
+        self::assertSame(1, preg_match('/^\.pop \{([^}]*)\}/m', $css, $panel));
+        foreach (['position: absolute', 'left: auto', 'right: 0', 'max-width: min(400px, 100%)'] as $want) {
+            self::assertStringContainsString($want, $panel[1], ".pop: {$want}");
+        }
+        self::assertStringNotContainsString('left: 0', $panel[1]);
+        self::assertSame(1, preg_match('/^\.toolbar \{[^}]*position: relative/m', $css), 'the toolbar is positioned');
+        self::assertSame(1, preg_match('/^\.pop-form \{[^}]*min-width: min\(300px, 100%\)/m', $css), 'its form never wider than the toolbar');
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');

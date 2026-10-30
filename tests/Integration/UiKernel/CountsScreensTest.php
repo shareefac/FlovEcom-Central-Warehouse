@@ -289,6 +289,9 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(Words::COUNTS['title_open'], trim((string) $xp->evaluate('string(//main//h1/span[contains(@class, "stmt")])')), 'the heading\'s name, before its state chip');
         self::assertStringContainsString(Words::COUNT_NOTICE['opened'], $open->text());
         self::assertSame(['Counts', 'Counts'], [self::currentSection($open), self::currentTab($open)]);
+        // The Codex review of f4d1126 (DC29): the opener is told, in one short line under the lines, that nothing is booked until the sheet is
+        // final (its intro said it; CT_Sheet's muted line under the board is the place).
+        self::assertStringContainsString('nothing is booked until you make the sheet final', trim((string) $xp->evaluate('string(//main//p[contains(@class, "count-booked")])')));
         self::assertSame(['Alpha pod 2ml', 'Beta liquid'], self::names($open));
         self::assertStringContainsString(Words::say('COUNTS', 'barcodes', '5060000000017'), $open->text(), 'a line shows the item\'s barcodes');
         self::assertSame(['10', '5'], array_map(static fn (\DOMNode $n): string => trim((string) $n->firstChild?->textContent),

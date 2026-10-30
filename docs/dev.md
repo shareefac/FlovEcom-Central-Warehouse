@@ -1046,6 +1046,7 @@ The shared code follows the approved mockups (section A of `runs/dsaudit_finding
 | Initials | `Html::initials`, `.initials` | the PO board's By, the phone top bar |
 | A recent time | `Html::near` | "Today 09:40", "Yesterday 15:10", else the date and time (UK) |
 | The toolbar's More | `form.toolbar > .tb-end > details.more.tb-more` | what a board mockup does not show (download, show drafts, Clear, a list's size) |
+| A toolbar's panel | `form.toolbar details.tb-pop > .pop` | placed against the toolbar, right-aligned, never wider than it (DC31); a board's several filters in ONE Show (`.tb-show`) |
 | Sizes | `app.css` tokens `--gutter` 32 px, `--page-w` 1180 px, `--shadow-menu`, `--shadow-up` | heading 26 px (24 on `.item-head`, `.match-head`; 22 on a phone), fields 40 px (44 phone/touch), search/Show 40 px |
 
 - Tests: `UiTemplatesTest::testTheSharedPartsFollowTheApprovedMockups` (markup), `UiUnitTest::testTheSharedCssFollowsTheApprovedMockups` (CSS),

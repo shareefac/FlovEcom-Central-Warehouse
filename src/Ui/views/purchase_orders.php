@@ -8,7 +8,8 @@
 // status filled with its colour, the supplier, expected, received of ordered, who made it (initials), the total; an empty value is "—". A row
 // opens its order. Behaviour item 8 (F305) stays: goods in and the desk see no drafts unless they ask (under More). The URL's other filters
 // (status, supplier, sent back) still narrow the list (links from elsewhere use them) and a search keeps them (hidden fields).
-$keep = ['supplier' => $filters['supplier'], 'q' => $filters['q'] === '' ? null : $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null,
+// Every filter on (the status, the supplier, the search, sent back, the view) travels through the More's links (the Codex review of f4d1126, DC30).
+$keep = ['state' => $filters['state'], 'supplier' => $filters['supplier'], 'q' => $filters['q'] === '' ? null : $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null,
     'show' => $filters['view'] === 'open' ? null : $filters['view']];
 $csv = \CW\Ui\Html::url('/ui/purchasing/orders.csv', ['state' => $filters['state'], 'supplier' => $filters['supplier'], 'q' => $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null,
     'show' => $filters['view'] === 'open' ? ($filters['all'] ? 'all' : null) : $filters['view'], 'drafts' => $filters['drafts'] ? null : '0']);

@@ -1509,6 +1509,8 @@ final class Words
 
     /** The pages' words. */
     public const COUNTS = [
+        // An open sheet's one line under its lines (CT_Sheet's muted line under the board; the Codex review of f4d1126, DC29): what Saved means.
+        'not_booked' => 'Each number is saved with the time you typed it; nothing is booked until you make the sheet final.',
         // The item page (docs/decisions.md IV2, IV3): its "Count it" (a count sheet of the item) and when its shelf was last counted.
         'item_count_it' => 'Count it',
         'item_counted' => 'counted %s',

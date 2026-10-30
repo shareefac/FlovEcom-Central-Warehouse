@@ -97,4 +97,18 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertSame(Words::PAGE_INTRO['password'][0] . ' ' . Words::PAGE_INTRO['password'][1],
             trim((string) preg_replace('/\s+/u', ' ', (string) self::xp($password)->evaluate('string(//main//p[@class="lede"])'))));
     }
+
+    /**
+     * The Codex review of f4d1126 (docs/decisions.md DC30): the purchase orders' More keeps every filter on: at ?state=sent&drafts=1 "Hide the
+     * drafts again" leads back to the sent orders (the old checkbox kept the hidden state field), with the search and the supplier.
+     */
+    public function testThePurchaseOrdersMoreKeepsEveryFilterOn(): void
+    {
+        $web = $this->signIn($this->uiUser('goods_in'));
+        $page = $web->get('/ui/purchasing/orders', ['state' => 'sent', 'drafts' => '1', 'q' => 'abc', 'rejected' => '1']);
+        self::assertSame(200, $page->status, $page->describe());
+        $more = self::xp($page)->query('//main//form[contains(@class, "toolbar")]//details[contains(@class, "tb-more")]//a[@class="menu-item"]');
+        $hrefs = array_map(static fn (\DOMElement $a): string => (string) $a->getAttribute('href'), iterator_to_array($more ?: []));
+        self::assertContains('/ui/purchasing/orders?state=sent&q=abc&rejected=1', $hrefs, 'Hide the drafts again keeps the state, the search and the sent-back filter');
+    }
 }

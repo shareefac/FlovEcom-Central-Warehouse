@@ -185,11 +185,19 @@ abstract class KernelUiTestCase extends MappingTestCase
         return $out;
     }
 
-    /** The sidebar entry marked current (aria-current: the page, or the entry that holds it, docs/decisions.md DC28), or null. */
+    /**
+     * The sidebar entry marked current, or null. Its aria-current is exact (the Codex review of f4d1126, DC32): "true" when one of the
+     * section's pages in the tree is the page (it holds it), "page" when it is the page itself (Home); one link of the menu is the page.
+     */
     protected static function currentSection(UiResponse $r): ?string
     {
         $xp = new \DOMXPath($r->dom());
         $a = $xp->query('//nav[@aria-label="Main"]//a[contains(concat(" ", @class, " "), " nav-item ") and @aria-current]')->item(0);
+        $held = $xp->query('//nav[@aria-label="Main"]//ul[contains(concat(" ", @class, " "), " nav-sub ")]//*[@aria-current]')->length > 0;
+        if ($a instanceof \DOMElement) {
+            self::assertSame($held ? 'true' : 'page', $a->getAttribute('aria-current'), 'the entry is the page, or holds it');
+        }
+        self::assertLessThanOrEqual(1, $xp->query('//nav[@aria-label="Main"]//*[@aria-current="page"]')->length, 'one link of the menu is the page');
         return $a === null ? null : trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a));
     }
 
@@ -224,6 +232,11 @@ abstract class KernelUiTestCase extends MappingTestCase
         $out = [];
         foreach ($xp->query('//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/*[contains(concat(" ", @class, " "), " nav-sub-item ")]') ?: [] as $t) {
             /** @var \DOMElement $t */
+            if ($t->hasAttribute('aria-current')) {
+                // Exact (DC32): "true" when one of its segments is the page, else "page".
+                $segPage = $xp->query('following-sibling::ul//a[@aria-current="page"]', $t)->length > 0;
+                self::assertSame($segPage ? 'true' : 'page', $t->getAttribute('aria-current'), 'a page of the section is the page, or holds it');
+            }
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $t)), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $t)->item(0)),
                 'current' => $t->hasAttribute('aria-current'), 'more' => str_contains(' ' . $t->getAttribute('class') . ' ', ' more ')];
@@ -263,6 +276,9 @@ abstract class KernelUiTestCase extends MappingTestCase
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),
                 'current' => $a->hasAttribute('aria-current')];
+            if ($a->hasAttribute('aria-current')) {
+                self::assertSame('page', $a->getAttribute('aria-current'), 'a segment that is current is the page (DC32)');
+            }
         }
         return $out;
     }

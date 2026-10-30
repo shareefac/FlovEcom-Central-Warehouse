@@ -512,19 +512,22 @@ a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .tb-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tb-search input:hover { border-color: var(--ink-body); }
 .tb-search input:focus-visible, .tb-search input:not(:placeholder-shown) { border-color: var(--accent); }
-.tb-pop { position: relative; margin: 0; padding: 0; border: 0; background: none; }
+/* A toolbar's panel (Filter, Sort, a board's Show control) is placed against the toolbar, right-aligned and never wider than it: a search
+   that takes the free width puts its button at the right edge, and a panel from the button's left edge ran off the screen (the Codex review
+   of f4d1126, DC31) */
+.tb-pop { position: static; margin: 0; padding: 0; border: 0; background: none; }
 .tb-pop > summary { list-style: none; margin: 0; }
 .tb-pop[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); margin-bottom: 0; }
 .tb-pop > summary .count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-fill);
   font: 600 11px/18px var(--font); text-align: center; }
 .tb-end { margin-left: auto; display: inline-flex; gap: 8px; }
 .pop {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: max-content; min-width: 220px;
-  max-width: min(400px, calc(100vw - 32px)); margin: 0; padding: 6px; list-style: none;
+  position: absolute; top: calc(100% + 6px); left: auto; right: 0; z-index: 30; width: max-content; min-width: min(220px, 100%);
+  max-width: min(400px, 100%); margin: 0; padding: 6px; list-style: none;
   background: var(--card); color: var(--ink-body); border: 1px solid var(--hairline); border-radius: var(--r-12); box-shadow: var(--shadow-float);
 }
 .pop li { margin: 0; }
-.pop-form { display: grid; gap: 12px; padding: 16px; min-width: 300px; }
+.pop-form { display: grid; gap: 12px; padding: 16px; min-width: min(300px, 100%); }
 .pop-form label:not(.choice) { color: var(--ink); }
 /* A board's ONE Show control when it holds several filters (All Products: the card, the kind, four ticks; DC27): a pop-over of those inputs
    and its Show button, its count the filters on */
@@ -533,7 +536,6 @@ a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 639.98px) {
   /* Search takes the free width; a pop-over opens under the whole toolbar, full width */
-  .tb-pop { position: static; }
   .tb-search { flex: 1 1 8rem; }
   .tb-search input[type="search"] { height: 44px; min-height: 44px; font-size: 16px; }
   .pop { left: 0; right: 0; width: auto; max-width: none; min-width: 0; }
