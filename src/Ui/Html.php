@@ -162,8 +162,9 @@ final class Html
     {
         $out = '<header class="page-head"><div class="ph-text">';
         if ($back !== null) {
+            // The "›" is the one separator after the list: its tag follows it ("Store products › Electrofag · 8,767 to match": docs/decisions.md DC37).
             $out .= '<p class="ph-eyebrow ph-back"><a href="' . self::e($back[0]) . '">' . self::e($back[1]) . '</a><span aria-hidden="true"> ›</span>'
-                . ($tag === '' ? '' : '<span class="ph-tag"> · ' . self::e($tag) . '</span>') . '</p>';
+                . ($tag === '' ? '' : '<span class="ph-tag"> ' . self::e($tag) . '</span>') . '</p>';
         } elseif ($eyebrow !== '' || $tag !== '') {
             $out .= '<p class="ph-eyebrow">' . self::e($eyebrow)
                 . ($tag === '' ? '' : '<span class="ph-tag">' . ($eyebrow === '' ? '' : ' · ') . self::e($tag) . '</span>') . '</p>';
@@ -192,6 +193,20 @@ final class Html
         $name = $label ?? Words::UI['look_help'];
         return '<details class="help look-only"><summary aria-label="' . self::e($name) . '" title="' . self::e($name) . '"></summary>'
             . '<div class="help-body"><p>' . self::e($text) . '</p></div></details>';
+    }
+
+    /**
+     * ONE "?" beside a heading (docs/decisions.md DC34; Store orders showed two): a page's own help (Html::help, the head's `aside`) takes the
+     * look-only line as its last paragraph, the whole then marked look-only. Anything else beside the heading keeps the look-only "?" after it.
+     */
+    public static function helpWithLook(string $help, string $line, ?string $label = null): string
+    {
+        $open = '<details class="help">';
+        $end = '</div></details>';
+        if ($line === '' || !str_starts_with($help, $open) || !str_ends_with($help, $end) || substr_count($help, '<details') !== 1) {
+            return $help . self::lookOnly($line, $label);
+        }
+        return '<details class="help look-only">' . substr($help, strlen($open), -strlen($end)) . '<p>' . self::e($line) . '</p>' . $end;
     }
 
     /** A person's initials as the mockups draw them ("Bea Smith" BS, "Shareef" SH): the first letters of two names, or a name's first two. */

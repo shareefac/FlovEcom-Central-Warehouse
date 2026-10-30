@@ -391,6 +391,10 @@ final class BulkScreensTest extends KernelUiTestCase
         // Second approval and the overview.
         $pending = $web->get('/ui/review', ['queue' => 'pending', 'channel' => 'vbig']);
         self::assertSame(['Big pack'], self::titles($pending));
+        // Its store is the plain Show choice (docs/decisions.md DC33: its store tab row went), each store with what waits for its OK.
+        self::assertSame([['All stores', '/ui/review?queue=pending', 2, false], ['Alt Store', '/ui/review?queue=pending&channel=alt', 1, false],
+            ['Big Store', '/ui/review?queue=pending&channel=vbig', 1, true]], self::storeChoice($pending, '/ui/review'));
+        self::assertSame(0, (new \DOMXPath($pending->dom()))->query('//main//nav[contains(@class, "store-seg")] | //main//nav[contains(@class, "tabs")]')->length, 'no store tab row');
         self::assertSame(['Alt pack', 'Big pack'], self::titles($web->get('/ui/review', ['queue' => 'pending'])));
         $overview = $web->get('/ui/review', ['channel' => 'vbig']);
         self::assertSame(200, $overview->status, $overview->describe());

@@ -1,15 +1,12 @@
 <?php
 // Stock › Reservations (docs/decisions.md RS1-RS12), a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W8): read
-// only. One search and one Show row (the state), Clear and Export at the right; the store selector (the matching pages' partial: All stores
-// and each store of the channel table, with its reservations held now); the figures strip; then the reservations grouped by state, newest
+// only. One search and one Show row (the state, and the store: All stores and each store of the channel table, with its reservations held
+// now; docs/decisions.md DC33), Clear and Export at the right; the figures strip; then the reservations grouped by state, newest
 // first, each group a coloured heading with its count over a card with its colour on the left edge, the status cell filled with it. No form
 // here posts anything.
 ?>
 <?= $head(\CW\Ui\Words::MENU['reservations'], intro: 'reservations', aside: $explain('reservations', \CW\Ui\Words::MENU['reservations'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-<?php if ($f['channel'] !== null): ?>
-  <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
-<?php endif; ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('RESV', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('RESV', 'find') ?>" title="<?= $word('RESV', 'find') ?>"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
@@ -17,6 +14,12 @@
       <option value=""><?= $word('RESV', 'any_state') ?></option>
 <?php foreach ($states as $code => $label): ?>
       <option value="<?= $e($code) ?>"<?php if ($f['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="tb-store"><?= $word('BULK', 'stores') ?></label>
+    <select id="tb-store" name="channel" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::RESV['store_count']) ?>">
+<?php foreach ($storeItems as $it): ?>
+      <option value="<?= $e($it['query']['channel'] ?? '') ?>"<?php if ($it['current']): ?> selected<?php endif; ?>><?= $e($it['label']) ?> (<?= $n($it['count']) ?>)</option>
 <?php endforeach; ?>
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
@@ -30,7 +33,6 @@
 <?php endif; ?>
   </div>
 </form>
-<?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::RESV['store_count']]) ?>
 
 <section class="doc-progress rp-figs" aria-label="<?= $word('RESV', 'figures') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('RESV', 'tile_held') ?></p><p class="doc-step-big"><?= $n($totals['held_units']) ?></p><p class="step-sub"><?php if ($totals['holds'] === 1): ?><?= $word('RESV', 'tile_held_sub_one') ?><?php else: ?><?= $say('RESV', 'tile_held_sub', $totals['holds']) ?><?php endif; ?></p></div>

@@ -46,14 +46,20 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
         $r = $web->post(CountsController::PATH, ['mode' => 'ticked', 'pick_' . $a => '1'] + $list->form(CountsController::PATH));
         self::assertSame(303, $r->status, $r->describe());
         $sheet = (string) parse_url((string) $r->location(), PHP_URL_PATH);
-        // Codex's case: "Every line" shown (also with a notice in the address, as after a save): its tab is the tab's look and nothing to click.
-        foreach ([[null, 0], ['todo', 1], ['done', 2]] as [$show, $at]) {
+        // Codex's case: "Every line" shown (also with a notice in the address, as after a save). The lines' choice is the sheet's Show
+        // (docs/decisions.md DC35; CT_Sheet draws no tab row): a GET form of `show` with its Show button, the one shown selected (never a
+        // link: CV13); it leaves the page, so app.js asks first while the quantities hold typed values (data-leaves, CV14).
+        foreach ([[null, 'all'], ['todo', 'todo'], ['done', 'done']] as [$show, $chosen]) {
             $page = $web->get($sheet, ['show' => $show, 'notice' => 'lines', 'n' => '1']);
-            $row = self::tabRow($page, '//nav[contains(@class, "show-tabs")]');
-            self::assertCount(3, $row);
-            foreach ($row as $i => [$words, $current, $links]) {
-                self::assertSame($i === $at ? ['page', false] : ['', true], [$current, $links], "show {$show}: {$words}");
-            }
+            $xp = new \DOMXPath($page->dom());
+            self::assertSame([], self::tabRow($page, '//main//nav'), "show {$show}: no tab row over the lines");
+            $form = '//main//form[@method="get" and @action="' . $sheet . '" and @data-leaves="1" and contains(@class, "toolbar")]';
+            self::assertSame(1, $xp->query($form)->length, "show {$show}: the Show form, guarded");
+            self::assertSame(array_keys(Words::COUNT_SHOW), array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), iterator_to_array($xp->query($form . '//select[@name="show"]/option'))));
+            self::assertSame(array_values(Words::COUNT_SHOW), array_map(static fn (\DOMElement $o): string => trim($o->textContent), iterator_to_array($xp->query($form . '//select[@name="show"]/option'))));
+            self::assertSame([$chosen], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), iterator_to_array($xp->query($form . '//select[@name="show"]/option[@selected]'))));
+            self::assertSame(1, $xp->query($form . '//button[@type="submit"]')->length, 'its Show button: no script needed');
+            self::assertSame(0, $xp->query($form . '//*[@href]')->length);
         }
         $page = $web->get($sheet);
         $xp = new \DOMXPath($page->dom());

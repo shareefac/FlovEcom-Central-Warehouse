@@ -130,19 +130,6 @@ final class ReservationsScreenTest extends KernelUiTestCase
             'string(//table[contains(@class, "reservations")]/tbody/tr[th/a[. = "' . $ref . '"]])')));
     }
 
-    /** The store selector: label, link, the number after the label, current. @return list<array{0: string, 1: string, 2: int, 3: bool}> */
-    private static function storeSeg(UiResponse $r): array
-    {
-        $xp = new \DOMXPath($r->dom());
-        $out = [];
-        foreach ($xp->query('//nav[contains(@class, "store-seg")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $out[] = [trim((string) $xp->evaluate('string(span[1])', $a)), $a->getAttribute('href'), (int) $xp->evaluate('string(span[2]/text()[1])', $a),
-                $a->getAttribute('aria-current') === 'page'];
-        }
-        return $out;
-    }
-
     /** @return list<string> the links under the list (older reservations, back to the newest) */
     private static function pager(UiResponse $r): array
     {
@@ -171,7 +158,10 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['reservations'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
-        self::assertSame(Words::INTRO_LOOK['reservations'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')),
+        self::assertSame(1, $xp->query('//main//header[contains(@class, "page-head")]//details[contains(@class, "help")]')->length, 'one "?" beside the heading (DC34)');
+        self::assertStringContainsString(str_replace('**', '', explode('. ', Words::HELP['reservations'])[0]),
+            (string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "help")])')), 'the page\'s own help in it');
+        self::assertSame(Words::INTRO_LOOK['reservations'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")]//p[last()])')),
             'who changes it, under the heading\'s "?" (DC1)');
         // Nothing reserved yet: the empty state in words, the figures at nothing, no export, and no form that sends anything.
         self::assertStringContainsString(Words::RESV['none'], $page->text());
@@ -180,7 +170,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame([], self::refs($page));
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
-        self::assertSame([[Words::BULK['all_stores'], '', 0, true]], self::storeSeg($page), 'no store yet: only "All stores" (shown: no link, CV13)');
+        self::assertSame([[Words::BULK['all_stores'], self::PATH, 0, true]], self::storeChoice($page, self::PATH), 'no store yet: only "All stores", the one shown');
         // The other pages of Stock list it in the sidebar (DC28; it was under the tab row's More); the stock records' people see it after their tabs on its own page.
         $stock = $web->get('/ui/stock');
         self::assertContains(self::PATH, $stock->hrefs());
@@ -227,11 +217,13 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame(4, (int) self::$db->value('SELECT SUM(held) FROM stock_balance'), 'the same units the stock figures call reserved');
 
         // The store selector: All stores, then each store of the channel table by name, with its reservations held now.
-        self::assertSame([[Words::BULK['all_stores'], '', 3, true], ['ALT test site', self::PATH . '?channel=alt', 1, false],
-            ['VPG test site', self::PATH . '?channel=vpg', 2, false]], self::storeSeg($page));
+        // A choice of the Show row since DC33 (the store tab row went), its `channel` as the tabs' links had it.
+        self::assertSame([[Words::BULK['all_stores'], self::PATH, 3, true], ['ALT test site', self::PATH . '?channel=alt', 1, false],
+            ['VPG test site', self::PATH . '?channel=vpg', 2, false]], self::storeChoice($page, self::PATH));
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//main//nav[contains(@class, "store-seg")] | //main//nav[contains(@class, "tabs")]')->length, 'no store tab row');
         $alt = $this->page($web, ['channel' => 'alt']);
         self::assertSame(['A2001', 'ghost'], self::refs($alt));
-        self::assertSame([false, true, false], array_column(self::storeSeg($alt), 3));
+        self::assertSame([false, true, false], array_column(self::storeChoice($alt, self::PATH), 3));
         self::assertSame(['3', '0'], self::figures($alt), 'this store keeps a reservation two hours: none runs out within the hour');
         self::assertStringContainsString(Words::RESV['to_ship_all'], $alt->text(), 'units waiting to ship are not kept per store: left out, and the page says so');
         $vpg = $this->page($web, ['channel' => 'vpg']);
@@ -242,7 +234,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         // The state filter (the engine's four states), alone and with a store; the store's links keep the state.
         self::assertSame(['=SUM(A1)', 'A2001', 'V1002'], self::refs($held = $this->page($web, ['state' => 'held'])));
         self::assertSame([Words::RESV_GROUP['held']], self::groupTitles($held));
-        self::assertSame(self::PATH . '?state=held&channel=vpg', self::storeSeg($held)[2][1]);
+        self::assertSame(self::PATH . '?state=held&channel=vpg', self::storeChoice($held, self::PATH)[2][1]);
         $paid = $this->page($web, ['state' => 'committed']);
         self::assertSame(['V1001', 'V1003'], self::refs($paid));
         self::assertSame([Words::RESV_GROUP['to_ship'], Words::RESV_GROUP['closed']], self::groupTitles($paid));

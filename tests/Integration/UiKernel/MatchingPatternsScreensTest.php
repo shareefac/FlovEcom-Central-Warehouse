@@ -162,6 +162,8 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         [$href, $label, $line] = $eyebrow($web->get('/ui/review/listing/' . $l1, $query));
         self::assertSame(['/ui/review/store?channel=vpg&sort=sold_365#l-' . $l1, Words::MENU['store_products']], [$href, $label]);
         self::assertStringContainsString($left, $line, 'the store and how many are left to match');
+        // One separator after the list (docs/decisions.md DC37; the coordinator's Chrome check read "Store products › · Electrofag · …").
+        self::assertSame(Words::MENU['store_products'] . ' › ' . $left, $line);
 
         // From New Variants or Simple matching (their rows link the page bare): that list, as the person had it.
         $from = static fn (string $ref): \CW\Tests\Support\UiResponse => $web->send('GET', '/ui/review/listing/' . $l1, [], [], ['referer' => 'http://cw-ui.review.invalid' . $ref]);
@@ -175,7 +177,7 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         foreach ([$from('/ui/'), $web->send('GET', '/ui/review/listing/' . $l1, [], [], ['referer' => 'https://evil.example/ui/match?q=x']), $web->get('/ui/review/listing/' . $l1)] as $page) {
             [$href, $label, $line] = $eyebrow($page);
             self::assertSame(['/ui/review/store?channel=vpg', Words::MENU['store_products']], [$href, $label]);
-            self::assertStringContainsString($left, $line);
+            self::assertSame(Words::MENU['store_products'] . ' › ' . $left, $line);
         }
     }
 

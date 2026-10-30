@@ -89,9 +89,10 @@ final class DesignConformanceScreensTest extends KernelUiTestCase
         self::assertMockupHead($orders, 'Purchase orders, looking', null);
         $xp = self::xp($orders);
         self::assertSame(0, $xp->query('//main//header[contains(@class, "page-head")]/div[@class="ph-actions"]')->length, 'nothing to create');
-        $help = $xp->query('//main//header[contains(@class, "page-head")]//div[@class="ph-title"]/details[contains(@class, "look-only")]');
-        self::assertSame(1, $help->length, 'the "?" beside the heading');
-        self::assertStringStartsWith('You can look;', trim((string) $help->item(0)?->textContent));
+        $help = $xp->query('//main//header[contains(@class, "page-head")]//div[@class="ph-title"]/details[contains(@class, "help")]');
+        self::assertSame(1, $help->length, 'ONE "?" beside the heading (DC34): the page\'s own help, who changes it its last line');
+        self::assertStringContainsString('look-only', (string) $help->item(0)?->getAttribute('class'));
+        self::assertStringStartsWith('You can look;', trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")]/div/p[last()])')));
         // The steps that keep their line: the password's rule.
         $password = $viewer->get('/ui/password');
         self::assertSame(Words::PAGE_INTRO['password'][0] . ' ' . Words::PAGE_INTRO['password'][1],

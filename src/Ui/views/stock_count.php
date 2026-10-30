@@ -7,7 +7,9 @@
 // kept; app.js marks a box typed in and not saved yet, and writes the moment it was filled in into at_<line>, counted from data-drawn:
 // review M-7). The line to count now is marked; on a phone it is the one big card with "Save and next item", the others small cards. The
 // bar at the bottom (.doc-bar; its buttons name the quantity form): More (count on paper: the download, the upload and its preview; stop
-// the sheet), Save, and "Save and review" (saves, then opens the review: OV6). A final sheet: what was booked for each line and its check;
+// the sheet), Save, and "Save and review" (saves, then opens the review: OV6). Which lines it shows (every line, not counted yet, counted) is the
+// sheet's Show choice over them (a GET form that asks first while a count is typed and not saved: data-leaves; CT_Sheet draws no tab row,
+// docs/decisions.md DC35). A final sheet: what was booked for each line and its check;
 // cancel it as a whole. The record that puts a count back, or cancels a sheet: its facts and what it is about.
 ?>
 <div class="doc-head">
@@ -72,11 +74,17 @@
 <section aria-labelledby="lines-h">
   <h2 id="lines-h"<?php if ($editable): ?> class="visually-hidden"<?php endif; ?>><?= $word('COUNTS', 'lines_title') ?></h2>
 <?php if ($editable): ?>
-  <nav class="tabs show-tabs" aria-label="<?= $word('COUNTS', 'lines_title') ?>">
-<?php foreach ($showLinks as $s): ?>
-    <a class="tab"<?php if ($s['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($s['href']) ?>"<?php endif; ?>><?= $word('COUNT_SHOW', $s['key']) ?></a>
+  <form class="toolbar" method="get" action="<?= $u($base) ?>" data-leaves="1" aria-label="<?= $word('UI', 'filter') ?>">
+    <div class="tb-state">
+      <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
+      <select id="tb-show" name="show">
+<?php foreach ($shows as $s): ?>
+        <option value="<?= $e($s['key']) ?>"<?php if ($s['current']): ?> selected<?php endif; ?>><?= $word('COUNT_SHOW', $s['key']) ?></option>
 <?php endforeach; ?>
-  </nav>
+      </select>
+      <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+    </div>
+  </form>
 <?php endif; ?>
 <?php if ($lines === []): ?>
   <p class="muted"><?php if ($lines_n === 0): ?><?= $word('COUNTS', 'no_lines') ?><?php else: ?><?= $word('COUNTS', 'no_lines_shown') ?><?php endif; ?></p>

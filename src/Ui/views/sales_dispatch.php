@@ -1,15 +1,12 @@
 <?php
 // Stock › Sales › Dispatch (pack D, docs/decisions.md PD6), a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W10):
-// read only. One Show row (the four lists: waiting to ship, sent today, sent this week, sending undone); the store selector (with each
-// store's paid orders waiting to ship); the figures strip; then the list chosen, its rows grouped (late, then on time; a day of sending;
+// read only. One Show row (the four lists: waiting to ship, sent today, sent this week, sending undone; and the store, with each store's paid
+// orders waiting to ship: docs/decisions.md DC33); the figures strip; then the list chosen, its rows grouped (late, then on time; a day of sending;
 // sending undone), every group a coloured heading with its count over a card with its colour on the left edge, the status cell filled,
 // the order's number opening it. No form here posts anything.
 ?>
 <?= $head(\CW\Ui\Words::MENU['sales_dispatch'], intro: 'sales_dispatch', aside: $explain('sales_dispatch', \CW\Ui\Words::MENU['sales_dispatch'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-<?php if ($channel !== null): ?>
-  <input type="hidden" name="channel" value="<?= $e($channel) ?>">
-<?php endif; ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DISPATCH', 'show') ?></label>
     <select id="tb-show" name="show">
@@ -17,10 +14,15 @@
       <option value="<?= $e($s['value']) ?>"<?php if ($s['current']): ?> selected<?php endif; ?>><?= $e($s['label']) ?></option>
 <?php endforeach; ?>
     </select>
+    <label class="visually-hidden" for="tb-store"><?= $word('BULK', 'stores') ?></label>
+    <select id="tb-store" name="channel" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::DISPATCH['store_count']) ?>">
+<?php foreach ($storeItems as $it): ?>
+      <option value="<?= $e($it['query']['channel'] ?? '') ?>"<?php if ($it['current']): ?> selected<?php endif; ?>><?= $e($it['label']) ?> (<?= $n($it['count']) ?>)</option>
+<?php endforeach; ?>
+    </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
 </form>
-<?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::DISPATCH['store_count']]) ?>
 
 <section class="doc-progress rp-figs" aria-label="<?= $word('DISPATCH', 'figures') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('DISPATCH', 'tile_waiting') ?></p><p class="doc-step-big"><?= $n($figures['waiting']) ?></p><p class="step-sub"><?= $say('DISPATCH', 'tile_waiting_sub', $figures['waiting_units']) ?></p></div>

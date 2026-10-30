@@ -1,5 +1,16 @@
 <?= $head(\CW\Ui\Words::PAGE_TITLE['pending'], intro: 'pending', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
-<?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_pending']]) ?>
+<form class="toolbar" method="get" action="/ui/review" aria-label="<?= $word('UI', 'filter') ?>">
+  <input type="hidden" name="queue" value="pending">
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('QUEUE', 'show') ?></label>
+    <select id="tb-show" name="channel" aria-label="<?= $word('BULK', 'stores') ?>" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::BULK['store_count_pending']) ?>">
+<?php foreach ($stores as $it): ?>
+      <option value="<?= $e($it['query']['channel'] ?? '') ?>"<?php if ($it['current']): ?> selected<?php endif; ?>><?= $e($it['label']) ?> (<?= $n($it['count']) ?>)</option>
+<?php endforeach; ?>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
+</form>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

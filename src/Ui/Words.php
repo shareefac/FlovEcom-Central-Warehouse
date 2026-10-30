@@ -1544,7 +1544,7 @@ final class Words
         'stock_now' => 'Stock now',
         'last_counted' => 'Last counted',
         'never' => 'never',
-        'sells' => 'Sold a day',
+        'sells' => 'Sells a week', // CT_Board's column: the sales figure a week, whole units (docs/decisions.md DC36)
         'no_sales' => 'no sales figure',
         // The board's bar (CV2): "N ticked", the one Count menu, the shelf, the note, the one button.
         'ticked' => '%s ticked',
@@ -4676,6 +4676,8 @@ final class Words
         'all_stores' => 'All stores',
         'store_count_review' => 'to review',
         'store_count_pending' => 'waiting for a second OK',
+        // The store choice of a Show row (docs/decisions.md DC33): what the number beside each store counts, as the choice's hover text.
+        'store_count_title' => 'The number beside each store: %s',
         'store_count_samples' => 'spot check matches to answer',
         'store_count_products' => 'website products',
         'bar' => 'Ticked products',

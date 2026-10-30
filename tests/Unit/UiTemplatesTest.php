@@ -42,7 +42,7 @@ final class UiTemplatesTest extends TestCase
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
             'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_files', 'bench_list', 'incidents',
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
-            'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
+            'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'bulk_bar', 'bulk_confirm', 'bulk_result',
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
             'by_product_options', // By Item's quick match: the fragment app.js draws into a cell (the owner's request of 20 Oct 2026)
             'by_item_preview', 'new_variants', 'one_at_a_time',
@@ -208,7 +208,7 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         foreach (['queue', 'listing', 'listing_form', 'listing_more', 'listing_progress', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
-            'search', 'item', 'item_bar', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
+            'search', 'item', 'item_bar', 'mapping_overview', 'store_products', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
             'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time', 'listing_check', 'check_fold', 'search_note', 'store_new_preview',
             'simple_match', 'simple_match_options'] as $name) {
             $src = $templates[$name . '.php'];
@@ -569,11 +569,14 @@ final class UiTemplatesTest extends TestCase
             rmdir($dir);
         }
         self::assertStringContainsString('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow">Purchasing<span class="ph-tag"> · x&amp;y</span></p>'
-            . '<div class="ph-title"><h1><span class="stmt">PO-1 &lt;b&gt;</span> <span class="chip done">PO-1 &lt;b&gt;</span></h1><details class="help">', $html,
+            . '<div class="ph-title"><h1><span class="stmt">PO-1 &lt;b&gt;</span> <span class="chip done">PO-1 &lt;b&gt;</span></h1><details class="help look-only">'
+            . '<summary aria-label="What does &quot;x&quot; mean?" title="What does &quot;x&quot; mean?"></summary><div class="help-body"><p>', $html,
             'the eyebrow is the section, the heading and its chips escaped');
-        self::assertStringContainsString('<details class="help look-only"><summary aria-label="' . Words::UI['look_help'] . '" title="' . Words::UI['look_help'] . '"></summary>'
-            . '<div class="help-body"><p>You can look; Buyers change this.</p></div></details></div></div><div class="ph-actions"><a class="btn primary" href="/ui/receiving/new">', $html,
-            'no sentence: who changes it is the "?" after the page\'s own; the create button on the right');
+        self::assertStringContainsString('<p>You can look; Buyers change this.</p></div></details></div></div><div class="ph-actions"><a class="btn primary" href="/ui/receiving/new">', $html,
+            'no sentence: who changes it is the last line of the page\'s own "?"; the create button on the right');
+        $at = (int) strpos($html, '<header class="page-head">');
+        $header = substr($html, $at, (int) strpos($html, '</header>', $at) - $at);
+        self::assertSame(1, substr_count($header, '<details class="help'), 'ONE "?" beside a heading (docs/decisions.md DC34; Store orders showed two)');
         self::assertStringNotContainsString('<p class="lede">', $html);
         self::assertStringNotContainsString('<nav class="tabs"', $html, 'no tab row under the statement (DC28)');
         self::assertSame(1, substr_count($html, '<h1'));
@@ -606,6 +609,11 @@ final class UiTemplatesTest extends TestCase
         self::assertSame('<header class="page-head"><div class="ph-text"><p class="ph-eyebrow ph-back"><a href="/ui/stock/counts">Counts</a><span aria-hidden="true"> ›</span></p>'
             . '<div class="ph-title"><h1><span class="stmt">Count sheet CNT-1</span></h1></div></div></header>',
             Html::statement('Stock', 'Count sheet CNT-1', back: ['/ui/stock/counts', 'Counts']));
+        // DC37: with a tag (the store and how many are left), ONE separator after the list: "Store products › Electrofag · 8,767 to match"
+        // (it read "Store products › · Electrofag · …").
+        self::assertStringContainsString('<p class="ph-eyebrow ph-back"><a href="/ui/review/store">Store products</a><span aria-hidden="true"> ›</span>'
+            . '<span class="ph-tag"> Electrofag · 8,767 to match</span></p>',
+            Html::statement('Matching', 'Is this the same item?', tag: 'Electrofag · 8,767 to match', back: ['/ui/review/store', 'Store products']));
         // DC1: who may change a look-only page, under a "?".
         self::assertSame('<details class="help look-only"><summary aria-label="' . Words::UI['look_help'] . '" title="' . Words::UI['look_help'] . '"></summary>'
             . '<div class="help-body"><p>You can look; Buyers change this.</p></div></details>', Html::lookOnly(sprintf(Words::UI['look_only'], 'Buyers')));
@@ -1477,8 +1485,9 @@ final class UiTemplatesTest extends TestCase
                 self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
             }
         }
-        self::assertGreaterThanOrEqual(5, $tabs, 'every tab row was read (fewer since the boards\' and the reports\' Show menus replaced the show tabs, W11.3, W11.8, W13.3-W13.6, '
-            . 'and the matching pages\' store, state, period and show tabs, W12.5-W12.8)');
+        self::assertGreaterThanOrEqual(3, $tabs, 'every tab row was read (fewer since the boards\' and the reports\' Show menus replaced the show tabs, W11.3, W11.8, W13.3-W13.6, '
+            . 'the matching pages\' store, state, period and show tabs, W12.5-W12.8, and the last store and count-sheet rows, DC33, DC35: the item\'s and the supplier\'s '
+            . 'record tabs are left)');
         $templates = self::templates();
         foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
@@ -2136,6 +2145,52 @@ final class UiTemplatesTest extends TestCase
             }
         }
         self::assertGreaterThanOrEqual(3, $owners, 'the owners were read (an invoice\'s plan, an order\'s cancel, a line to place)');
+    }
+
+    /**
+     * The polish after the final Chrome check (docs/decisions.md DC33, DC35, DC38; the owner, 30 Oct 2026: "dont need tab view use sidebar and
+     * sub section"): no page draws a tab or segment row of its own. The only tab rows left are inside a record a mockup draws with tabs (the
+     * item's parts, IT_Item; the supplier's, the supplier record): no `nav.tabs` elsewhere, no tablist, no `.seg` row. The store tab row
+     * (`store_seg`) is gone: the five pages that drew it choose the store in their ONE Show row (a select of the same `channel` values, the
+     * Show button sending it without a script, no hidden `channel` beside it, which would send it twice); the count sheet's lines are chosen
+     * in its Show form (the same `show` values), which leaves the page and so asks first while typed counts are not saved (data-leaves).
+     */
+    public function testNoPageDrawsATabOrSegmentRowOutsideARecordAMockupDraws(): void
+    {
+        $t = self::templates();
+        $records = ['item.php' => 'item-tabs', 'supplier.php' => 'record-tabs'];
+        $rows = 0;
+        foreach ($t as $name => $src) {
+            self::assertStringNotContainsString('role="tablist"', $src, "{$name}: no tab list");
+            foreach (self::classed($src) as $el) {
+                $where = "{$name} line {$el['line']} <{$el['tag']} class=\"" . implode(' ', $el['classes']) . '">';
+                self::assertNotContains('seg', $el['classes'], "{$where}: no segment row (DC28)");
+                self::assertSame([], array_values(array_intersect($el['classes'], ['store-seg', 'show-tabs', 'state-tabs', 'period-tabs'])), "{$where}: a tab row went");
+                if (in_array('tabs', $el['classes'], true)) {
+                    $rows++;
+                    self::assertArrayHasKey($name, $records, "{$where}: a tab row only inside a record a mockup draws with tabs");
+                    self::assertContains($records[$name], $el['classes'], $where);
+                }
+            }
+        }
+        self::assertSame(2, $rows, 'the item\'s tabs and the supplier\'s');
+        self::assertArrayNotHasKey('store_seg.php', $t, 'the store tab row is gone');
+        foreach (['pending' => '/ui/review', 'sales_orders' => null, 'sales_dispatch' => null, 'sales_returns' => null, 'stock_reservations' => null] as $name => $action) {
+            $src = $t[$name . '.php'];
+            self::assertStringNotContainsString("\$partial('store_seg'", $src, $name);
+            self::assertSame(1, preg_match('#<form class="toolbar" method="get"' . ($action === null ? '' : ' action="' . preg_quote($action, '#') . '"') . '[^>]*>(.*?)</form>#s', $src, $form), "{$name}: its Show row");
+            self::assertSame(1, preg_match_all('#<select id="[a-z-]+" name="channel"#', $form[1]), "{$name}: the store is a choice of the Show row");
+            self::assertStringContainsString("<?php foreach (\$" . ($name === 'pending' ? 'stores' : 'storeItems') . ' as $it): ?>', $form[1], "{$name}: each store of the store items");
+            self::assertStringContainsString('<option value="<?= $e($it[\'query\'][\'channel\'] ?? \'\') ?>"<?php if ($it[\'current\']): ?> selected<?php endif; ?>><?= $e($it[\'label\']) ?> (<?= $n($it[\'count\']) ?>)</option>',
+                $form[1], "{$name}: the same values, the count in the label, the one shown selected");
+            self::assertStringNotContainsString('name="channel" value=', $form[1], "{$name}: no hidden store beside the choice");
+            self::assertSame(1, substr_count($form[1], '<button type="submit" class="btn sm"><?= $word(\'DOC_LIST\', \'show\') ?></button>'), "{$name}: its Show button");
+        }
+        $sheet = $t['stock_count.php'];
+        self::assertSame(1, preg_match('#<form class="toolbar" method="get" action="<\?= \$u\(\$base\) \?>" data-leaves="1"[^>]*>(.*?)</form>#s', $sheet, $show), 'the sheet\'s Show form, guarded');
+        self::assertStringContainsString('<select id="tb-show" name="show">', $show[1]);
+        self::assertStringContainsString('<button type="submit" class="btn sm"><?= $word(\'DOC_LIST\', \'show\') ?></button>', $show[1]);
+        self::assertStringNotContainsString('href=', $show[1], 'the choice shown is never a link (CV13)');
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

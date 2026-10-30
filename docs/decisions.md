@@ -14462,3 +14462,64 @@ refused (409 changed_meanwhile). `Settings::allWithVersions()` reads each value 
 sessions are READ COMMITTED, so two statements are two snapshots), first of the page's reads, never from rows read earlier.
 `ReportsSettingsPatternsScreensTest::testASettingsRowsValueAndVersionAreReadTogether` puts another reviewer's save exactly between the
 page's reads: the row shows a value with its own version, and its save is refused only when it did not see the other's.
+
+## Polish after the final Chrome check, 30 Oct (branch `polish`, 30 Oct 2026; DC33-DC39)
+
+The coordinator's final Chrome check of staging `1b9a695` found five small differences from the owner's rules of 30 Oct ("strictly follow
+our design guidelines"; "dont need tab view use sidebar and sub section", DC28). Layout and words only: no route, permission, parameter,
+query, setting or service rule changed; every address, filter link, CSV and bookmark reads as before. Each was shown failing first
+(`runs/polish_red.log`: 14 of 15 tests fail on main `1b9a695` with the new tests).
+
+**DC33. The store is a choice of the page's ONE Show row, not a tab row.** Waiting for a second OK, Store orders, Dispatch, Returns and
+Reservations drew the store tab row (`store_seg`: "All stores | Electrofag | Vape and Go | Vape Big" with counts). Each now has the store
+as a select in its Show row (`form.toolbar .tb-state`), beside the choices it had: the same `channel` parameter and values (the store's
+code; "All stores" sends it empty, which every controller reads as no store, as the tab's link without one), the options from the same
+`ReviewController::storeItems`, the count in the option's label ("Vape Big (12)", as the matching pages since W12.5), the one shown
+`selected` (never a link: CV13). The hidden `channel` the forms carried beside the tab row went (it would send the store twice). The Show
+button sends it without a script, with the row's other fields: the list's state, way in, days, Dispatch's list, Returns' kind, the
+search, so a store chosen keeps them as the tab links did (Dispatch's list goes as `show=waiting`, its own default: W10.10). Waiting for a
+second OK had no Show row: its store is the plain Show choice of To review's overview (one filter, `action="/ui/review"`, its
+`queue=pending` hidden). What a number counts is the select's hover text (`BULK store_count_title`: "The number beside each store: paid
+orders waiting to ship"), the words the tabs carried for a screen reader. The partial `store_seg.php` is removed: nothing else used it.
+Store orders' row is now state, way in, From, To, store and Show: on a phone it wraps as before (W10.7), each control its share.
+
+**DC34. ONE "?" beside a heading.** Store orders showed two: its own help (`aside: $explain('sales_orders', …)`) and DC1's look-only "?"
+(`Words::INTRO_LOOK`). A page with its own help now has the look-only line as that "?"'s last paragraph (`Html::helpWithLook`, from
+`View::head`; the whole is `details.help.look-only`, its name the help's own); a page with only one of them is as before. It changes
+every page whose head has both: Store orders, Dispatch and Reservations always; Purchase orders, Goods in, the stock records, incidents,
+warehouses, the cards and Waiting for a second OK for a person who can only look; Approvals with its own line (`more:`).
+
+**DC35. The count sheet's lines are its Show choice.** An open sheet drew `nav.tabs.show-tabs` (Every line, Not counted yet, Counted) over
+its lines; CT_Sheet draws no tab row. It is a Show form over the lines now (GET, `action` the sheet, the same `show` values: all, todo,
+done; its Show button; the one shown selected). Typed counts are never lost: the form carries `data-leaves`, so while the quantities
+form holds a number typed and not saved, app.js stops the first press and says so in the form (the same guard as the scan box and the
+other forms, GV11, CV14); the second press goes on. A choice changed but not sent changes nothing.
+
+**DC36. Counts' "Sold a day" is CT_Board's "Sells a week".** The board showed the plan's sales figure as stored (216.3417 units a day).
+CT_Board's column is "Sells a week" in whole units: the same figure (`reorder_demand.rate`) times 7, rounded half up, "under 1" when
+something sells but less than half a unit a week: the item page's rule (`ItemController::weekly`, IV3), so the two pages agree. A pure
+display change: the query, the plan's order and the setting are as before.
+
+**DC37. A record's eyebrow has one separator after its list.** The matching decision page's eyebrow read "Store products › · Electrofag ·
+8,767 to match": `Html::statement` put " · " before the tag after the "›". With `back:` the tag follows the "›" ("Store products ›
+Electrofag · 8,767 to match"); without it, the section and its tag keep their " · ". Every page with `back:` was checked (seventeen
+templates): only the matching page passes a tag with it, so it was the only page with the double separator; no template draws "›" itself.
+
+**DC38. The sweep: no page-level tab or segment row is left.** Every template was searched for `nav.tabs`, `role="tablist"` and a `.seg`
+row. Left: the item page's tabs (`nav.tabs.item-tabs`, IT_Item draws them) and the supplier's (`nav.tabs.record-tabs`, the supplier
+record): tabs inside a record a mockup draws (DC28). Gone here: the store row (DC33) and the count sheet's (DC35). Not tab rows, kept:
+By Item's rows per page (`nav.rows-choice` at the toolbar's end, a size picker like the pager, U123; its current size is still a link, a
+CV13 difference left for its page), Store orders' period line ("Last 7 days · Show all", one link in a sentence), the pagers, the
+sidebar's `ul.nav-seg` (DC28's segments, in the menu). No tablist anywhere; app.js's `nav.tabs` code serves the two record rows.
+
+**DC39. Tests.** `UiTemplatesTest::testNoPageDrawsATabOrSegmentRowOutsideARecordAMockupDraws` (the sweep as a pin: a tab row only in
+`item.php` and `supplier.php`, no tablist or `.seg`, no `store_seg`; the five pages' store select of the same values in their Show form
+with its button and no hidden store; the sheet's guarded Show form), `testEveryPageOpensWithItsStatement` (one "?" with the look-only
+line last), `testTheSharedPartsFollowTheApprovedMockups` (the eyebrow's tag after "›"). `KernelUiTestCase::storeChoice()` reads a Show
+row's store as the address its button sends (path and the row's fields, empty ones left out); `SalesScreensTest`,
+`ReservationsScreenTest` and `BulkScreensTest` read the store through it where they read the tab row (the same stores, counts, current
+store and kept filters), and check one "?" with the page's help and who changes it. `UnsavedTabsScreensTest` pins the sheet's Show form
+(no tab row, the values, the one shown, guarded, no link); `CountsScreensTest` "Sells a week" (53 for 7.5 a day, 2 for 0.25);
+`MatchingPatternsScreensTest` the whole eyebrow; `DesignConformanceScreensTest` and `ItemCardScreensTest` the look-only "?" as the one
+"?" (Purchase orders for an auditor; the cards' rules, then who changes them, for a buyer). The tab-link floor of
+`testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves` is 3 (the item's two and the supplier's).

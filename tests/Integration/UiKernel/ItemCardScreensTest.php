@@ -602,9 +602,12 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         $rules = trim(str_replace('**', '', Words::HELP['card_rules']));
         self::assertSame(0, $xp->query('//p[contains(@class, "hint") and contains(., "' . mb_substr($rules, 0, 30) . '")]')->length, 'no rules paragraph');
-        $help = $xp->query('//header[@class="page-head"]//details[@class="help"]')->item(0);
+        // ONE "?" beside the heading (docs/decisions.md DC34): the rules, and for a buyer, who only looks, who changes them as its last line.
+        self::assertSame(1, $xp->query('//header[@class="page-head"]//details[contains(concat(" ", @class, " "), " help ")]')->length, 'one "?"');
+        $help = $xp->query('//header[@class="page-head"]//details[contains(concat(" ", @class, " "), " help ")]')->item(0);
         self::assertInstanceOf(\DOMElement::class, $help, 'the "?" beside the heading');
-        self::assertSame($rules, trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(div[@class="help-body"])', $help))));
+        self::assertSame($rules, trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(div[@class="help-body"]/p[1])', $help))));
+        self::assertSame(sprintf(Words::UI['look_only'], Words::whoCan('catalogue.edit')), trim((string) $xp->evaluate('string(div[@class="help-body"]/p[last()])', $help)));
         self::assertSame('What does "' . Words::CARDS['rules_label'] . '" mean?', (string) $xp->evaluate('string(summary/@aria-label)', $help));
         self::assertSame([Words::MENU['cards'], Words::CARD_STATE['none'], Words::CARDS['group_one']], [trim((string) $xp->evaluate('string(//h1)')),
             trim((string) $xp->evaluate('string(//h3[@class="grp-title"]/button)')), trim((string) $xp->evaluate('string(//h3[@class="grp-title"]/span[@class="grp-count"])'))]);

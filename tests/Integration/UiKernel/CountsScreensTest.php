@@ -169,6 +169,12 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('COUNTS', 'plan', 120), $page->text());
         self::assertSame(['Counted last year', 'Best seller pod', 'Slow liquid'], self::names($page), 'overdue first, then never counted (best sellers first)');
         self::assertSame(['Overdue', 'Never counted', 'Never counted'], self::cells($page));
+        // "Sells a week" as CT_Board draws it (docs/decisions.md DC36; it read "Sold a day" 216.3417): the same figure (reorder_demand.rate,
+        // units a day) times 7, a whole number rounded half up as the item page's (7.5 a day: 52.5, shown 53; 0.25 a day: 1.75, shown 2).
+        self::assertSame(['Sells a week'], array_values(array_unique(array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//table[contains(@class, "count-next")]/thead/tr/th[contains(@class, "num")]'))))));
+        self::assertSame([Words::COUNTS['no_sales'], '53', '2'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//table[contains(@class, "count-next")]/tbody/tr/td[contains(@class, "num")]'))), 'Counted last year has no sales figure');
         self::assertSame(3, $xp->query('//table[contains(@class, "count-next")]//td[contains(@class, "c-pick")]//input[@type="checkbox"]')->length,
             'a tick box a row');
         self::assertSame(0, $xp->query('//table[contains(@class, "count-next")]//th[normalize-space() = "' . Words::COUNTS['stock_now'] . '"]')->length,

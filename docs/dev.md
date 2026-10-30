@@ -453,7 +453,7 @@ another big page comes from disk), so compare runs made back to back, with no PH
 | `src/Staff/{Enrolment,RoleRequests,StaffSessions,SetupCode}.php`, `StaffAdmin::enrol/newSheet/resetAuthenticator/resetPassword/setupInfo/signOut`, `src/Output/QrCode.php` | adding a person with a sign-up sheet (QR code + one-time set-up code), /ui/enrol and /ui/new-code (the person's own fresh secret, confirmed before any session; an admin never holds both factors: Y40-Y44), the resets, signed-in devices, the staff-grant and staff-reset requests; the QR matrix (`bacon/bacon-qr-code`) |
 | `src/Ui/Controller/{Settings,Approvals,Reasons,Warehouses,System,Access,StaffRequests}Controller.php`, `src/Ui/ConfigWords.php`, views `setting`, `config_history`, `approvals`, `reason(s)`, `warehouse(s)`, `sites`, `integrity`, `audit`, `access`, `staff_sheet`, `enrol`, `staff_requests` | the set-it-yourself screens; `ConfigWords` says a version's who/what in words |
 | `tests/Unit/SetItYourselfUnitTest.php`, `tests/Integration/Admin/`, `tests/Integration/Staff/StaffSetUpTest.php`, `Migration0019Test`, `tests/Integration/UiKernel/SetItYourselfScreensTest.php` | the services, the switches' effects (and S2/S3), the audit search, the staff set-up, the baselines, the screens end to end |
-| `migrations/0021_mapping_bulk.sql`, `src/Mapping/BulkDecisions.php`, `src/Ui/Controller/{Bulk,StoreProducts}Controller.php`, views `mapping_overview`, `store_products`, `store_seg`, `bulk_bar`, `bulk_confirm`, `bulk_result` | store-wise review and bulk action on the matching screens (M46-M53, U106-U112): the store selector (`ReviewController::storeItems`, the `channel` value kept by `Sections::MAP` `keep`), the "By store" overview (`Queries::storeBands`), Store Products (`Queries::storeStateCounts`, `storeProducts`), the tick boxes and the action bar (app.js, section 21 of app.css), row-by-row decisions with skips and a batch (`mapping_batch`, `mapping_batch_row`, `screen:<id>` on every decision), the result/batch page, DecisionService's `unignore` and `send_back`, the settings `mapping.bulk_confirm_bands` (a `list_in` setting drawn as tick boxes), `mapping.bulk_max_rows` and the switch `approvals.mapping_bulk_second_ok` |
+| `migrations/0021_mapping_bulk.sql`, `src/Mapping/BulkDecisions.php`, `src/Ui/Controller/{Bulk,StoreProducts}Controller.php`, views `mapping_overview`, `store_products`, `bulk_bar`, `bulk_confirm`, `bulk_result` | store-wise review and bulk action on the matching screens (M46-M53, U106-U112): the store selector (`ReviewController::storeItems`, the `channel` value kept by `Sections::MAP` `keep`), the "By store" overview (`Queries::storeBands`), Store Products (`Queries::storeStateCounts`, `storeProducts`), the tick boxes and the action bar (app.js, section 21 of app.css), row-by-row decisions with skips and a batch (`mapping_batch`, `mapping_batch_row`, `screen:<id>` on every decision), the result/batch page, DecisionService's `unignore` and `send_back`, the settings `mapping.bulk_confirm_bands` (a `list_in` setting drawn as tick boxes), `mapping.bulk_max_rows` and the switch `approvals.mapping_bulk_second_ok` |
 | `tests/Integration/Mapping/BulkDecisionsTest.php`, `tests/Integration/UiKernel/BulkScreensTest.php` | the service (skips with why, Second approval, the settings, order and batch, the two new decisions, who may) and the screens (the bar per list and person, the second steps, the refusals, the result page, CSRF and permissions, the store everywhere, Store Products' states, undo one match, the settings page) |
 | `migrations/0022_stock_ops.sql` | pack A1: the kinds SIN, SOUT, TRF, REL (+ their series) and ADJ's sizes; `document_type.size_approval/size_units/size_value` (the OK first for a big record, off); `reason_code.needs_given_to/below_zero` and the uses `stock_in`, `stock_out`; new reasons with baselines, found/sample/other's next versions; `stock_op` (a stock record's header), `other_account_entry` (the balance owed, append-only) (SO1-SO16) |
 | `src/StockOps/` | `StockOps` (the stock records' service: drafts, lines, add by barcode / CW number / words, post, stop, cancel, take back, files, read side), `StockOpHandler` (one handler for the five kinds: validate, approval units, size, post, reverse; never below zero), `OtherAccounts` (another account's room and the balance owed: payments and their reversal), `CostHints` (average cost so far, last supplier price), `StockOpsInvariants` (O1-O6), `StockOpPdf` (transfer note, release invoice); `src/Documents/SizeApproval.php` (the OK first for a big record) |
@@ -763,7 +763,7 @@ The parts board (`TP_Parts`) as shared classes in `public/ui/assets/app.css` (se
 |---|---|---|
 | Button | `.btn` + at most one of `.primary` (main, ONE per page or per form), `.soft` (helper on a field), `.ghost` (Leave, Change, Clear), `.ok` (All fine), `.risky` (only in More or a confirm fold) + at most one of `.sm` / `.lg` | every `<button>` carries `.btn`; a two-line answer holds `span.btn-title` + `span.sub`; disabled = `disabled` / `aria-disabled="true"` with `span.btn-why` beside it |
 | More | `details.more` > `summary.btn` + `div.more-menu` (rows: `a.menu-item`, a form's `.btn`, a `details.doc-act` fold) | the page's other "New …" (`views/split.php`), a saved order's or invoice's other steps (`po_bar`, `si_bar`); no script needed; in the flow on a phone |
-| Tabs | `nav.tabs[aria-label]` > `a.tab[aria-current="page"]` (+ `span.count`; a `span.tab.soon` not built yet) | a row's name after `tabs`: `seg` (a tab's segments, `page_frame`), `store-seg`, `show-tabs`, `state-tabs`, `period-tabs`, `legend`; never wraps, app.js fades the side with more |
+| Tabs | `nav.tabs[aria-label]` > `a.tab[aria-current="page"]` (+ `span.count`; a `span.tab.soon` not built yet) | only inside a record a mockup draws with tabs (DC28, DC38): `item-tabs` (IT_Item), `record-tabs` (the supplier); no page draws a tab or segment row of its own (a list's choices are its Show row's); app.js fades the side with more |
 | Status | `$chip($tone, $words)` / `$stateChip(...)` → `.chip <tone>`; `td.doc-st <tone>` in a board; `span.tag <tone>` for a small fact | tones: `Words::TONES` (grey waiting, blue info, purple review, amber needs, green done, red blocked, navy off) |
 
 - Tests: `UiUnitTest::testTheOneTabsButtonsAndStatusPartsFollowThePartsBoard` (CSS), `UiTemplatesTest::testNoViewUsesARemovedClass` (the
@@ -919,7 +919,7 @@ Every page keeps its address and its forms; only the layout follows the pattern 
 | `/ui/stock/handovers/customers` | `handover_customers` (+ `handover_customer_fields`) | 1 board (in use, switched off); add form in two columns |
 | a customer `/ui/stock/handovers/customers/{id}` | `handover_customer` (+ `customer_bar`) | 2 record page (its prices and hand-overs as related boards) |
 | `/ui/stock/handovers/balances` | `handover_balances` | 5 report (+ each customer's part at `#customer-<id>`) |
-| `/ui/stock/reservations` | `stock_reservations` | 1 board (the store selector kept) |
+| `/ui/stock/reservations` | `stock_reservations` | 1 board (the store a choice of its Show row, DC33) |
 | `/ui/stock/movements` | `stock_movements` | 5 report (a group a day) |
 | `/ui/stock` | `stock` | 5 report (out of stock / in stock groups) |
 | `/ui/stock/accounts` | `stock_accounts` | 5 report (+ each account's part at `#account-<id>`) |
@@ -1032,14 +1032,15 @@ on main's shared parts and W8's / W9's (`Html::groups`, `td.c-next`, `form.doc-d
 - Tests: `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/ProductPatternsScreensTest.php`
   (the pages as served), `ItemCardScreensTest` (All Products' board, filters and Clear; the barcode inbox), `ItemManagementScreensTest`.
 
-### Design conformance across every page (`docs/decisions.md` DC1-DC28)
+### Design conformance across every page (`docs/decisions.md` DC1-DC28, DC33-DC38)
 
 The shared code follows the approved mockups (section A of `runs/dsaudit_findings.txt`); a page adds nothing of its own to these.
 
 | Piece | Where | Notes |
 |---|---|---|
-| The statement | `View::head` → `Html::statement` | no full stop, no sentence (only `View::INTRO_KEPT` draws its intro); `look:` / a look-only `more:` / `Words::INTRO_LOOK` is the "?" beside the heading (`Html::lookOnly`, `details.help.look-only`) |
-| A record's eyebrow | `$head(back: [href, label])` | the list as an accent link and "›" (`p.ph-eyebrow.ph-back`); no `p.crumbs` above the head |
+| The statement | `View::head` → `Html::statement` | no full stop, no sentence (only `View::INTRO_KEPT` draws its intro); `look:` / a look-only `more:` / `Words::INTRO_LOOK` is the "?" beside the heading (`Html::lookOnly`, `details.help.look-only`); with the page's own help (`aside: $explain(…)`) it is that "?"'s last line: ONE "?" (`Html::helpWithLook`, DC34) |
+| A record's eyebrow | `$head(back: [href, label])` | the list as an accent link and "›" (`p.ph-eyebrow.ph-back`), a `tag` right after it ("Store products › Electrofag · 8,767 to match", DC37); no `p.crumbs` above the head |
+| A list's store | `select[name=channel]` in the Show row (`form.toolbar .tb-state`; a pop-over's when the list has several filters) | options from `ReviewController::storeItems` ("All stores" and each store, "Name (N)", the one shown `selected`; the hover `BULK store_count_title` says what N counts); no hidden `channel` beside it; no store tab row (DC33) |
 | The create button | the layout's `actions` (Sections `new`) | always in the header (no `OWN_TOOLBAR`); the page's own only, no second More |
 | A section's pages | `Sections::frame` `nav[*]['subs']` (each with `segs`), `layout.php` | the open section's pages as `a.nav-sub-item` under it, the page's segments in `ul.nav-sub.nav-seg`; no page draws a tab or segment row (DC28) |
 | The shell | `layout.php` | plain name, words-only menu with magenta counts, no bell, no find link, the open section's pages under it; phone: name + `.appbar-me` initials (to `#menu`, the same tree), `.menu-btn` only without a bottom bar |
@@ -1051,7 +1052,8 @@ The shared code follows the approved mockups (section A of `runs/dsaudit_finding
 
 - Tests: `UiTemplatesTest::testTheSharedPartsFollowTheApprovedMockups` (markup), `UiUnitTest::testTheSharedCssFollowsTheApprovedMockups` (CSS),
   `tests/Integration/UiKernel/DesignConformanceScreensTest.php` (the pages as served), `UiUnitTest::testTheSidebarHoldsTheSectionsPagesAndNoPageHasATabRow`.
-  `KernelUiTestCase::sectionTabs()`, `moreTabs()`, `segments()` read the sidebar's tree. A new page: no `<p class="lede">` of its own, no
+  `UiTemplatesTest::testNoPageDrawsATabOrSegmentRowOutsideARecordAMockupDraws` (DC33-DC38). `KernelUiTestCase::sectionTabs()`, `moreTabs()`,
+  `segments()` read the sidebar's tree, `storeChoice()` a Show row's store. A new page: no `<p class="lede">` of its own, no
   create button in its toolbar, its rare controls under the toolbar's More, no tab row (add it to `Sections::MAP`: it shows in the sidebar).
 
 ### Reports, settings and system on the approved patterns (`docs/decisions.md` W13)

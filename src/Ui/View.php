@@ -23,13 +23,14 @@ namespace CW\Ui;
  *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
  *   $head($title, intro: $page, look: $who, chips:, meta:, aside:, lede:, more:, tag:, eyebrow:, side:, back:)   the statement every page
  *                           opens with (the approved mockups; docs/decisions.md DC1-DC6): the section as an UPPERCASE eyebrow (or
- *                           `eyebrow`, and `tag` after it; or `back`, [href, label], the record's list as a link and "›"), the heading
+ *                           `eyebrow`, and `tag` after it; or `back`, [href, label], the record's list as a link and "›", the tag after
+ *                           it: DC37), the heading
  *                           (`chips` inside it, `aside` beside it), `meta` (state chips), the page's create button on the right; then
  *                           the switched-off strip (no tab row: the sidebar lists the section's pages, DC28).
  *                           No sentence under the heading: `intro` names the page (its words stay in Words::PAGE_INTRO) and only the
  *                           steps of View::INTRO_KEPT draw their line; `look` (who may change this) or `more` (a look-only sentence) is
- *                           a "?" beside the heading. Text arguments are escaped; `chips`, `meta` and `aside` are helper output. Every
- *                           page template draws it once (tests/Unit/UiTemplatesTest.php).
+ *                           a "?" beside the heading (with `aside`'s help: its last line, one "?", DC34). Text arguments are escaped;
+ *                           `chips`, `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
  *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
  *   $cards($cards, $notes)  Home's "Waiting for you": one row per task (its number in its colour, its name, one plain line, one button);
@@ -142,7 +143,8 @@ final class View
      * page outside every section; the record's list when `back` is given) and the page's create button, then page_frame.php: the
      * switched-off strip (no tab row: the sidebar holds the section's pages, DC28). $side (docs/decisions.md PV27): what the header's right holds instead
      * of the create button (a saved document's action bar); '' for nothing (the new page of what the button makes); null: the create
-     * button. No sentence under the heading (DC1): only a step of View::INTRO_KEPT draws its intro; the look-only line is a "?".
+     * button. No sentence under the heading (DC1): only a step of View::INTRO_KEPT draws its intro; the look-only line is a "?", the last line
+     * of the page's own "?" when it has one (ONE "?" beside a heading: DC34).
      *
      * @param array{0: string, 1: string}|null $back
      */
@@ -161,7 +163,7 @@ final class View
         // Outside a section (no page bar) a create button is plain (DS5); Home has none: its main action is the first job (HV1).
         $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions'], 'main' => $pagebar !== null]) : '');
         return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $sentence, $line, $tag,
-            $chips, $aside . Html::lookOnly($lookLine, $lookLabel), $meta, $actions, $back)
+            $chips, Html::helpWithLook($aside, $lookLine, $lookLabel), $meta, $actions, $back)
             . $this->render('page_frame', ['switchedOff' => $f['switchedOff'] ?? null]);
     }
 }

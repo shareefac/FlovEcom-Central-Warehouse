@@ -1,21 +1,24 @@
 <?php
 // Stock › Sales › Returns (pack D, docs/decisions.md PD7), a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W10):
-// read only. One Show row (returned, cancelled or both), Clear and Export at the right; the store selector (with each store's units waiting
-// for a recount); the figures strip; then the page's units grouped by what happened (returned, then cancelled), newest order first in each,
+// read only. One Show row (returned, cancelled or both; and the store, with each store's units waiting for a recount: docs/decisions.md DC33),
+// Clear and Export at the right; the figures strip; then the page's units grouped by what happened (returned, then cancelled), newest order first in each,
 // every group a coloured heading with its count over a card with its colour on the left edge, the status cell (back on sale?) filled. A
 // unit's item opens the item, its order the order's record page. No form here posts anything.
 ?>
 <?= $head(\CW\Ui\Words::MENU['sales_returns'], intro: 'sales_returns') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-<?php if ($f['channel'] !== null): ?>
-  <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
-<?php endif; ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
     <select id="tb-show" name="kind">
       <option value=""><?= $word('SALE_RETURNS', 'any_kind') ?></option>
 <?php foreach ($kinds as $code => $label): ?>
       <option value="<?= $e($code) ?>"<?php if ($f['kind'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="tb-store"><?= $word('BULK', 'stores') ?></label>
+    <select id="tb-store" name="channel" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::SALE_RETURNS['store_count']) ?>">
+<?php foreach ($storeItems as $it): ?>
+      <option value="<?= $e($it['query']['channel'] ?? '') ?>"<?php if ($it['current']): ?> selected<?php endif; ?>><?= $e($it['label']) ?> (<?= $n($it['count']) ?>)</option>
 <?php endforeach; ?>
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
@@ -29,7 +32,6 @@
 <?php endif; ?>
   </div>
 </form>
-<?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::SALE_RETURNS['store_count']]) ?>
 
 <section class="doc-progress rp-figs" aria-label="<?= $word('SALE_RETURNS', 'figures') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('SALE_RETURNS', 'tile_verify') ?></p><p class="doc-step-big"><?= $n($verifyUnits) ?></p><p class="step-sub"><?= $say('SALE_RETURNS', 'tile_verify_sub', $verifyName) ?></p></div>

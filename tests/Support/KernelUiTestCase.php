@@ -283,6 +283,55 @@ abstract class KernelUiTestCase extends MappingTestCase
         return $out;
     }
 
+    /**
+     * The store choice of a page's Show row (docs/decisions.md DC33: the store tab row went; the same `channel` values): each store, the
+     * address the Show button sends with it chosen ($path and the row's fields as the page drew them, empty ones left out, in the form's
+     * order: as a browser sends a GET form), its count (the option's "(N)"), whether it is the one shown. The row is a GET form of the main
+     * part; its button submits it without a script.
+     *
+     * @return list<array{0: string, 1: string, 2: int, 3: bool}>
+     */
+    protected static function storeChoice(UiResponse $r, string $path): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $forms = $xp->query('//main//form[@method="get" and contains(concat(" ", @class, " "), " toolbar ")][.//select[@name="channel"]]');
+        self::assertLessThanOrEqual(1, $forms->length, 'one Show row holds the store');
+        $form = $forms->item(0);
+        if (!$form instanceof \DOMElement) {
+            return [];
+        }
+        self::assertSame(1, $xp->query('.//button[@type="submit"]', $form)->length, 'the Show button sends it without a script');
+        $fields = [];
+        foreach ($xp->query('.//input[@name] | .//select[@name]', $form) as $el) {
+            /** @var \DOMElement $el */
+            $type = strtolower($el->getAttribute('type'));
+            if ($el->hasAttribute('disabled') || (in_array($type, ['checkbox', 'radio'], true) && !$el->hasAttribute('checked'))) {
+                continue;
+            }
+            $value = $el->getAttribute('value');
+            if ($el->nodeName === 'select') {
+                $chosen = $xp->query('option[@selected]', $el)->item(0) ?? $xp->query('option', $el)->item(0);
+                $value = $chosen instanceof \DOMElement ? $chosen->getAttribute('value') : '';
+            }
+            $fields[] = [$el->getAttribute('name'), $value];
+        }
+        $out = [];
+        foreach ($xp->query('.//select[@name="channel"]/option', $form) as $o) {
+            /** @var \DOMElement $o */
+            preg_match('/^(.*?)\s*\((\d[\d,]*)\)$/u', trim((string) preg_replace('/\s+/u', ' ', $o->textContent)), $m);
+            $query = [];
+            foreach ($fields as [$name, $value]) {
+                $value = $name === 'channel' ? $o->getAttribute('value') : $value;
+                if ($value !== '') {
+                    $query[] = rawurlencode($name) . '=' . rawurlencode($value);
+                }
+            }
+            $out[] = [$m[1] ?? trim($o->textContent), $path . ($query === [] ? '' : '?' . implode('&', $query)), (int) str_replace(',', '', $m[2] ?? '0'),
+                $o->hasAttribute('selected')];
+        }
+        return $out;
+    }
+
     /** The phone tab bar of a page: its labels and links, in order. @return list<array{label: string, href: string}> */
     protected static function tabs(UiResponse $r): array
     {

@@ -1,16 +1,13 @@
 <?php
 // Stock › Sales › Orders (pack D, docs/decisions.md PD3-PD5), a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W10):
-// read only. One Show row (the state the list reads, with the way in and the days typed beside it), Clear and Export at the right; the store
-// selector (All stores and each store of the channel table, with its paid orders waiting to ship); the period in words; then the page's
+// read only. One Show row (the state the list reads, with the way in, the days typed and the store beside it: All stores and each store of the
+// channel table, with its paid orders waiting to ship; docs/decisions.md DC33), Clear and Export at the right; the period in words; then the page's
 // orders grouped by state, newest first in each, every group a coloured heading with its count over a card with its colour on the left
 // edge, the status cell filled with it, the order's number opening it. No form here posts anything.
 ?>
 <?= $head(\CW\Ui\Words::MENU['sales_orders'], intro: 'sales_orders', aside: $explain('sales_orders', \CW\Ui\Words::MENU['sales_orders'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="period" value="<?= $e($f['period']) ?>">
-<?php if ($f['channel'] !== null): ?>
-  <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
-<?php endif; ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
     <select id="tb-show" name="state">
@@ -28,6 +25,12 @@
     </select>
     <label class="tb-day"><?= $word('SALE', 'from') ?> <input type="date" name="from" value="<?= $e($f['from']) ?>"></label>
     <label class="tb-day"><?= $word('SALE', 'to') ?> <input type="date" name="to" value="<?= $e($f['to']) ?>"></label>
+    <label class="visually-hidden" for="tb-store"><?= $word('BULK', 'stores') ?></label>
+    <select id="tb-store" name="channel" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::SALE['store_count']) ?>">
+<?php foreach ($storeItems as $it): ?>
+      <option value="<?= $e($it['query']['channel'] ?? '') ?>"<?php if ($it['current']): ?> selected<?php endif; ?>><?= $e($it['label']) ?> (<?= $n($it['count']) ?>)</option>
+<?php endforeach; ?>
+    </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
   <div class="tb-end">
@@ -39,7 +42,6 @@
 <?php endif; ?>
   </div>
 </form>
-<?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::SALE['store_count']]) ?>
 
 <p class="muted sales-period"><?= $e($periodLine) ?><?php foreach ($periodLinks as $pl): ?><?php if (!$pl['current']): ?> · <a href="<?= $e($pl['href']) ?>"><?= $e($pl['label']) ?></a><?php endif; ?><?php endforeach; ?></p>
 <?php if ($badDates !== null): ?>

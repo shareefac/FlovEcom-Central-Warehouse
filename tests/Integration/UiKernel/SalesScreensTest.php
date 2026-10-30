@@ -227,19 +227,6 @@ final class SalesScreensTest extends KernelUiTestCase
         return $out;
     }
 
-    /** The store selector: label, link, count, current. @return list<array{0: string, 1: string, 2: int, 3: bool}> */
-    private static function storeSeg(UiResponse $r): array
-    {
-        $xp = new \DOMXPath($r->dom());
-        $out = [];
-        foreach ($xp->query('//nav[contains(@class, "store-seg")]/a') as $a) {
-            /** @var \DOMElement $a */
-            $out[] = [trim((string) $xp->evaluate('string(span[1])', $a)), $a->getAttribute('href'), (int) $xp->evaluate('string(span[2]/text()[1])', $a),
-                $a->getAttribute('aria-current') === 'page'];
-        }
-        return $out;
-    }
-
     /** @return list<string> the pager's links */
     private static function pager(UiResponse $r): array
     {
@@ -271,8 +258,18 @@ final class SalesScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['sales_orders'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
-        self::assertSame(Words::INTRO_LOOK['sales_orders'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')),
+        self::assertSame(Words::INTRO_LOOK['sales_orders'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")]//p[last()])')),
             'who changes it, under the heading\'s "?" (DC1)');
+        // ONE "?" beside each Sales heading (docs/decisions.md DC34; the coordinator's Chrome check: Store orders showed two): the page's own
+        // help, and who changes it as its last line.
+        foreach ([[self::ORDERS, 'sales_orders'], [self::DISPATCH, 'sales_dispatch']] as [$path, $key]) {
+            $hx = new \DOMXPath($this->page($web, $path)->dom());
+            $helps = $hx->query('//main//header[contains(@class, "page-head")]//details[contains(@class, "help")]');
+            self::assertSame(1, $helps->length, "{$path}: one \"?\" beside the heading");
+            $text = trim((string) preg_replace('/\s+/u', ' ', (string) $helps->item(0)?->textContent));
+            self::assertStringContainsString(str_replace('**', '', explode('. ', Words::HELP[$key])[0]), $text, "{$path}: the page's own help");
+            self::assertStringEndsWith(Words::INTRO_LOOK[$key], $text, "{$path}: who changes it, last");
+        }
         // The store chosen travels through the tabs.
         $alt = $this->page($web, self::ORDERS, ['channel' => 'alt']);
         self::assertSame([null, self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt'], array_column(self::sectionTabs($alt), 'href'), 'the one shown: no link (CV13)');
@@ -336,8 +333,10 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::RESV['unlinked_one'], self::rowOf($all, 'sales-orders', '=SUM(A1)'));
         self::assertStringNotContainsString('UTC', $all->text(), 'UK time');
         // The store selector: All stores, then each store, with its paid orders waiting to ship (VPG: V2001, V2002, V2008, V2009).
-        self::assertSame([[Words::BULK['all_stores'], '', 5, true], ['ALT test site', self::ORDERS . '?channel=alt', 1, false],
-            ['VPG test site', self::ORDERS . '?channel=vpg', 4, false]], self::storeSeg($all));
+        // The store is a choice of the Show row (docs/decisions.md DC33: the store tab row went), its `channel` as the tabs' links had it.
+        self::assertSame([[Words::BULK['all_stores'], self::ORDERS, 5, true], ['ALT test site', self::ORDERS . '?channel=alt', 1, false],
+            ['VPG test site', self::ORDERS . '?channel=vpg', 4, false]], self::storeChoice($all, self::ORDERS));
+        self::assertSame(0, (new \DOMXPath($all->dom()))->query('//main//nav[contains(@class, "store-seg")] | //main//nav[contains(@class, "tabs")]')->length, 'no store tab row');
         self::assertSame(['A3001'], self::refs($this->page($web, self::ORDERS, ['channel' => 'alt']), 'sales-orders'));
         $vpg = $this->page($web, self::ORDERS, ['channel' => 'vpg']);
         self::assertSame(self::onBoard(array_slice($recent, 1)), self::refs($vpg, 'sales-orders'));
@@ -376,7 +375,7 @@ final class SalesScreensTest extends KernelUiTestCase
         $ten = $this->page($web, self::ORDERS, $range);
         self::assertSame(['V1999'], self::refs($ten, 'sales-orders'));
         self::assertStringContainsString(Words::say('SALE', 'period_range', \CW\Ui\Html::day($range['from']), \CW\Ui\Html::day($range['to'])), $ten->text());
-        self::assertSame(self::ORDERS . '?from=' . $range['from'] . '&to=' . $range['to'] . '&channel=vpg', self::storeSeg($ten)[2][1]);
+        self::assertSame(self::ORDERS . '?from=' . $range['from'] . '&to=' . $range['to'] . '&channel=vpg', self::storeChoice($ten, self::ORDERS)[2][1], 'the store keeps the days');
         self::assertSame([], self::refs($this->page($web, self::ORDERS, $range + ['state' => 'shipped']), 'sales-orders'));
         $old = ['from' => $uk->modify('-41 days')->format('Y-m-d'), 'to' => $uk->modify('-39 days')->format('Y-m-d')];
         self::assertSame(['V1998'], self::refs($this->page($web, self::ORDERS, $old + ['state' => 'shipped']), 'sales-orders'), 'a filter on the units, within days');
@@ -585,8 +584,8 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringStartsWith('A3001 ' . Words::DISPATCH_CHIP['on_time'] . ' ALT test site ', self::rowOf($page, 'dispatch-waiting', 'A3001'));
         self::assertStringEndsWith(' 2', self::rowOf($page, 'dispatch-waiting', 'A3001'), 'two of its three units wait');
         self::assertContains(self::ORDERS . '/' . $ids['V2001'], $page->hrefs());
-        self::assertSame([[Words::BULK['all_stores'], '', 5, true], ['ALT test site', self::DISPATCH . '?channel=alt', 1, false],
-            ['VPG test site', self::DISPATCH . '?channel=vpg', 4, false]], self::storeSeg($page));
+        self::assertSame([[Words::BULK['all_stores'], self::DISPATCH . '?show=waiting', 5, true], ['ALT test site', self::DISPATCH . '?show=waiting&channel=alt', 1, false],
+            ['VPG test site', self::DISPATCH . '?show=waiting&channel=vpg', 4, false]], self::storeChoice($page, self::DISPATCH), 'the Show row sends its list (waiting: the default) and the store');
         $alt = $this->page($web, self::DISPATCH, ['channel' => 'alt']);
         self::assertSame(['1', '0', '1', '1', '0'], self::figures($alt));
         self::assertSame(['A3001'], self::refs($alt, 'dispatch-waiting'));
@@ -608,7 +607,7 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertSame(['A3001', 'V2003'], self::refs($today, 'dispatch-sent'));
         self::assertStringContainsString(Words::say('RESV', 'out_part_shipped', 1) . ' · ' . Words::say('RESV', 'out_part_returned', 1), self::rowOf($today, 'dispatch-sent', 'V2003'));
         self::assertSame(['A3001', 'V2003'], self::refs($this->page($web, self::DISPATCH, ['show' => 'week']), 'dispatch-sent'));
-        self::assertSame(self::DISPATCH . '?show=today&channel=vpg', self::storeSeg($today)[2][1], 'the store selector keeps the list');
+        self::assertSame(self::DISPATCH . '?show=today&channel=vpg', self::storeChoice($today, self::DISPATCH)[2][1], 'the store choice keeps the list');
         self::assertSame(['V2003'], self::refs($this->page($web, self::DISPATCH, ['show' => 'today', 'channel' => 'vpg']), 'dispatch-sent'));
         // Sending undone: one row per unit, with who and what it is now; units not linked are not in the ledger, and the page says so.
         $undone = $this->page($web, self::DISPATCH, ['show' => 'undone']);
@@ -694,8 +693,8 @@ final class SalesScreensTest extends KernelUiTestCase
         // One figure: the cancelled units waiting in VERIFY for a recount; the store selector counts them per store.
         self::assertSame(['1'], self::figures($page));
         self::assertStringContainsString(Words::say('SALE_RETURNS', 'tile_verify_sub', $verify), $page->text());
-        self::assertSame([[Words::BULK['all_stores'], '', 1, true], ['ALT test site', self::RETURNS . '?channel=alt', 0, false],
-            ['VPG test site', self::RETURNS . '?channel=vpg', 1, false]], self::storeSeg($page));
+        self::assertSame([[Words::BULK['all_stores'], self::RETURNS, 1, true], ['ALT test site', self::RETURNS . '?channel=alt', 0, false],
+            ['VPG test site', self::RETURNS . '?channel=vpg', 1, false]], self::storeChoice($page, self::RETURNS));
         // The kind filter, a store, and the empty states.
         self::assertSame(['V2003'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array((new \DOMXPath(
             $this->page($web, self::RETURNS, ['kind' => 'returned'])->dom()))->query('//table[contains(@class, "sales-returns")]/tbody/tr/td[2]'))));
@@ -936,7 +935,7 @@ final class SalesScreensTest extends KernelUiTestCase
         // One Show row: the state the list reads, the way in and the days beside it; no Filter pop-over; Export a download.
         self::assertSame(1, $xp->query('//main//form[@method="get"]//div[@class="tb-state"]')->length);
         self::assertSame('state', $xp->query('//select[@id="tb-show"]')->item(0)?->getAttribute('name'));
-        self::assertSame(['origin', 'from', 'to'], array_map(static fn (\DOMElement $el): string => $el->getAttribute('name'),
+        self::assertSame(['origin', 'from', 'to', 'channel'], array_map(static fn (\DOMElement $el): string => $el->getAttribute('name'),
             iterator_to_array($xp->query('//div[@class="tb-state"]//select[@id!="tb-show"] | //div[@class="tb-state"]//input[@type="date"]'))));
         self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop")]')->length);
         self::assertSame(1, $xp->query('//main//a[@download and starts-with(@href, "' . self::ORDERS . '.csv")]')->length);

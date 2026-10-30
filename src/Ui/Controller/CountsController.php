@@ -101,7 +101,9 @@ final class CountsController
         $listed = [];
         foreach ($rows as $r) {
             $state = $r['counted_at'] === null ? 'never' : ($r['counted_at'] < $cutoff ? 'overdue' : 'inside');
-            $listed[$state][] = $r + ['state' => $state, 'sells' => $r['rate'] === null ? null : Html::dec($r['rate']), 'ticked' => in_array($r['sku_id'], $picked, true)];
+            // "Sells a week" as CT_Board draws it (docs/decisions.md DC36): the same sales figure (units a day) a week, whole units, as the item page says it.
+            $listed[$state][] = $r + ['state' => $state, 'sells' => $r['rate'] === null ? null : ItemController::weekly((string) $r['rate'], 0)['n'],
+                'ticked' => in_array($r['sku_id'], $picked, true)];
         }
         // Each group's heading says the plan's figure for the warehouse (the plan's "overdue" counts the never counted too: here they are
         // apart), and how many of them the list shows when that is fewer; a search counts what it found (CV1). A group with nothing on the
@@ -780,8 +782,8 @@ final class CountsController
             'prev_link' => $page['page'] > 1 ? Html::url(self::PATH . '/' . $id, $query + ['page' => $page['page'] - 1]) : null,
             'next_link' => $page['page'] < $page['pages'] ? Html::url(self::PATH . '/' . $id, $query + ['page' => $page['page'] + 1]) : null,
             'show' => $show,
-            'showLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/' . $id, ['show' => $s === 'all' ? null : $s]), 'current' => $s === $show],
-                ['all', 'todo', 'done']),
+            // The lines' Show choice (docs/decisions.md DC35; the tab row before): the same `show` values, the one shown selected.
+            'shows' => array_map(static fn (string $s): array => ['key' => $s, 'current' => $s === $show], ['all', 'todo', 'done']),
             'editable' => $editable,
             // When the page was drawn (milliseconds since 1970 UTC): app.js adds how long ago a box was filled in (M-7).
             'drawnMs' => (int) Clock::now()->format('Uv'),
