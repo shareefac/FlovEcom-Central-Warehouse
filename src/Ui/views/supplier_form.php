@@ -66,5 +66,5 @@ $sections = [
 <?php endforeach; ?>
   <p class="muted"><?= $word('SUPPLIER_FORM', 'no_bank') ?></p>
 <?= $partial('doc_bar', ['back' => $s === null ? '/ui/purchasing/suppliers' : '/ui/purchasing/suppliers/' . $s['id'],
-    'buttons' => [['value' => 'save', 'label' => $s === null ? \CW\Ui\Words::SUPPLIER_FORM['save_new'] : \CW\Ui\Words::SUPPLIER_FORM['save'], 'primary' => true]]]) ?>
+    'buttons' => [['label' => $s === null ? \CW\Ui\Words::SUPPLIER_FORM['save_new'] : \CW\Ui\Words::SUPPLIER_FORM['save'], 'primary' => true]]]) ?>
 </form>

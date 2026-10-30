@@ -227,4 +227,178 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
             self::assertReport($web->get($path), $path);
         }
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of a96ff5b (docs/decisions.md W9.15-W9.18)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Main's guard on a page as served (CV14, IV13; docs/decisions.md W9.15): every form that keeps typed values (a POST form with a field to
+     * type in or choose; an upload is its own send) carries data-unsaved in DOC's words; on a page with such a form and another form, every
+     * form carries data-leaves (it says so first when another form holds typed values).
+     *
+     * @return list<string> the guarded forms' actions, in the page's order
+     */
+    private static function assertGuarded(UiResponse $page, string $what): array
+    {
+        self::assertSame(200, $page->status, $page->describe());
+        $xp = self::xp($page);
+        $forms = iterator_to_array($xp->query('//main//form') ?: []);
+        $guarded = [];
+        foreach ($forms as $form) {
+            /** @var \DOMElement $form */
+            $action = (string) parse_url($form->getAttribute('action'), PHP_URL_PATH);
+            $typed = strtolower($form->getAttribute('method')) === 'post' && $xp->query('.//input[@type="file"]', $form)->length === 0
+                && $xp->query('.//input[not(@type="hidden") and not(@type="submit") and not(@type="button")] | .//select | .//textarea', $form)->length > 0;
+            if ($typed) {
+                $guarded[] = $action;
+                self::assertSame('1', $form->getAttribute('data-unsaved'), "{$what} {$action}: what is typed here is guarded");
+                self::assertSame(Words::DOC['unsaved'], $form->getAttribute('data-unsaved-text'), "{$what} {$action}: in the page's words");
+            } else {
+                self::assertFalse($form->hasAttribute('data-unsaved'), "{$what} {$action}: nothing to keep");
+            }
+        }
+        if ($guarded !== [] && count($forms) > 1) {
+            foreach ($forms as $form) {
+                self::assertSame('1', $form->getAttribute('data-leaves'), "{$what} " . $form->getAttribute('action') . ': it leaves the page, so it asks first when another form holds typed values');
+            }
+        }
+        return $guarded;
+    }
+
+    /**
+     * W9.15 (MEDIUM): a line's quantity changed on a return's draft, then "Save details" pressed, was lost without a word (only the details
+     * were sent, and the redirect drew the line as saved). Both save forms now carry data-leaves, the add row's two forms and every other
+     * form with a typed field carry data-unsaved, and every form of the page asks first; so do the other buying pages that keep typed values.
+     */
+    public function testEveryFormThatKeepsTypedValuesIsGuardedAndEveryFormThatLeavesAsksFirst(): void
+    {
+        $s = $this->activeSupplier('Pattern Guard Ltd');
+        $web = $this->signIn($this->uiUser('purchasing_manager'));
+        $list = $web->get('/ui/purchasing/returns');
+        self::assertContains('/ui/purchasing/returns', self::assertGuarded($list, 'returns'), 'the new return\'s drawer');
+        $r = $web->post('/ui/purchasing/returns', ['supplier_id' => (string) $s['id']] + $list->form('/ui/purchasing/returns'));
+        self::assertSame(303, $r->status, $r->describe());
+        $page = (string) parse_url((string) $r->location(), PHP_URL_PATH);
+        $draft = $web->get($page);
+        self::assertSame(303, $web->post($page . '/add-claim', ['amount' => '4.00', 'description' => 'Short by one'] + $draft->form($page . '/add-claim'))->status);
+
+        // The draft with a line: its details, its lines, the add row (an item, a claim) and the stop's reason are guarded; every form asks.
+        $draft = $web->get($page);
+        $guarded = array_map(static fn (string $a): string => substr($a, strlen($page)), self::assertGuarded($draft, 'the draft'));
+        sort($guarded);
+        self::assertSame(['/add-claim', '/add-item', '/cancel', '/details', '/lines'], $guarded);
+        $xp = self::xp($draft);
+        foreach (['/details', '/lines'] as $save) {
+            self::assertSame('1', $xp->query('//form[@action="' . $page . $save . '"]')->item(0)?->getAttribute('data-leaves'), "{$save}: saving it leaves the other's typed values");
+        }
+
+        // Final: the record page's forms follow the same rule.
+        self::assertSame(303, $web->post($page . '/details', ['reason_code' => 'damaged'] + $draft->form($page . '/details'))->status);
+        self::assertSame(303, $web->post($page . '/post', $web->get($page)->form($page . '/post'))->status);
+        self::assertGuarded($web->get($page), 'the final return');
+
+        // A supplier's record (its arrivals settings, the stop's reason), the credit notes' drawer.
+        $record = self::assertGuarded($web->get('/ui/purchasing/suppliers/' . $s['id']), 'the supplier');
+        self::assertContains('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate', $record);
+        self::assertContains('/ui/purchasing/credit-notes', self::assertGuarded($web->get('/ui/purchasing/credit-notes'), 'credit notes'));
+    }
+
+    /**
+     * W9.16 (MEDIUM): the Items and packs tab read and drew every one of a supplier's pack records (50,000 records, 50,000 rows). It draws the
+     * first SuppliersController::ITEM_TAB_ROWS, group by group (main supplier, a backup supplier, no longer bought here), so only the last
+     * group shown is cut: its count reads "N+". The whole list stays one link away (the products page, unchanged: every record).
+     */
+    public function testTheItemsTabDrawsTheFirstRowsAndItsCutGroupReadsWithAPlus(): void
+    {
+        $s = $this->activeSupplier('Pattern Many Items Ltd');
+        $id = (int) $s['id'];
+        $max = \CW\Ui\Controller\SuppliersController::ITEM_TAB_ROWS;
+        $many = $max + 3;
+        $digits = '(SELECT 0 AS d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 '
+            . 'UNION ALL SELECT 8 UNION ALL SELECT 9)';
+        self::$db->exec("INSERT INTO sku (name) SELECT CONCAT('Tab item ', LPAD(a.d * 1000 + b.d * 100 + c.d * 10 + e.d, 4, '0')) FROM {$digits} a, {$digits} b, {$digits} c, {$digits} e "
+            . 'WHERE a.d * 1000 + b.d * 100 + c.d * 10 + e.d BETWEEN 1 AND ' . $many);
+        self::$db->exec("UPDATE sku SET code = CONCAT('CW-', LPAD(id, 6, '0')) WHERE code IS NULL AND name LIKE 'Tab item %'");
+        self::$db->exec("INSERT INTO supplier_item (supplier_id, sku_id, created_actor, updated_actor) SELECT ?, id, 'system:test', 'system:test' FROM sku WHERE name LIKE 'Tab item %'", [$id]);
+        // The two named last are this supplier's main ones; the first is no longer bought here.
+        self::$db->exec('UPDATE supplier_item i JOIN sku k ON k.id = i.sku_id SET i.is_preferred = 1 WHERE i.supplier_id = ? AND k.name IN (?, ?)',
+            [$id, sprintf('Tab item %04d', $many), sprintf('Tab item %04d', $many - 1)]);
+        self::$db->exec("UPDATE supplier_item i JOIN sku k ON k.id = i.sku_id SET i.is_active = 0 WHERE i.supplier_id = ? AND k.name = 'Tab item 0001'", [$id]);
+        $web = $this->signIn($this->uiUser('purchasing_manager'));
+
+        $tab = $web->get('/ui/purchasing/suppliers/' . $id, ['tab' => 'items']);
+        self::assertSame(200, $tab->status, $tab->describe());
+        $section = '//section[@aria-labelledby="items-h"]';
+        $xp = self::xp($tab);
+        self::assertSame($max, $xp->query($section . '//div[contains(@class, "doc-board")]//tbody/tr[not(contains(@class, "grp-add"))]')->length, 'the first rows only');
+        self::assertSame([Words::SUPPLIER_ITEMS['group_main'], Words::SUPPLIER_ITEMS['group_other']], self::texts($tab, $section . '//div[contains(@class, "doc-group")]/h3/button'),
+            'the main ones first, whole; the cut comes in the last group shown');
+        self::assertSame([Words::say('SUPPLIER_ITEMS', 'group_many', 2), Words::say('SUPPLIER_ITEMS', 'group_many', number_format($max - 2) . '+')],
+            self::texts($tab, $section . '//div[contains(@class, "doc-group")]/h3/span[@class="grp-count"]'));
+        self::assertSame(1, $xp->query($section . '//a[@href="/ui/purchasing/suppliers/' . $id . '/items"]')->length, 'every product one link away');
+
+        // The products page is as it was: every record, no count with a "+".
+        $all = $web->get('/ui/purchasing/suppliers/' . $id . '/items');
+        self::assertSame(200, $all->status, $all->describe());
+        self::assertSame($many, self::xp($all)->query('//div[contains(@class, "doc-board")]//tbody/tr[not(contains(@class, "grp-add"))]')->length);
+        self::assertSame([Words::say('SUPPLIER_ITEMS', 'group_many', 2), Words::say('SUPPLIER_ITEMS', 'group_many', $many - 3), Words::SUPPLIER_ITEMS['group_one']],
+            self::texts($all, '//div[contains(@class, "doc-group")]/h3/span[@class="grp-count"]'));
+
+        // A supplier with fewer records than the limit: every one, no "+".
+        $few = $this->activeSupplier('Pattern Few Items Ltd');
+        self::$db->exec("INSERT INTO supplier_item (supplier_id, sku_id, created_actor, updated_actor) SELECT ?, id, 'system:test', 'system:test' FROM sku "
+            . "WHERE name IN ('Tab item 0002', 'Tab item 0003')", [(int) $few['id']]);
+        $tab = $web->get('/ui/purchasing/suppliers/' . $few['id'], ['tab' => 'items']);
+        self::assertSame(200, $tab->status, $tab->describe());
+        self::assertSame([Words::say('SUPPLIER_ITEMS', 'group_many', 2)], self::texts($tab, $section . '//div[contains(@class, "doc-group")]/h3/span[@class="grp-count"]'));
+    }
+
+    /**
+     * W9.17 (LOW): Sales history's "Loads" figure counted the loads it lists, and that list stops at SalesHistoryController::LOADS: with more
+     * loads than that it looked like the whole total. At the limit it reads "100+" (W8.14's form); below it, the count.
+     */
+    public function testTheLoadsFigureReadsWithAPlusAtTheListsLimit(): void
+    {
+        $vpg = self::makeChannel('w9loads');
+        $digits = '(SELECT 0 AS d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 '
+            . 'UNION ALL SELECT 8 UNION ALL SELECT 9)';
+        $loads = static function (int $from, int $to) use ($vpg, $digits): void {
+            self::$db->exec('INSERT INTO sales_import_batch (channel_id, source, date_from, date_to, sales_file, sales_sha256, manifest, exported_at, status, actor) '
+                . "SELECT ?, 'cps', '2026-01-01', '2026-01-31', 'f.csv', SHA2(CONCAT('w9-load-', n), 256), JSON_OBJECT(), NOW(6), 'failed', 'system:test' "
+                . "FROM (SELECT a.d * 1000 + b.d * 100 + c.d * 10 + e.d AS n FROM {$digits} a, {$digits} b, {$digits} c, {$digits} e) x WHERE n BETWEEN ? AND ?",
+                [$vpg, $from, $to]);
+        };
+        $figure = static fn (UiResponse $p): string => trim((string) self::xp($p)->evaluate('string(//section[contains(@class, "doc-progress")]/div[@class="doc-step"]'
+            . '[p[@class="doc-step-label"] = "' . Words::SALES['fig_loads'] . '"]/p[@class="doc-step-big"])'));
+        $web = $this->signIn($this->uiUser('purchasing_manager'));
+        $loads(1, 3);
+        self::assertSame('3', $figure($web->get('/ui/purchasing/sales-history')));
+        $max = \CW\Ui\Controller\SalesHistoryController::LOADS;
+        $loads(4, $max + 50);
+        $page = $web->get('/ui/purchasing/sales-history');
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertSame(number_format($max) . '+', $figure($page), 'the list stops there: the figure says so');
+        self::assertSame($max, self::xp($page)->query('//table[contains(@class, "batches")]/tbody/tr')->length, 'the list itself is as it was');
+    }
+
+    /**
+     * W9.18 (LOW): the supplier form's Save sent an extra action=save (doc_bar names its buttons `action` by default); the old Save was
+     * unnamed. It is unnamed again, so pressing it sends the form's fields alone, as before; the other pages' bars still name theirs.
+     */
+    public function testTheSupplierFormsSaveSendsItsFieldsAloneAsBefore(): void
+    {
+        $s = $this->activeSupplier('Pattern Save Ltd');
+        $web = $this->signIn($this->uiUser('purchasing_manager'));
+        foreach (['/ui/purchasing/suppliers/new' => '/ui/purchasing/suppliers', '/ui/purchasing/suppliers/' . $s['id'] . '/edit' => '/ui/purchasing/suppliers/' . $s['id']] as $path => $action) {
+            $page = $web->get($path);
+            self::assertSame(200, $page->status, $page->describe());
+            $buttons = iterator_to_array(self::xp($page)->query('//form[@action="' . $action . '"]//button[@type="submit"]') ?: []);
+            self::assertCount(1, $buttons, "{$path}: one Save");
+            /** @var \DOMElement $save */
+            $save = $buttons[0];
+            self::assertFalse($save->hasAttribute('name'), "{$path}: Save sends no field of its own");
+            self::assertFalse($save->hasAttribute('value'), "{$path}: Save sends no field of its own");
+        }
+    }
 }

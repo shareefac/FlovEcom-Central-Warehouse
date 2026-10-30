@@ -34,7 +34,7 @@
 <?php if ($alone['checked'] !== null): ?>
   <p><?= $e($alone['checked']) ?></p>
 <?php elseif ($alone['may_check']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
     <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
@@ -69,12 +69,12 @@
       </div>
     </dl>
   </div>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/approve') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/approve') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
     <button type="submit" class="btn primary"><?= $e($t['ok']) ?></button>
   </form>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/reject') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/reject') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('SUPPLIER', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
     <button class="btn" type="submit"><?= $word('SUPPLIER', 'not_ok') ?></button>
@@ -83,7 +83,7 @@
   <p class="note read-only"><?= $e($t['refusal']) ?></p>
 <?php endif; ?>
 <?php if ($t['may_withdraw']): ?>
-  <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/withdraw') ?>">
+  <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/withdraw') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <button type="submit" class="btn lg"><span class="btn-title"><?= $word('SUPPLIER', 'withdraw') ?></span> <span class="sub"><?= $word('SUPPLIER', 'withdraw_does') ?></span></button>
   </form>
@@ -177,7 +177,7 @@
   <p class="muted"><?= $word('ARRIVALS', 'own_none') ?></p>
 <?php endif; ?>
 <?php if ($arrivals['canEdit']): ?>
-  <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/arrivals') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/arrivals') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label class="choice"><input type="checkbox" name="sell_before" value="1"<?php if ($arrivals['sell_before']): ?> checked<?php endif; ?>> <?= $word('ARRIVALS', 'sell_before') ?></label>
     <label><?= $word('ARRIVALS', 'default_mode') ?>
@@ -202,7 +202,7 @@
 <section class="doc-related" aria-labelledby="items-h">
   <div class="board-head"><h2 id="items-h" class="board-sub"><?= $word('SUPPLIER', 'tab_items') ?></h2><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a></div>
   <p class="muted"><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?></p>
-<?= $partial('supplier_items_board', ['rows' => $itemRows, 'canManage' => $canManage, 'supplierId' => (int) $s['id']]) ?>
+<?= $partial('supplier_items_board', ['rows' => $itemRows, 'canManage' => $canManage, 'supplierId' => (int) $s['id'], 'cut' => $itemsCut]) ?>
 </section>
 <?php endif; ?>
 

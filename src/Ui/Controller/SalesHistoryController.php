@@ -21,6 +21,8 @@ final class SalesHistoryController
 {
     public const TOP = 50;
     public const DAYS = 91;
+    /** The loads listed, newest first (docs/decisions.md W9.17): the "Loads" figure reads "100+" when the list stops there. */
+    public const LOADS = 100;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -42,7 +44,8 @@ final class SalesHistoryController
             'channels' => $channels,
             'batches' => $ctx->db->all('SELECT b.id, c.code AS channel, b.source, b.date_from, b.date_to, b.sales_file, b.stock_file, b.latest_file, b.status, b.rows_read, '
                 . 'b.rows_loaded, b.units_loaded, b.unknown_rows, b.unknown_units, b.unlinked_rows, b.unlinked_units, b.stock_rows, b.actor, b.exported_at, b.started_at, '
-                . 'b.finished_at, b.error FROM sales_import_batch b JOIN channel c ON c.id = b.channel_id ORDER BY b.id DESC LIMIT 100'),
+                . 'b.finished_at, b.error FROM sales_import_batch b JOIN channel c ON c.id = b.channel_id ORDER BY b.id DESC LIMIT ' . self::LOADS),
+            'loadsMax' => self::LOADS,
             'canLink' => $ctx->me()->can('linking.view'),
             'days' => self::DAYS,
             'top' => self::TOP,

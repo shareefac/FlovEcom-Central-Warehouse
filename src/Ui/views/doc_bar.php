@@ -4,7 +4,7 @@
 // app.js never asks before it: data-leave, docs/decisions.md CV14), then a short note of
 // what is left (optional: a delivery's "2 lines still to check", GV2; $noteData its data- attributes for app.js), then the form's buttons,
 // the main one last. $back: where the way out leads. $buttons: each the `action` it sends (or its own `name`), its words, `primary` for the
-// main one.
+// main one; a button with no `value` sends nothing of its own (the supplier form's Save, unnamed as it always was: docs/decisions.md W9.18).
 $note = $note ?? null;
 $noteData = $noteData ?? [];
 ?>
@@ -14,6 +14,6 @@ $noteData = $noteData ?? [];
   <span class="doc-bar-note"<?php foreach ($noteData as $k => $v): ?> data-<?= $e($k) ?>="<?= $e($v) ?>"<?php endforeach; ?>><?= $e($note) ?></span>
 <?php endif; ?>
 <?php foreach ($buttons as $b): ?>
-  <button type="submit" name="<?= $e($b['name'] ?? 'action') ?>" value="<?= $e($b['value']) ?>" class="btn<?php if ($b['primary'] ?? false): ?> primary<?php endif; ?>"><?= $e($b['label']) ?></button>
+  <button type="submit"<?php if (isset($b['value'])): ?> name="<?= $e($b['name'] ?? 'action') ?>" value="<?= $e($b['value']) ?>"<?php endif; ?> class="btn<?php if ($b['primary'] ?? false): ?> primary<?php endif; ?>"><?= $e($b['label']) ?></button>
 <?php endforeach; ?>
 </div>

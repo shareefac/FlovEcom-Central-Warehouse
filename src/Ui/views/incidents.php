@@ -5,7 +5,7 @@
 // from its own fold (incidents.resolve).
 ?>
 <?= $head(\CW\Ui\Words::MENU['incidents'], intro: 'incidents', look: $lookOnly, aside: $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label'])) ?>
-<form class="toolbar" method="get" action="/ui/receiving/incidents" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" action="/ui/receiving/incidents" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-state">
     <label for="tb-show"><?= $word('INCIDENTS', 'show') ?></label>
     <select id="tb-show" name="status">
@@ -58,7 +58,7 @@
         <td class="c-next">
           <details class="fold">
             <summary><?= $word('INCIDENTS', 'close') ?></summary>
-            <form class="record close-incident" method="post" action="<?= $u('/ui/receiving/incidents/' . $r['id']) ?>">
+            <form class="record close-incident" method="post" action="<?= $u('/ui/receiving/incidents/' . $r['id']) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <label><?= $word('INCIDENTS', 'close_how') ?>
                 <select name="status">

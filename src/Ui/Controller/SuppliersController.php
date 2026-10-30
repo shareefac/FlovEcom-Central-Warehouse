@@ -40,6 +40,11 @@ final class SuppliersController
     public const LIST_LIMIT = 500;
     /** The supplier's latest invoices on its Invoices tab (docs/decisions.md W9.3); the whole list is the Invoices page's. */
     public const TAB_ROWS = 10;
+    /**
+     * The supplier's products on its Items and packs tab (docs/decisions.md W9.16): the first this many pack records, group by group; the
+     * cut group's count reads "N+" and the products page lists every one.
+     */
+    public const ITEM_TAB_ROWS = 100;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -446,6 +451,8 @@ final class SuppliersController
             $tabList[] = ['key' => $k, 'label' => Words::SUPPLIER['tab_' . $k], 'current' => $k === $tab,
                 'href' => $k === $tab ? null : Html::url('/ui/purchasing/suppliers/' . $id, $k === 'details' ? [] : ['tab' => $k]) . '#record-tabs'];
         }
+        // The Items and packs tab: its first ITEM_TAB_ROWS records only (a supplier may have thousands; the products page has them all).
+        $itemRows = $tab === 'items' ? SupplierItemsController::rowsOf($db, $id, true, self::ITEM_TAB_ROWS) : [];
         $invoiceRows = null;
         if ($tab === 'invoices') {
             $listed = array_slice($ctx->supplierInvoices()->list('invoice', ['supplier' => $id, 'show' => 'all']), 0, self::TAB_ROWS);
@@ -508,7 +515,8 @@ final class SuppliersController
             'recentPos' => $recentPos,
             'tab' => $tab,
             'tabs' => $tabList,
-            'itemRows' => $tab === 'items' ? SupplierItemsController::rowsOf($db, $id, true) : [],
+            'itemRows' => $itemRows,
+            'itemsCut' => $tab === 'items' && count($itemRows) < (int) ($items['n'] ?? 0),
             'invoiceRows' => $invoiceRows,
             'tabRows' => self::TAB_ROWS,
             'canOrder' => $canPost && $s['status'] !== 'inactive',

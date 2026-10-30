@@ -1,8 +1,9 @@
 <?php
 // Purchasing › Reorder › Sales history, a report (the owner's approved TP_Report; docs/decisions.md W9.12): the figures strip (websites,
-// unmatched products shown, the last load, the loads), then each website's part as a group: a coloured heading (amber while some of its
-// selling products are not matched, green when all are) with its count, what is loaded in one line of facts, and its unmatched products as a
-// board with the problem filled with its colour; its download. The loads' technical details stay folded at the bottom.
+// unmatched products shown, the last load, the loads: "100+" when their list stops at its limit, W9.17), then each website's part as a
+// group: a coloured heading (amber while some of its selling products are not matched, green when all are) with its count, what is loaded
+// in one line of facts, and its unmatched products as a board with the problem filled with its colour; its download. The loads' technical
+// details stay folded at the bottom.
 $unmatched = 0;
 $last = null;
 foreach ($channels as $c) {
@@ -15,7 +16,7 @@ foreach ($channels as $c) {
   <div class="doc-step"><p class="doc-step-label"><?= $word('SALES', 'fig_sites') ?></p><p class="doc-step-big"><?= $n(count($channels)) ?></p></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('SALES', 'fig_unmatched') ?></p><p class="doc-step-big"><?= $n($unmatched) ?></p></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('SALES', 'fig_last') ?></p><p class="doc-step-big"><?php if ($last !== null): ?><?= $when($last) ?><?php else: ?><?= $word('SALES', 'fig_never') ?><?php endif; ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('SALES', 'fig_loads') ?></p><p class="doc-step-big"><?= $n(count($batches)) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('SALES', 'fig_loads') ?></p><p class="doc-step-big"><?= $n(count($batches)) ?><?php if (count($batches) >= $loadsMax): ?>+<?php endif; ?></p></div>
 </section>
 <?php if ($channels === []): ?>
 <?= $empty(\CW\Ui\Words::SALES['none'], \CW\Ui\Words::SALES['none_text']) ?>

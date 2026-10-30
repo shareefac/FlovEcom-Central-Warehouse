@@ -11,7 +11,7 @@ $more = $editable || $canWithdraw || $reverse !== null;
     <summary class="btn"><?= $word('DOC', 'more') ?></summary>
     <div class="more-menu">
 <?php if ($canWithdraw): ?>
-      <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
+      <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>" data-leaves="1">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <button class="btn" type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
       </form>
@@ -21,7 +21,7 @@ $more = $editable || $canWithdraw || $reverse !== null;
         <summary class="btn risky"><?= $word('STOCK_OPS', 'stop_title') ?></summary>
         <div class="doc-act-panel">
           <p class="muted"><?= $word('STOCK_OPS', 'stop_text') ?></p>
-          <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/cancel') ?>" data-leaves="1">
+          <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/cancel') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="version" value="<?= $e($version) ?>">
             <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
@@ -35,7 +35,7 @@ $more = $editable || $canWithdraw || $reverse !== null;
         <summary class="btn risky"><?= $word('STOCK_OPS', 'cancel_title') ?></summary>
         <div class="doc-act-panel">
           <p class="muted"><?= $word('RETURNS', 'cancel_text') ?></p>
-          <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/reverse') ?>">
+          <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/reverse') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <label><?= $word('STOCK_OPS', 'cancel_why') ?>
               <select name="reason_code" required>
@@ -55,7 +55,7 @@ $more = $editable || $canWithdraw || $reverse !== null;
   </details>
 <?php endif; ?>
 <?php if ($canCredit): ?>
-  <form class="inline" method="post" action="/ui/purchasing/credit-notes/from-return">
+  <form class="inline" method="post" action="/ui/purchasing/credit-notes/from-return" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($creditKey) ?>">
     <input type="hidden" name="dn_id" value="<?= $e($doc->id) ?>">

@@ -967,6 +967,13 @@ on main's shared parts above (`.doc-group`, `.doc-board`, `td.doc-st`, `.doc-hea
   (the open tab without href, CV13). A record's bar is a partial passed to `$head(..., side: $bar)` inside `div.doc-head`, as `po_bar`.
 - A row that holds its own form (Receive, Book its invoice) keeps it in `td.c-next` (raised above `a.row-link`); an incident has no page of its
   own, so its row has no row link (the delivery line is a plain link).
+- Typed values (W9.15): on these pages every POST form with a field to type in or choose (an upload apart) carries `data-unsaved="1"` +
+  `data-unsaved-text` (`DOC unsaved`), and on a page with such a form and another, every form (the toolbar's too) carries `data-leaves="1"`.
+  A new form on these pages does the same (`UiTemplatesTest::testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst` reads every
+  branch of their templates).
+- A supplier's Items and packs tab reads `SupplierItemsController::rowsOf(..., limit: SuppliersController::ITEM_TAB_ROWS)` (group by group;
+  `supplier_items_board`'s `cut` gives the last group's count its "+"); the products page and the CSV read every record (W9.16). Sales history's
+  loads stop at `SalesHistoryController::LOADS` ("100+", W9.17). `doc_bar` names a button only when it has a `value` (W9.18).
 - Tests: `UiTemplatesTest::testTheBuyingPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/BuyingPatternsScreensTest.php`
   (the pages as served), `ReorderScreensTest::testTheBuyerFiltersABrandReadsWhyAndCreatesADraft` (the one "Create draft orders").
 

@@ -21,7 +21,7 @@ $moreOpen = $errorCode !== null && in_array($errorCode, ['no_file', 'too_large',
       <details class="doc-act"<?php if ($moreOpen): ?> open<?php endif; ?>>
         <summary class="btn"><?= $word('SUPPLIER', 'upload') ?></summary>
         <div class="doc-act-panel">
-          <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/evidence') ?>">
+          <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/evidence') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
             <label><?= $word('SUPPLIER', 'upload_of') ?>
@@ -41,7 +41,7 @@ $moreOpen = $errorCode !== null && in_array($errorCode, ['no_file', 'too_large',
         <summary class="btn risky"><?= $word('SUPPLIER', 'stop') ?></summary>
         <div class="doc-act-panel">
           <p class="hint"><?= $word('SUPPLIER', $secondPerson ? 'stop_does' : 'stop_does_alone') ?></p>
-          <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>">
+          <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
             <label><?= $word('SUPPLIER', 'stop_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
@@ -54,7 +54,7 @@ $moreOpen = $errorCode !== null && in_array($errorCode, ['no_file', 'too_large',
   </details>
 <?php endif; ?>
 <?php if ($main === 'request'): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
     <button type="submit" class="btn primary"><span class="btn-title"><?php if (!$secondPerson): ?><?= $word('SUPPLIER', 'ask_alone') ?><?php elseif ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span></button>

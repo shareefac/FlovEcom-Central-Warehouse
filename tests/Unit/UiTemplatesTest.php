@@ -1637,6 +1637,90 @@ final class UiTemplatesTest extends TestCase
         self::assertSame(2, substr_count($t['sales_orders.php'], '<label class="tb-day">'), 'the days typed: From and Until, in the Show row');
     }
 
+    /**
+     * Typed values on the buying pages are never lost without a word (docs/decisions.md W9.15; the Codex review of a96ff5b: a return's line
+     * changed, then "Save details", and the change was gone). In each page's templates (with its bar and files partials), every branch: a form
+     * that keeps typed values (a POST form with a field to type in or choose; an upload is its own send, as main's files forms) carries main's
+     * guard in DOC's words, and on a page with such a form and another form, every form carries data-leaves (it says so first when another
+     * form holds typed values; CV14, IV13). The kernel's BuyingPatternsScreensTest checks the pages as served.
+     */
+    public function testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst(): void
+    {
+        $t = self::templates();
+        $pages = [
+            'suppliers' => ['suppliers'], 'supplier' => ['supplier', 'supplier_bar'], 'supplier_form' => ['supplier_form'],
+            'supplier_items' => ['supplier_items', 'supplier_items_bar', 'supplier_items_board'], 'supplier_returns' => ['supplier_returns'],
+            'supplier_return' => ['supplier_return', 'return_bar', 'return_files'], 'invoices' => ['invoices'], 'invoices_to_match' => ['invoices_to_match', 'recheck_bar'],
+            'invoices_not_invoiced' => ['invoices_not_invoiced'], 'invoices_timed' => ['invoices_timed'], 'arrivals' => ['arrivals'], 'incidents' => ['incidents'],
+            'duty_register' => ['duty_register'], 'reorder' => ['reorder', 'reorder_bar'], 'reorder_low_stock' => ['reorder_low_stock', 'low_stock_bar'],
+            'reorder_brands' => ['reorder_brands'], 'reorder_anomalies' => ['reorder_anomalies'], 'reorder_suppliers' => ['reorder_suppliers'], 'sales_history' => ['sales_history'],
+        ];
+        $tagRe = '(?:<\?(?:php|=).*?\?>|[^>])*>';
+        $counts = [];
+        foreach ($pages as $page => $names) {
+            $forms = [];
+            foreach ($names as $name) {
+                $src = $t[$name . '.php'];
+                preg_match_all('/<form\b' . $tagRe . '/s', $src, $m, PREG_OFFSET_CAPTURE);
+                foreach ($m[0] as [$tag, $at]) {
+                    $end = strpos($src, '</form>', $at);
+                    self::assertNotFalse($end, "{$name}: a form is closed");
+                    $body = substr($src, $at + strlen($tag), $end - $at - strlen($tag));
+                    preg_match_all('/<(?:input|select|textarea)\b' . $tagRe . '/s', $body, $fields);
+                    $typed = 0;
+                    $upload = false;
+                    foreach ($fields[0] as $f) {
+                        $type = preg_match('/^<input\b.*?\btype="([a-z]+)"/s', $f, $ty) === 1 ? $ty[1] : (str_starts_with($f, '<input') ? 'text' : 'choice');
+                        $upload = $upload || $type === 'file';
+                        $typed += in_array($type, ['hidden', 'submit', 'button', 'file'], true) ? 0 : 1;
+                    }
+                    $typed += substr_count($body, "\$partial('supplier_field'");
+                    $forms[] = ['where' => $name . ' line ' . (substr_count(substr($src, 0, $at), "\n") + 1), 'tag' => $tag,
+                        'typed' => str_contains($tag, 'method="post"') && !$upload && $typed > 0];
+                }
+            }
+            $guarded = 0;
+            foreach ($forms as $f) {
+                if ($f['typed']) {
+                    $guarded++;
+                    self::assertStringContainsString(' data-unsaved="1" data-unsaved-text="<?= $word(\'DOC\', \'unsaved\') ?>"', $f['tag'], "{$f['where']}: what is typed here is guarded");
+                } else {
+                    self::assertStringNotContainsString('data-unsaved', $f['tag'], "{$f['where']}: nothing to keep");
+                }
+            }
+            if ($guarded > 0 && count($forms) > 1) {
+                foreach ($forms as $f) {
+                    self::assertStringContainsString(' data-leaves="1"', $f['tag'], "{$f['where']}: it leaves the page, so it asks first when another form holds typed values");
+                }
+            }
+            $counts[$page] = $guarded;
+        }
+        self::assertSame(['supplier' => 5, 'supplier_form' => 1, 'supplier_returns' => 2, 'supplier_return' => 6, 'invoices' => 1, 'incidents' => 1, 'reorder' => 1,
+            'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1], array_filter($counts), 'every guarded form was read');
+    }
+
+    /**
+     * The supplier form's Save is unnamed, as it was before the one-page form (docs/decisions.md W9.18; the Codex review of a96ff5b): doc_bar
+     * names a button and gives it its value only when the caller passes one, and every other page's bar still passes its `action`.
+     */
+    public function testTheSupplierFormsSaveIsUnnamedAndTheOtherBarsKeepTheirAction(): void
+    {
+        $t = self::templates();
+        self::assertStringContainsString('<button type="submit"<?php if (isset($b[\'value\'])): ?> name="<?= $e($b[\'name\'] ?? \'action\') ?>" value="<?= $e($b[\'value\']) ?>"<?php endif; ?> class="btn',
+            $t['doc_bar.php']);
+        $calls = 0;
+        foreach (['purchase_order_edit', 'invoice_edit', 'receipt_edit', 'supplier_form'] as $name) {
+            self::assertSame(1, preg_match("/\\\$partial\\('doc_bar', \\[(.*?)\\]\\) \\?>/s", $t[$name . '.php'], $m), "{$name}: its bar");
+            // Its buttons: in the call, or built before it ($buttons, the delivery's page).
+            $src = $m[1] . (preg_match_all('/^\s*\$buttons(?:\[\])? = .*$/m', $t[$name . '.php'], $built) > 0 ? implode("\n", $built[0]) : '');
+            $buttons = substr_count($src, "'label' =>");
+            self::assertGreaterThan(0, $buttons, "{$name}: its buttons");
+            self::assertSame($name === 'supplier_form' ? 0 : $buttons, substr_count($src, "'value' =>"), "{$name}: what its buttons send");
+            $calls++;
+        }
+        self::assertSame($calls, preg_match_all("/\\\$partial\\('doc_bar'/", implode('', $t)), 'every bar was read');
+    }
+
     public function testTheLintItselfCatchesWhatItIsFor(): void
     {
         self::assertTrue(self::onlyHelperCalls('$e($r["a"])'));

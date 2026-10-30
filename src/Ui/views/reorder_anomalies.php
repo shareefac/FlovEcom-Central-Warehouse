@@ -21,7 +21,7 @@ $active = count(array_filter($rows, static fn (array $r): bool => $r['group'] ==
   <div class="doc-step"><p class="doc-step-label"><?= $word('ANOMALIES', 'fig_max') ?></p><p class="doc-step-big"><?= $n($maxDays) ?></p></div>
 </section>
 <?php if ($canManage): ?>
-<form class="doc-details" method="post" action="/ui/purchasing/reorder/anomalies" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+<form class="doc-details" method="post" action="/ui/purchasing/reorder/anomalies" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <fieldset class="doc-grid">
@@ -72,7 +72,7 @@ $active = count(array_filter($rows, static fn (array $r): bool => $r['group'] ==
         <td data-label="<?= $word('ANOMALIES', 'added') ?>"><?= $say('ANOMALIES', 'by', \CW\Ui\Html::when($r['created_at']), (string) ($r['created_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?></td>
 <?php if ($canManage && $g['key'] === 'active'): ?>
         <td class="c-next">
-          <form class="inline" method="post" action="<?= $u('/ui/purchasing/reorder/anomalies/' . $r['id'] . '/end') ?>">
+          <form class="inline" method="post" action="<?= $u('/ui/purchasing/reorder/anomalies/' . $r['id'] . '/end') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <button class="btn sm" type="submit" title="<?= $word('ANOMALIES', 'end_hint') ?>"><?= $word('ANOMALIES', 'end') ?></button>
           </form>

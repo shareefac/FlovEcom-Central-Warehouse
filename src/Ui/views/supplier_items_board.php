@@ -2,15 +2,18 @@
 // A supplier's products as a board (docs/decisions.md W9.3): grouped main supplier, a backup supplier, no longer bought here, each group a
 // coloured heading with its count over a card with its colour on the left edge; a row opens the product as this supplier sells it; "+ Add
 // a product" at the end of the first group for a buyer. The supplier's "Items and packs" tab and its products page draw the same board.
-// $rows: SupplierItemsController::rowsOf(..., shown: true); $canManage; $supplierId.
+// $rows: SupplierItemsController::rowsOf(..., shown: true); $canManage; $supplierId; $cut (the tab, W9.16: its rows stop at its limit, so
+// the last group's count reads "N+").
 $groups = \CW\Ui\Controller\SupplierItemsController::board($rows);
+$cut = $cut ?? false;
+$lastGroup = array_key_last($groups);
 ?>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::SUPPLIER_ITEMS['none'], \CW\Ui\Words::SUPPLIER_ITEMS[$canManage ? 'none_text' : 'none_look'], $canManage ? '/ui/purchasing/suppliers/' . $supplierId . '/items/new' : null, $canManage ? \CW\Ui\Words::SUPPLIER_ITEMS['add'] : null) ?>
 <?php else: ?>
 <?php foreach ($groups as $i => $g): ?>
 <div class="grp-block doc-group <?= $e($g['tone']) ?>">
-  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('SUPPLIER_ITEMS', 'group_one') ?><?php else: ?><?= $say('SUPPLIER_ITEMS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if ($cut && $i === $lastGroup): ?><?= $say('SUPPLIER_ITEMS', 'group_many', number_format(count($g['rows'])) . '+') ?><?php elseif (count($g['rows']) === 1): ?><?= $word('SUPPLIER_ITEMS', 'group_one') ?><?php else: ?><?= $say('SUPPLIER_ITEMS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
   <table class="stack list board doc-list supplier-items">
     <thead>

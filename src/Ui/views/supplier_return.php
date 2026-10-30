@@ -39,7 +39,7 @@
 </section>
 
 <?php if ($editable): ?>
-<form class="doc-details" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+<form class="doc-details" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($version) ?>">
   <fieldset class="doc-grid">
@@ -87,7 +87,7 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('RETURNS', 'no_lines') ?></p>
 <?php else: ?>
-  <form id="ret-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+  <form id="ret-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <input type="hidden" name="line_count" value="<?= $e(count($lines)) ?>">
@@ -146,7 +146,7 @@
 <?php endif; ?>
   <section aria-labelledby="add-h">
     <h3 id="add-h" class="doc-label"><?= $word('INVOICES', 'add_title') ?></h3>
-    <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/add-item') ?>" data-leaves="1">
+    <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/add-item') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($version) ?>">
       <label><?= $word('STOCK_OPS', 'add_q') ?> <input type="search" name="q" value="<?= $e($typedAdd['q']) ?>" maxlength="100" autocomplete="off"></label>
@@ -189,7 +189,7 @@
       </div>
     </div>
 <?php endif; ?>
-    <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/add-claim') ?>" data-leaves="1">
+    <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/add-claim') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($version) ?>">
       <label><?= $word('RETURNS', 'claim_amount') ?> <input type="text" name="amount" value="<?= $e($typedClaim['amount']) ?>" inputmode="decimal" maxlength="16" required></label>

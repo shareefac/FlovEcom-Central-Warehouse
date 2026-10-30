@@ -6,7 +6,7 @@
 // cell filled with its colour. The new return's fields in two columns in its drawer (#new), with the quick way from a delivery first.
 ?>
 <?= $head(\CW\Ui\Words::MENU['returns'], intro: 'returns', look: $lookOnly) ?>
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('INVOICES', 'search') ?>"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
@@ -35,7 +35,7 @@
 <details class="fold new-order drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('RETURNS', 'start') ?></summary>
 <?php if ($quickKey !== null && $deliveries !== []): ?>
-  <form class="inline" method="post" action="/ui/purchasing/returns/from-receipt" aria-label="<?= $word('RETURNS', 'quick_title') ?>">
+  <form class="inline" method="post" action="/ui/purchasing/returns/from-receipt" aria-label="<?= $word('RETURNS', 'quick_title') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($quickKey) ?>">
     <label><?= $word('RETURNS', 'quick_title') ?>
@@ -48,7 +48,7 @@
     <button type="submit" class="btn"><?= $word('RETURNS', 'quick_button') ?></button>
   </form>
 <?php endif; ?>
-  <form class="doc-details" method="post" action="/ui/purchasing/returns">
+  <form class="doc-details" method="post" action="/ui/purchasing/returns" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
     <fieldset class="doc-grid">

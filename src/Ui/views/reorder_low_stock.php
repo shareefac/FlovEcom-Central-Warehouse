@@ -38,7 +38,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER_LOW', 'fig_worked') ?></p><p class="doc-step-big"><?php if ($figures['at'] === null): ?><?= $word('REORDER', 'fig_never') ?><?php else: ?><?= $when($figures['at']) ?><?php endif; ?></p><p class="step-sub"><?php if ($writers === []): ?><?= $word('REORDER_LOW', 'writers_none') ?><?php else: ?><?= $say('REORDER_LOW', 'writers_on', \CW\Ui\Words::andList(array_map('strval', array_column($writers, 'name')))) ?><?php endif; ?></p><?php if ($figures['failed']): ?><p><?= $chip('needs', \CW\Ui\Words::REORDER_ENGINE['figures_failed']) ?></p><?php endif; ?></div>
 </section>
 
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER_LOW', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></div>
   <div class="tb-state">
     <label for="tb-low"><?= $word('REORDER_LOW', 'filter_low') ?></label>
@@ -77,7 +77,7 @@ $set = count(array_filter($rows, static fn (array $r): bool => ($r['low_stock_le
 <?= $empty(\CW\Ui\Words::REORDER_LOW['none'], \CW\Ui\Words::REORDER_LOW['none_text']) ?>
 <?php else: ?>
 <?php if ($canManage): ?>
-<form class="reorder" method="post" action="/ui/purchasing/reorder/low-stock" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+<form class="reorder" method="post" action="/ui/purchasing/reorder/low-stock" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <input type="hidden" name="brand" value="<?= $e($filters['brand']) ?>">

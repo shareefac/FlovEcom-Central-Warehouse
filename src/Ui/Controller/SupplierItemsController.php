@@ -265,15 +265,19 @@ final class SupplierItemsController
 
     /**
      * A supplier's items, raw (the CSV) or with their display texts (`shown`: the items page and the supplier's "Items and packs" tab,
-     * docs/decisions.md W9.3).
+     * docs/decisions.md W9.3). Every one (the items page, the CSV), or the first $limit in the board's group order (the tab, W9.16: main
+     * supplier, a backup supplier, no longer bought here; within a group by name and pack, as the board draws them), so only the last
+     * group drawn can be cut.
      *
      * @return list<array<string, mixed>>
      */
-    public static function rowsOf(Db $db, int $supplierId, bool $shown = false): array
+    public static function rowsOf(Db $db, int $supplierId, bool $shown = false, ?int $limit = null): array
     {
         $rows = $db->all(
             'SELECT i.*, k.code AS sku_code, k.name AS sku_name, k.brand, k.merged_into_sku_id, m.code AS merged_code FROM supplier_item i '
-            . 'JOIN sku k ON k.id = i.sku_id LEFT JOIN sku m ON m.id = k.merged_into_sku_id WHERE i.supplier_id = ? ORDER BY i.is_active DESC, k.name, i.units_per_pack',
+            . 'JOIN sku k ON k.id = i.sku_id LEFT JOIN sku m ON m.id = k.merged_into_sku_id WHERE i.supplier_id = ? '
+            . ($limit === null ? 'ORDER BY i.is_active DESC, k.name, i.units_per_pack'
+                : 'ORDER BY CASE WHEN i.is_active <> 1 THEN 2 WHEN i.is_preferred = 1 THEN 0 ELSE 1 END, k.name, i.units_per_pack, i.id LIMIT ' . max(1, $limit)),
             [$supplierId],
         );
         return $shown ? array_map(self::row(...), $rows) : $rows;

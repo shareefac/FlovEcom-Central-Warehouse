@@ -56,7 +56,7 @@ foreach ($history['channels'] as $c) {
 <?php if ($history['channels'] === []): ?>
 <p class="note"><?= $word('REORDER', 'no_data') ?> <?= $word('REORDER', 'no_data_text') ?></p>
 <?php endif; ?>
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('REORDER', 'show') ?></label>
@@ -100,7 +100,7 @@ foreach ($history['channels'] as $c) {
 <?= $empty(\CW\Ui\Words::REORDER['none'], $filters['show'] === 'need' ? \CW\Ui\Words::REORDER['none_text'] : '') ?>
 <?php else: ?>
 <?php if ($canDraft): ?>
-<form class="reorder" method="post" action="/ui/purchasing/reorder/draft" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+<form class="reorder" method="post" action="/ui/purchasing/reorder/draft" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
   <input type="hidden" name="row_count" value="<?= $e(count($rows)) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">

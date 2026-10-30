@@ -13806,3 +13806,46 @@ list's muted grey, so on the blue fill of an open line it was hard to read. Now 
 `side: $partial('split', ['actions' => ...])`; the head lint (`UiTemplatesTest::testTheStatementsRawPartsAreOnlyHelperOutput`) cannot read
 an array's `=>` inside a `$head` call, so it failed. The partial is now made before the head (`$split`) and passed as `side: $split`, the way
 the record pages pass their bars. Same output.
+
+## Suppliers and buying: the Codex review of a96ff5b (`runs/w9_codex_review.txt`), two MEDIUM and two LOW, each shown failing first (branch `wave-w9`, second commit, 30 Oct 2026; W9.15-W9.19)
+
+Fixed on `3f95e53` (a96ff5b with W9.14's test lines) in `/root/cw-w9`, then rebased onto main `672fae9` (W10, W8.13-W8.14). Red first:
+`runs/w9_fix_red.log` (the tip with the new tests and the two limit constants alone, so each test fails on what it checks). The owner's
+word of 30 Oct ("strictly follow our design guidelines") holds: no new line, note, button or chip on any page; a cut figure is its shortest
+form ("100+").
+
+**W9.15. A typed value is never lost by another form of the page (MEDIUM 1).** On a return's draft, a line's quantity changed and then
+"Save details" pressed sent the details alone, and the page came back with the line as it was, without a word: the details and the lines
+forms kept their typed values (`data-unsaved`) but neither said so before it left (no `data-leaves`), and the add row's two forms and the
+stop's reason were not guarded at all. Main's rule (CV14, IV13) now holds on every page of this wave: a POST form with a field to type in or
+choose carries `data-unsaved="1"` in DOC's words (an upload is its own send, as main's files forms), and on a page with such a form and
+another, every form carries `data-leaves="1"`, the toolbar's filter too, so the first press of another form says, in the page, that the
+changes are not saved, and the same press again goes on without them. The pages: a return (its details, its lines, add an item, add a
+claim, the stop's and the cancel's reasons; Make final, take back, Book the credit note, the files ask first), a supplier (the arrivals
+settings, the stop's reason, the reviewer's and the second person's notes; the proof upload, Ask a reviewer, take back ask first), the
+incidents (each close's note), the returns' and the credit notes' drawers, What to buy and Low-stock warnings (their filters ask first),
+Days left out (each End asks first). Attributes only: no form posts anything else or anywhere else. `UiTemplatesTest` reads every branch
+of these templates; `BuyingPatternsScreensTest` checks the pages as served.
+
+**W9.16. The Items and packs tab draws at most `SuppliersController::ITEM_TAB_ROWS` (100) records (MEDIUM 2).** The tab read and drew every
+pack record of the supplier (50,000 records, 50,000 rows in one page). It now reads the first 100 in the board's own group order (main
+supplier, a backup supplier, no longer bought here; within a group by name and pack, as the board draws them), so every group above the
+cut is whole and only the last one drawn is cut: its count reads "98+ products" (the shortest form, W8.14's "+"). The board head's "Open the
+products" link is the way to every record. The products page and its CSV read every record in their order, unchanged
+(`SupplierItemsController::rowsOf()` without a limit); the figures strip counts every record as before.
+
+**W9.17. Sales history's "Loads" reads "100+" at its list's limit (LOW 1).** The figure counted the loads the page lists, and the list stops at
+the newest 100 (`SalesHistoryController::LOADS`, the query's `LIMIT 100` named): with 150 loads it said 100. At the limit it now reads
+"100+"; below it, the count. The list is unchanged.
+
+**W9.18. The supplier form's Save sends what it sent before (LOW 2).** On the one-page form the Save came from `doc_bar`, which names every
+button `action`, so a save also sent `action=save` (the controller ignored it, but the form no longer posted exactly what it did). `doc_bar`
+now names a button and gives it its value only when its caller passes one; the supplier form passes none (its Save is unnamed, as before).
+The order, invoice and delivery pages pass theirs, so their buttons are drawn exactly as before.
+
+**W9.19. Tests.** Red first (`runs/w9_fix_red.log`, 6 of 6 fail). `UiTemplatesTest::testTheBuyingPagesGuardTypedValuesAndEveryFormThatLeavesAsksFirst`
+(W9.15's rule over every template of the wave, with the count of guarded forms per page), `testTheSupplierFormsSaveIsUnnamedAndTheOtherBarsKeepTheirAction`
+(W9.18); `BuyingPatternsScreensTest::testEveryFormThatKeepsTypedValuesIsGuardedAndEveryFormThatLeavesAsksFirst` (a return's draft with a
+line, the final return, a supplier, the returns' and the credit notes' lists, as served), `testTheItemsTabDrawsTheFirstRowsAndItsCutGroupReadsWithAPlus`
+(103 records: the tab's 100 with "98+", the products page's 103), `testTheLoadsFigureReadsWithAPlusAtTheListsLimit` (3, then 150 loads),
+`testTheSupplierFormsSaveSendsItsFieldsAloneAsBefore` (new and change).

@@ -9,7 +9,7 @@
 // (status, supplier, match) still narrow the list and a search keeps them (hidden fields).
 ?>
 <?= $head((string) $k['tab'], intro: $kind === 'invoice' ? 'invoices' : 'credit_notes', look: $lookOnly) ?>
-<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('INVOICES', 'search') ?>"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
@@ -40,7 +40,7 @@
 <?php if ($formKey !== null): ?>
 <details class="fold new-order drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $e($k['start']) ?></summary>
-  <form class="doc-details" method="post" action="<?= $e($base) ?>">
+  <form class="doc-details" method="post" action="<?= $e($base) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
     <fieldset class="doc-grid">
