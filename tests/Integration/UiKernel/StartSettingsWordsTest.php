@@ -96,10 +96,15 @@ final class StartSettingsWordsTest extends KernelUiTestCase
         $dom = $page->dom();
         $xp = new \DOMXPath($dom);
         self::assertSame($title, trim((string) $xp->evaluate('string(//main//h1)')), "{$where}: the title");
-        if ($intro !== null) {
-            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')), "{$where}: the intro (plan §4)");
+        $lede = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        if ($intro !== null && in_array($intro, \CW\Ui\View::INTRO_KEPT, true)) {
+            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the step's own line (\CW\Ui\View::INTRO_KEPT)");
+        } elseif ($intro !== null) {
+            self::assertSame('', $lede, "{$where}: no sentence under the heading (DC1)");
         } else {
-            self::assertNotSame('', trim((string) $xp->evaluate('string(//main//p[@class="lede"])')), "{$where}: an intro for a person who can only look");
+            self::assertNotSame('', trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])'))
+                . trim((string) $xp->evaluate('string(//main//p[contains(@class, "read-only")])')),
+                "{$where}: who changes it, under the heading's \"?\" (DC1) or in the page's own read-only note");
         }
         foreach ($xp->query('//main//table') ?: [] as $table) {
             /** @var \DOMElement $table */

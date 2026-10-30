@@ -581,7 +581,9 @@ final class CountsController
         $retime = $diff['too_many_times'] ? Words::say('COUNTS', 'too_many_times', Movements::MAX_DOCUMENT_MOVEMENTS, $diff['limit_minutes'], $diff['retime']) : null;
         return $ctx->page('stock_count_before', [
             'sheet' => $sheet,
-            'title' => Words::say('COUNTS', 'before_title', Words::docTitle(CountSheets::TYPE, $doc->number)),
+            // CT_Final (DC3): "Before it is final" under the sheet's own name, its eyebrow the link back to it.
+            'title' => Words::COUNTS['before_heading'],
+            'sheetTitle' => Words::docTitle(CountSheets::TYPE, $doc->number),
             'base' => self::PATH . '/' . $id,
             'lines' => $lines,
             'groups' => $groups,

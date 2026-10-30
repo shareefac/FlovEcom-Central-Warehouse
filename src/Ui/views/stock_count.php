@@ -10,9 +10,8 @@
 // the sheet), Save, and "Save and review" (saves, then opens the review: OV6). A final sheet: what was booked for each line and its check;
 // cancel it as a whole. The record that puts a count back, or cancels a sheet: its facts and what it is about.
 ?>
-<p class="crumbs"><a href="<?= $e($listHref) ?>"><?= $word('SEGMENT', 'count_sheets') ?></a></p>
 <div class="doc-head">
-<?= $head((string) $title, intro: $editable ? 'count_sheet_open' : 'count_sheet', look: $lookOnly,
+<?= $head((string) $title, intro: $editable ? 'count_sheet_open' : 'count_sheet', look: $lookOnly, back: [(string) $listHref, \CW\Ui\Words::SEGMENT['count_sheets']],
     chips: $kind === 'sheet' && $doc->status === 'draft' ? $chip('info', \CW\Ui\Words::COUNTS['counting']) : $stateChip('DOC_STATUS', $doc->status),
     meta: $meta === '' ? '' : $e($meta) . ($blind ? ' <span class="tag info">' . $word('COUNTS', 'blind_tag') . '</span>' : ''),
     side: $editable ? '<div class="count-progress"><p>' . $say('COUNTS', 'lines_counted', $counted_n, $lines_n) . '</p><progress max="' . $e(max(1, $lines_n)) . '" value="'

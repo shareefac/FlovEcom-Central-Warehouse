@@ -58,8 +58,10 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
         $page = $web->get($sheet);
         $xp = new \DOMXPath($page->dom());
         // The section's tab and the segment lead back to the lists from this record: links, marked as where the person is.
-        self::assertSame([['Counts', 'page', true]], array_values(array_filter(self::tabRow($page, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page')));
-        self::assertSame('/ui/stock/counts/sheets', (string) $xp->evaluate('string(//nav[contains(@class, "seg")]/a[@aria-current="page"]/@href)'), 'the sheet is one of Count sheets');
+        // (the sidebar's sub-items since DC28: the section's pages and the page's segments)
+        self::assertSame([['label' => 'Counts', 'href' => '/ui/stock/counts', 'count' => 0, 'current' => true]], array_values(array_filter(self::sectionTabs($page), static fn (array $t): bool => $t['current'])));
+        self::assertSame('/ui/stock/counts/sheets', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//p[contains(@class, "ph-back")]/a/@href)'),
+            'the sheet is one of Count sheets: its eyebrow leads back to them (DC3)');
         // The quantity form is guarded (app.js asks before a link or another form leaves while it holds typed values); the paper copy is a
         // download, which does not leave the page.
         self::assertSame(1, $xp->query('//form[@id="count-lines" and @data-unsaved="1" and @data-unsaved-text="' . Words::COUNTS['unsaved_leave'] . '"]')->length);
@@ -67,8 +69,8 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//body[@data-unsaved-link="' . Words::UI['unsaved_link'] . '"]')->length, 'the words a link\'s note says');
         // The board itself: its own tab and segment have no link.
         $board = $web->get(CountsController::PATH);
-        self::assertSame([['Counts', 'page', false]], array_values(array_filter(self::tabRow($board, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page')));
-        self::assertSame([[Words::SEGMENT['counts'], 'page', false]], array_values(array_filter(self::tabRow($board, '//nav[contains(@class, "seg")]'), static fn (array $t): bool => $t[1] === 'page')));
+        self::assertSame([['Counts', null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], array_values(array_filter(self::sectionTabs($board), static fn (array $t): bool => $t['current']))));
+        self::assertSame([[Words::SEGMENT['counts'], null]], array_map(static fn (array $t): array => [$t['label'], $t['href']], array_values(array_filter(self::segments($board), static fn (array $t): bool => $t['current']))));
     }
 
     public function testTheOrderAndInvoicePagesAskBeforeALinkLeavesWithTypedValues(): void
@@ -82,9 +84,9 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
                 "{$path}: the page's form is guarded like a delivery's");
             self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, "{$path}: \"Leave without saving\" never asks");
             // The section's tab leads to the list (another page): a link, which asks first while the form holds typed values.
-            $current = array_values(array_filter(self::tabRow($page, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page'));
+            $current = array_values(array_filter(self::sectionTabs($page), static fn (array $t): bool => $t['current']));
             self::assertCount(1, $current);
-            self::assertTrue($current[0][2], "{$path}: the list's tab is a link");
+            self::assertNotNull($current[0]['href'], "{$path}: the list's page in the sidebar is a link");
         }
     }
 }

@@ -45,8 +45,8 @@ final class ItemManagementScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get('/ui/items/new');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['All products', 'Add Item'], [self::currentSection($page), self::currentTab($page)], 'under the row\'s More, in the row on its page (HV3)');
-        self::assertStringContainsString(Words::intro('item_new'), $page->text());
+        self::assertSame(['All products', 'Add item'], [self::currentSection($page), self::currentTab($page)], 'under the row\'s More, in the row on its page (HV3)');
+        self::assertStringNotContainsString(Words::PAGE_INTRO['item_new'][0], $page->text(), 'no sentence under the heading (DC1)');
         $form = $page->form('/ui/items/new', true);
         self::assertArrayHasKey('form_key', $form);
         // (a radio checked with value="" is sent as "" by a browser; the test client sends "on": say so)

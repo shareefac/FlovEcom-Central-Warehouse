@@ -50,7 +50,7 @@ final class StockScreensTest extends KernelUiTestCase
             'under the row\'s More (HV3); the tab not built yet is "Soon", never a link');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['stock'], trim((string) $xp->evaluate('string(//main//h1)')));
-        self::assertStringStartsWith(Words::PAGE_INTRO['stock'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
         // The four figures: products, in stock (a sellable warehouse), units everywhere, with no stock.
         self::assertSame(['4', '2', '23', '2'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array($xp->query('//main//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-big"]'))));

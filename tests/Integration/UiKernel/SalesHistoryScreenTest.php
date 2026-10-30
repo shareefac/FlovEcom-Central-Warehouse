@@ -73,7 +73,7 @@ final class SalesHistoryScreenTest extends KernelUiTestCase
             'Hayati Pro Max 4000 Blue Razz Ice <b> · option 102 · Hayati ' . Words::SALES['not_matched'] . ' 60 30 Sep 2026'], $top,
             'most units first; titles from the listing profile (escaped); the problem in words (F347)');
         self::assertNotContains('/ui/review/listing/' . $l['unlinked'], $page->hrefs(), 'no link without linking.view');
-        self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($page));
+        self::assertSame(['Reorder', 'Purchase orders', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($page));
         self::assertSame(['Purchasing', 'Reorder'], [self::currentSection($page), self::currentTab($page)]);
         self::assertSame([['Suggestions', false], ['Brands', false], ['Anomalies', false], ['Sales history', true], ['Suppliers', false], ['Low-stock warnings', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));

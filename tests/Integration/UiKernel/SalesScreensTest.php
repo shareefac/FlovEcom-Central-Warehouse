@@ -270,7 +270,9 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertSame([], self::segments($page));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['sales_orders'], trim((string) $xp->evaluate('string(//main//h1)')));
-        self::assertStringStartsWith(Words::PAGE_INTRO['sales_orders'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
+        self::assertSame(Words::INTRO_LOOK['sales_orders'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')),
+            'who changes it, under the heading\'s "?" (DC1)');
         // The store chosen travels through the tabs.
         $alt = $this->page($web, self::ORDERS, ['channel' => 'alt']);
         self::assertSame([null, self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt'], array_column(self::sectionTabs($alt), 'href'), 'the one shown: no link (CV13)');

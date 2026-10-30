@@ -29,7 +29,7 @@ final class Words
     public const ASK_ROLE = 'Fazil (the admin)';
 
     /** The groups of() accepts (the constant names below). */
-    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'FLOW', 'MENU_HELP', 'NAV', 'TAB',
+    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'MENU_HELP', 'NAV', 'TAB',
         'BADGE', 'COMING_LATER',
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
@@ -228,13 +228,13 @@ final class Words
     public const MENU = [
         'home' => 'Home',
         // Products
-        'cards' => 'All Products',
+        'cards' => 'All products',
         'simple_match' => 'Simple matching',
         'mapping' => 'Mapping',
         'review' => 'Mapping',
-        'store_products' => 'Store Products',
-        'by_product' => 'By Item',
-        'new_variants' => 'New Variants',
+        'store_products' => 'Store products',
+        'by_product' => 'By item',
+        'new_variants' => 'New variants',
         'pending' => 'Second approval',
         'samples' => 'Spot check',
         'duplicates' => 'Duplicates',
@@ -242,8 +242,8 @@ final class Words
         // Stock
         'stock' => 'Overview',
         'movements' => 'Movements',
-        'stock_in' => 'Stock In',
-        'stock_out' => 'Stock Out',
+        'stock_in' => 'Stock in',
+        'stock_out' => 'Stock out',
         'transfers' => 'Transfers',
         'adjustments' => 'Adjustments',
         'counts' => 'Counts',
@@ -258,22 +258,22 @@ final class Words
         // ---- end of pack D ----
         // Purchasing
         'reorder' => 'Reorder',
-        'orders' => 'Purchase Orders',
-        'goods_in' => 'Goods In',
+        'orders' => 'Purchase orders',
+        'goods_in' => 'Goods in',
         'suppliers' => 'Suppliers',
         'sales_history' => 'Sales history',
-        'receiving' => 'Goods In',
+        'receiving' => 'Goods in',
         'bench' => 'Checking',
         'incidents' => 'Issues',
         // Reports
-        'stock_by_store' => 'Stock by Store',
-        'sales_by_store' => 'Sales by Store',
-        'low_stock' => 'Low Stock',
+        'stock_by_store' => 'Stock by store',
+        'sales_by_store' => 'Sales by store',
+        'low_stock' => 'Low stock',
         // ---- Pack E
-        'stock_value' => 'Stock Value',
-        'slow_stock' => 'Slow Stock',
+        'stock_value' => 'Stock value',
+        'slow_stock' => 'Slow stock',
         // ---- end Pack E
-        'audit' => 'Audit Log',
+        'audit' => 'Audit log',
         // Approvals
         'inbox' => 'Waiting for you', // docs/decisions.md AV1
         'reviews' => 'Documents to review', // AV9: the name of its group on Waiting for you
@@ -284,13 +284,13 @@ final class Words
         'warehouses' => 'Warehouses',
         'sites' => 'Stores',
         'people' => 'Users',
-        'approvals' => 'Approval Rules',
+        'approvals' => 'Approval rules',
         'reasons' => 'Reasons',
         'system' => 'System',
         'settings' => 'Settings',
         'integrity' => 'System checks',
         // Pack B: Products and Stock
-        'add_item' => 'Add Item',
+        'add_item' => 'Add item',
         'families' => 'Families',
         'multipacks' => 'Multipacks',
         'packs' => 'Pack items',
@@ -347,7 +347,7 @@ final class Words
         'reorder_suppliers' => 'Suppliers',
         'low_stock_levels' => 'Low-stock warnings',
         // --- end of Pack G
-        // Pack H (0038): Stock > Hand-overs, and the duty register in Purchasing > Goods In.
+        // Pack H (0038): Stock > Hand-overs, and the duty register in Purchasing > Goods in.
         'handovers' => 'Hand-overs',
         'handover_customers' => 'Customers',
         'handover_balances' => 'Balances',
@@ -380,21 +380,6 @@ final class Words
         // Pack H (0038).
         'handovers' => 'New hand-over',
         'handover_customers' => 'New customer',
-    ];
-
-    /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
-    public const FLOW = [
-        'label' => 'How buying works, step by step',
-        'reorder' => 'Reorder',
-        'orders' => 'Purchase Order',
-        'goods_in' => 'Goods In',
-        'stock' => 'Stock updated',
-        'reorder_text' => 'Suggestions from sales',
-        'orders_open' => '%s open',
-        'orders_waiting' => '%s waiting for OK',
-        'goods_in_text' => '%s not booked in',
-        'goods_in_arriving' => '%s arriving', // final invoices with goods on their way (Goods In › Arriving)
-        'stock_text' => '%s booked in this week',
     ];
 
     /** One line on what each tab is for: under its name in the tab row's More (HV3; Home's "What you can use" until HV1). */
@@ -504,7 +489,7 @@ final class Words
     /** Page key => title, where it is not the menu name. */
     public const PAGE_TITLE = [
         'count_differences' => 'Count differences to check',
-        'count_before' => 'Before you make it final',
+        'count_before' => 'Before it is final',
         'login' => 'Sign in',
         'password' => 'Change password',
         'search' => 'Find a product',
@@ -757,6 +742,17 @@ final class Words
             'Record a payment when the money arrives.'],
         'duty' => ['The vaping duty register: every delivery line that needed the duty stamp check, from the deliveries booked in.',
             'Filter it and download it when someone asks for the records.'],
+    ];
+
+    /**
+     * The read-only pages whose intro said who changes what they show (docs/decisions.md DC1): with the intro gone, the line is the "?" beside
+     * the heading, as every other look-only line is.
+     */
+    public const INTRO_LOOK = [
+        'listing_spot' => 'You can look; only the spot check\'s owner decides it.',
+        'reservations' => 'You can only look: the stores and CW change these.',
+        'sales_orders' => 'You can only look: the stores change their orders.',
+        'sales_dispatch' => 'You can only look: the stores send orders.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -1429,7 +1425,7 @@ final class Words
     // ---- end of pack D ----
 
     // ------------------------------------------------------------------------------------------------------------------
-    // Pack A1: Stock In, Stock Out, Adjustments, Transfers, Releases from another account and the balance owed
+    // Pack A1: Stock in, Stock out, Adjustments, Transfers, Releases from another account and the balance owed
 
     // ------------------------------------------------------------------------------------------------------------------
     // Stock > Counts (pack A2a; docs/decisions.md CT14-CT15). One name for one thing: a "count sheet"; "make it final" as every other
@@ -1522,6 +1518,7 @@ final class Words
         'warehouse' => 'Warehouse',
         'show' => 'How many to show',
         'show_n' => 'The next %s',
+        'show_n_link' => 'List the next %s', // under the toolbar's More (DC20)
         'clear' => 'Back to the plan',
         'plan' => 'The plan: every item is counted at least once every %s days.',
         'plan_link' => 'Change the days',
@@ -1686,6 +1683,7 @@ final class Words
         'cancel_button' => 'Cancel this sheet',
         // Before you make it final
         'before_title' => 'Before you make it final: %s',
+        'before_heading' => 'Before it is final', // CT_Final (DC3)
         'back_to_sheet' => 'Back to the sheet',
         // The strip (CV9), the two groups and the status of a line (CV10).
         'summary' => 'The count in figures',
@@ -1727,7 +1725,7 @@ final class Words
         'make_final_button' => 'Make the count final',
         'make_final_blocked' => 'Answer the marked lines first: count each again, or keep your count.',
         // Differences
-        'rules_link' => 'Approval Rules',
+        'rules_link' => 'Approval rules',
         'second_none' => 'Anyone who counts stock may answer, also for their own count. Whether a second person is needed is set on',
         'second_over' => 'A difference of more than %s units needs a second person: not the one who counted it. The rule is on',
         'second_all' => 'Every difference needs a second person: not the one who counted it. The rule is on',
@@ -1837,17 +1835,17 @@ final class Words
      */
     public const STOCK_KIND = [
         'in' => [
-            'tab' => 'Stock In', 'one' => 'Stock in', 'many' => 'Stock in records', 'lower' => 'stock in',
+            'tab' => 'Stock in', 'one' => 'Stock in', 'many' => 'Stock in records', 'lower' => 'stock in',
             'start' => 'Start a stock in', 'start_button' => 'Start the stock in',
-            'start_text' => 'Stock that comes in without a supplier delivery: opening stock, stock found, a trade customer\'s return. A delivery from a supplier is booked in Purchasing › Goods In.',
+            'start_text' => 'Stock that comes in without a supplier delivery: opening stock, stock found, a trade customer\'s return. A delivery from a supplier is booked in Purchasing › Goods in.',
             'how' => ['Choose the warehouse and why the stock comes in.', 'Scan or find each product and say how many units. Add the cost of a unit when you know it.',
                 'Make it final: the units are added to the warehouse at once.'],
             'none' => 'No stock in records yet.', 'none_text' => 'Start one above when stock comes in without a supplier delivery.',
-            'goods_in' => 'A delivery from a supplier?', 'goods_in_link' => 'Book it in Goods In',
+            'goods_in' => 'A delivery from a supplier?', 'goods_in_link' => 'Book it in Goods in',
             'final_button' => 'Make it final: add the stock', 'final_does' => 'The units are added to the warehouse now. A mistake is put right by cancelling the record.',
         ],
         'out' => [
-            'tab' => 'Stock Out', 'one' => 'Stock out', 'many' => 'Stock out records', 'lower' => 'stock out',
+            'tab' => 'Stock out', 'one' => 'Stock out', 'many' => 'Stock out records', 'lower' => 'stock out',
             'start' => 'Start a stock out', 'start_button' => 'Start the stock out',
             'start_text' => 'Stock that leaves without a website sale: samples, staff use, a trade sale, goods sent for repair or return.',
             'how' => ['Choose the warehouse and why the stock goes out. A sample or staff use names the person it was given to.',
@@ -2288,12 +2286,13 @@ final class Words
 
     /** A purchase order's state (Document status + PurchaseOrders::STATES). */
     public const PO_STATE = [
+        // The words of the approved PO list, PO_View and GI_List (docs/decisions.md DC16).
         'draft' => 'Draft',
-        'awaiting_approval' => 'Waiting for a reviewer\'s OK',
+        'awaiting_approval' => 'Waiting for approval',
         'approved' => 'Confirmed, not sent',
         'sent' => 'Sent',
-        'part_received' => 'Partly delivered',
-        'received' => 'Delivered',
+        'part_received' => 'Part received',
+        'received' => 'Received',
         'closed' => 'Closed',
         'cancelled' => 'Cancelled',
     ];
@@ -2477,8 +2476,8 @@ final class Words
         'approvals.mapping_bulk_second_ok' => 'Matches confirmed from a ticked list need a second OK',
         'mapping.bulk_confirm_bands' => 'Match strengths that may be confirmed together',
         'mapping.bulk_max_rows' => 'Most products in one bulk action',
-        'mapping.by_item_page_size' => 'Items on a page of By Item',
-        'mapping.new_variants_days' => 'Days New Variants looks back',
+        'mapping.by_item_page_size' => 'Items on a page of By item',
+        'mapping.new_variants_days' => 'Days New variants looks back',
         'mapping.arrival_stores' => 'Stores whose new variants the computer checks',
         'mapping.arrival_main_store' => 'The main store',
         'mapping.arrival_bulk_confirm' => 'Matches from the check on arrival may be confirmed from a ticked list',
@@ -2493,7 +2492,7 @@ final class Words
         'reports.low_stock_default' => 'Low stock: units left',
         'reports.slow_after_days' => 'Slow stock: days without a sale',
         'reports.dead_after_days' => 'Dead stock: days without a sale',
-        'reports.sales_max_days' => 'Longest period of Sales by Store',
+        'reports.sales_max_days' => 'Longest period of Sales by store',
         'reports.refresh_on' => 'Keep the reports up to date',
         'reports.refresh_max_rows' => 'Stock changes read in one report run',
         'reports.refresh_max_days' => 'Days of sales worked out in one report run',
@@ -2625,8 +2624,8 @@ final class Words
         'unknown_item' => 'This warehouse product does not exist (the link may be old). Search for it instead.',
         'unknown_group' => 'We cannot find this group of possible duplicates. The link may be old.',
         'unknown_sample' => 'We cannot find this spot check. The link may be old.',
-        'unknown_store' => 'We cannot find this store. The link may be old: open By Item and choose again.',
-        'unknown_variants_store' => 'We cannot find a store with variants by that name. The link may be old: open New Variants and choose a store.',
+        'unknown_store' => 'We cannot find this store. The link may be old: open By item and choose again.',
+        'unknown_variants_store' => 'We cannot find a store with variants by that name. The link may be old: open New variants and choose a store.',
         'item_joined' => 'This warehouse item was joined into another one, so nothing is matched to it any more. Open the item it was joined into.',
         'unknown_document' => 'We cannot find this record. The link may be old or wrong.',
         'unknown_task' => 'We cannot find this check. It may be closed already, or the link is wrong.',
@@ -2666,7 +2665,7 @@ final class Words
             . '**Sold, waiting to ship:** the order is paid; the stock stays off sale until the store sends it. '
             . '**Freed by the store:** the store let the stock go, for example because the customer left the checkout. '
             . '**Ran out of time:** nobody paid in time, so CW freed the stock.',
-        // Wave w10 (docs/decisions.md W10): Sales by Store's note under its boards, as its "?"
+        // Wave w10 (docs/decisions.md W10): Sales by store's note under its boards, as its "?"
         'sales_by_store' => 'A **unit** is one warehouse product: a sale of a pack of 3 is 3 units. Each figure belongs to the day the store told CW about it.',
         // Pack D (docs/decisions.md PD3, PD5)
         'sales_orders' => '**Paid (every sale)** is every order that was paid, whatever happened next. **With a unit sent, cancelled or returned** '
@@ -2682,13 +2681,13 @@ final class Words
             . '(for example a new supplier, or an order over the approval limit). '
             . '**Check after:** it happens at once, and a reviewer checks it later (for example every confirmed order and every delivery booked in). '
             . '**Nobody approves or checks their own work.** If you made it, or checked the delivery when it arrived, someone '
-            . 'else must. The Approval Rules page lists every rule, its limit and its days.',
+            . 'else must. The Approval rules page lists every rule, its limit and its days.',
         // Correction a (7 Oct): never suggest a second account (the spot check owner-1 belongs to this account).
         'admin_off' => 'Admin gives people access. To keep that safe, the person who gives access must not also approve work. '
             . 'So while an account has Admin, its working jobs (Reviewer, Matching lead, Buyer …) are switched off. '
             . 'Only these jobs still work: Look only (matching), Accountant, Auditor. Ask ' . self::ASK . ' to take Admin off the account that does the work.',
         'spot_check' => 'Instead of checking every strong match one by one, one matching lead checks a number of them picked at random '
-            . '(the Approval Rules page says how many). If all are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
+            . '(the Approval rules page says how many). If all are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
             . 'If even one is wrong, the rest must be checked one by one.',
         'sale_uses' => 'Most website products are single items: 1 sale uses 1 warehouse product. A 10-pack page uses 10. '
             . 'If this number is wrong, stock goes wrong, so anything other than 1 needs a second OK while that approval rule is on.',
@@ -2728,7 +2727,7 @@ final class Words
         'selling_mode' => 'What a website shows for a product whose stock rule is still "Website uses its own stock". **In-Stock:** it sells whatever the stock figure says. '
             . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. A website takes the mode from here only once its stock '
             . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach.',
-        // All Products (/ui/items/cards): the "?" beside its heading (it was a paragraph above the list).
+        // All products (/ui/items/cards): the "?" beside its heading (it was a paragraph above the list).
         'card_rules' => 'A card that breaks a rule is a **warning** until a person confirms its details. After that it **blocks** the product until a '
             . 'person confirms the card again. A block stops Reorder, the confirming of orders and the booking in of deliveries. It does not stop '
             . 'website sales: take a blocked product off sale on the website by hand. A website whose stock link is on shows it as Out-Of-Stock by itself.',
@@ -2820,6 +2819,8 @@ final class Words
         'coming_later' => 'Coming later:',
         'test_system' => 'TEST SYSTEM: nothing here is real',
         'look_only' => 'You can look; %s change this.',
+        // The "?" beside a heading that holds the look-only line (docs/decisions.md DC1).
+        'look_help' => 'Who can change this?',
         'what_happens' => 'What happens:',
         'safer' => 'Safer',
         'what_each_answer_does' => 'What each answer does',
@@ -2829,8 +2830,11 @@ final class Words
         'signed_out' => 'You were signed out: you were away for too long, your sign-in reached its time limit, or your password changed. Sign in again to carry on.',
         // Behaviour item 1 (F057): a form sent while signed out is dropped.
         'lost' => 'What you sent was NOT saved, because you were not signed in any more. Sign in, then do it again.',
-        // The bell (HV4): it opens Approvals › Waiting for you and counts what waits there; the eyebrow of an error page.
-        'bell' => 'Approvals: waiting for you',
+        // The person's initials on the phone's top bar (HM_Phone; docs/decisions.md DC7); the eyebrow of an error page.
+        'signed_in_as' => 'Signed in as %s',
+        // A recent time on a board (Html::near; GI_List: "Today 09:40").
+        'today_at' => 'Today %s',
+        'yesterday_at' => 'Yesterday %s',
         'error_eyebrow' => 'Error %s',
     ];
 
@@ -3287,7 +3291,7 @@ final class Words
         'open_stock_note' => 'Its places, products, prices and files are on its own page in Stock.',
         'open_order_note' => 'Its own page under Purchasing: lines, sending, cancelling, and the PDF for the supplier.',
         'open_receipt' => 'Open the delivery',
-        'open_receipt_note' => 'Its own page under Goods In: lines, their check, problems found, and the files.',
+        'open_receipt_note' => 'Its own page under Goods in: lines, their check, problems found, and the files.',
         'status' => 'Status',
         'check' => 'Reviewer check',
         'not_final' => 'Not final yet',
@@ -3549,7 +3553,7 @@ final class Words
         'by' => '%s by %s',
         'open' => 'Open',
         'approval_rules' => 'Approval rules',
-        'approval_rules_text' => 'Who checks what, the limits and the days are changed on the Approval Rules page.',
+        'approval_rules_text' => 'Who checks what, the limits and the days are changed on the Approval rules page.',
         'access' => 'Who can do what',
         'rules' => 'Who checks what',
         'rules_text' => 'Only the kinds of record in use today. Nobody checks their own work.',
@@ -3733,11 +3737,11 @@ final class Words
         'approvals.mapping_bulk_second_ok' => 'Matches confirmed, and new products created, from a ticked list wait for a second matching lead.',
         'mapping.bulk_confirm_bands' => 'On these lists people may tick website products and confirm the suggested matches together. '
             . 'The other lists are decided one at a time. Untick all to allow none.',
-        'mapping.bulk_max_rows' => 'The most website products one bulk action takes. A page shows 50. On By Item it is the most suggested variants '
+        'mapping.bulk_max_rows' => 'The most website products one bulk action takes. A page shows 50. On By item it is the most suggested variants '
             . 'of the ticked items.',
-        'mapping.by_item_page_size' => 'How many items Products › By Item shows on a page when it opens: 50, 100 or 200. On the page itself anyone '
+        'mapping.by_item_page_size' => 'How many items Products › By item shows on a page when it opens: 50, 100 or 200. On the page itself anyone '
             . 'can show another number for a while.',
-        'mapping.new_variants_days' => 'The New Variants page opens with the variants first seen in this many days (30: the last month). '
+        'mapping.new_variants_days' => 'The New variants page opens with the variants first seen in this many days (30: the last month). '
             . 'The page also offers 7, 30 and 90 days and any time.',
         'mapping.arrival_stores' => 'The check on arrival looks at the newly arrived variants of these stores (store codes, with commas between them). '
             . 'Empty: the check is switched off. It only suggests: a variant whose barcode, or whose web address copied from the main store, points to '
@@ -3760,9 +3764,9 @@ final class Words
             . 'always put one back as a real product.',
         // 0051 (HU1, hide-unsold): on or off; the year is said because it cannot change (the stores send the units of a year).
         'mapping.hide_unsold_days' => '365 (on): a website product that is not matched yet and sold nothing in the last 365 days is left out of '
-            . 'Store Products, To review, New Variants and Simple matching\'s choices when it was already on its store at the store\'s first load, '
+            . 'Store products, To review, New variants and Simple matching\'s choices when it was already on its store at the store\'s first load, '
             . 'or was first seen more than 365 days ago. A product added after that load is shown until it is a year old. Its exact ID or '
-            . 'barcode still finds it, its first sale brings it back, and Store Products says how many are hidden, with a link to show them. '
+            . 'barcode still finds it, its first sale brings it back, and Store products says how many are hidden, with a link to show them. '
             . '0 (off): every product is listed. Only these two: the websites send the units of the last year, not of any number of days.',
         // 0053 (PV18): the open orders board's "Received or closed" group.
         'po.board_recent_days' => 'How many days a delivered or closed order still shows on the purchase orders board (its "Received or closed" '
@@ -3794,13 +3798,13 @@ final class Words
         'items.family_bulk_max_rows' => 'The most items one change of a family takes: a pasted list, or the ticked items taken out.',
         'items.repack_carry_cost' => 'On: what a repack makes carries the average cost of what it took apart (a box of 10 at £12 gives singles at £1.20). '
             . 'Off: what it makes has no cost of its own and is valued at the average cost later.',
-        'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
+        'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add item. The item can be used at once.',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         // --- Pack J (0041)
-        'arrivals.late_hours' => 'An invoice\'s goods that have not arrived this many hours after it was made final show as late on Goods In › Arriving.',
+        'arrivals.late_hours' => 'An invoice\'s goods that have not arrived this many hours after it was made final show as late on Goods in › Arriving.',
         'arrivals.sell_before_default' => 'On: the goods on a final invoice of a supplier without its own choice are sold on the websites before they arrive '
             . '(customers can order overnight; the orders go out when the goods land). Off: they are sold once received. Each supplier can choose on its page.',
-        'arrivals.default_mode' => 'count: the goods are counted on arrival by Goods In (they wait in Arriving). received: they are booked as received the moment '
+        'arrivals.default_mode' => 'count: the goods are counted on arrival by Goods in (they wait in Arriving). received: they are booked as received the moment '
             . 'the invoice is final, without a count. For a supplier without its own choice; each invoice can still choose.',
         // --- Pack RB (0046)
         'rollback.cw_warehouses' => 'The warehouses, by their short codes separated by commas, whose stock ERPNext\'s own figure stands for. The rollback '
@@ -3852,11 +3856,11 @@ final class Words
         'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
         'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
         // ---- Pack E
-        'reports.low_stock_default' => 'In units. Low Stock lists a product when the stores can sell this many or fewer. A product with its own '
+        'reports.low_stock_default' => 'In units. Low stock lists a product when the stores can sell this many or fewer. A product with its own '
             . '"least stock to keep" on its reorder page uses that number instead.',
-        'reports.slow_after_days' => 'Slow Stock lists a product in stock that has had no sale for this many days.',
-        'reports.dead_after_days' => 'Slow Stock calls a product dead when it has had no sale for this many days. At least the slow-stock days.',
-        'reports.sales_max_days' => 'The most days Sales by Store shows at once.',
+        'reports.slow_after_days' => 'Slow stock lists a product in stock that has had no sale for this many days.',
+        'reports.dead_after_days' => 'Slow stock calls a product dead when it has had no sale for this many days. At least the slow-stock days.',
+        'reports.sales_max_days' => 'The most days Sales by store shows at once.',
         'reports.refresh_on' => 'Yes: every 15 minutes the reports read the new stock changes and orders. No: the reports keep the figures of the last run.',
         'reports.refresh_max_rows' => 'The most stock changes one run of the reports reads. A big backlog is read over several runs.',
         'reports.refresh_max_days' => 'The most days of store sales one run of the reports works out. The first run catches up over several runs.',
@@ -4299,7 +4303,7 @@ final class Words
 
     /**
      * A row no bulk action takes (CW\Mapping\OneAtATime; docs/decisions.md M63, U139), under its name on the lists whose rows are
-     * variants (To review, Store Products, New Variants): what it is, and what to do. Held back: when and by whom it was set aside
+     * variants (To review, Store products, New variants): what it is, and what to do. Held back: when and by whom it was set aside
      * (%s the day, %s the name), and that its own page says why and is where it is decided. The hold's note itself is NOT printed
      * here: the stored notes are long technical rule texts (a build decision of 12 Oct 2026, not yet put to the owner); the row's own page shows it in
      * full (LISTING `held`). A match of a spot check: the spot check's name. Found by the check on arrival (M64, U144): that no AI
@@ -4685,11 +4689,11 @@ final class Words
         'product_joined' => 'The suggested product was joined into another one. Open it to pick the right one.',
         'no_name' => 'It has no name, so a new product cannot be made from it. Open it and type one.',
         'refused' => 'Not changed: %s',
-        // By Item's confirm only (M59; BY_ITEM_SKIP says them in items and variants)
+        // By item's confirm only (M59; BY_ITEM_SKIP says them in items and variants)
         'rejected_before' => 'It was marked "not this product" for this warehouse product before: open it and decide.',
         'item_on_store' => '%s already has a website product on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested website product on %s: open them and decide which is right.',
-        // Store Products' "Create new warehouse products for these" (NF2): what it leaves to a person, each with why.
+        // Store products' "Create new warehouse products for these" (NF2): what it leaves to a person, each with why.
         'landing_page' => 'It is a landing page, not a product, so no warehouse product is made for it.',
         'match_instead' => 'A warehouse product is suggested for it (%s): open it and match it to that one instead.',
         'barcode_on_item' => 'Its barcode is already on a warehouse product (%s): open it and match it to that one instead.',
@@ -4698,7 +4702,7 @@ final class Words
         'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
         'barcode_waiting' => 'A new product with the same barcode already waits for a second OK. Open it and decide.',
         // A bulk "create as new" (M61) takes only what the computer checked and found new, and of that not what is doubtful. The
-        // others, each with why (the first three on New Variants only; the rest on every list that offers it):
+        // others, each with why (the first three on New variants only; the rest on every list that offers it):
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
         'not_checked' => 'Nothing is suggested for this variant. Open it and decide.',
         'not_new' => 'The computer could not say what it is (%s): open it and decide.',
@@ -4750,7 +4754,7 @@ final class Words
     ];
 
     /**
-     * Store Products' "Create new warehouse products for these" (docs/decisions.md NF1-NF8): the bar's button and its line,
+     * Store products' "Create new warehouse products for these" (docs/decisions.md NF1-NF8): the bar's button and its line,
      * the preview, its button, the refusals and the result page.
      */
     public const STORE_NEW = [
@@ -4767,7 +4771,7 @@ final class Words
             . 'changed. The next page says what was done.',
         'none_to_do' => 'Every product would be skipped, so there is nothing to create. Each line says why: open a product to decide it by hand.',
         'go' => 'Yes, create these %s new warehouse products',
-        'back' => 'No, go back to Store Products',
+        'back' => 'No, go back to Store products',
         'lines' => 'The ticked products',
         'col_product' => 'Website product',
         'col_outcome' => 'What will happen',
@@ -4804,7 +4808,7 @@ final class Words
         'total' => 'All products of the store',
     ];
 
-    /** Products › Store Products. */
+    /** Products › Store products. */
     public const STORE_PRODUCTS = [
         'no_stores' => 'No store has website products in this system yet.',
         'no_stores_text' => 'They arrive with each store\'s first product list.',
@@ -4879,7 +4883,7 @@ final class Words
         'units' => 'The suggestion says %s.',
     ];
 
-    /** A website product's state on Store Products (Queries::STORE_STATES). */
+    /** A website product's state on Store products (Queries::STORE_STATES). */
     public const STORE_STATE = [
         'all' => 'All',
         'waiting' => 'Waiting for a second OK',
@@ -4892,7 +4896,7 @@ final class Words
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
-    // Products › By Item (docs/decisions.md U113-U122): every warehouse item with the variant it is matched to on each store.
+    // Products › By item (docs/decisions.md U113-U122): every warehouse item with the variant it is matched to on each store.
     // The owner's words (10 Oct 2026, U122): a store's sellable option is a VARIANT, the warehouse record it is matched to is an
     // ITEM, and a PRODUCT is the parent page that has many variants. Only this screen and its picker say so yet; the other
     // screens keep "website product" and "warehouse product" until they are renamed together. The keys keep `by_product`.
@@ -4941,7 +4945,7 @@ final class Words
         'rows' => 'Rows',
         // The picker: one warehouse item on one store
         'pick_title' => 'Match %s on %s',
-        'pick_crumb' => 'By Item: %s',
+        'pick_crumb' => 'By item: %s',
         'pick_facts' => 'The warehouse item',
         'pick_none' => 'none',
         'pick_now' => 'On %s now',
@@ -4982,7 +4986,7 @@ final class Words
     ];
 
     /**
-     * What a store has for a warehouse item: a cell of By Item and of its CSV. `rejected` is a suggested cell whose every suggestion
+     * What a store has for a warehouse item: a cell of By item and of its CSV. `rejected` is a suggested cell whose every suggestion
      * was marked "not a match" for the item before (M59): the suggestion is still open, and a person decides it on its page.
      */
     public const PRODUCT_STORE = [
@@ -4994,7 +4998,7 @@ final class Words
     ];
 
     /**
-     * By Item's bulk action (docs/decisions.md M55-M59, U123-U130; the owner's "bulk preview and update option", 10 Oct 2026): the
+     * By item's bulk action (docs/decisions.md M55-M59, U123-U130; the owner's "bulk preview and update option", 10 Oct 2026): the
      * bar under the ticked items, the preview of every variant it would change and its one button, the refusals in words, and the
      * result page's words for a batch started here. The owner's words (U122): items and variants. %s of `on_store`, `nothing_here_*`
      * and `too_many` is a store's name or "all stores", read from the channel table.
@@ -5104,7 +5108,7 @@ final class Words
         'button_link' => 'Yes, do these %s',
         'button_reject' => 'Yes, these %s are not a match',
         'button_send_back' => 'Yes, send these %s back for matching',
-        'back' => 'No, go back to By Item',
+        'back' => 'No, go back to By item',
         'none_to_do' => 'Every variant would be skipped, so there is nothing to do. Each line says why: open a variant to decide it by hand.',
         'col_item' => 'Item',
         'col_store' => 'Store',
@@ -5125,14 +5129,14 @@ final class Words
         'too_many_rows' => 'The ticked items have %s suggested variants on %s. At most %s can be changed at a time (the Settings page says how many): '
             . 'tick fewer items, or choose one store. Nothing was saved.',
         // The result page of a batch started here
-        'result_where' => 'By Item',
+        'result_where' => 'By item',
         'result_ticked' => 'Variants in this action',
         'result_col' => 'Variant',
         'result_all_rows' => 'Every variant of this action',
         'result_skipped_text' => 'Skipped variants were not changed. Each one says why: open it to decide it by hand.',
     ];
 
-    /** Why a variant of By Item's bulk action is (or will be) skipped: CW\Mapping\BulkDecisions::SKIPS in the owner's words (U122). */
+    /** Why a variant of By item's bulk action is (or will be) skipped: CW\Mapping\BulkDecisions::SKIPS in the owner's words (U122). */
     public const BY_ITEM_SKIP = [
         'unknown_listing' => 'This variant no longer exists.',
         'other_store' => 'It is on another store than the one you chose.',
@@ -5161,7 +5165,7 @@ final class Words
         'product_joined' => 'The suggested item was joined into another one. Open it to pick the right one.',
         'no_name' => 'It has no name, so a new item cannot be made from it. Open it and type one.',
         'refused' => 'Not changed: %s',
-        // What a confirm from By Item leaves to a person, one at a time (M59)
+        // What a confirm from By item leaves to a person, one at a time (M59)
         'rejected_before' => 'It was marked not a match for this item before: open it and decide.',
         'item_on_store' => '%s already has a variant on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested variant on %s: open them and decide which is right.',
@@ -5172,7 +5176,7 @@ final class Words
         'name_waiting' => 'A new item with the same name already waits for a second OK. Open it and decide.',
         'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
         'barcode_waiting' => 'A new item with the same barcode already waits for a second OK. Open it and decide.',
-        // A bulk "create as new" is not offered on By Item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
+        // A bulk "create as new" is not offered on By item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
         // words in both sets (the same sentences; "its store" where the lists' words say "the website").
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
         'not_checked' => 'Nothing is suggested for this variant. Open it and decide.',
@@ -5188,7 +5192,7 @@ final class Words
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
-    // Products › New Variants (docs/decisions.md M60-M62, U131-U138): one store's variants first seen in a period, and the "seed"
+    // Products › New variants (docs/decisions.md M60-M62, U131-U138): one store's variants first seen in a period, and the "seed"
     // (create them as new items) on every store. The owner's words (U122, U137): a VARIANT is what a store sells, an ITEM the
     // warehouse record it is matched to. The %s of `store_off`, `store_on` and `board` is a store's name, read from the channel
     // table: no store is named here.
@@ -5271,7 +5275,7 @@ final class Words
         'csv_more' => 'Only the first %s variants are in this file.',
     ];
 
-    /** What a variant of New Variants is (Queries::NEW_KINDS): the chip on its row and the word in the CSV. */
+    /** What a variant of New variants is (Queries::NEW_KINDS): the chip on its row and the word in the CSV. */
     public const NEW_VARIANT_STATE = [
         'new' => 'New',
         'suggested' => 'Suggested match',
@@ -5283,7 +5287,7 @@ final class Words
         'landing' => 'Landing page (not for sale)',
     ];
 
-    /** New Variants' filter (Queries::NEW_FILTERS and `all`). "New" is what "Create as new items" takes. */
+    /** New variants' filter (Queries::NEW_FILTERS and `all`). "New" is what "Create as new items" takes. */
     public const NEW_VARIANT_FILTER = [
         'unmatched' => 'All not matched',
         'new' => 'New: the computer found nothing like it',
@@ -5293,7 +5297,7 @@ final class Words
     ];
 
     /**
-     * Why a variant of New Variants has no suggestion (U144): the line under a "No suggestion" row, from what the check on arrival
+     * Why a variant of New variants has no suggestion (U144): the line under a "No suggestion" row, from what the check on arrival
      * left on its profile (listing_profile.arrival_state and arrival_outcome; NewVariantsController::left()). `off`: the check is
      * not switched on for the row's store and has never looked at it; `before`: it is on, and the variant was there before it;
      * `queued`: it is waiting; the others are the outcomes the check records when it suggests nothing (Matching\ArrivalRules:
@@ -5312,21 +5316,21 @@ final class Words
         'other' => 'The check on arrival suggested something for it before, and that suggestion is closed: open it to decide.',
     ];
 
-    /** New Variants' action bar, in the owner's words (a "…" means a second step follows). */
+    /** New variants' action bar, in the owner's words (a "…" means a second step follows). */
     public const NEW_VARIANT_ACTION = [
         'new_item' => 'Create as new items',
         'link' => 'Confirm match',
         'ignore' => 'Ignore…',
     ];
 
-    /** The "done" part of a New Variants batch's summary, by action (%s = how many). */
+    /** The "done" part of a New variants batch's summary, by action (%s = how many). */
     public const NEW_VARIANT_DONE = [
         'new_item' => '%s new items created and matched',
         'link' => '%s matched',
         'ignore' => '%s ignored',
     ];
 
-    /** What waits for a second OK on a variant of New Variants, by the decision's action (`other` for any other). */
+    /** What waits for a second OK on a variant of New variants, by the decision's action (`other` for any other). */
     public const NEW_VARIANT_PENDING = [
         'link' => 'A match waits for a matching lead\'s yes.',
         'new_item' => 'A new item waits for a matching lead\'s yes.',
@@ -5347,7 +5351,7 @@ final class Words
         'started_by' => 'Started by',
         'together' => 'Confirmed together',
         'undone' => '(%s undone)',
-        'unusable' => 'This spot check cannot be used (it is smaller than the spot check size on the Approval Rules page, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
+        'unusable' => 'This spot check cannot be used (it is smaller than the spot check size on the Approval rules page, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
         'passed' => 'All %s are right. The other strong matches can now be confirmed together. Ask ' . self::ASK . ' to run it for you.',
         'failed_one' => 'This spot check failed: 1 of the %s was wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
         'failed_many' => 'This spot check failed: %s of the %s were wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
@@ -5606,7 +5610,7 @@ final class Words
 
     /**
      * The product search boxes of the matching pages (docs/decisions.md SX1-SX5; CW\Ui\SearchText): what to type (the
-     * placeholders: By Item and New Variants say "item" and "variant", as the owner does there, U122, U137), what a search found and
+     * placeholders: By item and New variants say "item" and "variant", as the owner does there, U122, U137), what a search found and
      * a way to clear it alone, and what to try when it found nothing. The same words on every page.
      */
     public const FIND = [
@@ -5769,11 +5773,11 @@ final class Words
     /** The status filter of the purchase orders list (PurchaseOrdersController::STATE_FILTERS keys). */
     public const PO_FILTER = [
         'draft' => 'Drafts',
-        'awaiting_approval' => 'Waiting for a reviewer\'s OK',
+        'awaiting_approval' => 'Waiting for approval',
         'approved' => 'Confirmed, not sent',
         'sent' => 'Sent',
-        'part_received' => 'Partly delivered',
-        'received' => 'Delivered',
+        'part_received' => 'Part received',
+        'received' => 'Received',
         'closed' => 'Closed',
         'cancelled' => 'Cancelled',
     ];
@@ -5795,7 +5799,7 @@ final class Words
         'how_2' => 'The buyer sends the PDF to the supplier, then records it here.',
         'how_3' => 'A reviewer checks every confirmed order within 7 days.',
         'how_4' => 'Over %s (before VAT), a reviewer must OK the order before it gets a number.',
-        'how_4_off' => 'No order needs a reviewer\'s OK before it gets a number: the owner switched that off on the Approval Rules page.',
+        'how_4_off' => 'No order needs a reviewer\'s OK before it gets a number: the owner switched that off on the Approval rules page.',
         'how_fix' => 'A confirmed order cannot be changed: cancel it, or press Correct to make a corrected copy.',
         'new' => 'Start a new order',
         'new_text' => 'Choose the supplier. Then add products by scanning or searching.',
@@ -5817,6 +5821,7 @@ final class Words
         'drafts' => 'Show drafts too (not ordered yet)',
         'drafts_hidden' => 'Drafts are not shown: they are not ordered yet, so no delivery is coming for them.',
         'drafts_show' => 'Show drafts too',
+        'drafts_off' => 'Hide the drafts again',
         'filter' => 'Show',
         'download' => 'Download for Excel (CSV)',
         'none' => 'No purchase orders yet.',
@@ -6082,8 +6087,8 @@ final class Words
         'cancel_draft_title' => 'Cancel this draft',
         'cancel_draft_button' => 'Cancel the draft',
         // --- Pack PO (docs/decisions.md PO7-PO11): the review fixes of the order screens.
-        // The orders' "OK first" switched off on the Approval Rules page (review finding 1).
-        'limit_note_off' => 'No order needs a reviewer\'s OK before it gets its PO number: that is switched off on the Approval Rules page.',
+        // The orders' "OK first" switched off on the Approval rules page (review finding 1).
+        'limit_note_off' => 'No order needs a reviewer\'s OK before it gets its PO number: that is switched off on the Approval rules page.',
         // A delivery charge has its own remove box (review finding 8).
         'charge_remove' => 'Remove this charge',
         // "Reopen order" on a closed order (review finding 2).
@@ -6413,7 +6418,7 @@ final class Words
         'supplier' => 'Supplier',
         'status' => 'Status',
         'total' => 'Total',
-        'due' => 'Due date',
+        'due' => 'Due', // PI_List (DC21)
         'balance' => 'Balance',
         'expected' => 'Expected',
         'order' => 'Order',
@@ -6421,6 +6426,8 @@ final class Words
         'received' => 'Received',
         'match' => 'Match',
         'received_of' => '%s / %s',
+        'by' => 'By', // who made it: their initials (cwdesign/Main.dc.html; DC16)
+        'none' => '—', // an empty value of a board (the mockups)
         'any_state' => 'Every status',
         'show' => 'Show',
         'state_label' => 'Status',
@@ -7005,7 +7012,7 @@ final class Words
         'ask' => 'Ask a reviewer to approve',
         'ask_again' => 'Ask a reviewer to approve it again',
         'ask_does' => 'A reviewer checks the details and the background check. Nothing can be ordered until they say yes.',
-        // The second person switched off (Settings › Approval Rules, approvals.supplier_activation): one person makes it usable.
+        // The second person switched off (Settings › Approval rules, approvals.supplier_activation): one person makes it usable.
         'ask_alone' => 'Make it usable',
         'ask_alone_does' => 'The second person is switched off: you can order from it at once. It is marked "approved alone" until another reviewer gives their OK.',
         'waiting_rule_off' => 'The second person is switched off now: cancel your request, then press "Make it usable" to order from it at once.',
@@ -7680,6 +7687,7 @@ final class Words
         'chip_kind' => 'Kind of product: %s',
         'remove_filter' => 'Remove this filter',
         'filter' => 'Show',
+        'filters_on' => 'filters on', // after the Show control's count (DC27)
         'download' => 'Download these for Excel (CSV)',
         'import' => 'Change many product cards',
         'none' => 'No product matches these filters.',
@@ -7688,7 +7696,7 @@ final class Words
         'none_search_text' => 'Check the spelling, or try fewer words. A CW number also works.',
         'none_all' => 'No warehouse products yet.',
         'clear' => 'Show every product',
-        // The list's own heading (the page's is "All Products"), then how many and in what order.
+        // The list's own heading (the page's is "All products"), then how many and in what order.
         'list' => 'Products',
         'list_found' => 'Products found',
         'order' => 'Most stock first.',
@@ -8579,7 +8587,7 @@ final class Words
         'col_arrived' => 'Arrived',
         'col_checked' => 'Checked',
         'col_booked_by' => 'Booked in by',
-        'col_items' => 'Items',
+        'col_items' => 'Units', // GI_List (DC17): the units of the delivery or still to come
         'col_action' => 'Action',
         'to_come' => '%s still to come',
         'no_order' => 'no order',
@@ -8588,6 +8596,10 @@ final class Words
         'lines_of' => '%s / %s lines',
         'problems_one' => '1 problem',
         'problems_many' => '%s problems',
+        // A checked delivery's status cell on the board (GI_List, DC17): its group says it is ready to book in.
+        'checked' => 'Checked',
+        'checked_one' => 'Checked, 1 problem',
+        'checked_many' => 'Checked, %s problems',
         'receive' => 'Receive',
         'today' => 'today',
         'none' => 'Nothing arriving or being checked',
@@ -9066,7 +9078,7 @@ final class Words
         'one_of' => 'One of: %s.',
         'sites' => 'Website short codes, separated by commas, for example vapeandgo,electrofag. Leave it empty for none.',
         'empty' => 'Leave it empty for "not set".',
-        'approvals' => 'This is an approval rule: change it on the Approval Rules page.',
+        'approvals' => 'This is an approval rule: change it on the Approval rules page.',
         'company' => 'The company details have their own page.',
         'address' => 'An address starting with https://, without anything after the name, for example https://warehouse.example.com.',
         'uk_time' => 'A UK date and time, like 2026-10-27 18:00, at most 90 days ahead, and not in the hour the clocks change.',
@@ -9082,7 +9094,7 @@ final class Words
         'unchanged' => 'Nothing changed: the setting already had this value.',
     ];
 
-    /** The Approval Rules page (/ui/reference/approvals). */
+    /** The Approval rules page (/ui/reference/approvals). */
     public const APPROVALS = [
         'records' => 'Records: who checks, and what needs an OK first',
         'count_one' => '1 rule',
@@ -9206,7 +9218,7 @@ final class Words
         // Pack B
         'approvals.item_by_hand_check' => [
             'title' => 'Items made by hand',
-            'on' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
+            'on' => 'A second person checks each item made by hand, afterwards, on Products › Add item. The item can be used at once.',
             'off' => 'Off: nobody else checks an item made by hand.',
         ],
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
@@ -9704,8 +9716,8 @@ final class Words
         'doc.ADJ.post' => 'Correct stock and write it off (Adjustments)',
         'doc.WO.post' => 'Write stock off (coming later)',
         'doc.TRD.post' => 'Hand stock to sister shops, our shop units and trade customers (Hand-overs)',
-        'doc.SIN.post' => 'Book stock in without a supplier delivery (Stock In)',
-        'doc.SOUT.post' => 'Book stock out without a website sale (Stock Out)',
+        'doc.SIN.post' => 'Book stock in without a supplier delivery (Stock in)',
+        'doc.SOUT.post' => 'Book stock out without a website sale (Stock out)',
         'doc.TRF.post' => 'Move stock between warehouses and places (Transfers)',
         'doc.REL.post' => 'Release another account\'s stock into ours (Releases)',
         'accounts.pay' => 'Record payments to another account (Balance owed)',
@@ -9728,7 +9740,7 @@ final class Words
         'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
         'sales.view' => 'Look at each store\'s orders, dispatch and returns (Sales)', // pack D (PD2)
         // Pack B
-        'items.create' => 'Add items by hand (Add Item)',
+        'items.create' => 'Add items by hand (Add item)',
         'families.manage' => 'Make families and put items in them (Families)',
         'doc.RPK.post' => 'Break packs into singles and make packs (Repack)',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
@@ -9758,7 +9770,7 @@ final class Words
         'rule_own' => 'Nobody approves or checks their own work.',
         'rule_admin' => 'Admin can only go with %s. While an account has Admin, its other jobs are switched off.',
         'rule_settings' => 'Admins and Reviewers change settings, approval rules, reasons and warehouses. Admin still never makes, checks or approves stock records or matches.',
-        'rule_approvals' => 'Which work waits for a second person is on the Approval Rules page.',
+        'rule_approvals' => 'Which work waits for a second person is on the Approval rules page.',
         'by_job' => 'What each job may do',
         'by_task' => 'Who may do each thing',
         'task' => 'What',
@@ -9810,7 +9822,7 @@ final class Words
         'unknown_permission' => 'There is no such task. Nothing was saved.',
     ];
 
-    /** The Reports tabs (Reports › Stock by Store, Sales by Store, Low Stock, Stock Value, Slow Stock). */
+    /** The Reports tabs (Reports › Stock by store, Sales by store, Low stock, Stock value, Slow stock). */
     public const REPORTS = [
         'csv' => 'Download as CSV',
         'find' => 'Find a product',
@@ -9828,7 +9840,7 @@ final class Words
         'figures_at' => 'Sales and costs were last brought up to date %s.',
         'never_run' => 'The reports have not been brought up to date yet. That happens every 15 minutes.',
         'job_off' => 'Keeping the reports up to date is switched off in the settings, so these are the figures of its last run.',
-        // Stock by Store
+        // Stock by store
         'sells_from' => 'Sells from %s',
         'no_warehouse' => 'This store sells from no warehouse yet.',
         'matched' => 'Products matched',
@@ -9848,7 +9860,7 @@ final class Words
         'none_filtered' => 'Nothing fits the filter.',
         'none_filtered_text' => 'Clear the filter to see every product.',
         'no_stores' => 'There is no store yet.',
-        // Sales by Store
+        // Sales by store
         'period' => 'Days',
         'last_7' => 'Last 7 days',
         'last_30' => 'Last 30 days',
@@ -9873,7 +9885,7 @@ final class Words
         'total' => 'All stores',
         'no_sales' => 'No store sent CW an order in these days.',
         'no_sales_text' => 'Stores send their orders to CW once they are switched on.',
-        // Low Stock
+        // Low stock
         'low' => 'Low',
         'out' => 'Out of stock',
         'show_low' => 'Low',
@@ -9886,7 +9898,7 @@ final class Words
         'no_low_text' => 'Every product the stores sell has more than its low level.',
         'no_out' => 'No product has run out.',
         'no_out_text' => 'Every product that has had stock still has some to sell.',
-        // Stock Value
+        // Stock value
         'by_product' => 'By product',
         'by_brand' => 'By brand',
         'by_warehouse' => 'By warehouse',
@@ -9912,7 +9924,7 @@ final class Words
         'below_zero' => 'Products below zero are left out of the value.',
         'no_value' => 'There is no stock to value.',
         'no_value_text' => 'Stock comes in through deliveries and stock records.',
-        // Slow Stock
+        // Slow stock
         'slow' => 'Slow',
         'dead' => 'Dead',
         'show_slow' => 'Slow',
@@ -10044,11 +10056,11 @@ final class Words
     // Status chip tones: needs (you act), done, waiting (someone else), blocked, info, off
 
     // ==================================================================================================================
-    // ---- Pack B: Item Management (docs/decisions.md PB1-PB16): Products › Add Item, Families, Multipacks; Stock › Repack.
+    // ---- Pack B: Item Management (docs/decisions.md PB1-PB16): Products › Add item, Families, Multipacks; Stock › Repack.
     // The provisional words of these pages are listed in PB16. Every group below is new; the shared lists above carry this pack's keys
     // at their end, each marked "Pack B".
 
-    /** Products › Add Item (/ui/items/new): the form and the items made by hand. */
+    /** Products › Add item (/ui/items/new): the form and the items made by hand. */
     public const ITEM_NEW = [
         'what' => 'What it is',
         'what_hint' => 'Only the name is needed. The rest helps the matching find this item\'s website variants later.',
@@ -10116,7 +10128,7 @@ final class Words
     /** What the pages of pack B say after a button (?notice=<key>; never text from the address). */
     public const ITEMS_NOTICE = [
         'item_made' => 'The item is added. Its CW number is at the top. Fill in the rest of its card when you know it.',
-        'item_made_waiting' => 'The item is added and can be used now. A second person checks it on Products › Add Item.',
+        'item_made_waiting' => 'The item is added and can be used now. A second person checks it on Products › Add item.',
         'checked' => 'Checked. The item no longer waits for a check.',
         'family_made' => 'The family is added. Put its items in it below.',
         'family_renamed' => 'The family is renamed.',
@@ -10410,6 +10422,9 @@ final class Words
 
     /** The supplier invoice and credit note pages: shared words. */
     public const INVOICES = [
+        // A due date passed with money owed (PI_List, DC21).
+        'late_one' => '1 day late',
+        'late_many' => '%s days late',
         'search' => 'Number, their number or supplier',
         'search_delivery' => 'Delivery number, their invoice number or supplier',
         'supplier' => 'Supplier',
@@ -10512,10 +10527,10 @@ final class Words
         'ref_order' => 'ordered at %s a unit',
         'ref_delivery' => 'delivered at %s a unit',
         'credited_units' => '%s units credited',
-        // A delivery's page (Purchasing › Goods In).
+        // A delivery's page (Purchasing › Goods in).
         'receipt_invoices' => 'Its supplier invoice',
         'receipt_none' => 'No supplier invoice bills this delivery yet.',
-        'receipt_arrival' => 'It was received against the supplier invoice', // + the invoice (Goods In › Arriving, or booked as received; pack J)
+        'receipt_arrival' => 'It was received against the supplier invoice', // + the invoice (Goods in › Arriving, or booked as received; pack J)
         // An invoice a final return (debit note) claims against: on To match and on its page.
         'claimed_on' => 'Claimed from the supplier on %s (%s): waiting for their credit note.',
         'claimed_part' => 'Claimed from the supplier on %s (%s): part of it credited so far.',
@@ -10766,6 +10781,8 @@ final class Words
             'Check the units, where they leave from, the price claimed and the duty paid on them (a retailer cannot reclaim duty on damaged stock).',
             'Make it final: the goods leave the stock, and the return is our claim (a debit note).',
             'When the supplier\'s credit note comes, book it from the return: it lowers what is owed.'],
+        // The eyebrow's tag of a claim without goods (its intro said so until DC1): nothing leaves the stock.
+        'claim_tag' => 'A claim: no goods go back',
         'quick_title' => 'Return what a delivery put aside',
         'quick_text' => 'Its damaged, wrong and over units, and its unstamped ones, at the delivery\'s price.',
         'quick_button' => 'Start the return',
@@ -10862,6 +10879,7 @@ final class Words
 
     /** The words every queue page of Approvals › From the stores shares. */
     public const QUEUES = [
+        'eyebrow' => 'from the stores', // LP_Queue's eyebrow after the section: "Approvals · from the stores" (DC18)
         'show' => 'Show',
         'all' => 'All',
         'filter' => 'Show these',
@@ -11034,7 +11052,7 @@ final class Words
 
     // ---- 0050: landing pages (docs/decisions.md LP1-LP12) ------------------------------------------------------------
 
-    /** A landing page: the page where the customer picks an option (Store Products, the variant's page, CW\Mapping\LandingRule::REASONS). */
+    /** A landing page: the page where the customer picks an option (Store products, the variant's page, CW\Mapping\LandingRule::REASONS). */
     public const LANDING = [
         'why_website_flag' => 'Why: the website itself calls it a landing page.',
         'why_same_page' => 'Why: it has no option of its own, and other options of the same page have one.',
@@ -11332,7 +11350,7 @@ final class Words
         'save_details' => 'Save the details',
         'final_title' => 'Make it final',
         'final_does' => 'The stock leaves the warehouse now, the prices are kept for this customer, and the total is added to what the customer owes.',
-        'final_waits' => 'A rule on the Approval Rules page may ask a reviewer\'s OK first.',
+        'final_waits' => 'A rule on the Approval rules page may ask a reviewer\'s OK first.',
         'final_button' => 'Make it final: the stock goes out',
         'stop_title' => 'Stop this draft',
         'stop_text' => 'A stopped draft moves no stock and stays in the list.',
@@ -11645,7 +11663,7 @@ final class Words
         'admin_cannot_post' => 'Admin does not record payments. Nothing was saved.',
     ];
 
-    /** Purchasing > Goods In > Duty register (DutyController, view duty_register). */
+    /** Purchasing > Goods in > Duty register (DutyController, view duty_register). */
     public const DUTY = [
         'lines_stamp' => 'It lists the lines of the deliveries booked in that needed the duty stamp check.',
         'lines_all' => 'It lists every line of the deliveries booked in.',
@@ -11666,7 +11684,7 @@ final class Words
         'count' => '%s lines',
         'none' => 'Nothing in the register yet',
         'none_text' => 'The register fills itself from the deliveries booked in.',
-        'none_link' => 'Go to Goods In',
+        'none_link' => 'Go to Goods in',
         'none_filter' => 'No line fits your filter',
         'none_filter_text' => 'Your filter hides every line.',
         'arrived' => 'Arrived',
@@ -11734,7 +11752,7 @@ final class Words
 
     // ==================================================================================================================
     // ---- Pack J (0041; docs/decisions.md PJ1-PJ16): goods on a final supplier invoice that have not arrived yet: how an invoice's goods
-    // come in, when it becomes final, Goods In › Arriving, the claim of what did not come, a supplier's choices.
+    // come in, when it becomes final, Goods in › Arriving, the claim of what did not come, a supplier's choices.
 
     /** How an invoice's goods not received yet come in when it is made final (supplier_invoice.receive_mode). */
     public const RECEIVE_MODE = [
@@ -11755,11 +11773,11 @@ final class Words
         'cancelled' => 'Cancelled',
     ];
 
-    /** The words of the arrival screens: the invoice's boxes, Goods In › Arriving, Purchasing › Invoices › Timed, a receipt's claim, a supplier's box. */
+    /** The words of the arrival screens: the invoice's boxes, Goods in › Arriving, Purchasing › Invoices › Timed, a receipt's claim, a supplier's box. */
     public const ARRIVALS = [
         // The invoice: how its goods come in
         'how_title' => 'How its goods come in',
-        'how_count' => 'Count on arrival: when the invoice is final, its goods are on their way (Goods In › Arriving). Goods In receives them against the invoice and counts them.',
+        'how_count' => 'Count on arrival: when the invoice is final, its goods are on their way (Goods in › Arriving). Goods in receives them against the invoice and counts them.',
         'how_received' => 'Book as received: when the invoice is final, its goods are booked into stock at once, without a count. Say the duty stamp of each duty-liable line.',
         'sells_before' => 'This supplier\'s goods are sold on the websites before they arrive: customers can order tonight, the orders go out when the goods land.',
         'sells_after' => 'This supplier\'s goods are sold on the websites once they are received.',
@@ -11791,9 +11809,9 @@ final class Words
         'no' => 'No',
         'receipt' => 'Receipt',
         'booked_received' => 'Booked as received; its receipt:',
-        // Goods In › Arriving
+        // Goods in › Arriving
         'none' => 'Nothing is on its way.',
-        'none_text' => 'Goods of final supplier invoices counted on arrival show here until Goods In receives them.',
+        'none_text' => 'Goods of final supplier invoices counted on arrival show here until Goods in receives them.',
         'invoice' => 'Invoice',
         'supplier' => 'Supplier',
         'since' => 'Final since',
@@ -11901,7 +11919,7 @@ final class Words
         // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],
         'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
-        // By Item's cells, as Store Products colours the same states.
+        // By item's cells, as Store products colours the same states.
         'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'rejected' => 'blocked', 'none' => 'waiting'],
         // ---- Pack D (docs/decisions.md PD6, PD7): a waiting order late or on time; back on sale or not ----
         'DISPATCH_CHIP' => ['late' => 'blocked', 'on_time' => 'waiting'],
@@ -12143,7 +12161,7 @@ final class Words
     }
 
     /**
-     * The review rule of a kind of record in a sentence (Approval Rules, Settings): who checks what afterwards. A stock count's rule
+     * The review rule of a kind of record in a sentence (Approval rules, Settings): who checks what afterwards. A stock count's rule
      * means the second person who answers a count difference (docs/decisions.md CT8; review M-4 of 14 Oct 2026), not a reviewer's check.
      */
     public static function reviewRule(string $code, string $rule, int $limit, int $days): string

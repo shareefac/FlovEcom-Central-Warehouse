@@ -344,7 +344,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['All products', 'All Products'], [self::currentSection($list), self::currentTab($list)], 'the sidebar\'s All products (HV2)');
+        self::assertSame(['All products', 'All products'], [self::currentSection($list), self::currentTab($list)], 'the sidebar\'s All products (HV2)');
         // The row's link is the CW number and the name (the first word is the number).
         $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => (string) strtok(trim($a->textContent), ' '),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/a')));
@@ -547,7 +547,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
 
         $xp = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'elux', 'stock' => '1'])->dom());
         self::assertSame([Words::CARDS['clear_filters']], array_map(static fn (\DOMElement $a): string => trim($a->textContent),
-            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a[@href="/ui/items/cards"]')))), 'one Clear');
+            array_values(iterator_to_array($xp->query('//form[contains(@class, "toolbar")]/div[@class="tb-end"]/details[contains(@class, "tb-more")]//a[@href="/ui/items/cards"]')))), 'one Clear (under the toolbar\'s More, DC27)');
 
         $none = $web->get('/ui/items/cards', ['q' => 'zzz nothing', 'stock' => '1']);
         self::assertSame(200, $none->status, $none->describe());
@@ -569,20 +569,22 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $row = '//form[contains(@class, "toolbar")]/div[@class="tb-state"]';
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(0, $xp->query('//details[contains(@class, "tb-pop")] | //*[contains(@class, "filters-on")]')->length, 'no pop-over, no chips');
+        self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]//details[contains(@class, "tb-pop") and contains(@class, "tb-show")]')->length,
+            'ONE Show control holds the filters (DC27: the board mockups have one search and one Show)');
+        self::assertSame(0, $xp->query('//*[contains(@class, "filters-on")]')->length, 'no chips');
         self::assertSame([Words::CARDS['stock'], Words::CARDS['warnings'], Words::CARDS['blocked'], Words::CARDS['discontinued']],
-            array_map(static fn (\DOMElement $l): string => trim((string) preg_replace('/\s+/', ' ', $l->textContent)), array_values(iterator_to_array($xp->query($row . '/label[contains(@class, "tb-check")]')))));
+            array_map(static fn (\DOMElement $l): string => trim((string) preg_replace('/\s+/', ' ', $l->textContent)), array_values(iterator_to_array($xp->query($row . '//label[contains(@class, "tb-check")]')))));
         self::assertSame([Words::CARDS['any_card'], Words::CARDS['any_kind']], array_map(static fn (\DOMElement $s): string => trim((string) $s->getElementsByTagName('option')->item(0)?->textContent),
-            array_values(iterator_to_array($xp->query($row . '/select')))), 'each choice says what it shows when nothing is chosen');
-        self::assertSame(Words::DOC_LIST['show'], trim((string) $xp->evaluate('string(' . $row . '/button[@type="submit"])')));
+            array_values(iterator_to_array($xp->query($row . '//select')))), 'each choice says what it shows when nothing is chosen');
+        self::assertSame(Words::DOC_LIST['show'], trim((string) $xp->evaluate('string(' . $row . '//button[@type="submit"])')));
 
         $xp = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'changed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1'])->dom());
-        self::assertSame(['changed', 'tank'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), array_values(iterator_to_array($xp->query($row . '/select/option[@selected]')))));
-        self::assertSame(['stock', 'blocked'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($xp->query($row . '/label/input[@checked]')))));
+        self::assertSame(['changed', 'tank'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), array_values(iterator_to_array($xp->query($row . '//select/option[@selected]')))));
+        self::assertSame(['stock', 'blocked'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($xp->query($row . '//label/input[@checked]')))));
         self::assertSame(1, $xp->query('//form[contains(@class, "toolbar")]//a[@href="/ui/items/cards"]')->length, 'one Clear, every filter off');
         $kind = new \DOMXPath($web->get('/ui/items/cards', ['type' => 'none', 'warnings' => '1', 'discontinued' => '1'])->dom());
         self::assertSame(['none'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), array_values(iterator_to_array($kind->query('//select[@name="type"]/option[@selected]')))));
-        self::assertSame(['warnings', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($kind->query($row . '/label/input[@checked]')))));
+        self::assertSame(['warnings', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), array_values(iterator_to_array($kind->query($row . '//label/input[@checked]')))));
         // On a phone the Show row wraps rather than push the page sideways (W8's shared rule); each tick is a 44 px target.
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
         self::assertStringContainsString('.toolbar .tb-state { flex-wrap: wrap; }', $css);
@@ -618,7 +620,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
     {
         $web = $this->signIn($this->uiUser('buyer'));
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(1, $xp->query('//nav[@class="tabs"]/a[@class="tab" and @aria-current="page"]')->length);
+        self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/a[@aria-current="page"]')->length, 'the page shown: the sidebar\'s sub-item (DC28)');
         $js = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.js');
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
         self::assertStringContainsString("each(document.querySelectorAll('nav.tabs'), function (strip) {", $js);

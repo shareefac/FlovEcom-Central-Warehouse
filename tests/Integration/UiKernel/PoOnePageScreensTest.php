@@ -93,8 +93,9 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         // The list's "New purchase order" leads to the page itself: no side panel, no "Start a new order" step.
         $list = $web->get('/ui/purchasing/orders');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['/ui/purchasing/orders/new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//a[contains(concat(" ", @class, " "), " primary ")] | //form[@class="toolbar"]//details[@class="more"]//a'))));
+        // "+ New purchase order" in the header, alone (DC4: no toolbar button, no second More of other create actions).
+        self::assertSame(['/ui/purchasing/orders/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//header[contains(@class, "page-head")]//a[contains(concat(" ", @class, " "), " primary ")] | //header[contains(@class, "page-head")]//details[@class="more"]//a'))));
         self::assertSame(0, self::nodes($list, '//*[@id="new"]'), 'no side panel');
         self::assertSame(0, self::nodes($list, '//main//form[@method="post"]'), 'no form on the list');
 

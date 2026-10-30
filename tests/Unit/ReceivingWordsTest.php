@@ -203,7 +203,10 @@ final class ReceivingWordsTest extends TestCase
         $products = ['CW-000003' => 'Elux Mint 10ml'];
         foreach (self::PLAN as $m) {
             $said = ReceiptWords::one($m, $products, 'Screen Box');
-            self::assertNotSame($m, $said, "not recognised: {$m}");
+            // "part received" is the screens' word too since DC16 (the approved PO list), so that one sentence reads as the service wrote it.
+            if (!str_contains($m, ' is ' . mb_strtolower(\CW\Ui\Words::PO_STATE['part_received']) . ':')) {
+                self::assertNotSame($m, $said, "not recognised: {$m}");
+            }
             self::assertDoesNotMatchRegularExpression('/\b(VERIFY|UNSTAMPED|MAIN|item card|receipt|posted|posting|units?|credible|IM7|plan §)\b/', $said, "{$m} -> {$said}");
             self::assertStringNotContainsString('CW-000003', $said, 'the product by its name');
         }
@@ -213,7 +216,7 @@ final class ReceivingWordsTest extends TestCase
         $one = static fn (int $i): string => ReceiptWords::one(self::PLAN[$i], $products, 'Screen Box');
         self::assertSame($w('invoice_file_required'), $one(2));
         self::assertSame($w('invoice_copy_elsewhere', 'inv.pdf', Words::say('RECEIPT', 'draft_ref', '12')), $one(4));
-        self::assertSame($w('po_reference', 'PO-000001', 'partly delivered'), $one(10), 'the order\'s state in words');
+        self::assertSame($w('po_reference', 'PO-000001', mb_strtolower(Words::PO_STATE['part_received'])), $one(10), 'the order\'s state in words (DC16: "part received")');
         self::assertSame($w('bench_check_required_lines', 'lines 1-3'), $one(15));
         self::assertSame($w('relay_route', 1, 'Elux Mint 10ml', 'Vape and Go'), $one(20), 'the website by its name');
         self::assertSame($w('line_not_checked', 'lines 1-3 and 5'), $one(27));

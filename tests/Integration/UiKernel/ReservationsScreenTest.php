@@ -170,7 +170,9 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame([], self::moreTabs($page), 'nothing else a viewer opens: no More of Quality (still "Soon") alone');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['reservations'], trim((string) $xp->evaluate('string(//main//h1)')));
-        self::assertStringStartsWith(Words::PAGE_INTRO['reservations'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
+        self::assertSame(Words::INTRO_LOOK['reservations'], trim((string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')),
+            'who changes it, under the heading\'s "?" (DC1)');
         // Nothing reserved yet: the empty state in words, the figures at nothing, no export, and no form that sends anything.
         self::assertStringContainsString(Words::RESV['none'], $page->text());
         self::assertStringContainsString(Words::RESV['none_text'], $page->text());
@@ -179,12 +181,12 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
         self::assertSame([[Words::BULK['all_stores'], '', 0, true]], self::storeSeg($page), 'no store yet: only "All stores" (shown: no link, CV13)');
-        // The other pages of Stock list it under More with its line; the stock records' people see it after their tabs on its own page.
+        // The other pages of Stock list it in the sidebar (DC28; it was under the tab row's More); the stock records' people see it after their tabs on its own page.
         $stock = $web->get('/ui/stock');
         self::assertContains(self::PATH, $stock->hrefs());
-        self::assertStringContainsString(Words::MENU_HELP['reservations'], $stock->text());
+        self::assertContains(['label' => 'Reservations', 'href' => self::PATH, 'count' => 0], self::moreTabs($stock), 'one of Stock\'s pages in the sidebar (DC28)');
         $sc = $this->page($this->signIn($this->uiUser('stock_controller')));
-        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Adjustments', 'Counts', 'Reservations'], self::tabLabels($sc));
+        self::assertSame(['Overview', 'Movements', 'Stock in', 'Stock out', 'Adjustments', 'Counts', 'Reservations'], self::tabLabels($sc));
         self::assertSame(['Hand-overs', 'Transfers', 'Quality', 'Repack'], array_column(self::moreTabs($sc), 'label'));
     }
 

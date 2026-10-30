@@ -85,7 +85,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$buyer, '/ui/purchasing/orders', Words::MENU['orders'], 'orders'],
             [$buyer, '/ui/purchasing/orders/new', Words::PO_ONE['title'], 'order_new'], // PO on one page (PX1)
             [$buyer, '/ui/purchasing/orders/' . $draft->id, Words::say('ORDER', 'title_draft', 'Plain Supplies'), 'order_draft'],
-            [$buyer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' – Plain Supplies', 'order'],
+            [$buyer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' ' . Words::PO_STATE['approved'], 'order'] /* PO_View: the number, its status block beside it (DC22) */,
             [$buyer, '/ui/purchasing/suppliers', Words::MENU['suppliers'], 'suppliers'],
             [$buyer, '/ui/purchasing/suppliers/' . $made['id'], 'Plain Supplies (' . $made['code'] . ')', 'supplier'],
             [$buyer, '/ui/purchasing/suppliers/' . $made['id'] . '/edit', Words::say('SUPPLIER_FORM', 'title_edit', 'Plain Supplies'), 'supplier_form'],
@@ -96,7 +96,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$manager, '/ui/purchasing/orders/' . $draft->id, Words::say('ORDER', 'title_draft', 'Plain Supplies'), 'order'],
             [$manager, '/ui/items/cards', Words::MENU['cards'], 'cards'],
             [$manager, '/ui/items/cards/import', Words::PAGE_TITLE['card_import'], 'card_import'],
-            [$reviewer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' – Plain Supplies', 'order'],
+            [$reviewer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' ' . Words::PO_STATE['approved'], 'order'] /* PO_View: the number, its status block beside it (DC22) */,
             [$reviewer, '/ui/purchasing/reorder', Words::MENU['reorder'], null],
             [$reviewer, '/ui/purchasing/orders', Words::MENU['orders'], null],
             [$desk, '/ui/purchasing/suppliers', Words::MENU['suppliers'], null],
@@ -123,11 +123,14 @@ final class BuyingWordsTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($page->dom());
         self::assertSame($title, trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))), "{$where}: the title");
-        $lede = trim((string) $xp->evaluate('string(//main//p[@class="lede"])'));
-        if ($intro !== null) {
-            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the intro (plan §4)");
+        $lede = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        $look = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')));
+        if ($intro !== null && in_array($intro, \CW\Ui\View::INTRO_KEPT, true)) {
+            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the step's own line (\CW\Ui\View::INTRO_KEPT)");
+        } elseif ($intro !== null) {
+            self::assertSame('', $lede, "{$where}: no sentence under the heading (DC1)");
         } else {
-            self::assertStringContainsString('You can look;', $lede, "{$where}: who changes it, for a person who can only look");
+            self::assertStringContainsString('You can look;', $look, "{$where}: who changes it, under the heading's \"?\" (DC1)");
         }
         foreach ($xp->query('//main//table') ?: [] as $table) {
             /** @var \DOMElement $table */

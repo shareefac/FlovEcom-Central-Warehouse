@@ -65,7 +65,7 @@ final class HandoverScreensTest extends KernelUiTestCase
         $b = $buyer->get('/ui/stock/handovers');
         self::assertSame(200, $b->status);
         self::assertFalse($b->hasForm('/ui/stock/handovers/customers'));
-        self::assertStringContainsString(Words::intro('handovers', Words::whoCan('doc.TRD.post')), $b->text());
+        self::assertStringContainsString(sprintf(Words::UI['look_only'], Words::whoCan('doc.TRD.post')), $b->text(), 'who keeps them, under the heading\'s "?" (DC1)');
         self::assertSame(403, $buyer->get('/ui/receiving/duty')->status);
         foreach (['viewer', 'admin'] as $role) {
             $w = $this->signIn($this->uiUser($role));

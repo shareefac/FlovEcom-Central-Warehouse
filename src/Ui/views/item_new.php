@@ -5,8 +5,8 @@
 // when something in it was typed or refused; then the bar at the bottom: "Leave without saving" and the one main button. Every field posts
 // where and as it did (the button sends no field of its own); typed values are guarded (data-unsaved).
 ?>
-<p class="crumbs"><a href="<?= $u('/ui/items/new', ['show' => 'all']) ?>"><?= $word('ITEM_NEW', 'made_link') ?></a></p>
-<?= $head(\CW\Ui\Words::PAGE_TITLE['item_new'], intro: 'item_new', side: '') ?>
+<?php $madeHref = \CW\Ui\Html::url('/ui/items/new', ['show' => 'all']); ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['item_new'], intro: 'item_new', side: '', back: [$madeHref, \CW\Ui\Words::ITEM_NEW['made_link']]) ?>
 <?php if ($error !== null): ?>
 <div class="error" role="alert" data-code="<?= $e($errorCode) ?>">
   <p><?= $e($error) ?><?php if ($errorItem !== null): ?> <a href="<?= $u('/ui/items/' . $errorItem['id']) ?>"><?= $e($errorItem['code']) ?></a><?php endif; ?></p>

@@ -7,7 +7,7 @@
 // corrections"). The row's answer is one form: its fields sit in their cells and name it (form="lq-pick-<id>"). Closing a line with a note is in
 // the row's menu. A refused answer comes back with what was typed in its row ($r['typed'], OV7), the item it names drawn as picked again.
 ?>
-<?= $head(\CW\Ui\Words::SEGMENT['queue_suspense'], intro: 'queue_suspense', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['queue_suspense'], intro: 'queue_suspense', look: $lookOnly, tag: \CW\Ui\Words::QUEUES['eyebrow']) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -49,7 +49,7 @@
         <td class="c-next" data-label="">
           <form class="lq-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/pick') ?>" id="lq-pick-<?= $e($r['id']) ?>">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-            <button type="submit" class="btn<?php if (!$r['correction']): ?> primary<?php endif; ?>"><?php if ($r['correction']): ?><?= $word('LQ', 'to_corrections') ?><?php else: ?><?= $word('LQ', 'place') ?><?php endif; ?></button>
+            <button type="submit" class="btn sm<?php if (!$r['correction']): ?> primary<?php endif; ?>"><?php if ($r['correction']): ?><?= $word('LQ', 'to_corrections') ?><?php else: ?><?= $word('LQ', 'place') ?><?php endif; ?></button>
           </form>
           <details class="lq-menu"<?php if ($r['typed_close'] !== null): ?> open<?php endif; ?>>
             <summary><span class="visually-hidden"><?= $word('LQ', 'menu') ?></span></summary>

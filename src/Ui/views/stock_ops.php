@@ -5,10 +5,8 @@
 // the last row of the Draft group open the new form (its fields in two columns). The groups in order: draft, waiting for an OK, final,
 // cancelled, the cancellation records, stopped; each a coloured heading with its count over a card with its colour on the left edge, the
 // status cell filled with it. A row opens its record. An old link's "stopped too" (cancelled=1) is kept.
-$split = $partial('split', ['actions' => $newActions ?? []]);
 ?>
-<?= $head(($kind === 'release' ? \CW\Ui\Words::of('SEGMENT', 'releases') : (string) $k['tab']), intro: $pageKey, look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second']),
-    side: $split) ?>
+<?= $head(($kind === 'release' ? \CW\Ui\Words::of('SEGMENT', 'releases') : (string) $k['tab']), intro: $pageKey, look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_OPS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('STOCK_OPS', 'search') ?>"></div>
   <div class="tb-state">

@@ -97,9 +97,10 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // The list, and the order's one page (PO on one page, PX1): Save with the supplier chosen starts the draft; the same form twice: one draft.
         $list = $buyer->get('/ui/purchasing/orders');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Purchase Orders', 'href' => null, 'count' => 0, 'current' => true], self::sectionTabs($list)[1], 'the tab shown: no link (CV13)');
-        self::assertSame(['/ui/purchasing/orders/new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//a[contains(concat(" ", @class, " "), " primary ")] | //form[@class="toolbar"]//details[@class="more"]//a'))), 'the toolbar\'s "New purchase order" opens the order\'s page');
+        self::assertSame(['label' => 'Purchase orders', 'href' => null, 'count' => 0, 'current' => true], self::sectionTabs($list)[1], 'the tab shown: no link (CV13)');
+        // "+ New purchase order" in the header, alone (DC4: no toolbar button, no second More of other create actions).
+        self::assertSame(['/ui/purchasing/orders/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//header[contains(@class, "page-head")]//a[contains(concat(" ", @class, " "), " primary ")] | //header[contains(@class, "page-head")]//details[@class="more"]//a'))), 'the toolbar\'s "New purchase order" opens the order\'s page');
         self::assertStringContainsString(Words::ORDERS['none'], $list->text());
         self::assertStringContainsString(Words::ORDERS['none_buyer'], $list->text(), 'an empty list says what to do (F304)');
         $form = ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $buyer->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders');
@@ -239,7 +240,9 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         self::assertSame(['/ui/reference/company', Words::ORDER['company_see']], [$note->item(0)?->getAttribute('href'), trim((string) $note->item(0)?->textContent)]);
         self::assertStringContainsString('PO-000001', $view->text());
         self::assertStringContainsString(Words::say('PO_NOTICE', 'approved', 'PO-000001'), $view->text());
-        self::assertSame('PO-000001 – Screen Supplies', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//main//h1)')), 'the order by number and supplier (F359-like)');
+        self::assertSame('PO-000001', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//main//h1/span[@class="stmt"])')), 'the order by its number (PO_View, DC22)');
+        self::assertStringContainsString('Screen Supplies', $view->text(), 'its supplier on the paper');
+        self::assertSame('PO-000001 – Screen Supplies - Central Warehouse', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//title)')), 'the tab still says both (F359-like)');
         self::assertFalse($view->hasForm('/lines'), 'no editor after approval');
         $pdf = $buyer->get("/ui/purchasing/orders/{$id}/pdf");
         self::assertSame(200, $pdf->status);

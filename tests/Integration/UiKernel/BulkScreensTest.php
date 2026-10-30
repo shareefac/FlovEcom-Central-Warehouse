@@ -432,7 +432,7 @@ final class BulkScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get('/ui/review/store', ['channel' => 'alt']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame('Store Products', self::currentTab($page));
+        self::assertSame('Store products', self::currentTab($page));
         self::assertSame(['Linked one', 'Suggested one', 'Unmatched one', 'Ignored one', 'Waiting one', 'On hold one'], self::titles($page), 'best sellers first (30 days)');
         $xp = new \DOMXPath($page->dom());
         $state = static fn (int $row): string => trim((string) $xp->evaluate('string(//tbody/tr[' . $row . ']/td[contains(@class, "c-status")])'));

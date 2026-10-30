@@ -9,8 +9,7 @@
 // again are marked and one button empties them all (review M-2). The bar at the bottom: back to the sheet, and ONE "Make the count final"
 // (switched off, with the reason beside it, until each marked line is answered).
 ?>
-<p class="crumbs"><a href="<?= $u($base) ?>"><?= $word('COUNTS', 'back_to_sheet') ?></a></p>
-<?= $head((string) $title, intro: 'count_before', look: $lookOnly) ?>
+<?= $head((string) $title, intro: 'count_before', look: $lookOnly, back: [(string) $base, (string) $sheetTitle]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

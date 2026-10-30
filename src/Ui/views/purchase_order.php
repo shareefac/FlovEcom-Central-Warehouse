@@ -5,13 +5,14 @@
 // cancel ...; a step that needs a reason or a choice opens under the bar: po_action), the progress strip (ordered, received, invoiced, expected and what is still to come), the
 // supplier's block beside its facts, the lines, the totals on the right with its files to download, then its files and its history.
 ?>
-<p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
 <?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
     'supplier' => $supplier, 'sendVia' => $sendVia, 'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey,
     'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
 <div class="doc-head">
-<?= $head($title, intro: 'order', side: $bar, meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
-    ? ' <span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
+<?php // PO_View (DC22): the heading is the order's number with its status block beside it (a draft without a number keeps its title, its status under it). ?>
+<?= $head((string) ($doc->number ?? $title), intro: 'order', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']], chips: $doc->number !== null ? $stateChip('PO_STATE', $state) : '',
+    meta: ($doc->number === null ? $stateChip('PO_STATE', $state) . ' ' : '') . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
+    ? '<span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

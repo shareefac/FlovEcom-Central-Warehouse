@@ -198,7 +198,7 @@ final class UiUnitTest extends TestCase
         self::assertStringNotContainsString('db-secret-host', $r->body, 'the database address is for the log, not the page');
         self::assertStringNotContainsString('SQLSTATE', $r->body);
         self::assertStringContainsString(Words::ERROR['unavailable'], $r->body);
-        self::assertStringContainsString('<p class="ph-eyebrow">Error 503</p><div class="ph-title"><h1><span class="stmt stop">' . Words::ERROR_TITLE['503'] . '</span></h1>', $r->body);
+        self::assertStringContainsString('<p class="ph-eyebrow">Error 503</p><div class="ph-title"><h1><span class="stmt">' . Words::ERROR_TITLE['503'] . '</span></h1>', $r->body);
         self::assertStringContainsString(Words::UI['quote_rid'] . ' <code>' . $r->header('X-Request-Id') . '</code>', $r->body, 'the number to quote, in words');
         self::assertNotNull($r->header('X-Request-Id'));
         self::assertStringContainsString($r->header('X-Request-Id') ?? '-', $logged[0] ?? '', 'the page shows the id that finds the log line');
@@ -278,7 +278,7 @@ final class UiUnitTest extends TestCase
         self::assertSame(405, $p->status, 'deciding is POST-only');
         self::assertSame('POST', $p->header('Allow'));
         self::assertSame(0, $touched);
-        self::assertStringContainsString('<h1><span class="stmt stop">' . Words::ERROR_TITLE['404'] . '</span></h1>', $nf->body);
+        self::assertStringContainsString('<h1><span class="stmt">' . Words::ERROR_TITLE['404'] . '</span></h1>', $nf->body);
         self::assertStringContainsString(Words::ERROR['not_found'], $nf->body);
         self::assertStringContainsString('data-code="not_found"', $nf->body, 'the code stays for support and tests, not as words');
         self::assertStringNotContainsString('no such page', $nf->body);
@@ -799,7 +799,7 @@ final class UiUnitTest extends TestCase
         foreach (['st-green', 'st-amber', 'st-red', 'st-purple', 'st-blue', 'st-grey', 'st-navy', 'st-magenta', 'accent'] as $fill) {
             self::assertGreaterThanOrEqual(4.5, $ratio('#ffffff', $hex($fill)), "white words on --{$fill}");
         }
-        self::assertStringContainsString('input[type="date"], input[type="file"], select, textarea {', $css);
+        self::assertStringContainsString('input[type="date"], input[type="datetime-local"], input[type="file"], select, textarea {', $css);
         self::assertMatchesRegularExpression('/select, textarea \{[^}]*border: 1px solid var\(--field\)/', $css, 'the fields use the --field edge');
         // The bulk bar's store choice: one rule, light words on the dark bar.
         self::assertSame(1, preg_match_all('/^\.bulkbar-choice \{/m', $css), 'one rule for the bulk bar\'s store choice');
@@ -1222,10 +1222,10 @@ final class UiUnitTest extends TestCase
             '/^\.crumbs \.gi-leave \{ display: none; \}/m' => 'Leave without saving in the head: a phone\'s only',
             '/@media \(max-width: 699\.98px\) \{ \.gi-form \.doc-bar > a\[data-leave\] \{ display: none; \} \.crumbs \.gi-leave \{ display: inline-flex; \} \}/'
                 => 'phone: the bar without its Leave row (two rows at most)',
-            '/\.gi-form \.doc-bar > \.doc-bar-note \{ font: 400 12px\/16px var\(--font\); \}/' => 'phone: what is left in small words over the buttons',
-            '/@media \(max-width: 699\.98px\) \{ \.flow \{ display: none; \} \}/' => 'phone: no buying flow strip on any page'] as $rule => $why) {
+            '/\.gi-form \.doc-bar > \.doc-bar-note \{ font: 400 12px\/16px var\(--font\); \}/' => 'phone: what is left in small words over the buttons'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
+        self::assertSame(0, preg_match('/\.flow \{/', $css), 'no buying flow strip on any page, at any width (DC5)');
         foreach (["document.querySelectorAll('button[data-gi-fine]')", "document.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",
             "document.querySelector('[data-gi-left]')"] as $hook) {
             self::assertStringContainsString($hook, $js, $hook);
@@ -1267,32 +1267,26 @@ final class UiUnitTest extends TestCase
     }
 
     /**
-     * The tab row's More (docs/decisions.md HV3, HV9; the Codex review of fcddc98): its menu never leaves the screen. A buyer on All Products at
-     * 375 px had All Products and More alone in the row; the strip did not grow, so More sat near the left edge and its wide menu, put to
-     * More's right edge, ran off the left of the screen (Families and Multipacks cut). Now the strip fills the row, so More is always at the
-     * row's right end (also when the row scrolls: More is outside the scrolling strip), and the menu is placed against the whole row (the row
-     * is its positioned box, the More itself is not): its right edge the row's, never wider than the row, at every width, with or without
-     * the script. No rule of a narrow screen puts it back against More or in the flow.
+     * The owner, 30 Oct 2026: "dont need tab view use sidebar and sub section" (docs/decisions.md DC28): no tab row (HV9's tab row and its More
+     * are gone with it); the open section is the mockups' .nav.on and its pages the .sub items (13 px, 26 px in, 8 px corners, muted; the
+     * current one the dark accent, semi-bold), a page's segments one more indent; 44 px to tap in the phone's menu.
      */
-    public function testTheTabRowsMoreMenuStaysOnTheScreen(): void
+    public function testTheSidebarHoldsTheSectionsPagesAndNoPageHasATabRow(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         $rule = static function (string $selector) use ($css): string {
             self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
             return $m[1];
         };
-        self::assertStringContainsString('position: relative', $rule('.tabs-row'), 'the row is the menu\'s box');
-        self::assertStringContainsString('flex: 1 1 auto', $rule('.tabs-row > .tabs'), 'the strip fills the row: More at its right end');
-        $more = $rule('details.more.tabs-more, details.more.tabs-more[open]');
-        foreach (['position: static', 'flex: none'] as $want) {
-            self::assertStringContainsString($want, $more, "More: {$want} (not the menu's box; open, it does not take the row)");
+        self::assertSame(0, preg_match('/\.tabs-row|\.tabs-more|\.tab-more/', $css), 'no tab row, no tab row\'s More');
+        self::assertSame(' background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; ', $rule('.nav-item.open'), 'the open section');
+        foreach (['padding: 7px 12px 7px 26px', 'border-radius: var(--r-8)', 'color: var(--ink-muted)', 'font: 400 13px/20px var(--font)'] as $want) {
+            self::assertStringContainsString($want, $rule('.nav-sub-item'), ".nav-sub-item: {$want}");
         }
-        $menu = $rule('.tabs-more > .more-menu');
-        foreach (['position: absolute', 'right: 0', 'left: auto', 'max-width: min(32rem, 100%)', 'min-width: min(220px, 100%)'] as $want) {
-            self::assertStringContainsString($want, $menu, "the menu: {$want}");
-        }
-        self::assertDoesNotMatchRegularExpression('/details\.more\.tabs-more\s*\{[^}]*position:\s*relative/', $css, 'no width puts the menu back against More');
-        self::assertDoesNotMatchRegularExpression('/\.tabs-more\s*>\s*\.more-menu\s*\{[^}]*calc\(100vw/', $css, 'bounded by the row, not by the window');
+        self::assertSame(' color: var(--accent-hover); font-weight: 600; ', $rule('.nav-sub-item[aria-current]'), 'the current page');
+        self::assertSame(' padding-left: 40px; ', $rule('.nav-seg .nav-sub-item'), 'a segment one more indent');
+        self::assertStringContainsString('  .nav-sub-item { min-height: 44px; font-size: 14px; }', $css, 'the phone\'s menu: 44 px');
+        self::assertStringContainsString('background: var(--accent-soft)', $rule('.nav-item[aria-current]'), 'the entry that is or holds the page');
     }
 
     /**
@@ -1420,6 +1414,82 @@ final class UiUnitTest extends TestCase
         }
         self::assertSame(\CW\Ui\Words::TONES, ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'], 'the seven tones, no more');
         self::assertSame('off', \CW\Ui\Words::tone('PO_STATE', 'closed'), 'closed is navy (the approved canvas)');
+    }
+
+    /**
+     * Design conformance (the owner, 30 Oct 2026: "strictly follow our design guidelines"; docs/decisions.md DC2, DC7-DC15): the stylesheet
+     * takes the approved mockups' measurements, one pin per shared difference of the audit's section A: the heading 26 px / 1.25 (24 px on
+     * the item and matching pages) with no drawn full stop, the eyebrow .08em and right on the heading, the 28/32 px gutters and the centred
+     * 1,180 px column (Home 1,100), the tabs wrapping as TP_Parts draws them, the 40 px / 14 px search and Show with a search that fills
+     * the row, the date-and-time field in the shared field, the boards' 16 px bold headings without a chevron while open, quiet add rows, 14
+     * px cells, 48 px rows and the 170 px status cell, the chips with no minimum width, All fine's and the risky edges, More's TP_Parts menu,
+     * the dock's 24/14 px and soft shadow, the saved paper's totals as rows, the shell's plain name, magenta counts and initials.
+     */
+    public function testTheSharedCssFollowsTheApprovedMockups(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $rule = static function (string $selector) use ($css): string {
+            self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
+            return $m[1];
+        };
+        // DC2: the heading, the eyebrow, no full stop.
+        self::assertSame(' font-size: 26px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; ', $rule('h1'), 'the mockups\' heading, no negative tracking');
+        self::assertStringNotContainsString('stmt.stop', $css, 'no drawn full stop');
+        self::assertStringContainsString('margin: 0; font: 600 12px/18px var(--font); letter-spacing: .08em;', $rule('.ph-eyebrow'));
+        self::assertStringContainsString('margin: 2px 0 0', $rule('.ph-title'), 'the heading 2 px under the eyebrow');
+        self::assertStringContainsString('font-size: 24px; line-height: 1.3', $rule('.item-head .ph-title h1, .match-head .ph-title h1'), 'IT_Item and TP_Match: 24 px');
+        // DC8: the page's width and gutters.
+        self::assertStringContainsString('--gutter: 32px;', $css);
+        self::assertStringContainsString('--page-w: 1180px;', $css);
+        self::assertStringContainsString('padding: 28px var(--gutter) 48px', $rule('.work'));
+        self::assertStringContainsString('max-width: var(--page-w); margin: 0 auto;', $rule('.page'), 'the column centred');
+        self::assertSame(' max-width: 1100px; ', $rule('body:has(.hm-find) .page'), 'Home\'s column');
+        // DC9: TP_Parts' tabs wrap from 700 px up, 12 by 14 px, the open tab's bar over the row's line.
+        self::assertSame(1, preg_match('/@media \(min-width: 700px\) \{\n  \.tabs \{ flex-wrap: wrap; overflow: visible; box-shadow: none; border-bottom: 1px solid var\(--hairline\); \}\n'
+            . '  \.tabs > \.tab \{ margin-bottom: -1px; \}/', $css));
+        self::assertStringContainsString('padding: 12px 14px', $rule('.tab'));
+        // DC10: the toolbar's search and Show.
+        self::assertStringContainsString('flex: 1 1 280px', $rule('.tb-search'), 'the search fills the row');
+        self::assertStringContainsString('width: 100%; min-height: 40px; height: 40px; padding: 8px 12px 8px 36px; font: 400 14px/22px var(--font);', $rule('.tb-search input[type="search"]'));
+        self::assertStringContainsString('min-width: 170px; min-height: 40px; height: 40px;', $rule('.toolbar .tb-state select'));
+        self::assertStringContainsString('color: var(--ink-muted)', $rule('.toolbar .tb-state > label:not(.choice)'), 'the muted "Show"');
+        // DC11: the date-and-time field is the shared field (its phone size too).
+        self::assertStringContainsString('input[type="date"], input[type="datetime-local"], input[type="file"], select, textarea {', $css);
+        self::assertStringContainsString('input[type="date"], input[type="datetime-local"], select, textarea { font-size: 16px; }', $css);
+        // DC12: the boards.
+        self::assertStringContainsString('font: 700 16px/24px var(--font)', $rule('.grp-toggle'));
+        self::assertSame(1, preg_match('/^\.grp-toggle\[aria-expanded="false"\]::before \{\n  content: "";/m', $css), 'the chevron only on a folded group');
+        self::assertSame(0, preg_match('/^\.grp-toggle::before \{/m', $css), 'none on an open one');
+        self::assertStringContainsString('font: 500 13px/20px var(--font)', $rule('.grp-count'));
+        self::assertStringNotContainsString('dashed', $rule('.add-item'), 'the add row is quiet text');
+        self::assertStringContainsString('color: var(--ink-muted)', $rule('.add-item'));
+        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*width: 170px;/m', $css), 'the 170 px status cell');
+        self::assertSame(1, preg_match('/@container \(min-width: 641px\) \{\n  \.doc-board > table th, \.doc-board > table td \{ padding: 10px 14px; \}\n'
+            . '  \.doc-board > table tbody > tr > \* \{ height: 48px;/', $css), '14 px cells, 48 px rows (a phone card keeps its own)');
+        self::assertSame(' font-weight: 600; ', $rule('.doc-board > table thead th'));
+        // DC14: TP_Parts' chips, edges and More menu.
+        self::assertStringNotContainsString('min-width: 110px', $rule('.chip'));
+        self::assertStringContainsString('--done-line: #9fd4bf;', $css, 'All fine\'s edge');
+        self::assertStringContainsString('--block-line: #f1b9c2;', $css, 'the risky edge');
+        $menu = $rule('.more-menu');
+        foreach (['padding: 0', 'overflow: hidden', 'border-radius: var(--r-12)', 'box-shadow: var(--shadow-menu)'] as $want) {
+            self::assertStringContainsString($want, $menu, ".more-menu: {$want}");
+        }
+        self::assertStringContainsString('--shadow-menu: 0 8px 24px rgba(26, 21, 34, .10);', $css);
+        self::assertStringContainsString('padding: 10px 14px; border: 0; border-radius: 0;', $rule('.more-menu > .btn, .more-menu > form > .btn, .more-menu > details > summary.btn, .menu-item'));
+        // DC15: the dock and the saved paper's totals.
+        self::assertStringContainsString('margin: 24px calc(-1 * var(--gutter)) 0; padding: 14px var(--gutter)', $rule('.doc-bar'));
+        self::assertStringContainsString('--shadow-up: 0 -6px 16px rgba(26, 21, 34, .06);', $css);
+        self::assertSame(' padding: 0; border: 0; border-radius: 0; background: none; ', $rule('.doc-view .doc-totals'));
+        // DC5: no buying-flow strip.
+        self::assertSame(0, preg_match('/^\.flow \{/m', $css));
+        // DC7: the shell.
+        self::assertStringContainsString('background: var(--accent); color: var(--on-fill); font: 700 12px/22px var(--font);', $rule('.nav-item > .count'), 'HM_Home\'s magenta count');
+        self::assertStringContainsString('font: 700 16px/1.2 var(--font)', $rule('.brand'), 'the plain name');
+        self::assertStringContainsString('  .appbar .menu-btn { display: none; margin-left: -10px; }', $css);
+        self::assertStringContainsString('  body:has(.doc-bar) .appbar .menu-btn, body:has(.decide-bar) .appbar .menu-btn, body:not(:has(.tabbar)) .appbar .menu-btn { display: inline-grid; }', $css,
+            'the menu button where no bottom bar is (PI_New_Phone)');
+        self::assertStringContainsString('width: 44px; height: 44px;', $rule('  .appbar-me'), 'the initials: 44 px to tap');
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

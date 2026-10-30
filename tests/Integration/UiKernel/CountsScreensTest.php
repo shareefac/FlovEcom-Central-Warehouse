@@ -162,7 +162,7 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame([['Next to count', true], ['Count sheets', false], ['Differences', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['counts'], trim((string) $xp->evaluate('string(//main//h1)')));
-        self::assertStringStartsWith(Words::PAGE_INTRO['counts'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, 'no sentence under the heading (DC1)');
         // The board (docs/decisions.md CV1): Overdue (red), Never counted (purple), Inside the plan (green, folded at first); each heading
         // with the plan's figure for the warehouse (overdue here: counted, but longer ago than the plan); each row's status a solid cell.
         self::assertSame([['overdue', 'blocked', 'Overdue', '1 item', false], ['never', 'review', 'Never counted', '2 items', false]], self::boardGroups($page));
@@ -216,7 +216,7 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(200, $look->status);
         self::assertFalse($look->hasForm(self::PATH), 'no form for someone who does not count');
         self::assertSame(0, (new \DOMXPath($look->dom()))->query('//div[contains(@class, "doc-bar")] | //input[@type="checkbox"]')->length, 'no bar, no tick boxes');
-        self::assertStringContainsString(Words::intro('counts', Words::whoCan('doc.CNT.post')), $look->text());
+        self::assertStringContainsString(sprintf(Words::UI['look_only'], Words::whoCan('doc.CNT.post')), $look->text(), 'who counts, under the heading\'s "?" (DC1)');
         self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($look));
         self::assertSame(403, $this->signIn($this->uiUser('viewer'))->get(self::PATH)->status);
         // The sidebar's "Every day" opens it (docs/decisions.md HV2).

@@ -79,6 +79,24 @@ final class Html
         return $d->format('Y-m-d') === $today ? $d->format('H:i') : $d->format('j M, H:i');
     }
 
+    /**
+     * A recent time as the board mockups say it (GI_List, IT_Item; docs/decisions.md DC17), in UK time: "Today 09:40", "Yesterday 15:10",
+     * else "7 Oct 2026, 10:15"; '' for null.
+     */
+    public static function near(?string $v, ?\DateTimeImmutable $now = null): string
+    {
+        $d = self::london($v);
+        if ($d === null) {
+            return '';
+        }
+        $today = ($now ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('Europe/London'));
+        return match ($d->format('Y-m-d')) {
+            $today->format('Y-m-d') => sprintf(Words::UI['today_at'], $d->format('H:i')),
+            $today->modify('-1 day')->format('Y-m-d') => sprintf(Words::UI['yesterday_at'], $d->format('H:i')),
+            default => $d->format('j M Y, H:i'),
+        };
+    }
+
     /** Money: "£10,500.00", "-£5.00"; '' for null, '' or a non-number. */
     public static function money(mixed $v): string
     {
@@ -129,22 +147,28 @@ final class Html
     }
 
     /**
-     * The statement every page opens with (design v5, the owner's brief of 19 Oct 2026): a small UPPERCASE eyebrow ($eyebrow, the
-     * section; $tag after it), the heading ($title, the page's name; the stylesheet draws its full stop unless it ends in its own
-     * punctuation; $chips inside it after the name; $aside beside it, a "?" help), a line of state chips ($meta) and the one plain
-     * sentence ($lede, the muted $more under it), then the page's actions on the right. $eyebrow, $tag, $title, $lede and $more are text,
-     * escaped here; $chips, $aside, $meta and $actions are HTML the helpers made.
+     * The statement every page opens with (the approved mockups of 29 Oct 2026; docs/decisions.md DC1-DC3): a small UPPERCASE eyebrow
+     * ($eyebrow, the section; $tag after it; or $back, the record's list as a link followed by "›", the mockups' breadcrumb), the
+     * heading ($title, the page's name, sentence case and no full stop; $chips inside it after the name, the record's status block; $aside
+     * beside it, a "?" help), a line of state chips ($meta), then the page's actions on the right. $lede and $more are the one line a few
+     * steps keep (View::INTRO_KEPT: a rule or a safety message the step needs); every other page has no sentence under its heading.
+     * $eyebrow, $tag, $title, $lede and $more are text, escaped here; $chips, $aside, $meta and $actions are HTML the helpers made;
+     * $back is [href, label].
+     *
+     * @param array{0: string, 1: string}|null $back
      */
     public static function statement(string $eyebrow, string $title, string $lede = '', string $more = '', string $tag = '', string $chips = '',
-        string $aside = '', string $meta = '', string $actions = ''): string
+        string $aside = '', string $meta = '', string $actions = '', ?array $back = null): string
     {
-        $stop = preg_match('/[.!?:…]$/uD', rtrim($title)) === 1 ? '' : ' stop';
         $out = '<header class="page-head"><div class="ph-text">';
-        if ($eyebrow !== '' || $tag !== '') {
+        if ($back !== null) {
+            $out .= '<p class="ph-eyebrow ph-back"><a href="' . self::e($back[0]) . '">' . self::e($back[1]) . '</a><span aria-hidden="true"> ›</span>'
+                . ($tag === '' ? '' : '<span class="ph-tag"> · ' . self::e($tag) . '</span>') . '</p>';
+        } elseif ($eyebrow !== '' || $tag !== '') {
             $out .= '<p class="ph-eyebrow">' . self::e($eyebrow)
                 . ($tag === '' ? '' : '<span class="ph-tag">' . ($eyebrow === '' ? '' : ' · ') . self::e($tag) . '</span>') . '</p>';
         }
-        $out .= '<div class="ph-title"><h1><span class="stmt' . $stop . '">' . self::e($title) . '</span>' . ($chips === '' ? '' : ' ' . $chips) . '</h1>'
+        $out .= '<div class="ph-title"><h1><span class="stmt">' . self::e($title) . '</span>' . ($chips === '' ? '' : ' ' . $chips) . '</h1>'
             . $aside . '</div>';
         if ($meta !== '') {
             $out .= '<p class="ph-meta">' . $meta . '</p>';
@@ -154,6 +178,30 @@ final class Html
             $out .= '<div class="ph-actions">' . $actions . '</div>';
         }
         return $out . '</header>';
+    }
+
+    /**
+     * The "?" beside a heading that says who may change what this person can only look at (docs/decisions.md DC1: the line that stood
+     * under the heading; `$label` names another kind of line, a page's `more:`). A <details>: no script needed.
+     */
+    public static function lookOnly(string $text, ?string $label = null): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        $name = $label ?? Words::UI['look_help'];
+        return '<details class="help look-only"><summary aria-label="' . self::e($name) . '" title="' . self::e($name) . '"></summary>'
+            . '<div class="help-body"><p>' . self::e($text) . '</p></div></details>';
+    }
+
+    /** A person's initials as the mockups draw them ("Bea Smith" BS, "Shareef" SH): the first letters of two names, or a name's first two. */
+    public static function initials(?string $name): string
+    {
+        $parts = preg_split('/\s+/u', trim((string) $name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($parts === []) {
+            return '';
+        }
+        return mb_strtoupper(mb_substr($parts[0], 0, 1) . (isset($parts[1]) ? mb_substr($parts[1], 0, 1) : mb_substr($parts[0], 1, 1)));
     }
 
     /** Today in London as the Dashboard's eyebrow says it: "Monday 19 October". */

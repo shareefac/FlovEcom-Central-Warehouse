@@ -383,18 +383,22 @@ final class Sections
     /**
      * Everything the layout draws around a page for this person (Context::frame):
      *   nav       the sidebar (HV2): Home, the "Every day" entries (DAILY), the "More" sections (MORE), each only when the person has it:
-     *             its key, group (home, daily, more), icon, label, link, count and whether it is current. ONE entry is current: the
+     *             its key, group (home, daily, more), icon, label, link, count, whether it is current, and `subs`: the current section's
+     *             entry lists the section's pages as sub-items (DC28; the owner, 30 Oct 2026: "dont need tab view use sidebar and sub section"):
+     *             each tab the person may open (and one not built yet, `soon`: no link) with its link, count, `current`, `here` (the page shown: no link, CV13)
+     *             and `more` (a set-up or specialist page, HV3), the current tab's segments under it (`segs`). ONE entry is current: the
      *             daily entry of the page's tab, else the entry of the page's section. A daily tab's count is the tab's; a section's is
      *             the sum of its tabs' but those with a daily entry of their own (counted there), or its inbox's (`count`, AV10)
      *   pagebar   for the current section when the person has it (Home has none: its page title is the page's own): its label,
      *             one-line description, the tabs of the row, the tabs under the row's More (`more`, HV3: never the current one, which
-     *             the row shows after its own; none when the person has no other tab), their count, whether it draws the buying flow
-     *   segments  the current tab's segmented filter (two or more segments the person may open), or []
+     *             the row shows after its own; none when the person has no other tab), their count. No page draws it as a row any more
+     *             (the owner, 30 Oct 2026: DC28): the page's eyebrow takes its label; its tabs are the sidebar's sub-items (`nav`'s `subs`)
+     *   segments  the current tab's segmented filter (two or more segments the person may open), or []; the sidebar's second level
      *             A tab or segment is `here` when it is the current one and leads to the page shown (the same path): it is drawn without a
      *             link, so a click never reloads the page and loses what was typed (docs/decisions.md CV13); the current one of a record's
      *             page leads back to its list and stays a link.
-     *   actions   the current page's create button the person may use (only on the page itself, not its detail pages), then the
-     *             section's other create actions they may use (under More beside the create button); none on Home (HV1)
+     *   actions   the current page's create button the person may use (only on the page itself, not its detail pages); only its own
+     *             (DC4: no second More of the section's other create actions); none on Home (HV1)
      *   phone     the bottom bar: Home, the PHONE entries the person has, "More" (#menu)
      *   bell      the bell (HV4): Approvals › Waiting for you and its count, for the people who answer there; else null
      *
@@ -430,7 +434,7 @@ final class Sections
         // The sidebar: Home, Every day, More. A daily tab is counted on its own entry, not again on its section's.
         $entry = static function (string $key, string $group, string $s, string $label, array $tab, int $count, string $words): array {
             return ['key' => $key, 'group' => $group, 'section' => $s, 'tab' => null, 'icon' => self::ICON[$key] ?? $key, 'label' => $label, 'href' => $tab['href'],
-                'query' => $tab['query'], 'count' => $count, 'countWords' => $words, 'current' => false];
+                'query' => $tab['query'], 'count' => $count, 'countWords' => $words, 'current' => false, 'open' => false, 'subs' => []];
         };
         $firstLive = static fn (array $list): array => array_values(array_filter($list, static fn (array $x): bool => !$x['soon']))[0];
         $nav = [];
@@ -489,8 +493,6 @@ final class Sections
             } else {
                 $main = $all;
             }
-            $pagebar = ['key' => $s, 'label' => Words::SECTION[$s], 'desc' => Words::SECTION_DESC[$s], 'tabs' => $main, 'more' => $more,
-                'moreCount' => (int) array_sum(array_column($more, 'count')), 'flow' => $s === 'purchasing', 'tab' => Words::MENU[$here['tab']]];
             $tab = $visible[$s][$here['tab']] ?? null;
             if ($tab !== null && $tab['segments'] && count($tab['pages']) > 1) {
                 // The query values the tab keeps (a store's code: a plain code only, the pages check it names a store).
@@ -502,6 +504,8 @@ final class Sections
                         'here' => $here['page'] === $page['key'] && self::samePath($path, (string) $page['path'])];
                 }
             }
+            $pagebar = ['key' => $s, 'label' => Words::SECTION[$s], 'desc' => Words::SECTION_DESC[$s], 'tabs' => $main, 'more' => $more,
+                'moreCount' => (int) array_sum(array_column($more, 'count')), 'tab' => Words::MENU[$here['tab']]];
             foreach ($tab['pages'] ?? [] as $page) {
                 $new = $page['new'] ?? null;
                 if ($new !== null && $page['key'] === $here['page'] && rtrim($path, '/') === rtrim((string) $page['path'], '/')
@@ -509,15 +513,23 @@ final class Sections
                     $actions[] = ['label' => Words::NEW[$new['label']], 'href' => (string) $new['href']];
                 }
             }
-            // More beside the create button: the section's other create actions the person may use (only beside a page's own).
-            if ($actions !== []) {
-                foreach ($visible[$s] as $other) {
-                    foreach ($other['pages'] as $page) {
-                        $new = $page['new'] ?? null;
-                        if ($new !== null && (string) $new['href'] !== $actions[0]['href'] && Permissions::can($roles, $new['perm'])) {
-                            $actions[] = ['label' => Words::NEW[$new['label']], 'href' => (string) $new['href']];
-                        }
-                    }
+        }
+
+        // The sidebar's tree (DC28): the current section's entry (the one that names the section, not a daily tab's) lists its pages, the
+        // current one's segments under it; every other entry stays one link.
+        if ($pagebar !== null) {
+            $subs = [];
+            $moreKeys = array_column($pagebar['more'], 'key');
+            foreach ($tabsOf[$pagebar['key']] as $t) {
+                if ($t['soon'] && !in_array($t['key'], $moreKeys, true)) {
+                    continue; // a page not built yet shows only beside a page that opens (as HV3's More did)
+                }
+                $subs[] = $t + ['segs' => $t['current'] ? $segments : []];
+            }
+            foreach ($nav as $i => $item) {
+                if ($item['section'] === $pagebar['key'] && $item['tab'] === null) {
+                    $nav[$i]['subs'] = $subs;
+                    $nav[$i]['open'] = true;
                 }
             }
         }

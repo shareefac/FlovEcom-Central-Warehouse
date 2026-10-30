@@ -8,18 +8,22 @@
 // for the stock value, and its history. An invoice's draft is the
 // one page for its creator (invoice_edit); a credit note's draft keeps its forms here (pack C), for its creator.
 ?>
-<p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
 <?php
 // The status block says what the list says (PV31): a final invoice whose match needs review "Needs a look" (amber), "Final" a quiet line
 // beside it; else its status, and its match as a soft tag.
 $needsLook = !$doc->isReversal() && $doc->status === 'posted' && $storedMatch === 'needs_review';
 $bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k,
     'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel, 'creditKey' => $creditKey, 'reverse' => $reverse]); ?>
+<?php
+// PI_View (DC22): a saved paper's heading is the supplier's own number, CW's number the quiet line under it; a draft or a cancellation keeps
+// its title.
+$theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $doc->externalRef !== '' && $doc->number !== null;
+?>
 <div class="doc-head">
-<?= $head((string) $title, intro: $introKey, look: $lookOnly, side: $editable ? null : $bar,
+<?= $head($theirs ? (string) $doc->externalRef : (string) $title, intro: $introKey, look: $lookOnly, side: $editable ? null : $bar, back: [(string) $base, (string) $k['tab']],
     chips: $doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : ($needsLook ? $chip('needs', \CW\Ui\Words::INVOICES['needs_look']) : $stateChip('DOC_STATUS', $doc->status)),
-    meta: $needsLook ? '<span class="muted">' . $e(\CW\Ui\Words::of('DOC_STATUS', 'posted')) . '</span>'
-        : ($storedMatch !== null ? '<span class="tag ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '')) ?>
+    meta: ($theirs ? '<span class="muted">' . $e((string) $doc->number) . '</span> ' : '') . ($needsLook ? '<span class="muted">' . $e(\CW\Ui\Words::of('DOC_STATUS', 'posted')) . '</span>'
+        : ($storedMatch !== null ? '<span class="tag ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : ''))) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

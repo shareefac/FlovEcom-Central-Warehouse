@@ -219,9 +219,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        self::assertSame('By Item', self::currentTab($page));
-        self::assertSame(['Simple matching', 'Mapping', 'Store Products', 'By Item'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
-        self::assertSame(['New Variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
+        self::assertSame('By item', self::currentTab($page));
+        self::assertSame(['Simple matching', 'Mapping', 'Store products', 'By item'], self::tabLabels($page), 'under Matching\'s More, in the row on its page (HV3)');
+        self::assertSame(['New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'));
         self::assertSame(Words::MENU['by_product'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
         self::assertSame([Words::BY_PRODUCT['item'], 'Alt Store', 'Big Store', 'Cee Store', Words::BY_PRODUCT['stores_matched']], self::heads($page),
             'one column per store, by name: the channel table says which');
@@ -651,7 +651,7 @@ final class ByProductScreenTest extends KernelUiTestCase
 
         $page = $web->get("/ui/review/products/{$sku}/map", ['channel' => 'alt']);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        self::assertSame('By Item', self::currentTab($page));
+        self::assertSame('By item', self::currentTab($page));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::say('BY_PRODUCT', 'pick_title', self::cw($sku), 'Alt Store'), self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame('/ui/review/products?at=' . $sku . '#p-' . $sku, $xp->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'back to the list, at the product');
@@ -861,7 +861,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame([$sku, 1, 'mapped'], [(int) $this->link($one)['sku_id'], (int) $this->link($one)['units_per_item'], $this->link($one)['status']]);
         $back = $web->follow($r);
         self::assertSame(200, $back->status, $back->describe());
-        self::assertSame('By Item', self::currentTab($back));
+        self::assertSame('By item', self::currentTab($back));
         self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', $code), $back->text());
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Elux Legend Blue Razz', self::cells($back, $sku)['Alt Store']);
         self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));

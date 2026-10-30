@@ -64,7 +64,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(['label' => 'Company', 'href' => null, 'count' => 0, 'current' => true], self::sectionTabs($page)[0], 'Settings › Company (the tab shown has no link: CV13)');
         self::assertSame('Settings', self::currentSection($page));
         self::assertStringContainsString('Not confirmed Every purchase order PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND"', $page->text());
-        self::assertStringContainsString(Words::intro('company'), $page->text(), 'the page intro');
+        self::assertStringNotContainsString(Words::PAGE_INTRO['company'][0], $page->text(), 'no sentence under the heading (DC1)');
         self::assertSame([], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
             iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a'))), 'a tab of Settings: no way back needed');
         self::assertStringContainsString('Still missing: legal name, company number, registered address, VAT number (or "not VAT registered"), purchasing e-mail, '

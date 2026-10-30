@@ -13934,3 +13934,175 @@ form holds typed values. Nothing is sent differently.
 served, shown failing on main first: `runs/w11_red.log`); `ItemCardScreensTest` (the All Products tests now pin the board, the plain filters
 and the one Clear instead of the chips; the barcode review reads the open record), `ItemManagementScreensTest` (the list view, the family's
 status block), `ItemManagementUnitTest` (the two new templates).
+
+## Design conformance across every page (branch `ds-conform`, 30 Oct 2026; DC1-DC28)
+
+The owner, 30 Oct 2026: "strictly follow our design guidelines". Codex compared every approved mockup (`cwdaily/*`, `cwdesign/*`) with main
+`3f95e53` (`runs/dsaudit_findings.txt`): section A, the differences that come from shared code; section B, page by page. Section A is fixed
+in the shared code, one place each, each with a pin that failed on main first; section B for the pages listed below. Where two approved
+designs disagree the newer wins (`cwdaily/*` of 29 Oct over the `cwdesign/*` sidebars; HM_Home and HM_Phone for the shell; TP_Parts for
+the parts). Layout and words only: no route, permission, posted field, service rule or safety message changed. Rebased on `672fae9` (w10).
+
+**DC1. No sentence under a heading (audit A1).** `View::head` no longer draws the page's intro (`Words::PAGE_INTRO` keeps the words; `intro:`
+still names the page). Kept, as the one muted line under the heading, only where it is the step's rule or a safety message said nowhere else
+(`View::INTRO_KEPT`): the sign-in (what to type, the code app), the password's length, the sign-in set-up and its code, the bulk change's
+"nothing is saved until you press the red button", the two previews' "nothing is saved yet", the two pending cancellations' "changes nothing
+until it is final". Who may change a page a person can only look at (`look:`, a look-only `more:`, and `Words::INTRO_LOOK`: the four
+read-only pages whose intro said it) is the "?" beside the heading (`Html::lookOnly`, `details.help.look-only`), not a line under it. A
+claim-only return's intro was the only place that said no goods go back: its eyebrow's tag says so now (`RETURNS['claim_tag']`).
+
+**DC2. The heading (A2, A3).** No full stop (the drawn `.stmt.stop::after` and its class are gone; a heading is its text). 26 px / 1.25,
+no negative tracking; 24 px / 1.3 on the item page and the matching page (IT_Item, TP_Match; `.item-head`, `.match-head`); 22 px on a phone
+(HM_Phone). The eyebrow is 12 px semi-bold with .08em tracking, the heading 2 px under it.
+
+**DC3. A record's eyebrow is its list (A17).** `$head(back: [href, label])` draws the mockups' breadcrumb as the eyebrow: the list as an
+accent link, then "›" (`p.ph-eyebrow.ph-back`). Used on the purchase order (view and draft), the supplier invoice (view and new), the item,
+the count sheet and "Before it is final" (CT_Final: that heading, under the sheet's own name as its eyebrow). The separate `p.crumbs` above
+them is gone. Goods in's delivery keeps its crumb: it carries the phone's Leave (GV24).
+
+**DC4. "+ New" in the header, alone (A6, A7).** `Context::OWN_TOOLBAR` is gone: the purchase orders, suppliers, Goods in, stock records and
+counts boards no longer take the create button into their toolbar; the header draws it at the title's right like every page (the stock boards'
+W8.13 `side: $split` went with it; Counts keeps its "Open sheets (N)" as CT_Board draws). `Sections::frame` gives only the page's own create
+action: no second More of the section's other "New …" (each is on its own list). The open groups keep their quiet "+ New …" last row.
+
+**DC5. No buying-flow strip (A5).** The four-card flow strip on Purchasing is gone (`page_frame`, `Ui\FlowCounts`, `Words::FLOW`). The tab
+rows are DC28's (a first step here kept the section's tab row and put six tabs' segments under its More; the owner's word of 30 Oct
+replaced both).
+
+**DC6. Sentence case (A4).** "Purchase orders", "Goods in", "All products", "Stock in", "Stock out", "Stock by store", "Sales by store",
+"Low stock", "Stock value", "Slow stock", "Audit log", "Approval rules", "Store products", "By item", "New variants", "Add item": in the menu,
+the tabs, the titles and every sentence that names them (one source, `Words`).
+
+**DC7. The shell of HM_Home and HM_Phone (A8, A9).** The sidebar: the plain name (no CW tile), Home, Every day, More, each entry its words
+only (no icons), a magenta 22 px count where something waits; no bell (the Approvals entry carries the inbox's count) and no find link (Home's
+Find box finds); the person at the bottom keeps their account and Sign out (a function). The phone's top bar: the name and the person's
+initials (`.appbar-me`, which open the menu where Sign out is); the menu button only where no bottom bar is (a page with a document or answer
+bar: PI_New_Phone draws it there). The bottom bar is as before. The record pages' phone headers (back, number, status: GI_Phone, CT_Phone,
+IT_Phone, AP_Phone) are not built here: each needs its page's own parts (DC25).
+
+**DC8. The page's width (A11).** The work area 28 px / 32 px (`--gutter: 32px`), the column centred at 1,180 px (`--page-w`), Home's at 1,100.
+
+**DC9. Tabs as TP_Parts draws them (A16).** From 700 px up a tab row wraps, 12 px by 14 px, the open tab's 3 px bar over the row's 1 px line;
+on a phone it stays one row that scrolls inside itself (DS2's reason: a wrapped row of eight tabs is three lines on a phone).
+
+**DC10. The toolbar (A12).** Search and Show 40 px, 14 px; the search takes the free width (`flex: 1 1 280px`), the muted "Show" beside its
+choice (170 px). The Show button stays: without it the choice needs the script, and applying a choice by itself on change reloads the page
+under a keyboard user's arrow keys (WCAG 3.2.2). The fields keep their darker edge (`--field`, 5.6:1): the mockups' #d9d0e1 is 1.4:1 on white
+and fails WCAG 1.4.11 (`UiUnitTest::testTheDesignTokensMeetTheContrastTheyAreUsedFor`); for the owner to decide (DC25).
+
+**DC11. One field (A13).** `input[type=datetime-local]` joins the shared field and its 16 px phone size; fields are 40 px as drawn, 44 px on a
+phone or a touch screen.
+
+**DC12. Boards (A14).** Group headings 16 px bold in their colour, the count 13 px medium; no chevron while open (the heading is still the fold's
+button, `aria-expanded`), the chevron shows on a folded group so it is not lost; "+ Add …" rows are quiet text (no dashed edge); 12 px
+semi-bold heads, 14 px cell sides, 48 px rows, the 170 px status cell (a phone card keeps its own).
+
+**DC13. A phone's status cell keeps its fill (A10).** Main's W10 rule (`table.stack td.doc-st:not(.gi-duty)`) is the fix; no second copy.
+
+**DC14. TP_Parts' parts (A15).** Chips have no 110 px minimum; All fine's edge `#9fd4bf`, the risky edge `#f1b9c2` (the tokens); More's menu
+has no inset, 10 by 14 px rows with a divider, square rows in its 12 px corners, its soft shadow (`--shadow-menu`).
+
+**DC15. The bar at the bottom and the totals (A17).** The dock 24 px above it, 14 px inside (12 on a phone), the softer shadow; a saved
+document's totals are rows of its paper, not a card of their own (PO_View, PI_View); a new document's totals stay in their card (PI_New).
+
+**DC16. Purchase orders (B).** Columns Order, Status, Supplier, Expected, Received, By, Total: By is who made it, their initials (`Html::initials`,
+`.initials`), Supplier and Total in ink; the order's date and reference after its number on one line; an empty Expected or Received is "—"; the
+quiet "+ New purchase order" row ends Waiting for approval, On the way and Draft. The statuses' words are the mockups' (Waiting for approval,
+Part received, Received). Download, Show drafts too (goods in and the desk; it now also hides them again) and Clear are under the toolbar's one
+More; the drafts strip went (its words are the item's). The same filters, CSV and draft rule as before (F305).
+
+**DC17. Goods in (B).** Units, not Items (the column counts units); arrival times "Today 09:40" / "Yesterday 15:10" (`Html::near`); a checked
+delivery's status cell says "Checked" or "Checked, 1 problem" (its group says ready to book in); the order or invoice after the number on
+one line; Clear under the toolbar's More.
+
+**DC18. From the stores (B).** The queues' Show is the board toolbar's (the muted word, its choice, its Show button); the row-count line went
+(each group counts its rows; a cut list still says so); Lines to place's eyebrow is "Approvals · from the stores" and its Place is the small
+button.
+
+**DC19. Home on a phone (B).** A task row is the link (no button drawn; its words stay for a screen reader, the row takes the focus ring); no
+figures section (HM_Phone has none).
+
+**DC20. Counts (B).** The toolbar is search and Warehouse; how many the list takes ("List the next 50/100/200"), the plan's days (with the plan
+as the item's line) and Clear are under its More; a row's code beside its name; never counted is "—".
+
+**DC21. Supplier invoices (B).** "Due" and, once passed with money owed, "N days late" beside the date; Clear under the toolbar's More.
+
+**DC22. Smaller page fixes (B).** The purchase order's heading is its number with its status block beside it (the review tag under it);
+a saved supplier invoice's heading is the supplier's own number, CW's number the quiet line under it (PI_View; a draft or a cancellation
+keeps its title); What to buy no longer repeats "Will run out" as a chip beside its status cell; the supplier's latest invoices' first column
+is "Invoice" (it read "Col": a nested word group); the item's movements board has no coloured edge and its times say Today / Yesterday
+(IT_Item).
+
+**DC23. Kept as they are, on purpose.** The TEST SYSTEM strip and the strip that says which jobs Admin switches off (brief rule 3: safety).
+The person's panel at the bottom of the sidebar (Change password, Sign out: functions). The Show buttons and the fields' darker edge (DC10).
+The tab row scrolling on a phone (DC9). The chevron of a folded group (DC12). Leave without saving on a phone's bar of the supplier invoice
+(PI_New_Phone has no place for it; it is a function). A board's "?" help beside its heading (a "?" is the agreed place for help).
+
+**DC24. Not changed here, and why (the rest of the audit).** Each needs a page's own conversion, a new figure or query (DC25), or is a
+behaviour the earlier decisions chose:
+- the record pages' phone headers (back, number, status) and their phone layouts (GI_Phone, CT_Phone, IT_Phone, AP_Phone, PI_New_Phone);
+- New purchase order (PO_New: its field set, the lines' columns, the add-line row, the staff note and totals, the bar's words), the purchase
+  order's view beyond its heading (the exposed actions, Ordered's bar, Deliver to and payment terms, the five columns, the deliveries,
+  invoices and history cards), New supplier invoice and its phone page (the asterisks and hints, the match result's place, the line's
+  hierarchy, the charge and attach layout, the Charges row, the rare folds), the supplier invoice's view beyond its heading (the exposed
+  actions, the differences sentence, the VAT number, the facts, the four columns, the totals' words, History);
+- the delivery's one page (Main, GI_Phone: GV2-GV25), the count sheet and counting on a phone (CV5-CV11), Before it is final's rows and its
+  Keep my count (CV9), the approvals record's facts (AV6), the item page's strip and details (IV3-IV10);
+- Lines to place's "Placed" (the state word is shared by every queue) and its closing line; Counts' "Sold a day" (CV1: a figure) and the
+  Count menu's choices (CV2: behaviour); the purchase orders' "Received or closed" (a setting's days, not a month: behaviour);
+- the reports on TP_Report, Settings on TP_Settings, the matching page on TP_Match (whole-page conversions; their missing figures DC25);
+- Goods in's open-issue tag and paper-sheet note on a row (the only place a booked delivery says so).
+
+**DC25. Needs a build (for the owner).** Home's four figures (Orders sent today, Out of stock, Coming in this week, Oversold today) and its
+combined task rows (Approvals, Counts overdue, Delivery being checked, Lines to place, Supplier invoice needs a look); Home's Find for orders
+and deliveries; the purchase orders' search by item; the supplier invoices' search by order, its money summary, Overdue and Paid (CW does not
+know the payments) and its Show choices; the three sales-invoice pages (SI_List, SI_New, SI_View); Lines to place's search; the count sheet's
+name search; Waiting for you's Show (Answered today) and a correction's value at cost; the stock value report's Not sold in 90 days, Share,
+total row and Category / Supplier grouping; TP_Settings' inline settings and their search; the mockups' #d9d0e1 field edge, if the owner
+accepts it below WCAG's 3:1 (DC10).
+
+
+**DC27. The Products pages of w11 (rebased on `d0f98d9`).** Their cross-cutting parts are the shared ones above (W11.9 left them here):
+no sentence and no full stop, sentence case, the Show buttons kept (DC10). All Products' main create action is in its header: "+ Add an
+item" (for items.create, through the head's `side`: Add Item's page is the form, and `Sections` keeps its rule that a create button leads to
+its own page's form); its Clear, Import and Export are under the toolbar's one More; its filters (the card, the kind of product, the four
+ticks) are inside ONE Show control, a pop-over with its Show button (`details.tb-pop.tb-show`, no script needed; its count says how many are
+on), so the toolbar is one search and one Show as the board mockups draw it (the coordinator's Chrome check of w11: the Show row was two
+lines on a computer and four rows on a phone). Every filter's parameter and the submit without script are as before. Add Item's link to the items made by hand and the family's link to Families are their eyebrows (DC3). A page's own
+`more:` line that is not who may change it (whether a second person checks items made by hand) is under the general "?" ("What does this
+mean?"), the look-only "?" keeps its own name.
+
+**DC28. No tab view: the sidebar holds a section's pages (the owner, 30 Oct 2026: "dont need tab view use sidebar and sub section"; it
+replaces the brief's "keep the one section tab row" and settles audit A5 and A8).** No page draws a section tab row or a segment row
+(`page_frame.php` keeps only the switched-off strip; the tab row's More, its CSS and HV9's placement went with it). The sidebar keeps
+HM_Home's grouping (Home, Every day, More); the current section's entry is open (`.nav-item.open`, the mockups' `.nav.on`) and lists the
+section's pages under it as sub-items (`ul.nav-sub > li > a.nav-sub-item`: 13 px, 26 px in, 8 px corners, muted; the current one the dark
+accent, semi-bold, as CT_Board's and IT_Item's `nav.side .sub`), and the current page's segments one more indent (`ul.nav-sub.nav-seg`, 40 px
+in). Every other entry stays one link. A page's count is on its item (and still summed on its section, as before). The page shown has no
+link (CV13); the deepest current item is `aria-current="page"`, the entries that hold it `aria-current="true"` (so a daily tab's entry, Counts,
+stays marked while Stock lists its pages). A page not built yet (Quality) is a sub-item with no link and its "Soon". The set-up and
+specialist pages (HV3's More) are sub-items like the others (`.more`, no look of their own). The phone's menu is the same tree, 44 px to
+tap; the bottom bar is HM_Phone's. Tabs inside a record stay where a mockup draws them (the item's parts, the supplier's tabs). Who sees
+which page is unchanged: `Sections::frame` builds the tree from the same visible map (`subs`, `segs`), and a test walks every page each role
+may open and finds it in that role's tree. `Sections::SHOW_REPLACES` and the MENU_HELP lines it needed are gone; the kernel tests' helpers
+(`sectionTabs`, `moreTabs`, `segments`, `currentTab`, `currentSection`) read the sidebar now, so every earlier assertion on who sees which
+page still runs.
+
+**DC26. Tests.** Red first (`runs/dsc_red.log`: main `672fae9` with the new tests: 4 of 4 fail on their assertions).
+`UiTemplatesTest::testTheSharedPartsFollowTheApprovedMockups` (the statement without full stop or sentence, the look-only "?", the record
+eyebrow, the header's lone "+ New", no flow strip, Goods in's segments under More, the HM shell, sentence case for every page name, no
+board template asks for `newActions`), `UiUnitTest::testTheSharedCssFollowsTheApprovedMockups` (every measurement of DC2, DC5, DC7-DC15),
+`tests/Integration/UiKernel/DesignConformanceScreensTest.php` (the boards as served: "+ New" in the head and none in the toolbar, no sentence,
+no full stop, no flow strip, Goods in's and Counts' pages under More, the plain shell; a look-only page's "?"; the password's kept rule). The
+pins of the old layout were moved to the new one, never dropped: the layout and statement tests, `SectionsTest`'s frame, `MenusTest`, the
+pages' intro checks (now: no sentence, or the step's kept line, or the "?"), the segment checks of the six tabs (now the row's More), the
+create buttons (now the header's), the page names' sentence case, the PO view's heading and the PO states' words.
+
+*Tests* (30 Oct 2026, on `8aa4cc8`, the tree rebased on main `d0f98d9`): `tests/Unit` and `tests/Integration/UiKernel`: OK (1052 tests, 128101
+assertions); the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui`
+(`UiAuthTest`, `UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/dsc_end_unit_uikernel.log`, `runs/dsc_end_partc.log`,
+`runs/dsc_end_ui.log`. DC28 also added `UiUnitTest::testTheSidebarHoldsTheSectionsPagesAndNoPageHasATabRow` and, in
+`testTheSharedPartsFollowTheApprovedMockups`, the walk that finds every page each of nine roles reached through a tab row in that role's
+sidebar tree; the kernel helpers read the tree, so the earlier who-sees-what assertions (tabs, More pages, segments, their counts) all run
+on it. Not seen in a real browser here: the coordinator's Chrome check should look at the sidebar tree, the All Products Show control and
+the boards at 375 px and 1,280 px.

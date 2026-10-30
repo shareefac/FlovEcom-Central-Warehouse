@@ -246,7 +246,7 @@
   <div class="table-wrap doc-board info">
   <table class="stack list board doc-list">
     <thead>
-      <tr><th scope="col" class="c-item"><?= $word('INVOICE_KIND', 'col') ?></th><th scope="col" class="c-status"><?= $word('DOC_LIST', 'status') ?></th><th scope="col"><?= $word('DOC_LIST', 'match') ?></th>
+      <tr><th scope="col" class="c-item"><?= $word('DOC_LIST', 'invoice') ?></th><th scope="col" class="c-status"><?= $word('DOC_LIST', 'status') ?></th><th scope="col"><?= $word('DOC_LIST', 'match') ?></th>
         <th scope="col"><?= $word('DOC_LIST', 'due') ?></th><th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th><th scope="col" class="num"><?= $word('DOC_LIST', 'balance') ?></th></tr>
     </thead>
     <tbody>

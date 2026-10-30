@@ -1,13 +1,18 @@
 <?php
-// Purchasing › Purchase Orders, a board (the owner's approved design of 29 Oct 2026, monday.com's style; docs/decisions.md PV18): one
-// search box (the number, the reference, the supplier), one Show menu (open orders, all, closed and cancelled), Export and "+ New purchase
-// order" at the right of the toolbar (PX1: the order's one page); then the orders grouped by status, each group a coloured heading with its
-// count (it folds, app.js) over a white card with the group's colour on its left edge: waiting for approval, on the way (confirmed, sent,
-// part delivered), draft (its last row "+ New purchase order"), received or closed lately (po.board_recent_days), cancelled (under Show).
-// A row: the order (number and date), its status filled with its colour, the supplier, expected, received of ordered, the total. A row
-// opens its order. Behaviour item 8 (F305) stays: goods in and the desk see no drafts unless they ask. The URL's other filters (status,
-// supplier, sent back) still narrow the list (links from elsewhere use them) and a search keeps them (hidden fields).
-$newActions = $newActions ?? [];
+// Purchasing › Purchase orders, a board (the approved cwdesign/Main.dc.html of 29 Oct 2026; docs/decisions.md PV18, DC16): the heading with
+// "+ New purchase order" at its right (the layout's create button); one search (the number, the reference, the supplier) and one Show menu
+// (open orders, all, closed and cancelled) with its Show button (no script needed); the rest of the old toolbar (download, show drafts too,
+// clear) under the toolbar's one More. Then the orders grouped by status, each group a coloured heading with its count over a white card with
+// the group's colour on its left edge: waiting for approval, on the way, draft, received or closed lately (po.board_recent_days), cancelled
+// (under Show); the open groups end with the quiet "+ New purchase order" row. A row: the order (number, its date and reference after it), its
+// status filled with its colour, the supplier, expected, received of ordered, who made it (initials), the total; an empty value is "—". A row
+// opens its order. Behaviour item 8 (F305) stays: goods in and the desk see no drafts unless they ask (under More). The URL's other filters
+// (status, supplier, sent back) still narrow the list (links from elsewhere use them) and a search keeps them (hidden fields).
+$keep = ['supplier' => $filters['supplier'], 'q' => $filters['q'] === '' ? null : $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null,
+    'show' => $filters['view'] === 'open' ? null : $filters['view']];
+$csv = \CW\Ui\Html::url('/ui/purchasing/orders.csv', ['state' => $filters['state'], 'supplier' => $filters['supplier'], 'q' => $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null,
+    'show' => $filters['view'] === 'open' ? ($filters['all'] ? 'all' : null) : $filters['view'], 'drafts' => $filters['drafts'] ? null : '0']);
+$moreItems = $draftsHidden || ($draftsChoice && $filters['drafts']) || $rows !== [] || $filtered;
 ?>
 <?= $head(\CW\Ui\Words::MENU['orders'], intro: 'orders', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -28,25 +33,32 @@ $newActions = $newActions ?? [];
 <?php if ($filters['rejected']): ?>
     <input type="hidden" name="rejected" value="1">
 <?php endif; ?>
-<?php if ($draftsChoice): ?>
-    <label class="choice tb-check"><input type="checkbox" name="drafts" value="1"<?php if ($filters['drafts']): ?> checked<?php endif; ?>> <?= $word('ORDERS', 'drafts') ?></label>
+<?php if ($filters['drafts'] === $draftsChoice): ?>
+    <input type="hidden" name="drafts" value="<?php if ($filters['drafts']): ?>1<?php else: ?>0<?php endif; ?>">
 <?php endif; ?>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
+<?php if ($moreItems): ?>
   <div class="tb-end">
-<?php if ($filtered): ?>
-    <a class="btn ghost sm" href="/ui/purchasing/orders"><?= $word('ORDERS', 'clear') ?></a>
+    <details class="more tb-more">
+      <summary class="btn ghost sm"><?= $word('UI', 'more') ?></summary>
+      <div class="more-menu">
+<?php if ($draftsHidden): ?>
+        <a class="menu-item" href="<?= $u('/ui/purchasing/orders', $keep + ['drafts' => '1']) ?>"><?= $word('ORDERS', 'drafts') ?></a>
+<?php elseif ($draftsChoice && $filters['drafts']): ?>
+        <a class="menu-item" href="<?= $u('/ui/purchasing/orders', $keep) ?>"><?= $word('ORDERS', 'drafts_off') ?></a>
 <?php endif; ?>
 <?php if ($rows !== []): ?>
-    <a class="btn ghost sm" href="<?= $u('/ui/purchasing/orders.csv', ['state' => $filters['state'], 'supplier' => $filters['supplier'], 'q' => $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null, 'show' => $filters['view'] === 'open' ? ($filters['all'] ? 'all' : null) : $filters['view'], 'drafts' => $filters['drafts'] ? null : '0']) ?>" title="<?= $word('ORDERS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
+        <a class="menu-item" href="<?= $e($csv) ?>" download><?= $word('ORDERS', 'download') ?></a>
 <?php endif; ?>
-    <?= $partial('split', ['actions' => $newActions]) ?>
+<?php if ($filtered): ?>
+        <a class="menu-item" href="/ui/purchasing/orders"><?= $word('ORDERS', 'clear') ?></a>
+<?php endif; ?>
+      </div>
+    </details>
   </div>
-</form>
-
-<?php if ($draftsHidden): ?>
-<p class="note drafts-hidden"><?= $word('ORDERS', 'drafts_hidden') ?> <a href="<?= $u('/ui/purchasing/orders', ['supplier' => $filters['supplier'], 'q' => $filters['q'] === '' ? null : $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null, 'show' => $filters['view'] === 'open' ? null : $filters['view'], 'drafts' => '1']) ?>"><?= $word('ORDERS', 'drafts_show') ?></a></p>
 <?php endif; ?>
+</form>
 
 <?php if ($rows === [] && $filtered): ?>
 <?= $empty(\CW\Ui\Words::ORDERS['none_filter'], \CW\Ui\Words::ORDERS['none_filter_text'], '/ui/purchasing/orders', \CW\Ui\Words::ORDERS['clear']) ?>
@@ -65,22 +77,24 @@ $newActions = $newActions ?? [];
         <th scope="col"><?= $word('DOC_LIST', 'supplier') ?></th>
         <th scope="col"><?= $word('DOC_LIST', 'expected') ?></th>
         <th scope="col"><?= $word('DOC_LIST', 'received') ?></th>
+        <th scope="col" class="c-by"><?= $word('DOC_LIST', 'by') ?></th>
         <th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number_line']) ?></a><span class="o-sub"><?php if ($r['doc_date'] !== null): ?><?= $day($r['doc_date']) ?><?php endif; ?><?php if ($r['external_ref'] !== null && $r['external_ref'] !== ''): ?> · <?= $e($r['external_ref']) ?><?php endif; ?></span></th>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['number_line']) ?></a><?php if ($r['doc_date'] !== null): ?> <span class="muted">· <?= $day($r['doc_date']) ?></span><?php endif; ?><?php if ($r['external_ref'] !== null && $r['external_ref'] !== ''): ?> <span class="muted">· <?= $e($r['external_ref']) ?></span><?php endif; ?></th>
         <td class="c-status doc-st <?= $e($r['state_tone']) ?>"><?= $e($r['state_word']) ?><?php if ($r['check'] !== null && $r['review_state'] === 'rejected'): ?><span class="o-sub"><?= $e($r['check']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['name']) ?></td>
-        <td data-label="<?= $word('DOC_LIST', 'expected') ?>"><?php if ($r['expected_date'] !== null): ?><?= $day($r['expected_date']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('DOC_LIST', 'received') ?>"><?php if ((int) $r['units'] > 0 && $r['reverses_id'] === null): ?><span class="doc-meter"><progress max="<?= $e((int) $r['units']) ?>" value="<?= $e(min((int) $r['received'], (int) $r['units'])) ?>"></progress><span class="o-sub"><?= $say('DOC_LIST', 'received_of', (int) $r['received'], (int) $r['units']) ?></span></span><?php endif; ?></td>
-        <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $e($r['gross']) ?><?php endif; ?></td>
+        <td class="strong" data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['name']) ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'expected') ?>"><?php if ($r['expected_date'] !== null): ?><?= $day($r['expected_date']) ?><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'received') ?>"><?php if ((int) $r['units'] > 0 && $r['reverses_id'] === null): ?><span class="doc-meter"><progress max="<?= $e((int) $r['units']) ?>" value="<?= $e(min((int) $r['received'], (int) $r['units'])) ?>"></progress><span class="o-sub"><?= $say('DOC_LIST', 'received_of', (int) $r['received'], (int) $r['units']) ?></span></span><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></td>
+        <td class="c-by" data-label="<?= $word('DOC_LIST', 'by') ?>"><?php if ($r['by'] !== ''): ?><span class="initials" aria-hidden="true" title="<?= $e($r['created_by_name']) ?>"><?= $e($r['by']) ?></span><span class="visually-hidden"><?= $e($r['created_by_name']) ?></span><?php endif; ?></td>
+        <td class="num strong" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $e($r['gross']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g['key'] === 'draft' && $canPost): ?>
-      <tr class="grp-add"><td colspan="6" data-label=""><a class="add-item" href="/ui/purchasing/orders/new"><?= $word('ORDERS', 'add_row') ?></a></td></tr>
+<?php if (in_array($g['key'], ['waiting', 'on_way', 'draft'], true) && $canPost): ?>
+      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="/ui/purchasing/orders/new"><?= $word('ORDERS', 'add_row') ?></a></td></tr>
 <?php endif; ?>
     </tbody>
   </table>

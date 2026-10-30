@@ -5,9 +5,8 @@
 // and its items as the card's lines (each opens its item; whoever keeps the families ticks items and takes them out: the form is theirs).
 $bar = $partial('family_bar', ['f' => $f, 'canManage' => $canManage, 'addKey' => $addKey, 'typed' => $typed, 'errorCode' => $errorCode]);
 ?>
-<p class="crumbs"><a href="/ui/items/families"><?= $word('FAMILY', 'back') ?></a></p>
 <div class="doc-head">
-<?= $head((string) $f['name'], intro: 'family', look: $lookOnly, chips: $f['active'] ? $chip('done', \CW\Ui\Words::FAMILY['on']) : $chip('off', \CW\Ui\Words::FAMILY['off']), side: $bar) ?>
+<?= $head((string) $f['name'], intro: 'family', look: $lookOnly, chips: $f['active'] ? $chip('done', \CW\Ui\Words::FAMILY['on']) : $chip('off', \CW\Ui\Words::FAMILY['off']), side: $bar, back: ['/ui/items/families', \CW\Ui\Words::MENU['families']]) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

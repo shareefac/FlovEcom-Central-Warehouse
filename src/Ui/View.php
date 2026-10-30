@@ -21,12 +21,15 @@ namespace CW\Ui;
  *   $jobs($roles)           "Admin · Matching lead (off)"
  *   $chip($tone, $text)     a status chip: icon shape + word (tones: Words::TONES)
  *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
- *   $head($title, intro: $page, look: $who, chips:, meta:, aside:, lede:, more:, tag:, eyebrow:)   the statement every page opens with
- *                           (design v5): the section as an UPPERCASE eyebrow (or `eyebrow`, and `tag` after it), the heading (`chips`
- *                           inside it, `aside` beside it), `meta` (state chips), the page's sentence and the muted line under it
- *                           (Words::introParts of `intro`, or `lede` and `more`), the page's create button; then the section's tabs,
- *                           the buying flow, the segmented filter and the switched-off strip. Text arguments are escaped; `chips`,
- *                           `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
+ *   $head($title, intro: $page, look: $who, chips:, meta:, aside:, lede:, more:, tag:, eyebrow:, side:, back:)   the statement every page
+ *                           opens with (the approved mockups; docs/decisions.md DC1-DC6): the section as an UPPERCASE eyebrow (or
+ *                           `eyebrow`, and `tag` after it; or `back`, [href, label], the record's list as a link and "›"), the heading
+ *                           (`chips` inside it, `aside` beside it), `meta` (state chips), the page's create button on the right; then
+ *                           the switched-off strip (no tab row: the sidebar lists the section's pages, DC28).
+ *                           No sentence under the heading: `intro` names the page (its words stay in Words::PAGE_INTRO) and only the
+ *                           steps of View::INTRO_KEPT draw their line; `look` (who may change this) or `more` (a look-only sentence) is
+ *                           a "?" beside the heading. Text arguments are escaped; `chips`, `meta` and `aside` are helper output. Every
+ *                           page template draws it once (tests/Unit/UiTemplatesTest.php).
  *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
  *   $cards($cards, $notes)  Home's "Waiting for you": one row per task (its number in its colour, its name, one plain line, one button);
@@ -40,6 +43,15 @@ namespace CW\Ui;
  */
 final class View
 {
+    /**
+     * The pages whose intro is still drawn under the heading (the owner, 30 Oct 2026: no help paragraphs under titles; docs/decisions.md
+     * DC1): only where the line is the step's rule or a safety message that is said nowhere else on the page: the sign-in (what to type, the
+     * code app), the password's length, the sign-in set-up (the code is the person's only), and the previews and pending cancellations whose line says nothing is saved or
+     * changed yet. Every other page names its intro (`intro:`) and draws none. (Page keys, so here and not in Words, whose texts are all words.)
+     */
+    public const INTRO_KEPT = ['login', 'login_no_code', 'password', 'enrol', 'new_code', 'bulk_confirm', 'by_item_preview', 'store_new_preview', 'supplier_paper_reversal_pending',
+        'supplier_return_reversal_pending'];
+
     /** @var array<string, mixed> the layout's variables of the page page() is drawing (its head draws the frame from them) */
     private array $frame = [];
     /** Whether the page's template drew its head (then the layout draws no frame of its own) */
@@ -86,8 +98,8 @@ final class View
             'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
             'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::lede(...Words::introParts($page, $lookOnly)),
             'head' => fn (string $title, ?string $intro = null, ?string $look = null, string $chips = '', string $meta = '', string $aside = '',
-                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null): string
-                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side),
+                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null, ?array $back = null): string
+                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side, $back),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
             // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): one row per task; $notes: the notes after the jobs.
             'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
@@ -127,22 +139,29 @@ final class View
 
     /**
      * The statement and the frame under it (the $head helper): Html::statement with the section's name as the eyebrow (the brand on a
-     * page outside every section) and the page's create button, then page_frame.php: the section's tabs, the buying flow, the
-     * segmented filter, the switched-off strip. $side (docs/decisions.md PV27): what the header's right holds instead of the create button
-     * (a saved document's action bar); '' for nothing (the new page of what the button makes); null: the create button.
+     * page outside every section; the record's list when `back` is given) and the page's create button, then page_frame.php: the
+     * switched-off strip (no tab row: the sidebar holds the section's pages, DC28). $side (docs/decisions.md PV27): what the header's right holds instead
+     * of the create button (a saved document's action bar); '' for nothing (the new page of what the button makes); null: the create
+     * button. No sentence under the heading (DC1): only a step of View::INTRO_KEPT draws its intro; the look-only line is a "?".
+     *
+     * @param array{0: string, 1: string}|null $back
      */
     private function head(string $title, ?string $intro, ?string $look, string $chips, string $meta, string $aside, ?string $lede, ?string $more,
-        string $tag, ?string $eyebrow, ?string $side = null): string
+        string $tag, ?string $eyebrow, ?string $side = null, ?array $back = null): string
     {
         $this->headDrawn = true;
         $f = $this->frame;
         $pagebar = is_array($f['pagebar'] ?? null) ? $f['pagebar'] : null;
-        [$sentence, $line] = $intro !== null ? Words::introParts($intro, $look) : ['', $look !== null ? sprintf(Words::UI['look_only'], $look) : ''];
+        $lookLine = $look !== null ? sprintf(Words::UI['look_only'], $look) : (string) ($more ?? ($intro !== null ? Words::INTRO_LOOK[$intro] ?? '' : ''));
+        // A page's own `more:` line (not who may change it) is under the general "?" (What does this mean?).
+        $lookLabel = $look === null && $more !== null && $more !== '' ? Words::UI['help'] : null;
+        $kept = $intro !== null && in_array($intro, self::INTRO_KEPT, true) ? Words::PAGE_INTRO[$intro] : null;
+        $sentence = $kept !== null ? $kept[0] : (string) ($lede ?? '');
+        $line = $kept !== null && $lookLine === '' && $more === null ? $kept[1] : '';
         // Outside a section (no page bar) a create button is plain (DS5); Home has none: its main action is the first job (HV1).
         $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions'], 'main' => $pagebar !== null]) : '');
-        return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $lede ?? $sentence, $more ?? $line, $tag,
-            $chips, $aside, $meta, $actions)
-            . $this->render('page_frame', ['pagebar' => $pagebar, 'flow' => $f['flow'] ?? null, 'segments' => $f['segments'] ?? [],
-                'switchedOff' => $f['switchedOff'] ?? null]);
+        return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $sentence, $line, $tag,
+            $chips, $aside . Html::lookOnly($lookLine, $lookLabel), $meta, $actions, $back)
+            . $this->render('page_frame', ['switchedOff' => $f['switchedOff'] ?? null]);
     }
 }

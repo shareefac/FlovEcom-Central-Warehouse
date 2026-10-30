@@ -256,7 +256,7 @@ final class WordsTest extends TestCase
         self::assertSame('Our name, numbers and addresses as printed on every purchase order. You can look; Reviewers change this.', Words::intro('company', 'Reviewers'));
         self::assertSame('', Words::intro('no-such-page'));
         self::assertSame('Documents to review', Words::title('reviews'));
-        self::assertSame('Purchase Orders', Words::title('orders'));
+        self::assertSame('Purchase orders', Words::title('orders'));
     }
 
     public function testErrorWords(): void
@@ -438,7 +438,7 @@ final class WordsTest extends TestCase
         // docs/decisions.md U122, the owner on 10 Oct 2026: "actually we need variant mapping not product ... each variant we have
         // treating item". On this screen and its picker a store's sellable option is a VARIANT, the warehouse record it is matched
         // to is an ITEM, and "product" names only the parent page of a variant ("Product: …"). The other screens keep their words.
-        self::assertSame('By Item', Words::MENU['by_product']);
+        self::assertSame('By item', Words::MENU['by_product']);
         self::assertSame('Every warehouse item, and the variant it is matched to on each store.', Words::MENU_HELP['by_product']);
         self::assertSame('Every warehouse item and the variant it is matched to on each store.', Words::PAGE_INTRO['by_product'][0]);
         self::assertSame(['Item', 'Stores matched', 'Match…', 'Choose', 'Variant'],
@@ -607,7 +607,7 @@ final class WordsTest extends TestCase
      */
     public function testNewVariantsSpeaksOfVariantsAndItemsAsTheOwnerDoes(): void
     {
-        self::assertSame('New Variants', Words::MENU['new_variants']);
+        self::assertSame('New variants', Words::MENU['new_variants']);
         self::assertSame('Create as new items', Words::NEW_VARIANT_ACTION['new_item']);
         self::assertSame(\CW\Mapping\BulkDecisions::NEW_ACTIONS, array_keys(Words::NEW_VARIANT_ACTION));
         self::assertSame(\CW\Mapping\BulkDecisions::NEW_ACTIONS, array_keys(Words::NEW_VARIANT_DONE));

@@ -1194,7 +1194,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame('needs_review', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$id]), $r->describe());
         $view = $web->get('/ui/purchasing/invoices/' . $id);
         self::assertSame([Words::INVOICES['needs_look']], self::texts($view, '//div[contains(@class, "doc-head")]//h1//span[contains(@class, "chip")][contains(@class, "needs")]'));
-        self::assertSame([Words::of('DOC_STATUS', 'posted')], self::texts($view, '//div[contains(@class, "doc-head")]//p[contains(@class, "ph-meta")]/span[contains(@class, "muted")]'));
+        self::assertSame([(string) self::$db->value('SELECT number FROM document WHERE id = ?', [$id]), Words::of('DOC_STATUS', 'posted')],
+            self::texts($view, '//div[contains(@class, "doc-head")]//p[contains(@class, "ph-meta")]/span[contains(@class, "muted")]'), 'CW\'s number, then Final (PI_View, DC22)');
         self::assertSame(0, self::nodes($view, '//div[contains(@class, "doc-head")]//span[contains(@class, "tag")]'), 'no second word for it');
         self::assertSame([Words::INVOICES['needs_look']], self::texts($web->get('/ui/purchasing/invoices', ['q' => 'LOOK-W1']), '//td[contains(@class, "doc-st")]'));
     }
@@ -1283,7 +1284,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             iterator_to_array((new \DOMXPath($list->dom()))->query('//div[contains(@class, "doc-group")]'))));
         self::assertSame(3, self::nodes($list, '//div[contains(@class, "doc-group")]/div[contains(@class, "doc-board")]/table'));
         self::assertSame([Words::DOC_LIST['order'], Words::DOC_LIST['status'], Words::DOC_LIST['supplier'], Words::DOC_LIST['expected'], Words::DOC_LIST['received'],
-            Words::DOC_LIST['total']], self::texts($list, '(//table[contains(@class, "doc-list")])[1]/thead/tr/th'));
+            Words::DOC_LIST['by'], Words::DOC_LIST['total']], self::texts($list, '(//table[contains(@class, "doc-list")])[1]/thead/tr/th'), 'the approved board\'s seven (DC16)');
         self::assertSame([Words::PO_STATE['approved']], self::texts($list, '//div[contains(@class, "doc-group")][contains(@class, "info")]//td[contains(@class, "doc-st")]'));
         self::assertSame(1, self::nodes($list, '//div[contains(@class, "doc-group")][contains(@class, "info")]//td[contains(@class, "doc-st")][contains(@class, "needs")]'),
             'the status cell keeps its own colour in the group');
@@ -1303,7 +1304,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         // The saved order: its status a solid block by the title, one action bar (the next step in the accent, the rest under More), the
         // progress strip (ordered, received, invoiced, expected and what is still to come), then the paper.
         $view = $web->get('/ui/purchasing/orders/' . $o['po']);
-        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//p[contains(@class, "ph-meta")]/span[contains(@class, "chip")]'), 'beside the title (the h1 stays the order\'s name)');
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//h1/span[contains(@class, "chip")]'), 'beside the title (PO_View, DC22)');
+        self::assertSame('PO-000001', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//main//h1/span[@class="stmt"])')), 'the heading is the order\'s number');
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'));
         self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")][@open]/summary[contains(@class, "primary")]'),
             'confirmed, not sent: Send is the next step');

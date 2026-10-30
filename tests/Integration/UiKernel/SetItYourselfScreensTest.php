@@ -153,7 +153,7 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         self::assertFalse($page->hasForm('/ui/reference/approvals'), 'a buyer looks');
         self::assertSame(['/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', null, '/ui/reference/reasons',
             '/ui/reference/settings'], array_column(self::sectionTabs($page), 'href'), 'the Settings tabs a buyer may open (the one shown: no link, CV13)');
-        self::assertSame(['Settings', 'Approval Rules'], [self::currentSection($page), self::currentTab($page)]);
+        self::assertSame(['Settings', 'Approval rules'], [self::currentSection($page), self::currentTab($page)]);
 
         $rev = $this->signIn($this->uiUser('reviewer'));
         self::assertTrue($rev->get('/ui/reference/approvals')->hasForm('/ui/reference/approvals'));
@@ -624,8 +624,8 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         self::assertSame([null, '/ui/reference/warehouses', '/ui/system/sites', '/ui/reference/access', '/ui/reference/approvals',
             '/ui/reference/reasons', '/ui/reference/settings'], array_column(self::sectionTabs($web->get('/ui/reference/company')), 'href'), 'the one shown: no link (CV13)');
         self::assertSame(['Settings', 'Numbering', 'System checks'], array_column(self::segments($web->get('/ui/system/checks')), 'label'));
-        self::assertSame([['Audit Log', null, true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
-            self::sectionTabs($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[0] === 'Audit Log')), 'Reports › Audit Log (pack E: the store reports are real tabs now)');
+        self::assertSame([['Audit log', null, true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
+            self::sectionTabs($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[0] === 'Audit log')), 'Reports › Audit Log (pack E: the store reports are real tabs now)');
         foreach (['/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/checks', '/ui/system/audit', '/ui/reference/access',
             '/ui/reference/reasons'] as $path) {
             $r = $web->get($path);

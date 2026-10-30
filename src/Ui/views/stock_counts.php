@@ -2,8 +2,9 @@
 // Stock › Counts › Next to count (docs/decisions.md CT10-CT14; the approved design CT_Board of 29 Oct 2026: CV1-CV4). One search, the
 // warehouse and the Show choice; then what to count next as a board (the shared one: .doc-group, .doc-board, td.doc-st): overdue (red),
 // never counted (purple), inside the plan (green; app.js folds it at first, without the script it is open), each heading with the plan's
-// figure for the warehouse. A row: its tick box, the item, its status filled solid, when it was last counted, what it sells. For the people
-// who count the board sits inside the "open a count sheet" form, whose bar at the bottom (.doc-bar) holds "N ticked" (app.js), the one
+// figure for the warehouse. A row: its tick box, the item and its code, its status filled solid, when it was last counted ("—" never), what
+// it sells. How many the list takes (the next N), the plan's days and Clear are under the toolbar's More (DC20). For the people who count
+// the board sits inside the "open a count sheet" form, whose bar at the bottom (.doc-bar) holds "N ticked" (app.js), the one
 // Count menu (the ticked items, the next N due, everything found, an empty sheet), the shelf, a note and the one button. The head's right
 // links the warehouse's open sheets.
 ?>
@@ -18,21 +19,26 @@
       <option value="<?= $e($w['id']) ?>"<?php if ($f['warehouse'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
 <?php endforeach; ?>
     </select>
-  </div>
-  <div class="tb-state">
-    <label for="tb-show"><?= $word('COUNTS', 'show') ?></label>
-    <select id="tb-show" name="show">
-<?php foreach ($shows as $size): ?>
-      <option value="<?= $e($size) ?>"<?php if ($f['show'] === $size): ?> selected<?php endif; ?>><?= $say('COUNTS', 'show_n', $size) ?></option>
-<?php endforeach; ?>
-    </select>
+    <input type="hidden" name="show" value="<?= $e($f['show']) ?>">
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
-<?php if ($filtered): ?>
-  <div class="tb-end"><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a></div>
+  <div class="tb-end">
+    <details class="more tb-more">
+      <summary class="btn ghost sm"><?= $word('UI', 'more') ?></summary>
+      <div class="more-menu">
+<?php foreach ($shows as $size): ?>
+<?php if ($size !== $f['show']): ?>
+        <a class="menu-item" href="<?= $u('/ui/stock/counts', ['warehouse' => $f['warehouse'], 'q' => $f['q'] === '' ? null : $f['q'], 'show' => $size]) ?>"><?= $say('COUNTS', 'show_n_link', $size) ?></a>
 <?php endif; ?>
+<?php endforeach; ?>
+        <a class="menu-item" href="<?= $e($settingHref) ?>"><span class="menu-name"><?= $word('COUNTS', 'plan_link') ?></span><span class="menu-sub"><?= $say('COUNTS', 'plan', $days) ?></span></a>
+<?php if ($filtered): ?>
+        <a class="menu-item" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a>
+<?php endif; ?>
+      </div>
+    </details>
+  </div>
 </form>
-<p class="muted count-plan"><?= $say('COUNTS', 'plan', $days) ?> <a href="<?= $e($settingHref) ?>"><?= $word('COUNTS', 'plan_link') ?></a></p>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -78,9 +84,9 @@
 <?php if ($canCount): ?>
         <td class="c-pick" data-label=""><label class="pick"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1" data-tick<?php if ($r['ticked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('COUNTS', 'tick_one', $r['name']) ?></span></label></td>
 <?php endif; ?>
-        <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span></th>
+        <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a> <span class="muted"><?= $e($r['code']) ?></span></th>
         <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('COUNT_GROUP', $r['state']) ?></td>
-        <td data-label="<?= $word('COUNTS', 'last_counted') ?>"><?php if ($r['counted_at'] === null): ?><span class="muted"><?= $word('COUNTS', 'never') ?></span><?php else: ?><?= $day($r['counted_at']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('COUNTS', 'last_counted') ?>"><?php if ($r['counted_at'] === null): ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><span class="visually-hidden"> <?= $word('COUNTS', 'never') ?></span><?php else: ?><?= $day($r['counted_at']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('COUNTS', 'sells') ?>"><?php if ($r['sells'] === null): ?><span class="muted"><?= $word('COUNTS', 'no_sales') ?></span><?php else: ?><?= $e($r['sells']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>

@@ -170,7 +170,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('SPOT', 'other_done', 'Mapping_lead-reviewer 1') . ' ' . Words::SPOT['other_done_text'], $seen->text());
         self::assertFalse($seen->hasForm('/decide'), 'no form to change a spot check\'s confirmed match for anyone but its owner');
         self::assertStringNotContainsString(Words::LISTING['pick_other'], $seen->text(), 'and no product search');
-        self::assertStringContainsString(Words::PAGE_INTRO['listing_spot'][0], $seen->text(), 'the intro says it is for looking');
+        self::assertStringContainsString(Words::INTRO_LOOK['listing_spot'], $seen->text(), 'the heading\'s "?" says it is for looking (DC1)');
         self::assertSame('confirmed', (new KeySample(self::$db))->status($sid)['members'][0]['state'], 'looking changed nothing');
         $page = $web->get('/ui/review/samples/' . $sid);
         self::assertStringContainsString(Words::say('SPOT', 'progress', 1, 20), $page->text());

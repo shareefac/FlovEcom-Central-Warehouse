@@ -95,11 +95,14 @@ final class MatchingWordsTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($page->dom());
         self::assertSame($title, trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))), "{$where}: the title");
-        $lede = trim((string) $xp->evaluate('string(//main//p[@class="lede"])'));
-        if ($intro !== null) {
-            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the intro (plan §4)");
+        $lede = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//p[@class="lede"])')));
+        $look = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])')));
+        if ($intro !== null && in_array($intro, \CW\Ui\View::INTRO_KEPT, true)) {
+            self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the step's own line (\CW\Ui\View::INTRO_KEPT)");
+        } elseif ($intro !== null) {
+            self::assertSame('', $lede, "{$where}: no sentence under the heading (DC1)");
         } else {
-            self::assertStringContainsString('You can look;', $lede, "{$where}: who changes it, for a person who can only look");
+            self::assertStringContainsString('You can look;', $look, "{$where}: who changes it, under the heading's \"?\" (DC1)");
         }
         foreach ($xp->query('//main//table') ?: [] as $table) {
             /** @var \DOMElement $table */

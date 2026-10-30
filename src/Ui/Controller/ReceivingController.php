@@ -160,6 +160,13 @@ final class ReceivingController
             'state_tone' => Words::tone('GI_STATE', $state),
             'state_word' => Words::of('GI_STATE', $state),
             'problems_line' => $state !== 'ready' || $problems === 0 ? null : ($problems === 1 ? Words::GI['problems_one'] : Words::say('GI', 'problems_many', $problems)),
+            // The board's status cell (GI_List, DC17): a checked delivery says "Checked" and its problems in one; the others their state.
+            'board_word' => $state !== 'ready' ? Words::of('GI_STATE', $state) : match ($problems) {
+                0 => Words::GI['checked'],
+                1 => Words::GI['checked_one'],
+                default => Words::say('GI', 'checked_many', $problems),
+            },
+            'arrived_line' => \CW\Ui\Html::near(isset($r['received_at']) ? (string) $r['received_at'] : null),
             'bench_state' => $bench,
             'size_line' => $lines === 1 ? Words::say('RECEIVING', 'size_one', (int) $r['units']) : Words::say('RECEIVING', 'size_many', $lines, (int) $r['units']),
             'incidents_line' => (int) $r['open_incidents'] === 0 ? null : ((int) $r['open_incidents'] === 1 ? Words::RECEIVING['open_incidents_one']

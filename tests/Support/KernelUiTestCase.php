@@ -177,7 +177,7 @@ abstract class KernelUiTestCase extends MappingTestCase
         $navs = $xp->query('//nav[@aria-label="Main"]');
         self::assertLessThanOrEqual(1, $navs === false ? 0 : $navs->length, 'one main menu per page');
         $out = [];
-        foreach ($xp->query('//nav[@aria-label="Main"]/ul[@class="nav"]/li/a[@class="nav-item"]') ?: [] as $a) {
+        foreach ($xp->query('//nav[@aria-label="Main"]/ul[@class="nav"]/li/a[contains(concat(" ", @class, " "), " nav-item ")]') ?: [] as $a) {
             /** @var \DOMElement $a */
             $label = trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a));
             $out[$label] = ['href' => $a->getAttribute('href'), 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0))];
@@ -185,52 +185,48 @@ abstract class KernelUiTestCase extends MappingTestCase
         return $out;
     }
 
-    /** The sidebar section marked current (aria-current), or null. */
+    /** The sidebar entry marked current (aria-current: the page, or the entry that holds it, docs/decisions.md DC28), or null. */
     protected static function currentSection(UiResponse $r): ?string
     {
         $xp = new \DOMXPath($r->dom());
-        $a = $xp->query('//nav[@aria-label="Main"]//a[@class="nav-item" and @aria-current="page"]')->item(0);
+        $a = $xp->query('//nav[@aria-label="Main"]//a[contains(concat(" ", @class, " "), " nav-item ") and @aria-current]')->item(0);
         return $a === null ? null : trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a));
     }
 
     /**
-     * The tab bar of a page (the current section's tabs, under the page's statement): label, link (null for a tab not built yet, and for
-     * the tab of the page shown: docs/decisions.md CV13), count and whether it is the current one.
+     * The current section's pages in the sidebar (docs/decisions.md DC28: the owner's "use sidebar and sub section", no tab row): the
+     * section's own ones (a set-up or specialist page, HV3, only when it is the current one; moreTabs() has the others): label, link
+     * (null for the page shown: CV13), count and whether it is the current one.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
     protected static function sectionTabs(UiResponse $r): array
     {
-        $xp = new \DOMXPath($r->dom());
-        $out = [];
-        foreach ($xp->query('//main//nav[@class="tabs"]/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
-            /** @var \DOMElement $t */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $t)), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
-                'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0)),
-                'current' => $t->getAttribute('aria-current') === 'page'];
-        }
-        return $out;
+        return array_values(array_map(static fn (array $t): array => ['label' => $t['label'], 'href' => $t['href'], 'count' => $t['count'], 'current' => $t['current']],
+            array_filter(self::subItems($r), static fn (array $t): bool => !$t['more'] || $t['current'])));
     }
 
     /**
-     * The tabs under the tab row's More (docs/decisions.md HV3: a section's set-up, import and specialist pages): label, link (null for a
-     * tab not built yet) and count, in order.
+     * The section's set-up, import and specialist pages in the sidebar (HV3), but the current one: label, link and count, in order.
      *
      * @return list<array{label: string, href: ?string, count: int}>
      */
     protected static function moreTabs(UiResponse $r): array
     {
+        return array_values(array_map(static fn (array $t): array => ['label' => $t['label'], 'href' => $t['href'], 'count' => $t['count']],
+            array_filter(self::subItems($r), static fn (array $t): bool => $t['more'] && !$t['current'])));
+    }
+
+    /** @return list<array{label: string, href: ?string, count: int, current: bool, more: bool}> every page of the current section in the sidebar */
+    private static function subItems(UiResponse $r): array
+    {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//main//details[contains(concat(" ", @class, " "), " tabs-more ")]//*[contains(concat(" ", @class, " "), " menu-item ")]') ?: [] as $t) {
+        foreach ($xp->query('//nav[@aria-label="Main"]//ul[@class="nav-sub"]/li/*[contains(concat(" ", @class, " "), " nav-sub-item ")]') ?: [] as $t) {
             /** @var \DOMElement $t */
-            $name = $xp->query('span[@class="menu-name"]', $t)->item(0);
-            $label = '';
-            foreach ($name?->childNodes ?? [] as $c) {
-                $label .= $c instanceof \DOMText ? $c->textContent : '';
-            }
-            $out[] = ['label' => trim($label), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
-                'count' => (int) self::visibleText($xp, $xp->query('.//span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0))];
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $t)), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
+                'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $t)->item(0)),
+                'current' => $t->hasAttribute('aria-current'), 'more' => str_contains(' ' . $t->getAttribute('class') . ' ', ' more ')];
         }
         return $out;
     }
@@ -253,7 +249,8 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The segmented filter of a page (inside a tab): label, link (null for the segment of the page shown: CV13), count, current.
+     * The current page's segments: the sidebar's second level under the current page (DC28): label, link (null for the segment of the page
+     * shown: CV13), count, current.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
@@ -261,11 +258,11 @@ abstract class KernelUiTestCase extends MappingTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//nav[@class="tabs seg"]/a[@class="tab"]') ?: [] as $a) {
+        foreach ($xp->query('//nav[@aria-label="Main"]//ul[contains(concat(" ", @class, " "), " nav-seg ")]/li/a') ?: [] as $a) {
             /** @var \DOMElement $a */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),
-                'current' => $a->getAttribute('aria-current') === 'page'];
+                'current' => $a->hasAttribute('aria-current')];
         }
         return $out;
     }

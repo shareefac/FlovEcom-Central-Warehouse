@@ -1028,6 +1028,27 @@ on main's shared parts and W8's / W9's (`Html::groups`, `td.c-next`, `form.doc-d
 - Tests: `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/ProductPatternsScreensTest.php`
   (the pages as served), `ItemCardScreensTest` (All Products' board, filters and Clear; the barcode inbox), `ItemManagementScreensTest`.
 
+### Design conformance across every page (`docs/decisions.md` DC1-DC28)
+
+The shared code follows the approved mockups (section A of `runs/dsaudit_findings.txt`); a page adds nothing of its own to these.
+
+| Piece | Where | Notes |
+|---|---|---|
+| The statement | `View::head` → `Html::statement` | no full stop, no sentence (only `View::INTRO_KEPT` draws its intro); `look:` / a look-only `more:` / `Words::INTRO_LOOK` is the "?" beside the heading (`Html::lookOnly`, `details.help.look-only`) |
+| A record's eyebrow | `$head(back: [href, label])` | the list as an accent link and "›" (`p.ph-eyebrow.ph-back`); no `p.crumbs` above the head |
+| The create button | the layout's `actions` (Sections `new`) | always in the header (no `OWN_TOOLBAR`); the page's own only, no second More |
+| A section's pages | `Sections::frame` `nav[*]['subs']` (each with `segs`), `layout.php` | the open section's pages as `a.nav-sub-item` under it, the page's segments in `ul.nav-sub.nav-seg`; no page draws a tab or segment row (DC28) |
+| The shell | `layout.php` | plain name, words-only menu with magenta counts, no bell, no find link, the open section's pages under it; phone: name + `.appbar-me` initials (to `#menu`, the same tree), `.menu-btn` only without a bottom bar |
+| Initials | `Html::initials`, `.initials` | the PO board's By, the phone top bar |
+| A recent time | `Html::near` | "Today 09:40", "Yesterday 15:10", else the date and time (UK) |
+| The toolbar's More | `form.toolbar > .tb-end > details.more.tb-more` | what a board mockup does not show (download, show drafts, Clear, a list's size) |
+| Sizes | `app.css` tokens `--gutter` 32 px, `--page-w` 1180 px, `--shadow-menu`, `--shadow-up` | heading 26 px (24 on `.item-head`, `.match-head`; 22 on a phone), fields 40 px (44 phone/touch), search/Show 40 px |
+
+- Tests: `UiTemplatesTest::testTheSharedPartsFollowTheApprovedMockups` (markup), `UiUnitTest::testTheSharedCssFollowsTheApprovedMockups` (CSS),
+  `tests/Integration/UiKernel/DesignConformanceScreensTest.php` (the pages as served), `UiUnitTest::testTheSidebarHoldsTheSectionsPagesAndNoPageHasATabRow`.
+  `KernelUiTestCase::sectionTabs()`, `moreTabs()`, `segments()` read the sidebar's tree. A new page: no `<p class="lede">` of its own, no
+  create button in its toolbar, its rare controls under the toolbar's More, no tab row (add it to `Sections::MAP`: it shows in the sidebar).
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

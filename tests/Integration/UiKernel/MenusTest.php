@@ -46,9 +46,9 @@ final class MenusTest extends KernelUiTestCase
 
         // Purchasing: the buyer reorders, the desk receives, the reviewer reads all four.
         $tabs = static fn ($web): array => self::tabLabels($web->get('/ui/purchasing/orders'));
-        self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], $tabs($buyer), 'invoices and returns since pack C');
-        self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs($desk), 'the desk sees goods in, not reorder');
-        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs($reviewer));
+        self::assertSame(['Reorder', 'Purchase orders', 'Invoices', 'Returns', 'Suppliers'], $tabs($buyer), 'invoices and returns since pack C');
+        self::assertSame(['Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], $tabs($desk), 'the desk sees goods in, not reorder');
+        self::assertSame(['Reorder', 'Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], $tabs($reviewer));
         self::assertNotSame($tabs($buyer), $tabs($desk));
         self::assertSame(['/ui/purchasing/orders', '/ui/purchasing/orders', '/ui/purchasing/reorder'],
             [self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($buyer->get('/ui/'))['Purchasing']['href']],
@@ -56,14 +56,8 @@ final class MenusTest extends KernelUiTestCase
         // Goods In's segments: the bench is for the people who receive.
         self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(self::segments($desk->get('/ui/receiving')), 'label')); // Pack J: Arriving
         self::assertSame(['To receive', 'Issues', 'Duty register', 'Arriving'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
-        // The buying flow: every step for the reviewer; a step the buyer cannot open has no link.
-        $flow = static function ($page): array {
-            $xp = new \DOMXPath($page->dom());
-            return array_map(static fn (\DOMElement $li): array => [trim((string) $xp->evaluate('string(.//span[@class="flow-t"])', $li)),
-                $li->getElementsByTagName('a')->length === 1], iterator_to_array($xp->query('//ol[@class="flow"]/li')));
-        };
-        self::assertSame([['Reorder', true], ['Purchase Order', true], ['Goods In', true], ['Stock updated', true]], $flow($reviewer->get('/ui/purchasing/orders')));
-        self::assertSame([['Reorder', true], ['Purchase Order', true], ['Goods In', false], ['Stock updated', true]], $flow($buyer->get('/ui/purchasing/orders')));
+        // No buying-flow strip (DC5: the approved mockups have none).
+        self::assertSame(0, (new \DOMXPath($buyer->get('/ui/purchasing/orders')->dom()))->query('//ol[contains(@class, "flow")]')->length);
 
         // Approvals: the reviewer's queue; the others read the history.
         // Pack F (PF5): From the stores, for everyone who reads records.
@@ -71,19 +65,19 @@ final class MenusTest extends KernelUiTestCase
         // Waiting for you (docs/decisions.md AV1) first, for the people who answer any of its kinds; the old queue is "Documents to review".
         self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests', 'From the stores'], self::tabLabels($reviewer->get('/ui/documents')));
         // Settings: everyone reads; Stores (system.view) for the reviewer; Users leads the others to "Roles and permissions".
-        self::assertSame(['Company', 'Warehouses', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($buyer->get('/ui/reference/company')));
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));
+        self::assertSame(['Company', 'Warehouses', 'Users', 'Approval rules', 'Reasons', 'System'], self::tabLabels($buyer->get('/ui/reference/company')));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));
         self::assertSame('/ui/reference/access', array_column(self::sectionTabs($buyer->get('/ui/reference/company')), 'href', 'label')['Users']);
         // Products: the product list for everyone; the barcodes to check only for catalogue.edit (I109); no matching for these jobs. The
         // families and multipacks (set-up pages) are under the row's More (HV3).
         $cards = $buyer->get('/ui/items/cards');
-        self::assertSame(['All Products'], self::tabLabels($cards));
+        self::assertSame(['All products'], self::tabLabels($cards));
         self::assertSame([['Families', '/ui/items/families'], ['Multipacks', '/ui/items/packs']], array_map(static fn (array $t): array => [$t['label'], $t['href']],
             self::moreTabs($cards)), 'pack B: families and pack items for everyone');
         // Stock: everyone who sees a product's stock; the stock records and the counts for the people who read records (packs A1, A2a); the
         // hand-overs, transfers, reservations and repacks under More, with the screen not built yet (Quality), never a link (HV3).
         $stockPage = $desk->get('/ui/stock');
-        self::assertSame([['Overview', null], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
+        self::assertSame([['Overview', null], ['Movements', '/ui/stock/movements'], ['Stock in', '/ui/stock/in'], ['Stock out', '/ui/stock/out'],
             ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($stockPage)));
         self::assertSame([['Hand-overs', '/ui/stock/handovers'], ['Transfers', '/ui/stock/transfers'], ['Reservations', '/ui/stock/reservations'], ['Quality', null],
@@ -149,11 +143,11 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringContainsString('You work as: Buyer · Stock controller.', $page->text());
         self::assertSame(['Home', 'Goods in', 'Counts', 'Approvals', 'Purchase orders', 'All products', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Settings'], array_keys(self::nav($both->get('/ui/'))),
             'pack E: the store reports; the stock controller\'s Goods In');
-        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
+        self::assertSame(['Reorder', 'Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
             'the stock controller reads the receipts and the issues (IM6, I141)');
         $cards = $both->get('/ui/items/cards');
-        self::assertSame([['All Products', null], ['Barcodes', '/ui/items/barcodes']], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($cards)));
-        self::assertSame([['Add Item', '/ui/items/new'], ['Families', '/ui/items/families'], ['Multipacks', '/ui/items/packs']],
+        self::assertSame([['All products', null], ['Barcodes', '/ui/items/barcodes']], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($cards)));
+        self::assertSame([['Add item', '/ui/items/new'], ['Families', '/ui/items/families'], ['Multipacks', '/ui/items/packs']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($cards)), 'the set-up pages under More (HV3)');
 
         // A stock controller alone: no purchase orders; the phone bar of HM_Phone.
@@ -178,7 +172,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//main//ul[@class="uses"]')->length, 'no second menu on Home: the sidebar is the menu');
         self::assertSame(0, $xp->query('//main//details[@id="about"]')->length, 'no About box');
         self::assertSame(1, $xp->query('//main//form[@class="hm-find" and @action="/ui/search" and @method="get"]//input[@name="q"]')->length, 'ONE Find box: catalogue.view');
-        self::assertSame(1, $xp->query('//header[@class="appbar"]//a[@href="/ui/search"]')->length, '... and a find button in the app bar on every page');
+        self::assertSame(0, $xp->query('//header[@class="appbar"]//a[@href="/ui/search"]')->length, 'HM_Phone\'s top bar: the name and the initials, no find button (DC7)');
         $current = $xp->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
         self::assertSame(1, $current->length);
         self::assertSame('Home', trim((string) $current->item(0)?->textContent));
@@ -191,9 +185,9 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Home', 'All products', 'Stock', 'Matching', 'Settings'], array_keys(self::nav($dash)));
         $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
         self::assertSame('Matching', self::currentSection($queue));
-        self::assertSame([['Simple matching', '/ui/match'], ['Mapping', null], ['Store Products', '/ui/review/store']],
+        self::assertSame([['Simple matching', '/ui/match'], ['Mapping', null], ['Store products', '/ui/review/store']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)));
-        self::assertSame([['By Item', '/ui/review/products'], ['New Variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates']],
+        self::assertSame([['By item', '/ui/review/products'], ['New variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($queue)), 'the specialist matching pages under More (HV3)');
         self::assertSame([['To review', null, true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($queue)));
@@ -260,8 +254,8 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Home', 'Goods in', 'Counts', 'Approvals', 'Purchase orders', 'All products', 'Stock', 'Purchasing', 'Sales', 'Matching', 'Reports', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
             'the auditor reads everything');
         $duplicates = $auditor->get('/ui/review/duplicates');
-        self::assertSame(['Simple matching', 'Mapping', 'Store Products', 'Duplicates'], self::tabLabels($duplicates), 'the page shown in the row');
-        self::assertSame(['By Item', 'New Variants'], array_column(self::moreTabs($duplicates), 'label'));
+        self::assertSame(['Simple matching', 'Mapping', 'Store products', 'Duplicates'], self::tabLabels($duplicates), 'the page shown in the row');
+        self::assertSame(['By item', 'New variants'], array_column(self::moreTabs($duplicates), 'label'));
     }
 
     public function testTheOwnersAccountWithAdminSaysWhichJobsAreSwitchedOff(): void

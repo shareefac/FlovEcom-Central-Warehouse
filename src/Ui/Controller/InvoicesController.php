@@ -822,6 +822,9 @@ final class InvoicesController
             'refs' => implode(' · ', array_values(array_filter([$ref, $r['external_ref'] !== null && $r['external_ref'] !== '' ? $r['number'] : null,
                 $reversal ? Words::say('STOCK_OPS', 'cancels', (string) ($r['reverses_number'] ?? '')) : null], static fn (?string $v): bool => $v !== null && $v !== ''))),
             'late' => $due !== null && $today !== '' && $due < $today && $owedE2 !== null && $owedE2 > 0,
+            // How late, as PI_List says it beside the due date (DC21): whole days from the due date to today (UK).
+            'late_line' => $due === null || $today === '' || $due >= $today || $owedE2 === null || $owedE2 <= 0 ? null
+                : self::daysLate((int) round((strtotime(substr($today, 0, 10) . ' 00:00:00 UTC') - strtotime(substr($due, 0, 10) . ' 00:00:00 UTC')) / 86400)),
             'href' => SupplierInvoices::PATHS[$kind] . '/' . (int) $r['id'],
             'number' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
             'sub' => $reversal ? Words::say('STOCK_OPS', 'cancels', (string) ($r['reverses_number'] ?? '')) : (string) ($r['external_ref'] ?? ''),
@@ -1130,5 +1133,11 @@ final class InvoicesController
             }
         }
         return $out;
+    }
+
+    /** "1 day late", "12 days late" (PI_List's due cell, docs/decisions.md DC21). */
+    public static function daysLate(int $days): string
+    {
+        return $days === 1 ? Words::INVOICES['late_one'] : Words::say('INVOICES', 'late_many', max(1, $days));
     }
 }

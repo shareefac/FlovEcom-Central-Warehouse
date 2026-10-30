@@ -734,7 +734,7 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         self::assertSame('Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.', BulkController::why('on_arrival', []));
 
         // Store Products and New Variants: no tick box and the same line; the judged rows keep theirs.
-        foreach (['Store Products' => ['/ui/review/store', ['channel' => 'alt']], 'New Variants' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all', 'period' => 'all']]] as $screen => [$path, $query]) {
+        foreach (['Store products' => ['/ui/review/store', ['channel' => 'alt']], 'New variants' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all', 'period' => 'all']]] as $screen => [$path, $query]) {
             $page = $web->get($path, $query);
             self::assertSame(200, $page->status, $screen . ': ' . $page->describe());
             self::assertEqualsCanonicalizing([...$f['judged'], $f['clean'], $f['warned']], self::listed($page), $screen);
@@ -794,7 +794,7 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         $spotLine = Words::say('ONE_AT_A_TIME', 'in_spot_check', 'sc1') . ' ' . Words::ONE_AT_A_TIME['open_spot'];
         $web = $this->signIn($this->uiUser('mapper'));
 
-        foreach (['Store Products' => ['/ui/review/store', ['channel' => 'alt']], 'New Variants' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all']]] as $screen => [$path, $query]) {
+        foreach (['Store products' => ['/ui/review/store', ['channel' => 'alt']], 'New variants' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all']]] as $screen => [$path, $query]) {
             $page = $web->get($path, $query);
             self::assertSame(200, $page->status, $screen . ': ' . $page->describe());
             self::assertEqualsCanonicalizing($f['all'], self::listed($page), $screen);

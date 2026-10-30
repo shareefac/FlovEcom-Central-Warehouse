@@ -137,7 +137,9 @@ foreach ($history['channels'] as $c) {
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/purchasing/reorder/items/' . $r['sku_id']) ?>"><?= $e($r['code']) ?></a><span class="o-sub"><?= $e($r['name']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span><span class="o-sub"><?php if ($r['supplier'] !== null): ?><?= $e($r['supplier_name'] ?? $r['supplier']) ?><?php else: ?><?= $word('REORDER', 'no_supplier') ?><?php endif; ?></span>
 <?php foreach ($r['flag_list'] as $fl): ?>
+<?php if ($fl['word'] !== $g['name']): ?>
           <?= $chip($fl['tone'], $fl['word']) ?>
+<?php endif; ?>
 <?php endforeach; ?>
 <?php if ($r['draft'] !== null): ?>
           <span class="o-line"><?= $say('REORDER', 'on_draft', $r['in_drafts']) ?> – <a href="<?= $u('/ui/purchasing/orders/' . $r['draft']) ?>"><?= $word('REORDER', 'open_draft') ?></a>. <?= $e($r['draft_note']) ?></span>

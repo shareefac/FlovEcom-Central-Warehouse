@@ -30,7 +30,12 @@
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
   </div>
 <?php if ($filtered): ?>
-  <div class="tb-end"><a class="btn ghost sm" href="<?= $e($base) ?>"><?= $word('STOCK_OPS', 'clear') ?></a></div>
+  <div class="tb-end">
+    <details class="more tb-more">
+      <summary class="btn ghost sm"><?= $word('UI', 'more') ?></summary>
+      <div class="more-menu"><a class="menu-item" href="<?= $e($base) ?>"><?= $word('STOCK_OPS', 'clear') ?></a></div>
+    </details>
+  </div>
 <?php endif; ?>
 </form>
 <?php if ($error !== null): ?>
@@ -97,7 +102,7 @@
         <td data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
 <?php if ($kind === 'invoice'): ?>
         <td data-label="<?= $word('DOC_LIST', 'match') ?>"><?php if ($r['tag'] !== null): ?><span class="tag <?= $e($r['tag']['tone']) ?>"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $e($r['due']) ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $e($r['due']) ?><?php if ($r['late_line'] !== null): ?> · <?= $e($r['late_line']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('DOC_LIST', 'balance') ?>"><?= $e($r['balance'] ?? '') ?></td>
 <?php else: ?>

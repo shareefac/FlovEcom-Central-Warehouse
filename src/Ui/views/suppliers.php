@@ -4,7 +4,6 @@
 // "+ New supplier" at the right; then the suppliers grouped by whether we can order from them, each group a coloured heading with its count
 // over a card with the group's colour on its left edge, the status cell filled with its colour, "+ New supplier" at the end of the Draft
 // group. A row opens its supplier. Home's links (?status=draft, ?due=1) still narrow the list.
-$newActions = $newActions ?? [];
 ?>
 <?= $head(\CW\Ui\Words::MENU['suppliers'], intro: 'suppliers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -26,7 +25,6 @@ $newActions = $newActions ?? [];
     <a class="btn ghost sm" href="/ui/purchasing/suppliers"><?= $word('SUPPLIERS', 'clear') ?></a>
 <?php endif; ?>
     <a class="btn ghost sm" href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>" title="<?= $word('SUPPLIERS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
-    <?= $partial('split', ['actions' => $newActions]) ?>
   </div>
 </form>
 <?php if ($rows === [] && $filtered): ?>

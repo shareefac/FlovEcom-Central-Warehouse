@@ -8,10 +8,9 @@
 // link asks first), every form that leaves asks first when another holds typed values (data-leaves; IV13). Every rule and permission is as
 // before.
 ?>
-<p class="crumbs"><a href="/ui/items/cards"><?= $word('MENU', 'cards') ?></a></p>
 <?php $bar = $partial('item_bar', ['actions' => $actions, 'skuId' => $sku['id']]); ?>
 <div class="doc-head item-head">
-<?= $head((string) $sku['name'], intro: 'item', side: $bar, meta: $chip($top['tone'], $top['status']) . ' <span class="item-id">' . $e($top['identity']) . '</span>') ?>
+<?= $head((string) $sku['name'], intro: 'item', side: $bar, back: ['/ui/items/cards', \CW\Ui\Words::MENU['cards']], meta: $chip($top['tone'], $top['status']) . ' <span class="item-id">' . $e($top['identity']) . '</span>') ?>
 </div>
 
 <?php if ($merged_into !== null): ?>
@@ -111,7 +110,7 @@
 <?php if ($ledger === []): ?>
   <p class="muted"><?= $word('ITEM', 'no_movements') ?></p>
 <?php else: ?>
-  <div class="table-wrap doc-board t-primary">
+  <div class="table-wrap">
   <table class="stack list board doc-list ledger">
     <thead>
       <tr>
@@ -129,7 +128,7 @@
     <tbody>
 <?php foreach ($ledger as $r): ?>
       <tr>
-        <th scope="row" class="c-head"><?= $when($r['at']) ?></th>
+        <th scope="row" class="c-head"><?= $e(\CW\Ui\Html::near($r['at'] === null ? null : (string) $r['at'])) ?></th>
         <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['kind']) ?><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('ITEM', 'm_doc') ?>"><?php if (($r['record'] ?? null) !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><span class="o-sub"><?= $e(implode(' · ', array_filter([$r['record']['what'], $r['record']['why'], $r['record']['given']]))) ?></span><?php elseif ($r['ref'] !== null): ?><?= $e($r['ref']) ?><span class="o-sub"><?= $e(implode(' · ', array_filter([\CW\Ui\Words::of('MOVEMENT', $r['type']), $r['note']]))) ?></span><?php else: ?><?= $word('MOVEMENT', $r['type']) ?><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $e($r['note']) ?></span><?php endif; ?><?php endif; ?></td>
 <?php if ($moveWarehouses): ?>

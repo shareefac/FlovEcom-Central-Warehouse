@@ -228,13 +228,15 @@ final class BehaviourItemsTest extends KernelUiTestCase
             self::assertSame(200, $list->status, $list->describe());
             self::assertContains($confirmedHref, $list->hrefs(), $role);
             self::assertNotContains($draftHref, $list->hrefs(), "{$role}: no draft by default");
-            self::assertStringContainsString(Words::ORDERS['drafts_hidden'], $list->text(), $role);
+            // The way to see them is under the toolbar's More (DC16: the mockup has no checkbox and no strip).
             self::assertContains('/ui/purchasing/orders?drafts=1', $list->hrefs(), "{$role}: a way to see them");
-            self::assertSame(1, (new \DOMXPath($list->dom()))->query('//form[@method="get"]//input[@name="drafts" and @type="checkbox" and not(@checked)]')->length, $role);
+            self::assertSame(Words::ORDERS['drafts'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//form[contains(@class, "toolbar")]//details[contains(@class, "tb-more")]//a[@href="/ui/purchasing/orders?drafts=1"])')), $role);
+            self::assertSame(0, (new \DOMXPath($list->dom()))->query('//input[@name="drafts" and @type="checkbox"] | //p[contains(@class, "drafts-hidden")]')->length, $role);
             self::assertContains('/ui/purchasing/orders.csv?drafts=0', $list->hrefs(), "{$role}: the download is the same list");
             $all = $web->get('/ui/purchasing/orders', ['drafts' => '1']);
             self::assertContains($draftHref, $all->hrefs(), "{$role}: asked for");
-            self::assertStringNotContainsString(Words::ORDERS['drafts_hidden'], $all->text(), $role);
+            self::assertSame(1, (new \DOMXPath($all->dom()))->query('//form[contains(@class, "toolbar")]//input[@type="hidden" and @name="drafts" and @value="1"]')->length, "{$role}: Show keeps them");
+            self::assertContains('/ui/purchasing/orders', $all->hrefs(), "{$role}: and a way to hide them again");
             self::assertContains($draftHref, $web->get('/ui/purchasing/orders', ['state' => 'draft'])->hrefs(), "{$role}: the Drafts filter shows them");
             $csv = $web->get('/ui/purchasing/orders.csv', ['drafts' => '0']);
             self::assertSame(200, $csv->status);

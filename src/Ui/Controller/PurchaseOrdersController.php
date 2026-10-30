@@ -151,6 +151,7 @@ final class PurchaseOrdersController
         $lines = (int) $r['lines'];
         return $r + [
             'name' => $r['supplier_name'] ?? Words::ORDER['some_supplier'],
+            'by' => Html::initials(isset($r['created_by_name']) ? (string) $r['created_by_name'] : null), // the board's By (DC16)
             'number_line' => $cancellation ? Words::say('ORDERS', 'cancels', (string) ($r['reverses_number'] ?? '')) . ' · ' . ($r['number'] ?? Words::ORDERS['no_number_yet'])
                 : ($r['number'] ?? Words::ORDERS[$r['status'] === 'draft' ? 'no_number' : 'no_number_yet']),
             'state_code' => $code,

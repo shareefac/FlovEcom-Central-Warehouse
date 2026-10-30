@@ -7,9 +7,9 @@
 
   The look is design v5 (the owner's brief of 19 Oct 2026, monday.com-like): white cards on a soft lilac page, a magenta accent, solid
   status pills with white text, coloured group headings over board tables in white cards, borders rather than shadows (a shadow only
-  on what floats: menus, drawers, toasts). Every page opens with a statement (Ui\View head(): section 5): a small UPPERCASE eyebrow,
-  a heading that ends with a full stop (drawn here after .stmt.stop, so the heading's text stays the page's name) and one plain
-  sentence. Every colour, size and radius is a token on :root (section 1): the brief's tokens first, then the names the page bodies
+  on what floats: menus, drawers, toasts). Every page opens with a statement (Ui\View head(): section 5): a small UPPERCASE eyebrow
+  (or the record's list as a link and "›") and the heading in sentence case with no full stop and no sentence under it (the approved
+  mockups of 29 Oct 2026; docs/decisions.md DC1-DC3). Every colour, size and radius is a token on :root (section 1): the brief's tokens first, then the names the page bodies
   use, defined from them. Light only (owner, 19 Oct 2026).
 
   Layout: a white sidebar (248 px) from 700 px up; under 700 px a compact top bar and the same menu sliding in from the left. Tables
@@ -17,7 +17,7 @@
   narrower. Inputs at 16 px on a phone; tap targets 44 px on a phone or a touch screen.
 
   Sections: 0 font, 1 tokens, 2 base, 3 strips and toasts, 4 shell (sidebar, phone bar, phone menu), 5 page head (statement, the ONE
-  tabs component, buying flow, toolbar), 6 cards, KPI tiles and boards, 7 status: block, cell and tag, 8 notices, 9 the ONE buttons
+  tabs component, toolbar), 6 cards, KPI tiles and boards, 7 status: block, cell and tag, 8 notices, 9 the ONE buttons
   component and its More menu, 10 forms, 11 tables,
   12 folds, help and drawers, 13 progress, 14 home and task board, 15 decision pages, 16 lists: chips, pager, empty states, 17 the
   screens' own parts, 18 print, 19 the set-it-yourself pack, 20 stock, 21 store-wise review and bulk action, 22 by item, counts and
@@ -83,9 +83,11 @@
   --sp-4: 4px; --sp-6: 6px; --sp-8: 8px; --sp-10: 10px; --sp-12: 12px; --sp-14: 14px; --sp-16: 16px; --sp-18: 18px; --sp-20: 20px;
   --sp-24: 24px; --sp-32: 32px; --sp-40: 40px;
   --shadow-float: 0 12px 32px rgba(26, 21, 34, .16), 0 2px 6px rgba(26, 21, 34, .08); /* only what floats */
-  --shadow-up: 0 -8px 20px rgba(26, 21, 34, .08);
+  --shadow-up: 0 -6px 16px rgba(26, 21, 34, .06); /* the bar at the bottom (the mockups' dock) */
+  --shadow-menu: 0 8px 24px rgba(26, 21, 34, .10); /* a More menu (TP_Parts) */
   --backdrop: rgba(26, 21, 34, .45);
-  --side-w: 248px; --topbar-h: 56px; --tabbar-h: 64px; --row-h: 44px; --gutter: 40px;
+  --side-w: 248px; --topbar-h: 56px; --tabbar-h: 64px; --row-h: 44px; --gutter: 32px;
+  --page-w: 1180px;          /* the work column of the mockups, centred (Home: 1100 px) */
 
   /* 1b. The names the page bodies use, from the brief's tokens */
   --surface: var(--card);
@@ -112,9 +114,9 @@
   --info: var(--st-blue); --review: var(--st-purple); --stopped: var(--st-navy); --grey-group: var(--st-grey);
   /* Status tones: ink (text on the tint), bg (the tint), line (an edge), icon (the badge) */
   --needs-ink: var(--sf-amber-ink); --needs-bg: var(--sf-amber); --needs-line: var(--amber-edge); --needs-icon: var(--st-amber);
-  --done-ink: var(--sf-green-ink); --done-bg: var(--sf-green); --done-line: #b9dfcd; --done-icon: var(--st-green);
+  --done-ink: var(--sf-green-ink); --done-bg: var(--sf-green); --done-line: #9fd4bf; --done-icon: var(--st-green);
   --wait-ink: var(--sf-grey-ink); --wait-bg: var(--sf-grey); --wait-line: var(--hairline); --wait-icon: var(--st-grey);
-  --block-ink: var(--sf-red-ink); --block-bg: var(--sf-red); --block-line: #f1b8c1; --block-icon: var(--st-red);
+  --block-ink: var(--sf-red-ink); --block-bg: var(--sf-red); --block-line: #f1b9c2; --block-icon: var(--st-red);
   --info-ink: var(--st-navy); --info-bg: var(--info-panel); --info-line: #d3def3; --info-icon: var(--st-blue);
   --on-icon: #ffffff;
   /* All Products pass (21 Oct 2026): the white of words and marks on a solid fill, the purple tone's edge, a mask's solid part */
@@ -139,7 +141,7 @@ body {
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-wrap: break-word;
 }
 h1, h2, h3, h4 { color: var(--ink); font-family: var(--font); }
-h1 { font-size: 32px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; margin: 0 0 8px; }
+h1 { font-size: 26px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; }
 h2 { font-size: 17px; font-weight: 600; line-height: 1.4; margin: 28px 0 12px; }
 h3 { font-size: 16px; font-weight: 600; line-height: 1.4; margin: 18px 0 8px; }
 h4 { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 14px 0 6px; }
@@ -239,7 +241,7 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 .appbar { display: none; }
 .brand {
   display: inline-flex; align-items: center; gap: 10px; min-height: 40px; min-width: 0;
-  color: var(--ink); text-decoration: none; font: 600 15px/1.2 var(--font);
+  color: var(--ink); text-decoration: none; font: 700 16px/1.2 var(--font);
 }
 .brand:hover { color: var(--ink); text-decoration: none; }
 .brand-mark {
@@ -253,49 +255,51 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 }
 .icon-btn:hover { background: var(--page-alt); color: var(--ink); }
 .icon-btn .ico { width: 20px; height: 20px; }
-/* A count on an icon button (the bell): a small accent pill on its corner */
-.icon-btn .bell-n {
-  position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill);
-  background: var(--accent); color: var(--on-fill); font: 600 11px/18px var(--font); text-align: center; box-shadow: 0 0 0 2px var(--card);
-}
 
-/* The sidebar: the logo and the bell, the find link, Home, the "Every day" entries and the "More" sections under their group names (the
-   approved HM_Home; docs/decisions.md HV2), each an icon, a name and a count where something waits; the person pinned to the bottom. The same
-   markup is the phone's slide-in menu. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
+/* The sidebar of the approved HM_Home (docs/decisions.md HV2, DC7): the plain name, Home, the "Every day" entries and the "More" sections
+   under their group names, each its words and a magenta count where something waits; the person pinned to the bottom (their account and
+   Sign out). The same markup is the phone's slide-in menu. The tests read nav[aria-label=Main] > ul.nav > li > a.nav-item. */
 .side { background: var(--card); display: flex; flex-direction: column; min-width: 0; }
-.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; }
-.side-tools { display: flex; align-items: center; gap: 0; flex: none; }
-.side-top .brand { font-size: 14px; line-height: 1.2; }
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 14px; }
+.side-top .brand { min-height: 0; }
 .side-top .brand-name { overflow-wrap: normal; } /* "Central / Warehouse" on two lines, never broken inside a word */
-.side-top .icon-btn { width: 34px; height: 34px; }
 .side-head { display: none; }
-.side-find {
-  display: flex; align-items: center; gap: 10px; min-height: 40px; margin: 18px 0 0; padding: 0 12px;
-  border: 1px solid var(--hairline); border-radius: var(--r-10); background: var(--page-alt);
-  color: var(--ink-muted); font: 400 13px/20px var(--font); text-decoration: none;
-}
-.side-find:hover { color: var(--ink); border-color: var(--ink-faint); text-decoration: none; }
-.side-find .ico { width: 16px; height: 16px; }
-.side-label { margin: 16px 12px 4px; font: 700 11px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
-.side-find + .nav, .side-top + .nav { margin-top: 16px; }
+.side-label { margin: 14px 12px 4px; font: 700 11px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
 .nav { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .nav li { margin: 0; }
 .nav-item {
-  display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 9px 12px;
   border-radius: var(--r-10); color: var(--ink-body); text-decoration: none; font: 500 14px/20px var(--font);
 }
 .nav-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
 .nav-item .ico { color: var(--ink-muted); }
 /* The open section: the accent's soft fill, semi-bold; its text in the darker accent (the accent on its own tint is 4.3:1) */
-.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.nav-item[aria-current="page"] .ico { color: var(--accent); }
+.nav-item[aria-current] { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.nav-item[aria-current] .ico { color: var(--accent); }
 .nav-label { flex: 1 1 auto; min-width: 0; }
-/* Counts (pills) on the sidebar: grey = something waits here; accent = waiting for YOU (a tab's count: section 5) */
-.nav-item > .count {
-  flex: none; display: inline-block; min-width: 20px; padding: 0 7px; border-radius: var(--r-pill);
-  background: var(--sf-grey); color: var(--ink-body); font: 600 11px/20px var(--font); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+/* The open section (the page mockups' .nav.on, CT_Board, IT_Item; docs/decisions.md DC28): the accent's tint and words; its pages under it
+   as sub-items (13 px, 26 px in, 8 px corners, muted; the current one the dark accent, semi-bold), the page's segments one more indent */
+.nav-item.open { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.nav-sub { list-style: none; margin: 2px 0 4px; padding: 0; display: grid; gap: 2px; }
+.nav-sub li { margin: 0; }
+.nav-sub-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 7px 12px 7px 26px;
+  border-radius: var(--r-8); color: var(--ink-muted); font: 400 13px/20px var(--font); text-decoration: none;
 }
-.nav-item > .count.hot, .nav-item[aria-current="page"] > .count { background: var(--accent); color: var(--on-fill); }
+a.nav-sub-item[href]:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
+.nav-sub-item[aria-current] { color: var(--accent-hover); font-weight: 600; }
+.nav-seg .nav-sub-item { padding-left: 40px; }
+.nav-sub-item.soon { color: var(--ink-faint); cursor: default; }
+.nav-sub-item > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
+.nav-sub-item > .count {
+  flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--accent); color: var(--on-fill); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* A count on the sidebar: the magenta pill of HM_Home, 22 px */
+.nav-item > .count {
+  flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--accent); color: var(--on-fill); font: 700 12px/22px var(--font); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 .side-user {
   position: relative; margin-top: auto; padding: 10px; border: 1px solid var(--hairline); border-radius: var(--r-12);
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--card);
@@ -328,16 +332,17 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .side-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent-hover); }
 
 /* The work area */
-.work { display: block; min-width: 0; padding: 32px var(--gutter) 48px; }
+.work { display: block; min-width: 0; padding: 28px var(--gutter) 48px; }
 .work:focus { outline: none; }
 .scrim { display: none; }
 .tabbar { display: none; }
-.page { max-width: 1280px; position: relative; container-type: inline-size; }
+.page { max-width: var(--page-w); margin: 0 auto; position: relative; container-type: inline-size; }
+body:has(.hm-find) .page { max-width: 1100px; }
 
 @media (min-width: 700px) {
   .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); align-items: start; min-height: 100vh; }
   .side {
-    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 16px 16px;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 12px 16px;
     border-right: 1px solid var(--hairline); scrollbar-width: thin;
   }
   .side-user { margin-top: auto; }
@@ -346,19 +351,25 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 }
 @media (min-width: 700px) and (max-width: 1023.98px) { :root { --gutter: 24px; } .work { padding-top: 24px; } }
 
-/* A phone: a sticky compact top bar (logo, the page's name, find, the bell, Menu); the menu slides in from the left */
+/* A phone: the sticky top bar of HM_Phone (the name, the person's initials, which open the menu; the menu button at its left only where
+   no bottom bar is, as PI_New_Phone draws it); the menu slides in from the left */
 @media (max-width: 699.98px) {
   :root { --gutter: 16px; }
   html { scroll-padding-top: calc(var(--topbar-h) + 8px); }
   .appbar {
-    display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 40; min-height: var(--topbar-h);
-    padding: 0 8px 0 12px; background: var(--card); border-bottom: 1px solid var(--hairline);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 40; min-height: var(--topbar-h);
+    padding: 6px 10px 6px 16px; background: var(--card); border-bottom: 1px solid var(--hairline);
   }
-  .appbar .brand { gap: 8px; }
-  .appbar .brand-mark { width: 32px; height: 32px; border-radius: var(--r-10); font-size: 12px; }
-  .appbar-page { flex: 1 1 auto; min-width: 0; margin: 0 4px; font: 600 15px/20px var(--font); color: var(--ink);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .appbar .brand { flex: 1 1 auto; min-height: 44px; font-size: 15px; }
   .appbar .icon-btn { width: 44px; height: 44px; }
+  .appbar .menu-btn { display: none; margin-left: -10px; }
+  body:has(.doc-bar) .appbar .menu-btn, body:has(.decide-bar) .appbar .menu-btn, body:not(:has(.tabbar)) .appbar .menu-btn { display: inline-grid; }
+  .appbar-me { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; text-decoration: none; }
+  .appbar-me > span[aria-hidden] {
+    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%;
+    background: var(--sf-purple); color: var(--sf-purple-ink); font: 700 13px/1 var(--font);
+  }
+  a.appbar-me:hover > span[aria-hidden] { background: var(--sf-magenta); color: var(--sf-magenta-ink); }
   .work { padding: 20px var(--gutter) 40px; }
   .side {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 70; width: min(88vw, 320px);
@@ -377,6 +388,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
   }
   .side-title { font: 600 17px/24px var(--font); color: var(--ink); }
   .nav-item, .side-link { min-height: 48px; font-size: 15px; }
+  .nav-sub-item { min-height: 44px; font-size: 14px; }
   .side-user { margin-top: 24px; }
 
   /* The bottom bar (HM_Phone: Home, Goods in, Counts, Approvals, More): white, a hairline above, the open one in the accent */
@@ -405,24 +417,21 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
   body:has(.decide-bar) .tabbar { display: none; }
   body:has(.decide-bar) { padding-bottom: 0; }
 }
-@media (max-width: 359.98px) {
-  .appbar .brand-name { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-}
 
-/* ---------- 5. The page head: the statement (eyebrow, heading with its full stop, one sentence) and the page's actions on the
-   right, then the section's tabs and its segments (the ONE tabs component), the buying flow and the toolbar ---------- */
-.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin: 0 0 24px; }
+/* ---------- 5. The page head: the statement (the eyebrow, the heading, no full stop and no sentence: the approved mockups, DC1-DC3) and
+   the page's actions on the right, then the section's ONE tab row and its segments where no Show replaces them, and the toolbar ---------- */
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 0 0 24px; }
 .ph-text { flex: 1 1 26rem; min-width: 0; }
-.ph-eyebrow { margin: 0 0 8px; font: 600 12px/16px var(--font); letter-spacing: 3px; text-transform: uppercase; color: var(--accent); }
-.ph-eyebrow .ph-tag { letter-spacing: 1px; }
-.ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ph-eyebrow { margin: 0; font: 600 12px/18px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.ph-eyebrow .ph-tag { letter-spacing: .08em; }
+/* A record's eyebrow is its list (the mockups' breadcrumb, DC3): the link in the accent, no underline, then "›" */
+.ph-eyebrow.ph-back a { color: var(--accent); text-decoration: none; }
+.ph-eyebrow.ph-back a:hover { color: var(--accent-hover); text-decoration: underline; }
+.ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 0; }
 .ph-title h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .ph-title h1 .chip { margin-left: 6px; vertical-align: 7px; }
 .ph-title h1 .muted { font-weight: 500; }
 .ph-title > .subtitle { flex: 0 0 100%; margin: 0; color: var(--ink-body); font-weight: 500; } /* a website product's variant, under its name */
-/* The full stop that ends every page heading ("Orders."): drawn, so the heading's text stays the page's name for the tests, the
-   tab title and a screen reader; a heading that ends in its own punctuation gets none (Ui\Html::statement). */
-.stmt.stop::after { content: "."; content: "." / ""; }
 .ph-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 10px 0 0; }
 .ph-text .lede { margin: 10px 0 0; }
 .lede { max-width: 75ch; margin: 0 0 16px; color: var(--ink-body); font: 400 14px/1.6 var(--font); }
@@ -430,7 +439,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .lede-more { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
 .ph-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
 @media (max-width: 699.98px) {
-  h1 { font-size: 26px; }
+  h1 { font-size: 22px; line-height: 1.3; }
   .page-head { margin-bottom: 20px; align-items: stretch; }
   .ph-actions { width: 100%; }
 }
@@ -438,20 +447,25 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .frame-only { margin: 0 0 8px; }
 
 /* Tabs: ONE component for every tab-like control (the owner, 29 Oct 2026: "tab change follow this design pattern"; the parts board
-   TP_Parts and the item page IT_Item; docs/decisions.md DS2). The section's tabs under the statement, its segments under them (the old
-   black pills), a page's own lists (Show, the stores, the states, the periods, the match strengths, the barcodes), a page's parts: each a
+   TP_Parts and the item page IT_Item; docs/decisions.md DS2). No section tab row any more (the sidebar lists a section's pages, DC28): a
+   record's parts (IT_Item, the supplier), a page's own lists (Show, the stores, the states, the periods, the match strengths, the barcodes), a page's parts: each a
    <nav class="tabs"> of <a class="tab">. 14 px semi-bold muted words; the open tab (aria-current) in the dark accent with a 3 px accent
-   bar under it; a count is a bubble (.count) that turns accent on the open tab; 44 px to tap. The row never wraps: it scrolls sideways
-   inside itself, never the page, and app.js fades the side that has more (section 24). A second row sits right under the first. A tab
-   not built yet is a disabled span with a "Soon" pill. */
+   bar under it; a count is a bubble (.count) that turns accent on the open tab; 44 px to tap. From 700 px up the row wraps as TP_Parts
+   draws it (12 px by 14 px, the open tab's bar over the row's 1 px line; docs/decisions.md DC9); on a phone it stays one row that scrolls
+   sideways inside itself, never the page, and app.js fades the side that has more (section 24). A second row sits right under the first.
+   A tab not built yet is a disabled span with a "Soon" pill. */
 .tabs {
   position: relative; display: flex; gap: 4px; margin: 0 0 24px; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
   scrollbar-width: thin; box-shadow: inset 0 -1px 0 var(--hairline);
 }
+@media (min-width: 700px) {
+  .tabs { flex-wrap: wrap; overflow: visible; box-shadow: none; border-bottom: 1px solid var(--hairline); }
+  .tabs > .tab { margin-bottom: -1px; }
+}
 .page-head + .tabs, .frame-only > .tabs:first-child { margin-top: -8px; }
 .tabs + .tabs { margin-top: -16px; }
 .tab {
-  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 10px 14px;
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 12px 14px;
   color: var(--ink-muted); font: 600 14px/20px var(--font); text-decoration: none; white-space: nowrap;
   border-bottom: 3px solid transparent;
 }
@@ -470,80 +484,34 @@ a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .tab > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
 /* A tab's own mark: a match strength's colour key, a state's dot (the tone class on the tab gives the colour) */
 .tab > .key { flex: none; width: 12px; height: 12px; border-radius: 2px; background: var(--t-fill); }
-/* The section's set-up, import and specialist pages under the tab row's More (docs/decisions.md HV3): the strip fills the row and scrolls,
-   More stays at the row's right end; More looks like a tab (the count of what waits under it), its menu each page's name, its count and
-   one line on what it is for. A <details> (no script; Esc or a click elsewhere closes it, app.js). The menu is placed against the whole
-   row (HV9: the row is its box, More is not), its right edge the row's and never wider than the row, so at every width, a short row or a
-   long scrolled one, it stays on the screen inside the page's gutters. */
-.tabs-row { position: relative; display: flex; align-items: flex-end; gap: 4px; margin: 0 0 24px; box-shadow: inset 0 -1px 0 var(--hairline); }
-.tabs-row > .tabs { flex: 1 1 auto; min-width: 0; margin: 0; box-shadow: none; }
-.page-head + .tabs-row, .frame-only > .tabs-row:first-child { margin-top: -8px; }
-.tabs-row + .tabs { margin-top: -16px; }
-details.more.tabs-more, details.more.tabs-more[open] { position: static; flex: none; }
-.tabs-more > .more-menu {
-  position: absolute; left: auto; right: 0; top: calc(100% + 6px); width: max-content; min-width: min(220px, 100%); max-width: min(32rem, 100%);
-  margin: 0; box-shadow: var(--shadow-float);
-}
-.tab-more {
-  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; cursor: pointer;
-  color: var(--ink-muted); font: 600 14px/20px var(--font); white-space: nowrap; border-bottom: 3px solid transparent;
-}
-.tab-more:hover { color: var(--ink); }
-details.tabs-more[open] > summary.tab-more { background: none; border-color: transparent; border-bottom-color: var(--accent); color: var(--accent-hover); }
-.tab-more > .count, .menu-name > .count {
-  flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
-  background: var(--sf-grey); color: var(--ink-body); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.menu-name > .count.soon { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-muted); font-weight: 600; }
-.tabs-more .menu-item { flex-direction: column; align-items: flex-start; gap: 2px; }
+/* A menu item's name and one muted line under it (a More of a page's toolbar) */
 .menu-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .menu-sub { color: var(--ink-muted); font: 400 12px/16px var(--font); }
-.tabs-more .menu-item.soon { color: var(--ink-faint); cursor: default; }
-.tabs-more .menu-item.soon:hover { background: none; color: var(--ink-faint); }
+.more-menu .menu-item:has(> .menu-sub) { flex-direction: column; align-items: flex-start; gap: 2px; }
 /* Tabs inside a card (the match strengths under their bar, a page's parts): the card's padding is the row's edge */
 .card > .tabs { margin: 12px 0 16px; }
 
-/* The buying flow on Purchasing ("what happens next": numbered 28 px circles, a bold title, a muted line); each step opens its tab */
-.flow { list-style: none; margin: 0 0 24px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
-.flow li { position: relative; margin: 0; min-width: 0; }
-.flow a, .flow .flow-off {
-  display: flex; align-items: center; gap: 12px; height: 100%; min-height: 56px; padding: 10px 14px;
-  background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12); color: var(--ink); text-decoration: none;
-}
-.flow a:hover { color: var(--ink); border-color: var(--ink-faint); text-decoration: none; }
-.flow a[aria-current] { border: 1.5px solid var(--accent); background: var(--row-selected); }
-.flow .flow-off { background: var(--page-alt); color: var(--ink-muted); }
-.flow-n {
-  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none;
-  background: var(--accent); color: var(--on-fill); font: 600 13px/1 var(--font);
-}
-.flow-off .flow-n { background: var(--st-grey); }
-.flow-txt { min-width: 0; }
-.flow-t { display: block; font: 600 14px/20px var(--font); color: var(--ink); }
-.flow-off .flow-t { color: var(--ink-muted); }
-.flow-c { display: block; color: var(--ink-muted); font: 400 12px/16px var(--font); }
-/* A phone: the page's own work comes first; the strip's four cards (two rows) pushed it down a screen (the coordinator's phone check, GV25) */
-@media (max-width: 699.98px) { .flow { display: none; } }
 
 /* The page under the head */
 .content { padding: 0; }
 .main { display: block; min-width: 0; padding: 32px var(--gutter) 48px; }
 .main:focus { outline: none; }
 .main.bare .page { max-width: 480px; margin: 0 auto; }
-/* The toolbar (filters/toolbar row): Search with its magnifier, Filter and Sort as small plain buttons (<details> pop-overs, so they
-   work without app.js; their Apply is plain: a list's filter is never the page's main action, DS5), Export at the far end. */
-.toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 20px; }
+/* The toolbar (filters/toolbar row): Search with its magnifier taking the free width and the Show choice beside it, 40 px and 14 px as
+   the board mockups draw them (docs/decisions.md DC10); Filter and Sort as small plain buttons (<details> pop-overs, so they work without
+   app.js; their Apply is plain: a list's filter is never the page's main action, DS5), Export at the far end. */
+.toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 24px; }
 .toolbar .btn .ico, .tb-pop > summary .ico { width: 16px; height: 16px; }
 .tb-pop > summary::-webkit-details-marker { display: none; }
-.tb-search { position: relative; display: inline-flex; align-items: center; }
+.tb-search { position: relative; display: inline-flex; align-items: center; flex: 1 1 280px; min-width: 0; }
 .tb-search .ico { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--ink-muted); pointer-events: none; }
 .tb-search input[type="search"] {
-  width: 240px; min-height: 36px; height: 36px; padding: 6px 12px 6px 36px; font: 400 13px/20px var(--font);
-  background: var(--card); border: 1px solid var(--field); border-radius: var(--r-10); transition: border-color .1s, width .15s;
+  width: 100%; min-height: 40px; height: 40px; padding: 8px 12px 8px 36px; font: 400 14px/22px var(--font);
+  background: var(--card); border: 1px solid var(--field); border-radius: var(--r-10); transition: border-color .1s;
 }
 .tb-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .tb-search input:hover { border-color: var(--ink-body); }
-.tb-search input:focus-visible, .tb-search input:not(:placeholder-shown) { width: 280px; border-color: var(--accent); }
+.tb-search input:focus-visible, .tb-search input:not(:placeholder-shown) { border-color: var(--accent); }
 .tb-pop { position: relative; margin: 0; padding: 0; border: 0; background: none; }
 .tb-pop > summary { list-style: none; margin: 0; }
 .tb-pop[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); margin-bottom: 0; }
@@ -558,12 +526,16 @@ details.tabs-more[open] > summary.tab-more { background: none; border-color: tra
 .pop li { margin: 0; }
 .pop-form { display: grid; gap: 12px; padding: 16px; min-width: 300px; }
 .pop-form label:not(.choice) { color: var(--ink); }
+/* A board's ONE Show control when it holds several filters (All Products: the card, the kind, four ticks; DC27): a pop-over of those inputs
+   and its Show button, its count the filters on */
+.tb-show .pop-form select { width: 100%; min-width: 0; }
+.tb-show .pop-form label.tb-check { min-height: 44px; }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 639.98px) {
   /* Search takes the free width; a pop-over opens under the whole toolbar, full width */
   .tb-pop { position: static; }
   .tb-search { flex: 1 1 8rem; }
-  .tb-search input[type="search"], .tb-search input:focus-visible, .tb-search input:not(:placeholder-shown) { width: 100%; }
+  .tb-search input[type="search"] { height: 44px; min-height: 44px; font-size: 16px; }
   .pop { left: 0; right: 0; width: auto; max-width: none; min-width: 0; }
   .pop-form { min-width: 0; }
   .tb-end { margin-left: 0; }
@@ -636,31 +608,31 @@ section.box.waiting > h2, .card.waiting:not(.task) > h2, .elsewhere > h2 { color
 .stat dd { margin: 10px 0 0; color: var(--ink); font: 700 26px/1.1 var(--font); font-variant-numeric: tabular-nums; }
 .stat dd small { display: block; margin-top: 6px; font: 400 12px/16px var(--font); color: var(--ink-muted); }
 
-/* Boards: a board title, then one block per group: its heading (a coloured chevron, the group's name in its colour, a muted count),
-   then its table in a white card. A group folds (app.js); without the script every group stays open. */
+/* Boards: a board title, then one block per group: its heading (the group's name in its colour, 16 px bold, a muted 13 px count), then
+   its table in a white card. A group folds (app.js; its heading is the button); the chevron shows only on a folded group, so an open
+   board is the mockups' (docs/decisions.md DC12); without the script every group stays open. */
 .board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 28px 0 12px; }
 .board-head:first-child { margin-top: 0; }
 .board-head > h2, .board-head > h3, .board-title, .board-sub { margin: 0; font: 600 17px/24px var(--font); color: var(--ink); }
 .board-note { margin: 0; color: var(--ink-muted); font: 400 13px/20px var(--font); }
 .grp-block { margin: 0 0 24px; }
 .t-primary { --t-fill: var(--accent); --t-soft: var(--accent-soft); --t-ink: var(--accent-hover); }
-.grp-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 18px 0 10px; font: 400 14px/20px var(--font); color: var(--ink); }
+.grp-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 18px 0 8px; font: 400 14px/20px var(--font); color: var(--ink); }
 .grp-toggle {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; margin: 0 0 0 -6px; padding: 4px 8px 4px 6px;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; margin: 0 0 0 -6px; padding: 4px 6px;
   border: 0; border-radius: var(--r-8); background: none; color: var(--t-fill, var(--st-grey));
-  font: 600 17px/24px var(--font); cursor: pointer;
+  font: 700 16px/24px var(--font); cursor: pointer;
 }
 .grp-title.waiting .grp-toggle { color: var(--st-grey); }
 .grp-toggle:hover { background: rgba(26, 21, 34, .05); color: var(--t-fill, var(--st-grey)); }
-.grp-toggle::before {
-  content: ""; width: 8px; height: 8px; margin: -4px 6px 0 4px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
-  transform: rotate(45deg); transition: transform .12s;
+.grp-toggle[aria-expanded="false"]::before {
+  content: ""; width: 8px; height: 8px; margin: 0 6px 0 4px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
+  transform: rotate(-45deg);
 }
-.grp-toggle[aria-expanded="false"]::before { transform: rotate(-45deg); margin-top: 0; }
 html:not(.js) .grp-toggle { cursor: default; }
 html:not(.js) .grp-toggle:hover { background: none; }
-.grp-count { color: var(--ink-muted); font: 400 13px/20px var(--font); }
-.grp-name { font: 600 17px/24px var(--font); color: var(--t-fill, var(--st-grey)); }
+.grp-count { color: var(--ink-muted); font: 500 13px/20px var(--font); }
+.grp-name { font: 700 16px/24px var(--font); color: var(--t-fill, var(--st-grey)); }
 /* Groups inside one table (a heading row per tbody) */
 table.board tbody.grp > tr.grp-head > th {
   height: auto; padding: 20px 16px 8px; border: 0; background: var(--card); text-align: left; position: static; font-weight: 400;
@@ -673,13 +645,13 @@ tbody.grp.is-collapsed > tr:not(.grp-head) { display: none; }
   table.stack.board tbody.grp > tr.grp-head { display: block; padding: 0; border: 0; background: none; box-shadow: none; margin-top: 8px; }
   table.stack.board tbody.grp > tr.grp-head > th { padding: 0; }
 }
-table.board .grp-add > td { color: var(--ink-muted); text-align: left; }
-/* "+ Add …": the dashed accent link */
+table.board .grp-add > td { height: 44px; color: var(--ink-muted); text-align: left; }
+/* "+ Add …": the quiet text row of the board mockups (muted words, no edge; DC12) */
 .add-item {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px; border: 1px dashed var(--accent);
-  border-radius: var(--r-10); color: var(--accent-hover); text-decoration: none; font: 500 13px/20px var(--font);
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 0; border: 0;
+  color: var(--ink-muted); text-decoration: none; font: 400 14px/20px var(--font);
 }
-.add-item:hover { background: var(--accent-soft); color: var(--accent-hover); text-decoration: none; }
+.add-item:hover { color: var(--accent-hover); text-decoration: underline; }
 table.board .grp-foot > * { font-weight: 600; color: var(--ink); background: var(--page-alt); }
 table.board tbody tr.grp-foot:hover > *, table.board tbody tr.grp-add:hover > * { background: var(--page-alt); }
 table.board th.c-item { min-width: 14rem; }
@@ -704,7 +676,7 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
 
 .chip {
   display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: middle;
-  min-width: 110px; min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); white-space: nowrap; border: 0;
+  min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); white-space: nowrap; border: 0;
   background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 12px/18px var(--font); text-align: center; letter-spacing: .01em;
 }
 /* The block on a record: beside its heading, in its state line */
@@ -820,15 +792,17 @@ details.more > summary { list-style: none; margin: 0; }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary::after { content: ""; width: 7px; height: 7px; margin: -4px 0 0 4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
 details.more[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
+/* The menu as TP_Parts draws it (DC14): no inset, 10 by 14 px rows with a divider between them, square rows inside the 12 px corners, the
+   menu's soft shadow */
 .more-menu {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; display: grid; gap: 0; width: max-content; min-width: 220px;
-  max-width: min(32rem, calc(100vw - 32px)); padding: 4px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
-  box-shadow: var(--shadow-float);
+  max-width: min(32rem, calc(100vw - 32px)); padding: 0; overflow: hidden; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
+  box-shadow: var(--shadow-menu);
 }
 .more-menu > form, .more-menu > a, .more-menu > details { width: 100%; margin: 0; }
 .more-menu > * + * { border-top: 1px solid var(--divider); }
 .more-menu > .btn, .more-menu > form > .btn, .more-menu > details > summary.btn, .menu-item {
-  display: flex; width: 100%; justify-content: flex-start; min-height: 40px; padding: 8px 12px; border: 0; border-radius: var(--r-8);
+  display: flex; width: 100%; justify-content: flex-start; min-height: 40px; padding: 10px 14px; border: 0; border-radius: 0;
   background: none; color: var(--ink); font: 500 14px/20px var(--font); text-align: left; text-decoration: none; white-space: normal;
 }
 .more-menu > .btn:hover, .more-menu > form > .btn:hover, .more-menu > details > summary.btn:hover, .menu-item:hover { background: var(--page-alt); color: var(--ink); text-decoration: none; }
@@ -837,20 +811,21 @@ details.more[open] > summary { border-color: var(--accent); background: var(--ac
 .more-menu > details > summary { list-style: none; }
 .more-menu > details > summary::-webkit-details-marker { display: none; }
 .more-menu > details[open] > summary.btn { background: var(--accent-soft); color: var(--accent-hover); }
-.more-menu .doc-act-panel { margin: 6px 0; max-width: none; }
+.more-menu .doc-act-panel { margin: 6px 8px; max-width: none; }
 @media (max-width: 699.98px), (pointer: coarse) { .more-menu > .btn, .more-menu > form > .btn, .more-menu > details > summary.btn, .menu-item { min-height: 44px; } }
 /* On a phone the menu is in the flow under its button, the open menu taking its row (the Codex review of 9ce3515, M3; PV26): nothing is
    placed against the page, with or without the script. */
 @media (max-width: 639.98px) { details.more { position: static; } .more-menu { position: static; width: auto; min-width: 0; max-width: none; margin: 6px 0 0; box-shadow: none; } details.more[open] { flex: 1 1 100%; } }
 
-/* ---------- 10. Forms: the label above each field, a muted 12 px hint, 44 px fields with a 10 px radius, the accent focus ring ---------- */
+/* ---------- 10. Forms: the label above each field, a muted 12 px hint, 40 px fields with a 10 px radius (44 px on a phone or a touch
+   screen), the accent focus ring; a date-and-time field is the same field (docs/decisions.md DC11) ---------- */
 label { display: grid; gap: 6px; color: var(--ink); font: 500 13px/20px var(--font); }
 label .hint, label .muted { font-weight: 400; font-size: 12px; line-height: 18px; }
 label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { display: flex; align-items: center; gap: 10px; font-weight: 400; font-size: 14px; }
 input, select, textarea, button { font-family: inherit; }
 input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="number"], input[type="tel"],
-input[type="date"], input[type="file"], select, textarea {
-  width: 100%; min-width: 0; min-height: 44px; padding: 10px 14px;
+input[type="date"], input[type="datetime-local"], input[type="file"], select, textarea {
+  width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px;
   font: 400 14px/22px var(--font); color: var(--ink);
   background: var(--card); border: 1px solid var(--field); border-radius: var(--r-10); transition: border-color .1s ease-in;
 }
@@ -875,9 +850,13 @@ form.record:has(> fieldset + fieldset) > fieldset > legend::before {
   counter-increment: form-step; content: counter(form-step); display: inline-grid; place-items: center; width: 24px; height: 24px;
   margin-right: 10px; border-radius: var(--r-8); background: var(--accent); color: var(--on-fill); font: 700 12px/1 var(--font); vertical-align: 1px;
 }
+@media (max-width: 699.98px), (pointer: coarse) {
+  input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="number"], input[type="tel"],
+  input[type="date"], input[type="datetime-local"], select { min-height: 44px; }
+}
 @media (max-width: 699.98px) {
   input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="number"], input[type="tel"],
-  input[type="date"], select, textarea { font-size: 16px; } /* no zoom on an iPhone */
+  input[type="date"], input[type="datetime-local"], select, textarea { font-size: 16px; } /* no zoom on an iPhone */
   input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
 }
 
@@ -1175,9 +1154,11 @@ td.meter meter { width: 80px; }
   .hm-find > input { min-height: 48px; font-size: 16px; }
   .hm-row { position: relative; gap: 14px; padding: 14px 16px; }
   .hm-n { min-width: 46px; height: 46px; font-size: 18px; }
-  .hm-row > .btn { position: static; }
+  /* HM_Phone (DC19): the whole row is the link, no button drawn; its words stay for a screen reader, its focus ring is the row's */
+  .hm-row > .btn { position: static; width: 0; height: 0; min-height: 0; padding: 0; margin: 0; border: 0; overflow: hidden; font-size: 0; flex: none; }
   .hm-row > .btn::after { content: ""; position: absolute; inset: 0; }
-  .hm-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hm-row:has(> .btn:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .hm-figs { display: none; } /* HM_Phone has no figures */
   .hm-fig { padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--divider); }
   .hm-fig-n { font-size: 22px; line-height: 28px; }
 }
@@ -1192,8 +1173,8 @@ table.coverage th .hint { display: block; margin-top: 2px; max-width: 46ch; font
 @container (max-width: 640px) {
   table.stack.board tr.grp-foot { background: var(--page-alt); }
   table.stack.board tr.grp-foot > * { background: none; }
-  table.stack.board tr.grp-add { display: block; padding: 0; border-style: dashed; border-color: var(--accent); background: none; }
-  table.stack.board tr.grp-add .add-item { display: flex; width: 100%; min-height: 44px; border: 0; }
+  table.stack.board tr.grp-add { display: block; padding: 0 16px; }
+  table.stack.board tr.grp-add .add-item { display: flex; width: 100%; min-height: 44px; }
   table.stack.board th.c-item { min-width: 0; }
 }
 
@@ -2268,7 +2249,9 @@ details.pi-charge .doc-charge label { flex: 1 1 10rem; }
 .doc-notes .doc-pair { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .doc-notes .doc-pair > label { flex: 1 1 12rem; min-width: 0; }
 .doc-notes ul.files { margin: 0; padding-left: 18px; }
-.doc-totals { margin-left: auto; width: 100%; max-width: 28rem; padding: 16px 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+.doc-totals { margin-left: auto; width: 100%; max-width: 28rem; padding: 20px 24px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+/* On a saved document's paper the totals are the paper's own rows, not a card of their own (PO_View, PI_View; DC15) */
+.doc-view .doc-totals { padding: 0; border: 0; border-radius: 0; background: none; }
 .doc-totals dl { grid-template-columns: minmax(12rem, 1fr) auto; gap: 10px 16px; align-items: center; margin: 0; } /* the words have room (PV29) */
 .doc-totals dt { color: var(--ink-body); }
 .doc-totals dd { text-align: right; font-variant-numeric: tabular-nums; }
@@ -2278,7 +2261,7 @@ details.pi-charge .doc-charge label { flex: 1 1 10rem; }
 /* The bar at the bottom: on the screen while its form is, the main action last (on the right); on a phone it takes the tab bar's place */
 .doc-bar {
   position: sticky; bottom: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px;
-  margin: 8px calc(-1 * var(--gutter)) 0; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  margin: 24px calc(-1 * var(--gutter)) 0; padding: 14px var(--gutter) calc(14px + env(safe-area-inset-bottom));
   background: var(--card); border-top: 1px solid var(--hairline); box-shadow: var(--shadow-up);
 }
 .doc-bar > a.btn { margin-right: auto; }
@@ -2289,6 +2272,7 @@ section.po-summary .doc-totals .actions { margin: 0; }
   body:has(.doc-bar) { padding-bottom: 0; }
   .doc-bar > button { flex: 1 1 0; min-width: 0; } /* the approved design: the bar's two buttons equal on a phone */
   .doc-bar > a.btn { flex: 1 1 100%; order: 3; margin-right: 0; }
+  .doc-bar { margin-top: 24px; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); }
 }
 .doc-later { margin: 0; }
 .doc-later > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
@@ -2300,8 +2284,10 @@ table.doc-list a.row-link::after { content: ""; position: absolute; inset: 0; z-
 table.doc-list td.c-status { width: 1%; }
 @container (max-width: 640px) { table.stack.doc-list .c-head { grid-row: 1; } } /* a card: the number and the status first, then the date */
 .toolbar .tb-state { display: inline-flex; align-items: center; gap: 8px; }
-.toolbar .tb-state label.tb-check { min-height: 36px; padding: 6px 12px; font-size: 13px; }
-.toolbar .tb-state select { width: auto; min-height: 36px; height: 36px; padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
+.toolbar .tb-state > label:not(.choice) { color: var(--ink-muted); font: 400 13px/20px var(--font); }
+.toolbar .tb-state label.tb-check { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+.toolbar .tb-state select { width: auto; min-width: 170px; min-height: 40px; height: 40px; padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
+@media (max-width: 699.98px), (pointer: coarse) { .toolbar .tb-state select, .tb-search input[type="search"] { min-height: 44px; height: 44px; } }
 @media (max-width: 639.98px) { .toolbar .tb-state { flex: 1 1 100%; } .toolbar .tb-state select { flex: 1 1 auto; height: 44px; min-height: 44px; } }
 /* The saved document: its actions in one bar at the top (a step that needs a reason opens under the bar), then the document itself */
 .doc-actions { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 8px; margin: -8px 0 20px; }
@@ -2336,8 +2322,22 @@ table.doc-list td.c-status { width: 1%; }
 .doc-group > .grp-title { color: var(--t-fill, var(--st-grey)); margin: 0 0 8px; }
 .doc-group > .grp-title .grp-toggle { color: var(--t-fill, var(--st-grey)); }
 .doc-board { border-left: 6px solid var(--t-fill, var(--st-grey)); border-radius: var(--r-12); }
-td.doc-st { background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 13px/18px var(--font); text-align: center; width: 160px; min-width: 150px; padding: 6px 10px; border-left: 2px solid var(--card); border-right: 2px solid var(--card); }
+/* The board mockups' table: 12 px semi-bold heads, 14 px cell sides, 48 px rows, the status cell 170 px (DC12); a card on a phone keeps its own */
+.doc-board > table thead th { font-weight: 600; }
+@container (min-width: 641px) {
+  .doc-board > table th, .doc-board > table td { padding: 10px 14px; }
+  .doc-board > table tbody > tr > * { height: 48px; padding-top: 6px; padding-bottom: 6px; }
+}
+td.doc-st { background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 13px/18px var(--font); text-align: center; width: 170px; min-width: 150px; padding: 6px 10px; border-left: 2px solid var(--card); border-right: 2px solid var(--card); }
 td.doc-st .o-sub { display: block; color: inherit; opacity: .85; font-weight: 400; }
+/* A board's name cell and total in ink, semi-bold (the mockups' .strong); who made a row: their initials in the soft purple circle that is the
+   phone top bar's too (cwdesign/Main.dc.html's By; DC16) */
+table.doc-list td.strong { color: var(--ink); font-weight: 600; }
+table.doc-list th.c-by, table.doc-list td.c-by { text-align: center; width: 1%; white-space: nowrap; }
+.initials {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none;
+  background: var(--sf-purple); color: var(--sf-purple-ink); font: 700 12px/1 var(--font);
+}
 table.doc-list tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
 .doc-meter { display: flex; align-items: center; gap: 8px; }
 .doc-meter progress { width: 110px; flex: none; }
@@ -2625,6 +2625,9 @@ table.gi-lines .gi-why:empty { display: none; }
    The item page on the shared pieces: the head is .doc-head (the status block and a short identity line in .ph-meta, the actions at the head's
    right in .doc-actions with More), the stock strip is .doc-progress, the recent movements a board (.doc-board, td.doc-st by kind), where it
    sells solid chips, the parts under the ONE tabs component. Here only what the item page adds. */
+/* The item's and the matching page's heading are the smaller one of IT_Item and TP_Match (24 px; DC2) */
+.item-head .ph-title h1, .match-head .ph-title h1 { font-size: 24px; line-height: 1.3; }
+@media (max-width: 699.98px) { .item-head .ph-title h1, .match-head .ph-title h1 { font-size: 22px; } }
 .item-head .ph-meta .item-id { color: var(--ink-muted); font: 500 13px/20px var(--font); overflow-wrap: anywhere; }
 .item-bar > form { display: inline-flex; margin: 0; }
 /* The strip: five figures in one row (four when no sales rate is known), two a row on a phone; the line under a figure */
@@ -2731,8 +2734,8 @@ form.doc-details { margin: 0 0 20px; }
 .doc-notes form.doc-drop, .doc-files form.doc-drop { max-width: none; }
 /* The stock records' and hand-overs' one form (OV): its bar at the bottom is the document bar (Leave first, the note, Save, the main action) */
 .actions.sticky.doc-bar {
-  z-index: 20; justify-content: flex-end; gap: 8px 12px; margin: 8px calc(-1 * var(--gutter)) 0; border-radius: 0;
-  padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--hairline);
+  z-index: 20; justify-content: flex-end; gap: 8px 12px; margin: 24px calc(-1 * var(--gutter)) 0; border-radius: 0;
+  padding: 14px var(--gutter) calc(14px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--hairline);
 }
 @media (max-width: 699.98px) { body:has(.tabbar) .actions.sticky.doc-bar { bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); } }
 @container (max-width: 640px) { .actions.sticky.doc-bar .btn { width: auto; } }

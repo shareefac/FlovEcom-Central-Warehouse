@@ -57,7 +57,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
     {
         $xp = self::xp($page);
         self::assertSame($search ? 1 : 0, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, "{$what}: the search");
-        self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop")]')->length, "{$what}: no Filter pop-over");
+        self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop") and not(contains(@class, "tb-show"))]')->length, "{$what}: no Filter pop-over (the one Show control only, DC27)");
         self::assertSame(0, $xp->query('//main//*[contains(@class, "filters-on") or contains(@class, "show-tabs") or contains(@class, "row-strips")]')->length, "{$what}: the old parts");
         self::assertGreaterThan(0, $xp->query('//main//div[contains(@class, "doc-group")]/div[contains(@class, "doc-board")]//table[contains(@class, "doc-list")]')->length,
             "{$what}: the groups' cards");
@@ -108,24 +108,25 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         // The approved board: no figures strip, no heading of its own over the groups.
         self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")] | //main//h2[contains(@class, "board-title")] | //main//ul[contains(@class, "summary-line")]')->length);
 
-        // Plain filter inputs in the one Show row: the card, the kind of product and the four ticks, one Show button; no Clear while nothing is on.
+        // The filters in the ONE Show control (DC27: a pop-over of the card, the kind of product and the four ticks, one Show button); no Clear while nothing is on.
         $row = '//form[contains(@class, "toolbar")]/div[@class="tb-state"]';
-        self::assertSame(['state', 'type'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), array_values(iterator_to_array($xp->query($row . '/select')))));
+        self::assertSame(['state', 'type'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), array_values(iterator_to_array($xp->query($row . '//select')))));
         self::assertSame(['stock', 'warnings', 'blocked', 'discontinued'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            array_values(iterator_to_array($xp->query($row . '/label[contains(@class, "tb-check")]/input[@type="checkbox"]')))));
-        self::assertSame([Words::CARDS['stock'], Words::CARDS['warnings'], Words::CARDS['blocked'], Words::CARDS['discontinued']], self::texts($list, $row . '/label[contains(@class, "tb-check")]'));
-        self::assertSame(1, $xp->query($row . '/button[@type="submit"]')->length);
+            array_values(iterator_to_array($xp->query($row . '//label[contains(@class, "tb-check")]/input[@type="checkbox"]')))));
+        self::assertSame([Words::CARDS['stock'], Words::CARDS['warnings'], Words::CARDS['blocked'], Words::CARDS['discontinued']], self::texts($list, $row . '//label[contains(@class, "tb-check")]'));
+        self::assertSame(1, $xp->query($row . '//button[@type="submit"]')->length);
         self::assertSame(0, $xp->query('//form[contains(@class, "toolbar")]//a[@href="/ui/items/cards"]')->length, 'nothing on: nothing to clear');
         // Filters on: they show in their own inputs, and ONE Clear link takes every filter and the search off.
         $on = $web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'confirmed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1']);
         $oxp = self::xp($on);
         self::assertSame(['confirmed', 'tank'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
-            array_values(iterator_to_array($oxp->query($row . '/select/option[@selected]')))));
+            array_values(iterator_to_array($oxp->query($row . '//select/option[@selected]')))));
         self::assertSame(['stock', 'blocked'], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
-            array_values(iterator_to_array($oxp->query($row . '/label/input[@checked]')))));
+            array_values(iterator_to_array($oxp->query($row . '//label/input[@checked]')))));
         self::assertSame('tank', (string) $oxp->evaluate('string(//input[@id="tb-q"]/@value)'));
         self::assertSame([Words::CARDS['clear_filters']], self::texts($on, '//form[contains(@class, "toolbar")]//a[@href="/ui/items/cards"]'));
-        self::assertSame(1, $oxp->query('//form[contains(@class, "toolbar")]/div[@class="tb-end"]/a[@href="/ui/items/cards"]')->length, 'at the right');
+        self::assertSame(1, $oxp->query('//form[contains(@class, "toolbar")]/div[@class="tb-end"]/details[contains(@class, "tb-more")]//a[@href="/ui/items/cards"]')->length,
+            'at the right, under the toolbar\'s More (DC27)');
         self::assertSame(0, $oxp->query('//a[contains(@class, "tb-clear")]')->length, 'one Clear, not one per filter');
         self::assertSame([self::cw($high) . ' Tank five'], self::texts($on, '//main//tbody/tr/th/a[contains(@class, "row-link")]'));
     }
@@ -158,7 +159,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         self::assertSame('', (string) $xp->evaluate('string(' . $bar . '/button/@name)'));
         // The items made by hand are a list of their own: a link above the form, no list on it.
         self::assertSame(['/ui/items/new?show=all'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//p[@class="crumbs"]/a')))));
+            array_values(iterator_to_array($xp->query('//header[contains(@class, "page-head")]//p[contains(@class, "ph-back")]/a')))), 'the eyebrow (DC3)');
         self::assertSame(0, $xp->query('//main//table')->length, 'the form alone');
 
         // A refused card opens its fold, with what was typed.

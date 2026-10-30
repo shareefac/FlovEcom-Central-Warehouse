@@ -104,11 +104,11 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $desk = $this->signIn($deskUser);
         $list = $desk->get('/ui/receiving');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($list), self::currentTab($list)], 'Purchasing › Goods In: the sidebar\'s Goods in (HV2)');
+        self::assertSame(['Goods in', 'Goods in'], [self::currentSection($list), self::currentTab($list)], 'Purchasing › Goods In: the sidebar\'s Goods in (HV2)');
         self::assertSame([['To receive', null, true], ['Checking', '/ui/receiving/bench', false], ['Issues', '/ui/receiving/incidents', false],
             ['Duty register', '/ui/receiving/duty', false], ['Arriving', '/ui/receiving/arriving', false]], // Pack J: Arriving
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($list)));
-        self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($list), 'the desk has no Reorder');
+        self::assertSame(['Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($list), 'the desk has no Reorder');
         self::assertStringContainsString(Words::GI['group_arriving'], $list->text(), 'the approved order waits in Arriving (docs/decisions.md GV1)');
         self::assertStringContainsString((string) $po->number, $list->text());
         // One way to start a delivery (GV13): "+ New delivery" is the start page; the board has no form of its own.
@@ -116,7 +116,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertContains('/ui/receiving/new', $list->hrefs());
         $start = $desk->get('/ui/receiving/new');
         self::assertSame(200, $start->status, $start->describe());
-        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($start), self::currentTab($start)], 'the start page keeps Goods In marked');
+        self::assertSame(['Goods in', 'Goods in'], [self::currentSection($start), self::currentTab($start)], 'the start page keeps Goods In marked');
         $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $start->form('/ui/receiving');
         $r = $desk->post('/ui/receiving', $form);
         self::assertSame(303, $r->status, $r->describe());
@@ -489,10 +489,10 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $where . ': ' . $page->describe());
         $xp = new \DOMXPath($page->dom());
         self::assertSame($title, trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//h1)'))), "{$where}: the title");
-        $lede = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//main//p[@class="lede"])')));
-        self::assertStringStartsWith(Words::PAGE_INTRO[$intro][0], $lede, "{$where}: the intro");
+        self::assertSame(0, $xp->query('//main//p[@class="lede"]')->length, "{$where}: no sentence under the heading (DC1; its intro {$intro} stays in Words)");
         if ($lookOnly) {
-            self::assertStringContainsString('You can look;', $lede, "{$where}: who changes it, for a person who can only look");
+            self::assertStringContainsString('You can look;', (string) $xp->evaluate('string(//main//header[contains(@class, "page-head")]//details[contains(@class, "look-only")])'),
+                "{$where}: who changes it, under the heading's \"?\" (DC1)");
         }
         foreach ($xp->query('//main//table') ?: [] as $table) {
             /** @var \DOMElement $table */

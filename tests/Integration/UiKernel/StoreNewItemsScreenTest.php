@@ -227,7 +227,7 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
         $preview = $web->post('/ui/review/store/new-items', $this->ticked($web, $page, $all));
         self::assertSame(200, $preview->status, $preview->describe() . implode("\n", self::$log));
         self::assertSame($before, self::counts(), 'the preview writes nothing');
-        self::assertSame('Store Products', self::currentTab($preview));
+        self::assertSame('Store products', self::currentTab($preview));
         $lines = self::lines($preview);
         self::assertSame($all, array_keys($lines), 'every ticked row, in the order they are done (listing id)');
         $outcomes = array_map(static fn (array $l): string => $l['outcome'] === 'skipped' ? $l['why'] : $l['outcome'], $lines);

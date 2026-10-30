@@ -10,8 +10,7 @@
 // narrows to the chosen supplier's. A draft's timed option, how its goods come in and "Stop" are forms of their own after this one (pack J,
 // pack C), their controls in the page named with form=.
 ?>
-<p class="crumbs"><a href="/ui/purchasing/invoices"><?= $e($k['tab']) ?></a></p>
-<?= $head((string) $title, intro: $isNew ? 'invoice_new' : 'supplier_invoice', meta: $isNew ? '' : $stateChip('DOC_STATUS', 'draft'), side: $isNew ? '' : null) ?>
+<?= $head((string) $title, intro: $isNew ? 'invoice_new' : 'supplier_invoice', back: ['/ui/purchasing/invoices', (string) $k['tab']], meta: $isNew ? '' : $stateChip('DOC_STATUS', 'draft'), side: $isNew ? '' : null) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>

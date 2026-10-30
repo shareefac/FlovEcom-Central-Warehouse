@@ -115,16 +115,15 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $page = $desk->follow($r);
         self::assertStringContainsString(Words::ARRIVAL_STATE['open'], $page->text(), 'its goods on their way');
         $number = (string) self::$db->value('SELECT number FROM document WHERE id = ?', [$x['id']]);
-        // A final invoice's page does not tell the person to check a draft (the 6.3 browser test); the strip counts what is arriving.
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_invoice_final'][1], $page->text());
+        // A final invoice's page does not tell the person to check a draft (the 6.3 browser test); no sentence under its heading (DC1).
         self::assertStringNotContainsString(Words::PAGE_INTRO['supplier_invoice'][1], $page->text());
-        self::assertStringContainsString(Words::say('FLOW', 'goods_in_text', 0) . ' · ' . Words::say('FLOW', 'goods_in_arriving', 1), $page->text());
+        self::assertStringNotContainsString(Words::PAGE_INTRO['supplier_invoice_final'][1], $page->text());
 
         // Goods In › Arriving: Receive.
         $goodsIn = $this->signIn($this->uiUser('goods_in'));
         $list = $goodsIn->get(\CW\Ui\Controller\ArrivalsController::ARRIVING);
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['Goods in', 'Goods In'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['Goods in', 'Goods in'], [self::currentSection($list), self::currentTab($list)]);
         self::assertStringContainsString($number, $list->text());
         self::assertStringContainsString('Screen Arrivals Ltd', $list->text());
         $r = $goodsIn->post('/ui/receiving/arriving/' . $x['id'] . '/receive', $list->form('/ui/receiving/arriving/' . $x['id'] . '/receive'));
@@ -159,7 +158,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertSame('6.00', (string) self::$db->value('SELECT CAST(SUM(amount) AS DECIMAL(14,2)) FROM document_line WHERE document_id = ?', [$dn]), 'two at £3.00');
         self::assertFalse($desk->get('/ui/receiving/' . $grn)->hasForm('/ui/receiving/' . $grn . '/claim'), 'one claim: the page opens it');
         // A claim without goods says nothing leaves the stock, before and after it is final (the 6.3 browser test).
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_return_claim'][1], $claim->text());
+        self::assertStringContainsString(Words::RETURNS['claim_tag'], $claim->text(), 'its eyebrow says it is a claim (DC1: no intro)');
         self::assertStringContainsString(Words::RETURNS['post_does_claim'], $claim->text());
         self::assertStringNotContainsString(Words::RETURNS['post_does'], $claim->text());
         $r = $desk->post('/ui/purchasing/returns/' . $dn . '/post', $claim->form('/ui/purchasing/returns/' . $dn . '/post'));
@@ -167,7 +166,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $dnNumber = (string) self::$db->value('SELECT number FROM document WHERE id = ?', [$dn]);
         $final = $desk->follow($r);
         self::assertSame(Words::say('RETURN_NOTICE', 'posted_claim', $dnNumber), trim((string) (new \DOMXPath($final->dom()))->evaluate('string(//p[contains(@class, "notice")])')));
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_return_claim_final'][0], $final->text(), 'a claim, not goods going back');
+        self::assertStringContainsString(Words::RETURNS['claim_tag'], $final->text(), 'a claim, not goods going back');
         self::assertStringNotContainsString(Words::PAGE_INTRO['supplier_return_final'][0], $final->text());
         // The invoice it claims against says so, on To match and on its page: nobody claims twice or accepts it by mistake.
         $claimed = Words::say('INVOICES', 'claimed_on', $dnNumber, '£6.00');
@@ -182,14 +181,14 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $cn = self::idFrom($r->location(), '/ui/purchasing/credit-notes');
         $cnPath = '/ui/purchasing/credit-notes/' . $cn;
         $cnPage = $desk->get($cnPath);
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_credit_note'][0], $cnPage->text(), 'a credit note, not an invoice');
+        self::assertStringContainsString(Words::docType('SCN', false), $cnPage->text(), 'a credit note, not an invoice');
         $form = ['invoice_number' => 'CN-ARR-1', 'invoice_date' => gmdate('Y-m-d'), 'net_total' => '6.00', 'vat_total' => '1.20'] + $cnPage->form($cnPath . '/details');
         $r = $desk->post($cnPath . '/details', $form);
         self::assertSame(303, $r->status, $r->describe());
         $r = $desk->post($cnPath . '/post', $desk->get($cnPath)->form($cnPath . '/post'));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [$cn]), $desk->follow($r)->describe());
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_credit_note_final'][1], $desk->get($cnPath)->text());
+        self::assertStringNotContainsString(Words::PAGE_INTRO['supplier_credit_note'][1], $desk->get($cnPath)->text(), 'no draft\'s instruction on a final one');
         $invoice = $desk->get($path);
         self::assertStringContainsString(Words::say('INVOICES', 'claimed_credited', $dnNumber, '£6.00'), $invoice->text());
         self::assertStringNotContainsString($claimed, $invoice->text());

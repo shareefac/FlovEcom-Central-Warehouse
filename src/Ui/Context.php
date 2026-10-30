@@ -56,11 +56,6 @@ final class Context
     /** @var array{approval: int, review: int, deliveries: int}|null the review queue's tasks this person may decide, by kind (checks()) */
     private ?array $checks = null;
 
-    /**
-     * The pages that draw their own toolbar (design v4: the split create button, Search, Filter, Sort, Export in one row): they get
-     * the page's create actions as `newActions` and the layout draws none.
-     */
-    public const OWN_TOOLBAR = ['purchase_orders', 'suppliers', 'receipts', 'stock_ops', 'stock_counts'];
     /** Badge (Sections::MAP) of a stock record's tab => its document type: the reviews and OKs of that kind this person may decide (pack A1). */
     public const STOCK_BADGES = ['stock_in_open' => 'SIN', 'stock_out_open' => 'SOUT', 'transfers_open' => 'TRF', 'releases_open' => 'REL', 'adjustments_open' => 'ADJ'];
 
@@ -261,10 +256,6 @@ final class Context
         $view = new View(View::defaultDir(), $shared);
         $layout += $this->frame();
         $layout['active'] = self::ACTIVE_ALIAS[$layout['active']] ?? $layout['active'];
-        if (in_array($template, self::OWN_TOOLBAR, true)) {
-            $vars['newActions'] = $layout['actions'] ?? [];
-            $layout['actions'] = [];
-        }
         return new HtmlResponse($status, $view->page($template, $vars, $layout));
     }
 
@@ -282,7 +273,7 @@ final class Context
     /**
      * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
      * current section's page bar with its tabs (`pagebar`), the current tab's segmented filter (`segments`), the page's create button
-     * (`actions`), the buying flow on Purchasing (`flow`, Ui\FlowCounts), the phone's bottom bar (`tabs`), the bell (`bell`), whether the find box is
+     * (`actions`), the phone's bottom bar (`tabs`), whether the find box is
      * theirs (catalogue.view), the test-system strip and the strip that says which jobs Admin switches off. The current page is found
      * from the request's path (Sections::locate), so a detail page keeps its section and tab marked. During the forced password
      * change there is no menu, no bar and no find box (every link would lead back to the password page): only Sign out.
@@ -295,10 +286,6 @@ final class Context
         $forced = $who !== null && $who->mustChangePassword;
         $roles = $who === null || $forced ? [] : $who->roles;
         $f = Sections::frame($roles, $roles === [] ? [] : $this->badges(), $this->req->path, $this->req->query);
-        $flow = null;
-        if ($f['pagebar'] !== null && $f['pagebar']['flow']) {
-            $flow = FlowCounts::steps($this->db, Sections::visible($roles), $f['here']['tab'] ?? null);
-        }
         return [
             'title' => Words::UI['brand'],
             'active' => '',
@@ -307,10 +294,8 @@ final class Context
             'pagebar' => $f['pagebar'],
             'segments' => $f['segments'],
             'actions' => $f['actions'],
-            'flow' => $flow,
             'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
             'tabs' => $f['phone'],
-            'bell' => $f['bell'],
             'testSystem' => $this->testSystem,
             'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),
         ];

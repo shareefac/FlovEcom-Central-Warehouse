@@ -121,8 +121,8 @@ final class ItemManagementUnitTest extends TestCase
             }
             return [];
         };
-        self::assertSame(['All Products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'));
-        self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
+        self::assertSame(['All products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'));
+        self::assertSame(['All products', 'Barcodes', 'Add item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
         self::assertContains('Repack', $tabs(['warehouse'], 'stock'));
         self::assertNotContains('Repack', $tabs(['viewer'], 'stock'));
         self::assertContains(['label' => Words::NEW['add_item'], 'href' => '/ui/items/new#new'], Sections::frame(['stock_controller'], [], '/ui/items/new')['actions']);

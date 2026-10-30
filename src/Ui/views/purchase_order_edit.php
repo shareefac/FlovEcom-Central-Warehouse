@@ -12,8 +12,7 @@
 // on a phone), the board of products with its headings, the totals on the right and the bar at the bottom that stays on the screen
 // (doc_bar: leave without saving, Save, Confirm), all inside the summary section the tests know.
 ?>
-<p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
-<?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', meta: $isNew ? '' : $stateChip('PO_STATE', 'draft')) ?>
+<?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']], meta: $isNew ? '' : $stateChip('PO_STATE', 'draft')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

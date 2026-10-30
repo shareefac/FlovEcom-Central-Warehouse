@@ -10,7 +10,7 @@
 <?php $bar = $partial('return_bar', ['base' => $base, 'doc' => $doc, 'version' => $version, 'editable' => $editable, 'canWithdraw' => $canWithdraw, 'reverse' => $reverse,
     'canCredit' => $canCredit, 'creditKey' => $creditKey, 'typedCancel' => $typedCancel, 'typedStop' => $typedStop]); ?>
 <div class="doc-head">
-<?= $head((string) $title, intro: $introKey, look: $lookOnly, side: $bar, meta: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' <span class="tag ' . $e(\CW\Ui\Words::tone('CREDIT_STATE', (string) $rec['credit_state'])) . '">' . $word('CREDIT_STATE', (string) $rec['credit_state']) . '</span>' : '')) ?>
+<?= $head((string) $title, intro: $introKey, look: $lookOnly, side: $bar, tag: $claimOnly ? \CW\Ui\Words::RETURNS['claim_tag'] : '', meta: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' <span class="tag ' . $e(\CW\Ui\Words::tone('CREDIT_STATE', (string) $rec['credit_state'])) . '">' . $word('CREDIT_STATE', (string) $rec['credit_state']) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

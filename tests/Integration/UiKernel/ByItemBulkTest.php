@@ -416,7 +416,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame(200, $preview->status, $preview->describe() . implode("\n", self::$log));
         self::assertSame($before, self::snapshot(), 'the preview writes nothing: no row, no changed row and no used-up id in any table (not even a batch)');
         self::assertSame(0, self::batches());
-        self::assertSame('By Item', self::currentTab($preview));
+        self::assertSame('By item', self::currentTab($preview));
         $xp = new \DOMXPath($preview->dom());
         self::assertSame('Preview: confirm suggested matches', self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame('1 will be matched · 2 will wait for a second OK · 7 will be skipped', self::squash($xp->evaluate('string(//p[@class="alert-title"])')));
@@ -485,7 +485,7 @@ final class ByItemBulkTest extends KernelUiTestCase
 
         $result = $web->follow($done);
         self::assertSame(200, $result->status, $result->describe() . implode("\n", self::$log));
-        self::assertSame('By Item', self::currentTab($result), 'the result of a bulk action started on By Item stays under By Item');
+        self::assertSame('By item', self::currentTab($result), 'the result of a bulk action started on By Item stays under By Item');
         $rt = $result->text();
         self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'link', 1), 2, 7), $rt);
         self::assertStringContainsString(Words::BY_ITEM_SKIP['rejected_before'], $rt);

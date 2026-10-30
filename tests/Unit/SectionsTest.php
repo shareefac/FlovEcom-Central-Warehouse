@@ -251,11 +251,11 @@ final class SectionsTest extends TestCase
         self::assertSame(['Home', 'Products', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Approvals', 'Settings'], $sections(['buyer']));
         self::assertSame(['Home', 'Products', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Approvals', 'Settings'], $sections(['purchasing_desk']));
         self::assertSame(['Home', 'Products', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Approvals', 'Settings'], $sections(['reviewer']));
-        self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], $tabs(['buyer'], 'purchasing'));
-        self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs(['purchasing_desk'], 'purchasing'), 'no Reorder for the desk');
-        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs(['reviewer'], 'purchasing'));
+        self::assertSame(['Reorder', 'Purchase orders', 'Invoices', 'Returns', 'Suppliers'], $tabs(['buyer'], 'purchasing'));
+        self::assertSame(['Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], $tabs(['purchasing_desk'], 'purchasing'), 'no Reorder for the desk');
+        self::assertSame(['Reorder', 'Purchase orders', 'Goods in', 'Invoices', 'Returns', 'Suppliers'], $tabs(['reviewer'], 'purchasing'));
         // Pack C: goods in and the stock controller read returns (they pack the goods), not invoices (money).
-        self::assertSame(['Purchase Orders', 'Goods In', 'Returns', 'Suppliers'], $tabs(['goods_in'], 'purchasing'));
+        self::assertSame(['Purchase orders', 'Goods in', 'Returns', 'Suppliers'], $tabs(['goods_in'], 'purchasing'));
         // Pack F (PF5): From the stores, for everyone who reads records.
         self::assertSame(['History', 'From the stores'], $tabs(['buyer'], 'approvals'));
         self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests', 'From the stores'], $tabs(['reviewer'], 'approvals'));
@@ -265,11 +265,11 @@ final class SectionsTest extends TestCase
         self::assertNotSame(Sections::menu(['buyer']), Sections::menu(['purchasing_desk']));
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         // Pack B: Families and Multipacks for everyone who sees products; Add Item for the catalogue team. Matching has its own section (HV3).
-        self::assertSame(['All Products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'), 'no barcodes to decide for a buyer');
-        self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Families', 'Multipacks'], $tabs(['mapper'], 'products'));
-        self::assertSame(['Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates'], $tabs(['mapper'], 'matching'));
-        self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['mapping_lead'], 'products'));
+        self::assertSame(['All products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'), 'no barcodes to decide for a buyer');
+        self::assertSame(['All products', 'Barcodes', 'Add item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
+        self::assertSame(['All products', 'Families', 'Multipacks'], $tabs(['mapper'], 'products'));
+        self::assertSame(['Simple matching', 'Mapping', 'Store products', 'By item', 'New variants', 'Duplicates'], $tabs(['mapper'], 'matching'));
+        self::assertSame(['All products', 'Barcodes', 'Add item', 'Families', 'Multipacks'], $tabs(['mapping_lead'], 'products'));
         self::assertSame([], $tabs(['buyer'], 'matching'), 'no matching for a buyer');
         self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
         // ---- Pack D (docs/decisions.md PD2): Sales is for the people who look at sales, not the matching jobs and not admin ----
@@ -281,9 +281,9 @@ final class SectionsTest extends TestCase
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
         self::assertSame(['Home', 'Products', 'Matching', 'Stock', 'Reports', 'Settings'], $sections(['admin']));
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], $tabs(['admin'], 'settings'));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval rules', 'Reasons', 'System'], $tabs(['admin'], 'settings'));
         self::assertSame(['Home', 'Products', 'Matching', 'Stock', 'Settings'], $sections(['mapper']), 'no Reports without the audit log');
-        self::assertSame(['Company', 'Warehouses', 'Users', 'Approval Rules', 'Reasons', 'System'], $tabs(['buyer'], 'settings'),
+        self::assertSame(['Company', 'Warehouses', 'Users', 'Approval rules', 'Reasons', 'System'], $tabs(['buyer'], 'settings'),
             'Users opens "Roles and permissions" for people who do not manage staff; no Stores without system.view');
         self::assertSame(['Home', 'Products', 'Matching', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Approvals', 'Settings'], $sections(['auditor']));
         self::assertSame(['Home', 'Products', 'Matching', 'Stock', 'Purchasing', 'Sales', 'Reports', 'Approvals', 'Settings'], $sections(['mapping_lead', 'reviewer']),
@@ -393,27 +393,27 @@ final class SectionsTest extends TestCase
         $row = static fn (array $f): array => array_map(static fn (array $t): array => [$t['label'], $t['current']], $f['pagebar']['tabs']);
         $more = static fn (array $f): array => array_column($f['pagebar']['more'], 'label');
         $f = Sections::frame(['stock_controller'], ['barcodes_open' => 2], '/ui/items/cards');
-        self::assertSame([['All Products', true], ['Barcodes', false]], $row($f));
-        self::assertSame(['Add Item', 'Families', 'Multipacks'], $more($f));
+        self::assertSame([['All products', true], ['Barcodes', false]], $row($f));
+        self::assertSame(['Add item', 'Families', 'Multipacks'], $more($f));
         self::assertSame(['/ui/items/new', '/ui/items/families', '/ui/items/packs'], array_column($f['pagebar']['more'], 'href'));
         self::assertSame(0, $f['pagebar']['moreCount']);
         $f = Sections::frame(['stock_controller'], [], '/ui/items/families/12');
-        self::assertSame([['All Products', false], ['Barcodes', false], ['Families', true]], $row($f), 'the page shown is in the row, after the row\'s own');
-        self::assertSame(['Add Item', 'Multipacks'], $more($f));
-        self::assertSame([['All Products', true]], $row(Sections::frame(['buyer'], [], '/ui/items/cards')));
+        self::assertSame([['All products', false], ['Barcodes', false], ['Families', true]], $row($f), 'the page shown is in the row, after the row\'s own');
+        self::assertSame(['Add item', 'Multipacks'], $more($f));
+        self::assertSame([['All products', true]], $row(Sections::frame(['buyer'], [], '/ui/items/cards')));
         self::assertSame(['Families', 'Multipacks'], $more(Sections::frame(['buyer'], [], '/ui/items/cards')));
 
         // Matching: the daily three in the row; By Item, New Variants and Duplicates under More, its count theirs.
         $f = Sections::frame(['mapping_lead'], ['linking_pending' => 3, 'linking_duplicates' => 2], '/ui/match');
-        self::assertSame([['Simple matching', true], ['Mapping', false], ['Store Products', false]], $row($f));
-        self::assertSame(['By Item', 'New Variants', 'Duplicates'], $more($f));
+        self::assertSame([['Simple matching', true], ['Mapping', false], ['Store products', false]], $row($f));
+        self::assertSame(['By item', 'New variants', 'Duplicates'], $more($f));
         self::assertSame([0, 0, 2], array_column($f['pagebar']['more'], 'count'));
         self::assertSame(2, $f['pagebar']['moreCount']);
         self::assertSame(['Matching', Words::SECTION_DESC['matching']], [$f['pagebar']['label'], $f['pagebar']['desc']]);
 
         // Stock: the records in the row; the hand-overs, transfers, reservations, Quality (not built yet) and repacks under More.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
-        self::assertSame([['Overview', true], ['Movements', false], ['Stock In', false], ['Stock Out', false], ['Adjustments', false], ['Counts', false]], $row($f));
+        self::assertSame([['Overview', true], ['Movements', false], ['Stock in', false], ['Stock out', false], ['Adjustments', false], ['Counts', false]], $row($f));
         self::assertSame(['Hand-overs', 'Transfers', 'Reservations', 'Quality', 'Repack'], $more($f));
         self::assertSame([false, false, false, true, false], array_column($f['pagebar']['more'], 'soon'));
         self::assertSame([['Overview', false], ['Movements', false], ['Reservations', true]], $row(Sections::frame(['viewer'], [], '/ui/stock/reservations/12')));
@@ -421,9 +421,9 @@ final class SectionsTest extends TestCase
         self::assertSame(['Reservations', 'Quality'], $more(Sections::frame(['viewer'], [], '/ui/stock')));
 
         // Reports: the audit log under More; admin, who has only it, sees it in the row.
-        self::assertSame(['Audit Log'], $more(Sections::frame(['reviewer'], [], '/ui/reports/low-stock')));
+        self::assertSame(['Audit log'], $more(Sections::frame(['reviewer'], [], '/ui/reports/low-stock')));
         $f = Sections::frame(['admin'], [], '/ui/system/audit');
-        self::assertSame([['Audit Log', true]], $row($f));
+        self::assertSame([['Audit log', true]], $row($f));
         self::assertSame([], $more($f));
         // Purchasing, Approvals and Settings keep every tab in the row.
         foreach ([['reviewer', '/ui/purchasing/orders'], ['reviewer', '/ui/approvals'], ['admin', '/ui/reference/company']] as [$role, $path]) {
@@ -451,10 +451,10 @@ final class SectionsTest extends TestCase
         self::assertSame([true, 5, '/ui/match'], [$matching['current'], $matching['count'], $matching['href']], 'the section counts everything waiting in it');
         self::assertSame('Matching', $f['pagebar']['label']);
         self::assertSame(Words::SECTION_DESC['matching'], $f['pagebar']['desc']);
-        self::assertFalse($f['pagebar']['flow']);
-        self::assertSame([['Simple matching', false, 0], ['Mapping', true, 3], ['Store Products', false, 0]],
+        self::assertArrayNotHasKey('flow', $f['pagebar'], 'no buying-flow strip anywhere (DC5)');
+        self::assertSame([['Simple matching', false, 0], ['Mapping', true, 3], ['Store products', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
-        self::assertSame([['By Item', 0], ['New Variants', 0], ['Duplicates', 2]], array_map(static fn (array $t): array => [$t['label'], $t['count']], $f['pagebar']['more']));
+        self::assertSame([['By item', 0], ['New variants', 0], ['Duplicates', 2]], array_map(static fn (array $t): array => [$t['label'], $t['count']], $f['pagebar']['more']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],
             array_map(static fn (array $s): array => [$s['label'], $s['current'], $s['count'], $s['href']], $f['segments']));
         self::assertSame([[], [], ['queue' => 'pending']], array_column($f['segments'], 'query'), 'To review opens the "By store" overview (U107)');
@@ -469,13 +469,13 @@ final class SectionsTest extends TestCase
         // By Item (U113): under More; on its own pages it is the current tab in the row; its CSV and its picker belong to it, a website
         // product's page to Mapping.
         $byProduct = Sections::frame(['mapper'], [], '/ui/review/products/12/map', ['channel' => 'electrofag']);
-        self::assertSame(['By Item'], array_column(array_filter($byProduct['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
-        self::assertSame('/ui/review/products', array_column($byProduct['pagebar']['tabs'], 'href', 'label')['By Item']);
+        self::assertSame(['By item'], array_column(array_filter($byProduct['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
+        self::assertSame('/ui/review/products', array_column($byProduct['pagebar']['tabs'], 'href', 'label')['By item']);
         self::assertSame([], $byProduct['segments'], 'By Item has no segments');
         // New Variants (U131): its CSV belongs to it, the bulk action and its result page to Mapping.
         $newVariants = Sections::frame(['mapper'], [], '/ui/review/new-variants', ['channel' => 'electrofag']);
-        self::assertSame(['New Variants'], array_column(array_filter($newVariants['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
-        self::assertSame('/ui/review/new-variants', array_column($newVariants['pagebar']['tabs'], 'href', 'label')['New Variants']);
+        self::assertSame(['New variants'], array_column(array_filter($newVariants['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
+        self::assertSame('/ui/review/new-variants', array_column($newVariants['pagebar']['tabs'], 'href', 'label')['New variants']);
         self::assertSame([], $newVariants['segments'], 'New Variants has no segments');
         self::assertSame(['section' => 'matching', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/bulk'));
         self::assertSame(['section' => 'matching', 'tab' => 'mapping', 'page' => 'review'],
@@ -492,8 +492,8 @@ final class SectionsTest extends TestCase
         // Stock: the tab not built yet (Quality) is drawn without a link (under More); Counts is built (pack A2a) and open to the people who
         // read records; Reservations (read only) is for everyone who sees the stock.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
-        self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
-            ['Stock Out', '/ui/stock/out', false, false], ['Adjustments', '/ui/stock/adjustments', false, false], ['Counts', '/ui/stock/counts', false, false]],
+        self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock in', '/ui/stock/in', false, false],
+            ['Stock out', '/ui/stock/out', false, false], ['Adjustments', '/ui/stock/adjustments', false, false], ['Counts', '/ui/stock/counts', false, false]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([['Hand-overs', '/ui/stock/handovers', false], ['Transfers', '/ui/stock/transfers', false], ['Reservations', '/ui/stock/reservations', false],
             ['Quality', null, true], ['Repack', '/ui/stock/repack', false]],
@@ -506,10 +506,9 @@ final class SectionsTest extends TestCase
 
         // The create button: on the list itself, for the people who may create, never on a detail page.
         // PO on one page (docs/decisions.md PX1): "New purchase order" opens the page itself, not a fold of the list.
-        self::assertSame([['label' => 'New purchase order', 'href' => '/ui/purchasing/orders/new'], ['label' => 'New supplier', 'href' => '/ui/purchasing/suppliers/new']],
-            Sections::frame(['buyer'], [], '/ui/purchasing/orders')['actions'], 'the page\'s own first, then the section\'s others (the split button\'s menu)');
-        self::assertSame(['New purchase order', 'New delivery', 'New supplier invoice', 'New credit note', 'New return to a supplier', 'New supplier'],
-            array_column(Sections::frame(['purchasing_manager'], [], '/ui/purchasing/orders')['actions'], 'label'), 'pack C\'s papers among them');
+        self::assertSame([['label' => 'New purchase order', 'href' => '/ui/purchasing/orders/new']],
+            Sections::frame(['buyer'], [], '/ui/purchasing/orders')['actions'], 'the page\'s own only: no second More of the section\'s others (DC4)');
+        self::assertSame(['New purchase order'], array_column(Sections::frame(['purchasing_manager'], [], '/ui/purchasing/orders')['actions'], 'label'));
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/reorder')['actions'], 'no create action of its own: no toolbar button');
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/orders/12')['actions']);
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/orders/new')['actions'], 'the new order\'s page has no create button of its own');
@@ -520,12 +519,11 @@ final class SectionsTest extends TestCase
         self::assertSame([], Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['actions'], 'the new invoice\'s page has no create button of its own');
         self::assertSame(['invoices', 'invoices'], [Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['tab'] ?? null,
             Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['page'] ?? null], 'it keeps Invoices marked');
-        self::assertTrue(Sections::frame(['buyer'], [], '/ui/purchasing/orders')['pagebar']['flow'], 'the buying flow on Purchasing');
         self::assertSame([['label' => 'New delivery', 'href' => '/ui/receiving/new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
         self::assertSame([], Sections::frame(['goods_in'], [], '/ui/receiving/new')['actions'], 'the start page has no create button of its own (GV13)');
         self::assertSame(Sections::frame(['goods_in'], [], '/ui/receiving')['here']['tab'] ?? null, Sections::frame(['goods_in'], [], '/ui/receiving/new')['here']['tab'] ?? null,
             'it keeps Goods In marked');
-        self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
+        self::assertSame(['/ui/people#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
         self::assertSame([], Sections::frame(['auditor'], [], '/ui/people')['actions']);
         self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label')); // Pack J: Arriving
         self::assertTrue(Sections::frame(['goods_in'], [], '/ui/receiving/12/bench')['segments'][1]['current'], 'a delivery\'s bench check is Checking');
