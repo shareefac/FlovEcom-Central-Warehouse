@@ -161,17 +161,31 @@ final class ReportsScreenTest extends KernelUiTestCase
         $page = $web->get('/ui/reports/stock-value');
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $xp = new \DOMXPath($page->dom());
-        $kpis = array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array($xp->query('//main//li[@class="kpi"]/p[@class="kpi-value"]')));
+        // The strip of the approved TP_Report (docs/decisions.md W13.3; it was four tiles: our value, units with and without a cost, another
+        // account's units): value at cost, units on the shelf (18 with a cost + 3 without), items with stock, not sold in the slow days (the
+        // three came in today: none yet). Another account's units and the units without a cost are the lines under their figure.
+        $figs = array_map(static fn (\DOMElement $d): array => [trim((string) $xp->evaluate('string(p[@class="doc-step-label"])', $d)),
+            trim((string) $xp->evaluate('string(p[@class="doc-step-big"])', $d)), trim((string) $xp->evaluate('string(p[@class="step-sub"])', $d))],
+            iterator_to_array($xp->query('//main//section[contains(@class, "rp-figs")]/div')));
         // Alpha: 19 priced units in all, (25 + 20 + 36) / 19 = 4.263158; ours 15 x 4.263158 = 63.95. Gamma: 3 x 1.333333 = 4.00. Beta: no cost.
-        self::assertSame(['£67.95', '18', '3', '4'], $kpis);
+        self::assertSame([[Words::REPORTS['fig_value'], '£67.95', sprintf(Words::REPORTS['fig_theirs_sub'], 4)], [Words::REPORTS['fig_units'], '21', sprintf(Words::REPORTS['fig_no_cost_sub'], 3)],
+            [Words::REPORTS['fig_items'], '3', ''], [sprintf(Words::REPORTS['fig_not_sold'], 60), '£0.00', '']], $figs);
+        self::assertSame(1, $xp->query('//main//header//a[@download and starts-with(@href, "/ui/reports/stock-value.csv")]')->length, 'Download (Excel) at the head\'s right');
+        self::assertStringStartsWith(Words::REPORTS['at_cost'] . ' ', trim((string) $xp->evaluate('string(//main//p[@class="ph-meta"])')), 'at cost, and when, under the heading');
         self::assertSame(['Alpha', 'Gamma', 'Beta'], self::names($page, 'report-value'), 'the biggest value first; a product without a cost last');
         self::assertSame([['15', '£4.26', '£63.95'], ['3', '£1.33', '£4.00'], ['3', Words::REPORTS['no_cost'], '']],
             array_map(static fn (array $r): array => array_slice($r, 1), self::cells($page, 'report-value')));
-        self::assertSame([['Elux', '2', '18', '£67.95', '0'], [Words::REPORTS['no_brand'], '1', '3', '£0.00', '3']],
+        // By brand: TP_Report's Share of our value and the total row (the units without a cost stay in the file and the strip).
+        self::assertSame([['Elux', '2', '18', '£67.95', '100%'], [Words::REPORTS['no_brand'], '1', '3', '£0.00', '0%'], [Words::REPORTS['all_total'], '3', '21', '£67.95', '']],
             self::cells($web->get('/ui/reports/stock-value', ['by' => 'brand']), 'report-brands'));
+        self::assertSame([['Elux', '2', '18', '£67.95', '100%'], [Words::REPORTS['all_total'], '2', '18', '£67.95', '']],
+            self::cells($web->get('/ui/reports/stock-value', ['by' => 'brand', 'q' => 'elu']), 'report-brands'), 'the one search finds a brand');
         $byWh = self::cells($web->get('/ui/reports/stock-value', ['by' => 'warehouse']), 'report-warehouses');
-        self::assertSame(['Main warehouse', Words::REPORTS['ours'], '3', '21', '£67.95', '3'], $byWh[0]);
-        self::assertSame(['Room of VPG 2', Words::REPORTS['not_ours'], '1', '4', '£17.05', '0'], $byWh[1], 'shown, never in our value');
+        self::assertSame(['Main warehouse', Words::REPORTS['ours'], '3', '21', '£67.95', '100%'], $byWh[0]);
+        self::assertSame(['Room of VPG 2', Words::REPORTS['not_ours'], '1', '4', '£17.05', ''], $byWh[1], 'shown, never in our value');
+        self::assertSame([Words::REPORTS['ours_total'], '', '', '21', '£67.95', ''], $byWh[2], 'the total is ours only');
+        $brandCsv = self::csv($web->get('/ui/reports/stock-value.csv', ['by' => 'brand', 'q' => 'elu']));
+        self::assertSame([['brand', 'products', 'units', 'value_gbp', 'units_without_a_cost'], ['Elux', '2', '18', '67.95', '0']], $brandCsv, 'the file holds the same search');
         self::assertSame(['Beta'], self::names($web->get('/ui/reports/stock-value', ['nocost' => '1']), 'report-value'));
         $csv = self::csv($web->get('/ui/reports/stock-value.csv'));
         self::assertSame(['Alpha', '15', '4.263158', '63.95'], [$csv[1][1], $csv[1][3], $csv[1][4], $csv[1][5]]);
@@ -197,10 +211,15 @@ final class ReportsScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['P2 slow'], self::names($page, 'report-slow'), 'no sale for 60 days or more, under 180');
         self::assertSame(['P3 never sold'], self::names($rev->get('/ui/reports/slow-stock', ['show' => 'dead']), 'report-slow'));
+        // The approved TP_Report (W13.6): the two lists are the strip's figures and the Show row's choices, each with its count.
+        self::assertSame([sprintf(Words::REPORTS['show_slow_n'], 1), sprintf(Words::REPORTS['show_dead_n'], 1)], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//main//form[@method="get"]//select[@name="show"]/option'))), 'both lists counted in the one read');
         self::assertSame(['1', '1'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//main//nav[contains(@class, "show-tabs")]//span[@class="count"]'))), 'both lists counted in the one read');
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//main//section[contains(@class, "rp-figs")]//p[@class="doc-step-big"]'))));
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//main//nav[contains(@class, "tabs")]')->length, 'no tab row (DC28)');
         self::assertSame(['P3 never sold'], self::names($rev->get('/ui/reports/slow-stock', ['show' => 'dead', 'page' => '7']), 'report-slow'));
-        self::assertStringContainsString(sprintf(Words::REPORTS['slow_says'], 60, 180), $page->text());
+        self::assertStringContainsString(sprintf(Words::REPORTS['fig_days_sub'], 60), $page->text());
+        self::assertStringContainsString(sprintf(Words::REPORTS['fig_days_sub'], 180), $page->text());
         self::assertStringContainsString(sprintf(Words::REPORTS['figures_at'], '1 Oct 2026, 10:00'), $page->text(), 'when the job last ran, in UK time');
         $dead = self::cells($rev->get('/ui/reports/slow-stock', ['show' => 'dead']), 'report-slow');
         self::assertStringContainsString(Words::REPORTS['never_sold'], $dead[0][2]);
@@ -240,7 +259,9 @@ final class ReportsScreenTest extends KernelUiTestCase
         self::assertSame(2, $xp->query('//main//section[@class="doc-related"]/div[contains(@class, "doc-board")]/table')->length);
         self::assertSame(['period', 'from', 'to', 'store'], array_map(static fn (\DOMElement $el): string => $el->getAttribute('name'),
             iterator_to_array($xp->query('//main//form[@method="get"]/div[@class="tb-state"]//*[self::select or self::input]'))));
-        self::assertSame(1, $xp->query('//main//form[@method="get"]/div[@class="tb-end"]/a[@download and starts-with(@href, "/ui/reports/sales-by-store.csv")]')->length);
+        self::assertSame(1, $xp->query('//main//header//a[@download and starts-with(@href, "/ui/reports/sales-by-store.csv")]')->length, 'the file at the head\'s right (W13.7)');
+        self::assertSame(0, $xp->query('//main//form[@method="get"]//a[@download]')->length);
+        self::assertStringContainsString(Words::REPORTS['never_run'], (string) $xp->evaluate('string(//main//p[@class="ph-meta"])'), 'the days and when: under the heading');
         self::assertSame(1, $xp->query('//main//header//details[@class="help"]')->length, 'what a unit is: the page\'s "?", not a paragraph under the boards');
         self::assertStringContainsString('pack of 3 is 3 units', (string) $xp->evaluate('string(//main//header//details[@class="help"])'));
         $one = $web->get('/ui/reports/sales-by-store', ['store' => (string) $efg->channelId]);

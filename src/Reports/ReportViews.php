@@ -115,21 +115,22 @@ final class ReportViews
     // ---- Stock Value ---------------------------------------------------------------------------------------------------------------
 
     /**
-     * The figures over the tab: our stock's value at average cost, its units with a cost and without one, and the units in another
-     * account's warehouses (left out of our value).
+     * The figures over the tab: our stock's value at average cost, its units with a cost and without one, how many items have some
+     * (W13.3: the approved TP_Report's "Items with stock"), and the units in another account's warehouses (left out of our value).
      *
-     * @return array{value: string, costed: int, not_costed: int, theirs: int}
+     * @return array{value: string, costed: int, not_costed: int, items: int, theirs: int}
      */
     public function valueFigures(): array
     {
-        $out = ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'theirs' => 0];
+        $out = ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'items' => 0, 'theirs' => 0];
         foreach ($this->db->all('SELECT w.stock_owner, COALESCE(SUM(' . self::VALUE . '), 0) AS value, COALESCE(SUM(IF(r.in_units > 0, b.on_hand, 0)), 0) AS costed, '
-            . 'COALESCE(SUM(IF(r.in_units > 0, 0, b.on_hand)), 0) AS not_costed FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
+            . 'COALESCE(SUM(IF(r.in_units > 0, 0, b.on_hand)), 0) AS not_costed, COUNT(DISTINCT b.sku_id) AS items FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
             . 'LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.stock_owner') as $r) {
             if ($r['stock_owner'] === 'own') {
                 $out['value'] = (string) $r['value'];
                 $out['costed'] = (int) $r['costed'];
                 $out['not_costed'] = (int) $r['not_costed'];
+                $out['items'] = (int) $r['items'];
             } else {
                 $out['theirs'] += (int) $r['costed'] + (int) $r['not_costed'];
             }
@@ -154,6 +155,19 @@ final class ReportViews
             . 'LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0' . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
             . ' GROUP BY s.id, s.code, s.name, s.brand, r.in_units, r.in_value';
         return $this->paged($inner, $params, $noCost ? 'units DESC, name, sku_id' : 'value DESC, name, sku_id', $page, $limit);
+    }
+
+    /**
+     * The value of our stock that has not sold for $days days or more (W13.3: the approved TP_Report's "Not sold in … days"): the same
+     * products as Slow Stock's two lists together (their last sale, else the day stock first came in, at least $days before $today; a
+     * product the report job has not read yet is left out), each at its average cost, added up as every other total here.
+     */
+    public function notSoldValue(string $today, int $days): string
+    {
+        $cut = (new \DateTimeImmutable($today))->modify("-{$days} days")->format('Y-m-d');
+        return (string) $this->db->value('SELECT COALESCE(SUM(' . self::VALUE . '), 0) FROM stock_balance b '
+            . "JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN report_item r ON r.sku_id = b.sku_id "
+            . 'WHERE b.on_hand > 0 AND COALESCE(r.last_sale_on, r.first_in_on) <= ?', [$cut]);
     }
 
     /** @return list<array{brand: ?string, products: int, units: int, value: string, not_costed: int}> our stock by brand, the biggest value first */

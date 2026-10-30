@@ -180,7 +180,8 @@ final class UiTemplatesTest extends TestCase
     public function testTheStartAndSettingsTablesTurnIntoCardsOnAPhone(): void
     {
         $templates = self::templates();
-        foreach (['reviews', 'documents', 'document', 'settings', 'reasons', 'series', 'people', 'person'] as $name) {
+        // Settings, reasons and numbering are TP_Settings' rows since wave w13 (no table: UiTemplatesTest::testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns).
+        foreach (['reviews', 'documents', 'document', 'people', 'person'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/<table\b[^>]*>/i', $src, $tables);
             self::assertNotSame([], $tables[0], $name);
@@ -1475,7 +1476,7 @@ final class UiTemplatesTest extends TestCase
                 self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
             }
         }
-        self::assertGreaterThanOrEqual(15, $tabs, 'every tab row was read (fewer since the boards\' Show menus replaced the show tabs, W11.3, W11.8)');
+        self::assertGreaterThanOrEqual(11, $tabs, 'every tab row was read (fewer since the boards\' and the reports\' Show menus replaced the show tabs, W11.3, W11.8, W13.3-W13.6)');
         $templates = self::templates();
         foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
@@ -1731,7 +1732,7 @@ final class UiTemplatesTest extends TestCase
                 "\$partial('doc_party'", 'class="stack list board doc-lines sales-units"', '<td class="c-status doc-st ', '<section class="doc-related"',
                 '<div class="grp-block doc-group info">', 'class="table-wrap doc-board" id="u-'],
             'sales_order_bar' => ['<div class="doc-actions" role="group"'],
-            'report_sales' => ['<form class="toolbar" method="get"', '<div class="tb-state">', '<label class="tb-day">', '<div class="tb-end">',
+            'report_sales' => ['<form class="toolbar" method="get"', '<div class="tb-state">', '<label class="tb-day">', "\$bar = \$partial('report_bar'", 'side: $bar',
                 '<section class="doc-progress rp-figs"', '<section class="doc-related"', '<div class="table-wrap doc-board info">', 'class="stack list board doc-list report-sales"',
                 'class="stack list board doc-list report-days"', '<tr class="grp-foot">'],
         ];
@@ -1775,6 +1776,12 @@ final class UiTemplatesTest extends TestCase
             // The Products pages (wave w11, docs/decisions.md W11): the same rule.
             'item_cards' => ['item_cards'], 'item_new' => ['item_new'], 'items_by_hand' => ['items_by_hand'], 'families' => ['families'], 'family' => ['family', 'family_bar'],
             'packs' => ['packs'], 'pack_links' => ['pack_links'], 'barcode_reviews' => ['barcode_reviews'],
+            // Reports, settings and system (wave w13, docs/decisions.md W13): the same rule.
+            'report_value' => ['report_value', 'report_bar'], 'report_store' => ['report_store'], 'report_low' => ['report_low'], 'report_slow' => ['report_slow'],
+            'report_sales' => ['report_sales'], 'audit' => ['audit'], 'settings' => ['settings'], 'setting' => ['setting'], 'series' => ['series'],
+            'reasons' => ['reasons'], 'reason' => ['reason'], 'warehouses' => ['warehouses'], 'warehouse' => ['warehouse'], 'approvals' => ['approvals'],
+            'access' => ['access'], 'access_permission' => ['access_permission'], 'company' => ['company'], 'company_form' => ['company_form'],
+            'people' => ['people'], 'person' => ['person', 'person_bar'], 'sites' => ['sites'], 'integrity' => ['integrity'],
         ];
         $tagRe = '(?:<\?(?:php|=).*?\?>|[^>])*>';
         $counts = [];
@@ -1818,7 +1825,9 @@ final class UiTemplatesTest extends TestCase
         }
         self::assertSame(['supplier' => 5, 'supplier_form' => 1, 'supplier_returns' => 2, 'supplier_return' => 6, 'invoices' => 1, 'incidents' => 1, 'reorder' => 1,
             'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1,
-            'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 3, 'packs' => 1, 'barcode_reviews' => 1], array_filter($counts), 'every guarded form was read');
+            'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 3, 'packs' => 1, 'barcode_reviews' => 1,
+            'settings' => 1, 'setting' => 1, 'reasons' => 1, 'reason' => 4, 'warehouses' => 1, 'warehouse' => 7, 'approvals' => 1, 'access_permission' => 1,
+            'company' => 2, 'company_form' => 1, 'people' => 1, 'person' => 5], array_filter($counts), 'every guarded form was read');
     }
 
     /**
@@ -1910,6 +1919,94 @@ final class UiTemplatesTest extends TestCase
                 self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php'] ?? ''), substr_count($t[$name . '.php'] ?? '', '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
             }
         }
+    }
+
+    /**
+     * Reports, settings and system on the approved patterns (wave w13; docs/decisions.md W13.1-W13.19): the reports and the audit log are
+     * TP_Report (the head's Download, the as-of line its `meta`, the figures strip, the toolbar, one board with its blue edge and its total row),
+     * Settings' pages are TP_Settings (cards of rows, each saved on its own; the sidebar holds the section's pages, DC28), Users a board and a
+     * user a record page, Stores a board with each store's part. No tab row, no KPI tiles, no table where the shell has rows.
+     */
+    public function testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $pins = [
+            'report' => ['<div class="doc-head">', "\$partial('report_bar', ['href' => ", 'side: $bar', '<form class="toolbar" method="get"', '<div class="tb-state">',
+                '<button type="submit" class="btn sm">', 'class="table-wrap doc-board info"', 'class="stack list board doc-list '],
+            'figures' => ['<section class="doc-progress rp-figs"', '<p class="doc-step-label">', '<p class="doc-step-big">'],
+            'search' => ['<div class="tb-search">', '<input id="tb-q" type="search"'],
+            'more' => ['<details class="more tb-more">', '<a class="menu-item"'],
+            'shell' => ['<div class="set-list">', '<section class="set-card', '<div class="set-k">', '<p class="set-k'],
+            'rows' => ['class="set-row', '<div class="set-v">'],
+            'fold' => ['<details class="set-fold', '<summary class="btn">'],
+            'history' => ['<section class="set-card history"', "\$partial('config_history'"],
+            'record' => ['back: [', '<div class="set-row set-fact">'],
+            'board' => ['<div class="grp-block doc-group ', '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-', '<span class="grp-count">',
+                '<div class="table-wrap doc-board" id="g-', 'class="c-status doc-st ', '<a class="o-name row-link"'],
+            'page' => ['<div class="doc-head">', 'side: $bar', "back: ['/ui/people'", '<section class="doc-progress rp-figs"', '<article class="doc-view"',
+                "\$partial('doc_party'", '<section class="doc-related"'],
+        ];
+        $pages = [
+            'report_value' => ['report', 'figures', 'search', 'more'], 'report_store' => ['report', 'figures', 'search', 'more'], 'report_low' => ['report', 'figures', 'search'],
+            'report_slow' => ['report', 'figures', 'search'], 'report_sales' => ['report', 'figures'], 'audit' => ['report', 'search', 'more'],
+            'settings' => ['shell', 'rows', 'search'], 'setting' => ['shell', 'history', 'record'], 'series' => ['shell', 'rows'], 'reasons' => ['shell', 'rows'],
+            'reason' => ['shell', 'rows', 'fold', 'history', 'record'], 'warehouses' => ['shell', 'rows'], 'warehouse' => ['shell', 'rows', 'fold', 'history', 'record'],
+            'approvals' => ['shell', 'fold'], 'access' => ['shell', 'rows'], 'access_permission' => ['shell', 'history', 'record'], 'company' => ['shell', 'rows'],
+            'integrity' => ['shell', 'rows'], 'people' => ['board', 'search', 'more'], 'person' => ['page'], 'sites' => ['board'],
+        ];
+        foreach ($pages as $name => $patterns) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($patterns as $p) {
+                foreach ($pins[$p] as $part) {
+                    self::assertStringContainsString($part, $src, "{$name}: the {$p} pattern's {$part}");
+                }
+            }
+            foreach (['class="kpis', 'class="home-tiles"', 'show-tabs', 'class="tb-pop"', 'ico-filter', '<nav class="tabs', 'class="see-also"', '<p class="crumbs"',
+                '<dl class="wide', 'class="filters"', 'class="head-help"', 'class="card rule"', 'class="card job', 'company-summary"><h2', '<h3>'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            if (in_array('shell', $patterns, true)) {
+                self::assertStringNotContainsString('<table', $src, "{$name}: the settings shell has rows, not a table (a History is the partial's)");
+                foreach (["\$word('SETTINGS_PAGE', 'settings_text')", "\$word('SETTINGS_PAGE', 'reasons_text')", "\$word('SETTINGS_PAGE', 'series_text')",
+                    "\$word('APPROVALS', 'records_text')", "\$word('APPROVALS', 'loosen_rule')", "\$word('WAREHOUSES', 'tip')", "\$word('ACCESS', 'rule_own')"] as $help) {
+                    self::assertStringNotContainsString('<p class="muted"><?= ' . $help, $src, "{$name}: no help paragraph: a page's own words are its \"?\"");
+                }
+            }
+            if (in_array('report', $patterns, true)) {
+                self::assertSame(1, substr_count($src, '<div class="tb-state">'), "{$name}: one Show row");
+                self::assertStringNotContainsString('<p class="note">' . "<?= \$word('REPORTS'", $src, "{$name}: no note under the toolbar");
+                self::assertStringNotContainsString('download><span class="ico ico-export"', $src, "{$name}: the file is the head's");
+            }
+            foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset', 'nav', 'ul', 'select'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+        // The head's file: one plain bordered button (TP_Report's "Download (Excel)"), not a ghost.
+        self::assertStringContainsString('<a class="btn" href="<?= $e($href) ?>" title="<?= $word(\'REPORTS\', \'download_title\') ?>" download>', $t['report_bar.php']);
+        // Stock value: Group by (item, brand, warehouse) in the Show row; Share and the total row on brand and warehouse.
+        self::assertStringContainsString('<select id="tb-by" name="by">', $t['report_value.php']);
+        self::assertSame(2, substr_count($t['report_value.php'], '<meter class="rp-share" min="0" max="100"'));
+        self::assertSame(2, substr_count($t['report_value.php'], '<tr class="grp-foot">'));
+        // Low and slow stock: the two lists are the Show choices with their counts (the tab row went).
+        self::assertStringContainsString("\$say('REPORTS', 'show_none_n', \$counts['out'])", $t['report_low.php']);
+        self::assertStringContainsString("\$say('REPORTS', 'show_dead_n', \$counts['dead'])", $t['report_slow.php']);
+        // Rules and numbers: a row's own form posts to the setting's own route with its fields, its Save plain; "agreed" goes as it is.
+        self::assertStringContainsString('<form method="post" action="/ui/reference/settings/setting" class="set-row<?php if', $t['settings.php']);
+        self::assertStringContainsString('data-unsaved="1" data-unsaved-text="<?= $word(\'DOC\', \'unsaved\') ?>" data-leaves="1">', $t['settings.php']);
+        foreach (['name="key"', 'name="seen"', 'name="agreed" value="1"', 'name="value"', 'name="reason" minlength="3" maxlength="500" required'] as $field) {
+            self::assertStringContainsString($field, $t['settings.php'], "settings: the row sends {$field} as the setting's page does");
+        }
+        self::assertStringContainsString("<?php if (\$s['agreed']): ?>\n    <input type=\"hidden\" name=\"agreed\" value=\"1\">", $t['settings.php'], 'agreed as it is now: a row never changes it');
+        self::assertStringContainsString('<button type="submit" class="btn"><?= $word(\'SETTINGS_PAGE\', \'save\') ?></button>', $t['settings.php']);
+        self::assertStringNotContainsString('btn primary', $t['settings.php'], 'a row\'s Save is plain: no main button repeated row by row');
+        // A user: the account's actions under the head's More, each with its tick, posting where they did.
+        foreach (['/active', '/sheet', '/authenticator', '/password', '/sign-out'] as $route) {
+            self::assertStringContainsString("'/ui/people/' . \$person['id'] . '{$route}'", $t['person_bar.php'], "person_bar: {$route}");
+        }
+        self::assertStringContainsString('<details class="more">', $t['person_bar.php']);
+        self::assertStringNotContainsString('btn primary', $t['person_bar.php']);
+        // Stores: still no form.
+        self::assertStringNotContainsString('<form', $t['sites.php']);
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

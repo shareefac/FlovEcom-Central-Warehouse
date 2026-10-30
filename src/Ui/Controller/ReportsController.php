@@ -180,8 +180,12 @@ final class ReportsController
         $f = ['by' => in_array($req->param('by'), ReportViews::VALUE_BY, true) ? (string) $req->param('by') : 'product', 'q' => self::text($req->param('q')),
             'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1];
         $products = $f['by'] === 'product' ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $csv ? null : ReportViews::PAGE) : null;
-        $brands = $f['by'] === 'brand' ? $views->valueByBrand() : [];
-        $warehouses = $f['by'] === 'warehouse' ? $views->valueByWarehouse() : [];
+        // The one search finds a brand or an item (the approved TP_Report, W13.3): grouped by brand or by warehouse, the rows whose name
+        // holds the words (the page and its file alike); by item, the item search as before.
+        $holds = static fn (?string $name): bool => $f['q'] === '' || mb_stripos((string) $name, $f['q']) !== false;
+        $brands = $f['by'] === 'brand' ? array_values(array_filter($views->valueByBrand(),
+            static fn (array $b): bool => $holds($b['brand'] ?? Words::REPORTS['no_brand']))) : [];
+        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($views->valueByWarehouse(), static fn (array $w): bool => $holds($w['name']))) : [];
         if ($csv) {
             if ($products !== null) {
                 $out = new CsvWriter([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units', 'number'], ['average_cost_gbp', 'number'], ['value_gbp', 'number']]);
@@ -203,16 +207,37 @@ final class ReportsController
             }
             return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'stock-value-by-' . $f['by'] . '.csv');
         }
-        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['by'] === 'product' ? $f['q'] : null, 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null];
+        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null];
+        $slowDays = Settings::number($ctx->db, 'reports.slow_after_days', 60);
+        $figures = $views->valueFigures();
+        // Each brand's or our warehouse's share of our stock value (whole percent, for the bar), and the shown rows added up (W13.3; the
+        // total row of the approved TP_Report). Pennies, so the total is exact; another account's warehouse has no share and no part in it.
+        $pence = static fn (string $v): int => (int) round((float) $v * 100);
+        $whole = $pence($figures['value']);
+        $share = static fn (array $r): ?int => ($r['ours'] ?? true) && $whole > 0 ? (int) round($pence($r['value']) * 100 / $whole) : null;
+        $sum = static function (array $rows) use ($pence): array {
+            $t = ['products' => 0, 'units' => 0, 'pence' => 0];
+            foreach ($rows as $r) {
+                if ($r['ours'] ?? true) {
+                    $t = ['products' => $t['products'] + $r['products'], 'units' => $t['units'] + $r['units'], 'pence' => $t['pence'] + $pence($r['value'])];
+                }
+            }
+            return ['products' => $t['products'], 'units' => $t['units'], 'value' => number_format($t['pence'] / 100, 2, '.', '')];
+        };
+        $brands = array_map(static fn (array $b): array => $b + ['share' => $share($b)], $brands);
+        $warehouses = array_map(static fn (array $w): array => $w + ['share' => $share($w)], $warehouses);
         return $ctx->page('report_value', [
-            'f' => $f, 'figures' => $views->valueFigures(),
+            'f' => $f, 'figures' => $figures,
+            'sum' => $f['by'] === 'brand' ? $sum($brands) : $sum($warehouses),
+            // "Not sold in N days" (W13.3): N is Slow Stock's own setting, so the figure and that report's lists agree.
+            'slowDays' => $slowDays, 'notSold' => $views->notSoldValue(ReportRefresh::ukDay(Clock::db(Clock::now())), $slowDays),
             'rows' => $products === null ? [] : array_map(static fn (array $r): array => ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'],
                 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'], 'units' => (int) $r['units'],
                 'avg' => $r['avg_cost'] === null ? null : (string) $r['avg_cost'], 'value' => $r['avg_cost'] === null ? null : (string) $r['value']], $products['rows']),
             'brands' => $brands, 'warehouses' => $warehouses,
             'total' => $products['total'] ?? 0, 'page_no' => $products['page'] ?? 1, 'pages' => $products['pages'] ?? 1,
-            'tabs' => array_map(static fn (string $by): array => ['by' => $by, 'href' => Html::url('/ui/reports/stock-value', ['by' => $by === 'product' ? null : $by]),
-                'current' => $by === $f['by']], ReportViews::VALUE_BY),
+            'groupings' => ReportViews::VALUE_BY,
+            'filtered' => $f['q'] !== '' || $f['nocost'],
             'csv_link' => Html::url('/ui/reports/stock-value.csv', $query),
             'nocost_link' => Html::url('/ui/reports/stock-value', ['nocost' => '1']),
             'all_link' => Html::url('/ui/reports/stock-value'),

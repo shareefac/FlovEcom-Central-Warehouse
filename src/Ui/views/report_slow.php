@@ -1,21 +1,36 @@
-<?= $head(\CW\Ui\Words::MENU['slow_stock'], intro: 'slow_stock') ?>
+<?php
+// Reports › Slow stock, a report (the approved TP_Report of 29 Oct 2026, pattern 5; docs/decisions.md W13.6): the heading with when the
+// sales were last brought up to date under it, the list's file (Download (Excel)) at its right and what a sale is under its "?"; the figures
+// strip (slow, dead, each with its days); one search (a product) and the Show row (slow or dead, each with its count) with its Show button;
+// then the list as one board with its blue edge, the longest without a sale first (with its value for whoever may see money).
+$bar = $partial('report_bar', ['href' => $csv_link]);
+?>
+<div class="doc-head">
+<?= $head(\CW\Ui\Words::MENU['slow_stock'], intro: 'slow_stock', more: \CW\Ui\Words::REPORTS['sale_means'], meta: $e($asOf), side: $bar) ?>
+</div>
+
+<section class="doc-progress rp-figs" aria-label="<?= $word('REPORTS', 'slow_figures') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'show_slow') ?></p><p class="doc-step-big"><?= $n($counts['slow']) ?></p><p class="step-sub"><?= $say('REPORTS', 'fig_days_sub', $slowDays) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'show_dead') ?></p><p class="doc-step-big"><?= $n($counts['dead']) ?></p><p class="step-sub"><?= $say('REPORTS', 'fig_days_sub', $deadDays) ?></p></div>
+</section>
+
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <input type="hidden" name="show" value="<?= $e($f['show']) ?>">
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPORTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
-  <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
-  <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPORTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPORTS', 'find') ?>"></div>
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('REPORTS', 'show') ?></label>
+    <select id="tb-show" name="show">
+      <option value=""<?php if ($f['show'] === 'slow'): ?> selected<?php endif; ?>><?= $say('REPORTS', 'show_slow_n', $counts['slow']) ?></option>
+      <option value="dead"<?php if ($f['show'] === 'dead'): ?> selected<?php endif; ?>><?= $say('REPORTS', 'show_dead_n', $counts['dead']) ?></option>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
 </form>
-<p class="note"><?= $say('REPORTS', 'slow_says', $slowDays, $deadDays) ?> <?= $word('REPORTS', 'sale_means') ?> <?= $e($asOf) ?></p>
-<nav class="tabs show-tabs" aria-label="<?= $word('REPORTS', 'show') ?>">
-  <a class="tab"<?php if ($f['show'] === 'slow'): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q']]) ?>"<?php endif; ?>><span><?= $word('REPORTS', 'show_slow') ?></span><span class="count"><?= $n($counts['slow']) ?></span></a>
-  <a class="tab"<?php if ($f['show'] === 'dead'): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q'], 'show' => 'dead']) ?>"<?php endif; ?>><span><?= $word('REPORTS', 'show_dead') ?></span><span class="count"><?= $n($counts['dead']) ?></span></a>
-</nav>
 
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['no_slow'], \CW\Ui\Words::REPORTS['no_slow_text']) ?>
 <?php else: ?>
-<div class="table-wrap">
-<table class="stack list report-slow">
+<div class="table-wrap doc-board info">
+<table class="stack list board doc-list report-slow">
   <thead>
     <tr>
       <th scope="col" class="c-item"><?= $word('REPORTS', 'product') ?></th>
@@ -23,7 +38,7 @@
       <th scope="col"><?= $word('REPORTS', 'last_sale') ?></th>
       <th scope="col" class="num c-key"><?= $word('REPORTS', 'days_since') ?></th>
 <?php if ($showValue): ?>
-      <th scope="col" class="num"><?= $word('REPORTS', 'value') ?></th>
+      <th scope="col" class="num"><?= $word('REPORTS', 'value_at_cost') ?></th>
 <?php endif; ?>
     </tr>
   </thead>
@@ -35,7 +50,7 @@
       <td data-label="<?= $word('REPORTS', 'last_sale') ?>"><?php if ($r['last_sale'] === null): ?><span class="muted"><?= $word('REPORTS', 'never_sold') ?></span><?php if ($r['since'] !== null): ?> · <?= $word('REPORTS', 'in_stock_since') ?> <?= $day($r['since']) ?><?php endif; ?><?php else: ?><?= $day($r['last_sale']) ?><?php endif; ?></td>
       <td class="num c-key" data-label="<?= $word('REPORTS', 'days_since') ?>"><?= $n($r['days']) ?></td>
 <?php if ($showValue): ?>
-      <td class="num" data-label="<?= $word('REPORTS', 'value') ?>"><?= $money($r['value']) ?></td>
+      <td class="num" data-label="<?= $word('REPORTS', 'value_at_cost') ?>"><?= $money($r['value']) ?></td>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

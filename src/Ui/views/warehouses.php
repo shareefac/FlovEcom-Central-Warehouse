@@ -1,39 +1,20 @@
+<?php
+// Settings › Warehouses, on the settings shell (the approved TP_Settings of 29 Oct 2026, pattern 6; docs/decisions.md W13.12): the heading
+// (whose stock: its "?") with "+ New warehouse" at its right for whoever changes them (its form opens here, `#new`); then a card of the
+// warehouses in use and one of those switched off, a row each: its name (its page: the name and note, whose stock, whether websites sell
+// from it, switching it off, its places inside, its History), whether websites sell from it and whose stock it holds, its places, and at
+// the right what is in the building.
+?>
 <?= $head(\CW\Ui\Words::MENU['warehouses'], intro: 'warehouses', look: $lookOnly, aside: $explain('stock_owner', \CW\Ui\Words::WAREHOUSES['owner'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
-<div class="table-wrap">
-<table class="stack list warehouses">
-  <thead>
-    <tr>
-      <th scope="col"><?= $word('WAREHOUSES', 'name') ?></th>
-      <th scope="col"><?= $word('WAREHOUSES', 'status') ?></th>
-      <th scope="col"><?= $word('WAREHOUSES', 'sold_from') ?></th>
-      <th scope="col"><?= $word('WAREHOUSES', 'owner') ?></th>
-      <th scope="col"><?= $word('WAREHOUSES', 'stock') ?></th>
-      <th scope="col"><?= $word('WAREHOUSES', 'places') ?></th>
-    </tr>
-  </thead>
-  <tbody>
-<?php foreach ($warehouses as $w): ?>
-    <tr class="<?php if ($w['is_active']): ?>done<?php else: ?>inactive off<?php endif; ?>">
-      <th scope="row" class="c-head"><a class="o-name" href="<?= $e($w['href']) ?>"><?= $e($w['name']) ?></a> <small class="muted"><code><?= $e($w['code']) ?></code></small></th>
-      <td class="c-status"><?php if ($w['is_active']): ?><?= $chip('done', \CW\Ui\Words::WAREHOUSES['status_on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::WAREHOUSES['status_off']) ?><?php endif; ?></td>
-      <td data-label="<?= $word('WAREHOUSES', 'sold_from') ?>"><?php if (!$w['is_sellable']): ?><?= $word('WAREHOUSES', 'no') ?><?php elseif ($w['selling'] === []): ?><?= $word('WAREHOUSES', 'yes_no_site') ?><?php else: ?><?= $say('WAREHOUSES', 'yes_sites', implode(', ', $w['selling'])) ?><?php endif; ?></td>
-      <td data-label="<?= $word('WAREHOUSES', 'owner') ?>"><?php if ($w['stock_owner'] === 'other'): ?><?= $say('WAREHOUSES', 'theirs', (string) $w['owner_entity']) ?><?php else: ?><?= $word('WAREHOUSES', 'ours') ?><?php endif; ?></td>
-      <td data-label="<?= $word('WAREHOUSES', 'stock') ?>" class="num"><?= $say('WAREHOUSES', 'stock_line', $w['stock']['on_hand'], $w['stock']['items']) ?></td>
-      <td data-label="<?= $word('WAREHOUSES', 'places') ?>" class="num"><?= $n($w['places']['active']) ?></td>
-    </tr>
-<?php endforeach; ?>
-  </tbody>
-</table>
-</div>
 <?php if ($canEdit): ?>
-<p class="muted"><?= $word('WAREHOUSES', 'tip') ?></p>
 <details class="fold add-warehouse drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('WAREHOUSES', 'add_title') ?></summary>
-  <form class="record" method="post" action="/ui/reference/warehouses">
+  <form class="record" method="post" action="/ui/reference/warehouses" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <p class="hint"><?= $word('WAREHOUSES', 'tip') ?></p>
     <label><?= $word('WAREHOUSES', 'wh_name') ?>
       <input type="text" name="name" value="<?= $e($typed['name']) ?>" maxlength="100" required<?php if ($errorCode === 'bad_name'): ?> aria-invalid="true"<?php endif; ?>>
     </label>
@@ -65,3 +46,24 @@
   </form>
 </details>
 <?php endif; ?>
+<div class="set-list">
+<?php foreach ([true, false] as $on): ?>
+<?php if ($on || array_filter($warehouses, static fn (array $x): bool => !$x['is_active']) !== []): ?>
+<section class="set-card warehouses" aria-labelledby="wh-<?php if ($on): ?>on<?php else: ?>off<?php endif; ?>-h">
+  <h2 id="wh-<?php if ($on): ?>on<?php else: ?>off<?php endif; ?>-h"><?php if ($on): ?><?= $word('WAREHOUSES', 'status_on') ?><?php else: ?><?= $word('WAREHOUSES', 'status_off') ?><?php endif; ?></h2>
+<?php foreach ($warehouses as $w): ?>
+<?php if ((bool) $w['is_active'] === $on): ?>
+  <div class="set-row<?php if (!$on): ?> unused<?php endif; ?>" data-code="<?= $e($w['code']) ?>">
+    <div class="set-k">
+      <a class="set-kt" href="<?= $e($w['href']) ?>"><?= $e($w['name']) ?></a> <code><?= $e($w['code']) ?></code>
+      <p class="set-kd"><?= $word('WAREHOUSES', 'sold_from') ?>: <?php if (!$w['is_sellable']): ?><?= $word('WAREHOUSES', 'no') ?><?php elseif ($w['selling'] === []): ?><?= $word('WAREHOUSES', 'yes_no_site') ?><?php else: ?><?= $say('WAREHOUSES', 'yes_sites', implode(', ', $w['selling'])) ?><?php endif; ?> · <?= $word('WAREHOUSES', 'owner') ?>: <?php if ($w['stock_owner'] === 'other'): ?><?= $say('WAREHOUSES', 'theirs', (string) $w['owner_entity']) ?><?php else: ?><?= $word('WAREHOUSES', 'ours') ?><?php endif; ?></p>
+      <p class="set-kh"><?= $word('WAREHOUSES', 'places') ?>: <?= $n($w['places']['active']) ?></p>
+    </div>
+    <div class="set-v"><span class="muted"><?= $word('WAREHOUSES', 'stock') ?></span> <span class="set-val"><?= $say('WAREHOUSES', 'stock_line', $w['stock']['on_hand'], $w['stock']['items']) ?></span></div>
+  </div>
+<?php endif; ?>
+<?php endforeach; ?>
+</section>
+<?php endif; ?>
+<?php endforeach; ?>
+</div>

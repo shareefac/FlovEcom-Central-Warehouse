@@ -1053,6 +1053,34 @@ The shared code follows the approved mockups (section A of `runs/dsaudit_finding
   `KernelUiTestCase::sectionTabs()`, `moreTabs()`, `segments()` read the sidebar's tree. A new page: no `<p class="lede">` of its own, no
   create button in its toolbar, its rare controls under the toolbar's More, no tab row (add it to `Sections::MAP`: it shows in the sidebar).
 
+### Reports, settings and system on the approved patterns (`docs/decisions.md` W13)
+
+Every page keeps its address, its routes and its forms; only the layout follows the pattern (1 board, 2 record, 5 report, 6 settings).
+
+| Page | Template (+ partials) | Pattern |
+|---|---|---|
+| `/ui/reports/stock-value`, `/stock-by-store`, `/low-stock`, `/slow-stock`, `/sales-by-store` | `report_value`, `report_store`, `report_low`, `report_slow`, `report_sales` (+ `report_bar`) | 5 report: Download (Excel) in the head, the as-of line its `meta`, the strip, the toolbar, one board `.doc-board.info` with `tr.grp-foot` |
+| `/ui/system/audit` | `audit` (+ `report_bar`) | 5 report: the record number the search, the rest the Show row |
+| `/ui/reference/settings` and a setting | `settings`, `setting` | 6 settings: a card per topic, a row per setting; a simple value saved in its row through `/ui/reference/settings/setting` (the setting's own fields) |
+| `/ui/reference/series`, `/reasons` (+ a reason), `/warehouses` (+ a warehouse), `/company` (+ edit), `/approvals`, `/access` (+ a task) | `series`, `reasons`, `reason`, `warehouses`, `warehouse`, `company`, `company_form`, `approvals`, `access`, `access_permission` | 6 settings: cards of rows, each change under its row's Change, the History last |
+| `/ui/people`, a user | `people`, `person` (+ `person_bar`) | 1 board (`q`, `show`), 2 record page (the account's actions under the head's More) |
+| `/ui/system/sites`, `/ui/system/checks` | `sites`, `integrity` | 1 board + each store's part; 6 settings |
+
+The classes it added (CSS: the "w13" block of `app.css`); a new Settings page uses them:
+
+| Piece | Class | Notes |
+|---|---|---|
+| The column of cards | `div.set-list` > `section.set-card` (> `h2`, or `div.set-head` with `h2` and `.set-head-end` for its More) | 16 px apart; `.set-card > p` padded; `.set-card > .table-wrap` without a second box; `.set-body` for a form or a list |
+| A row | `.set-row` (a `div`, an `article`, or the row's own `form`) > `.set-k` (`.set-kt`, `.set-kd`, `.set-kh`) + `.set-v` | `.unused` greys it; a value box `input.set-in` (`.wide` for text), the reason `input.set-why`; a plain `.btn` Save |
+| A change of several fields | `.set-row > details.set-fold` > `summary.btn` + `form.record` / `.set-fold-body` | at the row's right closed, the card's width open |
+| A record's facts | `.set-row.set-fact` | the label at the left, the value at the right |
+| A report's share | `meter.rp-share` + its percent | the board's blue, 8 px |
+
+- A Settings page's sections are the sidebar's sub-items (DC28): no in-page section list. Every POST form with a field to type carries
+  `data-unsaved` + `data-unsaved-text`, and on a page with one every form carries `data-leaves` (W9.15).
+- Tests: `UiTemplatesTest::testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns` (the templates),
+  `tests/Integration/UiKernel/ReportsSettingsPatternsScreensTest.php` (the pages as served).
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

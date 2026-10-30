@@ -415,33 +415,38 @@ final class SupplierScreensTest extends KernelUiTestCase
         // The approval rules have their own page since 0019 (Y9): one place for one thing.
         $rules = [...array_keys(\CW\Admin\ApprovalRules::SWITCHES), ...array_keys(\CW\Admin\ApprovalRules::NUMBERS)];
         $in = implode(', ', array_fill(0, count($rules), '?'));
-        self::assertSame((int) self::$db->value("SELECT COUNT(*) FROM app_setting WHERE setting_key NOT IN ({$in})", $rules),
-            $xp->query('//table[contains(@class, "settings")]/tbody/tr')->length);
+        // The settings shell (docs/decisions.md W13.9): a card per topic, a row per setting (it was a table per topic).
+        $rowsXp = '//section[contains(@class, "set-card")]//*[contains(@class, "set-row") and @data-key]';
+        self::assertSame((int) self::$db->value("SELECT COUNT(*) FROM app_setting WHERE setting_key NOT IN ({$in})", $rules), $xp->query($rowsXp)->length);
         self::assertSame((int) self::$db->value("SELECT COUNT(*) FROM app_setting WHERE provisional = 1 AND setting_key NOT IN ({$in})", $rules),
-            $xp->query('//table[contains(@class, "settings")]//span[contains(@class, "chip") and text()="Not agreed yet"]')->length);
-        self::assertSame(0, $xp->query('//table[contains(@class, "settings")]//code[. = "suppliers.approval_due_days"]')->length);
-        self::assertSame($xp->query('//table[contains(@class, "settings")]')->length, $xp->query('//table[contains(@class, "settings") and contains(@class, "stack")]')->length);
+            $xp->query($rowsXp . '//span[contains(@class, "tag") and text()="Not agreed yet"]')->length);
+        self::assertSame(0, $xp->query('//main//code[. = "suppliers.approval_due_days"]')->length, 'no technical key on the screen');
+        self::assertSame(0, $xp->query('//main//form[@method="post"]')->length, 'a viewer looks: no row\'s Save');
         self::assertStringNotContainsString('company.legal_name', $page->text(), 'the company details have their own screen since 0013 (I91)');
         self::assertStringContainsString(Words::MENU['company'] . ' Our name, numbers and addresses, printed on every purchase order. Not confirmed', $page->text());
         self::assertContains('/ui/reference/company', $page->hrefs());
         $row = static fn (string $key): string => trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate(
-            'string(//table[contains(@class, "settings")]/tbody/tr[th/small/code = "' . $key . '"])')));
-        self::assertStringStartsWith('Copy CW costs to the websites costs.site_writeback Not agreed yet No Write the warehouse average cost', $row('costs.site_writeback'));
-        self::assertStringContainsString('When CW was set up', $row('costs.site_writeback'));
-        self::assertStringStartsWith(Words::settingName('reorder.default_safety_days') . ' reorder.default_safety_days Not agreed yet 5 ',
-            $row('reorder.default_safety_days'));
+            'string(//*[contains(@class, "set-row") and @data-key="' . $key . '"])')));
+        self::assertStringStartsWith('Copy CW costs to the websites Not agreed yet Write the warehouse average cost', $row('costs.site_writeback'));
+        self::assertStringEndsWith(' No', $row('costs.site_writeback'), 'its value at the right');
+        self::assertStringNotContainsString('When CW was set up', $row('costs.site_writeback'), 'a value as it was set up says nothing; its page\'s History has it');
+        self::assertStringStartsWith(Words::settingName('reorder.default_safety_days') . ' Not agreed yet ', $row('reorder.default_safety_days'));
+        self::assertStringEndsWith(' 5 ' . Words::SETTINGS_PAGE['unit_days'], $row('reorder.default_safety_days'));
         foreach (['bin/settings.php', 'provisional', 'decision', 'Phase', 'UTC'] as $gone) {
             self::assertStringNotContainsString($gone, $page->text());
         }
-        $po = trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//ul[contains(@class, "rules-list")]/li[1])')));
+        // Who checks what is said rule by rule on the Approval rules page (one place for one thing, W13.9): the purchase orders' rule there.
+        $po = trim((string) preg_replace('/\s+/', ' ', (string) (new \DOMXPath($this->signIn($this->uiUser('viewer'))->get('/ui/reference/approvals')->dom()))
+            ->evaluate('string(//article[@id="rule-PO"]/div[@class="set-k"])')));
         // 0010 (the pos task, provisional decision 11): every PO reviewed within 7 days, approval above £10,000 net, a rejection recorded.
-        self::assertSame('Purchase orders: a reviewer checks every one within 7 days. Over £10,000 needs a reviewer\'s OK first. '
-            . 'If the reviewer says not OK, the order stays and the buyer cancels or corrects it.', $po);
-        self::assertSame(6, $xp->query('//table[contains(@class, "vat")]/tbody/tr')->length);
+        self::assertStringContainsString('every one within 7 days', $po);
+        self::assertStringContainsString('If the reviewer says not OK, the order stays and the buyer cancels or corrects it.', $po);
+        self::assertSame(6, $xp->query('//section[contains(@class, "vat-codes")]//div[contains(@class, "set-row")]')->length);
         self::assertStringContainsString('Reverse charge', $page->text());
-        self::assertSame(['/ui/reference/reasons', '/ui/reference/series', '/ui/reference/approvals', '/ui/reference/warehouses', '/ui/reference/access'],
-            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//p[@class="see-also"]/a'))),
-            'the two lists are reached from here (F424), and since 0019 the approval rules, the warehouses and who can do what');
+        foreach (['/ui/reference/reasons', '/ui/reference/series', '/ui/reference/approvals', '/ui/reference/warehouses', '/ui/reference/access'] as $href) {
+            self::assertContains($href, $page->hrefs(), "{$href}: the section's pages are the sidebar's (DC28; F424)");
+        }
+        self::assertSame(0, $xp->query('//p[@class="see-also"]')->length);
     }
 
     public function testEvidenceUploads(): void

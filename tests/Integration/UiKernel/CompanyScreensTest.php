@@ -88,7 +88,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         foreach (['Example Vapes Ltd', 'Vape and Go', '01234567', 'GB 123 4567 82', '0113 496 0000', 'buying@example.co.uk', 'Unit 4, Example Park'] as $shown) {
             self::assertStringContainsString($shown, $page->text(), $shown);
         }
-        self::assertStringContainsString("1 High Street\nLeeds\nLS1 1AA", (string) (new \DOMXPath($page->dom()))->query('//dl[contains(@class, "company")]/dd[5]')->item(0)?->textContent);
+        self::assertStringContainsString("1 High Street\nLeeds\nLS1 1AA", (string) (new \DOMXPath($page->dom()))->query('//section[@aria-labelledby="details-h"]//div[@data-field="address"]/div[contains(@class, "set-v")]')->item(0)?->textContent);
         self::assertStringContainsString('· Reviewer-mapping_lead 1 changed them Not confirmed', $page->text(), 'the history in words, no version numbers (F142)');
         self::assertStringNotContainsString('Version 1', $page->text());
         self::assertStringNotContainsString('UTC', $page->text());

@@ -71,36 +71,23 @@ final class ReferenceController
     }
 
     /**
-     * Settings and lists (app_setting, I38-I41; plan §6.33): every setting by topic with its plain name, value, whether the
-     * owner has agreed it and when it changed (UK time; "when CW was set up" for the set-up's own rows); "Who checks what" for
-     * the kinds of record in use; the VAT codes. Read-only: settings change with bin/settings.php --admin on the server,
-     * document rules by migration and bin/document_rules.php --admin (I57), VAT codes by migration. The screen never names
-     * those tools: it says to ask the admin.
+     * Rules and numbers (app_setting, I38-I41; plan §6.33; the approved TP_Settings, docs/decisions.md W13.9): every setting by topic, a
+     * card each, one row per setting with its plain name, what it does, whether the owner has agreed it and who last changed it (UK
+     * time); for whoever changes settings (settings.manage) a simple value (a number, a date, a short text, yes or no) is changed in its
+     * row, with a reason, and saved on its own through the setting's own route (SettingsController::save, the same fields as its page;
+     * the version the row was drawn with, and "agreed" as it is now, so a row's Save never changes it); a list, a long text or a hidden
+     * value opens its page. One search finds a setting (`q`: its name, what it does, its topic). The company details' card first, the
+     * VAT codes' last. Who checks what is on the Approval rules page (one place for one thing). The screen never names a server tool.
      */
     public function settings(Context $ctx): HtmlResponse
     {
-        $docs = $ctx->documents();
-        $rules = [];
-        foreach ($ctx->db->all('SELECT * FROM document_type') as $r) {
-            $code = (string) $r['code'];
-            if ($docs->handler($code) === null) {
-                continue; // only the kinds in use today (plan F421)
-            }
-            $limit = (int) $r['approval_limit_units'];
-            $rules[$code] = [
-                'code' => $code,
-                'name' => Words::docType($code, true, (string) $r['name']),
-                'review' => Words::reviewRule($code, (string) $r['review_rule'], (int) $r['review_limit_units'], (int) $r['review_due_days']),
-                'approval' => match ($r['approval_rule']) {
-                    'none' => null,
-                    'over_value' => Words::say('SETTINGS_PAGE', 'rule_value', $limit),
-                    default => Words::say('SETTINGS_PAGE', 'rule_units', $limit),
-                },
-                // reject_action (0010, I49): 'reverse' (I19) or 'record' (PO: the rejection is recorded, the order stands; CNT since 0029).
-                'reject' => Words::rejectRule($code, (string) ($r['reject_action'] ?? 'reverse')),
-            ];
+        $q = mb_substr(trim((string) $ctx->req->param('q')), 0, 100);
+        $canChange = $ctx->me()->can('settings.manage');
+        // The version each setting's row is drawn with (its form's `seen`, as the setting's page sends it): one read for every setting.
+        $versions = [];
+        foreach ($ctx->db->all("SELECT subject_key, MAX(version) AS v FROM config_change WHERE subject_type = 'setting' GROUP BY subject_key") as $r) {
+            $versions[(string) $r['subject_key']] = (int) $r['v'];
         }
-        uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
         $topics = [];
         $names = [];
         foreach ($ctx->db->all("SELECT id, display_name FROM staff_user WHERE id IN (SELECT CAST(SUBSTRING(updated_actor, 7) AS UNSIGNED) FROM app_setting "
@@ -118,11 +105,26 @@ final class ReferenceController
             $switch = Settings::UNUSED_WHEN_OFF[$key] ?? null;
             $value = $s['value'];
             $actor = (string) $s['updated_actor'];
-            $topics[Words::settingTopic($key)][] = [
+            $type = (string) $s['type'];
+            $topic = Words::settingTopic($key);
+            if ($q !== '' && mb_stripos(Words::settingName($key) . ' ' . Words::settingHelp($key, (string) $s['description']) . ' ' . $topic, $q) === false) {
+                continue;
+            }
+            // Changed in its row: a value typed in one box (W13.9); a list (ticked boxes), a long text or a hidden value on its own page.
+            $inline = $canChange && in_array($type, ['int', 'decimal', 'string', 'date', 'bool'], true) && !isset(Settings::RULES[$key]['list_in'])
+                && !Settings::isSecret($key);
+            $topics[$topic][] = [
                 'key' => $key,
                 'href' => Html::url('/ui/reference/settings/setting', ['key' => $key]),
                 'name' => Words::settingName($key),
                 'help' => Words::settingHelp($key, (string) $s['description']),
+                'type' => $type,
+                'inline' => $inline,
+                'raw' => is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value),
+                'seen' => $versions[$key] ?? 0,
+                'unit' => self::unit($key, $type),
+                // Who changed it last, under what it does; a value as it was set up says nothing (its page's History has it all).
+                'changed_shown' => !in_array($actor, ['system:migrate', 'system:history'], true),
                 'value' => match (true) {
                     is_bool($value) => Words::SETTINGS_PAGE[$value ? 'yes' : 'no'],
                     is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
@@ -150,17 +152,38 @@ final class ReferenceController
         }
         unset($rows);
         $company = $ctx->company()->current();
+        $vat = $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code');
+        if ($q !== '') {
+            $vat = array_values(array_filter($vat, static fn (array $c): bool => mb_stripos(Words::SETTINGS_PAGE['vat'] . ' ' . $c['label'] . ' ' . $c['code'], $q) !== false));
+        }
         return $ctx->page('settings', [
             'company' => ['legal_name' => $company['legal_name'], 'confirmed' => $company['confirmed'], 'version' => $company['version'],
                 'missing' => CompanyDetails::missing($company), 'canEdit' => $ctx->me()->can('company.edit')],
             'topics' => $topics,
-            'rules' => array_values($rules),
-            'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),
-            'canChange' => $ctx->me()->can('settings.manage'),
+            'q' => $q,
+            'vat' => $vat,
+            'canChange' => $canChange,
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::CONFIG['look_only'],
             // 2-step verification switched off for a while (auth.totp_off_until, TF5): a warning at the top while it is.
             'codeOffUntil' => $ctx->codeOffUntil(),
-        ], 200, ['title' => Words::MENU['settings'], 'active' => 'settings']);
+        ], 200, ['title' => Words::SETTINGS_PAGE['title'], 'active' => 'settings']);
+    }
+
+    /**
+     * The word after a setting's box (TP_Settings' "days", "%", "units"), read from how its key ends; '' for any other. A number's only.
+     */
+    public static function unit(string $key, string $type): string
+    {
+        if (!in_array($type, ['int', 'decimal'], true)) {
+            return '';
+        }
+        foreach (['_days' => 'unit_days', '_minutes' => 'unit_minutes', '_hours' => 'unit_hours', '_pct' => 'unit_percent', '_percent' => 'unit_percent',
+            '_units' => 'unit_units', '_rows' => 'unit_rows', '_items' => 'unit_items'] as $end => $word) {
+            if (str_ends_with($key, $end)) {
+                return Words::SETTINGS_PAGE[$word];
+            }
+        }
+        return '';
     }
 
     /** @return list<array<string, mixed>> */

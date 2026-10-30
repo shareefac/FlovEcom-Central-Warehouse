@@ -1,10 +1,19 @@
+<?php
+// Settings › Company, on the settings shell (the approved TP_Settings of 29 Oct 2026, pattern 6; docs/decisions.md W13.15): the heading; a
+// card of where the details stand (confirmed or not, what is missing or looks wrong, the orders it touches) with its Change at the right and
+// the confirm form under it for whoever may confirm; the checks of a change (a row each, with its answers); a card of the details, a row
+// each; then the History, a version each.
+?>
 <?= $head(\CW\Ui\Words::MENU['company'], intro: 'company') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($errorMissing !== null): ?> <span class="visually-hidden"><?= $say('COMPANY', 'missing', implode(', ', $errorMissing)) ?></span><?php endif; ?></p>
 <?php endif; ?>
 
-<section class="card company-status<?php if (!$p['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="status-h">
+<div class="set-list">
+<section class="set-card company-status<?php if (!$p['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="status-h">
   <h2 id="status-h"><?php if ($p['confirmed']): ?><?= $chip('done', \CW\Ui\Words::COMPANY['confirmed']) ?><?php else: ?><?= $chip('blocked', \CW\Ui\Words::COMPANY['not_confirmed']) ?><?php endif; ?></h2>
+  <div class="set-row">
+  <div class="set-k">
 <?php if ($p['confirmed']): ?>
   <p><?= $say('COMPANY', 'confirmed_by', $confirmedLabel, \CW\Ui\Html::when($p['confirmed_at'])) ?></p>
 <?php else: ?>
@@ -23,7 +32,7 @@
 <?php endif; ?>
 <?php if (!$p['confirmed']): ?>
 <?php if ($mayConfirm): ?>
-  <form class="confirm" method="post" action="/ui/reference/company/confirm">
+  <form class="confirm" method="post" action="/ui/reference/company/confirm" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($confirmKey) ?>">
     <input type="hidden" name="version" value="<?= $e($p['version']) ?>">
@@ -61,26 +70,26 @@
     <p><?php if ($p['confirmed']): ?><?= $word('COMPANY', 'stale_fix') ?><?php else: ?><?= $word('COMPANY', 'stale_fix_first') ?><?php endif; ?></p>
   </div>
 <?php endif; ?>
-  <p class="actions">
+<?php if ($lookOnly !== null): ?>
+  <p class="set-kd read-only"><?= $e($lookOnly) ?></p>
+<?php endif; ?>
+  </div>
+  <div class="set-v">
 <?php if ($canEdit): ?>
     <a class="btn" href="/ui/reference/company/edit"><?php if ($p['version'] === 0 || $missing !== []): ?><?= $word('COMPANY', 'add') ?><?php else: ?><?= $word('COMPANY', 'change') ?><?php endif; ?></a>
 <?php endif; ?>
-    <a href="/ui/reference/company/sample.pdf"><?= $word('COMPANY', 'sample') ?></a>
-  </p>
-<?php if ($lookOnly !== null): ?>
-  <p class="muted read-only"><?= $e($lookOnly) ?></p>
-<?php endif; ?>
+    <a class="btn ghost" href="/ui/reference/company/sample.pdf"><?= $word('COMPANY', 'sample') ?></a>
+  </div>
+  </div>
 </section>
 
 <?php if ($reviews !== []): ?>
-<section aria-labelledby="reviews-h">
-  <div class="head-help">
-    <h2 id="reviews-h"><?= $word('COMPANY', 'checks') ?></h2>
-    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-  </div>
-  <p class="muted"><?= $word('COMPANY', 'checks_text') ?></p>
+<section class="set-card reviews" aria-labelledby="reviews-h">
+  <div class="set-head"><h2 id="reviews-h"><?= $word('COMPANY', 'checks') ?></h2> <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?></div>
+  <p class="set-kd set-intro"><?= $word('COMPANY', 'checks_text') ?></p>
 <?php foreach ($reviews as $t): ?>
-  <article class="card review<?php if ($t['open']): ?> waiting<?php endif; ?>">
+  <article class="set-row review<?php if ($t['open']): ?> waiting<?php endif; ?>">
+  <div class="set-k">
     <p><strong><?= $say('COMPANY', 'check_line', $t['who'], \CW\Ui\Html::when($t['opened_at'])) ?></strong>
 <?php if ($t['open']): ?>
       <?= $word('COMPANY', 'check_waiting') ?><?php if (!$t['alone']): ?> <?= $say('COMPANY', 'check_by', \CW\Ui\Html::day($t['due_at'])) ?><?php if ($t['overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::COMPANY['late']) ?><?php endif; ?><?php endif; ?>
@@ -113,12 +122,12 @@
         </div>
       </dl>
     </div>
-    <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/approve') ?>">
+    <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/approve') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <label><?= $word('COMPANY', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
       <button type="submit" class="btn primary"><?= $word('COMPANY', 'right') ?></button>
     </form>
-    <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/reject') ?>">
+    <form class="inline" method="post" action="<?= $u('/ui/reference/company/reviews/' . $t['id'] . '/reject') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <label><?= $word('COMPANY', 'why_wrong') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
       <button class="btn" type="submit"><?= $word('COMPANY', 'wrong') ?></button>
@@ -130,32 +139,29 @@
     <p class="muted"><?= $word('COMPANY', 'alone') ?></p>
 <?php endif; ?>
 <?php endif; ?>
+  </div>
   </article>
 <?php endforeach; ?>
 </section>
 <?php endif; ?>
 
-<section aria-labelledby="details-h">
+<section class="set-card company-details" aria-labelledby="details-h">
   <h2 id="details-h"><?= $word('COMPANY', 'details') ?></h2>
-  <dl class="wide company">
 <?php foreach (['legal_name', 'trading_name', 'company_number', 'vat', 'address', 'phone', 'email', 'delivery_address', 'vat_code', 'currency'] as $f): ?>
-    <dt><?= $word('COMPANY', $f) ?></dt>
-    <dd<?php if ($f === 'address' || $f === 'delivery_address'): ?> class="pre"<?php endif; ?>><?php if ($show[$f] === ''): ?><span class="muted"><?php if ($f === 'trading_name'): ?><?= $word('COMPANY', 'none') ?><?php else: ?><?= $word('COMPANY', 'not_given') ?><?php endif; ?></span><?php else: ?><?= $e($show[$f]) ?><?php endif; ?></dd>
+  <div class="set-row set-fact" data-field="<?= $e($f) ?>"><div class="set-k"><p class="set-kt"><?= $word('COMPANY', $f) ?></p></div><div class="set-v<?php if ($f === 'address' || $f === 'delivery_address'): ?> pre<?php endif; ?>"><?php if ($show[$f] === ''): ?><span class="muted"><?php if ($f === 'trading_name'): ?><?= $word('COMPANY', 'none') ?><?php else: ?><?= $word('COMPANY', 'not_given') ?><?php endif; ?></span><?php else: ?><?= $e($show[$f]) ?><?php endif; ?></div></div>
 <?php endforeach; ?>
 <?php if ($p['version'] > 0): ?>
-    <dt><?= $word('COMPANY', 'last_saved') ?></dt>
-    <dd><?= $say('COMPANY', 'by', \CW\Ui\Html::when($p['saved_at']), $savedLabel) ?></dd>
+  <div class="set-row set-fact" data-field="saved"><div class="set-k"><p class="set-kt"><?= $word('COMPANY', 'last_saved') ?></p></div><div class="set-v"><?= $say('COMPANY', 'by', \CW\Ui\Html::when($p['saved_at']), $savedLabel) ?></div></div>
 <?php endif; ?>
-  </dl>
-  <p class="muted"><?= $word('COMPANY', 'no_bank') ?></p>
+  <p class="set-kd"><?= $word('COMPANY', 'no_bank') ?></p>
 </section>
 
-<section aria-labelledby="history-h">
+<section class="set-card history" aria-labelledby="history-h">
   <h2 id="history-h"><?= $word('COMPANY', 'history') ?></h2>
 <?php if ($history === []): ?>
   <p class="muted"><?= $word('COMPANY', 'no_history') ?></p>
 <?php else: ?>
-  <ol class="versions" reversed>
+  <ol class="versions set-body" reversed>
 <?php foreach ($history as $h): ?>
     <li>
       <p><strong><?= $when($h['saved_at']) ?></strong> &middot; <?= $e($h['what']) ?><?php if ($h['check'] !== null): ?> (<?= $e($h['check']) ?>)<?php endif; ?>
@@ -180,3 +186,4 @@
   </ol>
 <?php endif; ?>
 </section>
+</div>

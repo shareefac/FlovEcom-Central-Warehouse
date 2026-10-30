@@ -1,6 +1,8 @@
-<p class="crumbs"><a href="/ui/reference/company"><?= $word('COMPANY', 'back') ?></a></p>
-<?= $head(\CW\Ui\Words::PAGE_TITLE['company_edit'], intro: 'company_edit') ?>
-<p class="muted"><?= $word('COMPANY', 'until_confirmed') ?></p>
+<?php
+// Settings › Company › Change the company details (docs/decisions.md W13.15): Company as the eyebrow (DC3), what a change does under the
+// heading's "?", then the one form as before.
+?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['company_edit'], intro: 'company_edit', more: \CW\Ui\Words::COMPANY['until_confirmed'], back: ['/ui/reference/company', \CW\Ui\Words::MENU['company']]) ?>
 <?php if ($error !== null): ?>
 <div class="error" role="alert">
 <?php if ($errorCode === 'company_invalid'): ?>
@@ -23,7 +25,7 @@
 <?php if ($confirmed): ?>
 <p class="note"><?= $word('COMPANY', 'is_confirmed') ?></p>
 <?php endif; ?>
-<form class="record company" method="post" action="/ui/reference/company">
+<form class="record company" method="post" action="/ui/reference/company" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <input type="hidden" name="version" value="<?= $e($version) ?>">

@@ -214,10 +214,10 @@ final class InvoiceScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::SETTING['invoices.check_price'], $settings->text());
         self::assertStringContainsString(Words::say('SETTINGS_PAGE', 'unused_while_off', Words::SETTING['invoices.check_price']), $settings->text());
         $xp = new \DOMXPath($settings->dom());
-        self::assertSame(2, $xp->query('//table[contains(@class, "settings")]//tr[contains(@class, "unused")]')->length, 'the two price tolerances are greyed');
+        self::assertSame(2, $xp->query('//*[contains(@class, "set-row") and @data-key and contains(@class, "unused")]')->length, 'the two price tolerances are greyed');
         $this->setting('invoices.check_price', 'true');
         $settings = $this->signIn($this->uiUser('purchasing_manager'))->get('/ui/reference/settings');
-        self::assertSame(0, (new \DOMXPath($settings->dom()))->query('//table[contains(@class, "settings")]//tr[contains(@class, "unused")]')->length);
+        self::assertSame(0, (new \DOMXPath($settings->dom()))->query('//*[contains(@class, "set-row") and @data-key and contains(@class, "unused")]')->length);
     }
 
     public function testAReturnOfADeliverysDamagedUnitsAndItsCreditNote(): void

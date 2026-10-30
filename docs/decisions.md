@@ -14149,3 +14149,105 @@ the kind and the tick count when not empty, whatever they say; the two yes / no 
 fresh), `testNextNamesTheBarcodeTheSaveOpens` (A, B, C: B open and C found by its search name A; the save opens A; the last one),
 `testTypedTextOnOpensItsFold` (a brand "on"; "not known" alone opens nothing). `UiTemplatesTest::testTheProductPagesFollowTheApprovedPatterns`
 pins the family bar's More with its open-again condition.
+
+## Reports, settings and system on the approved patterns (wave w13, branch `wave-w13`, 30 Oct 2026; W13.1-W13.20)
+
+The owner, 30 Oct 2026: "strictly follow our design guidelines" and "dont need tab view use sidebar and sub section". The mockups are the
+spec: `cwdaily/TP_Report` (the reports and the audit log), `cwdaily/TP_Settings` (Settings' pages), the board and record patterns
+(`GI_List`, `PO_View`) and `TP_Parts`. Built on `ds-conform` (DC1-DC28; rebased on main `559a2fe`): no sentence under a heading, sentence case, "+ New" in
+the header, no tab row. Layout and words: no route, permission, posted field or service rule changed; every audit write is as before.
+
+**W13.1. The settings shell is the sidebar's.** TP_Settings draws its sections as a list at the left of the page; with DC28 the sidebar holds
+the open section's pages, so that list IS the sidebar (an in-page list too would be the section's pages twice, and a vertical tab row is the
+tab view the owner said no to). Each Settings page is a column of cards (`.set-list` > `section.set-card`), a card a heading over rows
+(`.set-row`): what it is at the left (`.set-k`: `.set-kt` the name, `.set-kd` what it does, `.set-kh` who changed it last), its value or its
+own small form at the right (`.set-v`), each saved on its own. A change of several fields is the row's Change (`details.set-fold`), at the
+row's right like a Save and the card's width when open. A record's facts are rows too (`.set-row.set-fact`). The History is the last card.
+
+**W13.2. A report's head.** As TP_Report: the eyebrow, the title, the as-of line under it (the head's `meta`: when the figures were brought up
+to date; the days shown on Sales by store), and "Download (Excel)" at the right, a plain bordered button (`report_bar`; the file is the same
+CSV, which opens in Excel; PE1). Then the figures strip, then the toolbar (one search, the Show row with its Show button, rare things under
+the toolbar's More), then the list as one board with the blue edge (`.doc-board.info`) and its total row (`tr.grp-foot`). What a report's
+figures leave out is its "?" (`more:`), not a paragraph.
+
+**W13.3. Stock value.** The strip is TP_Report's: Value at cost, Units on the shelf, Items with stock (`ReportViews::valueFigures` counts
+them), Not sold in N days (`ReportViews::notSoldValue`: Slow stock's two lists together, N its setting `reports.slow_after_days`, so the
+figure and that report agree; no new number). Under a figure, a small line only where something is left out: another account's units, the
+units without a cost. The tabs by product / brand / warehouse are the Show row's "Group by" (Item, Brand, Warehouse; `by` as before). The one
+search finds a brand or an item: by brand or by warehouse it keeps the rows whose name holds the words (the page and its file alike). Brand
+and warehouse have TP_Report's Share (`meter.rp-share`, our value only) and a Total row (pennies, exact; another account's warehouse left
+out). The products without a cost and Clear are under the toolbar's More. The brand and warehouse boards no longer show "Units without a
+cost" (the CSV keeps the column; the strip says how many).
+
+**W13.4. Stock by store.** The store's four tiles of every store became one strip of the store shown (units it can sell with the warehouse
+it sells from, matched, in stock, out of stock); the store is chosen in the Show row with All / In stock / Out of stock (the filter pop-over
+went); a product's status is a solid cell; "the website uses its own stock" is on the product's line. Download for the store shown.
+
+**W13.5. Low stock.** The strip: Low, None left, the level a product is low at (the setting, with its rule under it). Low / None left is the
+Show choice with its count (the tab row went); "its own" level is a tag.
+
+**W13.6. Slow stock.** The strip: Slow and Dead, each with its days under it; Slow / Dead is the Show choice with its count; when the sales
+were last read is the as-of line; what a sale is, the "?".
+
+**W13.7. Sales by store (w10's) follows the same head:** Download and the days shown in the head, the strip before the Show row.
+
+**W13.8. The audit log is a report.** Download in the head; the record number is the one search; from, to, who, what was done and the kind
+of record are the Show row; Clear under More; the entries one board; "Older entries" the pager. Read only, append-only as before.
+
+**W13.9. Rules and numbers (`/ui/reference/settings`).** TP_Settings' title. A card per topic, a row per setting: its name (its own page:
+the value, the agreed tick and the History), what it does, "Not agreed yet" while the owner has not said yes, who changed it last. For whoever
+changes settings (settings.manage) a simple value (a number, a date, a short text, yes or no) is a box in its row with its unit (read from
+the key's end: days, minutes, %, units…), a reason (Why; the service has always needed one) and a plain Save. The row posts to the setting's
+own route (`SettingsController::save`) with the fields its page sends: `key`, `seen` (the version the row was drawn with: one read for
+every setting), `value`, `reason`, and `agreed` as it is now, so a row's Save never agrees or un-agrees a value; that and every refusal are
+on the setting's page, where a Save lands. A list (ticked boxes), a long text or a hidden value (a secret) has "Change" to its page.
+"Find a setting" (`q`) keeps the rows whose name, what it does or topic holds the words. The company details' card is first (their state,
+their own page); the VAT codes the last card (read only); then TP_Settings' one line that each change is kept. Removed from this page, kept
+elsewhere: the links to the other Settings pages (the sidebar), Who checks what (the Approval rules page says the same, rule by rule), the
+technical keys (in a row's `data-key` only), the footer (the suppliers' and the costs' own pages).
+
+**W13.10. Numbering** is one card, a row per kind of record (in the kinds' order): its name and whether it is in use, who checks it, the OK
+first and the days, how its numbers start and the last one; at the right the next number. How numbers are made: the "?".
+
+**W13.11. Reasons and a reason.** The list: "+ New reason" in the head (its form opens here), a card of the reasons in use (the spreadsheet
+under its More) and one of those switched off; a row a reason: its name, what it is used for and which way, its rules as tags, its short code
+at the right. A reason: the list as its eyebrow, a card of what it is, a card of its changes (its name inline with its reason and Save;
+where it is offered, its stock-out rules and the switch each under its row's Change), its History.
+
+**W13.12. Warehouses and a warehouse.** The same: the list's cards in use / switched off, a row a warehouse (whether websites sell from it,
+whose stock, its places; what is in the building at the right); a warehouse: its facts, its changes each under a Change (or why not: a
+system warehouse, stock inside, a website using it), its places (a row each, changed under its Change), its History.
+
+**W13.13. Approval rules.** A card per part, a row per rule (its state as tags, the rule in sentences); its Change holds the rule's form and
+its history (for whoever only looks, the row's History). What loosening needs, what switching off does not let through, what always needs a
+second OK and the one-rule-per-kind line are the heading's "?".
+
+**W13.14. Roles and permissions.** The rules that always apply are the "?"; a card of who may do each thing (a row a task: "Change who can",
+or its History, or Fixed) and one of what each job may do (a row a job). A task's page is the shell's record (facts, the one form, History).
+
+**W13.15. Company.** Its state card (confirmed or not, what is missing or wrong, the orders it touches, the confirm form) with Change and the
+sample PDF at the right; the checks of a change as rows; the details as rows (`data-field`); the History. Its edit page has Company as its
+eyebrow; "Until then the PDFs say DO NOT SEND" is its "?".
+
+**W13.16. Users is a board (pattern 1).** One search (a name or an e-mail, `q`) and one Show (everyone, can sign in, switched off: `show`);
+the spreadsheet, Roles and permissions and Clear under the toolbar's More; the groups Can sign in / Switched off with the status cell filled,
+a row opens the person, "+ Add a staff member" ends the first group. Everyone signed in now is a related board under it. The warnings are
+as before (they read everyone, whatever the search).
+
+**W13.17. A user is a record page (pattern 2).** Users as the eyebrow, the name with whether they can sign in; the account's switch, a new
+sign-up sheet / sign-in code / password and signing out everywhere under the head's More (`person_bar`, each with its tick as before); the
+strip (jobs, last signed in, added, signed in now); the paper card (the e-mail beside jobs, sign-in, set-up); then the jobs form (Save the
+jobs, the page's one main button), the devices and the jobs' history as related boards.
+
+**W13.18. Stores (`/ui/system/sites`).** A board grouped by the mode in CW (live, watching only, off), the mode a solid cell, a row opening the
+store's part below (its facts in the paper card, the server's commands folded). Still no form.
+
+**W13.19. System checks.** The last check as a card (when, how long, the result as a tag, what it found folded open), the earlier checks a
+card of rows.
+
+**W13.20. Tests.** `UiTemplatesTest::testTheReportsSettingsAndSystemPagesFollowTheApprovedPatterns` (the templates),
+`tests/Integration/UiKernel/ReportsSettingsPatternsScreensTest.php` (the pages as served: the head's Download, the strip, the toolbar, the
+board; a settings row saved on its own through the setting's route and kept in its history; the people board's search). The earlier pins were
+moved to the new markup, never dropped (`ReportsScreenTest`, `ReferenceScreensTest`, `SetItYourselfScreensTest`, `SupplierScreensTest`'s
+settings page, `CompanyScreensTest`, `InvoiceScreensTest`, `StartSettingsWordsTest`). The W9.15 guard covers these pages: a POST form with a
+field to type carries `data-unsaved`, and on a page with one every form carries `data-leaves`.

@@ -2778,3 +2778,65 @@ form.doc-details > details.fold > fieldset.doc-grid { margin: 0; padding: 0 0 4p
 .ap-answer > fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; background: none; }
 .ap-answer > fieldset > legend { padding: 0 0 4px; font: 600 13px/20px var(--font); }
 /* ==== end w11 =============================================================================================================================== */
+/* ==== w13: reports, settings and system on the approved patterns (wave w13, docs/decisions.md W13; the canvas's TP_Report, TP_Settings) =====
+   The five reports and the audit log are TP_Report (the head's Download, the figures strip, the toolbar, one board with its blue edge) on the
+   shared pieces above (.doc-head, .doc-actions, .rp-figs, .toolbar, .doc-board, its total row tr.grp-foot); Settings' pages are TP_Settings: the sidebar
+   holds the section's pages (DC28), each page a column of cards, a card a heading over rows, a row what it is at the left and its value or
+   its own small form at the right, each saved on its own. Here only what they add. */
+/* A share of the whole on a report's board (TP_Report's bar): 8 px, rounded, the board's blue on the divider's grey; its percent beside it */
+meter.rp-share { width: 120px; max-width: 40vw; height: 8px; vertical-align: middle; border: 0; border-radius: 999px; background: var(--divider); }
+meter.rp-share::-webkit-meter-bar { height: 8px; border: 0; border-radius: 999px; background: var(--divider); }
+meter.rp-share::-webkit-meter-optimum-value, meter.rp-share::-webkit-meter-suboptimum-value,
+meter.rp-share::-webkit-meter-even-less-good-value { border-radius: 999px; background: var(--st-blue); }
+meter.rp-share::-moz-meter-bar { border-radius: 999px; background: var(--st-blue); }
+table.doc-list .c-share { white-space: nowrap; }
+/* Settings (TP_Settings): the column of cards, 16 px apart */
+.set-list { display: flex; flex-direction: column; gap: 16px; margin: 0 0 24px; }
+.set-card { margin: 0; overflow: hidden; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); scroll-margin-top: 16px; }
+.set-card > h2, .set-card > .set-head { margin: 0; padding: 14px 20px 6px; color: var(--ink); font: 700 16px/24px var(--font); }
+.set-card > .set-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.set-card > .set-head > h2 { margin: 0; font: inherit; color: inherit; }
+.set-card > .set-head > .set-head-end { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+/* A row: what it is at the left (its name, a 13 px line of what it does, who changed it last), its value or its small form at the right */
+.set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin: 0; padding: 14px 20px; border-top: 1px solid var(--divider); max-width: none; }
+.set-card > h2 + .set-row, .set-card > .set-head + .set-row, .set-card > .set-row:first-child { border-top: 0; }
+.set-k { flex: 1 1 280px; min-width: 0; }
+.set-kt { margin: 0; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+a.set-kt { display: inline-block; text-decoration: none; }
+a.set-kt:hover { color: var(--accent-hover); text-decoration: underline; }
+.set-kd, .set-kh { margin: 2px 0 0; color: var(--ink-muted); font: 400 13px/18px var(--font); overflow-wrap: anywhere; }
+.set-kd .tag + .tag { margin-left: 4px; }
+.set-v { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.set-v .set-val { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.set-v input.set-in { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+.set-v input.set-in.wide { width: 220px; text-align: left; }
+.set-v input[type="date"], .set-v select { width: auto; }
+.set-v input.set-why { width: 160px; }
+.set-row.unused .set-kt, .set-row.unused .set-val { color: var(--ink-muted); }
+.set-row.unused .unused-note { display: block; color: var(--ink-body); font-weight: 600; }
+/* A row whose change has several fields: its Change sits at the row's right like a Save; open, its fold takes the card's width under the
+   row (an approval rule, a reason's uses, a warehouse's place) */
+.set-row > details.set-fold { flex: 0 1 auto; margin: 0 0 0 auto; }
+.set-row > details.set-fold[open] { flex: 1 1 100%; margin: 0; }
+.set-row > details.set-fold > summary { display: inline-flex; list-style: none; }
+.set-row > details.set-fold > summary::-webkit-details-marker { display: none; }
+.set-row > details.set-fold > form.record, .set-row > details.set-fold > .set-fold-body { margin: 12px 0 0; max-width: 820px; }
+.set-row > details.set-fold > form.record + form.record { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--divider); }
+/* A record's facts as rows (a reason, a warehouse, a person's page on the shell): the label at the left, the value at the right */
+.set-row.set-fact { padding-top: 10px; padding-bottom: 10px; }
+.set-row.set-fact > .set-k { flex-basis: 200px; }
+.set-row.set-fact > .set-v { flex: 1 1 280px; justify-content: flex-start; font-weight: 400; }
+/* A card holding a board (the history, the places): the board sits inside the card without a second box */
+.set-card > .table-wrap { margin: 0; border: 0; border-radius: 0; }
+.set-card > .set-body { padding: 4px 20px 16px; }
+.set-card > p { margin: 0; padding: 0 20px 14px; }
+.set-card > p.set-intro { padding-top: 0; }
+.set-foot { margin: 0; color: var(--ink-muted); font: 400 13px/18px var(--font); }
+@container (max-width: 640px) {
+  .set-row { padding: 12px 16px; }
+  .set-card > h2, .set-card > .set-head { padding: 12px 16px 4px; }
+  .set-v { flex: 1 1 100%; justify-content: flex-start; }
+  .set-v input.set-why { flex: 1 1 10rem; width: auto; }
+  .set-v input.set-in.wide { flex: 1 1 12rem; width: auto; }
+}
+/* ==== end w13 =============================================================================================================================== */

@@ -27,7 +27,8 @@ final class PeopleScreenTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertContains('/ui/people/' . $buyer['id'], $list->hrefs());
         self::assertStringContainsString($buyer['email'], $list->text());
-        self::assertStringContainsString(Words::STAFF['add'], $list->text(), 'new people are made by the developer (F427), never a command on the screen');
+        self::assertStringContainsString(Words::STAFF['add_text'], $list->text(), 'new people are made on the screen (F427), never a command: the head\'s "+ New" opens the form (W13.16)');
+        self::assertSame(1, (new \DOMXPath($list->dom()))->query('//main//details[@id="new"]//form[@action="/ui/people"]')->length);
         self::assertStringNotContainsString('bin/', $list->text());
         $lx = new \DOMXPath($list->dom());
         self::assertSame(Words::MENU['people'], trim((string) $lx->evaluate('string(//main//h1)')));
@@ -119,7 +120,7 @@ final class PeopleScreenTest extends KernelUiTestCase
         self::assertFalse($page->hasForm('/active'));
         self::assertStringContainsString(Words::STAFF['auditor'], $page->text());
         self::assertStringContainsString(Words::STAFF['look_only'], $list->text(), 'the auditor is told they can only look');
-        self::assertStringNotContainsString(Words::STAFF['add'], $list->text());
+        self::assertStringNotContainsString(Words::STAFF['add_text'], $list->text());
         $t = $this->token($auditor);
         foreach (['/roles' => ['roles_seen' => 'buyer', 'role_reviewer' => '1'], '/active' => ['active' => '0']] as $suffix => $fields) {
             $refused = $auditor->post('/ui/people/' . $other['id'] . $suffix, ['csrf' => $t] + $fields);

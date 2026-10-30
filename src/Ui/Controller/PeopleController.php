@@ -109,8 +109,17 @@ final class PeopleController
     private function listPage(Context $ctx, array $people, array $warnings, int $status, ?CwException $error, ?array $typed, ?string $notice = null): HtmlResponse
     {
         $me = $ctx->me();
+        // The board's one search (a name or an e-mail) and its Show (everyone, those who can sign in, those switched off): the approved
+        // board (pattern 1, docs/decisions.md W13.16). The warnings above it still read everyone.
+        $q = mb_substr(trim((string) $ctx->req->param('q')), 0, 100);
+        $show = in_array($ctx->req->param('show'), ['on', 'off'], true) ? (string) $ctx->req->param('show') : '';
+        $shown = array_values(array_filter($people, static fn (array $p): bool => ($q === '' || mb_stripos($p['display_name'] . ' ' . ($p['email'] ?? ''), $q) !== false)
+            && ($show === '' || ($show === 'on') === (bool) $p['is_active'])));
         return $ctx->page('people', [
-            'people' => $people,
+            'people' => $shown,
+            'q' => $q,
+            'show' => $show,
+            'filtered' => $q !== '' || $show !== '',
             'warnings' => $warnings,
             'meId' => $me->id,
             'lookOnly' => $me->can('staff.manage') ? null : Words::STAFF['look_only'],

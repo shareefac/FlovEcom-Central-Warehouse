@@ -64,7 +64,7 @@ final class StartSettingsWordsTest extends KernelUiTestCase
             [$reviewer, '/ui/documents/' . $held->id, 'Adjustment (no number yet)', 'document'],
             [$reviewer, '/ui/reference/company', 'Company', 'company'],
             [$reviewer, '/ui/reference/company/edit', 'Change the company details', 'company_edit'],
-            [$reviewer, '/ui/reference/settings', 'Settings', 'settings'],
+            [$reviewer, '/ui/reference/settings', 'Rules and numbers', 'settings'], // TP_Settings' title (W13.9)
             [$reviewer, '/ui/reference/reasons', 'Reasons', 'reasons'],
             [$reviewer, '/ui/reference/series', 'Numbering', 'series'],
             [$reviewer, '/ui/password', 'Change password', 'password'],
@@ -72,10 +72,10 @@ final class StartSettingsWordsTest extends KernelUiTestCase
             [$buyer, '/ui/documents', 'History', 'documents'],
             [$owner, '/ui/reference/company', 'Company', 'company'],
             [$admin, '/ui/people', 'Users', 'people'],
-            [$admin, '/ui/people/' . $owner['id'], 'Olga Owner', 'person'],
-            [$admin, '/ui/people/' . $buyer['id'], 'Ben Buyer', 'person'],
+            [$admin, '/ui/people/' . $owner['id'], 'Olga Owner ' . Words::STAFF['group_active'], 'person'], // the record's status block beside the name (W13.17)
+            [$admin, '/ui/people/' . $buyer['id'], 'Ben Buyer ' . Words::STAFF['group_active'], 'person'],
             [$auditor, '/ui/people', 'Users', null],
-            [$auditor, '/ui/people/' . $buyer['id'], 'Ben Buyer', null],
+            [$auditor, '/ui/people/' . $buyer['id'], 'Ben Buyer ' . Words::STAFF['group_active'], null],
             [$auditor, '/ui/documents', 'History', 'documents'],
         ];
         $browsers = [];

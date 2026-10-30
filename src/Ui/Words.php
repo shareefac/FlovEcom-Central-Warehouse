@@ -3608,6 +3608,35 @@ final class Words
         'over_units' => 'Putting back over %s items without a supplier document',
         // --- Pack C follow-up (PC19): a setting that is not used while the switch it depends on is off (greyed in the list).
         'unused_while_off' => 'Not used while "%s" is off.',
+        // ---- Rules and numbers on the approved TP_Settings (wave w13, docs/decisions.md W13.9): a card per topic, a row per setting.
+        'title' => 'Rules and numbers',
+        'find' => 'Find a setting',
+        'clear_find' => 'Clear the search',
+        'new_value' => 'New value',
+        'why' => 'Why',
+        'why_label' => 'Why the change (kept in its history)',
+        'save' => 'Save',
+        'change' => 'Change',
+        'last_changed' => 'Last changed %s',
+        'foot' => 'Each change is saved on its own, with who changed it and when (History).',
+        'none_found' => 'No setting has these words.',
+        'none_found_text' => 'Clear the search to see every setting.',
+        'unit_days' => 'days',
+        'unit_minutes' => 'minutes',
+        'unit_hours' => 'hours',
+        'unit_percent' => '%',
+        'unit_units' => 'units',
+        'unit_rows' => 'rows',
+        'unit_items' => 'items',
+        'vat_off' => 'Not in use',
+        // The other pages of Settings on the same shell (W13.10-W13.14): a list's row and its record's facts.
+        'facts' => 'What it is',
+        'changes' => 'Change it',
+        'history_short' => 'History',
+        'series_card' => 'Each kind of record',
+        'series_line' => 'Starts with %s · last number %s',
+        'series_none' => 'Starts with %s · none yet',
+        'series_rules' => 'Reviewer checks: %s · OK needed first: %s · days to check: %s',
     ];
 
     /** reason_code.applies_to and direction words (Reasons for stock changes). */
@@ -4026,6 +4055,14 @@ final class Words
         'board' => 'Staff accounts',
         'group_active' => 'Can sign in',
         'group_off' => 'Switched off',
+        // The board's toolbar (wave w13, docs/decisions.md W13.16).
+        'search' => 'Find a name or e-mail',
+        'show' => 'Show',
+        'show_all' => 'Everyone',
+        'clear' => 'Clear the search',
+        'none_filtered' => 'Nobody fits the search.',
+        'none_filtered_text' => 'Clear the search to see every user.',
+        'figures' => 'This user in figures',
         'count_one' => '1 user',
         'count_many' => '%s users',
         'add_row' => '+ New user',
@@ -9419,6 +9456,7 @@ final class Words
         'relay_all' => 'All received',
         'relay_none' => 'None received',
         'relay_some' => 'Received: %s',
+        'look' => 'Needs a look', // the board's tag on a store that never called or whose mode differs (wave w13, W13.18)
     ];
 
     /** What each server command of the Websites page does (Admin\Sites::commands). */
@@ -9475,6 +9513,7 @@ final class Words
         'ip' => 'From address',
         'cw' => 'set up by CW',
         'bad_filter' => 'This search cannot be done: %s. Nothing was searched.',
+        'find' => 'Find a record number', // the toolbar's one search (wave w13, W13.8)
     ];
 
     /** audit_log.entity_type => the kind of record (the audit log's filter and rows; another type is made readable). */
@@ -9937,6 +9976,36 @@ final class Words
         'sale_means' => 'A sale is a paid store order, a sale booked through ERPNext, or a day of the sales history loaded from the websites.',
         'no_slow' => 'No slow product.',
         'no_slow_text' => 'Every product in stock has sold lately.',
+        // ---- The reports on the approved TP_Report (wave w13, docs/decisions.md W13.2-W13.7): the head's file, the figures, the Show row.
+        'download' => 'Download (Excel)',
+        'download_title' => 'The list as a spreadsheet file (CSV, opens in Excel)',
+        'at_cost' => 'At average cost.',
+        'value_figures' => 'Our stock in figures',
+        'fig_value' => 'Value at cost',
+        'fig_theirs_sub' => 'Another account\'s %s units left out',
+        'fig_units' => 'Units on the shelf',
+        'fig_no_cost_sub' => '%s of them without a cost',
+        'fig_items' => 'Items with stock',
+        'fig_not_sold' => 'Not sold in %s days',
+        'find_value' => 'Search a brand or item',
+        'group_by' => 'Group by',
+        'group_product' => 'Item',
+        'group_brand' => 'Brand',
+        'group_warehouse' => 'Warehouse',
+        'item' => 'Item',
+        'items' => 'Items',
+        'value_at_cost' => 'Value at cost',
+        'share' => 'Share',
+        'all_total' => 'Total',
+        'ours_total' => 'Ours in total',
+        'low_figures' => 'Low stock in figures',
+        'fig_level' => '%s units',
+        'show_low_n' => 'Low (%s)',
+        'show_none_n' => 'None left (%s)',
+        'slow_figures' => 'Slow stock in figures',
+        'fig_days_sub' => 'No sale for %s days or more',
+        'show_slow_n' => 'Slow (%s)',
+        'show_dead_n' => 'Dead (%s)',
     ];
 
     /** Setting up one's own sign-in (/ui/enrol, public). */

@@ -1,10 +1,23 @@
 <?php
-// Reports › Sales by Store (pack E, docs/decisions.md PE1), a report (the approved design of 29 Oct 2026, pattern 5, TP_Report;
-// docs/decisions.md W10): read only. One Show row (the days, or days of one's own, and the store), the file at its right; the days and when
-// the figures were brought up to date; the strip of the days' totals; then the two boards: each store with the total under it, and day by
-// day. What a unit is: the page's "?".
+// Reports › Sales by store (pack E, docs/decisions.md PE1), a report (the approved design of 29 Oct 2026, pattern 5, TP_Report;
+// docs/decisions.md W10, W13.7): read only. The heading with the days shown and when the figures were brought up to date under it, the
+// file (Download (Excel)) at its right; the strip of the days' totals; one Show row (the days, or days of one's own, and the store); then
+// the two boards: each store with the total under it, and day by day. What a unit is: the page's "?".
+$bar = $partial('report_bar', ['href' => $csv_link]);
 ?>
-<?= $head(\CW\Ui\Words::MENU['sales_by_store'], intro: 'sales_by_store', aside: $explain('sales_by_store', \CW\Ui\Words::MENU['sales_by_store'])) ?>
+<div class="doc-head">
+<?= $head(\CW\Ui\Words::MENU['sales_by_store'], intro: 'sales_by_store', aside: $explain('sales_by_store', \CW\Ui\Words::MENU['sales_by_store']),
+    meta: $say('REPORTS', 'period_says', $day($from), $day($to)) . ' ' . $e($asOf), side: $bar) ?>
+</div>
+<?php if ($any): ?>
+<section class="doc-progress rp-figs" aria-label="<?= $word('REPORTS', 'sales_figures') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'orders') ?></p><p class="doc-step-big"><?= $n($total['orders']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_sold') ?></p><p class="doc-step-big"><?= $n($total['units_sold']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_sent') ?></p><p class="doc-step-big"><?= $n($total['units_sent']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_cancelled') ?></p><p class="doc-step-big"><?= $n($total['units_cancelled']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_returned') ?></p><p class="doc-step-big"><?= $n($total['units_returned']) ?></p></div>
+</section>
+<?php endif; ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-state">
     <label for="tb-period"><?= $word('REPORTS', 'period') ?></label>
@@ -25,11 +38,7 @@
     </select>
     <button type="submit" class="btn sm"><?= $word('REPORTS', 'apply') ?></button>
   </div>
-  <div class="tb-end">
-    <a class="btn ghost sm" href="<?= $e($csv_link) ?>" download><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('REPORTS', 'csv') ?></span></a>
-  </div>
 </form>
-<p class="muted"><?= $say('REPORTS', 'period_says', $day($from), $day($to)) ?> <?= $e($asOf) ?></p>
 <?php if ($warn !== null): ?>
 <p class="note"><?= $e($warn) ?></p>
 <?php endif; ?>
@@ -37,13 +46,6 @@
 <?php if (!$any): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['no_sales'], \CW\Ui\Words::REPORTS['no_sales_text']) ?>
 <?php else: ?>
-<section class="doc-progress rp-figs" aria-label="<?= $word('REPORTS', 'sales_figures') ?>">
-  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'orders') ?></p><p class="doc-step-big"><?= $n($total['orders']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_sold') ?></p><p class="doc-step-big"><?= $n($total['units_sold']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_sent') ?></p><p class="doc-step-big"><?= $n($total['units_sent']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_cancelled') ?></p><p class="doc-step-big"><?= $n($total['units_cancelled']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('REPORTS', 'units_returned') ?></p><p class="doc-step-big"><?= $n($total['units_returned']) ?></p></div>
-</section>
 
 <section class="doc-related" aria-labelledby="by-store-h">
   <div class="board-head"><h2 id="by-store-h" class="board-sub"><?= $word('REPORTS', 'by_store') ?></h2></div>
