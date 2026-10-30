@@ -1233,8 +1233,8 @@ final class Words
         'any_state' => 'Every state',
         'origin' => 'How it came in',
         'any_origin' => 'Any way',
-        'from' => 'Placed from (day)',
-        'to' => 'Placed until (day)',
+        'from' => 'From',
+        'to' => 'To',
         'clear' => 'Clear the filters',
         'download' => 'Download this list as a spreadsheet (CSV)',
         'store_count' => 'paid orders waiting to ship',
@@ -1247,10 +1247,6 @@ final class Words
         'show_all' => 'Any time',
         'show_default' => 'The last %s days',
         'bad_dates' => 'A day you typed is not a real day, or the first day is after the last one: the list shows the last %s days instead.',
-        'board' => 'Orders',
-        'board_note' => 'Newest first, %s at a time.',
-        'on_page_one' => '1 order on this page',
-        'on_page_many' => '%s orders on this page',
         'order' => 'Order',
         'store' => 'Store',
         'status' => 'Status',
@@ -1268,7 +1264,6 @@ final class Words
         'none_text' => 'When a customer starts a checkout on a store, the order appears here and stays here once it is paid, sent, cancelled, freed or run out of time.',
         'none_filtered' => 'No order matches your filter.',
         'none_filtered_text' => 'No order fits the days, the state or the way in you chose. Clear them to see every order of this store choice.',
-        'foot' => 'Units are warehouse units. Nothing on this page changes an order: the stores make, pay, send, cancel and free them.',
         'csv_more' => 'only the newest %s orders: narrow the filter for the rest',
         'csv_stopped' => 'the list stopped after reading %s orders: narrow the filter for the rest',
     ];
@@ -1286,10 +1281,8 @@ final class Words
         'f_waiting' => 'Waiting to ship since payment',
         'f_products' => 'Store variants',
         'f_units' => 'Warehouse units',
-        'f_kept' => 'Stock kept for it',
         'kept_link' => 'See the reservation',
         'units' => 'Sold units',
-        'units_text' => 'One row for each unit the customer bought, as the store numbers it.',
         'no_units' => 'No sold unit is recorded for this order.',
         'u_unit' => 'Unit',
         'u_item' => 'Warehouse item',
@@ -1303,7 +1296,6 @@ final class Words
         'more_units' => 'More units of this order',
         'first_units' => 'Back to the first units',
         'steps' => 'What happened to each unit',
-        'steps_text' => 'Every stock change CW booked for each unit on this page, oldest first. Open a change to see it among the item\'s movements.',
         'steps_unit' => 'Unit %s',
         'steps_none' => 'No stock change was booked for this unit.',
         'steps_unlinked' => 'Not linked to a warehouse item at the sale, so no stock moved and CW keeps no steps for it. Its status now is shown above.',
@@ -1317,6 +1309,8 @@ final class Words
         's_open_link' => 'Open',
         's_cw' => 'CW, by itself',
         'late' => 'late',
+        // The record page (wave w10, docs/decisions.md W10): its strip
+        'figures' => 'What became of its units',
     ];
 
     /** Stock › Sales › Dispatch (/ui/stock/sales/dispatch; Ui\Controller\DispatchController). */
@@ -1358,8 +1352,6 @@ final class Words
         'was_undone' => 'Sending was undone before',
         'unlinked_one' => '1 unit not linked to a warehouse item',
         'unlinked_many' => '%s units not linked to a warehouse item',
-        'board_waiting' => 'Waiting to ship, oldest first, %s at a time.',
-        'board_sent' => 'Newest first, %s at a time.',
         'later' => 'Later orders',
         'earlier' => 'Earlier orders',
         'back' => 'Back to the start',
@@ -1372,7 +1364,6 @@ final class Words
         'none_undone_text' => 'When a store resets a dispatch, the units go back to waiting to ship and appear here.',
         'undone_unlinked' => 'Units that are not linked to a warehouse item move no stock, so an undone sending of one is not listed here.',
         'late_capped' => 'The late figure looked at the oldest %s waiting orders only.',
-        'foot' => 'Units are sold units. Nothing on this page changes an order: the stores send them and undo a sending.',
         'csv_more' => 'only the oldest %s waiting orders: choose one store for the rest',
     ];
 
@@ -1390,8 +1381,6 @@ final class Words
         'figures' => 'Main figures',
         'tile_verify' => 'Waiting for a recount',
         'tile_verify_sub' => 'cancelled units in %s',
-        'board' => 'Returned and cancelled units',
-        'board_note' => 'Newest order first, %s at a time.',
         'order' => 'Order',
         'store' => 'Store',
         'unit' => 'Unit',
@@ -1409,7 +1398,6 @@ final class Words
         'none_filtered_text' => 'Choose Returned and cancelled to see both.',
         'clear' => 'Clear the filter',
         'download' => 'Download this list as a spreadsheet (CSV)',
-        'foot' => 'Nothing on this page changes the stock: the store\'s own return page books a return, and a recount settles a unit in the check room.',
         'csv_more' => 'only the newest %s units: choose one store or one kind for the rest',
     ];
 
@@ -2677,6 +2665,8 @@ final class Words
             . '**Sold, waiting to ship:** the order is paid; the stock stays off sale until the store sends it. '
             . '**Freed by the store:** the store let the stock go, for example because the customer left the checkout. '
             . '**Ran out of time:** nobody paid in time, so CW freed the stock.',
+        // Wave w10 (docs/decisions.md W10): Sales by Store's note under its boards, as its "?"
+        'sales_by_store' => 'A **unit** is one warehouse product: a sale of a pack of 3 is 3 units. Each figure belongs to the day the store told CW about it.',
         // Pack D (docs/decisions.md PD3, PD5)
         'sales_orders' => '**Paid (every sale)** is every order that was paid, whatever happened next. **With a unit sent, cancelled or returned** '
             . 'shows the orders that have at least one such unit. **Placed** is when the store first told CW about the order, in UK days. '
@@ -9857,11 +9847,11 @@ final class Words
         'units_returned' => 'Units returned',
         'by_store' => 'By store',
         'by_day' => 'Day by day',
+        'sales_figures' => 'The totals of these days',
         'day' => 'Day',
         'total' => 'All stores',
         'no_sales' => 'No store sent CW an order in these days.',
         'no_sales_text' => 'Stores send their orders to CW once they are switched on.',
-        'sales_note' => 'A unit is one warehouse product: a sale of a pack of 3 counts 3. Each figure is counted on the day the store told CW.',
         // Low Stock
         'low' => 'Low',
         'out' => 'Out of stock',

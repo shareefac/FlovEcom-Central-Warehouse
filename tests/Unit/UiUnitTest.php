@@ -1296,6 +1296,26 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * Wave w10 (docs/decisions.md W10): a board's or report's Show row may hold the days typed (Store orders, Sales by Store): each date box
+     * with its word, as tall as the row's selects, and on a phone 44 px high, sharing the row without pushing the page sideways; and on a
+     * phone a board's status cell keeps its fill.
+     */
+    public function testTheShowRowHoldsTheDaysTypedAtEveryWidth(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match('/^\.toolbar \.tb-state label\.tb-day \{([^}]*)\}/m', $css, $label));
+        self::assertStringContainsString('display: inline-flex', $label[1], 'the word beside its box');
+        self::assertSame(1, preg_match('/^\.toolbar \.tb-state label\.tb-day input\[type="date"\] \{([^}]*)\}/m', $css, $box));
+        self::assertStringContainsString('height: 36px', $box[1], 'as tall as the row\'s selects');
+        self::assertSame(1, preg_match('/@media \(max-width: 639\.98px\) \{\s*\.toolbar \.tb-state label\.tb-day \{([^}]*)\}\s*\.toolbar \.tb-state label\.tb-day input\[type="date"\] \{([^}]*)\}/', $css, $phone));
+        self::assertStringContainsString('min-width: 0', $phone[1], 'a phone: the row wraps, never wider than the page');
+        self::assertStringContainsString('min-height: 44px', $phone[2], 'a phone: 44 px to tap');
+        // A board's status cell keeps its fill on a phone (the stacked list's generic rule took it: white words on the white card); Goods in's
+        // duty cell is the one drawn as a white field there (GV23).
+        self::assertStringContainsString('@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty) { background: var(--t-fill, var(--st-grey)); } }', $css);
+    }
+
+    /**
      * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
      * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
      * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that

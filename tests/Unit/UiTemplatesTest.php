@@ -54,6 +54,7 @@ final class UiTemplatesTest extends TestCase
             'listing_check', 'check_fold', // the lists' Check & match fold and its fragment (docs/decisions.md CM1)
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D
+            'sales_order_bar', // an order's bar in its head (docs/decisions.md W10)
             'home_find', 'bell', // Home's Find box and the bell (docs/decisions.md HV1, HV4)
             // Suppliers and buying on the approved patterns (docs/decisions.md W9): the bars, the supplier form's field, the products board
             'supplier_bar', 'supplier_field', 'supplier_items_board', 'supplier_items_bar', 'return_bar', 'return_files', 'reorder_bar', 'low_stock_bar',
@@ -238,6 +239,7 @@ final class UiTemplatesTest extends TestCase
             'suppliers', 'supplier', 'supplier_form', 'supplier_items', 'supplier_item', 'supplier_item_form', 'item_cards', 'item_card_form', 'item_cards_import',
             'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
+            'sales_order_bar', 'report_sales', // wave w10: an order's bar; Sales by Store on the report pattern (docs/decisions.md W10)
             'po_supplier_needs', 'po_products', // pack PO (PO3); PO on one page (PX8): the product box's choices
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page, the shared document pieces (PV)
             'po_action', 'si_action', // the approved design: a saved order's or invoice's actions (PV19)
@@ -1589,6 +1591,50 @@ final class UiTemplatesTest extends TestCase
                 self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php']), substr_count($t[$name . '.php'], '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
             }
         }
+    }
+
+    /**
+     * Wave w10 (docs/decisions.md W10): the Sales pages on the approved patterns. Store orders, Dispatch and Returns are boards (one Show
+     * row, no Filter pop-over, coloured groups over cards, the solid status cell); an order is the record page (status block and its bar in
+     * the head, the strip, the paper card with the store beside the facts and the units as its lines, the history as groups); Sales by
+     * Store is the report (the strip over the boards). None posts anything.
+     */
+    public function testTheSalesPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $board = ['<form class="toolbar" method="get"', '<div class="tb-state">', '<select id="tb-show" name="', '<div class="grp-block doc-group ',
+            '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="', '<div class="table-wrap doc-board" id="', '<td class="c-status doc-st '];
+        $pins = [
+            'sales_orders' => [...$board, '<a class="o-name row-link"', 'class="stack list board doc-list sales-orders"', '<div class="tb-end">'],
+            'sales_dispatch' => [...$board, '<a class="o-name row-link"', 'class="stack list board doc-list dispatch-waiting"', 'class="stack list board doc-list dispatch-sent"',
+                'class="stack list board doc-list dispatch-undone"', '<section class="doc-progress rp-figs"'],
+            'sales_returns' => [...$board, 'class="stack list board doc-list sales-returns"', '<section class="doc-progress rp-figs"', '<div class="tb-end">'],
+            'sales_order' => ['<div class="doc-head">', 'side: $bar', 'chips: $chip($tone, $chipWord)', '<section class="doc-progress rp-figs"', '<article class="doc-view"',
+                "\$partial('doc_party'", 'class="stack list board doc-lines sales-units"', '<td class="c-status doc-st ', '<section class="doc-related"',
+                '<div class="grp-block doc-group info">', 'class="table-wrap doc-board" id="u-'],
+            'sales_order_bar' => ['<div class="doc-actions" role="group"'],
+            'report_sales' => ['<form class="toolbar" method="get"', '<div class="tb-state">', '<label class="tb-day">', '<div class="tb-end">',
+                '<section class="doc-progress rp-figs"', '<section class="doc-related"', '<div class="table-wrap doc-board info">', 'class="stack list board doc-list report-sales"',
+                'class="stack list board doc-list report-days"', '<tr class="grp-foot">'],
+        ];
+        foreach ($pins as $name => $parts) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($parts as $part) {
+                self::assertStringContainsString($part, $src, "{$name}: {$part}");
+            }
+            foreach (['class="tb-pop"', 'class="kpis', 'class="home-tiles"', '<dl class="wide', 'ico-filter', 'class="foot"', 'show-tabs', 'row-strips', 'method="post"'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            // A status is a solid cell on a board, the head's block on the record: never a small chip in a row.
+            self::assertSame($name === 'sales_order' ? 1 : 0, substr_count($src, '$chip('), "{$name}: the status is a solid cell or the head's block");
+            foreach (['div', 'details', 'form', 'section', 'table', 'article', 'nav'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+        foreach (['sales_orders', 'sales_dispatch', 'sales_returns'] as $name) {
+            self::assertSame(1, substr_count($t[$name . '.php'], '<div class="tb-state">'), "{$name}: one Show row");
+        }
+        self::assertSame(2, substr_count($t['sales_orders.php'], '<label class="tb-day">'), 'the days typed: From and Until, in the Show row');
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

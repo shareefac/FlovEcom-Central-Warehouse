@@ -182,11 +182,49 @@ final class SalesScreensTest extends KernelUiTestCase
         return '';
     }
 
-    /** @return list<string> the figures over a list */
+    /** @return list<string> the figures over a list (the strip of the approved patterns: docs/decisions.md W10) */
     private static function figures(UiResponse $r): array
     {
         return array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array((new \DOMXPath($r->dom()))->query('//main//li[@class="kpi"]/p[@class="kpi-value"]')));
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//main//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-big"]')));
+    }
+
+    /** The board's groups in order: [title, count words]. @return list<array{0: string, 1: string}> */
+    private static function boardGroups(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//main//div[contains(@class, "doc-group")]/h3[contains(@class, "grp-title")]') as $h) {
+            $out[] = [trim((string) $xp->evaluate('string(button)', $h)), trim((string) $xp->evaluate('string(span[@class="grp-count"])', $h))];
+        }
+        return $out;
+    }
+
+    /** The orders of orders() by the board's group (ReservationViews::GROUPS). */
+    private const GROUP = ['V1998' => 'closed', 'V1999' => 'released', 'V2001' => 'to_ship', 'V2002' => 'to_ship', 'V2003' => 'closed', 'V2004' => 'closed',
+        'V2005' => 'closed', 'V2006' => 'held', 'V2007' => 'expired', 'V2008' => 'to_ship', 'V2009' => 'to_ship', 'V2010' => 'held', '=SUM(A1)' => 'closed',
+        'A3001' => 'to_ship'];
+
+    /**
+     * A page of orders, newest first, as the board shows it (docs/decisions.md W10): grouped by state in the board's order, newest first inside
+     * each group.
+     *
+     * @param list<string> $refs newest first
+     * @param array<string, string> $group order reference => its group
+     * @return list<string>
+     */
+    private static function onBoard(array $refs, array $group = self::GROUP): array
+    {
+        $out = [];
+        foreach (\CW\Ui\ReservationViews::GROUPS as $g) {
+            foreach ($refs as $ref) {
+                if ($group[$ref] === $g) {
+                    $out[] = $ref;
+                }
+            }
+        }
+        self::assertCount(count($refs), $out, 'every order has a group');
+        return $out;
     }
 
     /** The store selector: label, link, count, current. @return list<array{0: string, 1: string, 2: int, 3: bool}> */
@@ -285,11 +323,12 @@ final class SalesScreensTest extends KernelUiTestCase
         $all = $this->page($web, self::ORDERS);
         // The last 7 days (the setting), newest first: not V1999 (10 days ago) nor V1998 (40 days ago).
         $recent = ['A3001', '=SUM(A1)', 'V2010', 'V2009', 'V2008', 'V2007', 'V2006', 'V2005', 'V2004', 'V2003', 'V2002', 'V2001'];
-        self::assertSame($recent, self::refs($all, 'sales-orders'));
+        self::assertSame(self::onBoard($recent), self::refs($all, 'sales-orders'), 'grouped by state, newest first in each group (docs/decisions.md W10)');
         self::assertStringContainsString(Words::say('SALE', 'period_default', 7), $all->text());
-        // One row: the store, the label, placed, paid, how it came in, the units, what became of it.
+        // One row: the label (the status cell, right after the order: docs/decisions.md W10), the store, placed, paid, how it came in, the
+        // units, what became of it.
         $row = self::rowOf($all, 'sales-orders', 'V2003');
-        self::assertStringContainsString('VPG test site ' . Words::RESV_CHIP['closed'], $row);
+        self::assertStringStartsWith('V2003 ' . Words::RESV_CHIP['closed'] . ' VPG test site ', $row);
         self::assertStringContainsString(Words::SALE_ORIGIN['reserved'] . ' 2 ' . Words::say('RESV', 'out_part_shipped', 1) . ' · ' . Words::say('RESV', 'out_part_returned', 1), $row);
         self::assertStringContainsString(Words::SALE_ORIGIN['unreserved'], self::rowOf($all, 'sales-orders', 'V2008'));
         self::assertStringContainsString(Words::RESV['unlinked_one'], self::rowOf($all, 'sales-orders', '=SUM(A1)'));
@@ -299,7 +338,7 @@ final class SalesScreensTest extends KernelUiTestCase
             ['VPG test site', self::ORDERS . '?channel=vpg', 4, false]], self::storeSeg($all));
         self::assertSame(['A3001'], self::refs($this->page($web, self::ORDERS, ['channel' => 'alt']), 'sales-orders'));
         $vpg = $this->page($web, self::ORDERS, ['channel' => 'vpg']);
-        self::assertSame(array_slice($recent, 1), self::refs($vpg, 'sales-orders'));
+        self::assertSame(self::onBoard(array_slice($recent, 1)), self::refs($vpg, 'sales-orders'));
 
         // Each state: the engine's order states, and the orders with a unit sent, cancelled or returned.
         $expect = [
@@ -313,11 +352,11 @@ final class SalesScreensTest extends KernelUiTestCase
         ];
         self::assertSame(SalesViews::STATES, array_keys($expect));
         foreach ($expect as $state => $refs) {
-            self::assertSame($refs, self::refs($this->page($web, self::ORDERS, ['state' => $state]), 'sales-orders'), $state);
-            self::assertSame(array_values(array_diff($refs, ['A3001'])), self::refs($this->page($web, self::ORDERS, ['state' => $state, 'channel' => 'vpg']), 'sales-orders'), "vpg {$state}");
+            self::assertSame(self::onBoard($refs), self::refs($this->page($web, self::ORDERS, ['state' => $state]), 'sales-orders'), $state);
+            self::assertSame(self::onBoard(array_values(array_diff($refs, ['A3001']))), self::refs($this->page($web, self::ORDERS, ['state' => $state, 'channel' => 'vpg']), 'sales-orders'), "vpg {$state}");
         }
         self::assertSame(['V1999'], self::refs($this->page($web, self::ORDERS, ['state' => 'released', 'period' => 'all']), 'sales-orders'));
-        self::assertSame(['A3001', 'V2003', 'V1998'], self::refs($this->page($web, self::ORDERS, ['state' => 'shipped', 'period' => 'all']), 'sales-orders'));
+        self::assertSame(self::onBoard(['A3001', 'V2003', 'V1998']), self::refs($this->page($web, self::ORDERS, ['state' => 'shipped', 'period' => 'all']), 'sales-orders'));
         // The way in, alone and with a state.
         self::assertSame(['V2008'], self::refs($this->page($web, self::ORDERS, ['origin' => 'unreserved']), 'sales-orders'));
         self::assertSame(['V2008'], self::refs($this->page($web, self::ORDERS, ['origin' => 'unreserved', 'state' => 'paid']), 'sales-orders'));
@@ -328,7 +367,7 @@ final class SalesScreensTest extends KernelUiTestCase
 
         // Days: any time; days of one's own (UK days, both included); a store's list keeps them.
         $any = $this->page($web, self::ORDERS, ['period' => 'all']);
-        self::assertSame([...$recent, 'V1999', 'V1998'], self::refs($any, 'sales-orders'));
+        self::assertSame(self::onBoard([...$recent, 'V1999', 'V1998']), self::refs($any, 'sales-orders'));
         self::assertStringContainsString(Words::SALE['period_all'], $any->text());
         $uk = $this->real->setTimezone(new \DateTimeZone('Europe/London'));
         $range = ['from' => $uk->modify('-12 days')->format('Y-m-d'), 'to' => $uk->modify('-8 days')->format('Y-m-d')];
@@ -340,19 +379,19 @@ final class SalesScreensTest extends KernelUiTestCase
         $old = ['from' => $uk->modify('-41 days')->format('Y-m-d'), 'to' => $uk->modify('-39 days')->format('Y-m-d')];
         self::assertSame(['V1998'], self::refs($this->page($web, self::ORDERS, $old + ['state' => 'shipped']), 'sales-orders'), 'a filter on the units, within days');
         self::assertSame(['V1998'], self::refs($this->page($web, self::ORDERS, $old), 'sales-orders'));
-        self::assertSame($recent, self::refs($this->page($web, self::ORDERS, ['from' => $uk->format('Y-m-d')]), 'sales-orders'), 'from today on');
-        self::assertSame(['V1999', 'V1998'], self::refs($this->page($web, self::ORDERS, ['to' => $uk->modify('-1 day')->format('Y-m-d')]), 'sales-orders'), 'until yesterday');
+        self::assertSame(self::onBoard($recent), self::refs($this->page($web, self::ORDERS, ['from' => $uk->format('Y-m-d')]), 'sales-orders'), 'from today on');
+        self::assertSame(['V1998', 'V1999'], self::refs($this->page($web, self::ORDERS, ['to' => $uk->modify('-1 day')->format('Y-m-d')]), 'sales-orders'), 'until yesterday: sent before freed (the board\'s groups)');
         // A day that is not a real one, or the first after the last: the default days, and the page says so.
         foreach ([['from' => '2026-02-31'], ['from' => $range['to'], 'to' => $range['from']], ['to' => 'yesterday']] as $bad) {
             $p = $this->page($web, self::ORDERS, $bad);
-            self::assertSame($recent, self::refs($p, 'sales-orders'), json_encode($bad));
+            self::assertSame(self::onBoard($recent), self::refs($p, 'sales-orders'), json_encode($bad));
             self::assertStringContainsString(Words::say('SALE', 'bad_dates', 7), $p->text());
         }
 
         // The days the list opens with are a setting.
         $this->setting('sales.default_days', 30);
         $month = $this->page($web, self::ORDERS);
-        self::assertSame([...$recent, 'V1999'], self::refs($month, 'sales-orders'));
+        self::assertSame(self::onBoard([...$recent, 'V1999']), self::refs($month, 'sales-orders'));
         self::assertStringContainsString(Words::say('SALE', 'period_default', 30), $month->text());
     }
 
@@ -370,12 +409,16 @@ final class SalesScreensTest extends KernelUiTestCase
             }
         }
         $web = $this->signIn($this->uiUser('viewer'));
+        $group = [];
+        for ($i = 1; $i <= $n; $i++) {
+            $group['p' . $i] = $i % 2 === 0 ? 'closed' : 'held';
+        }
         foreach ([[], ['channel' => 'vpg'], ['state' => 'held']] as $query) {
             $label = json_encode($query);
             $first = $this->page($web, self::ORDERS, $query);
             $want = array_values(array_filter(array_map(static fn (int $i): string => 'p' . $i, range($n, 1)),
                 static fn (string $r): bool => ($query['state'] ?? null) !== 'held' || (int) substr($r, 1) % 2 === 1));
-            self::assertSame(array_slice($want, 0, 25), self::refs($first, 'sales-orders'), $label);
+            self::assertSame(self::onBoard(array_slice($want, 0, 25), $group), self::refs($first, 'sales-orders'), $label . ': a page, then grouped');
             if (count($want) <= 25) {
                 self::assertSame([], self::pager($first), $label);
                 continue;
@@ -383,7 +426,7 @@ final class SalesScreensTest extends KernelUiTestCase
             $older = self::pager($first);
             self::assertCount(1, $older, $label);
             $second = $this->open($web, $older[0]);
-            self::assertSame(array_slice($want, 25), self::refs($second, 'sales-orders'), $label);
+            self::assertSame(self::onBoard(array_slice($want, 25), $group), self::refs($second, 'sales-orders'), $label);
             self::assertSame([self::ORDERS . ($query === [] ? '' : '?' . http_build_query($query))], self::pager($second), 'back to the newest');
         }
         // A filter on the units: the page fills from the unit index (13 orders with a unit cancelled: p26 ... p2).
@@ -448,7 +491,7 @@ final class SalesScreensTest extends KernelUiTestCase
         foreach ($xp->query('//main//dl/dt') as $dt) {
             $facts[trim((string) $dt->textContent)] = trim((string) $xp->evaluate('string(following-sibling::dd[1])', $dt));
         }
-        self::assertSame('VPG test site', $facts[Words::SALE_ORDER['f_store']]);
+        self::assertSame('VPG test site', trim((string) $xp->evaluate('string(//main//article[contains(@class, "doc-view")]//p[@class="doc-party-name"])')), 'the store beside the facts');
         self::assertSame(Words::RESV_ORIGIN['reserved'], $facts[Words::SALE_ORDER['f_origin']]);
         self::assertSame(['1', '2'], [$facts[Words::SALE_ORDER['f_products']], $facts[Words::SALE_ORDER['f_units']]]);
         self::assertArrayNotHasKey(Words::SALE_ORDER['f_waiting'], $facts, 'nothing waits to ship');
@@ -530,11 +573,15 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('DISPATCH', 'tile_late_sub', 24), $page->text());
         self::assertStringContainsString(Words::say('DISPATCH', 'tile_today_sub', 3), $page->text(), 'V2003 (one since returned) and A3001');
         self::assertSame(['V2001', 'V2002', 'V2008', 'V2009', 'A3001'], self::refs($page, 'dispatch-waiting'), 'oldest order first');
+        // A row: the order, its status cell (Late / On time: docs/decisions.md W10), the store, paid, how long it waits, the units, the note.
         $late = self::rowOf($page, 'dispatch-waiting', 'V2001');
-        self::assertStringContainsString(Words::say('DISPATCH', 'hours_many', 30) . ' ' . Words::DISPATCH_CHIP['late'] . ' 2', $late);
-        self::assertStringContainsString(Words::DISPATCH['under_hour'] . ' ' . Words::DISPATCH_CHIP['on_time'] . ' 1', self::rowOf($page, 'dispatch-waiting', 'V2002'));
+        self::assertStringStartsWith('V2001 ' . Words::DISPATCH_CHIP['late'] . ' VPG test site ', $late);
+        self::assertStringEndsWith(Words::say('DISPATCH', 'hours_many', 30) . ' 2', $late);
+        self::assertStringStartsWith('V2002 ' . Words::DISPATCH_CHIP['on_time'] . ' VPG test site ', self::rowOf($page, 'dispatch-waiting', 'V2002'));
+        self::assertStringEndsWith(Words::DISPATCH['under_hour'] . ' 1', self::rowOf($page, 'dispatch-waiting', 'V2002'));
         self::assertStringContainsString(Words::DISPATCH['was_undone'], self::rowOf($page, 'dispatch-waiting', 'V2009'));
-        self::assertStringContainsString(Words::DISPATCH_CHIP['on_time'] . ' 2', self::rowOf($page, 'dispatch-waiting', 'A3001'), 'two of its three units wait');
+        self::assertStringStartsWith('A3001 ' . Words::DISPATCH_CHIP['on_time'] . ' ALT test site ', self::rowOf($page, 'dispatch-waiting', 'A3001'));
+        self::assertStringEndsWith(' 2', self::rowOf($page, 'dispatch-waiting', 'A3001'), 'two of its three units wait');
         self::assertContains(self::ORDERS . '/' . $ids['V2001'], $page->hrefs());
         self::assertSame([[Words::BULK['all_stores'], '', 5, true], ['ALT test site', self::DISPATCH . '?channel=alt', 1, false],
             ['VPG test site', self::DISPATCH . '?channel=vpg', 4, false]], self::storeSeg($page));
@@ -565,7 +612,7 @@ final class SalesScreensTest extends KernelUiTestCase
         $undone = $this->page($web, self::DISPATCH, ['show' => 'undone']);
         self::assertSame(['V2009'], self::refs($undone, 'dispatch-undone'));
         self::assertStringContainsString('VPG test site j1 ', self::rowOf($undone, 'dispatch-undone', 'V2009'));
-        self::assertStringEndsWith('VPG test site ' . Words::RESV_UNIT['allocated'], self::rowOf($undone, 'dispatch-undone', 'V2009'));
+        self::assertStringStartsWith('V2009 ' . Words::RESV_UNIT['allocated'] . ' VPG test site j1 ', self::rowOf($undone, 'dispatch-undone', 'V2009'), 'what it is now: the status cell');
         self::assertStringContainsString(Words::DISPATCH['undone_unlinked'], $undone->text());
         self::assertStringContainsString(Words::DISPATCH['none_undone'], $this->page($web, self::DISPATCH, ['show' => 'undone', 'channel' => 'alt'])->text());
 
@@ -620,7 +667,8 @@ final class SalesScreensTest extends KernelUiTestCase
         $page = $this->page($web, self::RETURNS);
         $main = (string) self::$db->value("SELECT name FROM warehouse WHERE code = 'MAIN'");
         $verify = (string) self::$db->value("SELECT name FROM warehouse WHERE code = 'VERIFY'");
-        // Newest order first: what happened, back on sale or not, and where the stock is now.
+        // Returned, then cancelled (the board's groups: docs/decisions.md W10), newest order first in each: back on sale or not (the status cell),
+        // the order, the store, the unit, when, and where the stock is now.
         $units = [];
         foreach ((new \DOMXPath($page->dom()))->query('//table[contains(@class, "sales-returns")]/tbody/tr') as $tr) {
             $units[] = trim((string) preg_replace('/\s+/u', ' ', (string) $tr->textContent));
@@ -628,16 +676,18 @@ final class SalesScreensTest extends KernelUiTestCase
         $a = sprintf('CW-%06d', $this->alpha);
         $b = sprintf('CW-%06d', $this->beta);
         self::assertCount(5, $units);
-        self::assertStringStartsWith('Loose kit Blue' . Words::SALE_ORDER['u_unlinked'] . ' =SUM(A1) VPG test site k1 ' . Words::SALE_RETURN_KIND['cancelled'], $units[0]);
-        self::assertStringEndsWith(Words::SALE_RESTOCK['none'] . ' ' . Words::SALE_RESTOCK_TEXT['unlinked'], $units[0]);
-        self::assertStringStartsWith("Beta pod 2ml{$b} V2010 VPG test site q1 " . Words::SALE_RETURN_KIND['cancelled'], $units[1]);
-        self::assertStringEndsWith(Words::SALE_RESTOCK['yes'] . ' ' . sprintf(Words::SALE_RESTOCK_TEXT['cancelled_held'], $main), $units[1]);
-        self::assertStringStartsWith("Beta pod 2ml{$b} V2005 VPG test site e1 ", $units[2]);
-        self::assertStringEndsWith(Words::SALE_RESTOCK['no'] . ' ' . sprintf(Words::SALE_RESTOCK_TEXT['verify_open'], $verify), $units[2]);
-        self::assertStringStartsWith("Alpha liquid 10ml{$a} V2004 VPG test site d1 ", $units[3]);
-        self::assertStringEndsWith(Words::SALE_RESTOCK['yes'] . ' ' . sprintf(Words::SALE_RESTOCK_TEXT['cancelled'], $main), $units[3]);
-        self::assertStringStartsWith("Alpha liquid 10ml{$a} V2003 VPG test site c2 " . Words::SALE_RETURN_KIND['returned'], $units[4]);
-        self::assertStringEndsWith(Words::SALE_RESTOCK['yes'] . ' ' . sprintf(Words::SALE_RESTOCK_TEXT['returned'], $main), $units[4]);
+        self::assertStringStartsWith("Alpha liquid 10ml{$a} " . Words::SALE_RESTOCK['yes'] . ' V2003 VPG test site c2 ', $units[0]);
+        self::assertStringEndsWith(sprintf(Words::SALE_RESTOCK_TEXT['returned'], $main), $units[0]);
+        self::assertStringStartsWith('Loose kit Blue' . Words::SALE_ORDER['u_unlinked'] . ' ' . Words::SALE_RESTOCK['none'] . ' =SUM(A1) VPG test site k1 ', $units[1]);
+        self::assertStringEndsWith(Words::SALE_RESTOCK_TEXT['unlinked'], $units[1]);
+        self::assertStringStartsWith("Beta pod 2ml{$b} " . Words::SALE_RESTOCK['yes'] . ' V2010 VPG test site q1 ', $units[2]);
+        self::assertStringEndsWith(sprintf(Words::SALE_RESTOCK_TEXT['cancelled_held'], $main), $units[2]);
+        self::assertStringStartsWith("Beta pod 2ml{$b} " . Words::SALE_RESTOCK['no'] . ' V2005 VPG test site e1 ', $units[3]);
+        self::assertStringEndsWith(sprintf(Words::SALE_RESTOCK_TEXT['verify_open'], $verify), $units[3]);
+        self::assertStringStartsWith("Alpha liquid 10ml{$a} " . Words::SALE_RESTOCK['yes'] . ' V2004 VPG test site d1 ', $units[4]);
+        self::assertStringEndsWith(sprintf(Words::SALE_RESTOCK_TEXT['cancelled'], $main), $units[4]);
+        self::assertSame([[Words::SALE_RETURN_KIND['returned'], Words::RESV['group_one']], [Words::SALE_RETURN_KIND['cancelled'], Words::say('RESV', 'group_many', 4)]],
+            self::boardGroups($page));
         self::assertContains(self::ORDERS . '/' . $ids['V2005'], $page->hrefs(), 'a unit opens its order');
         // One figure: the cancelled units waiting in VERIFY for a recount; the store selector counts them per store.
         self::assertSame(['1'], self::figures($page));
@@ -646,7 +696,7 @@ final class SalesScreensTest extends KernelUiTestCase
             ['VPG test site', self::RETURNS . '?channel=vpg', 1, false]], self::storeSeg($page));
         // The kind filter, a store, and the empty states.
         self::assertSame(['V2003'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array((new \DOMXPath(
-            $this->page($web, self::RETURNS, ['kind' => 'returned'])->dom()))->query('//table[contains(@class, "sales-returns")]/tbody/tr/td[1]'))));
+            $this->page($web, self::RETURNS, ['kind' => 'returned'])->dom()))->query('//table[contains(@class, "sales-returns")]/tbody/tr/td[2]'))));
         self::assertCount(4, self::refs($this->page($web, self::RETURNS, ['kind' => 'cancelled', 'channel' => 'vpg']), 'sales-returns'));
         $alt = $this->page($web, self::RETURNS, ['channel' => 'alt']);
         self::assertStringContainsString(Words::SALE_RETURNS['none_store'], $alt->text());
@@ -853,5 +903,88 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString('"V1998"', $csv->body);
         $fields['from'] = $fields['to'] = $this->real->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d');
         self::assertNotContains('V1998', self::refs($this->page($web, self::ORDERS, $fields), 'sales-orders'), 'typed dates still override Any time');
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The approved patterns (wave w10, docs/decisions.md W10)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The pages as served: Store orders, Dispatch and Returns are boards (one Show row whose choice the list reads, groups with their count,
+     * each a card, the status cell filled, the order's number opening it); an order is the record page (the status block and its bar in the
+     * head, the strip of what became of its units, the store beside the facts, the units as the card's lines, each unit's history a group).
+     */
+    public function testTheSalesPagesFollowTheApprovedPatterns(): void
+    {
+        $ids = $this->orders();
+        $web = $this->signIn($this->uiUser('stock_controller'));
+
+        // Store orders: the groups in the board's order, with their counts; one filled status cell and one row link per order.
+        $orders = $this->page($web, self::ORDERS);
+        $xp = new \DOMXPath($orders->dom());
+        self::assertSame([[Words::RESV_GROUP['held'], Words::say('RESV', 'group_many', 2)], [Words::RESV_GROUP['to_ship'], Words::say('RESV', 'group_many', 5)],
+            [Words::RESV_GROUP['closed'], Words::say('RESV', 'group_many', 4)], [Words::RESV_GROUP['expired'], Words::RESV['group_one']]], self::boardGroups($orders));
+        self::assertSame(12, $xp->query('//table[contains(@class, "sales-orders")]/tbody/tr/td[contains(@class, "doc-st")]')->length);
+        self::assertSame(12, $xp->query('//table[contains(@class, "sales-orders")]/tbody/tr/th/a[contains(@class, "row-link")]')->length);
+        self::assertSame(Words::RESV_CHIP['to_ship'], trim((string) $xp->evaluate('string(//div[contains(@class, "doc-group") and contains(@class, "needs")]//td[contains(@class, "doc-st")][1])')));
+        foreach ($xp->query('//main//div[contains(@class, "doc-group")]/h3/button[@class="grp-toggle"]') as $b) {
+            /** @var \DOMElement $b */
+            self::assertSame(1, $xp->query('//div[contains(@class, "doc-board") and @id="' . $b->getAttribute('aria-controls') . '"]')->length, 'each heading folds its own card');
+        }
+        // One Show row: the state the list reads, the way in and the days beside it; no Filter pop-over; Export a download.
+        self::assertSame(1, $xp->query('//main//form[@method="get"]//div[@class="tb-state"]')->length);
+        self::assertSame('state', $xp->query('//select[@id="tb-show"]')->item(0)?->getAttribute('name'));
+        self::assertSame(['origin', 'from', 'to'], array_map(static fn (\DOMElement $el): string => $el->getAttribute('name'),
+            iterator_to_array($xp->query('//div[@class="tb-state"]//select[@id!="tb-show"] | //div[@class="tb-state"]//input[@type="date"]'))));
+        self::assertSame(0, $xp->query('//main//details[contains(@class, "tb-pop")]')->length);
+        self::assertSame(1, $xp->query('//main//a[@download and starts-with(@href, "' . self::ORDERS . '.csv")]')->length);
+        $paid = $this->page($web, self::ORDERS, ['state' => 'paid']);
+        self::assertSame('paid', (new \DOMXPath($paid->dom()))->query('//select[@id="tb-show"]/option[@selected]')->item(0)?->getAttribute('value'), 'the choice shown');
+
+        // Dispatch: the strip; Late, then On time; the list chosen in the Show row, without a script (a GET form: show=...).
+        $dispatch = $this->page($web, self::DISPATCH);
+        $ddom = $dispatch->dom();
+        $dx = new \DOMXPath($ddom);
+        self::assertSame([[Words::DISPATCH_CHIP['late'], Words::RESV['group_one']], [Words::DISPATCH_CHIP['on_time'], Words::say('RESV', 'group_many', 4)]], self::boardGroups($dispatch));
+        self::assertSame([Words::DISPATCH['tile_waiting'], Words::DISPATCH['tile_late'], Words::DISPATCH['tile_today'], Words::DISPATCH['tile_week'], Words::DISPATCH['tile_undone']],
+            array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array($dx->query('//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-label"]'))));
+        self::assertSame(['waiting', 'today', 'week', 'undone'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
+            iterator_to_array($dx->query('//select[@id="tb-show" and @name="show"]/option'))));
+        self::assertSame(0, $dx->query('//main//nav[contains(@class, "show-tabs")]')->length, 'the four lists are the Show menu');
+        $form = $dx->query('//main//form[@method="get"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $form);
+        $fields = (new UiResponse(200, [], (string) $ddom->saveHTML($form)))->form('');
+        $today = $this->page($web, self::DISPATCH, ['show' => 'today'] + $fields);
+        self::assertSame(['A3001', 'V2003'], self::refs($today, 'dispatch-sent'));
+        self::assertSame([[\CW\Ui\Html::day(Clock::db($this->real)), Words::say('RESV', 'group_many', 2)]], self::boardGroups($today), 'a group a day');
+        self::assertStringStartsWith('V2003 ' . Words::RESV_CHIP['closed'] . ' VPG test site ', self::rowOf($today, 'dispatch-sent', 'V2003'), 'what the order is now: the status cell');
+        self::assertSame([[Words::DISPATCH['show_undone'], Words::RESV['group_one']]], self::boardGroups($this->page($web, self::DISPATCH, ['show' => 'undone'])));
+
+        // Returns: the kind is the Show menu; the status cell says whether the unit is back on sale.
+        $returns = $this->page($web, self::RETURNS);
+        $rx = new \DOMXPath($returns->dom());
+        self::assertSame('kind', $rx->query('//select[@id="tb-show"]')->item(0)?->getAttribute('name'));
+        self::assertSame([Words::SALE_RESTOCK['yes'], Words::SALE_RESTOCK['none'], Words::SALE_RESTOCK['yes'], Words::SALE_RESTOCK['no'], Words::SALE_RESTOCK['yes']],
+            array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array($rx->query('//table[contains(@class, "sales-returns")]/tbody/tr/td[contains(@class, "doc-st")]'))));
+
+        // One order: the record page.
+        $order = $this->page($web, self::ORDERS . '/' . $ids['V2003']);
+        $ox = new \DOMXPath($order->dom());
+        self::assertSame(1, $ox->query('//div[@class="doc-head"]//h1/span[contains(@class, "chip")]')->length, 'the status block in the heading');
+        self::assertSame(['/ui/stock/reservations/' . $ids['V2003']], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($ox->query('//div[@class="doc-head"]//div[contains(@class, "doc-actions")]//a'))), 'the stock kept for it, in the head\'s bar');
+        self::assertSame([[Words::RESV_UNIT['shipped'], '1'], [Words::RESV_UNIT['returned'], '1']], array_map(static fn (\DOMElement $d): array => [
+            trim((string) $ox->evaluate('string(p[@class="doc-step-label"])', $d)), trim((string) $ox->evaluate('string(p[@class="doc-step-big"])', $d))],
+            iterator_to_array($ox->query('//section[contains(@class, "rp-figs")]/div[@class="doc-step"]'))), 'what became of its units');
+        self::assertSame(1, $ox->query('//article[contains(@class, "doc-view")]//table[contains(@class, "sales-units")]')->length, 'the units are the card\'s lines');
+        self::assertSame([Words::RESV_UNIT['shipped'], Words::RESV_UNIT['returned']], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($ox->query('//table[contains(@class, "sales-units")]/tbody/tr/td[contains(@class, "doc-st")]'))));
+        self::assertSame([[Words::say('SALE_ORDER', 'steps_unit', 'c1'), ''], [Words::say('SALE_ORDER', 'steps_unit', 'c2'), '']],
+            array_map(static fn (array $g): array => [$g[0], ''], self::boardGroups($order)), 'each unit\'s history a group');
+        self::assertSame(1, $ox->query('//section[contains(@class, "doc-related")]//h2[@id="steps-h"]')->length);
+        $waiting = new \DOMXPath($this->page($web, self::ORDERS . '/' . $ids['V2001'])->dom());
+        self::assertSame([[Words::RESV_UNIT['allocated'], '2']], array_map(static fn (\DOMElement $d): array => [
+            trim((string) $waiting->evaluate('string(p[@class="doc-step-label"])', $d)), trim((string) $waiting->evaluate('string(p[@class="doc-step-big"])', $d))],
+            iterator_to_array($waiting->query('//section[contains(@class, "rp-figs")]/div[@class="doc-step"]'))));
     }
 }

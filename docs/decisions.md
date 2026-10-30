@@ -13683,3 +13683,90 @@ reports' strips; What to buy's More); `ReorderScreensTest` (the groups and the o
 *Tests* (30 Oct 2026, on the tree rebased on `b06e109`): `tests/Unit` and `tests/Integration/UiKernel`: OK (1031 tests, 125139 assertions);
 the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui` (`UiAuthTest`,
 `UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/w9_final_unit_uikernel.log`, `runs/w9_final_partc.log`, `runs/w9_final_ui.log`.
+
+## The Sales pages on the approved patterns (wave `w10`, branch `wave-w10`, 30 Oct 2026; W10.1-W10.11)
+
+The owner's word of 29 Oct 2026 ("all design convert our new claude suggested design"), relayed by the coordinator as wave w10: Store orders,
+an order, Dispatch, Returns and Reports › Sales by Store, each on the pattern the approved canvases show (`Main.dc.html`, `GI_List`, `CT_Board`,
+`PO_View`, `TP_Report`). Built from main `b06e109` (W8's shared classes, DS1-DS6, CV13-CV14, GV11, GV25, HV1-HV9) in `/root/cw-w10`. Layout and
+words only: no migration, route, permission, setting, query or service rule changed; every page keeps its address, its parameters and its CSV,
+and none posts anything. `Sections` is not touched (no move is needed: Sales keeps its three tabs, Sales by Store stays under Reports, as
+`TP_Report`'s menu shows it). Wave w9's pages (suppliers, supplier returns, credit notes, reorder, arriving, incidents, duty) are not touched.
+
+**W10.1. Store orders is a board (pattern 1).** The page's orders are grouped by state, in the reservations board's groups and words
+(`ReservationViews::GROUPS`, `RESV_GROUP`: reserved now, sold waiting to ship, sold and dealt with, freed, ran out), newest first inside each
+group; each group a coloured heading with its count ("5 on this page", `RESV group_many`: the list is paged) over a card with the 6 px edge; the
+status cell, right after the order, filled (`RESV_CHIP`); the order's number a `row-link`. The groups are drawn from the page the list already
+reads (the same key paging, the same page size), so an older page may hold rows of an earlier group, as on Reservations (W8.1). The board
+heading, its "newest first, N on this page" note and the foot paragraph went.
+
+**W10.2. Its Show row is the filter the list already read.** The Filter pop-over is gone: the Show menu is the `state` select ("Every state"
+and the seven states), and the way in and the days typed (`from`, `to`) sit in the same row (`label.tb-day`: the word beside its box), with
+one Show button; Clear and Export (a download) at the right; the hidden `period` keeps "Any time" through a choice (as before). The period line
+under the store selector stays (it says the days and links to the other choice). **No search box**: the list has no text filter, and adding one
+(an order reference, a product) would be a new query and a new parameter, a behaviour change outside this wave; reported to the coordinator as
+the one part of pattern 1 these boards lack (Dispatch and Returns too).
+
+**W10.3. An order is a record page (pattern 2, PO_View).** The head: "Order V2003" with the status block (`RESV_CHIP`, the board's word) and
+at its right the bar (`sales_order_bar`): "See the reservation" (the stock CW keeps for it), plain: the order is read only, so the page has no
+main action. The strip (`rp-figs`): one figure per state its sold units are in, the number of units in it ("Sent to the customer 1 ·
+Returned by the customer 1"; `RESV_UNIT` words, from the `by_state` counts the row already carries), PO_View's progress for an order. The
+paper card (`article.doc-view`): the store as its party (its name opens the list at that store) beside the facts (reference, state, placed,
+paid, how it came in, waiting since payment with "late", store variants, warehouse units: the facts it listed, less the store and the
+reservation link, which moved to the party and the bar); then the sold units as the card's lines (`table.doc-lines`, the status cell filled,
+their pager inside the card). Then the history (`section.doc-related`): each unit's stock changes a group (`doc-group info`, its unit and item
+as the heading, folding) over its ledger board; the explaining lines over the units and the steps went (the headings say it).
+
+**W10.4. Dispatch is a board.** The four lists are its Show menu (a GET form of `show`, the parameter the tab links carried; the store kept by a
+hidden field; Show without a script), not a row of tabs. The five figure tiles are the strip (`rp-figs`, their lines under them). Waiting to
+ship is grouped Late, then On time (the status cell, `DISPATCH_CHIP`), oldest first in each; a sent list is a group a UK day of sending
+(`Html::day`), newest first, its status cell what the order is now (to ship, or dealt with: `RESV_CHIP`); sending undone is one group, its
+status cell what the unit is now (`RESV_UNIT`). The undone list's line on units not linked stays (it says why a sending is missing). The board
+headings, notes and the foot paragraph went.
+
+**W10.5. Returns is a board; its record is the order.** There is no return record: the owner's answer to Q12 (8 Oct 2026) keeps returns on the
+store's own return page, so a unit's order (pattern 2, W10.3) is the record its row opens, and the brief's "1, 2" for Returns is the board plus
+that page. The Show menu is the `kind` select (returned, cancelled or both); the units are grouped by what happened (returned, then cancelled;
+`RESV_UNIT`'s tones), newest order first in each; the status cell says whether the unit is back on sale (`SALE_RESTOCK`, filled); the "What
+happened" column went (the group says it). The item heads the row (a link to the item) and the order is its own link, so the row has no
+`row-link` (two places to open). The one figure (units waiting for a recount) is the strip.
+
+**W10.6. Sales by Store is a report (pattern 5, TP_Report).** One Show row: the days (`period`), From / To (`label.tb-day`), the store (all or
+one) and Show; the file at the right ("Download as CSV", a download). The days and when the figures were last brought up to date under it,
+muted, as TP_Report's "as of" line. The strip: the days' totals (orders, units sold, sent, cancelled, returned). Then two boards
+(`section.doc-related`, the blue edge): By store, the total row under it (`tr.grp-foot`, as W8's balances), and Day by day. The note under the
+boards (what a unit is, which day a figure belongs to) is the page's "?" (`HELP sales_by_store`): no help paragraph.
+
+**W10.7. One class added, one rule.** `label.tb-day` in a Show row (the word and its date box, as tall as the row's selects; on a phone each
+takes a share of the row, 44 px high, never wider than the page), used by Store orders and Sales by Store; `.doc-board > p` (a card holding a
+line instead of a table: a unit with no stock change). The partial `sales_order_bar`. Everything else is W8's and the pi-design block's.
+One shared rule mended: on a phone (a list 640 px or narrower) the stacked list's generic `table.stack td { background: none }` outranked the
+status cell's fill (`td.doc-st`), so the cell's white words sat on the white card and the state did not show, on these boards and on every
+board before them (GV23 found it on Goods in and drew its cells there by hand). `table.stack td.doc-st:not(.gi-duty)` now keeps the fill on a
+phone, the "pill-like block" docs/dev.md describes; Goods in's duty cell, deliberately a white field there (GV23), is left as it is. CSS
+only; it changes every board's look on a phone (from no visible state to the coloured pill), which is why it is named here.
+
+**W10.8. Words.** Changed: `SALE from / to` ("From", "To": they sit beside their boxes in the Show row now). New: `SALE_ORDER figures` (the
+strip's name), `REPORTS sales_figures`, `HELP sales_by_store` (the note, worded without "count", which the words test keeps for shelf counts).
+Gone with the parts they named: `SALE board / board_note / on_page_one / on_page_many / foot`, `SALE_ORDER f_kept / units_text / steps_text`,
+`DISPATCH board_waiting / board_sent / foot`, `SALE_RETURNS board / board_note / foot`, `REPORTS sales_note`. The groups' counts are
+`RESV group_one / group_many` ("on this page").
+
+**W10.9. Controllers hand the templates the groups, nothing more.** `SalesController::index()` the groups (the row's `group`), `show()` the
+party, the facts as the card's, the strip; `DispatchController` each list's groups (`id`, `name`, `tone`, `rows`), the Show menu's options and
+the store; `SalesReturnsController::index()` the groups (the row's `kind`). The CSVs, the queries, the paging keys and every setting are as
+they were.
+
+**W10.10. What a reviewer should know.** A board groups the page it was given, so the first group on page two may be one page one also had;
+the order of rows inside a group is the list's own. The Show menus are GET forms: a store chosen in the store selector travels as a hidden
+`channel`; Dispatch's `show=waiting` (the form's value) reads as no `show` (the default), as before.
+
+**W10.11. Tests.** `UiTemplatesTest::testTheSalesPagesFollowTheApprovedPatterns` pins each page's pattern in its template (the board's Show
+row, groups, toggles, cards, filled status cells and row links; the record's head, bar, strip, card, lines and history groups; the report's
+Show row with its days, Download, strip, two boards and total row; none of the Filter pop-over, tiles, facts list, foot, tabs row, chips in a
+row or POST form; every tag closed). `SalesScreensTest::testTheSalesPagesFollowTheApprovedPatterns` checks the pages as served (the groups and
+their counts, a cell and a row link a row, each heading folding its own card, the Show row's fields and the choice shown, Dispatch's lists from
+its GET form without a script, a group a day, the record's head, bar, strip, card and history). `ReportsScreenTest::testSalesByStoreOverAPeriod`
+reads the strip, the two boards, the Show row's fields, the download and the "?". The existing sales tests read the board's order through
+`onBoard()` (grouped, newest first in each), the row texts with the status cell after the order, the figures from the strip and the store from
+the card's party. `UiUnitTest::testTheShowRowHoldsTheDaysTypedAtEveryWidth` pins the CSS. Red first: `runs/w10_red.log`.

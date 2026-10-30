@@ -1,7 +1,9 @@
 <?php
-// Stock › Sales › Orders (pack D, docs/decisions.md PD3-PD5): read only. The toolbar (Filter: state, way in and the days; Export), the
-// store selector (All stores and each store of the channel table, with its paid orders waiting to ship), the period in words, then the
-// orders newest first, a page at a time. No form here posts anything.
+// Stock › Sales › Orders (pack D, docs/decisions.md PD3-PD5), a board (the approved design of 29 Oct 2026, pattern 1; docs/decisions.md W10):
+// read only. One Show row (the state the list reads, with the way in and the days typed beside it), Clear and Export at the right; the store
+// selector (All stores and each store of the channel table, with its paid orders waiting to ship); the period in words; then the page's
+// orders grouped by state, newest first in each, every group a coloured heading with its count over a card with its colour on the left
+// edge, the status cell filled with it, the order's number opening it. No form here posts anything.
 ?>
 <?= $head(\CW\Ui\Words::MENU['sales_orders'], intro: 'sales_orders', aside: $explain('sales_orders', \CW\Ui\Words::MENU['sales_orders'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
@@ -9,33 +11,33 @@
 <?php if ($f['channel'] !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
 <?php endif; ?>
-  <details class="tb-pop">
-    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($filtered): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
-    <div class="pop pop-form">
-      <label><?= $word('SALE', 'state') ?>
-        <select name="state">
-          <option value=""><?= $word('SALE', 'any_state') ?></option>
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
+    <select id="tb-show" name="state">
+      <option value=""><?= $word('SALE', 'any_state') ?></option>
 <?php foreach ($states as $code => $label): ?>
-          <option value="<?= $e($code) ?>"<?php if ($f['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+      <option value="<?= $e($code) ?>"<?php if ($f['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <label><?= $word('SALE', 'origin') ?>
-        <select name="origin">
-          <option value=""><?= $word('SALE', 'any_origin') ?></option>
+    </select>
+    <label class="visually-hidden" for="tb-origin"><?= $word('SALE', 'origin') ?></label>
+    <select id="tb-origin" name="origin" title="<?= $word('SALE', 'origin') ?>">
+      <option value=""><?= $word('SALE', 'any_origin') ?></option>
 <?php foreach ($origins as $code => $label): ?>
-          <option value="<?= $e($code) ?>"<?php if ($f['origin'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+      <option value="<?= $e($code) ?>"<?php if ($f['origin'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <label><?= $word('SALE', 'from') ?> <input type="date" name="from" value="<?= $e($f['from']) ?>"></label>
-      <label><?= $word('SALE', 'to') ?> <input type="date" name="to" value="<?= $e($f['to']) ?>"></label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('SALE', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
-    </div>
-  </details>
-<?php if ($rows !== []): ?>
-  <div class="tb-end"><a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('SALE', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
+    </select>
+    <label class="tb-day"><?= $word('SALE', 'from') ?> <input type="date" name="from" value="<?= $e($f['from']) ?>"></label>
+    <label class="tb-day"><?= $word('SALE', 'to') ?> <input type="date" name="to" value="<?= $e($f['to']) ?>"></label>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
+  <div class="tb-end">
+<?php if ($filtered): ?>
+    <a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('SALE', 'clear') ?></a>
 <?php endif; ?>
+<?php if ($rows_n > 0): ?>
+    <a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('SALE', 'download') ?>" download><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
+<?php endif; ?>
+  </div>
 </form>
 <?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::SALE['store_count']]) ?>
 
@@ -47,7 +49,7 @@
 <p class="note"><?= $e($stopped['text']) ?> <a href="<?= $e($stopped['href']) ?>"><?= $word('SALE', 'read_on') ?></a></p>
 <?php endif; ?>
 
-<?php if ($rows === []): ?>
+<?php if ($groups === []): ?>
 <?php if ($narrowed): ?>
 <?= $empty(\CW\Ui\Words::SALE['none_filtered'], \CW\Ui\Words::SALE['none_filtered_text'], $clearAll, \CW\Ui\Words::SALE['clear']) ?>
 <?php elseif ($f['channel'] !== null): ?>
@@ -56,38 +58,41 @@
 <?= $empty(\CW\Ui\Words::SALE['none'], \CW\Ui\Words::SALE['none_text']) ?>
 <?php endif; ?>
 <?php else: ?>
-<div class="board-head"><h2 class="board-title"><?= $word('SALE', 'board') ?></h2><p class="board-note"><?= $say('SALE', 'board_note', $page_size) ?> <?php if (count($rows) === 1): ?><?= $word('SALE', 'on_page_one') ?><?php else: ?><?= $say('SALE', 'on_page_many', count($rows)) ?><?php endif; ?></p></div>
-<div class="table-wrap">
-<table class="stack list board sales-orders">
-  <thead>
-    <tr>
-      <th scope="col" class="c-item"><?= $word('SALE', 'order') ?></th>
-      <th scope="col"><?= $word('SALE', 'store') ?></th>
-      <th scope="col" class="c-status"><?= $word('SALE', 'status') ?></th>
-      <th scope="col"><?= $word('SALE', 'placed') ?></th>
-      <th scope="col"><?= $word('SALE', 'paid') ?></th>
-      <th scope="col"><?= $word('SALE', 'came_in') ?></th>
-      <th scope="col" class="num"><?= $word('SALE', 'units') ?></th>
-      <th scope="col"><?= $word('SALE', 'outcome') ?></th>
-    </tr>
-  </thead>
-  <tbody>
-<?php foreach ($rows as $r): ?>
-    <tr>
-      <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a><?php if ($r['try'] !== null): ?><span class="o-sub"><?= $e($r['try']) ?></span><?php endif; ?></th>
-      <td data-label="<?= $word('SALE', 'store') ?>"><?= $e($r['store']) ?></td>
-      <td class="c-status"><?= $chip($r['tone'], $r['chipWord']) ?></td>
-      <td data-label="<?= $word('SALE', 'placed') ?>"><?= $when($r['placed']) ?></td>
-      <td data-label="<?= $word('SALE', 'paid') ?>"><?= $when($r['paid']) ?></td>
-      <td data-label="<?= $word('SALE', 'came_in') ?>"><?= $e($r['origin']) ?></td>
-      <td class="num" data-label="<?= $word('SALE', 'units') ?>"><?= $n($r['units']) ?></td>
-      <td class="c-wide" data-label="<?= $word('SALE', 'outcome') ?>"><?= $e($r['outcome']) ?><?php if ($r['outcome_at'] !== null): ?><span class="o-sub"><?= $e($r['outcome_at']) ?></span><?php endif; ?><?php if ($r['unlinked'] !== null): ?><span class="o-sub"><?= $e($r['unlinked']) ?></span><?php endif; ?></td>
-    </tr>
+<?php foreach ($groups as $g => $grp): ?>
+<div class="grp-block doc-group <?= $e($grp['tone']) ?>">
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $e($grp['name']) ?></button> <span class="grp-count"><?php if (count($grp['rows']) === 1): ?><?= $word('RESV', 'group_one') ?><?php else: ?><?= $say('RESV', 'group_many', count($grp['rows'])) ?><?php endif; ?></span></h3>
+  <div class="table-wrap doc-board" id="g-<?= $e($g) ?>">
+  <table class="stack list board doc-list sales-orders">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('SALE', 'order') ?></th>
+        <th scope="col" class="c-status"><?= $word('SALE', 'status') ?></th>
+        <th scope="col"><?= $word('SALE', 'store') ?></th>
+        <th scope="col"><?= $word('SALE', 'placed') ?></th>
+        <th scope="col"><?= $word('SALE', 'paid') ?></th>
+        <th scope="col"><?= $word('SALE', 'came_in') ?></th>
+        <th scope="col" class="num"><?= $word('SALE', 'units') ?></th>
+        <th scope="col"><?= $word('SALE', 'outcome') ?></th>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($grp['rows'] as $r): ?>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['ref']) ?></a><?php if ($r['try'] !== null): ?><span class="o-sub"><?= $e($r['try']) ?></span><?php endif; ?></th>
+        <td class="c-status doc-st <?= $e($r['tone']) ?>"><?= $e($r['chipWord']) ?></td>
+        <td data-label="<?= $word('SALE', 'store') ?>"><?= $e($r['store']) ?></td>
+        <td data-label="<?= $word('SALE', 'placed') ?>"><?= $when($r['placed']) ?></td>
+        <td data-label="<?= $word('SALE', 'paid') ?>"><?= $when($r['paid']) ?></td>
+        <td data-label="<?= $word('SALE', 'came_in') ?>"><?= $e($r['origin']) ?></td>
+        <td class="num" data-label="<?= $word('SALE', 'units') ?>"><?= $n($r['units']) ?></td>
+        <td class="c-wide" data-label="<?= $word('SALE', 'outcome') ?>"><?= $e($r['outcome']) ?><?php if ($r['outcome_at'] !== null): ?><span class="o-sub"><?= $e($r['outcome_at']) ?></span><?php endif; ?><?php if ($r['unlinked'] !== null): ?><span class="o-sub"><?= $e($r['unlinked']) ?></span><?php endif; ?></td>
+      </tr>
 <?php endforeach; ?>
-  </tbody>
-</table>
+    </tbody>
+  </table>
+  </div>
 </div>
-<p class="foot"><?= $word('SALE', 'foot') ?></p>
+<?php endforeach; ?>
 <?php endif; ?>
 <?php if ($older_link !== null || $newest_link !== null): ?>
 <p class="pager"><?php if ($newest_link !== null): ?><a href="<?= $e($newest_link) ?>"><?= $word('SALE', 'newest') ?></a><?php endif; ?><?php if ($older_link !== null): ?><a href="<?= $e($older_link) ?>"><?= $word('SALE', 'older') ?></a><?php endif; ?></p>

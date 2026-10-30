@@ -229,6 +229,20 @@ final class ReportsScreenTest extends KernelUiTestCase
             self::cells($page, 'report-sales'), 'the last 30 days: the day 40 days ago is left out');
         self::assertCount(2, self::cells($page, 'report-days'));
         self::assertStringContainsString(Words::REPORTS['never_run'], $page->text());
+        // The report pattern (docs/decisions.md W10): the strip of the days' totals over the two boards, the days and the store in one Show
+        // row, the file a download at its right.
+        $xp = new \DOMXPath($page->dom());
+        self::assertSame([[Words::REPORTS['orders'], '6'], [Words::REPORTS['units_sold'], '12'], [Words::REPORTS['units_sent'], '2'], [Words::REPORTS['units_cancelled'], '1'],
+            [Words::REPORTS['units_returned'], '1']], array_map(static fn (\DOMElement $d): array => [trim((string) $xp->evaluate('string(p[@class="doc-step-label"])', $d)),
+            trim((string) $xp->evaluate('string(p[@class="doc-step-big"])', $d))], iterator_to_array($xp->query('//main//section[contains(@class, "rp-figs")]/div'))));
+        self::assertSame([Words::REPORTS['by_store'], Words::REPORTS['by_day']], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//main//section[@class="doc-related"]/div[@class="board-head"]/h2'))));
+        self::assertSame(2, $xp->query('//main//section[@class="doc-related"]/div[contains(@class, "doc-board")]/table')->length);
+        self::assertSame(['period', 'from', 'to', 'store'], array_map(static fn (\DOMElement $el): string => $el->getAttribute('name'),
+            iterator_to_array($xp->query('//main//form[@method="get"]/div[@class="tb-state"]//*[self::select or self::input]'))));
+        self::assertSame(1, $xp->query('//main//form[@method="get"]/div[@class="tb-end"]/a[@download and starts-with(@href, "/ui/reports/sales-by-store.csv")]')->length);
+        self::assertSame(1, $xp->query('//main//header//details[@class="help"]')->length, 'what a unit is: the page\'s "?", not a paragraph under the boards');
+        self::assertStringContainsString('pack of 3 is 3 units', (string) $xp->evaluate('string(//main//header//details[@class="help"])'));
         $one = $web->get('/ui/reports/sales-by-store', ['store' => (string) $efg->channelId]);
         self::assertSame([['2', '4']], array_map(static fn (array $r): array => [$r[1], $r[2]], self::cells($one, 'report-days')));
         // Chosen days, given the wrong way round; longer than the setting allows: the last days are kept, and it says so.

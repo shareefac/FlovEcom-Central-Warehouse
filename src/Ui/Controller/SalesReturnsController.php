@@ -18,7 +18,8 @@ use CW\Ui\Words;
  * stores cancelled before sending, per store, newest order first, READ ONLY (sales.view). The owner's answer to Q12 (8 Oct 2026): no
  * new returns process: the store's own return page books a return, and CW puts the unit back in stock. So this is a list: each unit
  * with whether it went back on sale and where its stock is now; a cancel the store marked not restockable is in VERIFY, waiting for a
- * recount (the engine opens one), and the list says whether that recount is done.
+ * recount (the engine opens one), and the list says whether that recount is done. A board (docs/decisions.md W10): grouped by what happened,
+ * the status cell whether the unit is back on sale; a unit's order opens its record page.
  *
  *   /ui/stock/sales/returns       for every store or one; returned, cancelled or both; `sales.page_size` units a page, older by key
  *   /ui/stock/sales/returns.csv   the same filtered list as a file (at most `sales.csv_max_rows` rows)
@@ -47,14 +48,23 @@ final class SalesReturnsController
         }
         $code = $f['store'] === null ? null : (string) $f['store']['code'];
         $query = ['channel' => $code, 'kind' => $f['kind']];
+        // The board (docs/decisions.md W10): the page's units grouped by what happened (returned, then cancelled), newest order first in each.
+        $rows = array_map(static fn (array $u): array => self::row($u, $names, $warehouses), $page['rows']);
+        $groups = [];
+        foreach (SalesViews::KINDS as $k) {
+            $in = array_values(array_filter($rows, static fn (array $row): bool => $row['kind'] === $k));
+            if ($in !== []) {
+                $groups[$k] = ['name' => Words::SALE_RETURN_KIND[$k], 'tone' => Words::tone('RESV_UNIT', $k), 'rows' => $in];
+            }
+        }
         return $ctx->page('sales_returns', [
             'f' => ['channel' => $code, 'kind' => $f['kind']],
             'storeItems' => ReviewController::storeItems($stores, self::PATH, ['kind' => $f['kind']], $code, $verify, true),
             'kinds' => Words::SALE_RETURN_KIND,
             'verifyUnits' => array_sum(array_intersect_key($verify, array_flip($chosen))),
             'verifyName' => $verifyName,
-            'rows' => array_map(static fn (array $u): array => self::row($u, $names, $warehouses), $page['rows']),
-            'page_size' => $set['page'],
+            'groups' => $groups,
+            'rows_n' => count($rows),
             'filtered' => $f['kind'] !== null,
             'clear' => Html::url(self::PATH, ['channel' => $code]),
             'csv' => Html::url(self::PATH . '.csv', $query),
@@ -117,7 +127,7 @@ final class SalesReturnsController
         $text = Words::SALE_RESTOCK_TEXT[$u['outcome']] ?? Words::SALE_RESTOCK_TEXT['unknown'];
         return [
             'href' => SalesController::PATH . '/' . (int) $u['reservation_id'], 'ref' => (string) $u['ref'], 'store' => (string) ($names[$u['channel_id']] ?? ''),
-            'unit' => (string) $u['unit_id'], 'sku_id' => $u['sku_id'], 'name' => $unit['name'], 'sub' => $unit['sub'],
+            'unit' => (string) $u['unit_id'], 'sku_id' => $u['sku_id'], 'name' => $unit['name'], 'sub' => $unit['sub'], 'kind' => (string) $u['state'],
             'what' => Words::of('SALE_RETURN_KIND', (string) $u['state']), 'when' => (string) $u['changed_at'],
             'restockTone' => Words::tone('SALE_RESTOCK', $u['restock']), 'restockWord' => Words::of('SALE_RESTOCK', $u['restock']),
             'where' => str_contains($text, '%s') ? sprintf($text, $where) : $text,

@@ -26,6 +26,7 @@ use CW\Ui\Words;
  *   /ui/stock/sales.csv    the same filtered list as a file (at most `sales.csv_max_rows` rows)
  *   /ui/stock/sales/{id}   one order: its facts, its sold units (a page of them) with the warehouse item and the store variant of each,
  *                          and each unit's stock changes from the ledger, each with a link to it among the item's movements
+ * The list is a board grouped by state and an order a record page (the approved patterns, docs/decisions.md W10).
  */
 final class SalesController
 {
@@ -41,6 +42,17 @@ final class SalesController
         $page = $views->orderIds($f['q'], $storeIds, $set['page'], $set['scan_max']);
         $names = array_column($stores, 'name', 'id');
         $rows = array_map(static fn (array $r): array => self::row($r, $names), $views->rows($page['ids']));
+        // The board (docs/decisions.md W10): the page's orders grouped by state in the reservations board's order, newest first in each.
+        $byGroup = [];
+        foreach ($rows as $row) {
+            $byGroup[$row['group']][] = $row;
+        }
+        $groups = [];
+        foreach (ReservationViews::GROUPS as $g) {
+            if (isset($byGroup[$g])) {
+                $groups[$g] = ['name' => Words::RESV_GROUP[$g], 'tone' => Words::tone('RESV_GROUP', $g), 'rows' => $byGroup[$g]];
+            }
+        }
         $waiting = $views->waitingCounts($storeIds);
         $code = $f['store'] === null ? null : (string) $f['store']['code'];
         $keep = $f['address'];
@@ -59,8 +71,8 @@ final class SalesController
                 ['label' => Words::say('SALE', 'show_default', $set['days']), 'href' => Html::url(self::PATH, ['channel' => $code, 'state' => $f['q']['state'], 'origin' => $f['q']['origin']]),
                     'current' => $f['period']['kind'] === 'default'],
             ],
-            'rows' => $rows,
-            'page_size' => $set['page'],
+            'groups' => $groups,
+            'rows_n' => count($rows),
             'filtered' => $f['q']['state'] !== null || $f['q']['origin'] !== null || $f['period']['kind'] !== 'default',
             // An empty list says why: nothing at all yet (any time, no filter), or nothing in the days and filters chosen (with the way
             // to every order of the store).
@@ -117,7 +129,6 @@ final class SalesController
         $group = (string) $r['group'];
         [$outcome] = ReservationsController::outcome($r);
         $facts = [
-            [Words::SALE_ORDER['f_store'], (string) ($store['name'] ?? '')],
             [Words::SALE_ORDER['f_ref'], (string) $r['ref']],
             [Words::SALE_ORDER['f_state'], Words::RESV_STATE[$status] . ($outcome === Words::RESV_STATE[$status] ? '' : ' · ' . $outcome)],
             [Words::SALE_ORDER['f_placed'], Html::when($r['created_at'])],
@@ -175,12 +186,23 @@ final class SalesController
         }
         $title = Words::say('SALE_ORDER', 'title', (string) $r['ref']);
         $here = self::PATH . '/' . (int) $r['id'];
+        $back = Html::url(self::PATH, ['channel' => $store['code'] ?? null]);
+        // The record page (docs/decisions.md W10): the strip says what became of its sold units (each state it has, as many as are in it),
+        // the paper card holds the store (its orders: the list at that store) beside the facts.
+        $strip = [];
+        foreach ($r['by_state'] as $state => $count) {
+            if ($count > 0) {
+                $strip[] = ['label' => Words::of('RESV_UNIT', (string) $state), 'n' => $count];
+            }
+        }
         return $ctx->page('sales_order', [
             'title' => $title,
             'tone' => Words::tone('RESV_GROUP', $group),
             'chipWord' => Words::RESV_CHIP[$group],
-            'back' => Html::url(self::PATH, ['channel' => $store['code'] ?? null]),
-            'facts' => $facts,
+            'back' => $back,
+            'party' => ['label' => Words::SALE_ORDER['f_store'], 'name' => (string) ($store['name'] ?? ''), 'href' => $back, 'lines' => []],
+            'docFacts' => array_map(static fn (array $f): array => ['label' => $f[0], 'value' => $f[1]], $facts),
+            'strip' => $strip,
             'kept' => ReservationsController::PATH . '/' . (int) $r['id'],
             'units' => $unitRows,
             'history' => $history,
@@ -203,7 +225,7 @@ final class SalesController
         [$outcome, $at] = ReservationsController::outcome($r);
         return [
             'href' => self::PATH . '/' . (int) $r['id'], 'ref' => (string) $r['ref'], 'store' => (string) ($names[$r['channel_id']] ?? ''),
-            'tone' => Words::tone('RESV_GROUP', $group), 'chipWord' => Words::RESV_CHIP[$group],
+            'group' => $group, 'tone' => Words::tone('RESV_GROUP', $group), 'chipWord' => Words::RESV_CHIP[$group],
             'placed' => (string) $r['created_at'], 'paid' => $r['committed_at'], 'origin' => $r['status'] === 'committed' ? (Words::SALE_ORIGIN[$r['origin']] ?? null) : null,
             'units' => (int) $r['units'], 'outcome' => $outcome, 'outcome_at' => $at,
             'unlinked' => $r['unlinked'] === 0 ? null : ($r['unlinked'] === 1 ? Words::RESV['unlinked_one'] : Words::say('RESV', 'unlinked_many', (int) $r['unlinked'])),

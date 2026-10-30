@@ -2737,3 +2737,20 @@ form.doc-details { margin: 0 0 20px; }
 @media (max-width: 699.98px) { body:has(.tabbar) .actions.sticky.doc-bar { bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); } }
 @container (max-width: 640px) { .actions.sticky.doc-bar .btn { width: auto; } }
 /* ==== end w8 ================================================================================================================================ */
+/* ==== w10: the Sales pages on the approved patterns (wave w10, docs/decisions.md W10; the canvas's Main / GI_List, PO_View, TP_Report) =======
+   Store orders, Dispatch and Returns are boards, an order is the record page and Sales by Store a report, all on the shared pieces above
+   (.doc-group, .doc-board, td.doc-st, .doc-head, .doc-actions, .rp-figs, .doc-view, .doc-related). Here only what they add. */
+/* A Show row may hold the days typed (Store orders' From / To, Sales by Store's): each box with its short word, as tall as the row's selects;
+   on a phone each takes a share of the row, 44 px high */
+.toolbar .tb-state label.tb-day { display: inline-flex; align-items: center; gap: 6px; font: 500 13px/20px var(--font); }
+.toolbar .tb-state label.tb-day input[type="date"] { width: auto; min-height: 36px; height: 36px; padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
+@media (max-width: 639.98px) {
+  .toolbar .tb-state label.tb-day { flex: 1 1 10rem; min-width: 0; }
+  .toolbar .tb-state label.tb-day input[type="date"] { flex: 1 1 auto; min-width: 0; height: 44px; min-height: 44px; }
+}
+/* A card that holds a line instead of a table (an order's unit with no stock change in its history) */
+.doc-board > p { margin: 0; padding: 14px 16px; }
+/* A phone: a status cell keeps its fill, the pill-like block docs/dev.md describes. The stacked list's `table.stack td { background: none }`
+   outranked `td.doc-st`, so its white words sat on the white card (GV23 found it on Goods in, whose duty cell stays a white field there) */
+@container (max-width: 640px) { table.stack td.doc-st:not(.gi-duty) { background: var(--t-fill, var(--st-grey)); } }
+/* ==== end w10 =============================================================================================================================== */

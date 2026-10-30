@@ -15,7 +15,8 @@ use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
- * Stock › Sales › Dispatch (pack D, docs/decisions.md PD6, PD7, PD9-PD12): READ ONLY, for the people who look at sales (sales.view).
+ * Stock › Sales › Dispatch (pack D, docs/decisions.md PD6, PD7, PD9-PD12): READ ONLY, for the people who look at sales (sales.view). A board
+ * (docs/decisions.md W10): the list chosen in the Show menu, its rows grouped (late / on time; a day of sending; sending undone).
  *
  *   /ui/stock/sales/dispatch   for every store or one: five figures (orders and units waiting to ship; the late ones, paid more than
  *                              `sales.late_hours` hours ago; sent today; sent this week, from Monday, UK time; units whose sending was
@@ -65,12 +66,13 @@ final class DispatchController
             'today', 'week' => $this->sentList($ctx, $views, $chosen, $names, $since[$show], $set, $base),
             default => $this->undoneList($ctx, $views, $chosen, $names, $set, $base),
         };
+        // The Show menu (docs/decisions.md W10): the four lists, the one shown chosen; a GET form of `show`, as the links were.
         $shows = [];
         foreach (SalesViews::SHOWS as $s) {
-            $shows[] = ['label' => Words::DISPATCH['show_' . $s], 'href' => Html::url(self::PATH, ['channel' => $code, 'show' => $s === 'waiting' ? null : $s]),
-                'current' => $show === $s];
+            $shows[] = ['value' => $s, 'label' => Words::DISPATCH['show_' . $s], 'current' => $show === $s];
         }
         return $ctx->page('sales_dispatch', [
+            'channel' => $code,
             'storeItems' => ReviewController::storeItems($stores, self::PATH, ['show' => $base['show']], $code,
                 array_map(static fn (array $c): int => $c['orders'], $counts), true),
             'figures' => $figures,
@@ -78,7 +80,6 @@ final class DispatchController
             'lateCapped' => $figures['late_capped'] ? Words::say('DISPATCH', 'late_capped', $set['scan_max']) : null,
             'shows' => $shows,
             'show' => $show,
-            'page_size' => $set['page'],
         ] + $list, 200, ['title' => Words::MENU['sales_dispatch']]);
     }
 
@@ -135,10 +136,18 @@ final class DispatchController
                 $notes[] = $r['unlinked'] === 1 ? Words::DISPATCH['unlinked_one'] : Words::say('DISPATCH', 'unlinked_many', (int) $r['unlinked']);
             }
             $rows[] = ['href' => SalesController::PATH . '/' . (int) $r['id'], 'ref' => (string) $r['ref'], 'store' => (string) ($names[$r['channel_id']] ?? ''),
-                'paid' => $paid, 'waited' => $paid === null ? '' : self::age($paid), 'tone' => Words::tone('DISPATCH_CHIP', $isLate ? 'late' : 'on_time'),
+                'paid' => $paid, 'waited' => $paid === null ? '' : self::age($paid), 'group' => $isLate ? 'late' : 'on_time', 'tone' => Words::tone('DISPATCH_CHIP', $isLate ? 'late' : 'on_time'),
                 'chipWord' => Words::DISPATCH_CHIP[$isLate ? 'late' : 'on_time'], 'units' => (int) $r['by_state']['allocated'], 'note' => implode(' · ', $notes)];
         }
-        return ['rows' => $rows, 'note' => Words::say('DISPATCH', 'board_waiting', $set['page']),
+        // The board's groups (docs/decisions.md W10): the late ones, then the ones on time, oldest first in each.
+        $groups = [];
+        foreach (['late', 'on_time'] as $g) {
+            $in = array_values(array_filter($rows, static fn (array $row): bool => $row['group'] === $g));
+            if ($in !== []) {
+                $groups[] = ['id' => 'g-' . $g, 'name' => Words::DISPATCH_CHIP[$g], 'tone' => Words::tone('DISPATCH_CHIP', $g), 'rows' => $in];
+            }
+        }
+        return ['groups' => $groups,
             'next_link' => $page['next'] === null ? null : Html::url(self::PATH, $base + ['after' => $page['next']]),
             'next_word' => Words::DISPATCH['later'], 'start_link' => $after === null ? null : Html::url(self::PATH, $base),
             'none' => [Words::DISPATCH['none_waiting'], Words::DISPATCH['none_waiting_text']], 'extra' => null];
@@ -168,10 +177,21 @@ final class DispatchController
                 continue;
             }
             $rows[] = ['href' => SalesController::PATH . '/' . (int) $r['id'], 'ref' => (string) $r['ref'], 'store' => (string) ($names[$r['channel_id']] ?? ''),
-                'sent' => $s['sent_at'], 'units' => $s['units'], 'now' => ReservationsController::outcome($r)[0]];
+                'sent' => $s['sent_at'], 'units' => $s['units'], 'now' => ReservationsController::outcome($r)[0],
+                'tone' => Words::tone('RESV_GROUP', (string) $r['group']), 'chipWord' => Words::RESV_CHIP[(string) $r['group']]];
+        }
+        // The board's groups (docs/decisions.md W10): a group a UK day of sending, newest first (the list's own order); the status cell says
+        // what the order is now (still to ship, or dealt with).
+        $groups = [];
+        foreach ($rows as $row) {
+            $day = Html::day((string) $row['sent']);
+            if ($groups === [] || $groups[count($groups) - 1]['name'] !== $day) {
+                $groups[] = ['id' => 'g-day-' . (count($groups) + 1), 'name' => $day, 'tone' => 'done', 'rows' => []];
+            }
+            $groups[count($groups) - 1]['rows'][] = $row;
         }
         $today = $base['show'] === 'today';
-        return ['rows' => $rows, 'note' => Words::say('DISPATCH', 'board_sent', $set['page']),
+        return ['groups' => $groups,
             'next_link' => $page['next'] === null ? null : Html::url(self::PATH, $base + ['before' => $page['next']]),
             'next_word' => Words::DISPATCH['earlier'], 'start_link' => $before === null ? null : Html::url(self::PATH, $base),
             'none' => [Words::DISPATCH[$today ? 'none_today' : 'none_week'], Words::DISPATCH['none_sent_text']], 'extra' => null];
@@ -196,9 +216,10 @@ final class DispatchController
             $rows[] = ['href' => $u['reservation_id'] === null ? null : SalesController::PATH . '/' . $u['reservation_id'], 'ref' => $u['ref'],
                 'store' => (string) ($names[$u['channel_id']] ?? ''), 'unit' => $u['unit_id'], 'at' => $u['at'],
                 'who' => str_starts_with($u['actor'], 'system:') ? Words::SALE_ORDER['s_cw'] : ($who[$u['actor']] ?? $u['actor']),
-                'now' => $u['state'] === null ? '' : Words::of('RESV_UNIT', $u['state'])];
+                'now' => $u['state'] === null ? '' : Words::of('RESV_UNIT', $u['state']), 'tone' => $u['state'] === null ? 'waiting' : Words::tone('RESV_UNIT', $u['state'])];
         }
-        return ['rows' => $rows, 'note' => Words::say('DISPATCH', 'board_sent', $set['page']),
+        // One group (docs/decisions.md W10); the status cell is what the unit is now.
+        return ['groups' => $rows === [] ? [] : [['id' => 'g-undone', 'name' => Words::DISPATCH['show_undone'], 'tone' => 'needs', 'rows' => $rows]],
             'next_link' => $page['next'] === null ? null : Html::url(self::PATH, $base + ['before' => $page['next']]),
             'next_word' => Words::DISPATCH['earlier'], 'start_link' => $before === null ? null : Html::url(self::PATH, $base),
             'none' => [Words::DISPATCH['none_undone'], Words::DISPATCH['none_undone_text']], 'extra' => Words::DISPATCH['undone_unlinked']];
