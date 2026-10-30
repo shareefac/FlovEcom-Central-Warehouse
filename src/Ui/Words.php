@@ -218,7 +218,6 @@ final class Words
         'home' => 'Home',
         // Products
         'cards' => 'Items',
-        'simple_match' => 'Simple matching',
         'review' => 'Check a match',
         'store_products' => 'Store products',
         'by_product' => 'By item',
@@ -389,7 +388,6 @@ final class Words
     public const MENU_HELP = [
         'home' => 'What is waiting for you today.',
         'cards' => 'Every item with its legal details and barcodes, and the items made by hand.',
-        'simple_match' => 'The easy way to match: find a warehouse product, then choose its product on each website.',
         'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
         'by_product' => 'Every warehouse item, and the variant it is matched to on each store.',
         'new_variants' => 'The variants each store added lately, and creating them as new items.',
@@ -5155,6 +5153,7 @@ final class Words
         'sub' => 'Which store sells each item',
         'tabs' => 'Matching views',
         'tab_items' => 'By item',
+        'tab_simple' => 'Simple matching',
         'tab_new' => 'New on the stores',
         'match_all' => 'Match all new',
         'search_items' => 'Search item, barcode or CW number',

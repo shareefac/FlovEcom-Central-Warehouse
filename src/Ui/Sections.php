@@ -179,14 +179,13 @@ final class Sections
             ]],
         ]],
         // ---- end of pack D ----
-        // Store listings: how each store's products match the warehouse's items. By item (the Product matching page) and Check a match (the
-        // queue to review and a store product's decision page) are its entries; every other matching page is a specialist page (`more`),
-        // under the header's More of the section's lists (docs/decisions.md RD6).
+        // Store listings: how each store's products match the warehouse's items. By item (the Product matching page, whose tabs are By item,
+        // Simple matching and New on the stores: docs/decisions.md RD-S1) and Check a match (the queue to review and a store product's decision
+        // page) are its entries; every other matching page is a specialist page (`more`), under the header's More of the section's lists (RD6).
         'listings' => ['tabs' => [
-            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products', 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item']]]],
+            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products', 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item', '/ui/match*']]]],
             'review' => ['keep' => ['channel'], 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review',
                 'match' => ['/ui/review', '/ui/review/listing/*', '/ui/review/decision/*', '/ui/review/bulk', '/ui/review/batches/*']]]],
-            'simple_match' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/match', 'match' => ['/ui/match*']]]],
             'store_products' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/store', 'match' => ['/ui/review/store*']]]],
             'samples' => ['more' => true, 'keep' => ['channel'], 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/samples', 'match' => ['/ui/review/samples*']]]],
             'pending' => ['more' => true, 'keep' => ['channel'], 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review', 'query' => ['queue' => 'pending'],

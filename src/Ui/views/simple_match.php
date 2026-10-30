@@ -1,5 +1,6 @@
 <?php
-// Products › Simple matching (docs/decisions.md SM1-SM11; the owner's request of 25 Oct 2026): one row per warehouse product (its CW
+// Product matching › Simple matching (docs/decisions.md SM1-SM11; the owner's request of 25 Oct 2026; since 31 Oct the second of Product
+// matching's tabs, RD-S1: the same title, line, tabs and More as By item): one row per warehouse product (its CW
 // number and name), then one column per store in the owner's order (SimpleMatchController::STORE_ORDER; any other store after them).
 // A store's cell lists the website products matched to the row there, each with its name on the store, its ID and its status on the
 // store after it (SM11), and a match that waits for a second OK says so. For someone who may decide it has ONE box that is a plain
@@ -10,8 +11,10 @@
 // the box (and in its list), with a line asking to confirm it (one more Apply). On a phone each row is a card, each cell named by its
 // store. A product found by its exact CW number that is joined into another one or not sold any more (its product card) says why under
 // its name and has no box in any cell (docs/decisions.md HU5).
+$bar = $partial('by_product_bar', []);
 ?>
-<?= $head(\CW\Ui\Words::MENU['simple_match'], intro: 'simple_match', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::RD_MATCH['title'], intro: 'simple_match', look: $lookOnly, meta: $word('RD_MATCH', 'sub'), side: $bar) ?>
+<?= $partial('by_product_tabs', ['tab' => 'simple', 'count' => null]) ?>
 <?php if ($stores === []): ?>
 <?= $empty(\CW\Ui\Words::SIMPLE_MATCH['no_stores'], \CW\Ui\Words::BY_PRODUCT['no_stores_text']) ?>
 <?php else: ?>

@@ -18,7 +18,7 @@ use CW\Ui\Words;
 /**
  * The redesign, step 2 part C (docs/decisions.md RD-C1-RD-C16; the approved canvas of 30 Oct 2026) as the browser gets it, through the real /ui
  * kernel as cw_app: Check a match (one comparison card, the find and units row, the note under More, the same one form), Product matching
- * (two tabs, a chip per store, New on the stores and its way back, More), the reports' one layout (the company in its head, the Total row,
+ * (three tabs, a chip per store, New on the stores and its way back, More), the reports' one layout (the company in its head, the Total row,
  * All reports by permission), Approvals' Show kept through an answer, the settings shell's section list by role, and Home.
  */
 final class RedesignCScreensTest extends KernelUiTestCase
@@ -118,15 +118,16 @@ final class RedesignCScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $xp = self::xp($page);
         self::assertSame(Words::RD_MATCH['title'], trim((string) $xp->evaluate('string(//main//h1)')));
-        // The two tabs: By item shown (no link), New on the stores; its count is worked out only when that tab is open (the fix round,
-        // docs/decisions.md RD-F9: no per-store reads on every By item load).
+        // The three tabs: By item shown (no link), Simple matching (RD-S1), New on the stores; its count is worked out only when that tab is
+        // open (the fix round, docs/decisions.md RD-F9: no per-store reads on every By item load).
         $tabs = $xp->query('//nav[contains(@class, "bi-tabs")]/a[@class="tab"]');
-        self::assertSame(2, $tabs->length);
+        self::assertSame(3, $tabs->length);
         self::assertSame('page', $tabs->item(0)->getAttribute('aria-current'));
         self::assertFalse($tabs->item(0)->hasAttribute('href'));
-        self::assertSame('/ui/review/products?tab=new', $tabs->item(1)->getAttribute('href'));
-        self::assertSame(0, $xp->query('//nav[contains(@class, "bi-tabs")]/a[2]/span[contains(@class, "count")]')->length, 'no count read on By item');
-        $count = (int) trim((string) self::xp($web->get('/ui/review/products', ['tab' => 'new']))->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[2]/span[@class="count"])'));
+        self::assertSame('/ui/match', $tabs->item(1)->getAttribute('href'));
+        self::assertSame('/ui/review/products?tab=new', $tabs->item(2)->getAttribute('href'));
+        self::assertSame(0, $xp->query('//nav[contains(@class, "bi-tabs")]/a[3]/span[contains(@class, "count")]')->length, 'no count read on By item');
+        $count = (int) trim((string) self::xp($web->get('/ui/review/products', ['tab' => 'new']))->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[3]/span[@class="count"])'));
         self::assertGreaterThanOrEqual(2, $count, 'the stores\' products still to match, on the open tab');
         // A row per item: its line says on how many stores it is matched; a chip per store.
         $row = '//div[@id="p-' . $a . '"]';
@@ -140,9 +141,12 @@ final class RedesignCScreensTest extends KernelUiTestCase
         // One filter (the match status), Clear filters when it is on; ONE More holds every other matching page (the section's, RD6).
         self::assertSame(['cov'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), iterator_to_array($xp->query('//form[@class="bi-find"]//select'))));
         $more = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//header//div[@class="bi-actions"]/details//a[@href]')));
-        foreach (['/ui/match', '/ui/review/store', '/ui/review/samples', '/ui/review?queue=pending', '/ui/review/new-variants', '/ui/review/duplicates'] as $href) {
+        foreach (['/ui/review/store', '/ui/review/samples', '/ui/review?queue=pending', '/ui/review/new-variants', '/ui/review/duplicates'] as $href) {
             self::assertContains($href, $more);
         }
+        self::assertNotContains('/ui/match', $more, 'Simple matching is a tab, not under More (RD-S1)');
+        self::assertSame(['/ui/match'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query('//nav[contains(@class, "bi-tabs")]/a[normalize-space()="' . Words::RD_MATCH['tab_simple'] . '"]'))), 'the second tab');
         self::assertSame(1, $xp->query('//header//details[contains(concat(" ", @class, " "), " more ")]')->length, 'ONE More');
         self::assertSame(0, $xp->query('//header//div[@class="bi-actions"]/a[contains(@class, "primary")]')->length, 'no main button on By item');
         $filtered = $web->get('/ui/review/products', ['cov' => 'every']);
@@ -152,7 +156,7 @@ final class RedesignCScreensTest extends KernelUiTestCase
         $new = $web->get('/ui/review/products', ['tab' => 'new']);
         self::assertSame(200, $new->status, $new->describe() . ' ' . implode(' | ', self::$log));
         $nx = self::xp($new);
-        self::assertSame('page', (string) $nx->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[2]/@aria-current)'));
+        self::assertSame('page', (string) $nx->evaluate('string(//nav[contains(@class, "bi-tabs")]/a[3]/@aria-current)'));
         $options = self::texts($nx, '//select[@name="channel"]/option');
         self::assertContains(Words::say('RD_MATCH', 'store_n', 'Big Store', 2), $options);
         $big1 = $web->get('/ui/review/products', ['tab' => 'new', 'channel' => 'vbig']);

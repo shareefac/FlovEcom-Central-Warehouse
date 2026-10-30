@@ -174,7 +174,7 @@ final class MatchingPatternsScreensTest extends KernelUiTestCase
         self::assertSame(['/ui/review/new-variants?channel=vpg&period=all&state=all', Words::MENU['new_variants']], [$href, $label]);
         self::assertStringContainsString($left, $line);
         [$href, $label, $line] = $eyebrow($from('/ui/match?q=Eyebrow'));
-        self::assertSame(['/ui/match?q=Eyebrow', Words::MENU['simple_match']], [$href, $label]);
+        self::assertSame(['/ui/match?q=Eyebrow', Words::RD_MATCH['tab_simple']], [$href, $label]);
         self::assertStringContainsString($left, $line);
         // Another site's page, or nothing known: the store's Store Products, never Home.
         foreach ([$from('/ui/'), $web->send('GET', '/ui/review/listing/' . $l1, [], [], ['referer' => 'https://evil.example/ui/match?q=x']), $web->get('/ui/review/listing/' . $l1)] as $page) {

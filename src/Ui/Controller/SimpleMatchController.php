@@ -73,7 +73,7 @@ final class SimpleMatchController
         $decide = $ctx->me()->canDecide();
         $stores = self::stores($q->everyStore());
         $text = ByProductContext::text($req->param('q') ?? '');
-        $layout = ['title' => Words::MENU['simple_match'], 'active' => 'simple_match', 'notice' => (new ReviewController())->notice($ctx, null)];
+        $layout = ['title' => Words::RD_MATCH['tab_simple'], 'active' => 'by_product', 'notice' => (new ReviewController())->notice($ctx, null)];
         $lookOnly = $decide ? null : Words::whoCan('mapping.decide');
         // By Item's list as it opens (the warehouse products not joined into another one, by CW number) and its search: a search's ids
         // in one pass (which also counts them), else the count of the products and only this page of them. Not a product that is not
@@ -133,7 +133,7 @@ final class SimpleMatchController
     {
         $q = $ctx->queries();
         $stores = self::stores($q->everyStore());
-        $back = [self::PATH, Words::MENU['simple_match']];
+        $back = [self::PATH, Words::RD_MATCH['tab_simple']];
         $store = ReviewController::store($stores, $ctx->req->param('channel'));
         if ($store === null) {
             return $ctx->error(404, 'unknown_store', 'no such store', $back);
@@ -185,7 +185,7 @@ final class SimpleMatchController
         $req = $ctx->req;
         $q = $ctx->queries();
         $stores = self::stores($q->everyStore());
-        $list = [self::PATH, Words::MENU['simple_match']];
+        $list = [self::PATH, Words::RD_MATCH['tab_simple']];
         $store = ReviewController::store($stores, $req->field('channel'));
         if ($store === null) {
             return $ctx->error(404, 'unknown_store', 'no such store', $list);

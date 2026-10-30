@@ -15063,3 +15063,11 @@ phone (the Chrome check: they were stacked full width under the search).
 
 **RD-F11. New on the stores stays per store.** "All stores" would need New variants' reads across every store merged and paged together (one
 read per store is what CW has): not built (needs a build, as RD-C7 says); the store choice lists each store with its count.
+
+**RD-S1. Simple matching is Product matching's second tab** (the owner, 31 Oct 2026, on the design canvas: "this page add in product
+matching another tab"). Product matching's tabs are By item | Simple matching | New on the stores (`by_product_tabs`, plain links, the
+tab shown has no link). `/ui/match` keeps its address, its table, its picker and its rules (SM1-SM11, HU5); it now draws Product
+matching's title and line, the three tabs (no count on New on the stores, RD-F9) and the same ONE More as By item (`by_product_bar`).
+In the menu map `/ui/match*` belongs to By item (the sidebar marks By item there); it is no longer a specialist page under More, so
+`Words::MENU`/`MENU_HELP` lose `simple_match` and the page's name is `RD_MATCH['tab_simple']` (its browser title and the way back from a
+store product's page).

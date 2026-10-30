@@ -244,7 +244,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame('Store listings', self::currentSection($queue));
         self::assertSame([['By item', '/ui/review/products'], ['Check a match', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)), 'a queue is Check a match (its address: no link, CV13)');
-        self::assertSame([['Simple matching', '/ui/match'], ['Store products', '/ui/review/store'], ['Spot check', '/ui/review/samples'],
+        self::assertSame([['Store products', '/ui/review/store'], ['Spot check', '/ui/review/samples'],
             ['Second approval', '/ui/review?queue=pending'], ['New variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::moreTabs($mapper->get('/ui/review/products'))),
             'the specialist matching pages under the header\'s More (RD6)');

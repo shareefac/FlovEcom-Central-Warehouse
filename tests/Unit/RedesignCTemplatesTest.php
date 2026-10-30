@@ -72,19 +72,24 @@ final class RedesignCTemplatesTest extends TestCase
             array_intersect_key(Words::MATCH, array_flip(['question', 'to_match', 'find', 'units', 'units_of', 'our_item', 'skip', 'not_same', 'same'])), 'the artboard\'s words');
     }
 
-    /** RD-C7-RD-C10: Product matching's two tabs, the row of chips, the one filter CW has, More with every other matching page. */
-    public function testProductMatchingHasTwoTabsAChipPerStoreAndItsMore(): void
+    /** RD-C7-RD-C10, RD-S1: Product matching's three tabs, the row of chips, the one filter CW has, More with every other matching page. */
+    public function testProductMatchingHasThreeTabsAChipPerStoreAndItsMore(): void
     {
         $t = self::t();
         foreach (['by_product', 'by_product_new', 'by_product_bar', 'by_product_tabs'] as $name) {
             self::balanced($name, $t[$name]);
         }
         self::assertStringContainsString('<nav class="tabs bi-tabs" aria-label="<?= $word(\'RD_MATCH\', \'tabs\') ?>">', $t['by_product_tabs']);
-        self::assertSame(2, substr_count($t['by_product_tabs'], '<a class="tab"'));
-        foreach (['by_product', 'by_product_new'] as $name) {
+        self::assertSame(3, substr_count($t['by_product_tabs'], '<a class="tab"'));
+        self::assertLessThan(strpos($t['by_product_tabs'], "'tab_new'"), strpos($t['by_product_tabs'], 'href="/ui/match"'),
+            'Simple matching is the second tab, before New on the stores (RD-S1)');
+        foreach (['by_product', 'by_product_new', 'simple_match'] as $name) {
             self::assertStringContainsString("\$partial('by_product_tabs'", $t[$name], $name);
             self::assertStringContainsString("\$partial('by_product_bar'", $t[$name], $name);
             self::assertStringContainsString("\$head(\\CW\\Ui\\Words::RD_MATCH['title']", $t[$name], $name);
+        }
+        self::assertStringContainsString("\$partial('by_product_tabs', ['tab' => 'simple', 'count' => null])", $t['simple_match'], 'its tab current, no count');
+        foreach (['by_product', 'by_product_new'] as $name) {
             self::assertStringContainsString('<section class="card bi-list', $t[$name], $name);
         }
         $b = $t['by_product'];

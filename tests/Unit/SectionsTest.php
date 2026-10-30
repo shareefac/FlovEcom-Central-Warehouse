@@ -203,7 +203,7 @@ final class SectionsTest extends TestCase
             ['/ui/review', ['queue' => 'pending'], 'listings', 'pending', 'pending'],
             ['/ui/review/samples/12', [], 'listings', 'samples', 'samples'],
             ['/ui/review/store', ['channel' => 'x'], 'listings', 'store_products', 'store_products'],
-            ['/ui/match', [], 'listings', 'simple_match', 'simple_match'],
+            ['/ui/match', [], 'listings', 'by_product', 'by_product'],
             ['/ui/review/new-variants.csv', [], 'listings', 'new_variants', 'new_variants'],
             ['/ui/review/duplicates/12', [], 'listings', 'duplicates', 'duplicates'],
             // Reports, Settings (the audit log is a Settings page, RD7)
@@ -316,7 +316,8 @@ final class SectionsTest extends TestCase
             $tree($owner, '/ui/receiving/duty'));
         self::assertSame(['Sales' => ['Sales orders', 'Shipments', 'Sales returns', 'Trade sales', 'Customers*']], $tree($owner, '/ui/stock/handovers/balances'));
         self::assertSame(['Store listings' => ['By item', 'Check a match*']], $tree($owner, '/ui/review/listing/12'));
-        self::assertSame(['Store listings' => ['By item', 'Check a match']], $tree($owner, '/ui/match'), 'a specialist page: its section, no entry');
+        self::assertSame(['Store listings' => ['By item*', 'Check a match']], $tree($owner, '/ui/match'), 'Simple matching is a tab of By item\'s page (RD-S1)');
+        self::assertSame(['Store listings' => ['By item', 'Check a match']], $tree($owner, '/ui/review/store'), 'a specialist page: its section, no entry');
         self::assertSame(['Reports' => ['Inventory valuation summary', 'Stock summary by store', 'Low stock', 'Inventory aging*', 'Sales by store']],
             $tree($owner, '/ui/reports/slow-stock'));
         self::assertSame([], $tree($owner, '/ui/system/audit'), 'Settings: one entry, no sub-items');
@@ -398,11 +399,11 @@ final class SectionsTest extends TestCase
         // Store listings: its specialist pages under the header's More of its lists (never in the sidebar), with their counts and lines.
         $more = static fn (array $f): array => array_map(static fn (array $t): string => $t['label'] . ($t['count'] > 0 ? " ({$t['count']})" : ''), $f['pagebar']['more']);
         $lead = Sections::frame(['mapping_lead'], ['linking_pending' => 3, 'linking_duplicates' => 2], '/ui/review/products');
-        self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval (3)', 'New variants', 'Duplicates (2)'], $more($lead));
-        self::assertSame(['/ui/match', '/ui/review/store', '/ui/review/samples', '/ui/review', '/ui/review/new-variants', '/ui/review/duplicates'],
+        self::assertSame(['Store products', 'Spot check', 'Second approval (3)', 'New variants', 'Duplicates (2)'], $more($lead), 'Simple matching is a tab (RD-S1)');
+        self::assertSame(['/ui/review/store', '/ui/review/samples', '/ui/review', '/ui/review/new-variants', '/ui/review/duplicates'],
             array_column($lead['pagebar']['more'], 'href'));
-        self::assertSame(Words::MENU_HELP['new_variants'], $lead['pagebar']['more'][4]['help']);
-        self::assertSame(['Simple matching', 'Store products', 'Spot check', 'New variants', 'Duplicates (2)'],
+        self::assertSame(Words::MENU_HELP['new_variants'], $lead['pagebar']['more'][3]['help']);
+        self::assertSame(['Store products', 'Spot check', 'New variants', 'Duplicates (2)'],
             $more(Sections::frame(['mapping_lead'], ['linking_pending' => 3, 'linking_duplicates' => 2], '/ui/review', ['queue' => 'pending'])), 'never the page shown');
         self::assertSame([], Sections::frame(['mapping_lead'], [], '/ui/review/listing/12')['pagebar']['more'], 'a record: its own actions only');
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/stock/in')['pagebar']['more'], 'no other section has specialist pages');

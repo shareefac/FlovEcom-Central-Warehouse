@@ -1030,7 +1030,7 @@ final class WordsTest extends TestCase
 
     public function testSimpleMatchingSaysEveryRefusalInWords(): void
     {
-        self::assertSame('Simple matching', Words::MENU['simple_match']);
+        self::assertSame('Simple matching', Words::RD_MATCH['tab_simple'], 'a tab of Product matching (RD-S1)');
         self::assertSame('Warehouse product', Words::SIMPLE_MATCH['item']);
         self::assertSame('Apply', Words::SIMPLE_MATCH['apply'], 'the owner\'s word for the button');
         foreach (SimpleMatchController::SAID as $code) {

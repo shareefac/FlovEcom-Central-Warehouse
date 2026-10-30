@@ -245,13 +245,18 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        self::assertNull(self::currentTab($page), 'a specialist page of Store listings (RD6): no entry current');
+        self::assertSame('By item', self::currentTab($page), 'a tab of Product matching, By item\'s page (RD-S1)');
         self::assertSame(['By item', 'Check a match'], self::tabLabels($page));
         self::assertSame(['Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
             'the other matching pages under the header\'s More');
         self::assertSame('Store listings', self::currentSection($page));
         $xp = self::xp($page);
-        self::assertSame(Words::MENU['simple_match'], self::squash($xp->evaluate('string(//main//h1)')));
+        self::assertSame(Words::RD_MATCH['title'], self::squash($xp->evaluate('string(//main//h1)')), 'Product matching\'s title (RD-S1)');
+        $tabs = $xp->query('//nav[contains(@class, "bi-tabs")]/a');
+        self::assertSame([['By item', '/ui/review/products', ''], ['Simple matching', '', 'page'], ['New on the stores', '/ui/review/products?tab=new', '']],
+            array_map(static fn (\DOMElement $a): array => [self::squash($a->textContent), $a->getAttribute('href'), $a->getAttribute('aria-current')], iterator_to_array($tabs)),
+            'the three tabs: this one shown (no link), no count on New on the stores here (RD-F9)');
+        self::assertSame(1, $xp->query('//header//div[@class="bi-actions"]/details[contains(@class, "more")]')->length, 'ONE More, as on By item');
         self::assertSame(0, $xp->query('//header[contains(@class, "page-head")]//p[@class="lede"]')->length, 'no line under the title (DC1)');
         self::assertSame([Words::SIMPLE_MATCH['item'], 'Vape and Go', 'Vape Big', 'Electrofag'], self::heads($page), 'four columns, in the owner\'s order');
         self::assertSame([$alpha, $bravo], self::ids($page), 'by CW number; a product joined into another one is not listed');

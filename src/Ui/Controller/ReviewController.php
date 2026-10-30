@@ -1683,7 +1683,7 @@ final class ReviewController
                     return [Html::url($path, $keep($query, ['channel', 'period', 'state', 'q', 'page'])), Words::MENU['new_variants']];
                 }
                 if ($path === SimpleMatchController::PATH) {
-                    return [Html::url($path, $keep($query, ['q', 'page'])), Words::MENU['simple_match']];
+                    return [Html::url($path, $keep($query, ['q', 'page'])), Words::RD_MATCH['tab_simple']];
                 }
                 // Product matching's "New on the stores" tab (docs/decisions.md RD-C7): back to that tab, its store, search and page.
                 if ($path === ByProductContext::LIST_PATH && ($query['tab'] ?? null) === 'new') {
