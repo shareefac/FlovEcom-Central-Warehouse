@@ -239,8 +239,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
         self::assertSame('By item', self::currentTab($page));
         self::assertSame(['By item', 'Check a match'], self::tabLabels($page), 'Store listings\' two entries (RD6)');
-        self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
-            'the other matching pages under the page\'s ONE More (RD6, RD-C8)');
+        self::assertSame(['Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'], array_column(self::moreTabs($page), 'label'),
+            'the other matching pages under the page\'s ONE More (RD6, RD-C8); Simple matching is a tab (RD-S1)');
         self::assertSame(Words::RD_MATCH['title'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')), 'Product matching (the ByItem artboard, RD-C7)');
         self::assertSame([Words::BY_PRODUCT['item'], 'Alt Store', 'Big Store', 'Cee Store', Words::BY_PRODUCT['stores_matched']], self::heads($page),
             'one column per store, by name: the channel table says which');

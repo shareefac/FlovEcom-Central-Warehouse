@@ -584,7 +584,7 @@ final class UiTemplatesTest extends TestCase
             // Product matching's own More: the section's specialist pages (RD6), the head drawing no More of its own (side).
             $more = $view('mapping_lead')->page('more', [], $frame('mapping_lead', '/ui/review/products'));
             self::assertSame(0, substr_count($more, '<details class="more">'));
-            self::assertSame(['Simple matching', 'Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'],
+            self::assertSame(['Store products', 'Spot check', 'Second approval', 'New variants', 'Duplicates'],
                 preg_match_all('#<a class="m" href="[^"]*">([^<]*)</a>#', $more, $m) > 0 ? $m[1] : []);
         } catch (\InvalidArgumentException $e) {
             self::fail($e->getMessage());
