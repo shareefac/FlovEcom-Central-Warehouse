@@ -69,8 +69,14 @@ final class SectionsTest extends TestCase
                     $key = (string) ($page['key'] ?? $t);
                     $keys[] = $key;
                     $where = "{$what} / {$key}";
-                    self::assertSame([], array_diff(array_keys($page), ['perm', 'path', 'query', 'match', 'badge', 'key', 'new']), $where);
+                    self::assertSame([], array_diff(array_keys($page), ['perm', 'path', 'query', 'match', 'badge', 'key', 'new', 'lists']), $where);
                     self::assertArrayHasKey($page['path'], $gets, "{$where}: a real GET route");
+                    foreach ($page['lists'] ?? [] as $list) {
+                        // Another list of the same page (RD-S1): a real GET route, found as this page, behind the same permission.
+                        self::assertArrayHasKey($list, $gets, "{$where}: {$list} a real GET route");
+                        self::assertSame(['section' => $s, 'tab' => $t, 'page' => $key], Sections::locate($list), "{$where}: {$list} is this page");
+                        self::assertSame($gets[$page['path']], $gets[$list], "{$where}: {$list} lets in the same people");
+                    }
                     if (is_array($page['perm'])) {
                         // Any of a list (Approvals › Waiting for you, AV1): a route open to every signed-in person, whose page refuses the rest.
                         foreach ($page['perm'] as $perm) {
@@ -400,6 +406,10 @@ final class SectionsTest extends TestCase
         $more = static fn (array $f): array => array_map(static fn (array $t): string => $t['label'] . ($t['count'] > 0 ? " ({$t['count']})" : ''), $f['pagebar']['more']);
         $lead = Sections::frame(['mapping_lead'], ['linking_pending' => 3, 'linking_duplicates' => 2], '/ui/review/products');
         self::assertSame(['Store products', 'Spot check', 'Second approval (3)', 'New variants', 'Duplicates (2)'], $more($lead), 'Simple matching is a tab (RD-S1)');
+        $simple = Sections::frame(['mapping_lead'], ['linking_pending' => 3, 'linking_duplicates' => 2], '/ui/match');
+        self::assertSame($more($lead), $more($simple), 'Simple matching, another list of By item\'s page: the same More (RD-S1 `lists`)');
+        self::assertSame(5, $simple['pagebar']['moreCount']);
+        self::assertSame([], Sections::frame(['mapping_lead'], ['linking_pending' => 3], '/ui/match/options')['pagebar']['more'], 'its fragment is no list');
         self::assertSame(['/ui/review/store', '/ui/review/samples', '/ui/review', '/ui/review/new-variants', '/ui/review/duplicates'],
             array_column($lead['pagebar']['more'], 'href'));
         self::assertSame(Words::MENU_HELP['new_variants'], $lead['pagebar']['more'][3]['help']);

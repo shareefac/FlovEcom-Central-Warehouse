@@ -22,7 +22,7 @@ use CW\Auth\Permissions;
  *                                                          the query values (a store's `channel`) carried between the entries and
  *                                                          choices that keep them; `more`: a specialist page of the section, not in the
  *                                                          sidebar: the section's list pages list it under the header's More
- *   page    => ['perm', 'path', 'query'?, 'match', 'badge'?, 'key'?, 'new'?]
+ *   page    => ['perm', 'path', 'query'?, 'match', 'badge'?, 'key'?, 'new'?, 'lists'?]
  *
  * A page is one GET route: `perm` is exactly the permission the route checks (Ui\Kernel), so a link is shown to exactly the people
  * the route lets in (Tests\Unit\SectionsTest); a list of permissions (any of them) is a route open to every signed-in person whose
@@ -30,7 +30,8 @@ use CW\Auth\Permissions;
  * section shows when one of its entries does. `match` lists the request paths that belong to the page (detail pages, forms sent back
  * with an error): `{id}` is a number, a trailing `*` any rest, `?k=v` a query value; the most specific pattern wins (locate()). `badge`
  * names a count of Ui\Context::badges() (only what this person can act on). `new` is the page's create action, drawn as the header's
- * main button on that page: [perm, href, Words::NEW key].
+ * main button on that page: [perm, href, Words::NEW key]. `lists` are other addresses that are this page's list too (another tab of
+ * the same page, docs/decisions.md RD-S1: Product matching's Simple matching): there the header's More and `new` are drawn as on `path`.
  */
 final class Sections
 {
@@ -183,7 +184,8 @@ final class Sections
         // Simple matching and New on the stores: docs/decisions.md RD-S1) and Check a match (the queue to review and a store product's decision
         // page) are its entries; every other matching page is a specialist page (`more`), under the header's More of the section's lists (RD6).
         'listings' => ['tabs' => [
-            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products', 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item', '/ui/match*']]]],
+            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products', 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item', '/ui/match*'],
+                'lists' => ['/ui/match']]]],
             'review' => ['keep' => ['channel'], 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review',
                 'match' => ['/ui/review', '/ui/review/listing/*', '/ui/review/decision/*', '/ui/review/bulk', '/ui/review/batches/*']]]],
             'store_products' => ['more' => true, 'pages' => [['perm' => 'linking.view', 'path' => '/ui/review/store', 'match' => ['/ui/review/store*']]]],
@@ -430,8 +432,9 @@ final class Sections
                     $page = $p;
                 }
             }
-            // A list page: the request is the page's own address (not one of its records or forms).
-            $onList = $page !== null && self::samePath($path, (string) $page['path']);
+            // A list page: the request is the page's own address, or one of its other `lists` (not one of its records or forms).
+            $onList = $page !== null && (self::samePath($path, (string) $page['path'])
+                || array_filter($page['lists'] ?? [], static fn (string $l): bool => self::samePath($path, $l)) !== []);
             $list = $onList && !in_array($s, self::FIGURES, true);
             if ($tab !== null && count($tab['pages']) > 1) {
                 $kept = self::kept(self::MAP[$s]['tabs'][$here['tab']]['keep'] ?? [], $query);

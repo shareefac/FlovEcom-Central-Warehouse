@@ -15068,6 +15068,8 @@ read per store is what CW has): not built (needs a build, as RD-C7 says); the st
 matching another tab"). Product matching's tabs are By item | Simple matching | New on the stores (`by_product_tabs`, plain links, the
 tab shown has no link). `/ui/match` keeps its address, its table, its picker and its rules (SM1-SM11, HU5); it now draws Product
 matching's title and line, the three tabs (no count on New on the stores, RD-F9) and the same ONE More as By item (`by_product_bar`).
-In the menu map `/ui/match*` belongs to By item (the sidebar marks By item there); it is no longer a specialist page under More, so
+In the menu map `/ui/match*` belongs to By item (the sidebar marks By item there) and `/ui/match` is one of the page's `lists` (a new
+page field: another address that is the page's list too, so the header's More is drawn there as on `/ui/review/products`; the Codex
+review: without it Simple matching's More was empty); it is no longer a specialist page under More, so
 `Words::MENU`/`MENU_HELP` lose `simple_match` and the page's name is `RD_MATCH['tab_simple']` (its browser title and the way back from a
 store product's page).
