@@ -15129,3 +15129,8 @@ one short line per job and no paragraph, urgent first, the checklist (tabs, coun
 All, the fold after 8, no job). `UiTemplatesTest`: a row's markup, the checklist drawn with its tabs, the urgent row first and "Show 3
 more"; the tab-row sweep allows Home's tabs. `RedesignCTemplatesTest` (RD-C15's pins), `HomeScreenTest` (the real pages: the tabs, `?jobs=`
 listings, approvals and unknown ones, each tab's link, the rows' counts and lines), `TotpOffTest` and `ReceivingScreensTest` read the new row.
+
+**RD-H9. The fold is part of the list** (the Codex review of hm2: MEDIUM, LOW). `details.hm-fold` resets the generic fold look (no
+border, inset or bottom margin), so the rows after the eighth line up with the first eight. Once open, its summary is visually hidden but
+stays in the keyboard order and shows again when focused from the keyboard (`:focus-visible`); `display: none` had dropped the focused
+control.

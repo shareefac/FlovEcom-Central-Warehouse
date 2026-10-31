@@ -3308,7 +3308,13 @@ details.hm-fold > summary { display: block; min-height: 44px; padding: 12px 20px
   font: 600 13px/20px var(--font); list-style: none; cursor: pointer; }
 details.hm-fold > summary::-webkit-details-marker { display: none; }
 details.hm-fold > summary:hover { color: var(--accent); }
-details.hm-fold[open] > summary { display: none; }
+/* The fold is part of the list, not a boxed fold (the generic details look is reset); once open, its summary leaves the look but stays
+   in the keyboard order and shows again when focused from the keyboard (the Codex review of hm2: display:none lost the focus). */
+details.hm-fold { border: 0; border-radius: 0; padding: 0; margin: 0; background: transparent; }
+details.hm-fold > :last-child:not(summary) { margin-bottom: 0; }
+details.hm-fold[open] > summary { margin-bottom: 0; }
+details.hm-fold[open] > summary:not(:focus-visible) { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (max-width: 600px) {
   .hm-jobs > .tabs.hm-tabs { padding: 0 4px; }
   .hm-job { flex-wrap: wrap; gap: 6px 14px; padding: 11px 16px; }
