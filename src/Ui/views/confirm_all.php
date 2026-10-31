@@ -2,7 +2,8 @@
 // "Confirm all ready": the check page (ConfirmAllCheck.dc.html; docs/decisions.md CA4). It saves nothing. The heading asks "Confirm N ERPNext
 // corrections?", the line under it names the stores and warehouses; then the three lines (a coloured dot, the words, the figure), the three
 // plain sentences, the note (saved on each one) and Back with "Confirm N", the page's one main button. The form carries the ids drawn here and
-// the token: a correction that arrives after this page was drawn is never confirmed by its press. Nothing ready: a plain line and Back.
+// the token, signed with the moment it was drawn (CA12): a correction that arrives after this page was drawn is never confirmed by its press, and
+// a page older than 30 minutes is drawn again. Nothing ready: a plain line and Back.
 ?>
 <?= $head($title, eyebrow: \CW\Ui\Words::CONFIRM_ALL['eyebrow'], meta: $from === null ? '' : $e($from), side: '') ?>
 <?= $showNav() ?>
@@ -24,6 +25,8 @@
 <form class="ca-form" method="post" action="/ui/queues/corrections/confirm-all" data-unsaved="1"<?php if ($error !== null): ?> data-dirty="1"<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="ids" value="<?= $e($ids) ?>">
+  <input type="hidden" name="at" value="<?= $e($at) ?>">
+  <input type="hidden" name="sig" value="<?= $e($sig) ?>">
   <label for="ca-note"><?= $word('CONFIRM_ALL', 'note') ?></label>
   <input type="text" id="ca-note" name="note" value="<?= $e($note) ?>" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required placeholder="<?= $word('CONFIRM_ALL', 'note_hint') ?>"<?php if ($error !== null): ?> aria-invalid="true"<?php endif; ?>>
   <p class="ca-actions"><a class="btn" href="<?= $u($back) ?>"><?= $word('CONFIRM_ALL', 'back') ?></a><button type="submit" class="btn primary"><?= $say('CONFIRM_ALL', 'confirm', $ready) ?></button></p>

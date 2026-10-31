@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\UiKernel;
 
+use CW\Auth\Csrf;
 use CW\Caller;
 use CW\Invariants;
 use CW\Movements;
@@ -13,6 +14,7 @@ use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
 use CW\Ui\Controller\InboxController;
+use CW\Ui\Controller\StoreQueuesController;
 use CW\Ui\Words;
 
 /**
@@ -223,7 +225,7 @@ final class ConfirmAllScreensTest extends KernelUiTestCase
         self::assertSame(['Confirm 2'], self::texts($xp, '//form[@action="' . self::CHECK . '"]//button[@type="submit" and contains(@class, "primary")]'));
         self::assertSame(['/ui/approvals?show=corrections'], self::texts($xp, '//form[@action="' . self::CHECK . '"]//a[contains(@class, "btn")]/@href'), 'Back');
         $form = $check->form(self::CHECK);
-        self::assertSame(['csrf', 'ids', 'note'], array_keys($form));
+        self::assertSame(['csrf', 'ids', 'at', 'sig', 'note'], array_keys($form), 'the ids, signed with the page\'s time (CA12)');
         self::assertSame($c['Alpha pod']['id'] . ',' . $c['Beta pod']['id'], $form['ids'], 'the ready ones shown, oldest first');
 
         $r = $web->post(self::CHECK, ['note' => 'Confirm all after the morning check'] + $form);
@@ -325,5 +327,78 @@ final class ConfirmAllScreensTest extends KernelUiTestCase
             $src = (string) file_get_contents(dirname(__DIR__, 3) . '/src/Ui/views/' . $t . '.php');
             self::assertDoesNotMatchRegularExpression('/\sstyle=|<script|<svg/i', $src, $t);
         }
+    }
+
+    /**
+     * CA12 (Codex HIGH 1): the press books only the ids its check page drew, in its order, for the person it drew them for, within 30
+     * minutes: an id added, taken away or moved, another person's page, a page older than that, or a touched signature or time refuses
+     * the whole press (409) with the check page drawn again from now, and nothing is booked.
+     */
+    public function testThePressIsBoundToTheIdsItsCheckPageDrew(): void
+    {
+        $c = $this->corrections(['Alpha pod' => ['has' => 2, 'set' => 4], 'Beta pod' => ['has' => 2, 'set' => 5]]);
+        $user = $this->uiUser('stock_controller');
+        $web = $this->signIn($user);
+        $form = $web->get(self::CHECK)->form(self::CHECK);
+        $a = (string) $c['Alpha pod']['id'];
+        $b = (string) $c['Beta pod']['id'];
+        self::assertSame($a . ',' . $b, $form['ids']);
+        self::assertMatchesRegularExpression('/^[0-9]{10}$/D', $form['at']);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/D', $form['sig']);
+        $late = $this->corrections(['Gamma pod' => ['has' => 1, 'set' => 3]]);
+        $g = (string) $late['Gamma pod']['id'];
+        $before = self::saved();
+        $refused = function (KernelBrowser $who, array $post, string $why) use ($before): UiResponse {
+            $r = $who->post(self::CHECK, $post);
+            self::assertSame(409, $r->status, $why . ': ' . $r->describe());
+            self::assertStringContainsString(Words::QUEUE_ERROR['check_page_changed'], $r->text(), $why);
+            self::assertSame($before, self::saved(), "{$why}: nothing booked");
+            return $r;
+        };
+        $note = ['note' => 'pressed with a changed page'];
+        $again = $refused($web, ['ids' => "{$a},{$b},{$g}"] + $note + $form, 'an id added');
+        self::assertSame(['Confirm 3 ERPNext corrections?'], self::texts(self::xp($again), '//header[@class="page-head"]//h1'), 'the check page again, drawn now');
+        self::assertSame("{$a},{$b},{$g}", $again->form(self::CHECK)['ids']);
+        $refused($web, ['ids' => "{$b},{$a}"] + $note + $form, 'the order changed');
+        $refused($web, ['ids' => $a] + $note + $form, 'an id taken away');
+        $refused($web, ['sig' => str_repeat('0', 64)] + $note + $form, 'a touched signature');
+        $refused($web, ['at' => (string) ((int) $form['at'] - 1)] + $note + $form, 'a touched time');
+        $refused($web, ['at' => ''] + $note + $form, 'no time');
+        $old = time() - StoreQueuesController::CONFIRM_ALL_PAGE_SECONDS - 1;
+        $refused($web, ['at' => (string) $old, 'sig' => StoreQueuesController::confirmAllSignature(Csrf::fromSecretKey(self::$uiKey), $user['id'], $old, $form['ids'])]
+            + $note + $form, 'a page more than 30 minutes old (signed then)');
+        $stranger = $this->sc();
+        $refused($stranger, ['csrf' => $this->token($stranger)] + $note + $form, 'another person\'s page');
+        // The page as drawn: its two are booked; the one that arrived after it is not.
+        $r = $web->post(self::CHECK, ['note' => 'the page as it was drawn'] + $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([4, 5, 1], [$this->onHand($c['Alpha pod']['sku']), $this->onHand($c['Beta pod']['sku']), $this->onHand($late['Gamma pod']['sku'])]);
+        self::assertSame('open', (string) self::$db->value('SELECT CAST(status AS CHAR) FROM count_review WHERE id = ?', [(int) $g]));
+    }
+
+    /**
+     * CA18 (Codex MEDIUM 8): a correction asked for by its link (the done page's Open ›, a bookmark) opens even when it is not among the
+     * first 50 of its group, on ERPNext corrections shown and on everything waiting; the list shows it, marked open.
+     */
+    public function testACorrectionAskedForOpensBeyondTheFirstFifty(): void
+    {
+        $items = [];
+        for ($i = 1; $i <= 55; $i++) {
+            $items[sprintf('Big pod %02d', $i)] = ['has' => 0, 'set' => 150 + $i];
+        }
+        $c = $this->corrections($items);
+        $last = $c['Big pod 55']['id'];
+        $web = $this->sc();
+        foreach ([['show' => 'corrections'], []] as $query) {
+            $page = $web->get(InboxController::PATH, $query + ['open' => 'corrections-' . $last]);
+            self::assertSame(200, $page->status, $page->describe());
+            $xp = self::xp($page);
+            self::assertSame('Big pod 55', trim((string) $xp->evaluate('string(//h2[@id="ap-h"])')), json_encode($query));
+            self::assertSame('/ui/queues/corrections/' . $last . '/confirm', (string) $xp->evaluate('string(//form[@id="ap-answer"]/@action)'));
+            self::assertSame(['Big pod 55'], self::texts($xp, '//a[contains(@class, "ap-row") and @aria-current="true"]/span[@class="ap-t"]'), 'the row shown, marked open');
+            self::assertSame(51, $xp->query('//a[contains(@class, "ap-row")]')->length, 'the first 50, and the one asked for');
+            self::assertStringContainsString(Words::say('INBOX', 'more_rows', 50), $page->text());
+        }
+        self::assertSame([Words::CONFIRM_ALL['look'] => 55], self::groupsShown($web->get(InboxController::PATH, ['show' => 'corrections'])));
     }
 }

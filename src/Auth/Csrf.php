@@ -39,6 +39,15 @@ final class Csrf
         return hash_hmac('sha256', 'p:' . $preCookie, $this->key);
     }
 
+    /**
+     * A form's own signature (docs/decisions.md CA12: what a page drew, sent back unchanged): HMAC-SHA256 of the form's purpose and data
+     * under the same derived key, in its own domain ('f:'), so it is never a token of a session or of the sign-in form, nor the reverse.
+     */
+    public function forForm(string $purpose, string $data): string
+    {
+        return hash_hmac('sha256', 'f:' . $purpose . "\n" . $data, $this->key);
+    }
+
     public function validForSession(string $sessionId, ?string $token): bool
     {
         return $token !== null && hash_equals($this->forSession($sessionId), $token);

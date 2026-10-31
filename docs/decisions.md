@@ -15203,11 +15203,11 @@ or a database failure of one leaves that id with "Changed while Confirm all ran:
 refusal's code and today's reason are kept in the run row), and the rest go on. A form that is not a check page's (no ids, a bad one, more
 than 5,000) is refused whole (400 bad_form). Then 303 to the done page.
 
-**CA6. The cap.** At most 500 ids (`Corrections::BULK_MAX`, also how many open corrections the list reads) and 25 seconds
-(`BULK_SECONDS`; the UI pool stops a page at 50 s) per press; the rest are left as "Not reached: run it again", untouched. Technical bounds
-of one request, not business rules: constants, not settings.
+**CA6. The cap.** At most 500 ids (`Corrections::BULK_MAX`, also how many open corrections the list reads) per press, and no id started
+after 25 seconds (CA15); the rest are left as "Not reached: run it again", untouched. Technical bounds of one request, not business rules:
+constants, not settings.
 
-**CA7. ONE audit row per press** (`count_review.confirm_all`, "Confirm all ERPNext corrections"; entity `count_review`, no id): who (actor,
+**CA7. The press in the audit log** (since CA15: its run row first, its end row last; as first built: one row at the end) (`count_review.confirm_all`, "Confirm all ERPNext corrections"; entity `count_review`, no id): who (actor,
 staff id, IP), when, the note, how many ids were sent, the ids confirmed (and of them the ones that were already confirmed: `replayed`), how
 many booked a difference, the units added and taken off, and every one left with why (the press's own, then the open ones that need a look
 now). Each confirmation keeps its own audit rows, as one by one.
@@ -15239,3 +15239,81 @@ untouched, the second press, the cap and the run row, who may press; the stock i
 `tests/Integration/UiKernel/ConfirmAllScreensTest` (the groups and lines, the button only for the job and when N > 0, the board's panel and a
 row opening as before, the check page saves nothing, the press, the done page, CSRF, origin, a hand-made form, a short note, a changed one,
 a later one, twice, the stranger's 404, the phone CSS).
+
+## "Confirm all ready": the Codex review of a6af366, 3 HIGH and 6 MEDIUM, each shown failing first (branch `confirm-all`, second commit, 31 Oct 2026; CA12-CA21)
+
+The review: `runs/ca_codex_review.txt`, the last block. The coordinator's decision per finding is followed; where the code says otherwise it
+says why. Each fix is pinned by a test that failed on a6af366 (`runs/ca_fix_failfirst_a6af366.log`).
+
+**CA12. The press books only what its check page drew** (HIGH 1). The check page signs the ids it drew, exactly as drawn and in their order,
+for the person it drew them for, with the moment it was drawn: `StoreQueuesController::confirmAllSignature()`, an HMAC-SHA256 under the
+server's existing secret (`ui_secret_key`, through `Csrf::forForm()`, its own domain `f:`, so it is never a CSRF token nor the reverse);
+hidden fields `ids`, `at`, `sig`. The press checks it before anything: an id added, taken away or moved, a touched time or signature,
+another person's page, or a page more than 30 minutes old (`CONFIRM_ALL_PAGE_SECONDS`; a time more than a minute ahead also) refuses the whole
+press with 409 `check_page_changed` and the check page drawn again from now ("This check page was changed, or it is more than 30 minutes
+old. It is shown again below: look at it, then press Confirm. Nothing was booked."); nothing is booked. A form that is not a check page's at
+all (no ids, a bad one, too many) stays 400. Test: `ConfirmAllScreensTest::testThePressIsBoundToTheIdsItsCheckPageDrew`.
+
+**CA13. Rule e and the link writers** (HIGH 2). The coordinator's question first: does the link writer lock the item? Yes:
+`DecisionService` (the only code that changes `channel_listing.sku_id`) reads every item a decision touches `FOR SHARE`
+(`lockSkus()`, before it changes the listing). A shared lock taken by the gate too would not wait for it (two shared locks do not
+conflict), so the gate takes the item's row `FOR UPDATE`: `SELECT id FROM sku WHERE id = ? FOR UPDATE`, after the item's balance, which is
+the stock core's own lock order (`Stock::setPolicy()` and `Reservations` lock the balances, then the item). While the gate holds it no link
+of the item can change; a link being made is waited for, then counted (READ COMMITTED reads it). The writers are not touched. The one
+path that takes the two the other way round is a link that adopts units sold while unlinked (the item `FOR SHARE`, then its balance):
+InnoDB then reports a deadlock, which `Db::transaction()` retries (each side) as it does for every booking; nothing is half done. The
+test pins the writer's `FOR SHARE` (if it ever goes, the test fails) and both orders: the link waits for the booking, and the booking waits
+for the link and leaves the correction. Test: `ConfirmAllTest::testALinkMadeMeanwhileAndTheBookingWaitForEachOther`.
+
+**CA14. The limit is read under a lock** (HIGH 3). Inside the gate, after the item's row, `relay.correction_bulk_max_units` is read with
+`SELECT ... FROM app_setting WHERE setting_key = ? FOR SHARE` and held to the commit (`Corrections::lockedLimit()`): a change of the limit
+(`Settings::change()`, the setting's row `FOR UPDATE`; it locks no balance or item, so the order holds) waits until the booking that read it
+is committed. The list and the check page read it without a lock (they book nothing). Test (two connections):
+`ConfirmAllTest::testTheBigLimitIsHeldWhileACorrectionIsBooked`.
+
+**CA15. The press's time, and a press that stops** (MEDIUM 4). The press is saved FIRST: its run row (`count_review.confirm_all`: who, when,
+the note, the ids it was given, `state: running`; its id is the done page's), then each id, then its end row (`count_review.confirm_all_end`,
+"Confirm all ERPNext corrections: what it did"; entity `count_review`, id `confirm_all:<run>`: the ids confirmed and replayed, the counts,
+every one left with why). The audit log is append-only for the app login (`Grants::APPEND_ONLY`), so the run row cannot be updated at the
+end as the coordinator suggested: the end is a second row, found by its entity (`ix_audit_entity`). `Corrections::run()` reads both; a press
+that stopped before its end (the worker killed, the page timed out) shows what the queue says of its ids: the ones its person confirmed with
+its note, the rest "Not reached: run it again", and the done page says "This press stopped before its end. What it confirmed is counted; the
+rest is left for you." While a press runs, its session waits at most 5 seconds for a lock (`innodb_lock_wait_timeout`, given back after) and
+a confirmation waits at most 5 seconds for its key (`Idempotency`'s wait, a new constructor parameter, default unchanged): one busy id is left
+("changed") and the press goes on. No id is started after 40 − 2 × 5 − 5 = 25 seconds (`BULK_SECONDS` 40, `BULK_LOCK_WAIT` 5,
+`BULK_FINAL_SECONDS` 5), so the id under way and the end fit in 40 s, inside the UI pool's 50 s. Tests: a clock that passes the deadline, a
+clock that stops the press after one id (`run()` then shows it), an id whose balance another connection holds (left after the short wait,
+the next one booked, the session's wait given back).
+
+**CA16. A database failure inside one id** (MEDIUM 9). Test only (the code was right): a statement that fails after the id's stock line was
+written, and a deadlock on every try (retried by `Db::transaction()` 3 times, then given up): the id is rolled back whole (no ledger line,
+the row open, no stored answer for its key, no confirmation audit row, no transaction left open), the next id books, the end row names the
+failed one (`error: failed`), and the failed one is then confirmed one by one. Connection loss is not tested (a lost connection fails every
+later id and the end row too; the run row stays, and `run()` shows the press as stopped).
+
+**CA17. The list's reads** (MEDIUM 5). `Corrections::list()` reads the figures of all its open rows at once (`effects()`): effect()'s own
+statements gathered into three per 200 rows (the last ledger row booked by each moment, both buckets of each balance at that row, each a
+`UNION ALL` branch with effect()'s exact SQL and plan; the confirmed corrections of the items in one query), and effect() and effects() share
+the arithmetic (`fold()`). A booking still reads effect() itself, fresh, under its locks. For 254 open corrections Approvals' readiness now
+reads at most 30 statements (it read 1,026). Test: the count, and effects() equal to effect() row by row, a carried correction included.
+
+**CA18. Open beyond the first 50** (MEDIUM 8). A correction asked for by its link (`?open=corrections-<id>`: the done page's Open ›, a
+bookmark) that is waiting is shown after its group's 50 rows, marked open, and its record opens: on ERPNext corrections shown and on
+everything waiting ("The first 50 are shown" still counts the page). Test with 55.
+
+**CA19. Migration 0054 runs again safely** (MEDIUM 7). Both inserts are `INSERT ... SELECT ... WHERE NOT EXISTS`: a run stopped between them
+completes the baseline once; a second run changes nothing and keeps a value set since. Test on a scratch schema: applied, then the baseline
+removed and both statements run again, then the value changed and both run again.
+
+**CA20. The fix lookup** (MEDIUM 6): NOT built, as the coordinator decided. `stock_ledger` has no index on `doc_ref` (its indexes:
+`ix_stock_ledger_balance` (warehouse, item, id), `_order`, `_created`, `_effective` (warehouse, item, bucket, effective_at), `_unit`,
+`_document`, `_store_type`), so rule f still reads each item's on-hand rows at its place (one statement per 200 corrections on the list; one
+item under its lock at booking). Proposals for the owner, none built: (a) `ALTER TABLE stock_ledger ADD INDEX ix_stock_ledger_doc_ref
+(doc_ref, warehouse_id, sku_id, created_at), ALGORITHM=INPLACE, LOCK=NONE`: the lookup becomes one range read of the fix's rows (about 1,600
+per doc_ref) per request; (b) the audit log's existing `ix_audit_entity`: every fix booking writes an audit row with entity `movement` and
+id = its doc_ref, and its key `<doc_ref>:<item>` names the item: one indexed query, but a second source for a stock fact and no warehouse;
+(c) a small table the fix tool writes per item. (a) is the plain one.
+
+**CA21. Not changed.** The other findings' parts the review confirmed (the same key and request as one by one, the lock order, the done
+page's access) stay as built. Tests: the four files of CA12 plus `ConfirmAllUnitTest` (the signature's binding, the time bounds),
+`Migration0054Test`, `ConfirmAllTest` and `ConfirmAllScreensTest` (new and updated cases above).

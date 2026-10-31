@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Unit;
 
+use CW\Auth\Csrf;
 use CW\Queues\Corrections;
 use CW\Settings;
 use CW\Ui\Controller\StoreQueuesController;
@@ -114,5 +115,24 @@ final class ConfirmAllUnitTest extends TestCase
         self::assertSame(Words::SETTINGS_PAGE['unit_units'], \CW\Ui\Controller\ReferenceController::unit(Corrections::BIG_SETTING, 'int'));
         self::assertSame('Confirm all ERPNext corrections', Words::AUDIT_ACTION[Corrections::RUN_ACTION]);
         self::assertArrayHasKey('not_ready', Words::QUEUE_ERROR);
+    }
+
+    /** CA12, CA15: the check page's signature binds the person, the time and the ids in order; the press's time bounds fit the UI pool. */
+    public function testTheCheckPagesSignatureAndThePressesTimeBounds(): void
+    {
+        $csrf = Csrf::fromSecretKey(base64_encode(str_repeat('k', 32)));
+        $sig = StoreQueuesController::confirmAllSignature($csrf, 7, 1_761_900_000, '12,15');
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/D', $sig);
+        self::assertSame($sig, StoreQueuesController::confirmAllSignature($csrf, 7, 1_761_900_000, '12,15'));
+        foreach ([[8, 1_761_900_000, '12,15'], [7, 1_761_900_001, '12,15'], [7, 1_761_900_000, '15,12'], [7, 1_761_900_000, '12,15,16'], [7, 1_761_900_000, '12']] as [$who, $at, $ids]) {
+            self::assertNotSame($sig, StoreQueuesController::confirmAllSignature($csrf, $who, $at, $ids), "{$who} {$at} {$ids}");
+        }
+        self::assertNotSame($sig, StoreQueuesController::confirmAllSignature(Csrf::fromSecretKey(base64_encode(str_repeat('j', 32))), 7, 1_761_900_000, '12,15'));
+        self::assertNotSame($csrf->forSession("7\n1761900000\n12,15"), $sig, 'never a CSRF token of the same text');
+        self::assertSame(1800, StoreQueuesController::CONFIRM_ALL_PAGE_SECONDS, '30 minutes');
+        // The press: no id starts after 25 s; one id waits at most twice the short lock wait; the end has its reserve; all inside 50 s.
+        self::assertSame(25, Corrections::BULK_SECONDS - 2 * Corrections::BULK_LOCK_WAIT - Corrections::BULK_FINAL_SECONDS);
+        self::assertSame(5, Corrections::BULK_LOCK_WAIT);
+        self::assertLessThan(50, Corrections::BULK_SECONDS, 'the UI pool stops a page at 50 s');
     }
 }

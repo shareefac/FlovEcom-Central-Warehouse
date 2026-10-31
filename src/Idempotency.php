@@ -26,7 +26,11 @@ final class Idempotency
     private const MAX_RETRIES = 3;
     private const ER_DUP_ENTRY = 1062;
 
-    public function __construct(private readonly Db $db)
+    /**
+     * @param int $keyWaitSec how long a call waits for an earlier call with the same key (KEY_LOCK_WAIT_SEC; Confirm all waits less, so one
+     *        busy key cannot hold its press: docs/decisions.md CA15)
+     */
+    public function __construct(private readonly Db $db, private readonly int $keyWaitSec = self::KEY_LOCK_WAIT_SEC)
     {
     }
 
@@ -113,7 +117,7 @@ final class Idempotency
     private function lockKey(Caller $caller, string $idemKey): string
     {
         $name = 'cw_idem:' . sha1(implode("\0", [$this->db->settings->database ?? '', (string) ($caller->channelId ?? 0), $caller->source, $idemKey]));
-        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, self::KEY_LOCK_WAIT_SEC]) !== 1) {
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, max(1, $this->keyWaitSec)]) !== 1) {
             throw new CwException('idempotency_key_busy', 'another request with this Idempotency-Key is still being processed; retry later', 409);
         }
         return $name;

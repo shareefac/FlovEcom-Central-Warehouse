@@ -9961,6 +9961,7 @@ final class Words
         'goods_in_suspense.dismiss' => 'ERPNext line closed without booking',
         'count_review.confirm' => 'ERPNext correction confirmed',
         'count_review.confirm_all' => 'Confirm all ERPNext corrections',
+        'count_review.confirm_all_end' => 'Confirm all ERPNext corrections: what it did',
         'count_review.dismiss' => 'ERPNext correction closed',
         'policy_review.accept' => 'ERPNext selling-mode change accepted',
         'policy_review.dismiss' => 'ERPNext selling-mode change closed',
@@ -11494,6 +11495,7 @@ final class Words
         'saved' => 'Saved as one run in the audit log: %s, %s, by %s.',
         'back_list' => 'Back to Approvals',
         'item_gone' => 'Correction %s',
+        'stopped' => 'This press stopped before its end. What it confirmed is counted; the rest is left for you.',
     ];
 
     /** Approvals › From the stores › Mode changes. */
@@ -11621,6 +11623,8 @@ final class Words
         'queue_settled' => 'Someone already answered this one. Nothing more was saved.',
         'queue_changed' => 'This order changed while you were looking (it was paid). Look at it again. Nothing was saved.',
         'not_ready' => 'This correction needs a look now: answer it on its own. Nothing was booked.',
+        'check_page_changed' => 'This check page was changed, or it is more than 30 minutes old. It is shown again below: look at it, then press Confirm. '
+            . 'Nothing was booked.',
         'unknown_queue_row' => 'This row is not in the list any more. Nothing was saved.',
         'unknown_item' => 'There is no item with that code. Check it under Products. Nothing was booked.',
         'merged_item' => 'That item was joined into another one. Use the other item\'s code. Nothing was booked.',

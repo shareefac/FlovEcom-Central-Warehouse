@@ -32,7 +32,7 @@ $bar = $choices === [] ? '' : $partial('approvals_show', ['choices' => $choices,
 <?php endforeach; ?>
       </ul>
 <?php if ($g['more']): ?>
-      <p class="ap-more"><?= $say('INBOX', 'more_rows', count($g['rows'])) ?></p>
+      <p class="ap-more"><?= $say('INBOX', 'more_rows', $g['shown'] ?? count($g['rows'])) ?></p>
 <?php endif; ?>
     </div>
 <?php endforeach; ?>

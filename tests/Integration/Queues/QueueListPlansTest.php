@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\Queues;
 
+use CW\Queues\Corrections;
 use CW\Tests\Support\IntegrationTestCase;
 
 /**
@@ -68,6 +69,41 @@ final class QueueListPlansTest extends IntegrationTestCase
             }
         }
         fwrite(STDERR, "\n[pack F plans]\n" . implode("\n", $out) . "\n");
+    }
+
+    /**
+     * "Confirm all ready" (docs/decisions.md CA17, CA20): the list's gathered reads keep to effect()'s indexes, branch by branch, and the
+     * (place, item) lists are ranges of the balance index (never a full scan of the ledger or its index).
+     */
+    public function testTheGatheredReadsOfTheCorrectionsListKeepToTheirIndexes(): void
+    {
+        [, $main, $sku] = $this->fill();
+        foreach (['count_review', 'stock_ledger', 'stock_balance'] as $t) {
+            self::$db->all("ANALYZE TABLE {$t}");
+        }
+        $other = (int) self::$db->value('SELECT sku_id FROM stock_balance WHERE warehouse_id = ? AND sku_id <> ? ORDER BY sku_id LIMIT 1', [$main, $sku]);
+        $two = '(?, ?), (?, ?)';
+        $plans = [
+            'last row at moments' => [implode(' UNION ALL ', [Corrections::LAST_AT_SQL, Corrections::LAST_AT_SQL]), [0, '2026-09-01 10:00:00', 1, '2026-09-02 10:00:00'],
+                'stock_ledger', 'ix_stock_ledger_created', ['range', 'index']],
+            'buckets at moments' => [implode(' UNION ALL ', [Corrections::BUCKET_AT_SQL, Corrections::BUCKET_AT_SQL]),
+                [0, 'on_hand', $main, $sku, PHP_INT_MAX, 'on_hand', 1, 'allocated', $main, $other, PHP_INT_MAX, 'allocated'], 'stock_ledger', 'ix_stock_ledger_balance', ['range', 'ref']],
+            'confirmed of items' => [sprintf(Corrections::CONFIRMED_SQL, $two), ['erp_reconciliation', $sku, $main, $other, $main], 'count_review', 'ix_count_review_sku', ['range', 'ref']],
+            'balances' => [sprintf(Corrections::BALANCE_SQL, $two), [$main, $sku, $main, $other], 'stock_balance', 'PRIMARY', ['range', 'eq_ref', 'const']],
+            'fixes of items' => [sprintf(Corrections::FIX_SQL, $two), [$main, $sku, $main, $other, Corrections::FIX_PREFIX . '%'], 'stock_ledger', 'ix_stock_ledger_balance', ['range']],
+        ];
+        $out = [];
+        foreach ($plans as $name => [$sql, $params, $table, $index, $types]) {
+            $rows = array_values(array_filter(self::$db->all('EXPLAIN ' . $sql, $params), static fn (array $r): bool => ($r['table'] ?? null) === $table));
+            self::assertNotSame([], $rows, $name);
+            foreach ($rows as $r) {
+                $out[] = sprintf('%-20s id=%s type=%s key=%s rows=%s extra=%s', $name, $r['id'] ?? '', $r['type'] ?? '', $r['key'] ?? '', $r['rows'] ?? '', $r['Extra'] ?? '');
+                self::assertSame($index, $r['key'], "{$name}: " . json_encode($r));
+                self::assertContains($r['type'], $types, "{$name}: no full scan: " . json_encode($r));
+            }
+        }
+        self::assertCount(2, array_filter($out, static fn (string $l): bool => str_starts_with($l, 'last row at moments')), 'each branch on its own index');
+        fwrite(STDERR, "\n[confirm all plans]\n" . implode("\n", $out) . "\n");
     }
 
     /**

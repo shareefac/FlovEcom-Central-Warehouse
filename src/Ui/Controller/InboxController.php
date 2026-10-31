@@ -168,8 +168,11 @@ final class InboxController
         // header, and the board's "The list is split in two" until a row is opened.
         $split = null;
         $confirmAll = null;
+        // A correction asked for by its link opens even beyond the first rows its group shows (CA18: the done page's Open ›).
+        $want = $refused['key'] ?? $ctx->req->param('open');
+        $wanted = is_string($want) && preg_match('/^corrections-([1-9][0-9]{0,17})$/D', $want, $m) === 1 ? (int) $m[1] : null;
         foreach ($kinds as $kind) {
-            $g = $kind === 'corrections' && $show === 'corrections' ? $this->correctionsSplit($ctx) : $this->group($ctx, $kind);
+            $g = $kind === 'corrections' && $show === 'corrections' ? $this->correctionsSplit($ctx, $wanted) : $this->group($ctx, $kind, $wanted);
             if ($g['rows'] === []) {
                 // The kind shown stays the Show's choice when nothing of it waits (its last one just answered: the fix round, docs/decisions.md
                 // RD-F6); the page then says so for that kind.
@@ -194,13 +197,12 @@ final class InboxController
                 continue;
             }
             $groups[] = ['kind' => $kind, 'id' => $kind, 'name' => Words::INBOX['kind_' . $kind], 'tone' => self::KINDS[$kind]['tone'], 'count' => $g['count'],
-                'more' => $g['more'], 'href' => self::KINDS[$kind]['page'], 'rows' => $g['rows']];
+                'more' => $g['more'], 'shown' => $g['shown'] ?? null, 'href' => self::KINDS[$kind]['page'], 'rows' => $g['rows']];
             array_push($flat, ...$g['rows']);
         }
         // The record to open: the one asked for (or refused), else the one now at the place given, else the first. ERPNext corrections shown on
         // their own open none by themselves: the board's "The list is split in two" stands there until a row is opened (CA1).
         $keys = array_column($flat, 'key');
-        $want = $refused['key'] ?? $ctx->req->param('open');
         $i = is_string($want) ? array_search($want, $keys, true) : false;
         if ($i === false && $flat !== []) {
             $pos = $refused !== null ? $ctx->req->field('inbox_pos') : $ctx->req->param('pos');
@@ -252,9 +254,11 @@ final class InboxController
      * One kind's waiting records this person may answer, oldest first as on the kind's own page (at most a page of it: `more`), with the
      * kind's count of them (the badge's), each row as key, kind, title, meta (the line under it) and data (the kind's own row).
      *
-     * @return array{rows: list<array<string, mixed>>, count: int, more: bool}
+     * $wanted: a correction asked for by its link: shown (after the page of rows) when it is waiting but not among them (CA18).
+     *
+     * @return array{rows: list<array<string, mixed>>, count: int, more: bool, shown?: int}
      */
-    private function group(Context $ctx, string $kind): array
+    private function group(Context $ctx, string $kind, ?int $wanted = null): array
     {
         $me = $ctx->me();
         $rows = [];
@@ -265,12 +269,16 @@ final class InboxController
         switch ($kind) {
             case 'corrections':
                 $svc = new Corrections($ctx->db);
-                $list = $svc->list('open');
+                $list = array_slice($svc->list('open'), 0, QueueRules::PAGE);
                 $count = $svc->openCount();
-                foreach (array_slice($list, 0, QueueRules::PAGE) as $r) {
+                $more = $count > count($list);
+                if ($wanted !== null && !in_array($wanted, array_map(static fn (array $r): int => (int) $r['id'], $list), true)) {
+                    $shown = count($list);
+                    array_push($list, ...$svc->list('open', 1, $wanted));
+                }
+                foreach ($list as $r) {
                     $rows[] = $row((string) $r['id'], (string) $r['sku_name'], Words::say('INBOX', 'meta_correction', (int) $r['proposed_qty'], Html::day((string) $r['created_at'])), $r);
                 }
-                $more = count($list) > QueueRules::PAGE;
                 break;
             case 'suspense':
                 $svc = new Suspense($ctx->db);
@@ -351,7 +359,7 @@ final class InboxController
                 $count = count($rows);
                 break;
         }
-        return ['rows' => $rows, 'count' => max($count, count($rows)), 'more' => $more];
+        return ['rows' => $rows, 'count' => max($count, count($rows)), 'more' => $more] + (isset($shown) ? ['shown' => $shown] : []);
     }
 
     /**
@@ -362,21 +370,32 @@ final class InboxController
      *
      * @return array{rows: list<array<string, mixed>>, count: int, more: bool, split: list<array<string, mixed>>, ready: int, rules: list<string>}
      */
-    private function correctionsSplit(Context $ctx): array
+    private function correctionsSplit(Context $ctx, ?int $wanted = null): array
     {
         $svc = new Corrections($ctx->db);
         $all = $svc->readiness();
+        // A correction asked for by its link (CA18): shown after its group's page of rows when it is not among them.
+        $extra = null;
+        if ($wanted !== null) {
+            $at = array_search($wanted, array_map(static fn (array $r): int => (int) $r['id'], $all), true);
+            $extra = $at !== false ? $all[$at] : ($svc->readiness(1, $wanted)[0] ?? null);
+        }
         $parts = [];
         foreach (['ready' => 'done', 'look' => 'needs'] as $part => $tone) {
             $in = array_values(array_filter($all, static fn (array $r): bool => ($r['why'] === null) === ($part === 'ready')));
-            if ($in === []) {
+            $page = array_slice($in, 0, QueueRules::PAGE);
+            $shown = count($page);
+            if ($extra !== null && ($extra['why'] === null) === ($part === 'ready') && !in_array((int) $extra['id'], array_map(static fn (array $r): int => (int) $r['id'], $page), true)) {
+                $page[] = $extra;
+            }
+            if ($page === []) {
                 continue;
             }
             $rows = array_map(static fn (array $r): array => ['key' => 'corrections-' . (int) $r['id'], 'kind' => 'corrections', 'title' => (string) $r['sku_name'],
-                'meta' => StoreQueuesController::confirmAllLine($r), 'look' => $part === 'look', 'data' => $r], array_slice($in, 0, QueueRules::PAGE));
+                'meta' => StoreQueuesController::confirmAllLine($r), 'look' => $part === 'look', 'data' => $r], $page);
             // The kind's own page is linked once, from the first group.
-            $parts[] = ['kind' => 'corrections', 'id' => 'corrections-' . $part, 'name' => Words::CONFIRM_ALL[$part], 'tone' => $tone, 'count' => count($in),
-                'more' => count($in) > count($rows), 'href' => $parts === [] ? self::KINDS['corrections']['page'] : null, 'rows' => $rows];
+            $parts[] = ['kind' => 'corrections', 'id' => 'corrections-' . $part, 'name' => Words::CONFIRM_ALL[$part], 'tone' => $tone, 'count' => max(count($in), count($page)),
+                'more' => count($in) > $shown, 'shown' => $shown, 'href' => $parts === [] ? self::KINDS['corrections']['page'] : null, 'rows' => $rows];
         }
         return ['rows' => array_merge([], ...array_column($parts, 'rows')), 'count' => max($svc->openCount(), count($all)), 'more' => false, 'split' => $parts,
             'ready' => count(array_filter($all, static fn (array $r): bool => $r['why'] === null)),

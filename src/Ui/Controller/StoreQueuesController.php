@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Auth\Csrf;
 use CW\CwException;
 use CW\Matching\Gtin;
 use CW\Queues\Corrections;
@@ -247,6 +248,19 @@ final class StoreQueuesController
 
     /** The most ids one press may carry (more is no check page's form: refused whole). */
     private const CONFIRM_ALL_MAX_IDS = 10 * Corrections::BULK_MAX;
+    /** How long a check page may be pressed after it was drawn (CA12): 30 minutes, then it is drawn again. */
+    public const CONFIRM_ALL_PAGE_SECONDS = 1800;
+    /** The purpose a check page's signature is made for (Csrf::forForm). */
+    private const CONFIRM_ALL_FORM = 'confirm-all';
+
+    /**
+     * The check page's signature (CA12, Codex HIGH 1): the person, the moment the page was drawn and its ids exactly as drawn, in their order,
+     * under the server's secret (Csrf::forForm, its own domain). The press is refused whole unless it sends them back unchanged.
+     */
+    public static function confirmAllSignature(Csrf $csrf, int $staffId, int $at, string $ids): string
+    {
+        return $csrf->forForm(self::CONFIRM_ALL_FORM, $staffId . "\n" . $at . "\n" . $ids);
+    }
 
     /**
      * GET /corrections/confirm-all: the check page (CA4). It saves nothing: what a press would do (how many are ready, the units they add and
@@ -265,6 +279,9 @@ final class StoreQueuesController
         $items = static fn (int $n): string => $n === 1 ? Words::CONFIRM_ALL['items_one'] : Words::say('CONFIRM_ALL', 'items', $n);
         $n = count($ready);
         $note = $error !== null ? (string) ($ctx->req->field('note') ?? '') : '';
+        // The ids drawn, in their order, signed for this person with the moment they were drawn (CA12).
+        $ids = implode(',', array_map(static fn (array $r): string => (string) (int) $r['id'], $ready));
+        $at = time();
         return $ctx->page('confirm_all', [
             'title' => $n === 1 ? Words::CONFIRM_ALL['check_title_one'] : Words::say('CONFIRM_ALL', 'check_title', $n),
             'from' => $shown === [] ? null : Words::say('CONFIRM_ALL', 'from', Words::andList($stores), $places),
@@ -276,7 +293,9 @@ final class StoreQueuesController
                 ['tone' => 'needs', 'text' => Words::CONFIRM_ALL['line_left'], 'figure' => $items(count($rows) - $n)],
             ],
             'ready' => $n,
-            'ids' => implode(',', array_map(static fn (array $r): string => (string) (int) $r['id'], $ready)),
+            'ids' => $ids,
+            'at' => $at,
+            'sig' => self::confirmAllSignature($ctx->csrf, $ctx->me()->id, $at, $ids),
             'note' => mb_strlen($note) <= 2 * QueueRules::NOTE_MAX ? $note : '',
             'noteMin' => QueueRules::NOTE_MIN,
             'noteMax' => QueueRules::NOTE_MAX,
@@ -287,15 +306,26 @@ final class StoreQueuesController
     }
 
     /**
-     * POST /corrections/confirm-all: the press (CA5-CA7). The ids its check page drew, then Corrections::confirmAll() (each confirmed as one
-     * by one when still ready, the rest left and listed; ONE audit row for the press); 303 to the done page. A form that is not a check
-     * page's (no ids, a bad one, too many) is refused whole; a refused note brings the check page back.
+     * POST /corrections/confirm-all: the press (CA5-CA7, CA12). The ids its check page drew, as it drew them for this person and signed them
+     * (confirmAllSignature: an id added, taken away or moved, another person's page, a page older than CONFIRM_ALL_PAGE_SECONDS: 409, the
+     * check page drawn again from now, nothing booked), then Corrections::confirmAll() (each confirmed as one by one when still ready, the
+     * rest left and listed; the press saved as its run); 303 to the done page. A form that is not a check page's at all (no ids, a bad one,
+     * too many) is refused whole (400); a refused note brings the check page back.
      */
     public function confirmAllRun(Context $ctx): HtmlResponse
     {
-        $ids = self::idList((string) ($ctx->req->field('ids') ?? ''));
+        $field = (string) ($ctx->req->field('ids') ?? '');
+        $ids = self::idList($field);
         if ($ids === null) {
             return $ctx->error(400, 'bad_form', Words::ERROR['bad_form'], [Html::url(InboxController::PATH, ['show' => 'corrections']), Words::CONFIRM_ALL['back_list']]);
+        }
+        $at = (string) ($ctx->req->field('at') ?? '');
+        $sig = (string) ($ctx->req->field('sig') ?? '');
+        $now = time();
+        if (preg_match('/^[1-9][0-9]{0,11}$/D', $at) !== 1 || (int) $at < $now - self::CONFIRM_ALL_PAGE_SECONDS || (int) $at > $now + 60
+            || !hash_equals(self::confirmAllSignature($ctx->csrf, $ctx->me()->id, (int) $at, $field), $sig)) {
+            return $this->confirmAllCheck($ctx, 409, new CwException('check_page_changed', 'the press does not carry the ids its check page drew for you, '
+                . 'or the page is too old: look at it again', 409));
         }
         try {
             $run = (new Corrections($ctx->db))->confirmAll($ctx->caller(), $ids, (string) ($ctx->req->field('note') ?? ''));
@@ -306,20 +336,18 @@ final class StoreQueuesController
     }
 
     /**
-     * GET /corrections/confirm-all/{id}: the done page of a press (CA8), read from its audit row: how many were confirmed and how many are
-     * left for you, each left one with its item, why, and Open › to it in Approvals; where the press is saved, and the way back. Only the
-     * person who pressed sees it (anyone else: 404, the same as no such press). A plain page: no script needed.
+     * GET /corrections/confirm-all/{id}: the done page of a press (CA8, CA15), read from its run (Corrections::run(): its end row, or, for a
+     * press that stopped before its end, what the queue shows of its ids): how many were confirmed and how many are left for you, each left
+     * one with its item, why, and Open › to it in Approvals; where the press is saved, and the way back. Only the person who pressed sees
+     * it (anyone else: 404, the same as no such press). A plain page: no script needed.
      */
     public function confirmAllDone(Context $ctx): HtmlResponse
     {
-        $run = $ctx->db->one('SELECT id, staff_user_id, CAST(detail AS CHAR) AS detail, created_at FROM audit_log WHERE id = ? AND action = ?',
-            [$ctx->id(), Corrections::RUN_ACTION]);
-        if ($run === null || (int) ($run['staff_user_id'] ?? 0) !== $ctx->me()->id) {
+        $run = (new Corrections($ctx->db))->run($ctx->id());
+        if ($run === null || $run['staff_user_id'] !== $ctx->me()->id) {
             return $ctx->error(404, 'not_found', Words::error('not_found'), [Html::url(InboxController::PATH, ['show' => 'corrections']), Words::CONFIRM_ALL['back_list']]);
         }
-        $d = json_decode((string) $run['detail'], true);
-        $d = is_array($d) ? $d : [];
-        $left = array_values(array_filter(is_array($d['left'] ?? null) ? $d['left'] : [], static fn (mixed $l): bool => is_array($l) && isset($l['id'])));
+        $left = $run['left'];
         $ids = array_values(array_unique(array_map(static fn (array $l): int => (int) $l['id'], $left)));
         $names = [];
         if ($ids !== []) {
@@ -333,7 +361,8 @@ final class StoreQueuesController
             'href' => Html::url(InboxController::PATH, ['show' => 'corrections', 'open' => 'corrections-' . (int) $l['id']]),
         ], $left);
         return $ctx->page('confirm_all_done', [
-            'confirmed' => count(is_array($d['confirmed'] ?? null) ? $d['confirmed'] : []),
+            'confirmed' => count($run['confirmed']),
+            'stopped' => $run['state'] === 'stopped',
             'left' => $rows,
             'saved' => Words::say('CONFIRM_ALL', 'saved', Words::AUDIT_ACTION[Corrections::RUN_ACTION], Html::when((string) $run['created_at']), $ctx->me()->displayName),
             'back' => Html::url(InboxController::PATH, ['show' => 'corrections']),
