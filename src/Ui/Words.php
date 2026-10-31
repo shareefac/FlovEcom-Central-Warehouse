@@ -3043,16 +3043,15 @@ final class Words
     ];
 
     /**
-     * Home's task cards (plan §3.2 C1-C20, with B's "What happens:" line): card key (Ui\HomeTasks) => title, unit ([one, many]
-     * after the big number), text (why it matters), what (what happens when you press the button), button. `%s` is filled in
-     * by HomeTasks.
+     * Home's task cards (plan §3.2 C1-C20; the owner's checklist of 31 Oct 2026, docs/decisions.md RD-H3): card key (Ui\HomeTasks) =>
+     * title, unit ([one, many] after the number, for a screen reader), line (a job's ONE short line under its title: plain words, at
+     * most 60 characters), button (the action words at the right). A note (HomeTasks::NOTES) and "no job" keep their text instead of a
+     * line. `%s` is filled in by HomeTasks.
      */
     public const TASK = [
         'company_confirm' => [
             'title' => 'Confirm our company details',
-            'text' => 'Until they are confirmed, every purchase order PDF says DO NOT SEND.',
-            'missing' => 'Still missing: %s.',
-            'what' => 'You check each detail and change what is wrong, then confirm them. Nothing is sent to anyone.',
+            'line' => 'Order PDFs say DO NOT SEND until then',
             'button' => 'Check and confirm',
             'button_missing' => 'Fill in and confirm',
         ],
@@ -3062,162 +3061,137 @@ final class Words
             'button' => 'See the company details',
         ],
         'approvals' => [
-            'title' => 'Things that need your OK first',
+            'title' => 'Things that need your OK',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'Nothing goes ahead until a reviewer says yes: new suppliers, and orders over the approval limit.',
-            'what' => 'You open each one and say OK or Not OK. Nobody approves their own work.',
+            'line' => 'Nothing goes ahead until a reviewer says yes',
             'button' => 'Open the list',
         ],
         'checks' => [
             'title' => 'Done work to check',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'These already happened: confirmed orders, and changes to suppliers or to our company details. A reviewer checks each one by its '
-                . 'check-by date (an order within 7 days). Deliveries booked in have their own card.',
-            'what' => 'You look at each one and say OK or Not OK.',
+            'line' => 'Already done: check each one by its check-by date',
             'button' => 'Check them',
         ],
         'spot_check' => [
             'title' => 'Spot check %s: are these %s matches right?',
             'unit' => 'of %s checked',
-            'text' => 'If all %s are right, about %s more strong matches are confirmed together. If one is wrong, the rest are checked one at a time instead.',
-            'text_no_rest' => 'If all %s are right, the other strong matches are confirmed together. If one is wrong, they are checked one at a time instead.',
-            'what' => 'You see one match at a time. Say yes only if it is right. You can stop and carry on later.',
+            'line' => 'If all %s are right, about %s more are confirmed',
+            'line_no_rest' => 'If all %s are right, the rest are confirmed together',
             'button' => 'Check the next one (%s of %s)',
             'button_list' => 'Open the spot check',
         ],
         'duplicates' => [
             'title' => 'Possible duplicates to decide',
             'unit' => ['group', 'groups'],
-            'text' => 'Vape and Go may sell the same product on two pages. Many are really different products. The list shows the biggest sellers first.',
-            'what' => 'You compare the pages, then join them (same product) or keep them apart. Nothing is joined without a person.',
+            'line' => 'Same item on two pages? Biggest sellers first',
             'button' => 'Open the list',
         ],
         'set_aside' => [
-            'title' => 'Strong matches set aside to check by hand',
+            'title' => 'Strong matches set aside',
             'unit' => ['to check', 'to check'],
-            'text' => 'They looked doubtful, so they are never confirmed together with the rest of spot check %s.',
-            'what' => 'You open each one and decide it on its own page.',
+            'line' => 'Looked doubtful: check each by hand (spot check %s)',
             'button' => 'Open the list',
         ],
         'second_ok' => [
             'title' => 'Matches waiting for your second OK',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'Another person made these. They only take effect when a second matching lead says yes.',
-            'what' => 'You check each one and give your OK if it is right.',
+            'line' => 'Another person made these: no effect until your OK',
             'button' => 'Open the list',
         ],
         'clues' => [
             'title' => 'Matches where the clues disagree',
             'unit' => ['to decide', 'to decide'],
-            'text' => 'The clues point to different products. Only a matching lead decides these.',
-            'what' => 'You look at the barcode and the names, then pick the right product.',
+            'line' => 'The clues point to different items: you decide',
             'button' => 'Start',
         ],
         'strong' => [
             'title' => 'Strong matches to confirm',
             'unit' => ['to confirm', 'to confirm'],
-            'text' => 'Same barcode, or copied from the other website, and the AI agrees. Best sellers come first.',
-            'spot_first' => 'If your spot check %s passes, about %s of them are confirmed together, so do the spot check first.',
-            'what' => 'Check the names, then confirm the match. A few seconds each. If a page says it is in someone else\'s spot check, leave it to them.',
+            'line' => 'Same barcode or copied, and the AI agrees',
+            'line_spot' => 'Do spot check %s first: it confirms about %s of them',
             'button' => 'Start',
         ],
         'other' => [
             'title' => 'Other website products to match',
             'unit' => ['to match', 'to match'],
-            'part' => '%s: %s',
-            'what' => 'You compare each one and pick the right warehouse product, or create a new one.',
+            'line' => 'Pick the right item for each, or make a new one',
             'button' => 'Start',
         ],
         'bench' => [
             'title' => 'Deliveries waiting to be checked',
             'unit' => ['delivery', 'deliveries'],
-            'text' => 'The goods are here, but nobody has checked them against the paperwork yet. They cannot be booked in before that.',
-            'what' => 'Open each one, check each line (its duty stamp, and anything short, extra, damaged or wrong), then book it in.',
+            'line' => 'Check them against the paperwork before booking in',
             'button' => 'Open them',
         ],
         'bench_refused' => [
             'title' => 'Deliveries whose paperwork is not right',
             'unit' => ['delivery', 'deliveries'],
-            'text' => 'Whoever checked them said the paperwork does not match the boxes, so they cannot be booked in.',
-            'what' => 'Open each one, sort it out with the supplier (or send the goods back); whoever keyed it then cancels it. If the answer was '
-                . 'wrong, set Paperwork again.',
+            'line' => 'They cannot be booked in: sort it out with the supplier',
             'button' => 'Open the list',
         ],
         'to_post' => [
             'title' => 'Checked deliveries to book in',
             'unit' => ['delivery', 'deliveries'],
-            'text' => 'Every line is checked. Until they are booked in, their stock cannot be sold.',
-            'what' => 'Open each one, settle what "Before it can be booked in" lists (the invoice number and its copy), then book it in.',
+            'line' => 'Their stock cannot be sold until they are booked in',
             'button' => 'Open the list',
         ],
         'deliveries_check' => [
             'title' => 'Deliveries booked in to check',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'Their stock is added already. A reviewer checks each one within 3 days. You never check one you keyed, booked in, checked when it arrived '
-                . 'or set the supplier invoice of.',
-            'what' => 'You look at what arrived and where it went, then say OK or Not OK. Not OK takes the delivery back.',
+            'line' => 'Their stock is added already: say OK or Not OK',
             'button' => 'Check them',
         ],
         'website_bugs' => [ // 0050 (LP8)
             'title' => 'Website bugs: orders for a landing page',
             'unit' => ['order', 'orders'],
-            'text' => 'A customer ordered a landing page. It is not a product, so the website let through something it should not. No stock moved.',
-            'what' => 'You fix each order by hand with the customer, then mark it handled.',
+            'line' => 'Fix each one with the customer by hand: no stock moved',
             'button' => 'Open the website bugs',
         ],
         'incidents' => [
             'title' => 'Open incidents from deliveries',
             'unit' => ['incident', 'incidents'],
-            'text' => 'Problems found when deliveries were checked: short, extra, damaged, the wrong product, or no duty stamp.',
-            'what' => 'Deal with each one (ask for a credit, send the goods back), then close it with what was done.',
+            'line' => 'Short, extra, damaged, wrong or no duty stamp',
             'button' => 'Open the incidents',
         ],
         'barcodes' => [
             'title' => 'Barcodes to check',
             'unit' => ['to check', 'to check'],
-            'text' => 'Barcodes the computer could not place.',
-            'what' => 'You decide which product (single or pack) each one belongs to.',
+            'line' => 'The computer could not place them: you decide',
             'button' => 'Open the list',
         ],
         'stock_drafts' => [
-            'title' => 'Your stock records not final yet',
+            'title' => 'Stock records not final yet',
             'unit' => ['draft', 'drafts'],
-            'text' => 'A stock in, stock out, adjustment, transfer or release you started books nothing until it is made final.',
-            'what' => 'Open each one, check the products, then make it final or stop it.',
+            'line' => 'You started them: they book nothing until final',
             'button' => 'Open the drafts',
         ],
         'stock_waiting' => [
             'title' => 'Your stock records waiting for an OK',
             'unit' => ['waits for a reviewer', 'wait for a reviewer'],
             'text' => 'A rule asks a reviewer to say OK first. Nothing is booked until they do.',
-            'what' => 'Nothing for you to do. You can take one back to change it.',
             'button' => 'See them',
         ],
         'drafts' => [
-            'title' => 'Draft orders you have not confirmed',
+            'title' => 'Draft orders not confirmed',
             'unit' => ['draft', 'drafts'],
-            'text' => 'A draft has no PO number yet, and the supplier does not have it.',
-            'what' => 'Open each draft, check it, then confirm it or cancel it. An order over the approval limit goes to a reviewer first.',
+            'line' => 'Your own drafts: the supplier does not have them',
             'button' => 'Open the drafts',
         ],
         'not_sent' => [
             'title' => 'Confirmed orders not sent yet',
             'unit' => ['order', 'orders'],
-            'text' => 'The supplier does not have these orders yet. CW does not send e-mails.',
-            'what' => 'Send each order to its supplier, then record on its page how you sent it.',
+            'line' => 'Send each to its supplier: CW sends no e-mails',
             'button' => 'Open the list',
         ],
         'not_ok' => [
             'title' => 'Orders a reviewer said are not OK',
             'unit' => ['order', 'orders'],
-            'text' => 'The order still stands until you change it.',
-            'what' => 'Open each one and read why, then cancel it or correct it.',
+            'line' => 'They still stand: read why, then cancel or correct',
             'button' => 'Open the list',
         ],
         'to_buy' => [
             'title' => 'See what to buy now',
-            'text' => 'Worked out from recent sales. The most urgent products come first.',
-            'what' => 'Tick what you want, then make draft orders.',
+            'line' => 'Worked out from recent sales, most urgent first',
             'button' => 'See what to buy',
         ],
         'old_sales' => [
@@ -3228,70 +3202,61 @@ final class Words
         'supplier_drafts' => [
             'title' => 'Suppliers not ready yet',
             'unit' => ['draft', 'drafts'],
-            'text' => 'A new supplier needs its details and a background check before a reviewer can approve it.',
-            'what' => 'Fill in what is missing, then ask a reviewer to approve the supplier.',
+            'line' => 'Add the details and the background check',
             'button' => 'Open the drafts',
         ],
         'checks_due' => [
             'title' => 'Background checks due soon',
             'unit' => ['supplier', 'suppliers'],
-            'text' => 'Due within 30 days, or already late.',
-            'what' => 'Check each supplier again, then save the new dates on its page.',
+            'line' => 'Due within 30 days, or already late',
             'button' => 'Open the list',
         ],
         'test_accounts' => [
             'title' => 'Test accounts that can still sign in',
             'unit' => ['account', 'accounts'],
-            'text' => 'Nobody approves their own work. A test account that can sign in is a way round that rule.',
-            'what' => 'Open each one and stop it signing in.',
+            'line' => 'They get round "nobody approves their own work"',
             'button' => 'Open it',
             'button_many' => 'Open the staff list',
         ],
         'reviewers' => [
             'title' => 'Only 1 person can approve work',
             'title_none' => 'Nobody can approve work',
-            'text' => 'At least %s Reviewers are needed, so a holiday never stops the checks.',
-            'what' => 'Give the Reviewer job to another person.',
+            'line' => 'At least %s are needed: give another person Reviewer',
             'button' => 'Open the staff list',
         ],
         'admin_clash' => [
             'title' => '%s: jobs switched off by Admin',
-            'text' => '%s has Admin, so these jobs do nothing: %s.',
-            'what' => 'Untick Admin on their page and save. Their other jobs then work again.',
+            'line' => 'With Admin, these do nothing: %s',
             'button' => 'Open %s',
         ],
         'own_clash' => [
             'title' => 'Your jobs are switched off',
-            // The yellow strip at the top of every page says the whole sentence; the card points to it instead of repeating it.
-            'text' => 'The yellow note at the top of the page says why, and who can fix it.',
-            'what' => 'You see your jobs. Until Admin is taken off this account, you can look but not approve or decide.',
+            // The yellow strip at the top of every page says the whole sentence; the row points to it instead of repeating it.
+            'line' => 'The yellow note at the top of the page says why',
             'button' => 'See your access',
         ],
-        // 2-step verification switched off for a while (auth.totp_off_until, docs/decisions.md TF5): Admins and Reviewers.
+        // 2-step verification switched off for a while (auth.totp_off_until, docs/decisions.md TF5): Admins and Reviewers. The whole warning
+        // (anyone with a password signs in without the 6-digit code) is the setting's and Settings' (SETTINGS_PAGE code_off).
         'code_off' => [
-            'title' => '2-step verification is OFF until %s',
-            'text' => 'Anyone who knows a person\'s password can sign in as them without the 6-digit code. It comes back on by itself at that time.',
-            'what' => 'To switch it back on now, empty the setting and give a reason.',
+            'title' => '2-step verification is OFF',
+            'line' => 'It comes back on by itself on %s',
             'button' => 'Open the setting',
         ],
         'integrity' => [
             'title' => 'The nightly system check found %s problems',
             'title_one' => 'The nightly system check found 1 problem',
-            'text' => 'Stock figures or records do not agree somewhere. Nothing is fixed by itself.',
-            'what' => 'You see what was found. Tell ' . self::ASK . ' the same day.',
+            'line' => 'Records do not agree somewhere: tell ' . self::ASK . ' the same day',
             'button' => 'See the system checks',
         ],
         'integrity_stale' => [
             'title' => 'The nightly system check has not run since %s',
-            'text' => 'It should run every night.',
-            'what' => 'Tell ' . self::ASK . ', so he can start it again.',
+            'line' => 'It should run every night: tell ' . self::ASK,
             'button' => 'See the system checks',
         ],
         'staff_requests' => [
             'title' => 'Staff access waiting for your OK',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'An admin gave someone the Admin or Reviewer job, or asked to reset their sign-in. It happens only after a reviewer says OK.',
-            'what' => 'You check each one and say OK or Not OK.',
+            'line' => 'Admin or Reviewer jobs and sign-in resets',
             'button' => 'Open the list',
         ],
         // Review finding I1 (Y45): what an admin did to staff access and the approval rules lately, for the reviewers to look at.
@@ -3299,15 +3264,13 @@ final class Words
             'title' => 'Staff and rule changes to look at',
             'unit' => ['change in the last %s days', 'changes in the last %s days'],
             'text' => 'People added, sign-ins reset and approval rules made looser. Check that each one was wanted.',
-            'what' => 'You read each one. If one was not wanted, tell the owner and ' . self::ASK . ' the same day.',
             'button' => 'Open the audit log',
         ],
         // Review finding I5 (Y42): a set-up window closed after too many wrong tries.
         'setup_closed' => [
             'title' => 'A sign-in set-up was closed after too many wrong tries',
             'unit' => ['person', 'people'],
-            'text' => 'Someone typed wrong codes at "Set up my sign-in" too often, so it closed. If the person did not make those tries, someone else did.',
-            'what' => 'Ask the person. If it was them, the admin makes them a new sheet. If not, tell the owner.',
+            'line' => 'Ask the person: if it was not them, someone else tried',
             'button' => 'See who',
             'button_admin' => 'Open their page',
         ],
@@ -10244,6 +10207,13 @@ final class Words
         'units_today' => 'Units in those orders',
         'deliveries_open' => 'Deliveries being checked',
         'oversold' => 'Oversold',
+        // "Waiting for you" as the owner's checklist in tabs (31 Oct 2026; docs/decisions.md RD-H1-RD-H5): the tab row's name, All, the list's
+        // name, an urgent job's label, the fold.
+        'kinds' => 'Kinds of job',
+        'all' => 'All',
+        'jobs_list' => 'Jobs',
+        'urgent' => 'Urgent',
+        'more' => 'Show %s more',
     ];
 
     public const REPORTS = [

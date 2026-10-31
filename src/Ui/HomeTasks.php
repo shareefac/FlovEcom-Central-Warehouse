@@ -12,11 +12,16 @@ use CW\Ui\Controller\PeopleController;
  * by what their jobs let them do. Pure, no database: every card, its words and the order are unit-tested (HomeTasksTest).
  *
  * needs() names the facts a person's jobs can use, so HomeCounts runs no query for a card they never see. build() turns the
- * facts into cards. A card with nothing waiting is left out. Each card has a plain sentence, a big number when there is one,
- * B's "What happens:" line and ONE button, to a page the person may open. Cards are sorted (RANK): what holds other people up
- * first (below 100), then the owner's own checks (100-199), then routine work (200 and up); they carry B's job numbers, and
- * the first one is "Start here". Two cards are notes, not jobs (NOTES: the company details a buyer waits for, sales data that
- * is out of date): they follow the jobs, without a number. A person with no job gets only the card that says so.
+ * facts into cards. A card with nothing waiting is left out. Each job has ONE short line, its number when there is one and ONE
+ * button, to a page the person may open (the owner's checklist of 31 Oct 2026; docs/decisions.md RD-H1-RD-H8). Jobs are sorted:
+ * an urgent one first (the tone "blocked": a red box and "Urgent" on Home), then by RANK: what holds other people up first (below
+ * 100), then the owner's own checks (100-199), then routine work (200 and up). Some cards are notes, not jobs (NOTES: the company
+ * details a buyer waits for, sales data that is out of date, ...): they follow the jobs with their own words, outside the tabs. A
+ * person with no job gets only the card that says so.
+ *
+ * checklist() lays the jobs out as Home's "Waiting for you" draws them: All, then one tab per sidebar section that has jobs (GROUP:
+ * the section of the page a job's row opens; GROUPS: the tabs' order), the tab asked for by `?jobs=` (an unknown or empty one is All),
+ * its first FOLD rows and the rest for the fold.
  *
  * The counts are the badges' (Context::badges, Context::checks) wherever a badge exists, so a card and its badge always agree,
  * and every card counts only what this person can act on (no card for work they could never clear).
@@ -65,6 +70,30 @@ final class HomeTasks
      * reviewer the staff and rule changes of the last days to look at (Y45: nothing waits on them, so it is not a job).
      */
     public const NOTES = ['company_wait', 'old_sales', 'watch', 'stock_waiting'];
+
+    /**
+     * Card key => its tab on Home: the sidebar section (Sections::MAP) of the page its row opens (docs/decisions.md RD-H2; HomeTasksTest
+     * checks each against Sections::locate). The notes have one too, though they are drawn outside the tabs.
+     */
+    public const GROUP = [
+        'code_off' => 'settings', 'company_confirm' => 'settings', 'company_wait' => 'settings', 'test_accounts' => 'settings', 'reviewers' => 'settings',
+        'admin_clash' => 'settings', 'own_clash' => 'settings', 'integrity' => 'settings', 'integrity_stale' => 'settings', 'setup_closed' => 'settings',
+        'watch' => 'settings',
+        'bench' => 'purchases', 'bench_refused' => 'purchases', 'to_post' => 'purchases', 'incidents' => 'purchases', 'drafts' => 'purchases',
+        'not_sent' => 'purchases', 'not_ok' => 'purchases', 'to_buy' => 'purchases', 'old_sales' => 'purchases', 'supplier_drafts' => 'purchases',
+        'checks_due' => 'purchases',
+        'stock_drafts' => 'inventory', 'stock_waiting' => 'inventory',
+        'barcodes' => 'items',
+        'spot_check' => 'listings', 'duplicates' => 'listings', 'set_aside' => 'listings', 'second_ok' => 'listings', 'clues' => 'listings',
+        'strong' => 'listings', 'other' => 'listings',
+        'approvals' => 'approvals', 'checks' => 'approvals', 'deliveries_check' => 'approvals', 'website_bugs' => 'approvals', 'staff_requests' => 'approvals',
+    ];
+
+    /** The tabs after All, in the owner's order (a tab with no job is not drawn). */
+    public const GROUPS = ['settings', 'purchases', 'inventory', 'items', 'sales', 'listings', 'approvals'];
+
+    /** Rows shown before "Show N more" (Main.dc.html). */
+    public const FOLD = 8;
 
     /** Fact (HomeCounts) => the permissions whose cards use it (any one of them). */
     public const FACTS = [
@@ -154,17 +183,16 @@ final class HomeTasks
 
         // 2-step verification switched off for a while (auth.totp_off_until, TF5): the people who can switch it back on see it first.
         if ($can('settings.manage') && is_string($f['code_off'] ?? null)) {
-            $out[] = self::card('code_off', ['title' => sprintf(self::word('code_off', 'title'), Html::when($f['code_off'])), 'tone' => 'blocked',
+            $out[] = self::card('code_off', ['line' => sprintf(self::word('code_off', 'line'), Html::when($f['code_off'])), 'tone' => 'blocked',
                 'href' => Html::url('/ui/reference/settings/setting', ['key' => \CW\Auth\SecondStep::SETTING])]);
         }
 
-        // The company details: a reviewer confirms them; until then a buyer's PDFs say DO NOT SEND.
+        // The company details: a reviewer confirms them; until then a buyer's PDFs say DO NOT SEND (what is missing: the company page's).
         $company = $f['company'] ?? null;
         if (is_array($company) && !$company['confirmed']) {
             if ($can('company.confirm')) {
                 $missing = $company['missing'] ?? [];
                 $out[] = self::card('company_confirm', [
-                    'text' => self::word('company_confirm', 'text') . ($missing === [] ? '' : ' ' . sprintf(self::word('company_confirm', 'missing'), Words::andList($missing))),
                     'button' => self::word('company_confirm', $missing === [] ? 'button' : 'button_missing'),
                     'href' => '/ui/reference/company',
                 ]);
@@ -190,9 +218,9 @@ final class HomeTasks
                     'title' => sprintf(self::word('spot_check', 'title'), $s['name'], Html::int($s['size'])),
                     'count' => (int) $s['decided'], 'unit' => sprintf(self::word('spot_check', 'unit'), Html::int($s['size'])),
                     'progress' => [(int) $s['decided'], (int) $s['size']],
-                    'text' => (int) $s['rest'] > 0
-                        ? sprintf(self::word('spot_check', 'text'), Html::int($s['size']), Html::int($s['rest']))
-                        : sprintf(self::word('spot_check', 'text_no_rest'), Html::int($s['size'])),
+                    'line' => (int) $s['rest'] > 0
+                        ? sprintf(self::word('spot_check', 'line'), Html::int($s['size']), Html::int($s['rest']))
+                        : sprintf(self::word('spot_check', 'line_no_rest'), Html::int($s['size'])),
                     'button' => $next !== null
                         ? sprintf(self::word('spot_check', 'button'), Html::int($s['next_position'] ?? 0), Html::int($s['size']))
                         : self::word('spot_check', 'button_list'),
@@ -201,7 +229,7 @@ final class HomeTasks
             }
             foreach ($f['held'] ?? [] as $h) {
                 $out[] = self::counted('set_aside', (int) $h['open'], '/ui/review/samples/' . (int) $h['sample_id'] . '#held',
-                    ['text' => sprintf(self::word('set_aside', 'text'), $h['name'])]);
+                    ['line' => sprintf(self::word('set_aside', 'line'), $h['name'])]);
             }
             $out[] = self::counted('duplicates', (int) ($f['duplicates'] ?? 0), '/ui/review/duplicates');
             $out[] = self::counted('second_ok', (int) ($f['pending'] ?? 0), Html::url('/ui/review', ['queue' => 'pending']));
@@ -212,21 +240,18 @@ final class HomeTasks
             $strong = (int) ($bands['Key'] ?? 0);
             // The lead's own spot check still waiting: most strong matches are confirmed together if it passes, so it comes first.
             $mine = $can('mapping.approve') ? (($f['samples'] ?? [])[0] ?? null) : null;
-            $spotFirst = is_array($mine) && (int) $mine['rest'] > 0
-                ? ' ' . sprintf(self::word('strong', 'spot_first'), $mine['name'], Html::int(min((int) $mine['rest'], $strong))) : '';
-            $out[] = self::counted('strong', $strong, Html::url('/ui/review', ['queue' => 'Key']), ['text' => self::word('strong', 'text') . $spotFirst]);
-            $parts = [];
+            $out[] = self::counted('strong', $strong, Html::url('/ui/review', ['queue' => 'Key']), is_array($mine) && (int) $mine['rest'] > 0
+                ? ['line' => sprintf(self::word('strong', 'line_spot'), $mine['name'], Html::int(min((int) $mine['rest'], $strong)))] : []);
             $first = null;
             $total = 0;
             foreach (self::OTHER_BANDS as $band) {
                 $n = (int) ($bands[$band] ?? 0);
                 if ($n > 0) {
-                    $parts[] = sprintf(self::word('other', 'part'), Words::of('BAND_TITLE', $band), Html::int($n));
                     $first ??= $band;
                     $total += $n;
                 }
             }
-            $out[] = self::counted('other', $total, Html::url('/ui/review', ['queue' => $first ?? 'Check']), ['text' => implode(' · ', $parts)]);
+            $out[] = self::counted('other', $total, Html::url('/ui/review', ['queue' => $first ?? 'Check']));
         }
         if ($can('catalogue.edit')) {
             $out[] = self::counted('barcodes', (int) ($f['barcodes'] ?? 0), '/ui/items/barcodes');
@@ -286,7 +311,7 @@ final class HomeTasks
             $min = (int) ($staff['min'] ?? PeopleController::MIN_REVIEWERS); // staff.min_reviewers (the Settings page)
             if ($reviewers < $min) {
                 $out[] = self::card('reviewers', ['title' => self::word('reviewers', $reviewers === 0 ? 'title_none' : 'title'),
-                    'text' => sprintf(self::word('reviewers', 'text'), Html::int($min)), 'href' => '/ui/people']);
+                    'line' => sprintf(self::word('reviewers', 'line'), Html::int($min)), 'href' => '/ui/people']);
             }
             foreach ($staff['clashes'] ?? [] as $c) {
                 if ((int) $c['id'] === $meId) {
@@ -297,7 +322,7 @@ final class HomeTasks
                 usort($off, static fn (string $a, string $b): int => array_search($a, Words::JOB_ORDER, true) <=> array_search($b, Words::JOB_ORDER, true));
                 $jobs = Words::andList(array_map(static fn (string $r): string => Words::of('ROLE', $r), $off));
                 $out[] = self::card('admin_clash', ['title' => sprintf(self::word('admin_clash', 'title'), $c['name']),
-                    'text' => sprintf(self::word('admin_clash', 'text'), $c['name'], $jobs),
+                    'line' => sprintf(self::word('admin_clash', 'line'), $jobs),
                     'button' => sprintf(self::word('admin_clash', 'button'), $c['name']), 'href' => '/ui/people/' . (int) $c['id']]);
             }
         }
@@ -343,16 +368,57 @@ final class HomeTasks
             if (in_array($card['key'], self::NOTES, true)) {
                 $notes[] = $card + ['quiet' => true];
             } else {
-                // Equal ranks keep the order above (one card per spot check, per set-aside list, per person).
-                $ranked[] = [self::RANK[$card['key']], $i, $card];
+                // An urgent job first (RD-H4), then by rank; equal ranks keep the order above (one card per spot check, per set-aside list, per person).
+                $urgent = $card['tone'] === 'blocked';
+                $ranked[] = [$urgent ? 0 : 1, self::RANK[$card['key']], $i, $card + ['urgent' => $urgent]];
             }
         }
-        usort($ranked, static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
-        $jobs = [];
-        foreach ($ranked as $n => [, , $card]) {
-            $jobs[] = $card + ['job' => $n + 1] + ($n === 0 ? ['hero' => true] : []);
+        usort($ranked, static fn (array $a, array $b): int => [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
+        return ['jobs' => array_column($ranked, 3), 'notes' => $notes];
+    }
+
+    /**
+     * Home's "Waiting for you" as the owner's checklist in tabs (31 Oct 2026; Main.dc.html; docs/decisions.md RD-H1-RD-H5): All, then one
+     * tab per GROUPS section that has jobs, each with its count and its plain link (All `/ui/`, a section `/ui/?jobs=<section>`; the tab
+     * shown has none); the tab $want when it is a section with jobs, else All; its jobs in their order, the first FOLD as rows and the rest
+     * for the fold. The head's total counts every job. A card with no tab ("no job") is not a row: it is `none`.
+     *
+     * @param list<array<string, mixed>> $jobs the jobs of build(), in their order
+     * @return array{total: int, tab: string, tabs: list<array{key: string, label: string, count: int, href: string, current: bool}>,
+     *     rows: list<array<string, mixed>>, more: list<array<string, mixed>>, none: ?array<string, mixed>}
+     */
+    public static function checklist(array $jobs, ?string $want): array
+    {
+        $grouped = [];
+        $none = null;
+        $counts = array_fill_keys(self::GROUPS, 0);
+        foreach ($jobs as $card) {
+            $group = self::GROUP[$card['key']] ?? null;
+            if ($group === null) {
+                $none ??= $card;
+                continue;
+            }
+            $grouped[] = [$group, $card];
+            $counts[$group]++;
         }
-        return ['jobs' => $jobs, 'notes' => $notes];
+        $tab = is_string($want) && ($counts[$want] ?? 0) > 0 ? $want : 'all';
+        $tabs = [];
+        if ($grouped !== []) {
+            $tabs[] = ['key' => 'all', 'label' => Words::RD_HOME['all'], 'count' => count($grouped), 'href' => '/ui/', 'current' => $tab === 'all'];
+            foreach ($counts as $group => $n) {
+                if ($n > 0) {
+                    $tabs[] = ['key' => $group, 'label' => Words::SECTION[$group], 'count' => $n, 'href' => Html::url('/ui/', ['jobs' => $group]), 'current' => $tab === $group];
+                }
+            }
+        }
+        $shown = [];
+        foreach ($grouped as [$group, $card]) {
+            if ($tab === 'all' || $tab === $group) {
+                $shown[] = $card;
+            }
+        }
+        return ['total' => count($grouped), 'tab' => $tab, 'tabs' => $tabs, 'rows' => array_slice($shown, 0, self::FOLD),
+            'more' => array_slice($shown, self::FOLD), 'none' => $none];
     }
 
     /** One line of the "changes to look at" card. @param array<string, mixed> $w */
@@ -377,12 +443,16 @@ final class HomeTasks
         return self::card($key, $over + ['count' => $n, 'unit' => is_array($unit) ? $unit[$n === 1 ? 0 : 1] : $unit, 'href' => $href]);
     }
 
-    /** One card: the words of Words::TASK[$key], then $over. @param array<string, mixed> $over @return array<string, mixed> */
+    /**
+     * One card: the words of Words::TASK[$key], then $over. A job has ONE short line (`line`, RD-H3); a note and "no job" keep their text.
+     *
+     * @param array<string, mixed> $over @return array<string, mixed>
+     */
     private static function card(string $key, array $over = []): array
     {
         $w = Words::TASK[$key];
-        $card = $over + ['key' => $key, 'tone' => 'needs', 'chip' => Words::HOME['needs_you'], 'title' => $w['title'], 'text' => $w['text'] ?? null,
-            'what' => $w['what'] ?? null, 'button' => $w['button'] ?? null];
+        $card = $over + ['key' => $key, 'tone' => 'needs', 'chip' => Words::HOME['needs_you'], 'title' => $w['title'], 'line' => $w['line'] ?? null,
+            'text' => $w['text'] ?? null, 'button' => $w['button'] ?? null];
         return array_filter($card, static fn (mixed $v): bool => $v !== null);
     }
 

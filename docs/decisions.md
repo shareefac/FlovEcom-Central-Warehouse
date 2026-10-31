@@ -15063,3 +15063,59 @@ phone (the Chrome check: they were stacked full width under the search).
 
 **RD-F11. New on the stores stays per store.** "All stores" would need New variants' reads across every store merged and paged together (one
 read per store is what CW has): not built (needs a build, as RD-C7 says); the store choice lists each store with its count.
+
+## Home's "Waiting for you" as a checklist in tabs (branch `home-checklist`, 31 Oct 2026; RD-H1-RD-H8)
+
+The owner, 31 Oct 2026: "this section ui complicated this make simple and user friendly categorize this under tab and rows list like check
+box"; on the design (the "Waiting for you" card of `Main.dc.html`; the canvas note "Home's Waiting for you (owner, 31 Oct)"): "Yes, build
+it". Only that card changes: the greeting and its buttons, the tiles, Stores and Today stay as they were (RD-C15).
+
+**RD-H1. The card.** The head stays: "Waiting for you · N jobs" (N counts every job, whichever tab is shown) and Open Approvals. Under it the
+tab row, then one row per job, then "Show N more", then the notes ("Good to know") as before. The notes (`HomeTasks::NOTES`: the company
+details a buyer waits for, old sales data, the staff and rule changes to look at, stock records waiting for an OK) are not in a tab and not in
+a count.
+
+**RD-H2. The tabs.** All (N), then one tab per sidebar section that has jobs, in the owner's order: Settings, Purchases, Inventory, Items,
+Sales, Store listings, Approvals (`HomeTasks::GROUPS`; a tab with no job is not drawn). A tab's name is its section's (`Words::SECTION`), its
+count a pill (the tab shown magenta, the others grey). The tabs are plain links, as Product matching's (no script): `/ui/?jobs=<section>`,
+All `/ui/`; the tab shown has no link and `aria-current="page"`. An unknown or empty section shows All. A job's tab (`HomeTasks::GROUP`) is
+the sidebar section of the page its row opens, so the tab and the page agree; `HomeTasksTest` checks every card against `Sections::locate()`.
+That rule moves four jobs from the brief's suggested map: Background checks due soon to Purchases (it opens the suppliers list), Deliveries
+booked in to check to Approvals (the reviews), Website bugs to Approvals (the landing-page queue is in Approvals' Show since RD7) and Staff
+access waiting for your OK to Approvals (the staff requests). So no job opens a Sales page today: the Sales tab is kept in the order for one
+that will. The staff and rule changes note (missing from the suggestion) is Settings' (the audit log).
+
+**RD-H3. ONE short line per job.** `Words::TASK[key]['line']`, at most 60 characters of plain words (tested), replaces the paragraph on
+the row; the jobs' `text` and `what` words are gone (`what` was not drawn since HV1); the notes and "no job" keep their text. Every safety
+meaning stays in the line: "Order PDFs say DO NOT SEND until then", "tell Fazil the same day", "if it was not them, someone else tried",
+"no effect until your OK", "they cannot be booked in", "their stock cannot be sold until they are booked in". The company details' missing
+fields are listed on the company page (the row's button still says "Fill in and confirm" while some are missing). 2-step verification:
+"2-step verification is OFF" with "It comes back on by itself on <time>" (the full warning is the setting's and Settings', TF5). Where the
+artboard draws a job it gives its shorter title: "Things that need your OK", "Strong matches set aside", "Draft orders not confirmed",
+"Stock records not final yet", "2-step verification is OFF" (CW's own name for it). A spot check keeps its name in its title: a lead can have
+more than one open, one row each.
+
+**RD-H4. A row.** One `<li>` per job, the whole row ONE link to the job's page: the box (18 px, 6 px corners, a 2 px #c8bcd3 border, white;
+red for an urgent job; `aria-hidden`: it is a look, nobody ticks it, a job leaves the list by itself when it is done), the title (14 px
+semi-bold; "Urgent" as a small red pill after it), ONE line (12 px grey, one line, cut with an ellipsis), the count pill (the number the row
+showed before: a count, or a spot check's "0/20"; none when the job has no number; a screen reader hears it with its unit) and the job's
+button words at the right in the dark accent with "›". Urgent is the tone "blocked" (2-step verification off, the nightly check's problems or
+silence, a closed sign-in set-up): `build()` puts the urgent jobs first and keeps the RANK order inside each part (a closed set-up, rank 27,
+now comes before the company details, rank 10). No coloured number squares, no "Start here", no job numbers: `build()` sets neither `job` nor
+`hero` any more.
+
+**RD-H5. Eight rows, then the fold.** `HomeTasks::FOLD` = 8 rows, the rest in `<details class="hm-fold"><summary>Show N more</summary>` in
+the same list look (no script; the summary goes once opened, as the artboard's button does). A tab shows only its jobs, with the same fold.
+
+**RD-H6. On a phone (600 px and less).** 16 px in from the card's edge; the tab row scrolls inside the card (the shared `.tabs` below 700
+px), never the page; a row keeps the box with the title and line on its first line and puts the count and the action under them; every row
+is at least 44 px tall. The CSS is in `app.css` (after the rd2c Home block): no inline style, no new file.
+
+**RD-H7. No job.** A person with no job sees "You cannot use anything yet" and who to ask as the card's empty state (it has no page to open,
+so it is not a row of the checklist; `checklist()['none']`).
+
+**RD-H8. Tests.** `HomeTasksTest`: every card has a tab and every tab is a sidebar section, a job's tab is the section of the page it opens,
+one short line per job and no paragraph, urgent first, the checklist (tabs, counts, links, `?jobs=` with the total kept, unknown or empty =
+All, the fold after 8, no job). `UiTemplatesTest`: a row's markup, the checklist drawn with its tabs, the urgent row first and "Show 3
+more"; the tab-row sweep allows Home's tabs. `RedesignCTemplatesTest` (RD-C15's pins), `HomeScreenTest` (the real pages: the tabs, `?jobs=`
+listings, approvals and unknown ones, each tab's link, the rows' counts and lines), `TotpOffTest` and `ReceivingScreensTest` read the new row.

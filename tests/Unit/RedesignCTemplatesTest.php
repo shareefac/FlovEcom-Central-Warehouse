@@ -186,7 +186,7 @@ final class RedesignCTemplatesTest extends TestCase
             array_values(array_diff_key(Words::RD_SETTINGS, ['sections' => 1])));
     }
 
-    /** RD-C15: Home's buttons, tiles, "Waiting for you" rows as links, the Stores and Today cards; no Find box. */
+    /** RD-C15: Home's buttons, tiles, "Waiting for you" rows as links, the Stores and Today cards; no Find box. RD-H1-RD-H5: the checklist in tabs. */
     public function testHomeFollowsTheMainArtboard(): void
     {
         $t = self::t();
@@ -200,7 +200,22 @@ final class RedesignCTemplatesTest extends TestCase
         self::assertArrayNotHasKey('home_find', $t, 'the Find box is the sidebar\'s (step 1)');
         self::assertStringNotContainsString('hm-find', $h);
         self::assertSame(1, substr_count($t['home_actions'], 'btn primary'), 'one main button: + New purchase order');
-        self::assertStringContainsString('<a class="hm-go" href="<?= $e($c[\'href\']) ?>">', $t['cards']);
+        self::assertStringContainsString('<a class="hm-go" href="<?= $e($c[\'href\']) ?>">', $t['cards'], 'a note\'s link, as before');
         self::assertStringNotContainsString('class="btn', $t['cards'], 'a row is a link, not a button');
+        // "Waiting for you" as the owner's checklist in tabs (31 Oct 2026; docs/decisions.md RD-H1-RD-H5): the tab row (plain links, the tab shown
+        // not one), the rows (ONE link each: the box, the name, ONE line, the count, the action words) and the fold (no script).
+        foreach (['<nav class="tabs hm-tabs" aria-label="<?= $word(\'RD_HOME\', \'kinds\') ?>">', '<?php foreach ($checklist[\'tabs\'] as $t): ?>',
+            '<a class="tab"<?php if ($t[\'current\']): ?> aria-current="page"<?php else: ?> href="<?= $e($t[\'href\']) ?>"<?php endif; ?>>',
+            '<?= $cards($checklist[\'rows\']) ?>', '<details class="hm-fold">', '<summary><?= $say(\'RD_HOME\', \'more\', count($checklist[\'more\'])) ?></summary>',
+            '<?= $cards($checklist[\'more\']) ?>', '<?= $cards($notes, true) ?>'] as $part) {
+            self::assertStringContainsString($part, $h, "home: {$part}");
+        }
+        foreach (['<ul class="hm-check" aria-label="<?= $word(\'RD_HOME\', \'jobs_list\') ?>">', '<a class="hm-job" href="<?= $e($c[\'href\']) ?>">',
+            '<span class="hm-box<?php if ($c[\'urgent\'] ?? false): ?> urgent<?php endif; ?>" aria-hidden="true"></span>', '<span class="hm-job-l"><?= $e($c[\'line\'] ?? \'\') ?></span>',
+            '<span class="hm-urgent"><?= $word(\'RD_HOME\', \'urgent\') ?></span>', '<span class="hm-job-go">'] as $part) {
+            self::assertStringContainsString($part, $t['cards'], "cards: {$part}");
+        }
+        self::assertStringNotContainsString('role="tablist"', $h, 'plain links, no script');
+        self::assertStringNotContainsString('<script', $h);
     }
 }

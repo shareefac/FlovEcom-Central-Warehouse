@@ -1199,7 +1199,7 @@ The approved redesign of 30 Oct 2026 (`/root/cw_work/design/redesign_20261030/pr
 | The five reports, the duty register | `report_*.php`, `duty_register.php`, `report_bar.php`, `report_paper_head.php`, `report_all.php` | `back: ['#all-reports', …]`; `form.card.rp-options` (`div.rp-opt`, Run report the main button); `article.card.rp-paper` > `div.rp-paper-head` + `table.rp-table` (`tr.rp-group`, `tr.rp-gtotal`, `tr.rp-total`); `section.card.rp-all#all-reports`; data: `ReportsController::shared()` (company, all reports, today) |
 | Approvals `/ui/approvals` | `approvals_inbox.php`, `approvals_show.php`, `approvals_record.php` | `form.ap-show` (`?show=<kind>`), `div.ap-inbox.rd-inbox` (scoped look), the answer's `inbox_show` |
 | Settings (17 pages) | each page + `settings_nav.php` | `div.set-shell` > `nav.set-nav` (`a.set-nav-item`, the current `aria-current`) + `div.set-main` |
-| Home `/ui/` | `home.php`, `home_actions.php`, `cards.php` | `div.hm-actions`; `section.hm-tiles.hm-figs` > `a.hm-tile.hm-<tint>[data-tile]` (`DashboardTiles::ORDER`, `LOOK`); `div.hm-grid` > `section.card.hm-jobs` (`div.hm-jobs-head`, rows' `a.hm-go`) + `div.hm-side` (`section.card.hm-stores`, `section.card.hm-today`) |
+| Home `/ui/` | `home.php`, `home_actions.php`, `cards.php` | `div.hm-actions`; `section.hm-tiles.hm-figs` > `a.hm-tile.hm-<tint>[data-tile]` (`DashboardTiles::ORDER`, `LOOK`); `div.hm-grid` > `section.card.hm-jobs` (`div.hm-jobs-head`, the checklist of RD-H1-RD-H8 below, the notes' `a.hm-go`) + `div.hm-side` (`section.card.hm-stores`, `section.card.hm-today`) |
 
 - The fix round (RD-F1-RD-F11): the answer form's hidden first button (`approvals_record`, `form.ap-answer > button.po-default`); Related's
   rows without a link (`span.po-rel-item`); `View::filtersOn()` / `onCount()` (the count of filters on, on a closed Show or More);
@@ -1229,3 +1229,15 @@ every other Items and Inventory page. Layout and view data only.
 - A new Items or Inventory list: `$head(…, menu: $bar)` + `$showMine($show)`, the view data `show` and `bar` from its controller; no `div.tb-state`, no `rp-figs`,
   no `tr.grp-add`.
 - Tests: `tests/Integration/UiKernel/InventoryRedesignScreensTest.php` (`assertSimpleList()` is the list's pin).
+
+### Home's "Waiting for you" as a checklist in tabs (`docs/decisions.md` RD-H1-RD-H8; the owner, 31 Oct 2026)
+
+| Path | What |
+|---|---|
+| `src/Ui/HomeTasks.php` | `GROUP` (card key => the sidebar section of the page its row opens), `GROUPS` (the tabs' order), `FOLD` (8 rows); `build()` sets each job's `line` and `urgent` (urgent first, then `RANK`); `checklist($jobs, $want)`: `total`, `tab`, `tabs` (key, label, count, href, current), `rows`, `more`, `none` |
+| `src/Ui/Controller/DashboardController.php` | `checklist` for `home.php` from `?jobs=` |
+| views `home` (the tab row `nav.tabs.hm-tabs` > `a.tab` with `span.count`; `details.hm-fold` > `summary`), `cards` (jobs: `ul.hm-check` > `li[data-card]` > `a.hm-job` with `span.hm-box[.urgent]`, `span.hm-job-text` > `span.hm-job-t` (+ `span.hm-urgent`) + `span.hm-job-l`, `span.hm-job-n`, `span.hm-job-go`; notes: `ul.hm-list.hm-notes` as before) | |
+| `src/Ui/Words.php` | `TASK[key]['line']` (+ `line_no_rest`, `line_spot`), `RD_HOME` `kinds`, `all`, `jobs_list`, `urgent`, `more` |
+
+- CSS: after the rd2c Home block of `app.css` (`.hm-tabs`, `.hm-check`, `.hm-job*`, `.hm-box`, `.hm-urgent`, `details.hm-fold`; the phone at 600 px).
+- A new Home job: its words with a `line` in `Words::TASK`, its `RANK`, its `GROUP` (the section of the page it opens; `HomeTasksTest` checks it).

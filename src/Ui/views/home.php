@@ -2,12 +2,15 @@
 // Home (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15; before it HM_Home, HV1): today's date and the greeting, with Receive a
 // delivery and + New purchase order beside them (each for whoever may do it; the new order the page's main button); four tinted figure tiles
 // (figures CW already has: the stock value at cost, the units on the shelf, what waits for this person's OK, the listings to match; fewer
-// permissions, the figures Home showed before); "Waiting for you" with how many jobs and Open Approvals, one row per task (its number in its
-// colour, its name, one plain line, its action at the right), then the notes; at the right the Stores card (each store's mode in CW and when it
-// was last heard from) and the Today card (orders taken today and their units, the deliveries being checked, the oversold records).
+// permissions, the figures Home showed before); "Waiting for you" with how many jobs and Open Approvals, as the owner's checklist in tabs (31 Oct
+// 2026; docs/decisions.md RD-H1-RD-H8): All and a tab per sidebar section that has jobs, each with its count, plain links (`?jobs=` and the
+// section's key, the tab shown not one: no script), one row per job (cards.php), 8 rows and the rest under "Show N more" (a fold, no script), then
+// the notes as before; at the right the Stores card (each store's mode in CW and when it was last heard from) and the Today card (orders taken
+// today and their units, the deliveries being checked, the oversold records). A person with no job sees why instead of a row.
 $figures = $figures ?? [];
 $bar = $partial('home_actions', ['receive' => $receive, 'newOrder' => $newOrder]);
-$jobCount = count($tasks);
+$jobCount = $checklist['total'];
+$noJob = $checklist['none'];
 ?>
 <?= $head($greeting, eyebrow: \CW\Ui\Html::today(), side: $receive === null && $newOrder === null ? null : $bar) ?>
 <?php if ($figures !== []): ?>
@@ -26,13 +29,29 @@ $jobCount = count($tasks);
     <a class="hm-open" href="<?= $e($inbox) ?>"><?= $word('RD_HOME', 'open_approvals') ?></a>
 <?php endif; ?>
   </div>
-<?php if ($tasks === []): ?>
+<?php if ($noJob !== null): ?>
+  <div class="empty">
+    <p class="empty-title"><?= $e($noJob['title']) ?></p>
+    <p><?= $e($noJob['text'] ?? '') ?></p>
+  </div>
+<?php elseif ($checklist['rows'] === []): ?>
   <div class="empty">
     <p class="empty-title"><?= $word('HOME', 'nothing') ?></p>
     <p><?= $word('HOME', 'nothing_text') ?></p>
   </div>
 <?php else: ?>
-  <?= $cards($tasks) ?>
+  <nav class="tabs hm-tabs" aria-label="<?= $word('RD_HOME', 'kinds') ?>">
+<?php foreach ($checklist['tabs'] as $t): ?>
+    <a class="tab"<?php if ($t['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($t['href']) ?>"<?php endif; ?>><?= $e($t['label']) ?> <span class="count"><?= $n($t['count']) ?></span></a>
+<?php endforeach; ?>
+  </nav>
+  <?= $cards($checklist['rows']) ?>
+<?php if ($checklist['more'] !== []): ?>
+  <details class="hm-fold">
+    <summary><?= $say('RD_HOME', 'more', count($checklist['more'])) ?></summary>
+    <?= $cards($checklist['more']) ?>
+  </details>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ($notes !== []): ?>
   <h3 class="hm-sub" id="notes-h"><?= $word('HOME', 'notes') ?></h3>
