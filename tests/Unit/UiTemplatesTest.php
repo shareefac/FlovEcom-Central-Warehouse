@@ -1014,7 +1014,7 @@ final class UiTemplatesTest extends TestCase
     private static function homeVars(StaffIdentity $who): array
     {
         $home = HomeTasks::build($who->id, $who->roles, []);
-        return ['greeting' => 'Good morning, Bea', 'tasks' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['jobs']),
+        return ['greeting' => 'Good morning, Bea', 'checklist' => HomeTasks::checklist(array_map(\CW\Ui\Controller\DashboardController::row(...), $home['jobs']), null),
             'notes' => array_map(\CW\Ui\Controller\DashboardController::row(...), $home['notes']), 'figures' => [], 'later' => '',
             // (the Main artboard's buttons, the Stores and Today cards: docs/decisions.md RD-C15)
             'receive' => null, 'newOrder' => null, 'inbox' => null, 'stores' => [], 'today' => []];
@@ -1060,28 +1060,37 @@ final class UiTemplatesTest extends TestCase
     {
         $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => null]);
         $list = array_map(\CW\Ui\Controller\DashboardController::row(...), [
-            ['key' => 'spot_check', 'job' => 1, 'hero' => true, 'tone' => 'needs', 'chip' => 'Needs you', 'title' => 'Check <20>', 'count' => 0, 'unit' => 'of 20 checked',
-                'progress' => [0, 20], 'text' => 'If all 20 are right, the rest are confirmed together.', 'what' => 'You see one at a time.',
-                'href' => '/ui/review/samples/1', 'button' => 'Check the next one'],
-            ['key' => 'bulk', 'tone' => 'waiting', 'chip' => 'Waiting', 'title' => 'Bulk link', 'quiet' => true],
+            ['key' => 'spot_check', 'tone' => 'needs', 'chip' => 'Needs you', 'title' => 'Check <20>', 'count' => 0, 'unit' => 'of 20 checked', 'urgent' => false,
+                'progress' => [0, 20], 'line' => 'If all 20 are right, the rest are confirmed together', 'text' => 'If all 20 are right, the rest are confirmed together.',
+                'what' => 'You see one at a time.', 'href' => '/ui/review/samples/1', 'button' => 'Check the next one'],
+            ['key' => 'bulk', 'tone' => 'waiting', 'chip' => 'Waiting', 'title' => 'Bulk link', 'urgent' => true, 'line' => 'One line', 'href' => '/ui/review',
+                'button' => 'Open'],
         ]);
-        // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): per task its number in its colour, its name, one plain line, one button.
+        // Home's "Waiting for you" as the owner's checklist (31 Oct 2026; docs/decisions.md RD-H4): per job ONE link, a box (a look: aria-hidden),
+        // its name, ONE short line, its count as a pill (a screen reader hears it with its unit) and its action words at the right.
         $html = $view->render('cards', ['list' => $list, 'notes' => false]);
-        self::assertStringStartsWith('<ol class="hm-list">', $html);
-        self::assertSame(2, substr_count($html, '<li class="hm-row'));
-        self::assertStringContainsString('<li class="hm-row needs" data-card="spot_check">' . "\n" . '    <span class="hm-n" aria-hidden="true">0/20</span>', $html,
-            'the number in the task\'s colour: a spot check\'s answered and of');
-        self::assertStringContainsString('<h3 class="hm-t">Check &lt;20&gt;</h3>', $html);
-        self::assertStringContainsString('<p class="hm-d"><span class="visually-hidden"><span class="hm-said">0 of 20 checked</span>. </span>If all 20 are right, the rest are '
-            . 'confirmed together.</p>', $html, 'a screen reader hears the number with its unit; one plain line');
-        self::assertStringNotContainsString('You see one at a time.', $html, 'no "What happens:" line (HV1)');
-        self::assertStringContainsString('<a class="hm-go" href="/ui/review/samples/1">Check the next one<span aria-hidden="true"> ›</span></a>', $html,
-            'each row a link to its action (the Main artboard: the page\'s main button is + New purchase order, RD-C15)');
-        self::assertStringContainsString('<span class="hm-n" aria-hidden="true">!</span>', $html, 'a task without a number');
-        self::assertStringContainsString('<span class="hm-said">Waiting</span>', $html, '... says its state');
-        self::assertSame(1, substr_count($html, 'class="hm-go"'), 'the second row has no action');
-        $notes = $view->render('cards', ['list' => [$list[1]], 'notes' => true]);
-        self::assertStringStartsWith('<ul class="hm-list hm-notes" aria-labelledby="notes-h">', $notes, 'the notes: a list under "Good to know"');
+        self::assertStringStartsWith('<ul class="hm-check" aria-label="' . Words::RD_HOME['jobs_list'] . '">', $html);
+        self::assertSame(2, substr_count($html, '<li data-card="'));
+        self::assertSame(2, substr_count($html, '<a class="hm-job" href="'), 'each row is ONE link');
+        self::assertStringContainsString('<li data-card="spot_check">' . "\n" . '    <a class="hm-job" href="/ui/review/samples/1">' . "\n"
+            . '      <span class="hm-box" aria-hidden="true"></span>' . "\n"
+            . '      <span class="hm-job-text"><span class="hm-job-t">Check &lt;20&gt;</span> <span class="hm-job-l">If all 20 are right, the rest are confirmed together</span></span>' . "\n"
+            . '      <span class="hm-job-n" aria-hidden="true">0/20</span> <span class="visually-hidden">0 of 20 checked</span>' . "\n"
+            . '      <span class="hm-job-go">Check the next one<span aria-hidden="true"> ›</span></span>' . "\n" . '    </a>', $html,
+            'the box, the name, ONE line, the count as a pill, the action words');
+        self::assertStringContainsString('<li data-card="bulk">' . "\n" . '    <a class="hm-job" href="/ui/review">' . "\n"
+            . '      <span class="hm-box urgent" aria-hidden="true"></span>' . "\n"
+            . '      <span class="hm-job-text"><span class="hm-job-t">Bulk link <span class="hm-urgent">' . Words::RD_HOME['urgent'] . '</span></span> <span class="hm-job-l">One line</span></span>' . "\n"
+            . '      <span class="hm-job-go">Open<span aria-hidden="true"> ›</span></span>', $html, 'urgent: the red box and "Urgent"; no number: no pill');
+        self::assertSame(1, substr_count($html, 'class="hm-job-n"'));
+        foreach (['If all 20 are right, the rest are confirmed together.', 'You see one at a time.', 'class="hm-n"', '<h3', '<ol', 'class="btn', 'hm-hero', 'Start here'] as $gone) {
+            self::assertStringNotContainsString($gone, $html, "no {$gone}: no paragraph, no \"What happens:\", no coloured number square, no job numbers");
+        }
+        $notes = $view->render('cards', ['list' => [$list[1] + ['quiet' => true, 'text' => 'Waiting for x']], 'notes' => true]);
+        self::assertStringStartsWith('<ul class="hm-list hm-notes" aria-labelledby="notes-h">', $notes, 'the notes: a list under "Good to know", as before');
+        self::assertStringContainsString('<span class="hm-n" aria-hidden="true">!</span>', $notes, 'a note keeps its look: its state instead of a number');
+        self::assertStringContainsString('<p class="hm-d"><span class="visually-hidden"><span class="hm-said">Waiting</span>. </span>Waiting for x</p>', $notes);
+        self::assertSame(1, substr_count($notes, 'class="hm-go"'), 'its link');
         self::assertSame('<span class="chip info">x &amp; y</span>', Html::chip('nonsense', 'x & y'), 'an unknown tone is info');
         $help = Html::help('how_sure', 'How sure');
         self::assertStringStartsWith('<details class="help"><summary aria-label="What does &quot;How sure&quot; mean?"', $help);
@@ -1092,6 +1101,56 @@ final class UiTemplatesTest extends TestCase
             Html::emptyState('No <orders>', 'Add a supplier first.', '/ui/purchasing/suppliers/new', 'Add a supplier'));
         self::assertSame('', Html::intro(''));
         self::assertSame('<p class="lede">Choose a new password of at least 12 characters. You stay signed in here.</p>', Html::intro(Words::intro('password')));
+    }
+
+    /**
+     * Home's "Waiting for you" as a checklist in tabs (the owner, 31 Oct 2026: "categorize this under tab and rows list like check box";
+     * Main.dc.html; docs/decisions.md RD-H1-RD-H5): All, then a tab per section that has jobs with its count (the tab shown: no link,
+     * aria-current), plain links (no script); the urgent job first with its red box and "Urgent"; 8 rows, then "Show N more" in a <details>.
+     */
+    public function testHomesWaitingForYouIsAChecklistInTabs(): void
+    {
+        $who = new StaffIdentity(9, 'o@test.invalid', 'Owner', ['mapping_lead', 'reviewer'], false, 'sid');
+        $facts = ['code_off' => '2026-10-27 18:00:00.000000', 'company' => ['confirmed' => false, 'missing' => []], 'checks' => ['approval' => 1, 'review' => 2],
+            'samples' => [['id' => 1, 'name' => 'o-1', 'size' => 20, 'decided' => 0, 'rest' => 9, 'next_listing' => 501, 'next_position' => 1]],
+            'held' => [['sample_id' => 1, 'name' => 'o-1', 'open' => 2]], 'duplicates' => 3, 'pending' => 0,
+            'bands' => ['Key' => 5, 'Check' => 1, 'Conflict' => 1], 'barcodes' => 4];
+        $home = HomeTasks::build($who->id, $who->roles, $facts);
+        $vars = static fn (?string $tab): array => ['checklist' => HomeTasks::checklist(array_map(\CW\Ui\Controller\DashboardController::row(...), $home['jobs']), $tab)]
+            + self::homeVars($who);
+        $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $who]);
+        $html = $view->page('home', $vars(null), ['title' => 'Home', 'active' => 'home', 'notice' => null, 'nav' => [], 'tabs' => [], 'searchBox' => false]);
+        $card = substr($html, (int) strpos($html, '<section class="card hm-jobs"'));
+        $card = substr($card, 0, (int) strpos($card, '</section>'));
+        self::assertStringContainsString('<span class="hm-count">· 11 jobs</span>', $card);
+        self::assertStringContainsString('<nav class="tabs hm-tabs" aria-label="' . Words::RD_HOME['kinds'] . '">' . "\n"
+            . '    <a class="tab" aria-current="page">All <span class="count">11</span></a>' . "\n"
+            . '    <a class="tab" href="/ui/?jobs=settings">Settings <span class="count">2</span></a>' . "\n"
+            . '    <a class="tab" href="/ui/?jobs=items">Items <span class="count">1</span></a>' . "\n"
+            . '    <a class="tab" href="/ui/?jobs=listings">Store listings <span class="count">6</span></a>' . "\n"
+            . '    <a class="tab" href="/ui/?jobs=approvals">Approvals <span class="count">2</span></a>' . "\n"
+            . '  </nav>', $card, 'All, then the tabs that have jobs, in the owner\'s order; plain links');
+        $fold = (int) strpos($card, '<details class="hm-fold">');
+        self::assertGreaterThan(0, $fold);
+        self::assertSame(8, substr_count(substr($card, 0, $fold), '<li data-card="'), '8 rows');
+        self::assertSame(3, substr_count(substr($card, $fold), '<li data-card="'), 'the rest in the fold');
+        self::assertStringContainsString('<details class="hm-fold">' . "\n" . '    <summary>Show 3 more</summary>' . "\n" . '    <ul class="hm-check"', $card);
+        self::assertSame(1, preg_match('#<li data-card="([a-z_]+)">\s*<a class="hm-job" href="[^"]*">\s*<span class="hm-box([^"]*)" aria-hidden="true"></span>#', $card, $first));
+        self::assertSame(['code_off', ' urgent'], [$first[1], $first[2]], 'the urgent job first, its box red');
+        self::assertSame(1, substr_count($card, 'hm-box urgent'));
+        self::assertSame(1, substr_count($card, '<span class="hm-urgent">Urgent</span>'));
+        self::assertSame(11, substr_count($card, '<span class="hm-job-l">'), 'ONE line per row');
+        self::assertStringNotContainsString('class="hm-n"', $card, 'no coloured number squares');
+        // A tab: its jobs only, the head's total kept, All a link; the fold only when there are more than 8.
+        $listings = $view->page('home', $vars('listings'), ['title' => 'Home', 'active' => 'home', 'notice' => null, 'nav' => [], 'tabs' => [], 'searchBox' => false]);
+        self::assertStringContainsString('<span class="hm-count">· 11 jobs</span>', $listings);
+        self::assertStringContainsString('<a class="tab" href="/ui/">All <span class="count">11</span></a>', $listings);
+        self::assertStringContainsString('<a class="tab" aria-current="page">Store listings <span class="count">6</span></a>', $listings);
+        self::assertSame(6, substr_count($listings, '<li data-card="'));
+        self::assertStringNotContainsString('hm-fold', $listings);
+        // Nothing waiting: no tab row; no job at all: its words, no row.
+        self::assertStringNotContainsString('hm-tabs', $view->page('home', self::homeVars($who), ['title' => 'Home', 'active' => 'home', 'notice' => null, 'nav' => [], 'tabs' => [],
+            'searchBox' => false]));
     }
 
     /**
@@ -2293,8 +2352,9 @@ final class UiTemplatesTest extends TestCase
     {
         $t = self::templates();
         // The item page is one page in sections since the redesign (docs/decisions.md RD-A4); Product matching's two tabs, which the owner asked
-        // for (the approved ByItem artboard; docs/decisions.md RD-C7), and the supplier's record tabs are left.
-        $records = ['supplier.php' => 'record-tabs', 'by_product_tabs.php' => 'bi-tabs'];
+        // for (the approved ByItem artboard; docs/decisions.md RD-C7), the supplier's record tabs and the tabs inside Home's "Waiting for you"
+        // card, which the owner asked for too (Main.dc.html, 31 Oct 2026; docs/decisions.md RD-H1), are left.
+        $records = ['supplier.php' => 'record-tabs', 'by_product_tabs.php' => 'bi-tabs', 'home.php' => 'hm-tabs'];
         $rows = 0;
         foreach ($t as $name => $src) {
             self::assertStringNotContainsString('role="tablist"', $src, "{$name}: no tab list");
@@ -2309,7 +2369,7 @@ final class UiTemplatesTest extends TestCase
                 }
             }
         }
-        self::assertSame(2, $rows, 'the supplier\'s tabs and Product matching\'s');
+        self::assertSame(3, $rows, 'the supplier\'s tabs, Product matching\'s and Home\'s "Waiting for you" (the owner\'s checklist of 31 Oct 2026, RD-H1)');
         self::assertArrayNotHasKey('store_seg.php', $t, 'the store tab row is gone');
         // Reserved stock's store is under the head's More since the redesign (RD-A7): its toolbar keeps the store shown as a hidden field.
         self::assertStringContainsString('<input type="hidden" name="channel" value="<?= $e($f[\'channel\']) ?>">', $t['stock_reservations.php']);

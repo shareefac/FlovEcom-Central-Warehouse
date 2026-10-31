@@ -3279,6 +3279,45 @@ section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr
   section.hm-tiles, .hm-side { display: none; }
   .hm-jobs .hm-row { padding: 14px 16px; }
 }
+/* Home's "Waiting for you" as the owner's checklist in tabs (31 Oct 2026, Main.dc.html; docs/decisions.md RD-H1-RD-H8). The tab row inside the
+   card (the shared .tabs, smaller: 13 px, the tab shown semi-bold in the dark accent over its 3 px accent bar, each tab's count a pill, magenta on
+   the tab shown); one row per job, the whole row ONE link (44 px at least): an 18 px box with 6 px corners (a look; red for an urgent job), the
+   name (14 px semi-bold, "Urgent" as a small red pill after it), ONE 12 px muted line cut with an ellipsis, the count as a pill, the action words in
+   the dark accent with "›"; 8 rows, then "Show N more" (a <details>: no script; it goes once opened, as the artboard's button). A phone (600 px
+   and less): the box with the name and line on the first line, the count and the action under them; the tab row scrolls inside the card. */
+.hm-jobs > .tabs.hm-tabs { gap: 2px; margin: 0; padding: 0 12px; }
+@media (min-width: 700px) { .hm-jobs > .tabs.hm-tabs { border-bottom-color: var(--divider); } }
+.hm-tabs > .tab { gap: 6px; padding: 10px; color: var(--ink-body); font: 500 13px/20px var(--font); }
+.hm-tabs > .tab[aria-current] { color: var(--accent-hover); font-weight: 600; }
+.hm-tabs > .tab > .count { min-width: 20px; height: auto; padding: 1px 7px; background: var(--page); color: var(--ink-body); font: 600 11px/16px var(--font); }
+.hm-check { list-style: none; margin: 0; padding: 0; }
+.hm-check > li { margin: 0; border-top: 1px solid var(--divider); }
+.hm-tabs + .hm-check > li:first-child { border-top: 0; }
+.hm-job { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 11px 20px; color: var(--ink-body); text-decoration: none; }
+.hm-job:hover { background: var(--row-open); color: var(--ink-body); text-decoration: none; }
+.hm-job:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 0; }
+.hm-box { flex: none; box-sizing: border-box; width: 18px; height: 18px; border: 2px solid #c8bcd3; border-radius: 6px; background: #ffffff; }
+.hm-box.urgent { border-color: var(--st-red); }
+.hm-job-text { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.hm-job-t { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: var(--ink); font: 600 14px/20px var(--font); overflow-wrap: anywhere; }
+.hm-urgent { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--sf-red); color: var(--sf-red-ink); font: 700 11px/14px var(--font); }
+.hm-job-l { overflow: hidden; color: var(--ink-muted); font: 400 12px/18px var(--font); white-space: nowrap; text-overflow: ellipsis; }
+.hm-job-n { flex: none; padding: 3px 10px; border-radius: var(--r-pill); background: var(--page); color: var(--ink); font: 600 12px/18px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hm-job-go { flex: none; min-width: 110px; color: var(--accent-hover); font: 600 13px/18px var(--font); text-align: right; white-space: nowrap; }
+details.hm-fold > summary { display: block; min-height: 44px; padding: 12px 20px; border-top: 1px solid var(--divider); background: var(--page-alt); color: var(--accent-hover);
+  font: 600 13px/20px var(--font); list-style: none; cursor: pointer; }
+details.hm-fold > summary::-webkit-details-marker { display: none; }
+details.hm-fold > summary:hover { color: var(--accent); }
+details.hm-fold[open] > summary { display: none; }
+@media (max-width: 600px) {
+  .hm-jobs > .tabs.hm-tabs { padding: 0 4px; }
+  .hm-job { flex-wrap: wrap; gap: 6px 14px; padding: 11px 16px; }
+  .hm-job > .hm-box { align-self: flex-start; margin-top: 1px; }
+  .hm-job-text { flex: 1 1 calc(100% - 32px); }
+  .hm-job-n { margin-left: 32px; }
+  .hm-job-go { min-width: 0; margin-left: auto; }
+  details.hm-fold > summary { padding: 12px 16px; }
+}
 /* ==== end rd2c ============================================================================================================================== */
 
 /* ==== rd2a: Items and Inventory on the approved redesign of 30 Oct 2026 (artboards Items, Item, Inventory, Counts; docs/decisions.md RD-A1+) ====

@@ -7,14 +7,17 @@ namespace CW\Tests\Unit;
 use CW\Auth\Permissions;
 use CW\Ui\HomeTasks;
 use CW\Ui\Kernel;
+use CW\Ui\Sections;
 use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
 
 /**
  * Home's "What needs doing" (plan §3.2, design A with B's parts; Ui\HomeTasks, pure): which cards a person gets for their
- * jobs, that nothing waiting means no card, the order (what holds other people up first, then the owner's own checks, then
- * routine work), B's job numbers with "Start here" on the first, one button each to a page the person may open, and the
- * notes after the jobs. The counts themselves are HomeCounts' (HomeScreenTest, through the real kernel).
+ * jobs, that nothing waiting means no card, the order (an urgent job first, then what holds other people up, then the owner's
+ * own checks, then routine work), ONE short line and one button each to a page the person may open, and the notes after the
+ * jobs. Since the owner's checklist of 31 Oct 2026 (docs/decisions.md RD-H1-RD-H8): no job numbers and no "Start here", each
+ * job in the tab of the sidebar section its row opens, the tabs with their counts, a tab chosen by `?jobs=`, 8 rows and the rest
+ * in a fold. The counts themselves are HomeCounts' (HomeScreenTest, through the real kernel).
  */
 final class HomeTasksTest extends TestCase
 {
@@ -81,8 +84,9 @@ final class HomeTasksTest extends TestCase
         $f = ['code_off' => '2026-10-27 18:00:00.000000', 'integrity' => ['ok' => false, 'problems' => 2, 'finished_at' => '2026-10-20 01:00:00', 'hours' => 1]];
         foreach ([['admin'], self::OWNER] as $roles) {
             $first = HomeTasks::build(7, $roles, $f)['jobs'][0];
-            self::assertSame(['code_off', 'blocked', sprintf(Words::TASK['code_off']['title'], '27 Oct 2026, 18:00'), '/ui/reference/settings/setting?key=auth.totp_off_until'],
-                [$first['key'], $first['tone'], $first['title'], $first['href']], implode(',', $roles));
+            self::assertSame(['code_off', 'blocked', true, '2-step verification is OFF', 'It comes back on by itself on 27 Oct 2026, 18:00',
+                '/ui/reference/settings/setting?key=auth.totp_off_until'],
+                [$first['key'], $first['tone'], $first['urgent'], $first['title'], $first['line'], $first['href']], implode(',', $roles));
         }
         self::assertNotContains('code_off', array_column(HomeTasks::build(7, ['buyer'], $f)['jobs'], 'key'));
         self::assertNotContains('code_off', array_column(HomeTasks::build(7, self::OWNER, ['code_off' => null])['jobs'], 'key'), 'off: no card');
@@ -98,6 +102,133 @@ final class HomeTasksTest extends TestCase
         self::assertSame([], array_intersect(array_keys(HomeTasks::RANK), HomeTasks::NOTES), 'a note is not a job');
     }
 
+    /**
+     * ONE short line per job (the owner's checklist, 31 Oct 2026; RD-H3): plain words of at most 60 characters, which replace the long
+     * paragraphs on Home's rows. The jobs keep no paragraph and no "What happens:" line; the notes keep theirs (they stay as they were).
+     */
+    public function testEveryJobHasOneShortLine(): void
+    {
+        foreach (array_keys(HomeTasks::RANK) as $key) {
+            self::assertIsString(Words::TASK[$key]['line'] ?? null, "{$key}: its line");
+            foreach (Words::TASK[$key] as $field => $text) {
+                if (is_string($text) && str_starts_with((string) $field, 'line')) {
+                    self::assertLessThanOrEqual(60, mb_strlen($text), "{$key} {$field}: one short line");
+                    self::assertDoesNotMatchRegularExpression('/[.!]$/', $text, "{$key} {$field}: a line, not a sentence");
+                }
+            }
+            self::assertArrayNotHasKey('text', Words::TASK[$key], "{$key}: no paragraph on a row");
+            self::assertArrayNotHasKey('what', Words::TASK[$key], "{$key}: no \"What happens:\" line");
+        }
+        foreach ([...HomeTasks::NOTES, 'no_job'] as $key) {
+            self::assertIsString(Words::TASK[$key]['text'] ?? null, "{$key}: a note keeps its text");
+            self::assertArrayNotHasKey('line', Words::TASK[$key], "{$key}: a note is not a row of the checklist");
+        }
+        self::assertSame('Order PDFs say DO NOT SEND until then', Words::TASK['company_confirm']['line'], 'the safety message stays');
+    }
+
+    /**
+     * Each job in a tab (RD-H2): every card but "no job" has a sidebar section, every section is the sidebar's, and the tabs come in the
+     * owner's order; a tab's name is its section's.
+     */
+    public function testEveryJobHasATab(): void
+    {
+        self::assertSame([], array_values(array_diff(array_keys(Words::TASK), [...array_keys(HomeTasks::GROUP), 'no_job'])), 'every card has a tab');
+        self::assertSame([], array_values(array_diff(array_keys(HomeTasks::GROUP), array_keys(Words::TASK))), 'no tab for a card that does not exist');
+        self::assertArrayNotHasKey('no_job', HomeTasks::GROUP);
+        self::assertSame(['settings', 'purchases', 'inventory', 'items', 'sales', 'listings', 'approvals'], HomeTasks::GROUPS);
+        foreach (HomeTasks::GROUP as $key => $group) {
+            self::assertContains($group, HomeTasks::GROUPS, $key);
+            self::assertArrayHasKey($group, Sections::MAP, "{$key}: a section of the sidebar");
+        }
+        self::assertSame(['Settings', 'Purchases', 'Inventory', 'Items', 'Sales', 'Store listings', 'Approvals'],
+            array_map(static fn (string $g): string => Words::SECTION[$g], HomeTasks::GROUPS));
+        self::assertSame(8, HomeTasks::FOLD);
+    }
+
+    /** A job's tab is the sidebar section of the page its row opens (RD-H2): the tab and the page it leads to agree. */
+    public function testAJobsTabIsTheSectionItsRowOpens(): void
+    {
+        $f = array_replace(self::ownerToday(), [
+            'code_off' => '2026-10-27 18:00:00.000000', 'pending' => 2, 'orders' => ['drafts' => 1, 'not_sent' => 1, 'not_ok' => 1], 'demand' => true, 'sales' => 4,
+            'suppliers' => ['drafts' => 1, 'due' => 1], 'receiving' => ['bench' => 1, 'to_post' => 1, 'refused' => 1], 'incidents' => 1, 'website_bugs' => 1,
+            'stock_ops' => ['drafts' => 1, 'waiting' => 1, 'drafts_kind' => 'transfer', 'waiting_kind' => 'release'],
+            'staff' => ['test' => [['id' => 31, 'name' => 'T']], 'reviewers' => 1, 'clashes' => [['id' => 9, 'name' => 'Owner', 'off' => ['reviewer']], ['id' => 4, 'name' => 'Me', 'off' => ['buyer']]]],
+            'integrity' => ['ok' => false, 'problems' => 2, 'finished_at' => '2026-10-20 01:00:00', 'hours' => 1], 'staff_requests' => 1,
+            'watch' => [['at' => '2026-10-20 01:00:00', 'action' => 'staff.create', 'who' => 'A', 'person' => 'B', 'rule' => null]], 'setup_closed' => [['id' => 5, 'name' => 'C']],
+        ]);
+        $f['checks']['deliveries'] = 1;
+        $f['checks']['review'] = 3;
+        $seen = [];
+        foreach ([['mapping_lead', 'reviewer'], ['admin'], ['buyer'], ['purchasing_desk'], ['stock_controller'], ['purchasing_manager', 'goods_in'], ['reviewer']] as $roles) {
+            $home = HomeTasks::build(4, $roles, $f);
+            foreach ([...$home['jobs'], ...$home['notes']] as $card) {
+                parse_str((string) parse_url((string) $card['href'], PHP_URL_QUERY), $query);
+                /** @var array<string, string> $query */
+                $at = Sections::locate((string) parse_url((string) $card['href'], PHP_URL_PATH), $query);
+                self::assertSame(HomeTasks::GROUP[$card['key']], $at['section'] ?? null, "{$card['key']}: {$card['href']}");
+                $seen[$card['key']] = true;
+            }
+        }
+        $stale = HomeTasks::build(4, ['admin'], ['integrity' => ['ok' => true, 'problems' => 0, 'finished_at' => '2026-10-01 01:00:00', 'hours' => 99]])['jobs'][0];
+        self::assertSame(['integrity_stale', 'settings'], [$stale['key'], Sections::locate('/ui/system/checks')['section']]);
+        $seen['integrity_stale'] = true;
+        self::assertSame([], array_values(array_diff(array_keys(HomeTasks::GROUP), array_keys($seen))), 'every card was seen');
+    }
+
+    /** An urgent job (the card tone "blocked") comes first, red box and "Urgent" (RD-H4); the rank keeps the order inside each. */
+    public function testUrgentJobsComeFirst(): void
+    {
+        $f = ['company' => ['confirmed' => false, 'missing' => []], 'checks' => ['approval' => 2, 'review' => 0], 'staff_requests' => 1,
+            'setup_closed' => [['id' => 5, 'name' => 'C']], 'integrity' => ['ok' => false, 'problems' => 1, 'finished_at' => '2026-10-20 01:00:00', 'hours' => 1]];
+        $jobs = HomeTasks::build(1, ['reviewer'], $f)['jobs'];
+        self::assertSame(['integrity', 'setup_closed', 'company_confirm', 'approvals', 'staff_requests'], self::keys($jobs),
+            'a closed set-up (rank 27) before the company details (rank 10): urgent first');
+        self::assertSame([true, true, false, false, false], array_column($jobs, 'urgent'));
+        foreach ($jobs as $card) {
+            self::assertArrayNotHasKey('job', $card, 'no job numbers');
+            self::assertArrayNotHasKey('hero', $card, 'no "Start here"');
+        }
+    }
+
+    /**
+     * The checklist (RD-H1-RD-H5): All with every job, then one tab per section that has jobs, in the owner's order, each with its count
+     * and its plain link (`/ui/?jobs=<section>`; All `/ui/`); the tab shown has no link. A tab shows its jobs in their order; an unknown or
+     * empty one is All; the head's total stays. 8 rows, the rest in the fold. "No job" is not a row.
+     */
+    public function testTheChecklist(): void
+    {
+        $jobs = HomeTasks::build(9, self::OWNER, self::ownerToday())['jobs'];
+        $all = HomeTasks::checklist($jobs, null);
+        self::assertSame(['total' => 10, 'tab' => 'all'], array_intersect_key($all, ['total' => 1, 'tab' => 1]));
+        self::assertSame([
+            ['key' => 'all', 'label' => 'All', 'count' => 10, 'href' => '/ui/', 'current' => true],
+            ['key' => 'settings', 'label' => 'Settings', 'count' => 1, 'href' => '/ui/?jobs=settings', 'current' => false],
+            ['key' => 'items', 'label' => 'Items', 'count' => 1, 'href' => '/ui/?jobs=items', 'current' => false],
+            ['key' => 'listings', 'label' => 'Store listings', 'count' => 6, 'href' => '/ui/?jobs=listings', 'current' => false],
+            ['key' => 'approvals', 'label' => 'Approvals', 'count' => 2, 'href' => '/ui/?jobs=approvals', 'current' => false],
+        ], $all['tabs'], 'empty tabs hidden');
+        self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'clues', 'checks', 'strong'], self::keys($all['rows']), '8 rows');
+        self::assertSame(['other', 'barcodes'], self::keys($all['more']), 'the rest in the fold');
+        self::assertNull($all['none']);
+
+        $listings = HomeTasks::checklist($jobs, 'listings');
+        self::assertSame(['listings', 10], [$listings['tab'], $listings['total']], 'the head keeps the total');
+        self::assertSame(['spot_check', 'set_aside', 'duplicates', 'clues', 'strong', 'other'], self::keys($listings['rows']));
+        self::assertSame([], $listings['more']);
+        self::assertSame([['all', false, '/ui/'], ['listings', true, '/ui/?jobs=listings']],
+            array_map(static fn (array $t): array => [$t['key'], $t['current'], $t['href']], array_values(array_filter($listings['tabs'],
+                static fn (array $t): bool => in_array($t['key'], ['all', 'listings'], true)))));
+        self::assertSame(['checks'], array_slice(self::keys(HomeTasks::checklist($jobs, 'approvals')['rows']), 1), 'the approvals tab');
+
+        foreach (['nonsense', 'sales', 'home', 'reports', '', 'ALL'] as $want) {
+            $c = HomeTasks::checklist($jobs, $want);
+            self::assertSame(['all', self::keys($all['rows'])], [$c['tab'], self::keys($c['rows'])], "{$want}: unknown or empty is All");
+        }
+        self::assertSame(['total' => 0, 'tab' => 'all', 'tabs' => [], 'rows' => [], 'more' => [], 'none' => null], HomeTasks::checklist([], 'settings'), 'nothing waiting: no tab row');
+        $none = HomeTasks::checklist(HomeTasks::build(8, [], [])['jobs'], null);
+        self::assertSame(['no_job', 0, [], []], [$none['none']['key'] ?? null, $none['total'], $none['tabs'], $none['rows']], 'no job: not a row');
+    }
+
     public function testTheOwnersHomeToday(): void
     {
         $home = HomeTasks::build(9, self::OWNER, self::ownerToday());
@@ -105,18 +236,15 @@ final class HomeTasksTest extends TestCase
         self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'clues', 'checks', 'strong', 'other', 'barcodes'],
             self::keys($home['jobs']));
         self::assertSame([], $home['notes']);
-        self::assertSame(range(1, 10), array_column($home['jobs'], 'job'), 'B\'s job numbers, in order');
-        self::assertTrue($home['jobs'][0]['hero'] ?? false, 'the first is "Start here"');
-        self::assertSame(1, count(array_filter($home['jobs'], static fn (array $c): bool => !empty($c['hero']))));
         foreach ($home['jobs'] as $card) {
             self::assertOneButtonToAPageTheyMayOpen($card, self::OWNER);
-            self::assertSame('needs', $card['tone']);
+            self::assertSame(['needs', false], [$card['tone'], $card['urgent']]);
             self::assertSame(Words::HOME['needs_you'], $card['chip']);
-            self::assertArrayHasKey('what', $card, "{$card['key']}: B's \"What happens:\" line");
+            self::assertNotSame('', $card['line'] ?? '', "{$card['key']}: ONE short line");
+            self::assertSame([], array_intersect(['text', 'what', 'job', 'hero'], array_keys($card)), "{$card['key']}: no paragraph, no job number, no \"Start here\"");
         }
         $by = array_column($home['jobs'], null, 'key');
-        self::assertSame('Until they are confirmed, every purchase order PDF says DO NOT SEND. Still missing: company number and purchasing e-mail.',
-            $by['company_confirm']['text']);
+        self::assertSame('Order PDFs say DO NOT SEND until then', $by['company_confirm']['line'], 'the missing details are the company page\'s');
         self::assertSame(Words::TASK['company_confirm']['button_missing'], $by['company_confirm']['button']);
         self::assertSame('/ui/reference/company', $by['company_confirm']['href']);
         self::assertSame('/ui/documents/reviews#approvals', $by['approvals']['href']);
@@ -128,19 +256,19 @@ final class HomeTasksTest extends TestCase
         self::assertSame([0, 'of 20 checked', [0, 20]], [$by['spot_check']['count'], $by['spot_check']['unit'], $by['spot_check']['progress']]);
         self::assertSame('Check the next one (1 of 20)', $by['spot_check']['button']);
         self::assertSame('/ui/review/listing/501?sample=1', $by['spot_check']['href']);
-        self::assertStringContainsString('about 1,097 more strong matches are confirmed together', $by['spot_check']['text']);
+        self::assertSame('If all 20 are right, about 1,097 more are confirmed', $by['spot_check']['line']);
         self::assertSame([254, '/ui/review/samples/1#held'], [$by['set_aside']['count'], $by['set_aside']['href']]);
+        self::assertSame('Looked doubtful: check each by hand (spot check owner-1)', $by['set_aside']['line']);
         self::assertSame([156, 'groups', '/ui/review/duplicates'], [$by['duplicates']['count'], $by['duplicates']['unit'], $by['duplicates']['href']],
             'the list, biggest sellers first (finding the first group is too slow for Home)');
         self::assertSame(Words::TASK['duplicates']['button'], $by['duplicates']['button']);
         self::assertSame([3, '/ui/review?queue=Conflict'], [$by['clues']['count'], $by['clues']['href']]);
         self::assertSame([1371, '/ui/review?queue=Key'], [$by['strong']['count'], $by['strong']['href']]);
-        self::assertSame(Words::TASK['strong']['text'] . ' If your spot check owner-1 passes, about 1,097 of them are confirmed together, so do the spot check first.',
-            $by['strong']['text'], 'the lead\'s own spot check comes first: it confirms most of them together');
-        self::assertStringContainsString('someone else\'s spot check, leave it to them', $by['strong']['what'], 'another lead\'s answer fails a spot check');
+        self::assertSame('Do spot check owner-1 first: it confirms about 1,097 of them', $by['strong']['line'],
+            'the lead\'s own spot check comes first: it confirms most of them together');
         // The other lists: one card, the first list with work behind its button.
         self::assertSame(7, $by['other']['count']);
-        self::assertSame('Likely matches – check them: 5 · Not sure – you choose: 2', $by['other']['text']);
+        self::assertSame(Words::TASK['other']['line'], $by['other']['line']);
         self::assertSame('/ui/review?queue=Check', $by['other']['href']);
         self::assertSame([4, '/ui/items/barcodes'], [$by['barcodes']['count'], $by['barcodes']['href']]);
         self::assertArrayNotHasKey('second_ok', $by, 'nothing waits for a second OK: no card');
@@ -160,16 +288,16 @@ final class HomeTasksTest extends TestCase
         // A matcher's strong matches: no spot check of theirs to do first (only a matching lead's own spot check says so).
         $mapper = HomeTasks::build(6, ['mapper'], self::ownerToday())['jobs'];
         self::assertSame(['strong', 'other'], self::keys($mapper));
-        self::assertSame(Words::TASK['strong']['text'], $mapper[0]['text']);
+        self::assertSame(Words::TASK['strong']['line'], $mapper[0]['line']);
         // The lead's spot check with nothing left beyond its 20: no "do the spot check first".
         $done = self::ownerToday();
         $done['samples'][0]['rest'] = 0;
-        self::assertSame(Words::TASK['strong']['text'], array_column(HomeTasks::build(9, self::OWNER, $done)['jobs'], null, 'key')['strong']['text']);
+        self::assertSame(Words::TASK['strong']['line'], array_column(HomeTasks::build(9, self::OWNER, $done)['jobs'], null, 'key')['strong']['line']);
         // A spot check with every member answered but not all confirmed yet: the button opens the spot check.
         $s = HomeTasks::build(9, self::OWNER, ['samples' => [['id' => 4, 'name' => 's', 'size' => 20, 'decided' => 20, 'rest' => 0, 'next_listing' => null,
             'next_position' => null]]])['jobs'][0];
         self::assertSame([Words::TASK['spot_check']['button_list'], '/ui/review/samples/4'], [$s['button'], $s['href']]);
-        self::assertStringStartsWith('If all 20 are right, the other strong matches', $s['text']);
+        self::assertSame('If all 20 are right, the rest are confirmed together', $s['line']);
     }
 
     public function testTheOwnersAccountWithAdminGetsNoWorkItCannotDoOnlyItsOwnClash(): void
@@ -179,9 +307,9 @@ final class HomeTasksTest extends TestCase
         $home = HomeTasks::build(9, $roles, $f);
         self::assertSame(['own_clash'], self::keys($home['jobs']), 'no spot check, duplicates or checks: Admin switches those jobs off, so this account '
             . 'cannot answer them');
-        self::assertSame(Words::TASK['own_clash']['text'], $home['jobs'][0]['text'], 'a pointer to the strip, which has the whole sentence');
+        self::assertSame(Words::TASK['own_clash']['line'], $home['jobs'][0]['line'], 'a pointer to the strip, which has the whole sentence');
         self::assertNotNull(Words::switchedOffNote($roles));
-        self::assertStringNotContainsString('second account', (string) $home['jobs'][0]['text'], 'correction a');
+        self::assertStringNotContainsString('second account', (string) $home['jobs'][0]['line'], 'correction a');
         self::assertOneButtonToAPageTheyMayOpen($home['jobs'][0], $roles);
         self::assertSame('/ui/people/9', $home['jobs'][0]['href']);
     }
@@ -195,10 +323,10 @@ final class HomeTasksTest extends TestCase
         self::assertSame([1, 'account', '/ui/people/31', Words::TASK['test_accounts']['button']],
             [$by['test_accounts']['count'], $by['test_accounts']['unit'], $by['test_accounts']['href'], $by['test_accounts']['button']]);
         self::assertSame('Owner: jobs switched off by Admin', $by['admin_clash']['title']);
-        self::assertSame('Owner has Admin, so these jobs do nothing: Reviewer and Matching lead.', $by['admin_clash']['text']);
+        self::assertSame('With Admin, these do nothing: Reviewer and Matching lead', $by['admin_clash']['line']);
         self::assertSame(['Open Owner', '/ui/people/9'], [$by['admin_clash']['button'], $by['admin_clash']['href']]);
         self::assertSame(Words::TASK['reviewers']['title'], $by['reviewers']['title']);
-        self::assertSame('At least 2 Reviewers are needed, so a holiday never stops the checks.', $by['reviewers']['text']);
+        self::assertSame('At least 2 are needed: give another person Reviewer', $by['reviewers']['line']);
         foreach ($home['jobs'] as $card) {
             self::assertOneButtonToAPageTheyMayOpen($card, ['admin']);
         }
@@ -227,7 +355,8 @@ final class HomeTasksTest extends TestCase
         self::assertSame(['/ui/purchasing/orders?rejected=1', '/ui/purchasing/orders?state=approved', '/ui/purchasing/orders?state=draft'],
             [$by['not_ok']['href'], $by['not_sent']['href'], $by['drafts']['href']]);
         self::assertSame([2, 'drafts'], [$by['drafts']['count'], $by['drafts']['unit']]);
-        self::assertStringContainsString('over the approval limit goes to a reviewer first', $by['drafts']['what'], 'correction f');
+        self::assertSame('Your own drafts: the supplier does not have them', $by['drafts']['line']);
+        self::assertSame(Words::TASK['company_wait']['text'], $by['company_wait']['text'], 'a note keeps its words');
         self::assertSame(['/ui/purchasing/suppliers?status=draft', '/ui/purchasing/suppliers?due=1'], [$by['supplier_drafts']['href'], $by['checks_due']['href']]);
         self::assertSame('/ui/purchasing/reorder', $by['to_buy']['href']);
         self::assertArrayNotHasKey('count', $by['to_buy'], 'What to buy has no cheap count: the card has no number (plan C16)');
@@ -249,7 +378,7 @@ final class HomeTasksTest extends TestCase
      */
     /**
      * The stock records (pack A1): the person's own drafts are a job; their records waiting for a reviewer's OK a note (the reviewer
-     * acts: their "Things that need your OK first" card counts them); each card opens the list of that kind, filtered.
+     * acts: their "Things that need your OK" card counts them); each card opens the list of that kind, filtered.
      */
     public function testTheStockRecordCards(): void
     {
@@ -283,7 +412,7 @@ final class HomeTasksTest extends TestCase
         self::assertSame([3, 'incidents', '/ui/receiving/incidents'], [$by['incidents']['count'], $by['incidents']['unit'], $by['incidents']['href']]);
         foreach ($desk['jobs'] as $card) {
             self::assertOneButtonToAPageTheyMayOpen($card, ['purchasing_desk']);
-            self::assertArrayHasKey('what', $card);
+            self::assertArrayHasKey('line', $card);
         }
         self::assertSame(['incidents'], self::keys(HomeTasks::build(7, ['stock_controller'], $f)['jobs']));
         self::assertSame([], HomeTasks::build(5, ['goods_in'], ['receiving' => ['bench' => 0, 'to_post' => 0]])['jobs'], 'nothing waiting: no card');
@@ -330,7 +459,7 @@ final class HomeTasksTest extends TestCase
         self::assertSame(['integrity'], self::keys($bad['jobs']));
         self::assertSame(sprintf(Words::TASK['integrity']['title'], '3'), $bad['jobs'][0]['title']);
         self::assertSame('/ui/system/checks', $bad['jobs'][0]['href']);
-        self::assertTrue($bad['jobs'][0]['hero'] ?? false, 'a broken check comes first');
+        self::assertTrue($bad['jobs'][0]['urgent'], 'a broken check is urgent');
         $one = HomeTasks::build(1, ['admin'], ['integrity' => ['ok' => false, 'problems' => 1, 'finished_at' => '2026-10-08 02:47:00', 'hours' => 2]]);
         self::assertSame(Words::TASK['integrity']['title_one'], $one['jobs'][0]['title']);
         $stale = HomeTasks::build(1, ['reviewer'], ['integrity' => ['ok' => true, 'problems' => 0, 'finished_at' => '2026-10-05 02:47:00',
@@ -353,6 +482,6 @@ final class HomeTasksTest extends TestCase
         self::assertSame([], self::keys($few['jobs']), 'the owner set staff.min_reviewers to 1: one reviewer is enough');
         $more = HomeTasks::build(1, ['admin'], ['staff' => ['test' => [], 'reviewers' => 2, 'clashes' => [], 'min' => 3]]);
         self::assertSame(['reviewers'], self::keys($more['jobs']));
-        self::assertSame(sprintf(Words::TASK['reviewers']['text'], '3'), $more['jobs'][0]['text']);
+        self::assertSame(sprintf(Words::TASK['reviewers']['line'], '3'), $more['jobs'][0]['line']);
     }
 }

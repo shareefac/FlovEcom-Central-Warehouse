@@ -34,8 +34,8 @@ namespace CW\Ui;
  *                           `chips`, `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
  *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
- *   $cards($cards, $notes)  Home's "Waiting for you": one row per task (its number in its colour, its name, one plain line, one button);
- *                           $notes: the quieter rows of the notes
+ *   $cards($cards, $notes)  Home's "Waiting for you": one row per job, ONE link (a box, its name, ONE short line, its count, its action
+ *                           words; docs/decisions.md RD-H4); $notes: the quieter rows of the notes
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
  *   $showMenu($choices = null)  the Show choice of a page (docs/decisions.md RD2): a <details> menu of links styled like a select, the current
  *                           choice not a link; no $choices = the page's group (the pages of its sidebar entry this person may open); ''
@@ -127,7 +127,7 @@ final class View
                 ?array $menu = null): string
                 => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side, $back, $menu),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
-            // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1): one row per task; $notes: the notes after the jobs.
+            // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1; the checklist, RD-H4): one row per job; $notes: the notes after the jobs.
             'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
             'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string
                 => Html::emptyState($title, $text, $href, $button),

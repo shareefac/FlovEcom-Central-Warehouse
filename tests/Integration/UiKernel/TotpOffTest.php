@@ -487,7 +487,8 @@ final class TotpOffTest extends KernelUiTestCase
         $reviewer = $this->signIn($this->uiUser('reviewer'));
         $admin = $this->signIn($this->uiUser('admin'));
         $buyer = $this->signIn($this->uiUser('buyer'));
-        $warning = static fn (string $until): string => sprintf(Words::TASK['code_off']['title'], self::shown($until));
+        // Home's row (the owner's checklist, docs/decisions.md RD-H3): "2-step verification is OFF", urgent, and when it comes back on in ONE line.
+        $warning = static fn (string $until): string => Words::TASK['code_off']['title'] . ' ' . Words::RD_HOME['urgent'] . ' ' . sprintf(Words::TASK['code_off']['line'], self::shown($until));
         foreach ([$reviewer, $admin] as $web) {
             self::assertStringNotContainsString('2-step verification is OFF', $web->get('/ui/')->text(), 'off: no warning');
             self::assertStringNotContainsString('2-step verification is OFF', $web->get('/ui/reference/settings')->text());
@@ -504,7 +505,7 @@ final class TotpOffTest extends KernelUiTestCase
             self::assertSame(200, $system->status, $system->describe());
             self::assertStringContainsString(Words::say('SETTINGS_PAGE', 'code_off', self::shown($until)), $system->text(), "{$who}: Settings › System says so");
         }
-        self::assertStringStartsWith('2-step verification is OFF until', $warning($until));
+        self::assertStringStartsWith('2-step verification is OFF Urgent It comes back on by itself on ', $warning($until));
         // The fourth Codex review (low): what the Users pages say about signing in again promises no code while it may be off (TF15).
         foreach (['sign_out_all_note', 'allow_note'] as $key) {
             self::assertStringNotContainsString('code', Words::STAFF[$key], $key);

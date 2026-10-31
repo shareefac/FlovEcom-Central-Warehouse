@@ -17,9 +17,11 @@ use CW\Ui\Words;
  * lands here after the sign-in. Top to bottom:
  *
  *  1. today's date, "Good morning, <first name>" and one Find box (catalogue.view);
- *  2. "Waiting for you": one row per kind of work waiting for THIS person (Ui\HomeTasks from Ui\HomeCounts, in its order: what holds
- *     others up first), each with a big number in the task's colour, its name, one plain line and ONE button; then the notes (no job:
- *     something the person waits for or should look at);
+ *  2. "Waiting for you": the owner's checklist in tabs (31 Oct 2026; docs/decisions.md RD-H1-RD-H8): All and one tab per sidebar
+ *     section that has jobs (`?jobs=<section>`, HomeTasks::checklist), one row per kind of work waiting for THIS person (Ui\HomeTasks
+ *     from Ui\HomeCounts, in its order: an urgent job first, then what holds others up), each ONE link with a box, its name, ONE short
+ *     line, its count and its action words, 8 rows and the rest in a fold; then the notes (no job: something the person waits for or
+ *     should look at), as before;
  *  3. up to DashboardTiles::MAX small figures the person may see;
  *  4. "Coming later": the screens not built yet that the person's jobs will use (no dates), when there are any.
  *
@@ -40,7 +42,7 @@ final class DashboardController
         $home = HomeTasks::build($me->id, $me->roles, $counts->facts(HomeTasks::needs($me->roles)));
         return $ctx->page('home', [
             'greeting' => self::greeting($me->displayName),
-            'tasks' => array_map(self::row(...), $home['jobs']),
+            'checklist' => HomeTasks::checklist(array_map(self::row(...), $home['jobs']), $ctx->req->param('jobs')),
             'notes' => array_map(self::row(...), $home['notes']),
             'figures' => DashboardTiles::build($ctx, $counts),
             'later' => Words::comingLater($me->roles),
@@ -123,8 +125,8 @@ final class DashboardController
     }
 
     /**
-     * One row of "Waiting for you" from a task card: the big number (a spot check's "answered/of"; "!" where the card has no number) and
-     * what a screen reader hears for it (the number with its unit, or the card's state).
+     * One row of "Waiting for you" from a task card: the number (a spot check's "answered/of"; "!" where the card has no number: a note
+     * draws it, a job's row draws no pill) and what a screen reader hears for it (the number with its unit, or the card's state).
      *
      * @param array<string, mixed> $c a card of HomeTasks::build()
      * @return array<string, mixed>

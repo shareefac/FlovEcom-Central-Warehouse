@@ -201,7 +201,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(array_sum($benchCounts), $docs->decidableCount($benchUser['id'], ['goods_in', 'reviewer']));
         $reviewer = $this->signIn($otherReviewer);
         $shown = static function (\CW\Tests\Support\UiResponse $home): array {
-            $card = (new \DOMXPath($home->dom()))->evaluate('string(//*[@data-card="deliveries_check"]//span[@class="hm-n"])');
+            $card = (new \DOMXPath($home->dom()))->evaluate('string(//*[@data-card="deliveries_check"]//span[@class="hm-job-n"])');
             return [self::nav($home)['Approvals']['count'] ?? 0, (int) trim((string) $card)];
         };
         $benchShown = $shown($bench->get('/ui/'));
@@ -418,7 +418,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
             ['file' => ['path' => $this->pdf(), 'name' => 'PLAIN-1.pdf']]);
         $draftTitle = Words::say('RECEIPT', 'title_draft', 'Plain Delivery Supplies');
         $card = static fn (UiResponse $home, string $key): ?int => ($c = (new \DOMXPath($home->dom()))->query("//*[@data-card='{$key}']")) !== false && $c->length > 0
-            ? (int) trim((string) (new \DOMXPath($home->dom()))->evaluate("string(//*[@data-card='{$key}']//span[@class='hm-n'])")) : null;
+            ? (int) trim((string) (new \DOMXPath($home->dom()))->evaluate("string(//*[@data-card='{$key}']//span[@class='hm-job-n'])")) : null;
 
         // Before the bench: the desk's editor, the bench's list and check, everyone else's look.
         foreach ([
