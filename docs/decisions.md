@@ -15134,3 +15134,8 @@ listings, approvals and unknown ones, each tab's link, the rows' counts and line
 border, inset or bottom margin), so the rows after the eighth line up with the first eight. Once open, its summary is visually hidden but
 stays in the keyboard order and shows again when focused from the keyboard (`:focus-visible`); `display: none` had dropped the focused
 control.
+
+**RD-S2. Simple matching looks like its artboard** (the Chrome check of 31 Oct: its "Match" and "+" were 44 px boxes in 20 px words and
+its search was cut to 300 px with Search at the far right). CSS only: the search fills its row with Search beside it; "Match" in an empty
+cell is a dashed 34 px pill (as By item's "+ Store"), "+" a 34 px pill, both 13 px (44 px to tap on a phone); a matched product's name is
+plain ink (not an underlined link look), its ID and status on the line under it. No markup, words or behaviour change.

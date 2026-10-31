@@ -2263,6 +2263,16 @@ table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
   table.stack.simple-match td.c-store > * { grid-column: 1; }
   table.stack.simple-match tr.here { background: var(--row-selected); border: 1.5px solid var(--accent); }
 }
+/* Simple matching as Product matching's tab (docs/decisions.md RD-S2; the SimpleMatch artboard of 31 Oct 2026): the search fills its row
+   with Search beside it; "Match" (an empty cell: a dashed pill, as By item's "+ Store") and "+" (a cell with a product) are 34 px
+   pills in 13 px words (44 px to tap on a phone); a matched product's name is plain ink, its ID and status on the line under it. */
+form.sm-find .tb-search input[data-page-search] { width: 100%; }
+table.simple-match details.sm-more > summary { min-width: 34px; min-height: 34px; padding: 0 14px; border-radius: var(--r-pill); font: 600 13px/18px var(--font); }
+table.simple-match td.c-store:not(:has(.sm-matched)) details.sm-more > summary { border: 1px dashed #c8bcd3; background: transparent; color: var(--ink-muted); font-weight: 500; }
+table.simple-match td.c-store:not(:has(.sm-matched)) details.sm-more > summary:hover { border-color: var(--accent); color: var(--accent-hover); }
+table.simple-match a.sm-title { display: block; color: var(--ink); text-decoration: none; font: 500 13px/18px var(--font); }
+table.simple-match a.sm-title:hover { color: var(--accent-hover); text-decoration: underline; }
+@media (max-width: 600px) { table.simple-match details.sm-more > summary { min-width: 44px; min-height: 44px; } }
 /* ==== end simple-matching ========================================================================================================= */
 /* ==== po-one-page (branch po-one-page, docs/decisions.md PX1-PX10) ==============================================================
    The purchase order on one page, in the board look already here (v4: .board, .grp-add, .card, .btn): the supplier's box and the product
