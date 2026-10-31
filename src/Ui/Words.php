@@ -62,6 +62,8 @@ final class Words
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
         'RD_MATCH', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA)
+        'CONFIRM_ALL',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_GROUP', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
@@ -2709,6 +2711,7 @@ final class Words
         'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
         'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
         'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
+        'relay.correction_bulk_max_units' => 'Biggest change Confirm all books by itself',
         // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
         'erp_opening.warehouses' => 'ERPNext warehouses the opening stock comes from',
         'erp_opening.companies' => 'ERPNext companies the opening stock comes from',
@@ -4003,6 +4006,8 @@ final class Words
         'relay.mode_in_stock' => 'When ERPNext sets a counted, protected item to In-Stock, accepting the change gives it this stock rule.',
         'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
         'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
+        'relay.correction_bulk_max_units' => 'In units. "Confirm all ready" on Approvals leaves an ERPNext correction for a person when it adds or takes off more '
+            . 'than this many. 0: only the corrections with no difference are confirmed together. One by one, a person can still confirm any of them.',
         // ---- Pack E
         'reports.low_stock_default' => 'In units. Low stock lists a product when the stores can sell this many or fewer. A product with its own '
             . '"least stock to keep" on its reorder page uses that number instead.',
@@ -9955,6 +9960,7 @@ final class Words
         'goods_in_suspense.correction' => 'ERPNext correction placed on an item',
         'goods_in_suspense.dismiss' => 'ERPNext line closed without booking',
         'count_review.confirm' => 'ERPNext correction confirmed',
+        'count_review.confirm_all' => 'Confirm all ERPNext corrections',
         'count_review.dismiss' => 'ERPNext correction closed',
         'policy_review.accept' => 'ERPNext selling-mode change accepted',
         'policy_review.dismiss' => 'ERPNext selling-mode change closed',
@@ -11424,6 +11430,72 @@ final class Words
         'none_open_text' => 'A correction arrives when someone sets a stock figure in ERPNext.',
     ];
 
+    /**
+     * "Confirm all ready" for ERPNext corrections (docs/decisions.md CA1-CA12; the approved boards ConfirmAll.dc.html, ConfirmAllCheck.dc.html,
+     * ConfirmAllDone.dc.html of 31 Oct 2026): Approvals' two groups and each row's line, the header's button, the board's "The list is split in
+     * two", the check page (it saves nothing) and the done page. A reason of Needs a look: `why_<code>` on a row, `rule_<code>` in the list.
+     */
+    public const CONFIRM_ALL = [
+        // Approvals with Show = ERPNext corrections
+        'ready' => 'Ready to confirm',
+        'look' => 'Needs a look',
+        'go' => 'Confirm all ready (%s)',
+        'ready_adds' => 'ERPNext set %s · adds %s',
+        'ready_takes' => 'ERPNext set %s · takes off %s',
+        'ready_same' => 'ERPNext set %s · no difference',
+        // Why one needs a look (a row's line), in the order they are checked (Corrections::NOT_READY)
+        'why_counted' => 'Counted on the shelf after ERPNext set it',
+        'why_newer' => 'A newer ERPNext correction of the item was confirmed already',
+        'why_big' => 'Big change: %s (over %s units)',
+        'why_below_zero' => 'The item would go below zero',
+        'why_variants' => 'Sold as %s variants: ERPNext set only one',
+        'why_fixed' => 'Made before the one-time stock fix of %s for an item the fix set',
+        // ... and why one of the press was left (the done page)
+        'why_changed' => 'Changed while Confirm all ran: answer it on its own',
+        'why_not_reached' => 'Not reached: run it again',
+        // The board's "The list is split in two" (the right of the list until a row is opened)
+        'how' => 'How Confirm all decides',
+        'split' => 'The list is split in two',
+        'ready_is' => 'ERPNext\'s figure can be taken as it is. "Confirm all ready" confirms only these, the same way as one by one.',
+        'look_is' => 'Confirm all leaves these for a person. Each says why:',
+        'rule_counted' => 'Counted on the shelf after ERPNext set it (the count wins)',
+        'rule_newer' => 'A newer ERPNext correction of the item was confirmed already',
+        'rule_big' => 'Big change: over %s units up or down',
+        'rule_below_zero' => 'The item would go below zero',
+        'rule_variants' => 'Sold as 2 or more variants: ERPNext set only one of them',
+        'rule_fixed' => 'Made before a one-time stock fix for an item the fix set',
+        'one_by_one' => 'Open any row to answer it one by one, as today.',
+        // The check page (GET: nothing is saved)
+        'eyebrow' => 'Approvals · ERPNext corrections',
+        'check_title' => 'Confirm %s ERPNext corrections?',
+        'check_title_one' => 'Confirm 1 ERPNext correction?',
+        'from' => 'From %s · %s · nothing is saved until you press Confirm',
+        'line_confirmed' => 'Confirmed, the stock set to ERPNext\'s figure',
+        'line_units' => 'Units added / taken off in %s',
+        'line_left' => 'Left for you under Needs a look',
+        'items' => '%s items',
+        'items_one' => '1 item',
+        'units' => '+%s / −%s',
+        'again' => 'Each one is checked again just before it is booked. One that changed meanwhile is left and listed.',
+        'own_line' => 'Each confirmation is its own stock line, exactly as if it was confirmed one by one.',
+        'no_shop' => 'The shop and the website do not change.',
+        'note' => 'Note (saved on each one)',
+        'note_hint' => 'What you did, or why',
+        'back' => 'Back',
+        'confirm' => 'Confirm %s',
+        'none_ready' => 'Nothing is ready to confirm now.',
+        'summary' => 'What Confirm all would do',
+        // The done page
+        'done_title' => 'Confirm all: done',
+        'done_status' => '%s confirmed. %s left for you.',
+        'left_title' => 'Left for you',
+        'open' => 'Open ›',
+        'open_named' => 'Open %s',
+        'saved' => 'Saved as one run in the audit log: %s, %s, by %s.',
+        'back_list' => 'Back to Approvals',
+        'item_gone' => 'Correction %s',
+    ];
+
     /** Approvals › From the stores › Mode changes. */
     public const MODES = [
         'title' => '"%s": ERPNext set %s',
@@ -11548,6 +11620,7 @@ final class Words
         'note_required' => 'Write a note of 3 to 500 characters: what you did, or why. Nothing was saved.',
         'queue_settled' => 'Someone already answered this one. Nothing more was saved.',
         'queue_changed' => 'This order changed while you were looking (it was paid). Look at it again. Nothing was saved.',
+        'not_ready' => 'This correction needs a look now: answer it on its own. Nothing was booked.',
         'unknown_queue_row' => 'This row is not in the list any more. Nothing was saved.',
         'unknown_item' => 'There is no item with that code. Check it under Products. Nothing was booked.',
         'merged_item' => 'That item was joined into another one. Use the other item\'s code. Nothing was booked.',

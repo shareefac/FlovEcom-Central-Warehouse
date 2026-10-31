@@ -28,6 +28,7 @@ final class UiSecurityTest extends UiTestCase
         // Pack F (PF5): Approvals › From the stores
         '/ui/queues/suspense', '/ui/queues/corrections', '/ui/queues/modes', '/ui/queues/oversold?status=all',
         '/ui/queues/suspense/items?q=mango', // Lines to place's item box (docs/decisions.md LQ5)
+        '/ui/queues/corrections/confirm-all', '/ui/queues/corrections/confirm-all/1', // Confirm all ready: the check and done pages (docs/decisions.md CA4, CA8)
         // --- Pack G
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock',
         // --- end of Pack G
@@ -47,6 +48,7 @@ final class UiSecurityTest extends UiTestCase
         // Pack F (PF5)
         '/ui/queues/suspense/1/pick', '/ui/queues/suspense/1/dismiss', '/ui/queues/corrections/1/confirm', '/ui/queues/corrections/1/dismiss',
         '/ui/queues/modes/1/accept', '/ui/queues/modes/1/dismiss', '/ui/queues/oversold/1/handle', '/ui/queues/oversold/1/note',
+        '/ui/queues/corrections/confirm-all', // Confirm all ready: the press (docs/decisions.md CA5)
         // --- Pack G
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock', '/ui/purchasing/reorder/refresh',
         // --- end of Pack G

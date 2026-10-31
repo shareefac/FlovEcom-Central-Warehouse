@@ -15139,3 +15139,103 @@ control.
 its search was cut to 300 px with Search at the far right). CSS only: the search fills its row with Search beside it; "Match" in an empty
 cell is a dashed 34 px pill (as By item's "+ Store"), "+" a 34 px pill, both 13 px (44 px to tap on a phone); a matched product's name is
 plain ink (not an underlined link look), its ID and status on the line under it. No markup, words or behaviour change.
+
+## "Confirm all ready" for ERPNext corrections (branch `confirm-all`, 31 Oct 2026; CA1-CA12)
+
+The owner, 31 Oct 2026: "Design a Confirm-all", then on the design (the approved boards `ConfirmAll.dc.html`, `ConfirmAllCheck.dc.html`,
+`ConfirmAllDone.dc.html`; the canvas note "Confirm all ERPNext corrections (owner, 31 Oct): on Approvals with Show = ERPNext corrections,
+the list splits into Ready to confirm and Needs a look (each with why); "Confirm all ready (N)" opens a check page that saves nothing, then
+confirms only the ready ones, each as if one by one and checked again; the rest are left and listed"): "Yes, build it". Why: 253 ERPNext
+corrections wait in Approvals and are answered one by one, so the Vape and Go stock match falls about 25 items a day (the 99.5 % plan of 31
+Oct, decision 1 A). It BOOKS STOCK, so every rule is pinned by a test, and the owner's rule holds: skip anything doubtful, finish the rest,
+list what was skipped.
+
+**CA1. Where.** Approvals (`InboxController`) with Show = ERPNext corrections: the list is two groups, "Ready to confirm · N" (the green
+dot, tone `done`) then "Needs a look · K" (the amber dot, `needs`), each oldest first, a page (50) of each. A ready row's line is "ERPNext set
+X · adds Y" / "· takes off Y" (no difference: "· no difference"); a Needs a look row's line is its reason, in the amber ink (`span.ap-m.ap-why`).
+The header gets the green "Confirm all ready (N)" after the Show (`a.btn.ok.ap-confirm-all`, a plain link to the check page; not a main
+button: the record's Confirm stays the page's one magenta button), only for a person with `queues.corrections` and only when N > 0. Until a
+row is opened, the right of the list is the board's "The list is split in two" (`approvals_split`: Ready to confirm, Needs a look and the
+rules in their order, "Open any row to answer it one by one, as today."); a row opens its record exactly as before (its own route, note,
+More, next record), and an answer from it comes back to the list kept on the kind. Everything waiting (no Show) is unchanged: one ERPNext
+corrections group, no button, the first record open. The inbox decides nothing (AV5): the groups and N are `Corrections::readiness()`'s,
+the words `StoreQueuesController::confirmAllLine()`'s.
+
+**CA2. Readiness** (`Corrections::why()`, one rule set used by the list, the check page and again at booking time). An open correction is
+READY unless one of these applies, checked in this order; the first that applies is its reason (`Corrections::NOT_READY`; the words
+`Words::CONFIRM_ALL` `why_<code>` on a row, `rule_<code>` in the board's list):
+- a `counted`: counted on the shelf after ERPNext set it (`stock_balance.counted_at` later than the correction's time; what `confirm()`
+  refuses, `newer_count`) - "Counted on the shelf after ERPNext set it";
+- b `newer`: a newer ERPNext correction of the item was confirmed already (`effect()['newer']`; what `confirm()` refuses) - "A newer ERPNext
+  correction of the item was confirmed already";
+- c `big`: it adds or takes off more than the setting (CA3; 100 = "over 100", so exactly 100 is ready) - "Big change: +150 (over 100 units)";
+- d `below_zero`: on hand now plus what confirming books is below zero (also an item already below zero that stays below zero) - "The
+  item would go below zero";
+- e `variants`: the correction's store links 2 or more of its website products to the item (`channel_listing` rows with the item, mapped
+  or quarantined; a correction that names no store counts every store's: the safe side) - "Sold as 2 variants: ERPNext set only one";
+- f `fixed`: a one-time stock fix was booked for the item at the correction's place after the correction's time (an on-hand `adjustment`
+  whose doc_ref starts `listening-fix:`, the fix of 31 Oct and any later pass or undo; check B of `cw_listening_fix.php`): confirming would
+  book the fix's units again - "Made before the one-time stock fix of 31 Oct 2026 for an item the fix set" (the UK day of that fix row).
+Nothing else is held back: a correction with no difference is ready and closes as "no difference", as one by one. The facts (on hand,
+counted_at, links, the newest fix) are read for all rows at once (`Corrections::facts()`); `effect()` is the one-by-one figure.
+
+**CA3. The setting** `relay.correction_bulk_max_units` (0054; 100; 0-100000; Settings > Rules and numbers > Messages from ERPNext, beside the
+other relay settings, with a reason, its history in config_change): the big-change limit of c. 0: only corrections with no difference are
+confirmed together. The code reads it with the default 100 (`Corrections::bigLimit()`), so it may run before 0054. One by one, a person still
+confirms any correction, whatever its size.
+
+**CA4. The check page** (`GET /ui/queues/corrections/confirm-all`, `queues.corrections`; `confirm_all.php`). It saves nothing (tested: the
+ledger, the queue, the stored answers and the audit log are the same after it). "Approvals · ERPNext corrections", "Confirm N ERPNext
+corrections?" (one: "Confirm 1 ERPNext correction?"), "From <stores> · <warehouses> · nothing is saved until you press Confirm"; the three
+lines in a card: "Confirmed, the stock set to ERPNext's figure · N items", "Units added / taken off in <warehouses> · +A / −B", "Left for you
+under Needs a look · K items"; the three plain sentences; "Note (saved on each one)" (QueueRules::note: 3 to 500 characters, required, as one
+by one); Back and the magenta "Confirm N". The form carries the ids drawn (`ids`, comma-separated, oldest first) and the CSRF token, so a
+correction that arrives after the page was drawn is never confirmed by its press. Nothing ready: no form, "Nothing is ready to confirm now."
+and Back. A refused press (the note) draws the page again from now, with the refusal in the queue's words and the note as typed.
+
+**CA5. The press** (`POST` the same path, `queues.corrections`, the CSRF token and the same-origin check of every POST;
+`Corrections::confirmAll()`). For each id of the form, in its order: `confirm($caller, $id, $note, whenReady: true)`: the one-by-one
+confirmation itself (the same caller, the same key `queue:correction:<id>` with the same stored request `{id, note}`, the same ledger line,
+the same audit rows; a test confirms a twin one by one and compares), which, under the row's and the balance's locks and after its own
+checks a and b, reads the facts again and applies c-f (`why()`): not ready -> 409 `not_ready`, nothing booked or stored, the key free for a
+person's answer. Any refusal (counted or confirmed or closed meanwhile, a rule applies now, an unknown id, the key holding another answer)
+or a database failure of one leaves that id with "Changed while Confirm all ran: answer it on its own" (it was ready on the page; the
+refusal's code and today's reason are kept in the run row), and the rest go on. A form that is not a check page's (no ids, a bad one, more
+than 5,000) is refused whole (400 bad_form). Then 303 to the done page.
+
+**CA6. The cap.** At most 500 ids (`Corrections::BULK_MAX`, also how many open corrections the list reads) and 25 seconds
+(`BULK_SECONDS`; the UI pool stops a page at 50 s) per press; the rest are left as "Not reached: run it again", untouched. Technical bounds
+of one request, not business rules: constants, not settings.
+
+**CA7. ONE audit row per press** (`count_review.confirm_all`, "Confirm all ERPNext corrections"; entity `count_review`, no id): who (actor,
+staff id, IP), when, the note, how many ids were sent, the ids confirmed (and of them the ones that were already confirmed: `replayed`), how
+many booked a difference, the units added and taken off, and every one left with why (the press's own, then the open ones that need a look
+now). Each confirmation keeps its own audit rows, as one by one.
+
+**CA8. The done page** (`GET /ui/queues/corrections/confirm-all/{id}`, the run row's id; `confirm_all_done.php`): "Confirm all: done", the
+green status line "N confirmed. K left for you.", the "Left for you · K" card (each the item, why in amber, "Open ›" to the record in
+Approvals with Show = ERPNext corrections), "Saved as one run in the audit log: Confirm all ERPNext corrections, <UK date, time>, by
+<person>." and "Back to Approvals". Read from the run row, so it needs no session state and no script. Only the person who pressed sees
+it: anyone else, an unknown id or another audit row's id is 404 (the same answer, so an id tells a stranger nothing).
+
+**CA9. Twice.** A second press of the same page (a double click, back and press again) books nothing twice: each id's key replays its first
+answer (`confirmed`, listed under `replayed`, units 0); with another note the key refuses (422 idempotency_key_reused) and it is left. Tested
+on the service and through the screens.
+
+**CA10. Phone** (600 px and less; CSS only, the "ca" block at the end of `app.css`): 16 px in, Back, Confirm, the button and Open › 44 px,
+the note 44 px, a long name wraps; nothing wider than the screen.
+
+**CA11. Judgement calls where the boards say nothing** (for the reviewer): the board's list says "of 31 Oct" for the fix; a second pass is
+planned (1 Nov), so a row names the day of the fix it hit and the list says "a one-time stock fix"; one correction is "Confirm 1 ERPNext
+correction?" / "1 item"; a ready row with no difference says "no difference"; "The shop and the website do not change." is the board's
+sentence: true while the store listens (a confirmation books in CW only; the store's connector writes nothing in shadow); once a store is
+live, CW's figure reaches its website as after any confirmation one by one. The undo of a fix also counts as a fix for f (its doc_ref starts
+`listening-fix:`): the safe side.
+
+**CA12. Tests.** `tests/Unit/ConfirmAllUnitTest` (why(): each rule alone, its edges, the order a-f; the words; the setting's rule),
+`tests/Integration/Queues/ConfirmAllTest` (real relayed corrections: each reason a-f and the ready ones, the first rule on one correction,
+the setting moves c also at booking time, the twin booked one by one, changed / settled / unknown ids left and the rest booked, a later one
+untouched, the second press, the cap and the run row, who may press; the stock invariants after each), `tests/Integration/Queues/Migration0054Test`,
+`tests/Integration/UiKernel/ConfirmAllScreensTest` (the groups and lines, the button only for the job and when N > 0, the board's panel and a
+row opening as before, the check page saves nothing, the press, the done page, CSRF, origin, a hand-made form, a short note, a changed one,
+a later one, twice, the stranger's 404, the phone CSS).

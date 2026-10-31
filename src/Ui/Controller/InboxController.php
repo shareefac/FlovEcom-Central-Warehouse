@@ -164,8 +164,12 @@ final class InboxController
         $groups = [];
         $flat = [];
         $choices = [];
+        // ERPNext corrections shown on their own (docs/decisions.md CA1): Ready to confirm and Needs a look, "Confirm all ready (N)" in the
+        // header, and the board's "The list is split in two" until a row is opened.
+        $split = null;
+        $confirmAll = null;
         foreach ($kinds as $kind) {
-            $g = $this->group($ctx, $kind);
+            $g = $kind === 'corrections' && $show === 'corrections' ? $this->correctionsSplit($ctx) : $this->group($ctx, $kind);
             if ($g['rows'] === []) {
                 // The kind shown stays the Show's choice when nothing of it waits (its last one just answered: the fix round, docs/decisions.md
                 // RD-F6); the page then says so for that kind.
@@ -178,17 +182,32 @@ final class InboxController
             if ($show !== null && $show !== $kind) {
                 continue;
             }
-            $groups[] = ['kind' => $kind, 'name' => Words::INBOX['kind_' . $kind], 'tone' => self::KINDS[$kind]['tone'], 'count' => $g['count'], 'more' => $g['more'],
-                'href' => self::KINDS[$kind]['page'], 'rows' => $g['rows']];
+            if (isset($g['split'])) {
+                foreach ($g['split'] as $part) {
+                    $groups[] = $part;
+                    array_push($flat, ...$part['rows']);
+                }
+                $split = $g['rules'];
+                // The button only for who answers the kind (the route's permission) and only when something is ready.
+                $confirmAll = $g['ready'] > 0 && $ctx->me()->can(Corrections::PERM)
+                    ? ['ready' => $g['ready'], 'href' => StoreQueuesController::PATH . '/corrections/confirm-all'] : null;
+                continue;
+            }
+            $groups[] = ['kind' => $kind, 'id' => $kind, 'name' => Words::INBOX['kind_' . $kind], 'tone' => self::KINDS[$kind]['tone'], 'count' => $g['count'],
+                'more' => $g['more'], 'href' => self::KINDS[$kind]['page'], 'rows' => $g['rows']];
             array_push($flat, ...$g['rows']);
         }
-        // The record to open: the one asked for (or refused), else the one now at the place given, else the first.
+        // The record to open: the one asked for (or refused), else the one now at the place given, else the first. ERPNext corrections shown on
+        // their own open none by themselves: the board's "The list is split in two" stands there until a row is opened (CA1).
         $keys = array_column($flat, 'key');
         $want = $refused['key'] ?? $ctx->req->param('open');
         $i = is_string($want) ? array_search($want, $keys, true) : false;
         if ($i === false && $flat !== []) {
             $pos = $refused !== null ? $ctx->req->field('inbox_pos') : $ctx->req->param('pos');
-            $i = is_string($pos) && preg_match('/^\d{1,4}$/D', $pos) === 1 ? min((int) $pos, count($flat) - 1) : 0;
+            $atPos = is_string($pos) && preg_match('/^\d{1,4}$/D', $pos) === 1;
+            if ($split === null || $atPos || $refused !== null) {
+                $i = $atPos ? min((int) $pos, count($flat) - 1) : 0;
+            }
         }
         $record = null;
         if ($i !== false && $flat !== []) {
@@ -205,6 +224,8 @@ final class InboxController
             'choices' => $choices,
             'show' => $show,
             'record' => $record,
+            'split' => $record === null ? $split : null,
+            'confirmAll' => $confirmAll,
             // A refusal of a record that is not waiting any more (answered meanwhile): said above the list.
             'error' => $refused !== null && $refused['key'] !== $open ? $refused['error'] : null,
             'errorCode' => $refused !== null && $refused['key'] !== $open ? $refused['code'] : null,
@@ -331,6 +352,35 @@ final class InboxController
                 break;
         }
         return ['rows' => $rows, 'count' => max($count, count($rows)), 'more' => $more];
+    }
+
+    /**
+     * ERPNext corrections when the Show is that kind (docs/decisions.md CA1; ConfirmAll.dc.html): two groups, Ready to confirm (green) then
+     * Needs a look (amber), each oldest first (a page of each: `more`), a ready row's line what confirming books ("ERPNext set 22 · adds
+     * 22"), one that needs a look why (amber); how many are ready (the header's "Confirm all ready (N)") and the rules the board lists. Which
+     * row is ready is Corrections::readiness()'s (AV5: no decision here); the rows are the kind's own rows, so a record opens as before.
+     *
+     * @return array{rows: list<array<string, mixed>>, count: int, more: bool, split: list<array<string, mixed>>, ready: int, rules: list<string>}
+     */
+    private function correctionsSplit(Context $ctx): array
+    {
+        $svc = new Corrections($ctx->db);
+        $all = $svc->readiness();
+        $parts = [];
+        foreach (['ready' => 'done', 'look' => 'needs'] as $part => $tone) {
+            $in = array_values(array_filter($all, static fn (array $r): bool => ($r['why'] === null) === ($part === 'ready')));
+            if ($in === []) {
+                continue;
+            }
+            $rows = array_map(static fn (array $r): array => ['key' => 'corrections-' . (int) $r['id'], 'kind' => 'corrections', 'title' => (string) $r['sku_name'],
+                'meta' => StoreQueuesController::confirmAllLine($r), 'look' => $part === 'look', 'data' => $r], array_slice($in, 0, QueueRules::PAGE));
+            // The kind's own page is linked once, from the first group.
+            $parts[] = ['kind' => 'corrections', 'id' => 'corrections-' . $part, 'name' => Words::CONFIRM_ALL[$part], 'tone' => $tone, 'count' => count($in),
+                'more' => count($in) > count($rows), 'href' => $parts === [] ? self::KINDS['corrections']['page'] : null, 'rows' => $rows];
+        }
+        return ['rows' => array_merge([], ...array_column($parts, 'rows')), 'count' => max($svc->openCount(), count($all)), 'more' => false, 'split' => $parts,
+            'ready' => count(array_filter($all, static fn (array $r): bool => $r['why'] === null)),
+            'rules' => StoreQueuesController::confirmAllRules(Corrections::bigLimit($ctx->settings()))];
     }
 
     // ------------------------------------------------------------------------------------------

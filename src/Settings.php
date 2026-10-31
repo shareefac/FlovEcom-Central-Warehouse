@@ -149,6 +149,9 @@ final class Settings
         'relay.mode_in_stock' => ['in' => ['strict', 'backorder', 'stopped']],
         'relay.mode_from_warehouse' => ['in' => ['strict', 'backorder', 'stopped']],
         'relay.mode_out_of_stock' => ['in' => ['strict', 'backorder', 'stopped']],
+        // "Confirm all ready" (0054; docs/decisions.md CA3): above how many units added or taken off Confirm all leaves an ERPNext correction
+        // for a person (0: only the ones with no difference are confirmed together; one by one, a person still confirms any of them).
+        'relay.correction_bulk_max_units' => ['min' => 0, 'max' => 100_000],
         // ---- end of pack F ------------------------------------------------------------------------------------------------------
         // ---- Pack E (0034; docs/decisions.md PE8-PE12): the Reports tabs and the job that keeps them up to date. The slow and dead days
         // hold each other (dead at least slow); the job's two bounds keep one run small on the staging cluster.

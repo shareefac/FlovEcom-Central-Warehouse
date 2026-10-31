@@ -45,6 +45,10 @@ final class StoreQueuesController
         $r->add('GET', self::PATH . '/corrections', 'queues.view', $c->corrections(...));
         $r->add('POST', self::PATH . '/corrections/{id}/confirm', 'queues.corrections', $c->correctionConfirm(...));
         $r->add('POST', self::PATH . '/corrections/{id}/dismiss', 'queues.corrections', $c->correctionDismiss(...));
+        // "Confirm all ready" (docs/decisions.md CA1-CA12): the check page (saves nothing), the press, the done page (the press's audit row).
+        $r->add('GET', self::PATH . '/corrections/confirm-all', Corrections::PERM, $c->confirmAllCheck(...));
+        $r->add('POST', self::PATH . '/corrections/confirm-all', Corrections::PERM, $c->confirmAllRun(...));
+        $r->add('GET', self::PATH . '/corrections/confirm-all/{id}', Corrections::PERM, $c->confirmAllDone(...));
         $r->add('GET', self::PATH . '/modes', 'queues.view', $c->modes(...));
         $r->add('POST', self::PATH . '/modes/{id}/accept', 'queues.modes', $c->modeAccept(...));
         $r->add('POST', self::PATH . '/modes/{id}/dismiss', 'queues.modes', $c->modeDismiss(...));
@@ -235,6 +239,170 @@ final class StoreQueuesController
             return self::fromInbox($ctx, 'corrections', $e) ?? $this->corrections($ctx, $e->httpStatus, $e);
         }
         return self::toInbox($ctx, 'closed') ?? HtmlResponse::redirect(Html::url(self::PATH . '/corrections', ['notice' => 'closed']));
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // "Confirm all ready" (docs/decisions.md CA1-CA12; ConfirmAll.dc.html and its check and done steps)
+    // ------------------------------------------------------------------------------------------
+
+    /** The most ids one press may carry (more is no check page's form: refused whole). */
+    private const CONFIRM_ALL_MAX_IDS = 10 * Corrections::BULK_MAX;
+
+    /**
+     * GET /corrections/confirm-all: the check page (CA4). It saves nothing: what a press would do (how many are ready, the units they add and
+     * take off, how many stay under Needs a look), the three plain sentences, the note, Back and "Confirm N" (the page's one main button).
+     * Its form carries the ids it shows (`ids`), so a correction that arrives after it was drawn is never confirmed by its press. Nothing
+     * ready: no button, a plain line. A refused press ($error: the note) comes back here, drawn again from now, with the note as typed.
+     */
+    public function confirmAllCheck(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
+    {
+        $rows = (new Corrections($ctx->db))->readiness();
+        $ready = array_values(array_filter($rows, static fn (array $r): bool => $r['why'] === null));
+        $deltas = array_map(static fn (array $r): int => (int) $r['effect']['delta'], $ready);
+        $shown = $ready === [] ? $rows : $ready;
+        $stores = array_values(array_unique(array_map(static fn (array $r): string => (string) ($r['store']['name'] ?? Words::QUEUES['store_unknown']), $shown)));
+        $places = Words::andList(array_values(array_unique(array_map(static fn (array $r): string => (string) $r['warehouse'], $shown))));
+        $items = static fn (int $n): string => $n === 1 ? Words::CONFIRM_ALL['items_one'] : Words::say('CONFIRM_ALL', 'items', $n);
+        $n = count($ready);
+        $note = $error !== null ? (string) ($ctx->req->field('note') ?? '') : '';
+        return $ctx->page('confirm_all', [
+            'title' => $n === 1 ? Words::CONFIRM_ALL['check_title_one'] : Words::say('CONFIRM_ALL', 'check_title', $n),
+            'from' => $shown === [] ? null : Words::say('CONFIRM_ALL', 'from', Words::andList($stores), $places),
+            'lines' => [
+                ['tone' => 'done', 'text' => Words::CONFIRM_ALL['line_confirmed'], 'figure' => $items($n)],
+                ['tone' => 'info', 'text' => Words::say('CONFIRM_ALL', 'line_units', $places === '' ? Words::QUEUES['store_unknown'] : $places),
+                    'figure' => Words::say('CONFIRM_ALL', 'units', array_sum(array_map(static fn (int $d): int => max(0, $d), $deltas)),
+                        array_sum(array_map(static fn (int $d): int => max(0, -$d), $deltas)))],
+                ['tone' => 'needs', 'text' => Words::CONFIRM_ALL['line_left'], 'figure' => $items(count($rows) - $n)],
+            ],
+            'ready' => $n,
+            'ids' => implode(',', array_map(static fn (array $r): string => (string) (int) $r['id'], $ready)),
+            'note' => mb_strlen($note) <= 2 * QueueRules::NOTE_MAX ? $note : '',
+            'noteMin' => QueueRules::NOTE_MIN,
+            'noteMax' => QueueRules::NOTE_MAX,
+            'back' => Html::url(InboxController::PATH, ['show' => 'corrections']),
+            'error' => $error === null ? null : self::plain($error),
+            'errorCode' => $error?->errorCode,
+        ], $status, ['title' => Words::CONFIRM_ALL['eyebrow']]);
+    }
+
+    /**
+     * POST /corrections/confirm-all: the press (CA5-CA7). The ids its check page drew, then Corrections::confirmAll() (each confirmed as one
+     * by one when still ready, the rest left and listed; ONE audit row for the press); 303 to the done page. A form that is not a check
+     * page's (no ids, a bad one, too many) is refused whole; a refused note brings the check page back.
+     */
+    public function confirmAllRun(Context $ctx): HtmlResponse
+    {
+        $ids = self::idList((string) ($ctx->req->field('ids') ?? ''));
+        if ($ids === null) {
+            return $ctx->error(400, 'bad_form', Words::ERROR['bad_form'], [Html::url(InboxController::PATH, ['show' => 'corrections']), Words::CONFIRM_ALL['back_list']]);
+        }
+        try {
+            $run = (new Corrections($ctx->db))->confirmAll($ctx->caller(), $ids, (string) ($ctx->req->field('note') ?? ''));
+        } catch (CwException $e) {
+            return $this->confirmAllCheck($ctx, $e->httpStatus, $e);
+        }
+        return HtmlResponse::redirect(self::PATH . '/corrections/confirm-all/' . $run['run']);
+    }
+
+    /**
+     * GET /corrections/confirm-all/{id}: the done page of a press (CA8), read from its audit row: how many were confirmed and how many are
+     * left for you, each left one with its item, why, and Open › to it in Approvals; where the press is saved, and the way back. Only the
+     * person who pressed sees it (anyone else: 404, the same as no such press). A plain page: no script needed.
+     */
+    public function confirmAllDone(Context $ctx): HtmlResponse
+    {
+        $run = $ctx->db->one('SELECT id, staff_user_id, CAST(detail AS CHAR) AS detail, created_at FROM audit_log WHERE id = ? AND action = ?',
+            [$ctx->id(), Corrections::RUN_ACTION]);
+        if ($run === null || (int) ($run['staff_user_id'] ?? 0) !== $ctx->me()->id) {
+            return $ctx->error(404, 'not_found', Words::error('not_found'), [Html::url(InboxController::PATH, ['show' => 'corrections']), Words::CONFIRM_ALL['back_list']]);
+        }
+        $d = json_decode((string) $run['detail'], true);
+        $d = is_array($d) ? $d : [];
+        $left = array_values(array_filter(is_array($d['left'] ?? null) ? $d['left'] : [], static fn (mixed $l): bool => is_array($l) && isset($l['id'])));
+        $ids = array_values(array_unique(array_map(static fn (array $l): int => (int) $l['id'], $left)));
+        $names = [];
+        if ($ids !== []) {
+            foreach ($ctx->db->all('SELECT r.id, s.name FROM count_review r JOIN sku s ON s.id = r.sku_id WHERE r.id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')', $ids) as $r) {
+                $names[(int) $r['id']] = (string) $r['name'];
+            }
+        }
+        $rows = array_map(static fn (array $l): array => [
+            'title' => $names[(int) $l['id']] ?? Words::say('CONFIRM_ALL', 'item_gone', (int) $l['id']),
+            'line' => self::confirmAllWhy(is_array($l['why'] ?? null) ? $l['why'] : []),
+            'href' => Html::url(InboxController::PATH, ['show' => 'corrections', 'open' => 'corrections-' . (int) $l['id']]),
+        ], $left);
+        return $ctx->page('confirm_all_done', [
+            'confirmed' => count(is_array($d['confirmed'] ?? null) ? $d['confirmed'] : []),
+            'left' => $rows,
+            'saved' => Words::say('CONFIRM_ALL', 'saved', Words::AUDIT_ACTION[Corrections::RUN_ACTION], Html::when((string) $run['created_at']), $ctx->me()->displayName),
+            'back' => Html::url(InboxController::PATH, ['show' => 'corrections']),
+        ], 200, ['title' => Words::CONFIRM_ALL['done_title']]);
+    }
+
+    /** The ids a check page's form carries ("12,15,19": each a row id, at most CONFIRM_ALL_MAX_IDS), else null. @return list<int>|null */
+    private static function idList(string $field): ?array
+    {
+        $parts = $field === '' ? [] : explode(',', $field);
+        if ($parts === [] || count($parts) > self::CONFIRM_ALL_MAX_IDS) {
+            return null;
+        }
+        $out = [];
+        foreach ($parts as $p) {
+            if (preg_match('/^[1-9][0-9]{0,17}$/D', $p) !== 1) {
+                return null;
+            }
+            $out[] = (int) $p;
+        }
+        return $out;
+    }
+
+    /**
+     * A correction's line on Approvals when the Show is ERPNext corrections (CA1): a ready one says what confirming does ("ERPNext set 22 ·
+     * adds 22"), one that needs a look says why (confirmAllWhy()). @param array<string, mixed> $r a Corrections::readiness() row
+     */
+    public static function confirmAllLine(array $r): string
+    {
+        if ($r['why'] !== null) {
+            return self::confirmAllWhy($r['why']);
+        }
+        $delta = (int) $r['effect']['delta'];
+        return match (true) {
+            $delta > 0 => Words::say('CONFIRM_ALL', 'ready_adds', (int) $r['proposed_qty'], $delta),
+            $delta < 0 => Words::say('CONFIRM_ALL', 'ready_takes', (int) $r['proposed_qty'], -$delta),
+            default => Words::say('CONFIRM_ALL', 'ready_same', (int) $r['proposed_qty']),
+        };
+    }
+
+    /**
+     * Why Confirm all leaves a correction, in words (Words::CONFIRM_ALL why_<code>; Corrections::why() and confirmAll()): a big change with
+     * its units and the limit, the number of website products, the day of the stock fix. Anything it does not know reads as "changed".
+     *
+     * @param array<string, mixed> $why
+     */
+    public static function confirmAllWhy(array $why): string
+    {
+        $code = (string) ($why['code'] ?? '');
+        return match ($code) {
+            'big' => Words::say('CONFIRM_ALL', 'why_big', self::signedUnits((int) ($why['delta'] ?? 0)), (int) ($why['limit'] ?? 0)),
+            'variants' => Words::say('CONFIRM_ALL', 'why_variants', (int) ($why['links'] ?? 2)),
+            'fixed' => Words::say('CONFIRM_ALL', 'why_fixed', Html::day((string) ($why['fix_at'] ?? ''))),
+            'counted', 'newer', 'below_zero', 'not_reached' => Words::CONFIRM_ALL['why_' . $code],
+            default => Words::CONFIRM_ALL['why_changed'],
+        };
+    }
+
+    /** The rules of Needs a look as the board's "The list is split in two" lists them, in their order (CA2). @return list<string> */
+    public static function confirmAllRules(int $limit): array
+    {
+        return [Words::CONFIRM_ALL['rule_counted'], Words::CONFIRM_ALL['rule_newer'], Words::say('CONFIRM_ALL', 'rule_big', $limit),
+            Words::CONFIRM_ALL['rule_below_zero'], Words::CONFIRM_ALL['rule_variants'], Words::CONFIRM_ALL['rule_fixed']];
+    }
+
+    /** "+140" or "−140" (the minus sign, as the record's figures). */
+    private static function signedUnits(int $v): string
+    {
+        return $v < 0 ? '−' . number_format(-$v) : '+' . number_format($v);
     }
 
     // ------------------------------------------------------------------------------------------

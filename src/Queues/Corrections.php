@@ -33,6 +33,11 @@ use CW\Stock;
  *              stock rule are left alone ("ERPNext's pushes never become counts automatically"; the item is counted on a count sheet).
  *   dismiss()  nothing is booked; the row is dismissed with the note.
  *
+ * "Confirm all ready" (the owner, 31 Oct 2026; docs/decisions.md CA1-CA12): readiness() splits the open rows into READY (why() null) and
+ * Needs a look (the first rule of NOT_READY that applies, read from effect() and facts()); confirmAll() confirms the ids of its check page
+ * one by one through confirm() with $whenReady, which checks the same rules again under the row's and the balance's locks, so a press books
+ * exactly what one-by-one confirms would book, and nothing that changed meanwhile.
+ *
  * Who: queues.corrections (the stock controller), re-read inside the transaction. The queue row is locked first, then the booking's
  * balance and the feed clock.
  */
@@ -43,6 +48,19 @@ final class Corrections
     public const SOURCE = RelayIntake::SOURCE_RECONCILIATION;
     /** The Idempotency-Key of a confirmation (and of the adjustment it books): KEY . <count_review id> (the rollback file knows them by it). */
     public const KEY = 'queue:correction:';
+    /** The most open corrections Confirm all reads and confirms in one press, the oldest first; the rest wait for the next press (CA6). */
+    public const BULK_MAX = 500;
+    /** The longest one press confirms for, in seconds (the UI pool stops a page at 50): the rest are left as "not reached" (CA6). */
+    public const BULK_SECONDS = 25;
+    /** The setting of the big-change rule (0054; CA3), and what is used while it is not there yet. */
+    public const BIG_SETTING = 'relay.correction_bulk_max_units';
+    public const BIG_DEFAULT = 100;
+    /** Why an open correction needs a look (CA2), in the order they are checked: the first that applies is its reason (why()). */
+    public const NOT_READY = ['counted', 'newer', 'big', 'below_zero', 'variants', 'fixed'];
+    /** The doc_ref of the one-time stock fix (cw_listening_fix.php: listening-fix:<channel>:<date>, its undo <that>:undo). */
+    public const FIX_PREFIX = 'listening-fix:';
+    /** The audit row of one press of Confirm all (CA7): the done page reads it. */
+    public const RUN_ACTION = 'count_review.confirm_all';
 
     public function __construct(private readonly Db $db)
     {
@@ -141,15 +159,21 @@ final class Corrections
         return $out;
     }
 
-    /** @return array{result: string, delta: int, replayed: bool} */
-    public function confirm(Caller $caller, int $id, string $note): array
+    /**
+     * $whenReady (Confirm all, CA5): the row must still be READY (why() null) on what its item holds now, read under the row's and the
+     * balance's locks after the checks above; otherwise 409 not_ready (its reason in the detail) and nothing is booked or stored, so the key
+     * stays free for a person's answer. Everything else (the key, the request it stores, the booking, the audit rows) is one-by-one's.
+     *
+     * @return array{result: string, delta: int, replayed: bool}
+     */
+    public function confirm(Caller $caller, int $id, string $note, bool $whenReady = false): array
     {
         $note = QueueRules::note($note);
         // Who first (and again inside): a person without the job hears that, not what the key stored for someone else's answer.
         QueueRules::authorise($this->db, $caller, self::PERM);
         $key = self::KEY . $id;
         $r = (new Idempotency($this->db))->run($caller, $key, 'queue.correction.confirm', '/ui/queues/corrections/' . $id, ['id' => $id, 'note' => $note],
-            self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $note, $key): OpResult {
+            self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $note, $key, $whenReady): OpResult {
                 QueueRules::authorise($db, $caller, self::PERM);
                 $row = QueueRules::lockOpen($db, self::TABLE, $id, 'source = ?', [self::SOURCE]);
                 $d = json_decode((string) ($row['detail'] ?? '{}'), true);
@@ -166,6 +190,12 @@ final class Corrections
                 $e = $this->effect((int) $row['warehouse_id'], (int) $row['sku_id'], (int) $row['proposed_qty'], $at, null, $id);
                 if ($e['newer']) {
                     throw new CwException('newer_correction', 'a newer ERPNext correction of this item was confirmed already: this one is out of date, close it', 409);
+                }
+                if ($whenReady) {
+                    $why = self::why($at, $e, self::facts($db, [$row])[$id], self::bigLimit(new Settings($db)));
+                    if ($why !== null) {
+                        throw new CwException('not_ready', "this correction needs a look now ({$why['code']}): answer it on its own", 409, ['reason' => $why]);
+                    }
                 }
                 QueueRules::settle($db, $caller, self::TABLE, $id, 'resolved', $e['delta'] === 0 ? 'no_difference' : 'booked', $note);
                 $onHand = null;
@@ -199,6 +229,173 @@ final class Corrections
             QueueRules::settle($db, $caller, self::TABLE, $id, 'dismissed', 'dismissed', $note);
             Audit::write($db, $caller, 'count_review.dismiss', self::TABLE, (string) $id, null, ['ref' => $row['ref'], 'units' => (int) $row['proposed_qty'], 'note' => $note]);
         });
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // "Confirm all ready" (docs/decisions.md CA1-CA12)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The open corrections, oldest first (at most BULK_MAX), each a list() row with `why`: null when it is READY for Confirm all, else the
+     * first rule of NOT_READY that applies (why()). The list, the check page and the press itself (after its run) read it; at booking time
+     * confirm() reads the same facts again for the one row, under its locks.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function readiness(int $limit = self::BULK_MAX): array
+    {
+        $units = self::bigLimit(new Settings($this->db));
+        $rows = $this->list('open', max(1, min($limit, self::BULK_MAX)));
+        $facts = self::facts($this->db, $rows);
+        foreach ($rows as &$r) {
+            $r['why'] = self::why((string) $r['at'], $r['effect'], $facts[(int) $r['id']], $units);
+        }
+        unset($r);
+        return $rows;
+    }
+
+    /** The big-change limit of Confirm all (relay.correction_bulk_max_units; BIG_DEFAULT while the setting is not there or not set). */
+    public static function bigLimit(Settings $settings): int
+    {
+        $v = $settings->has(self::BIG_SETTING) ? $settings->get(self::BIG_SETTING) : null;
+        return is_int($v) && $v >= 0 ? $v : self::BIG_DEFAULT;
+    }
+
+    /**
+     * Whether an open correction made at $at is READY for Confirm all (null), else why it needs a look (CA2): the FIRST of these that
+     * applies, in this order (NOT_READY):
+     *   counted     counted on the shelf after ERPNext set it (stock_balance.counted_at later than $at): what confirm() refuses (newer_count)
+     *   newer       a newer ERPNext correction of the item was confirmed already (effect()['newer']): what confirm() refuses
+     *   big         it adds or takes off more than $limit units (relay.correction_bulk_max_units)
+     *   below_zero  the item's on hand now plus what confirming books is below zero
+     *   variants    the store links 2 or more of its website products to the item: ERPNext set only one of them
+     *   fixed       a one-time stock fix (FIX_PREFIX) was booked for the item at that place after $at: confirming would book its units again
+     * Nothing else: a correction with no difference is ready (it closes as "no difference", as one by one).
+     *
+     * @param array{delta: int, newer: bool} $effect effect() of the correction
+     * @param array{on_hand: int, counted_at: ?string, links: int, fix_at: ?string} $facts facts() of the correction
+     * @return array{code: string, delta?: int, limit?: int, after?: int, links?: int, fix_at?: string}|null
+     */
+    public static function why(string $at, array $effect, array $facts, int $limit): ?array
+    {
+        $delta = (int) $effect['delta'];
+        return match (true) {
+            $facts['counted_at'] !== null && $facts['counted_at'] > $at => ['code' => 'counted'],
+            (bool) $effect['newer'] => ['code' => 'newer'],
+            abs($delta) > $limit => ['code' => 'big', 'delta' => $delta, 'limit' => $limit],
+            $facts['on_hand'] + $delta < 0 => ['code' => 'below_zero', 'after' => $facts['on_hand'] + $delta],
+            $facts['links'] >= 2 => ['code' => 'variants', 'links' => $facts['links']],
+            $facts['fix_at'] !== null && $facts['fix_at'] > $at => ['code' => 'fixed', 'fix_at' => $facts['fix_at']],
+            default => null,
+        };
+    }
+
+    /**
+     * What the rules of Needs a look read besides effect(), for some corrections (rows with id, warehouse_id, sku_id and detail, as list()
+     * and lockOpen give them), by id: the item's balance at the correction's place now (on hand; when it was last counted there), how many
+     * website products of the correction's store are linked to the item (any store's when the correction names none: the safe side), and
+     * when a one-time stock fix was last booked for the item at that place (an on-hand adjustment whose doc_ref starts with FIX_PREFIX).
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array<int, array{on_hand: int, counted_at: ?string, links: int, fix_at: ?string}>
+     */
+    public static function facts(Db $db, array $rows): array
+    {
+        $out = [];
+        foreach (array_chunk($rows, 200) as $chunk) {
+            $pairs = [];
+            $skus = [];
+            foreach ($chunk as $r) {
+                $pairs[(int) $r['warehouse_id'] . ':' . (int) $r['sku_id']] = [(int) $r['warehouse_id'], (int) $r['sku_id']];
+                $skus[(int) $r['sku_id']] = (int) $r['sku_id'];
+            }
+            $in = implode(', ', array_fill(0, count($pairs), '(?, ?)'));
+            $flat = array_merge(...array_values($pairs));
+            $balance = [];
+            foreach ($db->all("SELECT warehouse_id, sku_id, on_hand, counted_at FROM stock_balance WHERE (warehouse_id, sku_id) IN ({$in})", $flat) as $b) {
+                $balance[(int) $b['warehouse_id'] . ':' . (int) $b['sku_id']] = $b;
+            }
+            $links = [];
+            foreach ($db->all('SELECT channel_id, sku_id, COUNT(*) AS n FROM channel_listing WHERE sku_id IN (' . implode(', ', array_fill(0, count($skus), '?'))
+                . ') GROUP BY channel_id, sku_id', array_values($skus)) as $l) {
+                $links[(int) $l['sku_id']][(int) $l['channel_id']] = (int) $l['n'];
+            }
+            $fixed = [];
+            foreach ($db->all('SELECT warehouse_id, sku_id, MAX(created_at) AS at FROM stock_ledger FORCE INDEX (ix_stock_ledger_balance) '
+                . "WHERE (warehouse_id, sku_id) IN ({$in}) AND bucket = 'on_hand' AND movement_type = 'adjustment' AND doc_ref LIKE ? GROUP BY warehouse_id, sku_id",
+                [...$flat, self::FIX_PREFIX . '%']) as $f) {
+                $fixed[(int) $f['warehouse_id'] . ':' . (int) $f['sku_id']] = (string) $f['at'];
+            }
+            foreach ($chunk as $r) {
+                $k = (int) $r['warehouse_id'] . ':' . (int) $r['sku_id'];
+                $detail = is_array($r['detail'] ?? null) ? $r['detail'] : [];
+                $channel = $detail['channel_id'] ?? null;
+                $bySku = $links[(int) $r['sku_id']] ?? [];
+                $out[(int) $r['id']] = [
+                    'on_hand' => (int) ($balance[$k]['on_hand'] ?? 0),
+                    'counted_at' => isset($balance[$k]['counted_at']) ? (string) $balance[$k]['counted_at'] : null,
+                    'links' => is_int($channel) || (is_string($channel) && ctype_digit($channel)) ? (int) ($bySku[(int) $channel] ?? 0) : array_sum($bySku),
+                    'fix_at' => $fixed[$k] ?? null,
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * One press of "Confirm all ready" (CA5-CA7): each id of the check page, in its order, confirmed exactly as one by one (confirm(): the
+     * same caller, key, request, ledger line and audit rows) when it is still READY at that moment, under its locks ($whenReady). Any refusal
+     * (it changed: counted, confirmed or closed by someone, a rule applies now) leaves it for a person, nothing of it booked, and one failure
+     * never stops the rest. After $maxIds ids, or once $maxSeconds have gone, the rest are left as "not reached: run it again". A second
+     * press of the same page books nothing again: each id's key replays its first answer. The open corrections that need a look now are
+     * listed after them, and the press is ONE audit row (RUN_ACTION, by this person: the note, the counts, the ids confirmed and the ones
+     * left with why), whose id is the done page's.
+     *
+     * @param list<int> $ids
+     * @return array{run: int, confirmed: list<int>, left: list<array{id: int, why: array<string, mixed>}>}
+     */
+    public function confirmAll(Caller $caller, array $ids, string $note, int $maxIds = self::BULK_MAX, float $maxSeconds = self::BULK_SECONDS): array
+    {
+        $note = QueueRules::note($note);
+        QueueRules::authorise($this->db, $caller, self::PERM);
+        $started = hrtime(true);
+        $confirmed = [];
+        $replayed = [];
+        $left = [];
+        $booked = 0;
+        $added = 0;
+        $taken = 0;
+        foreach (array_values(array_unique(array_map('intval', $ids))) as $i => $id) {
+            if ($i >= $maxIds || (hrtime(true) - $started) / 1e9 >= $maxSeconds) {
+                $left[] = ['id' => $id, 'why' => ['code' => 'not_reached']];
+                continue;
+            }
+            try {
+                $r = $this->confirm($caller, $id, $note, true);
+            } catch (\RuntimeException $e) {
+                // CwException (a refusal) or a database failure of this one (a deadlock given up): left and listed, the rest go on.
+                $now = $e instanceof CwException && is_array($e->detail['reason'] ?? null) ? ['now' => $e->detail['reason']] : [];
+                $left[] = ['id' => $id, 'why' => ['code' => 'changed', 'error' => $e instanceof CwException ? $e->errorCode : 'failed'] + $now];
+                continue;
+            }
+            $confirmed[] = $id;
+            if ($r['replayed']) {
+                $replayed[] = $id;
+                continue;
+            }
+            $booked += $r['delta'] === 0 ? 0 : 1;
+            $added += max(0, $r['delta']);
+            $taken += max(0, -$r['delta']);
+        }
+        $listed = array_column($left, 'id');
+        foreach ($this->readiness() as $r) {
+            if ($r['why'] !== null && !in_array((int) $r['id'], $listed, true)) {
+                $left[] = ['id' => (int) $r['id'], 'why' => $r['why']];
+            }
+        }
+        Audit::write($this->db, $caller, self::RUN_ACTION, self::TABLE, null, null, ['note' => $note, 'asked' => count($ids), 'confirmed' => $confirmed,
+            'replayed' => $replayed, 'booked' => $booked, 'units_added' => $added, 'units_taken' => $taken, 'left' => $left]);
+        return ['run' => (int) $this->db->value('SELECT LAST_INSERT_ID()'), 'confirmed' => $confirmed, 'left' => $left];
     }
 
     /** The moment ERPNext set the number: the relayed posted_at, else when CW received it (the database's form). @param array<string, mixed> $row */

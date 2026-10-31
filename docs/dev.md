@@ -1241,3 +1241,20 @@ every other Items and Inventory page. Layout and view data only.
 
 - CSS: after the rd2c Home block of `app.css` (`.hm-tabs`, `.hm-check`, `.hm-job*`, `.hm-box`, `.hm-urgent`, `details.hm-fold`; the phone at 600 px).
 - A new Home job: its words with a `line` in `Words::TASK`, its `RANK`, its `GROUP` (the section of the page it opens; `HomeTasksTest` checks it).
+
+### "Confirm all ready" for ERPNext corrections (`docs/decisions.md` CA1-CA12; the owner, 31 Oct 2026)
+
+| Path | What |
+|---|---|
+| `src/Queues/Corrections.php` | `readiness()` (open rows + `why`), `why()` (the rules in order, `NOT_READY`), `facts()`, `bigLimit()`, `confirmAll()` (one press: `confirm(..., whenReady: true)` per id, `BULK_MAX`, `BULK_SECONDS`, ONE `RUN_ACTION` audit row); `confirm()`'s `$whenReady` |
+| `src/Ui/Controller/StoreQueuesController.php` | `GET/POST /ui/queues/corrections/confirm-all`, `GET .../confirm-all/{id}` (`confirmAllCheck`, `confirmAllRun`, `confirmAllDone`); `confirmAllLine()`, `confirmAllWhy()`, `confirmAllRules()` |
+| `src/Ui/Controller/InboxController.php` | `correctionsSplit()` when `?show=corrections`: the two groups, `confirmAll` (the button), `split` (the board's panel until a row is opened) |
+| views `approvals_inbox`, `approvals_show` (`a.btn.ok.ap-confirm-all`), `approvals_split` (`article.card.ap-split`), `confirm_all` (`div.ca-page`, `section.card.ca-lines` > `div.ca-line` > `span.ca-dot.<tone>` + `span.ca-text` + `span.ca-fig`, `div.ca-says`, `form.ca-form`, `p.ca-actions`), `confirm_all_done` (`p.ca-status`, `section.card.ca-left` > `ul.ca-rows` > `li` > `span.ca-what` (`span.ca-t`, `span.ca-why`) + `a.ca-open`, `p.ca-saved`) | |
+| `src/Ui/Words.php` | `CONFIRM_ALL` (groups, lines, `why_<code>`, `rule_<code>`, the check and done pages), `QUEUE_ERROR not_ready`, `AUDIT_ACTION count_review.confirm_all`, `SETTING` / `SETTING_HELP relay.correction_bulk_max_units` |
+| `migrations/0054_correction_bulk_max_units.sql` | the setting `relay.correction_bulk_max_units` (100) and its baseline |
+
+- CSS: the "ca" block at the end of `app.css` (the phone at 600 px).
+- A new rule of Needs a look: its code in `Corrections::NOT_READY` at its place, its test in `why()`, its fact in `facts()` (read for many rows
+  at once, and for one row under its locks), its `why_<code>` and `rule_<code>` words; `ConfirmAllUnitTest` checks every code has both.
+- Tests: `tests/Unit/ConfirmAllUnitTest.php`, `tests/Integration/Queues/ConfirmAllTest.php`, `tests/Integration/Queues/Migration0054Test.php`,
+  `tests/Integration/UiKernel/ConfirmAllScreensTest.php`.
