@@ -39,8 +39,8 @@
 <?php elseif ($type === 'bool'): ?>
     <fieldset>
       <legend><?= $word('SETTING_EDIT', 'value') ?></legend>
-      <label class="choice"><input type="radio" name="value" value="true"<?php if ($raw === 'true'): ?> checked<?php endif; ?>> <?= $word('CONFIG', 'yes') ?></label>
-      <label class="choice"><input type="radio" name="value" value="false"<?php if ($raw !== 'true'): ?> checked<?php endif; ?>> <?= $word('CONFIG', 'no') ?></label>
+      <label class="choice"><input type="radio" name="value" value="true"<?php if ($raw === 'true'): ?> checked<?php endif; ?>> <?= $e($yesWord) ?></label>
+      <label class="choice"><input type="radio" name="value" value="false"<?php if ($raw !== 'true'): ?> checked<?php endif; ?>> <?= $e($noWord) ?></label>
     </fieldset>
 <?php elseif ($type === 'text'): ?>
     <label><?= $word('SETTING_EDIT', 'value') ?>

@@ -344,7 +344,10 @@ final class StoreQueuesController
     public function confirmAllDone(Context $ctx): HtmlResponse
     {
         $run = (new Corrections($ctx->db))->run($ctx->id());
-        if ($run === null || $run['staff_user_id'] !== $ctx->me()->id) {
+        // A person's press is its presser's; a nightly run (no person) is everyone's who answers ERPNext corrections (the route's
+        // permission; docs/decisions.md NC9). Anyone else: 404, the same as no such press.
+        $nightly = $run !== null && $run['staff_user_id'] === null && $run['actor'] === 'system:' . Corrections::NIGHTLY_JOB;
+        if ($run === null || (!$nightly && $run['staff_user_id'] !== $ctx->me()->id)) {
             return $ctx->error(404, 'not_found', Words::error('not_found'), [Html::url(InboxController::PATH, ['show' => 'corrections']), Words::CONFIRM_ALL['back_list']]);
         }
         $left = $run['left'];
@@ -364,7 +367,8 @@ final class StoreQueuesController
             'confirmed' => count($run['confirmed']),
             'stopped' => $run['state'] === 'stopped',
             'left' => $rows,
-            'saved' => Words::say('CONFIRM_ALL', 'saved', Words::AUDIT_ACTION[Corrections::RUN_ACTION], Html::when((string) $run['created_at']), $ctx->me()->displayName),
+            'saved' => Words::say('CONFIRM_ALL', 'saved', Words::AUDIT_ACTION[Corrections::RUN_ACTION], Html::when((string) $run['created_at']),
+                $nightly ? Words::CONFIRM_ALL['by_night'] : $ctx->me()->displayName),
             'back' => Html::url(InboxController::PATH, ['show' => 'corrections']),
         ], 200, ['title' => Words::CONFIRM_ALL['done_title']]);
     }

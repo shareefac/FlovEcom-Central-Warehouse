@@ -1259,3 +1259,19 @@ every other Items and Inventory page. Layout and view data only.
   at once, and for one row under its locks), its `why_<code>` and `rule_<code>` words; `ConfirmAllUnitTest` checks every code has both.
 - Tests: `tests/Unit/ConfirmAllUnitTest.php`, `tests/Integration/Queues/ConfirmAllTest.php`, `tests/Integration/Queues/Migration0054Test.php`,
   `tests/Integration/UiKernel/ConfirmAllScreensTest.php`.
+
+### The nightly Confirm all (`docs/decisions.md` NC1-NC12; the owner, 1 Nov 2026)
+
+| Path | What |
+|---|---|
+| `src/Queues/NightlyConfirm.php` | `tick()` (off / outside / busy / done / ran), `night()` (the window in UK time), `lockName()`, `settings()`, `runOf()`, `lastRun()`, `note()`, `line()` (the log line) |
+| `src/Queues/Corrections.php` | `confirmNightly()` (the job's press: `NIGHTLY_JOB`, `NIGHTLY_SWITCH`, `NIGHTLY_SECONDS`), `isNightly()`, `authorise()` (the job's caller only inside `confirmNightly()`), `press()` (Confirm all's body, the run row's entity), `run()`'s `actor` and `night` |
+| `bin/confirm_corrections_nightly.php`, `deploy/{staging,production}/*.cron` | the job and its cron line, every five minutes |
+| `migrations/0055_nightly_confirm.sql` | `relay.nightly_confirm` (OFF), `relay.nightly_confirm_at` (04:30), `relay.nightly_confirm_max` (500) and their baselines |
+| `src/Ui/Controller/ReferenceController.php`, views `settings` (`section.card.nc-last` > `span.nc-dot`, `span.nc-text`, `a.nc-open`, `span.nc-next`), `setting` | the Last night line; a switch's own words (`Words::SETTING_BOOL`, `Words::settingBool()`) |
+| `src/Ui/Controller/StoreQueuesController.php` | a nightly run's done page for every holder of queues.corrections (`CONFIRM_ALL by_night`) |
+| `src/Ui/Words.php` | `NIGHTLY`, `SETTING_BOOL`, the four rows' `SETTING` / `SETTING_HELP` |
+
+- CSS: the "nc" block at the end of `app.css`.
+- Tests: `tests/Unit/NightlyConfirmUnitTest.php`, `tests/Integration/Queues/NightlyConfirmTest.php`, `tests/Integration/Queues/Migration0055Test.php`,
+  `tests/Integration/UiKernel/NightlyConfirmScreensTest.php`.

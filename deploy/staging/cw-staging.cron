@@ -58,3 +58,9 @@ MAILTO=""
 # invoice, listed on Purchasing > Invoices > Timed and named by the alerts (health_alert), and not tried again until its time is set
 # again. Exit 1 = some failed.
 * * * * *  root  cd /opt/cw-staging && php bin/submit_invoices.php --db=cw_staging >> /var/log/cw/submit_invoices.log 2>&1
+
+# ---- The nightly Confirm all (docs/decisions.md NC1-NC12) ----
+# Every five minutes, and it does something only while the setting relay.nightly_confirm is on (OFF until a person switches it on), inside
+# the hour from relay.nightly_confirm_at (UK time, whatever the server's zone), once a night: the ready ERPNext corrections confirmed as
+# "Confirm all ready" does, at most relay.nightly_confirm_max; the doubtful ones wait in Approvals. Never run by the installer (it books).
+*/5 * * * *  root  cd /opt/cw-staging && php bin/confirm_corrections_nightly.php --db=cw_staging >> /var/log/cw/confirm_corrections_nightly.log 2>&1

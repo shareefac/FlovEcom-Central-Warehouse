@@ -3478,3 +3478,17 @@ a.ca-open { flex: none; display: inline-flex; align-items: center; min-height: 3
   .ca-actions > .btn { flex: 1 1 auto; }
 }
 /* ==== end ca ================================================================================================================================ */
+/* ==== nc: the nightly Confirm all on Settings > Rules and numbers (docs/decisions.md NC8; NightlyConfirm.dc.html of 1 Nov 2026) =========
+   The "Last night" line above the search: a white card (16 px corners, 16 by 20 px), a 10 px dot (green while the switch is on, grey off),
+   the line in ink with its lead in bold, the done page's link at the right (13 px, semi-bold), the next run on a line of its own (13 px,
+   muted). On a phone the link is a 44 px target and the words wrap. */
+section.card.nc-last { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin: 0 0 16px; padding: 16px 20px; border-radius: var(--r-16); }
+.nc-dot { flex: none; width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--t-fill, var(--st-grey)); }
+.nc-text { flex: 1 1 320px; min-width: 0; color: var(--ink); font: 400 14px/20px var(--font); overflow-wrap: anywhere; }
+a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 32px; font: 600 13px/18px var(--font); text-decoration: none; }
+.nc-next { flex-basis: 100%; color: var(--ink-muted); font: 400 13px/20px var(--font); }
+@media (max-width: 600px) {
+  section.card.nc-last { padding: 14px 16px; }
+  a.nc-open { min-height: 44px; }
+}
+/* ==== end nc ================================================================================================================================ */

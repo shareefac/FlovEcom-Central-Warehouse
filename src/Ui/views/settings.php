@@ -5,7 +5,9 @@
 // History), what it does, "Not agreed yet" while the owner has not said yes, who changed it last; at the right its value. For whoever
 // changes settings a simple value is a box in the row with its unit, a reason and a plain Save that saves that setting alone (its own
 // route and fields; the row's Save never changes "agreed"); a list, a long text or a hidden value has "Change" to its page. The VAT codes
-// last (read only), then the one line that says each change is kept.
+// last (read only), then the one line that says each change is kept. Above the search (NightlyConfirm.dc.html; docs/decisions.md NC8): the
+// "Last night" line of the nightly Confirm all (off: it says so; on: last night's run, linked to its done page for who may open it, and the
+// next run).
 ?>
 <?= $head(\CW\Ui\Words::SETTINGS_PAGE['title'], intro: 'settings', look: $lookOnly) ?>
 <div class="set-shell">
@@ -16,6 +18,18 @@
   <p class="alert-title"><?= $say('SETTINGS_PAGE', 'code_off', \CW\Ui\Html::when($codeOffUntil)) ?></p>
   <p><a href="<?= $u('/ui/reference/settings/setting', ['key' => \CW\Auth\SecondStep::SETTING]) ?>"><?= $word('SETTINGS_PAGE', 'code_off_open') ?></a></p>
 </div>
+<?php endif; ?>
+<?php if ($q === ''): ?>
+<section class="card nc-last" aria-label="<?= $word('NIGHTLY', 'label') ?>">
+  <span class="nc-dot <?= $e($nightly['tone']) ?>" aria-hidden="true"></span>
+  <span class="nc-text"><?php if ($nightly['lead'] !== null): ?><strong><?= $e($nightly['lead']) ?></strong> <?php endif; ?><?= $e($nightly['text']) ?></span>
+<?php if ($nightly['href'] !== null): ?>
+  <a class="nc-open" href="<?= $u($nightly['href']) ?>"><?= $e($nightly['link']) ?></a>
+<?php endif; ?>
+<?php if ($nightly['next'] !== null): ?>
+  <span class="nc-next"><?= $e($nightly['next']) ?></span>
+<?php endif; ?>
+</section>
 <?php endif; ?>
 <form class="toolbar" method="get" action="/ui/reference/settings" aria-label="<?= $word('SETTINGS_PAGE', 'find') ?>"<?php if ($canChange): ?> data-leaves="1"<?php endif; ?>>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('SETTINGS_PAGE', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('SETTINGS_PAGE', 'find') ?>"></div>
@@ -67,8 +81,8 @@
       <label class="visually-hidden" for="v-<?= $e($s['key']) ?>"><?= $word('SETTINGS_PAGE', 'new_value') ?></label>
 <?php if ($s['type'] === 'bool'): ?>
       <select id="v-<?= $e($s['key']) ?>" name="value">
-        <option value="true"<?php if ($s['raw'] === 'true'): ?> selected<?php endif; ?>><?= $word('SETTINGS_PAGE', 'yes') ?></option>
-        <option value="false"<?php if ($s['raw'] !== 'true'): ?> selected<?php endif; ?>><?= $word('SETTINGS_PAGE', 'no') ?></option>
+        <option value="true"<?php if ($s['raw'] === 'true'): ?> selected<?php endif; ?>><?= $e($s['yes']) ?></option>
+        <option value="false"<?php if ($s['raw'] !== 'true'): ?> selected<?php endif; ?>><?= $e($s['no']) ?></option>
       </select>
 <?php elseif ($s['type'] === 'date'): ?>
       <input id="v-<?= $e($s['key']) ?>" type="date" name="value" value="<?= $e($s['raw']) ?>">

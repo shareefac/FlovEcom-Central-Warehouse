@@ -8,6 +8,8 @@ use CW\Admin\ApprovalRules;
 use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
+use CW\Queues\Corrections;
+use CW\Queues\NightlyConfirm;
 use CW\Settings;
 use CW\Ui\ConfigWords;
 use CW\Ui\Context;
@@ -145,12 +147,15 @@ final class ReferenceController
                 'type' => $type,
                 'inline' => $inline,
                 'raw' => is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value),
+                // A switch's two words (On / Off for the nightly Confirm all, docs/decisions.md NC8; else Yes / No).
+                'yes' => Words::settingBool($key, true),
+                'no' => Words::settingBool($key, false),
                 'seen' => (int) $s['version'],
                 'unit' => self::unit($key, $type),
                 // Who changed it last, under what it does; a value as it was set up says nothing (its page's History has it all).
                 'changed_shown' => !in_array($actor, ['system:migrate', 'system:history'], true),
                 'value' => match (true) {
-                    is_bool($value) => Words::SETTINGS_PAGE[$value ? 'yes' : 'no'],
+                    is_bool($value) => Words::settingBool($key, $value),
                     is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                     $value === null, $value === '' => null,
                     default => (string) $s['display'],
@@ -190,7 +195,40 @@ final class ReferenceController
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::CONFIG['look_only'],
             // 2-step verification switched off for a while (auth.totp_off_until, TF5): a warning at the top while it is.
             'codeOffUntil' => $ctx->codeOffUntil(),
+            'nightly' => self::lastNight($ctx),
         ], 200, ['title' => Words::SETTINGS_PAGE['title'], 'active' => 'settings']);
+    }
+
+    /**
+     * The "Last night" line at the top of Rules and numbers (NightlyConfirm.dc.html; docs/decisions.md NC8): off, it says so; on, the latest
+     * nightly run (its UK time, what it confirmed and left; "Last night" when it is the last night's, else "Last run" with its day), its done
+     * page linked for whoever may open it (queues.corrections), and the next run.
+     *
+     * @return array{tone: string, lead: ?string, text: string, href: ?string, link: ?string, next: ?string}
+     */
+    private static function lastNight(Context $ctx): array
+    {
+        $nightly = new NightlyConfirm($ctx->db);
+        $set = $nightly->settings();
+        if (!$set['on']) {
+            return ['tone' => 'waiting', 'lead' => null, 'text' => Words::NIGHTLY['off'], 'href' => null, 'link' => null, 'next' => null];
+        }
+        $next = sprintf(Words::NIGHTLY['next'], $set['at']);
+        $run = $nightly->lastRun();
+        if ($run === null) {
+            return ['tone' => 'done', 'lead' => null, 'text' => Words::NIGHTLY['none'], 'href' => null, 'link' => null, 'next' => $next];
+        }
+        $uk = new \DateTimeZone(NightlyConfirm::UK);
+        $today = new \DateTimeImmutable('now', $uk);
+        $last = in_array($run['night'], [$today->format('Y-m-d'), $today->modify('-1 day')->format('Y-m-d')], true);
+        $at = \CW\Clock::fromDb((string) $run['created_at'])->setTimezone($uk);
+        $confirmed = count($run['confirmed']);
+        $text = ($confirmed === 1 ? sprintf(Words::NIGHTLY['counts_one'], number_format(count($run['left'])))
+            : sprintf(Words::NIGHTLY['counts'], number_format($confirmed), number_format(count($run['left'])))) . ($run['state'] === 'stopped' ? ' ' . Words::NIGHTLY['stopped'] : '');
+        $may = $ctx->me()->can(Corrections::PERM);
+        return ['tone' => 'done', 'lead' => $last ? sprintf(Words::NIGHTLY['last'], $at->format('H:i')) : sprintf(Words::NIGHTLY['last_run'], Html::when((string) $run['created_at'])),
+            'text' => $text, 'href' => $may ? '/ui/queues/corrections/confirm-all/' . (int) $run['id'] : null, 'link' => $may ? Words::NIGHTLY[$last ? 'open' : 'open_run'] : null,
+            'next' => $next];
     }
 
     /**

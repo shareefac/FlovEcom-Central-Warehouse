@@ -92,6 +92,10 @@ final class Corrections
     public const RUN_ACTION = 'count_review.confirm_all';
     /** The audit row of the end of a press, written after its last id (entity count_review, id "confirm_all:<run>"; CA15). */
     public const RUN_END_ACTION = 'count_review.confirm_all_end';
+    /** The nightly Confirm all (docs/decisions.md NC1-NC12): its job's own system caller, its switch, and how long one night's press may take. */
+    public const NIGHTLY_JOB = 'confirm_nightly';
+    public const NIGHTLY_SWITCH = 'relay.nightly_confirm';
+    public const NIGHTLY_SECONDS = 240;
 
     /** @var \Closure(): float seconds (a press's deadline; tests move it) */
     private \Closure $clock;
@@ -101,6 +105,8 @@ final class Corrections
     private ?float $deadline = null;
     private int $bulkWait = self::BULK_LOCK_WAIT;
     private ?int $press = null;
+    /** True only while confirmNightly() runs: the one way the nightly job's caller is let through (authorise(); NC4). */
+    private bool $nightly = false;
 
     /** @param (\Closure(): float)|null $clock seconds, for the press's deadline (default: the monotonic clock) */
     public function __construct(private readonly Db $db, ?\Closure $clock = null)
@@ -306,7 +312,7 @@ final class Corrections
     {
         $note = QueueRules::note($note);
         // Who first (and again inside): a person without the job hears that, not what the key stored for someone else's answer.
-        QueueRules::authorise($this->db, $caller, self::PERM);
+        $this->authorise($this->db, $caller);
         $key = self::KEY . $id;
         // The press this confirmation belongs to (CA22): marked on what it books, never part of the key's request (a replay still matches).
         $press = $this->press;
@@ -320,7 +326,7 @@ final class Corrections
                     }
                     $db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
                 }
-                QueueRules::authorise($db, $caller, self::PERM);
+                $this->authorise($db, $caller);
                 $row = QueueRules::lockOpen($db, self::TABLE, $id, 'source = ?', [self::SOURCE]);
                 $d = json_decode((string) ($row['detail'] ?? '{}'), true);
                 $row['detail'] = is_array($d) ? $d : [];
@@ -541,13 +547,73 @@ final class Corrections
     public function confirmAll(Caller $caller, array $ids, string $note, int $maxIds = self::BULK_MAX, float $maxSeconds = self::BULK_SECONDS,
         int $lockWait = self::BULK_LOCK_WAIT): array
     {
+        return $this->press($caller, $ids, $note, $maxIds, $maxSeconds, $lockWait, null);
+    }
+
+    /**
+     * The nightly Confirm all's press (docs/decisions.md NC3, NC4; NightlyConfirm::tick() calls it, once a night, under the night's lock):
+     * confirmAll() exactly, as the nightly job's own system caller, with the night's mark on its run row (entity `nightly:<date>`), at most
+     * $maxIds (relay.nightly_confirm_max) within $maxSeconds. Refused (409 nightly_off) while the switch is off; each confirmation reads the
+     * switch again, so switching it off stops the rest of the night ("not reached"). Only here is the job's caller let through (authorise()).
+     *
+     * @param list<int> $ids
+     * @return array{run: int, confirmed: list<int>, left: list<array{id: int, why: array<string, mixed>}>}
+     */
+    public function confirmNightly(string $night, array $ids, string $note, int $maxIds, float $maxSeconds = self::NIGHTLY_SECONDS): array
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $night) !== 1) {
+            throw new \InvalidArgumentException('the night is a date, YYYY-MM-DD');
+        }
+        if (!Settings::flag($this->db, self::NIGHTLY_SWITCH, false)) {
+            throw new CwException('nightly_off', 'the nightly Confirm all is switched off', 409);
+        }
+        $this->nightly = true;
+        try {
+            return $this->press(Caller::system(self::NIGHTLY_JOB), $ids, $note, $maxIds, $maxSeconds, self::BULK_LOCK_WAIT, 'nightly:' . $night);
+        } finally {
+            $this->nightly = false;
+        }
+    }
+
+    /** Whether $caller is the nightly job's own system caller (bin/confirm_corrections_nightly.php), and nobody else. */
+    public static function isNightly(Caller $caller): bool
+    {
+        return $caller->channelId === null && $caller->staffUserId === null && $caller->actor === 'system:' . self::NIGHTLY_JOB
+            && $caller->source === 'system:' . self::NIGHTLY_JOB;
+    }
+
+    /**
+     * Who may confirm (NC4): a person with queues.corrections (QueueRules::authorise: their roles re-read, inside the transaction too); and,
+     * only while confirmNightly() runs, the nightly job's own system caller while the switch is on (read on every call). Any other system
+     * job, a store, and the nightly job's caller anywhere else (one by one, Confirm all, closing: dismiss() asks QueueRules alone) are refused
+     * as before (403 staff_required).
+     */
+    private function authorise(Db $db, Caller $caller): void
+    {
+        if ($this->nightly && self::isNightly($caller)) {
+            if (!Settings::flag($db, self::NIGHTLY_SWITCH, false)) {
+                throw new CwException('nightly_off', 'the nightly Confirm all was switched off', 409);
+            }
+            return;
+        }
+        QueueRules::authorise($db, $caller, self::PERM);
+    }
+
+    /**
+     * One press (confirmAll(), confirmNightly()): the class docblock of confirmAll(); $entity marks the run row (a night's: `nightly:<date>`).
+     *
+     * @param list<int> $ids
+     * @return array{run: int, confirmed: list<int>, left: list<array{id: int, why: array<string, mixed>}>}
+     */
+    private function press(Caller $caller, array $ids, string $note, int $maxIds, float $maxSeconds, int $lockWait, ?string $entity): array
+    {
         $note = QueueRules::note($note);
-        QueueRules::authorise($this->db, $caller, self::PERM);
+        $this->authorise($this->db, $caller);
         $ids = array_values(array_unique(array_map('intval', $ids)));
         $started = ($this->clock)();
         $deadline = $started + $maxSeconds;
         $workUntil = $deadline - self::BULK_FINAL_SECONDS;
-        Audit::write($this->db, $caller, self::RUN_ACTION, self::TABLE, null, null, ['state' => 'running', 'note' => $note, 'asked' => count($ids), 'ids' => $ids]);
+        Audit::write($this->db, $caller, self::RUN_ACTION, self::TABLE, $entity, null, ['state' => 'running', 'note' => $note, 'asked' => count($ids), 'ids' => $ids]);
         $run = (int) $this->db->value('SELECT LAST_INSERT_ID()');
         $confirmed = [];
         $replayed = [];
@@ -577,7 +643,7 @@ final class Corrections
                     // deadlock given up, a statement that failed): its own transaction rolled it back whole; it is left, the rest go on.
                     $code = $e instanceof CwException ? $e->errorCode : 'failed';
                     $now = $e instanceof CwException && is_array($e->detail['reason'] ?? null) ? ['now' => $e->detail['reason']] : [];
-                    $left[] = ['id' => $id, 'why' => ['code' => $code === 'out_of_time' ? 'not_reached' : 'changed', 'error' => $code] + $now];
+                    $left[] = ['id' => $id, 'why' => ['code' => in_array($code, ['out_of_time', 'nightly_off'], true) ? 'not_reached' : 'changed', 'error' => $code] + $now];
                     continue;
                 } finally {
                     $this->deadline = null;
@@ -636,20 +702,24 @@ final class Corrections
      * (count_review.detail.booked.run, written in the booking's transaction), the rest "not reached, or answered elsewhere". null: no such
      * press.
      *
-     * @return array{id: int, staff_user_id: ?int, created_at: string, state: string, note: string, asked: int, confirmed: list<int>, replayed: list<int>,
+     * `actor` is who pressed (a person's staff:<id>, or the nightly job's system:confirm_nightly), `night` the night of a nightly run (NC3).
+     *
+     * @return array{id: int, actor: string, staff_user_id: ?int, night: ?string, created_at: string, state: string, note: string, asked: int, confirmed: list<int>, replayed: list<int>,
      *               booked: int, units_added: int, units_taken: int, left: list<array{id: int, why: array<string, mixed>}>}|null
      */
     public function run(int $runId): ?array
     {
-        $start = $this->db->one('SELECT id, staff_user_id, CAST(detail AS CHAR) AS detail, created_at FROM audit_log WHERE id = ? AND action = ?', [$runId, self::RUN_ACTION]);
+        $start = $this->db->one('SELECT id, actor, staff_user_id, entity_id, CAST(detail AS CHAR) AS detail, created_at FROM audit_log WHERE id = ? AND action = ?',
+            [$runId, self::RUN_ACTION]);
         if ($start === null) {
             return null;
         }
         $ints = static fn (mixed $v): array => is_array($v) ? array_values(array_map('intval', array_filter($v, 'is_numeric'))) : [];
         $s = json_decode((string) $start['detail'], true);
         $s = is_array($s) ? $s : [];
-        $out = ['id' => $runId, 'staff_user_id' => $start['staff_user_id'] === null ? null : (int) $start['staff_user_id'], 'created_at' => (string) $start['created_at'],
-            'note' => (string) ($s['note'] ?? ''), 'asked' => (int) ($s['asked'] ?? 0)];
+        $out = ['id' => $runId, 'actor' => (string) $start['actor'], 'staff_user_id' => $start['staff_user_id'] === null ? null : (int) $start['staff_user_id'],
+            'night' => is_string($start['entity_id']) && str_starts_with($start['entity_id'], 'nightly:') ? substr($start['entity_id'], 8) : null,
+            'created_at' => (string) $start['created_at'], 'note' => (string) ($s['note'] ?? ''), 'asked' => (int) ($s['asked'] ?? 0)];
         $end = $this->db->value('SELECT CAST(detail AS CHAR) FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ? ORDER BY id LIMIT 1',
             [self::TABLE, 'confirm_all:' . $runId, self::RUN_END_ACTION]);
         if ($end !== null) {

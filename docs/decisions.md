@@ -15365,3 +15365,87 @@ is a range on `ix_audit_entity`.
 `testEachWaitGetsItsShareOfTheTimeLeft`, `testTheSessionsLockWaitIsGivenBackExactly`, `testRuleFReadsTheLedgerOnlyForCorrectionsMadeBeforeTheLastFix`,
 and the deadline test on a clock the test moves (the number of clock calls per id changed); `QueueListPlansTest` (the last fix's plan);
 `ConfirmAllUnitTest` (the bounds, the new reason's words); `tests/Support/ScriptedStatement.php` (a scripted answer, for the 0 case).
+
+## The nightly Confirm all (branch `nightly-confirm`, 1 Nov 2026; NC1-NC12)
+
+The owner, 1 Nov 2026, after the first press of Confirm all ready in production (02:59 UK: 331 confirmed, the match at 99.55 %): "Make it
+automatic", then on the design (`NightlyConfirm.dc.html`; the canvas note "Every night (owner, 1 Nov)"): "Yes, build it". It books stock in
+production, so every rule below is pinned by a test that failed on 69cba94 (`runs/nc_failfirst_69cba94.log`).
+
+**NC1. What it is.** Once a night, while the switch is on, CW does what a person's "Confirm all ready" does (CA1-CA26): the ready ERPNext
+corrections (the same rules a-f, `Corrections::readiness()`), each through the same gate under its locks (`confirm(..., whenReady)`), within
+a deadline, the doubtful ones left in Approvals for a person. It is `CW\Queues\NightlyConfirm`; its press is `Corrections::confirmNightly()`.
+
+**NC2. Its settings** (0055; Settings > Rules and numbers > Messages from ERPNext, each changed with a reason, its history in config_change,
+"Not agreed yet" until the owner ticks it agreed, as every new setting): `relay.nightly_confirm` "Confirm ready ERPNext corrections every
+night" (On / Off, OFF), `relay.nightly_confirm_at` "Time it runs" (UK time HH:MM, 00:00-23:59, 04:30), the existing
+`relay.correction_bulk_max_units` now named as the board names it, "Big change: leave for a person above" (100; at night and when pressed),
+and `relay.nightly_confirm_max` "At most per night" (500; 1-5000). Each line is the board's. 0055 is safe to run again (as 0054). The code
+reads each with its default while 0055 is not there (off: nothing happens).
+
+**NC3. When it runs** (`NightlyConfirm::tick()`, from `bin/confirm_corrections_nightly.php`, cron every five minutes): only while the switch
+is on (read from the database on every tick, and again on every confirmation, so switching it off stops the rest of the night: "not
+reached"); only inside the night's window, [the time it runs, one hour later), worked out in UK time (`night()`: Europe/London, so across
+the clock change of 25 Oct 04:30 UK is 03:30 UTC the day before and 04:30 UTC that day; in the hour that happens twice the window opens
+once; a window that crosses midnight belongs to the night it started); and only when no nightly run has started for that night: the run row
+of a night carries the night (`entity_id` `nightly:<UK date>`, by audit_log's entity index), looked for and written under the night's named
+lock (`GET_LOCK`, server-wide, freed on disconnect; `lockName()` names the schema), so two starts at once make one run (the other says
+"busy"), a second tick that night says "done already", and a run that stopped half way is not started again that night (the next night
+or a person's press takes the rest). The job's own lock (Ops\Cli, one run of the job per schema) is a second guard.
+
+**NC4. Its caller, and only it.** `confirm()` authorised staff only (QueueRules: 403 staff_required for any system job or store). The
+nightly job has its own system caller, `system:confirm_nightly` (`Corrections::NIGHTLY_JOB`), let through by `Corrections::authorise()` only
+while `confirmNightly()` runs (a flag set there and cleared in its `finally`) and only while the switch is on. The same caller one by one,
+in a person's Confirm all, closing a correction (`dismiss()` asks QueueRules alone), or in another queue, is refused as before; so is
+every other system job and every store. `confirmNightly()` itself refuses while the switch is off (409 nightly_off) before it writes
+anything. Tested: the nightly caller, `system:housekeeping` and a store, each refused one by one, in Confirm all and closing; a line to
+place refused; the press refused while off; one by one refused again after a nightly press.
+
+**NC5. What it books.** Exactly a person's press: one adjustment per difference through the movement route (actor
+`system:confirm_nightly`), the row closed by CW (no person: "done by CW"), the note on each, the press's mark (`detail.booked.run`), the
+same audit rows, the same key per correction (scoped to the job's caller; the row's own lock and status keep it from being answered
+twice by anyone). The note says whose switch it is: "Nightly Confirm all (setting on since <UK date, time>, by <person>)" (the switch's
+last change). At most "At most per night"; the rest "not reached". Its deadline is `NIGHTLY_SECONDS` (240 s: no web page waits for it, and
+it ends well inside the five-minute cron), with CA23's shares of the time for every wait and retry.
+
+**NC6. The job and its cron line.** `php bin/confirm_corrections_nightly.php --db=<schema>`: no options of its own (the time and the switch
+are settings; the command line is read whole or not at all). One log line per tick, as the other bin jobs: "off: relay.nightly_confirm is
+off", "outside the night's window (04:30 UK, for 60 minutes): nothing to do", "busy: ...", "done already tonight (<date>): run <id>",
+"ran <date>: run <id>, N confirmed (B booked), K left; done page /ui/queues/corrections/confirm-all/<id>". Exit 0 for each of these, 3 when
+it cannot run. ONE cron line on each server, the same words (ProductionDeployTest): `*/5 * * * *  root  cd /opt/cw-prod && php
+bin/confirm_corrections_nightly.php --db=cw_prod >> /var/log/cw/confirm_corrections_nightly.log 2>&1` (staging: /opt/cw-staging,
+cw_staging); rotated with the other /var/log/cw logs. The installers never run it as a smoke check (it books).
+
+**NC7. A second OK for switching it on: none exists, none invented.** The settings framework has no second-person path: "Not agreed yet"
+is the `provisional` mark (the owner's agreed tick on the setting's page, any person with settings.manage may set it), and the one rule
+that needs a particular person is `ApprovalRules::loosens` (loosening an approval rule needs a Reviewer), which covers only the approval
+rules of their own page. So switching the nightly run on is one change by an admin or a reviewer, with its reason, in the setting's history
+and the audit log; the board draws the switch "On" with "Not agreed yet" and a run, so the run does not wait for the agreed tick. If the
+owner wants the agreed tick (or a second person) to be required before it runs, that is a small rule to add: say so.
+
+**NC8. The Settings page** (`settings.php`, ReferenceController): the card "Messages from ERPNext" opens with the four rows in the board's
+order (the switch reads On / Off: `Words::SETTING_BOOL`, also on the setting's own page; the other switches keep Yes / No). Above the search,
+the "Last night" line (`section.card.nc-last`): switched off, "Every night: off. ERPNext corrections wait for a person, or for Confirm all
+ready."; on with no run yet, "No night run yet." and the next run; on with a run, "**Last night, HH:MM:** N ERPNext corrections confirmed, K
+left for you in Approvals." (the run's UK time; "Last run, <day, time>:" when it is older than last night; a run that stopped says so), "Open
+last night's run ›" to its done page for whoever may open it (queues.corrections), and "Next run: tonight at HH:MM. It confirms only the ready
+ones, exactly like pressing Confirm all ready; the doubtful ones wait for a person." Approvals and Home need no change (their counts are
+the open corrections).
+
+**NC9. A nightly run's done page** is everyone's who answers ERPNext corrections (the route's permission, queues.corrections): a run with no
+person whose actor is the nightly job's; its saved line says "by CW, every night". A person's press stays its presser's (404 to anyone else,
+as CA8).
+
+**NC10. Phone.** CSS only (the "nc" block at the end of app.css): the line wraps, the link is 44 px on a phone, 16 px in.
+
+**NC11. Not built.** Nothing tells a person by message that the night ran (the alerts are the owner's; the Settings line and the done page
+say it). The run does not retry a night it missed (a server down for the whole hour): the next night runs, or a person presses.
+
+**NC12. Tests.** `tests/Unit/NightlyConfirmUnitTest` (the window in UK time: BST, GMT, 25 Oct, the hour twice, 29 Mar, midnight, not a time;
+the rules and the board's words and order; the cron line on each server and never in the installers), `tests/Integration/Queues/NightlyConfirmTest`
+(off; outside; inside: the ready ones booked by the job, the rest left, the run with its night, its note, the bookings' actor and mark;
+a second tick; the next night; another start holding the lock; the job twice at once as cron runs it: one run; the cap; the job's caller
+refused everywhere else), `tests/Integration/Queues/Migration0055Test` (the settings, their rules and words, run twice),
+`tests/Integration/UiKernel/NightlyConfirmScreensTest` (the Last night line off, none yet and with a run, its link only for who may open
+it, the card's rows and On / Off; a nightly run's done page for every stock controller, refused to a buyer; a person's press still its
+presser's). The stock invariants after each.

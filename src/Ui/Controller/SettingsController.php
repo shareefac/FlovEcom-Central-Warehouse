@@ -138,7 +138,7 @@ final class SettingsController
             'help' => Words::settingHelp($key, (string) $row['description']),
             'type' => $type,
             'shown' => match (true) {
-                is_bool($value) => Words::CONFIG[$value ? 'yes' : 'no'],
+                is_bool($value) => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, $value) : Words::CONFIG[$value ? 'yes' : 'no'],
                 is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                 $value === null, $value === '' => null,
                 default => (string) $row['display'],
@@ -148,6 +148,9 @@ final class SettingsController
             'items' => self::items($key, $typed['value'] ?? (is_string($value) ? $value : '')),
             // What the form's field holds: what was typed on a refused form, else the value now (as the CLI takes it).
             'raw' => $typed['value'] ?? (is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value)),
+            // A switch's two words: its own where it has them (On / Off for the nightly Confirm all, docs/decisions.md NC8), else Yes / No.
+            'yesWord' => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, true) : Words::CONFIG['yes'],
+            'noWord' => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, false) : Words::CONFIG['no'],
             'agreed' => !$row['provisional'],
             'agreedTick' => $typed['agreed'] ?? !$row['provisional'],
             'reason' => $typed['reason'] ?? '',

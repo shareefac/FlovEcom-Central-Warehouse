@@ -62,8 +62,8 @@ final class Words
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
         'RD_MATCH', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
-        // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA)
-        'CONFIRM_ALL',
+        // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
+        'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_GROUP', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
@@ -2707,11 +2707,15 @@ final class Words
         'housekeeping.audit_keep_years' => 'Years the audit log is kept',
         'housekeeping.chunk_rows' => 'Rows removed at a time by the clean-up',
         'housekeeping.max_seconds' => 'Longest one clean-up may take, in seconds',
+        // The card "Messages from ERPNext" opens with the nightly Confirm all, in NightlyConfirm.dc.html's order (docs/decisions.md NC8).
+        'relay.nightly_confirm' => 'Confirm ready ERPNext corrections every night',
+        'relay.nightly_confirm_at' => 'Time it runs',
+        'relay.correction_bulk_max_units' => 'Big change: leave for a person above',
+        'relay.nightly_confirm_max' => 'At most per night',
         'relay.correction_is_for_sale' => 'An ERPNext correction is the figure for sale',
         'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
         'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
         'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
-        'relay.correction_bulk_max_units' => 'Biggest change Confirm all books by itself',
         // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
         'erp_opening.warehouses' => 'ERPNext warehouses the opening stock comes from',
         'erp_opening.companies' => 'ERPNext companies the opening stock comes from',
@@ -4006,8 +4010,10 @@ final class Words
         'relay.mode_in_stock' => 'When ERPNext sets a counted, protected item to In-Stock, accepting the change gives it this stock rule.',
         'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
         'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
-        'relay.correction_bulk_max_units' => 'In units. "Confirm all ready" on Approvals leaves an ERPNext correction for a person when it adds or takes off more '
-            . 'than this many. 0: only the corrections with no difference are confirmed together. One by one, a person can still confirm any of them.',
+        'relay.correction_bulk_max_units' => 'A correction that moves an item by more than this waits for a person, at night and when pressed.',
+        'relay.nightly_confirm' => 'On: CW confirms the ready ones by itself, the same way as Confirm all ready. The doubtful ones (Needs a look) stay in Approvals for a person.',
+        'relay.nightly_confirm_at' => 'UK time. Before the 05:10 morning report, after the shop\'s night jobs.',
+        'relay.nightly_confirm_max' => 'If more are ready, the rest wait for the next night or for Confirm all ready.',
         // ---- Pack E
         'reports.low_stock_default' => 'In units. Low stock lists a product when the stores can sell this many or fewer. A product with its own '
             . '"least stock to keep" on its reorder page uses that number instead.',
@@ -11497,6 +11503,31 @@ final class Words
         'back_list' => 'Back to Approvals',
         'item_gone' => 'Correction %s',
         'stopped' => 'This press stopped before its end. What it confirmed is counted; the rest is left for you.',
+        // A nightly run's done page (docs/decisions.md NC9): who saved it.
+        'by_night' => 'CW, every night',
+    ];
+
+    /**
+     * The nightly Confirm all on Settings > Rules and numbers (NightlyConfirm.dc.html; docs/decisions.md NC8): the "Last night" line at the
+     * top, its link to that run's done page, the next run; or that it is off. The switch reads On / Off (SETTING_BOOL).
+     */
+    public const NIGHTLY = [
+        'label' => 'Last night',
+        'last' => 'Last night, %s:',
+        'last_run' => 'Last run, %s:',
+        'counts' => '%s ERPNext corrections confirmed, %s left for you in Approvals.',
+        'counts_one' => '1 ERPNext correction confirmed, %s left for you in Approvals.',
+        'stopped' => 'It stopped before its end: what it confirmed is counted.',
+        'open' => 'Open last night\'s run ›',
+        'open_run' => 'Open the last run ›',
+        'next' => 'Next run: tonight at %s. It confirms only the ready ones, exactly like pressing Confirm all ready; the doubtful ones wait for a person.',
+        'none' => 'No night run yet.',
+        'off' => 'Every night: off. ERPNext corrections wait for a person, or for Confirm all ready.',
+    ];
+
+    /** A switch's two words where they are not Yes / No (docs/decisions.md NC8: the board's On / Off). */
+    public const SETTING_BOOL = [
+        'relay.nightly_confirm' => ['On', 'Off'],
     ];
 
     /** Approvals › From the stores › Mode changes. */
@@ -12726,6 +12757,12 @@ final class Words
     }
 
     /** A setting's plain name (SETTING), else its key made readable ("reorder.new_thing" -> "New thing"). */
+    /** A switch's value in words: its own (SETTING_BOOL), else Yes / No. */
+    public static function settingBool(string $key, bool $on): string
+    {
+        return self::SETTING_BOOL[$key][$on ? 0 : 1] ?? self::SETTINGS_PAGE[$on ? 'yes' : 'no'];
+    }
+
     public static function settingName(string $key): string
     {
         return self::SETTING[$key] ?? ucfirst(str_replace(['_', '.'], ' ', (string) substr($key, (int) strrpos('.' . $key, '.'))));

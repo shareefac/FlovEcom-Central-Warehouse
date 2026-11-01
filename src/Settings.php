@@ -152,6 +152,9 @@ final class Settings
         // "Confirm all ready" (0054; docs/decisions.md CA3): above how many units added or taken off Confirm all leaves an ERPNext correction
         // for a person (0: only the ones with no difference are confirmed together; one by one, a person still confirms any of them).
         'relay.correction_bulk_max_units' => ['min' => 0, 'max' => 100_000],
+        // The nightly Confirm all (0055; docs/decisions.md NC2): the UK time it runs (HH:MM) and the most it confirms in one night.
+        'relay.nightly_confirm_at' => ['pattern' => '/^([01][0-9]|2[0-3]):[0-5][0-9]$/D', 'pattern_says' => 'a UK time from 00:00 to 23:59, like 04:30'],
+        'relay.nightly_confirm_max' => ['min' => 1, 'max' => 5000],
         // ---- end of pack F ------------------------------------------------------------------------------------------------------
         // ---- Pack E (0034; docs/decisions.md PE8-PE12): the Reports tabs and the job that keeps them up to date. The slow and dead days
         // hold each other (dead at least slow); the job's two bounds keep one run small on the staging cluster.
