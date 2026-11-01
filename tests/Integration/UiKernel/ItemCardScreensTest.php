@@ -552,6 +552,44 @@ final class ItemCardScreensTest extends KernelUiTestCase
     }
 
     /**
+     * The search finds an item by its barcode (the Items artboard's "Search name, brand, barcode or CW number", docs/decisions.md SS1): a
+     * scanned or typed barcode, with or without the leading zeros a scanner adds, finds the item that carries it; a CW number still finds
+     * its item, and a bare number of 6 digits or more is tried as both; a barcode no item carries finds nothing.
+     */
+    public function testTheSearchFindsAnItemByItsBarcode(): void
+    {
+        $cola = $this->stocked('Elux Legend Cola 10ml', 3);
+        $mint = $this->stocked('Hayati Pro Max Mint', 2);
+        $this->stocked('Short Code Item', 1);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('5056168812345', ?), ('40170725', ?)", [$cola, $mint]);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('123456', ?)", [$mint]);
+        $web = $this->signIn($this->uiUser('buyer'));
+
+        foreach (['5056168812345', '05056168812345', ' 5056168812345 '] as $typed) {
+            $r = $web->get('/ui/items/cards', ['q' => $typed]);
+            self::assertSame(200, $r->status, $r->describe());
+            self::assertStringContainsString('Elux Legend Cola 10ml', $r->text(), "barcode {$typed}");
+            self::assertStringNotContainsString('Hayati Pro Max Mint', $r->text(), "barcode {$typed}");
+        }
+        $r = $web->get('/ui/items/cards', ['q' => '40170725']);
+        self::assertStringContainsString('Hayati Pro Max Mint', $r->text(), 'an 8-digit barcode');
+        self::assertStringNotContainsString('Elux Legend Cola 10ml', $r->text());
+
+        $r = $web->get('/ui/items/cards', ['q' => self::cw($cola)]);
+        self::assertStringContainsString('Elux Legend Cola 10ml', $r->text(), 'a CW number still finds its item');
+        self::assertStringNotContainsString('Hayati Pro Max Mint', $r->text());
+
+        // a 6-digit number is tried as a CW number and as a barcode: here it is only a barcode
+        $r = $web->get('/ui/items/cards', ['q' => '123456']);
+        self::assertStringContainsString('Hayati Pro Max Mint', $r->text(), 'a 6-digit barcode');
+        self::assertStringNotContainsString('Short Code Item', $r->text());
+
+        $r = $web->get('/ui/items/cards', ['q' => '5099999999999']);
+        self::assertSame(Words::say('CARDS', 'none_search', '5099999999999'), trim((string) (new \DOMXPath($r->dom()))->evaluate('string(//div[@class="empty"]/p[@class="empty-title"])')));
+        self::assertStringContainsString('barcode', Words::INV_LIST['items_search'], 'the box says a barcode can be typed');
+    }
+
+    /**
      * The filters for someone new (the owner's patterns of 29 Oct 2026; the redesign of 30 Oct, docs/decisions.md RD-A2, RD-A3): the ONE Show choice
      * holds the artboard's four, and the filters of before (the card, the kind of product, four short ticks) are a GET form in More's "More
      * filters" fold, whose inputs say what is on; ONE Clear under More takes every filter and the search off.

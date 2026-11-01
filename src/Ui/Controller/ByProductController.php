@@ -58,6 +58,8 @@ final class ByProductController
     public const CSV_MAX = 100_000;
     /** The picker never pages further than this (its list is best sellers first: nobody reads that far). */
     private const PICK_MAX_PAGE = 200;
+    /** All stores on New on the stores reads at most this many pages of each store (newOnEveryStore: each store's newest page × 50). */
+    private const NEW_ALL_PAGES = 20;
     /** Words an item's name ends with that each website writes its own way (a strength, a size): left out of the first search. */
     private const UNIT_WORDS = ['mg', 'ml', 'pk', 'pcs', 'pack', 'x'];
 
@@ -78,7 +80,7 @@ final class ByProductController
                 return $ctx->error(404, 'unknown_store', 'no such store', [Html::url(ByProductContext::LIST_PATH, ['tab' => 'new']), Words::RD_MATCH['tab_new']]);
             }
             return $ctx->page('by_product_new', ['fresh' => $fresh, 'lookOnly' => $lookOnly,
-                'matchAll' => $me->canDecide() && $fresh['store'] !== null ? Html::url(NewVariantsController::PATH, ['channel' => $fresh['store']['code']]) : null],
+                'matchAll' => $me->canDecide() && $fresh['store'] !== null ? Html::url(NewVariantsController::PATH, ['channel' => $fresh['first']]) : null],
                 200, $layout);
         }
         $stores = $q->everyStore();
@@ -229,10 +231,10 @@ final class ByProductController
     /**
      * The "New on the stores" tab (docs/decisions.md RD-C7): the stores' products first seen in New variants' period (its setting) that are
      * still to match, from the reads New variants already makes (Queries::seenRange, newVariantCounts, newVariants, newVariantRows; no read of
-     * its own). The count of every store is the tab's number; with $rows, the chosen store's page of them (`channel`, the first store with any
-     * by default; `q` its search; `page`), each with its name, when it was first seen and its likely match.
+     * its own). The count of every store is the tab's number; with $rows, the chosen store's page of them (`channel`; All stores by default,
+     * docs/decisions.md SS4; `q` its search; `page`), each with its name, its store, when it was first seen and its likely match.
      *
-     * @return array{count: int, unknown: bool, stores: list<array{code: string, name: string, count: int, current: bool, href: string}>, store: ?array<string, mixed>,
+     * @return array{count: int, unknown: bool, stores: list<array{code: string, name: string, count: int, current: bool}>, store: ?array<string, mixed>, first?: string,
      *     rows: list<array<string, mixed>>, text: string, total: int, page_no: int, pages: int, prev_link: ?string, next_link: ?string, days: int, clear_link: string}
      */
     private function newOnStores(Context $ctx, bool $rows): array
@@ -255,25 +257,41 @@ final class ByProductController
         }
         $req = $ctx->req;
         $code = $req->param('channel');
+        // No store asked for: All stores (the artboard's first choice, docs/decisions.md SS4); "Match all new" then opens New variants of the
+        // first store with new products (New variants is one store's page).
+        $all = $code === null || $code === '';
         $chosen = null;
         foreach ($counts as $c) {
-            if ($code !== null && $code !== '' ? (string) $c['store']['code'] === $code : $c['n'] > 0) {
+            if ($all ? $c['n'] > 0 : (string) $c['store']['code'] === $code) {
                 $chosen = $c;
                 break;
             }
         }
-        $chosen ??= $code !== null && $code !== '' ? null : $counts[0];
+        $chosen ??= $all ? $counts[0] : null;
         if ($chosen === null) {
             return ['unknown' => true] + $out; // a store that is not there: the page answers 404, as New variants does
         }
         $text = ByProductContext::text($req->param('q') ?? '');
-        $store = $chosen['store'];
-        $result = $q->newVariants((int) $store['id'], $since, 'unmatched', $text, UiRequest::id($req->param('page')) ?? 1, $chosen['counts']);
-        $base = ['tab' => 'new', 'channel' => (string) $store['code'], 'q' => $text === '' ? null : $text];
+        $page = UiRequest::id($req->param('page')) ?? 1;
+        $names = [];
+        foreach ($counts as $c) {
+            $names[(int) $c['store']['id']] = (string) $c['store']['name'];
+        }
+        if ($all) {
+            $store = ['id' => null, 'code' => '', 'name' => Words::RD_MATCH['all_stores_in']];
+            $result = $this->newOnEveryStore($ctx, $counts, $since, $text, $page);
+        } else {
+            $store = $chosen['store'];
+            $result = $q->newVariants((int) $store['id'], $since, 'unmatched', $text, $page, $chosen['counts']);
+            $result['stores'] = array_fill_keys($result['ids'], (int) $store['id']);
+        }
+        $base = ['tab' => 'new', 'channel' => $all ? null : (string) $store['code'], 'q' => $text === '' ? null : $text];
+        $out['stores'][] = ['code' => '', 'name' => Words::RD_MATCH['all_stores'], 'count' => $total, 'current' => $all];
         foreach ($counts as $c) {
             $out['stores'][] = ['code' => (string) $c['store']['code'], 'name' => (string) $c['store']['name'], 'count' => $c['n'],
-                'current' => (int) $c['store']['id'] === (int) $store['id']];
+                'current' => !$all && (int) $c['store']['id'] === (int) $store['id']];
         }
+        $out['first'] = (string) $chosen['store']['code'];
         foreach ($q->newVariantRows($result['ids']) as $r) {
             $kind = (string) $r['kind'];
             $band = $r['proposal_id'] !== null ? (string) $r['band'] : null;
@@ -283,7 +301,7 @@ final class ByProductController
             $out['rows'][] = [
                 'listing_id' => (int) $r['listing_id'],
                 'name' => $title === '' ? Words::LISTING['no_title'] : ($variant === '' ? $title : $title . ' – ' . $variant),
-                'store' => (string) $store['name'],
+                'store' => $names[$result['stores'][(int) $r['listing_id']] ?? 0] ?? '',
                 'seen' => (string) $r['created_at'],
                 // The likely match (the artboard's hint): the suggested item with the suggestion's strength, else what the computer said.
                 'hint' => match (true) {
@@ -298,7 +316,45 @@ final class ByProductController
         return array_replace($out, ['store' => $store, 'text' => $text, 'total' => $result['total'], 'page_no' => $result['page'], 'pages' => $result['pages'],
             'prev_link' => $result['page'] > 1 ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $result['page'] > 2 ? $result['page'] - 1 : null]) : null,
             'next_link' => $result['page'] < $result['pages'] ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $result['page'] + 1]) : null,
-            'clear_link' => Html::url(ByProductContext::LIST_PATH, ['tab' => 'new', 'channel' => (string) $store['code']])]);
+            'clear_link' => Html::url(ByProductContext::LIST_PATH, ['tab' => 'new', 'channel' => $all ? null : (string) $store['code']])]);
+    }
+
+    /**
+     * New on the stores for All stores (docs/decisions.md SS4): every store's page of it merged, newest first (first seen, then id: New
+     * variants' order). Each store's newest page × PER_PAGE ids are read with New variants' own read (Queries::newVariants, its total too:
+     * the counts', or a search's), then merged by when they were first seen and cut to the page. A store with nothing new and no search
+     * is not read.
+     *
+     * @param list<array{store: array<string, mixed>, range: mixed, counts: array<string, int>, n: int}> $counts
+     * @return array{ids: list<int>, total: int, page: int, pages: int, stores: array<int, int>}
+     */
+    private function newOnEveryStore(Context $ctx, array $counts, string $since, string $text, int $page): array
+    {
+        $q = $ctx->queries();
+        $total = 0;
+        $found = [];
+        foreach ($counts as $c) {
+            if ($text === '' && $c['n'] === 0) {
+                continue;
+            }
+            $r = $q->newVariants((int) $c['store']['id'], $since, 'unmatched', $text, null, $c['counts'], min($page, self::NEW_ALL_PAGES) * Queries::PER_PAGE);
+            $total += $r['total'];
+            foreach ($r['ids'] as $id) {
+                $found[$id] = (int) $c['store']['id'];
+            }
+        }
+        $pages = min(self::NEW_ALL_PAGES, max(1, (int) ceil($total / Queries::PER_PAGE)));
+        $page = min(max(1, $page), $pages);
+        $ids = array_keys($found);
+        if ($ids !== []) {
+            $seen = [];
+            foreach ($ctx->db->all('SELECT id, created_at FROM channel_listing WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')', $ids) as $r) {
+                $seen[(int) $r['id']] = (string) $r['created_at'];
+            }
+            usort($ids, static fn (int $a, int $b): int => [$seen[$b] ?? '', $b] <=> [$seen[$a] ?? '', $a]);
+        }
+        $ids = array_slice($ids, ($page - 1) * Queries::PER_PAGE, Queries::PER_PAGE);
+        return ['ids' => $ids, 'total' => $total, 'page' => $page, 'pages' => $pages, 'stores' => array_intersect_key($found, array_flip($ids))];
     }
 
     /** How many items a page shows unless the person chose (setting mapping.by_item_page_size, read now; 50 on a schema before 0025). */

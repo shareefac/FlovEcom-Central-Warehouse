@@ -35,12 +35,15 @@ final class SalesController
     /** The list's groups in their order (RD-B3): the approved Sales.dc.html's three, then the store's orders not paid. */
     public const GROUPS = ['to_ship', 'shipped', 'ended', 'held', 'released', 'expired'];
 
+    /** The items a search may name (Queries::searchSkus); their orders are read from their units (SalesViews::searched). */
+    private const SEARCH_ITEMS = 20;
+
     public function index(Context $ctx): HtmlResponse
     {
         $views = new SalesViews($ctx->db);
         $set = SalesViews::settings($ctx->db);
         $stores = (new ReservationViews($ctx->db))->stores();
-        $f = self::filters($ctx->req, $stores, $set['days']);
+        $f = self::filters($ctx, $stores, $set['days']);
         $storeIds = array_column($stores, 'id');
         $page = $views->orderIds($f['q'], $storeIds, $set['page'], $set['scan_max']);
         $names = array_column($stores, 'name', 'id');
@@ -61,7 +64,7 @@ final class SalesController
         $keep = $f['address'];
         $query = ['channel' => $code] + $keep;
         return $ctx->page('sales_orders', [
-            'f' => ['channel' => $code, 'state' => $f['q']['state'], 'origin' => $f['q']['origin'], 'from' => $f['period']['kind'] === 'range' ? $f['period']['from_day'] : null,
+            'f' => ['channel' => $code, 'q' => $keep['q'], 'state' => $f['q']['state'], 'origin' => $f['q']['origin'], 'from' => $f['period']['kind'] === 'range' ? $f['period']['from_day'] : null,
                 'to' => $f['period']['kind'] === 'range' ? $f['period']['to_day'] : null, 'period' => $keep['period']],
             'storeItems' => ReviewController::storeItems($stores, self::PATH, $keep, $code, array_map(static fn (array $w): int => $w['orders'], $waiting), true),
             'states' => Words::SALE_STATE,
@@ -69,9 +72,9 @@ final class SalesController
             'periodLine' => self::periodLine($f['period'], $set['days']),
             'badDates' => $f['period']['bad'] ? Words::say('SALE', 'bad_dates', $set['days']) : null,
             'periodLinks' => [
-                ['label' => Words::SALE['show_all'], 'href' => Html::url(self::PATH, ['channel' => $code, 'state' => $f['q']['state'], 'origin' => $f['q']['origin'], 'period' => 'all']),
+                ['label' => Words::SALE['show_all'], 'href' => Html::url(self::PATH, ['channel' => $code, 'q' => $keep['q'], 'state' => $f['q']['state'], 'origin' => $f['q']['origin'], 'period' => 'all']),
                     'current' => $f['period']['kind'] === 'all'],
-                ['label' => Words::say('SALE', 'show_default', $set['days']), 'href' => Html::url(self::PATH, ['channel' => $code, 'state' => $f['q']['state'], 'origin' => $f['q']['origin']]),
+                ['label' => Words::say('SALE', 'show_default', $set['days']), 'href' => Html::url(self::PATH, ['channel' => $code, 'q' => $keep['q'], 'state' => $f['q']['state'], 'origin' => $f['q']['origin']]),
                     'current' => $f['period']['kind'] === 'default'],
             ],
             'groups' => $groups,
@@ -79,7 +82,7 @@ final class SalesController
             'filtered' => $f['q']['state'] !== null || $f['q']['origin'] !== null || $f['period']['kind'] !== 'default',
             // An empty list says why: nothing at all yet (any time, no filter), or nothing in the days and filters chosen (with the way
             // to every order of the store).
-            'narrowed' => $f['q']['state'] !== null || $f['q']['origin'] !== null || $f['q']['before'] !== null || $f['period']['kind'] !== 'all',
+            'narrowed' => $f['q']['search'] !== null || $f['q']['state'] !== null || $f['q']['origin'] !== null || $f['q']['before'] !== null || $f['period']['kind'] !== 'all',
             'clearAll' => Html::url(self::PATH, ['channel' => $code, 'period' => 'all']),
             'stopped' => $page['stopped'] === null ? null : ['text' => Words::say('SALE', 'stopped', $page['read']),
                 'href' => Html::url(self::PATH, $query + ['before' => $page['stopped']])],
@@ -97,7 +100,7 @@ final class SalesController
         $set = SalesViews::settings($ctx->db);
         $stores = (new ReservationViews($ctx->db))->stores();
         $names = array_column($stores, 'name', 'id');
-        $f = self::filters($ctx->req, $stores, $set['days']);
+        $f = self::filters($ctx, $stores, $set['days']);
         $csv = new CsvWriter([['store', 'text'], ['order_reference', 'text'], ['state', 'text'], ['what_became_of_it', 'text'], ['how_it_came_in', 'text'],
             ['products', 'number'], ['units', 'number'], ['items_not_linked', 'number'], ['placed_utc', 'text'], ['paid_utc', 'text'], ['ended_utc', 'text'], ['tries', 'number']]);
         $out = $views->exportOrders($f['q'], array_column($stores, 'id'), $set['csv_max'], $set['scan_max']);
@@ -294,15 +297,21 @@ final class SalesController
 
     /**
      * The list's filters from the address: a store (its code), a period (`from` / `to` as UK days, or `period=all`; else the last
-     * `sales.default_days` days), a state, a way in, and the order the page starts after. Anything else is ignored. `address`: the
+     * `sales.default_days` days), a state, a way in, the search (`q`), and the order the page starts after. Anything else is ignored. `address`: the
      * values the store selector and the pager carry.
      *
      * @param list<array{id: int, code: string, name: string}> $stores
-     * @return array{store: ?array{id: int, code: string, name: string}, period: array<string, mixed>, q: array{channel: ?int, state: ?string, origin: ?string, from: ?string, to: ?string, before: ?int}, address: array<string, ?string>}
+     * @return array{store: ?array{id: int, code: string, name: string}, period: array<string, mixed>, q: array{channel: ?int, state: ?string, origin: ?string, from: ?string, to: ?string, before: ?int, search: ?array{ref: ?string, skus: list<int>}}, address: array<string, ?string>}
      */
-    private static function filters(UiRequest $req, array $stores, int $days): array
+    private static function filters(Context $ctx, array $stores, int $days): array
     {
+        $req = $ctx->req;
         $store = ReviewController::store($stores, $req->param('channel'));
+        // The search (docs/decisions.md SS2): the store's order reference as typed (a leading # left out), and the items the text names.
+        $text = mb_substr(trim($req->param('q') ?? ''), 0, 100);
+        $ref = ltrim($text, '#');
+        $search = $text === '' ? null : ['ref' => $ref !== '' && strlen($ref) <= 64 ? $ref : null,
+            'skus' => array_map(static fn (array $r): int => (int) $r['id'], $ctx->queries()->searchSkus($text, self::SEARCH_ITEMS))];
         $state = $req->param('state');
         $origin = $req->param('origin');
         $period = SalesViews::period($req->param('from'), $req->param('to'), $req->param('period') === 'all', $days, Clock::now());
@@ -312,8 +321,8 @@ final class SalesController
             'store' => $store,
             'period' => $period,
             'q' => ['channel' => $store === null ? null : (int) $store['id'], 'state' => $state, 'origin' => $origin, 'from' => $period['from'], 'to' => $period['to'],
-                'before' => UiRequest::id($req->param('before'))],
-            'address' => ['state' => $state, 'origin' => $origin, 'from' => $period['kind'] === 'range' ? $period['from_day'] : null,
+                'before' => UiRequest::id($req->param('before')), 'search' => $search],
+            'address' => ['q' => $text === '' ? null : $text, 'state' => $state, 'origin' => $origin, 'from' => $period['kind'] === 'range' ? $period['from_day'] : null,
                 'to' => $period['kind'] === 'range' ? $period['to_day'] : null, 'period' => $period['kind'] === 'all' ? 'all' : null],
         ];
     }

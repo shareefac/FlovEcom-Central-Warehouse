@@ -1,6 +1,7 @@
 <?php
 // Sales › Sales orders (pack D, docs/decisions.md PD3-PD5), a simple list (the approved Sales.dc.html of 30 Oct 2026, docs/decisions.md
-// RD-B3; before it W10, DC33): read only. Download at the head's right (its one button: no main action on a read-only list); one Show (All
+// RD-B3; before it W10, DC33): read only. Download at the head's right (its one button: no main action on a read-only list); the search (an
+// order number or an item, SS2); one Show (All
 // stores and each store of the channel table, with its paid orders waiting to ship) with its Show button; the rest of the old Show row
 // under More (the period: any time or the last days, From / To typed; the state; the way in, sent by the row's one Show button; Clear);
 // the period in words; then the page's orders grouped as the design groups them (waiting to ship, shipped, returned or cancelled; the
@@ -12,6 +13,7 @@
     side: $rows_n > 0 ? '<a class="btn" href="' . $e($csv) . '" title="' . $word('SALE', 'download') . '" download>' . $word('SALE', 'download_short') . '</a>' : '') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="period" value="<?= $e($f['period']) ?>">
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('SALE', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('SALE', 'search') ?>" enterkeyhint="search"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('DOC_LIST', 'show') ?></label>
     <select id="tb-show" name="channel" title="<?= $say('BULK', 'store_count_title', \CW\Ui\Words::SALE['store_count']) ?>">

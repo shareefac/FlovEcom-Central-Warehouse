@@ -7,7 +7,28 @@
   <button type="submit" class="btn"><?= $word('SEARCH', 'button') ?></button>
 </form>
 
-<?php if ($short): ?>
+<?php if ($orders !== []): ?>
+<section aria-labelledby="orders-h">
+  <h2 id="orders-h"><?= $word('SEARCH', 'orders') ?> <span class="hint"><?= $word('SEARCH', 'orders_hint') ?></span></h2>
+  <div class="table-wrap">
+  <table class="stack list found-orders">
+    <thead><tr><th scope="col"><?= $word('SEARCH', 'order') ?></th><th scope="col"><?= $word('SEARCH', 'store') ?></th><th scope="col"><?= $word('SEARCH', 'placed') ?></th><th scope="col"><?= $word('SEARCH', 'state') ?></th></tr></thead>
+    <tbody>
+<?php foreach ($orders as $o): ?>
+      <tr>
+        <th scope="row" class="c-head"><a class="o-name row-link" href="/ui/stock/sales/<?= $e($o['id']) ?>"><?= $e($o['ref']) ?></a></th>
+        <td data-label="<?= $word('SEARCH', 'store') ?>"><?= $e($o['store']) ?></td>
+        <td data-label="<?= $word('SEARCH', 'placed') ?>"><?= $when($o['placed']) ?></td>
+        <td data-label="<?= $word('SEARCH', 'state') ?>"><?= $e($o['state']) ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+</section>
+<?php endif; ?>
+<?php if ($short && $orders !== []): ?>
+<?php elseif ($short): ?>
 <p class="muted"><?= $word('SEARCH', 'short') ?></p>
 <?php elseif ($text === ''): ?>
 <p class="muted"><?= $word('SEARCH', 'hint') ?></p>

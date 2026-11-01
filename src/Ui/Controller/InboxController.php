@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\Auth\Permissions;
+use CW\Clock;
 use CW\CwException;
 use CW\Documents\Documents;
 use CW\Queues\Corrections;
@@ -16,6 +17,7 @@ use CW\Queues\Suspense;
 use CW\Staff\RoleRequests;
 use CW\Staff\StaffAdmin;
 use CW\Counts\CountReviews;
+use CW\Ui\AnsweredToday;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -160,6 +162,8 @@ final class InboxController
         // The page's Show (the approved Approvals artboard of 30 Oct 2026: Show = kind; docs/decisions.md RD-C13): everything waiting, or one kind
         // of it; the choice travels with an answer (inbox_show) and comes back with its refusal.
         $show = $refused !== null ? $ctx->req->field('inbox_show') : $ctx->req->param('show');
+        // "Answered today" (the artboard's last choice, docs/decisions.md SS3): what was answered since midnight in these kinds, read only.
+        $answered = $refused === null && AnsweredToday::is($show);
         $show = is_string($show) && in_array($show, $kinds, true) ? $show : null;
         $groups = [];
         $flat = [];
@@ -182,7 +186,7 @@ final class InboxController
                 continue;
             }
             $choices[] = ['value' => $kind, 'label' => Words::INBOX['kind_' . $kind], 'count' => $g['count'], 'current' => $show === $kind];
-            if ($show !== null && $show !== $kind) {
+            if ($answered || ($show !== null && $show !== $kind)) {
                 continue;
             }
             if (isset($g['split'])) {
@@ -199,6 +203,10 @@ final class InboxController
             $groups[] = ['kind' => $kind, 'id' => $kind, 'name' => Words::INBOX['kind_' . $kind], 'tone' => self::KINDS[$kind]['tone'], 'count' => $g['count'],
                 'more' => $g['more'], 'shown' => $g['shown'] ?? null, 'href' => self::KINDS[$kind]['page'], 'rows' => $g['rows']];
             array_push($flat, ...$g['rows']);
+        }
+        $choices[] = ['value' => 'answered', 'label' => Words::RD_INBOX['answered'], 'count' => null, 'current' => $answered];
+        if ($answered) {
+            $groups = (new AnsweredToday($ctx->db))->groups($kinds, Clock::now());
         }
         // The record to open: the one asked for (or refused), else the one now at the place given, else the first. ERPNext corrections shown on
         // their own open none by themselves: the board's "The list is split in two" stands there until a row is opened (CA1).
@@ -225,6 +233,7 @@ final class InboxController
             'everything' => array_sum(array_column($choices, 'count')),
             'choices' => $choices,
             'show' => $show,
+            'answered' => $answered,
             'record' => $record,
             'split' => $record === null ? $split : null,
             'confirmAll' => $confirmAll,

@@ -15467,3 +15467,56 @@ presser's). The stock invariants after each.
   `NIGHTLY_SECONDS` + 60 seconds ago, is `running` (Corrections::run()): Settings' Last night line says "It is running now: what it
   confirmed so far is counted." and its done page "This night run is still going ...", instead of "stopped". Without the lock, or older, it
   stopped, as before.
+
+## The small screens: five gaps the redesign left as "needs a build" (branch `small-screens`, 1 Nov 2026; SS1-SS6)
+
+The owner's tracker CW-901, CW-906, CW-908, CW-910 and CW-911: what the approved artboards draw and the redesign could not build (RD-A3,
+RD-B3, RD-C13, RD-C7/RD-F11, RD9). Layout and reads only: no migration, no setting, no stock or money write.
+
+**SS1. Items: the search finds a barcode** (CW-901; the Items artboard's "Search name, brand, barcode or CW number"). `ItemCardList::where()`:
+a bare number of 6 to 64 digits is also looked up in `sku_barcode` (its GTIN key: leading zeros left out, as `Queries::searchSkus` reads
+it; any barcode row, usable or not, as /ui/search finds it). A number of up to 10 digits is still a CW number too: both match (an
+8-digit EAN and a CW number never meet in practice; when they do, both items are listed). The box's words, the label and the empty
+state say a barcode can be typed. The CSV is the same list.
+
+**SS2. Sales orders: one search** (CW-906; Sales.dc.html's "Search order number or item"). The box is the Show row's first field, in the
+same GET form (the store choice, the days and More's filters keep it; the pager and the file carry `q`). `SalesViews::searched()`:
+(1) the store's order reference as typed (a leading # left out; the collation's case) on the stores shown, by `uq_reservation_order`, on
+the first page only and whatever the days, state or way in (an order number names one order: hiding it behind "the last 7 days" would
+say "no order" for an order that is there); (2) the items the text names (`Queries::searchSkus`, at most 20: words, CW number, barcode)
+give the orders with a unit of one of them, in the days, state (a unit state on the unit, an order state on the order) and way in
+chosen, newest first, a page of `sales.page_size` by order id below `before` (order ids follow the time an order was placed, as
+`byUnit` relies on). The read starts from the items' units (`ix_reservation_unit_sku_state`), so a word naming many popular items reads
+all their units (every day's); the 20 items are the bound. The order the reference names is left out of the item list (`r.order_ref <>`
+the reference), so it is listed once over all the pages (the Codex review of 517a331, MEDIUM 1).
+
+**SS3. Approvals: Answered today** (CW-908; the Approvals artboard's last Show choice). `Ui\AnsweredToday`: since midnight UK time, by anyone,
+in the kinds this person answers (`InboxController::kinds`), what was answered: each kind's closed rows from its own table by its
+answer time (`count_review` by source for ERPNext corrections and count differences, `goods_in_suspense`, `oversell_event`,
+`policy_review` of the website modes, `landing_order`, `staff_role_request`, `review_task`), newest first, 50 a kind. A row: what it
+was, how it ended (Done, Dismissed, OK, Not OK), who (a name; "the system" when no person), the time; it links the kind's own page (the
+record waits no more: the inbox cannot open it), and no record is drawn on the right. A count difference's answer is its resolution
+(accepted: OK, rejected: Not OK; both are `resolved` rows), and Count differences lists only `CountReviews::LISTED_SOURCES` (a VERIFY
+recount the system closes is not one; the Codex review, MEDIUM 2 and LOW 3). The choice has no count: the answer times are
+in no index (the tables are indexed for what waits), so they are read only when the choice is shown, never on the inbox's every view.
+Not in it: a count sheet line made final (it is a document's posting, not an answer row); left out on purpose.
+
+**SS4. New on the stores: All stores** (CW-910; the ByItem artboard's first store choice, "All stores (N)"; RD-F11 said why it was not
+built). It is the first choice and the default (no `channel`); its number is the tab's. `ByProductController::newOnEveryStore()`: each
+store's newest page × 50 ids by New variants' own read (`Queries::newVariants`, page null: its total too, the counts' or a search's),
+merged by when they were first seen (then id), cut to the page; a store with nothing new and no search is not read; at most 20 pages
+(`NEW_ALL_PAGES`: 1,000 products) are offered, enough for a week's new products on every store. Each row says its own store. "Match
+all new" stays New variants' (one store's page): with All stores it opens the first store with new products (the default of before).
+Match's way back keeps All stores (no `channel`).
+
+**SS5. The find box finds an order** (CW-911; Sidebar.dc.html's "Find an item or an order"; RD9 said why it was not built). /ui/search
+lists, before the items, the stores' orders whose order reference is the text as typed (a leading # left out), on every store
+(`uq_reservation_order`, one read a store), any day, at most 10, each linking the order's page — only for who may look at sales
+(`sales.view`, the order page's permission): their box (sidebar, phone top bar) says "Find an item or an order"; anyone else's still
+"Find an item" and finds no order. A search that is no order number shows no order section. A one-character order number is found too (Reservations::ref allows it;
+the item search still needs two; the Codex review, LOW 4).
+
+**SS6. Tests.** `ItemCardScreensTest::testTheSearchFindsAnItemByItsBarcode`, `SalesScreensTest::testStoreOrdersSearchByOrderNumberOrItem`,
+`SalesScreensTest::testTheFindBoxFindsAnOrderByItsNumber`, `ApprovalsInboxScreensTest::testAnsweredTodayListsTheAnswersSinceMidnight`,
+`RedesignCScreensTest::testNewOnTheStoresOffersAllStores`; each failing before its change (runs/ss_9xx_red.log); the Codex review's four (runs/ss_codex_review.txt) failing on 517a331
+(runs/ss_fix_red.log) and fixed in the same commit.

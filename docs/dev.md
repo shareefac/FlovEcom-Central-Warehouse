@@ -1275,3 +1275,14 @@ every other Items and Inventory page. Layout and view data only.
 - CSS: the "nc" block at the end of `app.css`.
 - Tests: `tests/Unit/NightlyConfirmUnitTest.php`, `tests/Integration/Queues/NightlyConfirmTest.php`, `tests/Integration/Queues/Migration0055Test.php`,
   `tests/Integration/UiKernel/NightlyConfirmScreensTest.php`.
+
+### The small screens (`docs/decisions.md` SS1-SS6; tracker CW-901, 906, 908, 910, 911; 1 Nov 2026)
+
+| Path | What |
+|---|---|
+| `src/Catalogue/ItemCardList.php` | `where()`: a number of 6+ digits is also a barcode (`sku_barcode`, `Gtin::key`) |
+| `src/Ui/SalesViews.php`, `src/Ui/Controller/SalesController.php` | `searched()` (order reference + the items' orders), `filters()` reads `q` (`SEARCH_ITEMS` 20); view `sales_orders` (`div.tb-search`) |
+| `src/Ui/AnsweredToday.php`, `src/Ui/Controller/InboxController.php` | Approvals' `?show=answered`: one read a kind (`rows()`), the groups as the inbox draws them (rows with `href`); views `approvals_inbox`, `approvals_show` (a choice with no count) |
+| `src/Ui/Controller/ByProductController.php` | New on the stores: All stores by default, `newOnEveryStore()` (`NEW_ALL_PAGES`), `first` (Match all new's store) |
+| `src/Ui/Controller/SearchController.php`, `src/Ui/Context.php`, views `search` (`table.found-orders`), `layout` | orders by reference for `sales.view`; `findOrders` (the box's words) |
+| `src/Ui/Words.php` | `INV_LIST items_search`, `CARDS search`/`none_search_text`, `SALE search`, `RD_INBOX answered*`/`outcome_*`/`by_*`, `RD_MATCH all_stores*`, `UI side_find_orders`, `SEARCH orders*` |

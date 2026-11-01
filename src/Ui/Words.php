@@ -1225,6 +1225,7 @@ final class Words
 
     /** Stock › Sales › Orders (/ui/stock/sales; Ui\Controller\SalesController). */
     public const SALE = [
+        'search' => 'Search order number or item', // the approved Sales.dc.html's search (SS2)
         'state' => 'State',
         'any_state' => 'Every state',
         'origin' => 'How it came in',
@@ -1260,7 +1261,7 @@ final class Words
         'none_store' => 'No orders for this store yet.',
         'none_text' => 'When a customer starts a checkout on a store, the order appears here and stays here once it is paid, sent, cancelled, freed or run out of time.',
         'none_filtered' => 'No order matches your filter.',
-        'none_filtered_text' => 'No order fits the days, the state or the way in you chose. Clear them to see every order of this store choice.',
+        'none_filtered_text' => 'No order fits the search, the days, the state or the way in you chose. Clear them to see every order of this store choice.',
         'csv_more' => 'only the newest %s orders: narrow the filter for the rest',
         'csv_stopped' => 'the list stopped after reading %s orders: narrow the filter for the rest',
     ];
@@ -2236,7 +2237,7 @@ final class Words
         // Items (the artboard Items)
         'items' => 'Items',
         'new_item' => 'New item',
-        'items_search' => 'Search name, brand or CW number',
+        'items_search' => 'Search name, brand, barcode or CW number',
         'all_items' => 'All items',
         'holding' => 'Holding stock',
         'needs_look' => 'Needs a look',
@@ -2997,6 +2998,7 @@ final class Words
         // The redesign's shell (Sidebar.dc.html, Phone.dc.html; docs/decisions.md RD1-RD5): the sidebar's find box (/ui/search finds items and
         // store products, not orders: RD9), the Show choice of a page's group, the header's More when it also lists other pages.
         'side_find' => 'Find an item',
+        'side_find_orders' => 'Find an item or an order', // the approved Sidebar.dc.html's, for who may look at sales (SS5)
         'show' => 'Show',
         'more_pages' => 'More pages and actions',
     ];
@@ -5141,6 +5143,8 @@ final class Words
         'search_new' => 'Search new store products',
         'store' => 'Store',
         'store_n' => '%s (%s)',
+        'all_stores' => 'All stores', // New on the stores' first choice (the approved ByItem artboard, SS4)
+        'all_stores_in' => 'any store', // "Nothing new to match on any store."
         'added' => 'added %s',
         'match' => 'Match',
         'none_new' => 'Nothing new to match on %s.',
@@ -5856,6 +5860,12 @@ final class Words
         'yes_to' => 'Yes, to',
         'not_yet' => 'Not yet',
         'capped' => 'The first %s are shown. Add a word to see fewer.',
+        'orders' => 'Orders',
+        'orders_hint' => 'The store\'s order number.',
+        'order' => 'Order',
+        'store' => 'Store',
+        'placed' => 'Placed',
+        'state' => 'State',
     ];
 
     /**
@@ -7946,7 +7956,7 @@ final class Words
         'summary_products' => '%s products, %s holding stock',
         'summary_cards' => '%s with a product card, %s confirmed (%s of those holding stock)',
         'summary_states' => '%s with a warning, %s blocked, %s not sold any more',
-        'search' => 'Find a product by its CW number, name, brand or flavour',
+        'search' => 'Find a product by its CW number, barcode, name, brand or flavour',
         'search_placeholder' => 'Name, brand, flavour, CW number',
         'clear_search' => 'Clear the search',
         'card' => 'Product card',
@@ -7976,7 +7986,7 @@ final class Words
         'none' => 'No product matches these filters.',
         'none_text' => 'Remove a filter above, or show every product.',
         'none_search' => 'No product matches "%s".',
-        'none_search_text' => 'Check the spelling, or try fewer words. A CW number also works.',
+        'none_search_text' => 'Check the spelling, or try fewer words. A CW number or a barcode also works.',
         'none_all' => 'No warehouse products yet.',
         'clear' => 'Show every product',
         // The list's own heading (the page's is "All products"), then how many and in what order.
@@ -10171,6 +10181,16 @@ final class Words
         'none_kind' => 'Nothing under "%s" is waiting for you.',
         'others_wait' => 'Waiting under the other kinds: %s',
         'see_all' => 'Everything waiting',
+        // Answered today (the artboard's last Show choice, docs/decisions.md SS3).
+        'answered' => 'Answered today',
+        'none_answered' => 'Nothing was answered today yet.',
+        'answered_meta' => '%s by %s · %s',
+        'by_system' => 'the system',
+        'by_someone' => 'someone',
+        'outcome_resolved' => 'Done',
+        'outcome_dismissed' => 'Dismissed',
+        'outcome_approved' => 'OK',
+        'outcome_rejected' => 'Not OK',
     ];
 
     /** Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in its order. */

@@ -422,6 +422,98 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('SALE', 'period_default', 30), $month->text());
     }
 
+    /**
+     * The search of the approved Sales.dc.html ("Search order number or item", docs/decisions.md SS2): the store's order number finds that
+     * order whatever its days; an item (its name, CW number or barcode) finds the orders with a unit of it, in the days and filters chosen;
+     * the store choice keeps the search, a search that finds nothing says so with the way to clear it, and the file is the same list.
+     */
+    public function testStoreOrdersSearchByOrderNumberOrItem(): void
+    {
+        $this->orders();
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('5056168812345', ?)", [$this->beta]);
+        $web = $this->signIn($this->uiUser('buyer'));
+
+        $xp = new \DOMXPath($this->page($web, self::ORDERS)->dom());
+        $box = $xp->query('//main//form[@method="get" and contains(@class, "toolbar")]//input[@type="search" and @name="q"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $box, 'one search in the Show row');
+        self::assertSame('Search order number or item', $box->getAttribute('placeholder'), 'the artboard\'s words');
+
+        // An order number: that order, also one placed before the days shown; the store's own list only its own.
+        self::assertSame(['V2003'], self::refs($this->page($web, self::ORDERS, ['q' => 'V2003']), 'sales-orders'));
+        self::assertSame(['V2003'], self::refs($this->page($web, self::ORDERS, ['q' => ' v2003 ']), 'sales-orders'));
+        self::assertSame(['V1998'], self::refs($this->page($web, self::ORDERS, ['q' => 'V1998']), 'sales-orders'), 'placed 40 days ago');
+        self::assertSame(['A3001'], self::refs($this->page($web, self::ORDERS, ['q' => '#A3001', 'channel' => 'alt']), 'sales-orders'));
+        self::assertSame([], self::refs($this->page($web, self::ORDERS, ['q' => 'A3001', 'channel' => 'vpg']), 'sales-orders'), 'another store\'s order');
+
+        // An item: the orders with a unit of it, in the days shown, grouped and newest first as ever.
+        $beta = ['V2010', 'V2007', 'V2006', 'V2005'];
+        self::assertSame(self::onBoard($beta), self::refs($this->page($web, self::ORDERS, ['q' => 'Beta pod']), 'sales-orders'));
+        self::assertSame(self::onBoard($beta), self::refs($this->page($web, self::ORDERS, ['q' => sprintf('CW-%06d', $this->beta)]), 'sales-orders'), 'its CW number');
+        self::assertSame(self::onBoard($beta), self::refs($this->page($web, self::ORDERS, ['q' => '5056168812345']), 'sales-orders'), 'its barcode');
+        self::assertSame(self::onBoard([...$beta, 'V1999']), self::refs($this->page($web, self::ORDERS, ['q' => 'Beta pod', 'period' => 'all']), 'sales-orders'));
+        self::assertSame(self::onBoard(['A3001', 'V2003']), self::refs($this->page($web, self::ORDERS, ['q' => 'alpha', 'state' => 'shipped']), 'sales-orders'), 'with a state');
+        self::assertSame(['V2008'], self::refs($this->page($web, self::ORDERS, ['q' => 'alpha', 'origin' => 'unreserved']), 'sales-orders'), 'with the way in');
+        self::assertSame(['A3001'], self::refs($this->page($web, self::ORDERS, ['q' => 'alpha', 'channel' => 'alt']), 'sales-orders'));
+
+        // The store choice keeps the search; nothing found says so, with the way to clear it.
+        self::assertSame(self::ORDERS . '?q=Beta%20pod&channel=vpg', self::storeChoice($this->page($web, self::ORDERS, ['q' => 'Beta pod']), self::ORDERS)[2][1]);
+        $none = $this->page($web, self::ORDERS, ['q' => 'zzz nothing']);
+        self::assertSame([], self::refs($none, 'sales-orders'));
+        self::assertStringContainsString(Words::SALE['none_filtered'], $none->text());
+        self::assertContains(self::ORDERS . '?period=all', $none->hrefs(), 'Clear the filters (and the search)');
+        // The file is the same list.
+        self::assertSame(2, substr_count($web->get(self::ORDERS . '.csv', ['q' => 'V2003'])->body, "\r\n"), 'the head and V2003');
+
+        // An order whose reference is also the item's barcode is listed once over every page (the Codex review of 517a331, MEDIUM 1):
+        // the oldest Beta order (V1999) gets the barcode as its reference; pages of one order each, read on by `before`.
+        self::$db->exec("UPDATE reservation SET order_ref = '5056168812345' WHERE order_ref = 'V1999'");
+        $views = new SalesViews(self::$db);
+        $f = ['channel' => null, 'state' => null, 'origin' => null, 'from' => null, 'to' => null, 'before' => null,
+            'search' => ['ref' => '5056168812345', 'skus' => [$this->beta]]];
+        $stores = array_map('intval', self::$db->column('SELECT id FROM channel'));
+        $seen = [];
+        for ($i = 0; $i < 10; $i++) {
+            $page = $views->orderIds($f, $stores, 1, 5000);
+            array_push($seen, ...$page['ids']);
+            if ($page['next'] === null) {
+                break;
+            }
+            $f['before'] = $page['next'];
+        }
+        self::assertSame(count($seen), count(array_unique($seen)), 'each order once: ' . implode(', ', $seen));
+        self::assertCount(5, $seen, 'V1999 (by its reference) and the four other Beta orders');
+    }
+
+    /**
+     * The sidebar's find box finds an order too (the approved Sidebar.dc.html's "Find an item or an order", docs/decisions.md SS5): the
+     * store's order number, on every store, links the order's page; only for who may look at sales (a matcher's box still says "Find an
+     * item" and finds no order); an item search shows no order section.
+     */
+    public function testTheFindBoxFindsAnOrderByItsNumber(): void
+    {
+        $ids = $this->orders();
+        $web = $this->signIn($this->uiUser('buyer'));
+        $side = static fn (UiResponse $r): string => (string) (new \DOMXPath($r->dom()))->evaluate('string(//form[contains(@class, "side-find")]//input[@name="q"]/@placeholder)');
+        self::assertSame('Find an item or an order', $side($this->page($web, self::ORDERS)), 'the artboard\'s words');
+
+        $found = $this->page($web, '/ui/search', ['q' => 'V2003']);
+        self::assertSame(['V2003'], self::refs($found, 'found-orders'));
+        self::assertContains(self::ORDERS . '/' . $ids['V2003'], $found->hrefs());
+        self::assertStringContainsString('VPG test site', self::rowOf($found, 'found-orders', 'V2003'));
+        self::assertSame(['A3001'], self::refs($this->page($web, '/ui/search', ['q' => '#a3001']), 'found-orders'), 'every store; a # and the case as typed');
+        self::assertSame(['V1998'], self::refs($this->page($web, '/ui/search', ['q' => 'V1998']), 'found-orders'), 'any day');
+        // A one-character order number (Reservations::ref allows it; the Codex review of 517a331, LOW 4): found, though no item search runs.
+        $this->paid($this->vpg, '7', [self::line('B1', 'y7')]);
+        self::assertSame(['7'], self::refs($this->page($web, '/ui/search', ['q' => '7']), 'found-orders'));
+        $item = $this->page($web, '/ui/search', ['q' => 'Alpha liquid']);
+        self::assertSame([], self::refs($item, 'found-orders'), 'an item search: no order section');
+        self::assertStringContainsString('Alpha liquid 10ml', $item->text());
+
+        $mapper = $this->signIn($this->uiUser('mapper'));
+        self::assertSame(Words::UI['side_find'], $side($this->page($mapper, '/ui/search')));
+        self::assertSame([], self::refs($this->page($mapper, '/ui/search', ['q' => 'V2003']), 'found-orders'), 'no sales: no orders');
+    }
+
     public function testOlderPagesAreReadByKeyAndThePageSizeIsTheSetting(): void
     {
         $vpg = $this->site('vpg');

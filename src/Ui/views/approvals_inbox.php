@@ -6,14 +6,17 @@
 // the Show beside the heading (everything waiting, or one kind, each with its count; a GET form, its button for a browser without the script);
 // a row keeps the kind shown. ERPNext corrections shown on their own (ConfirmAll.dc.html, docs/decisions.md CA1): two groups, Ready to
 // confirm and Needs a look (a Needs a look row's line is why, in amber), the green "Confirm all ready (N)" beside the Show, and the board's
-// "The list is split in two" on the right until a row is opened (approvals_split).
+// "The list is split in two" on the right until a row is opened (approvals_split). Answered today (docs/decisions.md SS3): the kinds' answers
+// since midnight, each row a link to its kind's own page (nothing to open here), no record on the right.
 $bar = $choices === [] ? '' : $partial('approvals_show', ['choices' => $choices, 'everything' => $everything, 'confirmAll' => $confirmAll]);
 ?>
 <?= $head(\CW\Ui\Words::MENU['inbox'], intro: 'inbox', side: $bar) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
-<?php if ($groups === [] && $show !== null && $everything > 0): ?>
+<?php if ($groups === [] && $answered): ?>
+<?= $empty(\CW\Ui\Words::RD_INBOX['none_answered'], '', '/ui/approvals', \CW\Ui\Words::RD_INBOX['see_all']) ?>
+<?php elseif ($groups === [] && $show !== null && $everything > 0): ?>
 <?= $empty(\CW\Ui\Words::say('RD_INBOX', 'none_kind', \CW\Ui\Words::INBOX['kind_' . $show]), \CW\Ui\Words::say('RD_INBOX', 'others_wait', $everything), '/ui/approvals', \CW\Ui\Words::RD_INBOX['see_all']) ?>
 <?php elseif ($groups === [] && $show !== null): ?>
 <?= $empty(\CW\Ui\Words::say('RD_INBOX', 'none_kind', \CW\Ui\Words::INBOX['kind_' . $show]), \CW\Ui\Words::INBOX['none_text'], '/ui/approvals', \CW\Ui\Words::RD_INBOX['see_all']) ?>
@@ -28,7 +31,7 @@ $bar = $choices === [] ? '' : $partial('approvals_show', ['choices' => $choices,
         <a class="ap-all" href="<?= $u($g['href']) ?>" aria-label="<?= $say('INBOX', 'all_named', \CW\Ui\Words::INBOX['kind_' . $g['kind']]) ?>"><?= $word('INBOX', 'all') ?></a><?php endif; ?></h2>
       <ul class="ap-rows">
 <?php foreach ($g['rows'] as $r): ?>
-        <li><a class="ap-row<?php if ($r['open']): ?> sel<?php endif; ?>"<?php if ($r['open']): ?> aria-current="true"<?php else: ?> href="<?= $u('/ui/approvals', ['open' => $r['key'], 'show' => $show]) ?>"<?php endif; ?>><span class="ap-t"><?= $e($r['title']) ?></span><span class="ap-m<?php if ($r['look'] ?? false): ?> ap-why<?php endif; ?>"><?= $e($r['meta']) ?></span></a></li>
+        <li><a class="ap-row<?php if ($r['open']): ?> sel<?php endif; ?>"<?php if ($r['open']): ?> aria-current="true"<?php else: ?> href="<?= $u($r['href'] ?? '/ui/approvals', isset($r['href']) ? [] : ['open' => $r['key'], 'show' => $show]) ?>"<?php endif; ?>><span class="ap-t"><?= $e($r['title']) ?></span><span class="ap-m<?php if ($r['look'] ?? false): ?> ap-why<?php endif; ?>"><?= $e($r['meta']) ?></span></a></li>
 <?php endforeach; ?>
       </ul>
 <?php if ($g['more']): ?>

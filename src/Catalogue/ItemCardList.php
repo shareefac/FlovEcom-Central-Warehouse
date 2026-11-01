@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Catalogue;
 
 use CW\Db;
+use CW\Matching\Gtin;
 
 /**
  * The item cards list and its CSV (IM3; docs/decisions.md I109): every item that is not merged away, with its card, ordered by
@@ -120,9 +121,15 @@ final class ItemCardList
         $w = ['s.merged_into_sku_id IS NULL'];
         $p = [];
         if ($f['q'] !== '') {
+            $barcode = preg_match('/^[0-9]{6,64}$/D', $f['q']) === 1 ? (Gtin::key($f['q']) ?? $f['q']) : null;
             if (preg_match('/^(?:cw-?)?0*([0-9]{1,10})$/iD', $f['q'], $m) === 1) {
-                $w[] = 's.id = ?';
-                $p[] = (int) $m[1];
+                // a bare number of 6 digits or more is a CW number or a barcode (the Items artboard's search, docs/decisions.md SS1);
+                // sku_barcode holds the GTIN key (no leading zeros, as a scanner may add them), as Queries::searchSkus reads it
+                $w[] = $barcode === null ? 's.id = ?' : '(s.id = ? OR s.id IN (SELECT b.sku_id FROM sku_barcode b WHERE b.barcode = ?))';
+                array_push($p, (int) $m[1], ...($barcode === null ? [] : [$barcode]));
+            } elseif ($barcode !== null) {
+                $w[] = 's.id IN (SELECT b.sku_id FROM sku_barcode b WHERE b.barcode = ?)';
+                $p[] = $barcode;
             } else {
                 foreach (array_slice(preg_split('/\s+/u', $f['q'], -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6) as $word) {
                     $w[] = "CONCAT_WS(' ', s.name, s.brand, s.code, c.brand, c.flavour) LIKE ?";

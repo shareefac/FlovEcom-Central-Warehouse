@@ -155,7 +155,8 @@ final class RedesignCTemplatesTest extends TestCase
         self::assertStringContainsString('<form class="ap-show" method="get" action="/ui/approvals"', $t['approvals_show']);
         self::assertStringContainsString('<select id="ap-show" name="show">', $t['approvals_show']);
         self::assertStringContainsString("\$partial('approvals_show'", $t['approvals_inbox']);
-        self::assertStringContainsString("\$u('/ui/approvals', ['open' => \$r['key'], 'show' => \$show])", $t['approvals_inbox']);
+        // (a row of Answered today links its kind's own page instead, docs/decisions.md SS3)
+        self::assertStringContainsString("\$u(\$r['href'] ?? '/ui/approvals', isset(\$r['href']) ? [] : ['open' => \$r['key'], 'show' => \$show])", $t['approvals_inbox']);
         self::assertStringContainsString('<div class="ap-inbox rd-inbox">', $t['approvals_inbox']);
         self::assertSame(2, substr_count($t['approvals_record'], '<input type="hidden" name="inbox_show" value="<?= $e($show) ?>">'), 'the answer and the fold carry it');
         $r = $t['approvals_record'];

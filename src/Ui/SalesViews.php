@@ -144,7 +144,7 @@ final class SalesViews
      * the next page, and, when a filter on the units read $scanMax orders without filling the page, the id to read on from
      * (`stopped`) and how many orders it read.
      *
-     * @param array{channel: ?int, state: ?string, origin: ?string, from: ?string, to: ?string, before: ?int} $f
+     * @param array{channel: ?int, state: ?string, origin: ?string, from: ?string, to: ?string, before: ?int, search?: ?array{ref: ?string, skus: list<int>}} $f
      * @param list<int> $storeIds
      * @return array{ids: list<int>, next: ?int, stopped: ?int, read: int}
      */
@@ -153,6 +153,9 @@ final class SalesViews
         $stores = $f['channel'] !== null ? [$f['channel']] : $storeIds;
         if ($stores === []) {
             return ['ids' => [], 'next' => null, 'stopped' => null, 'read' => 0];
+        }
+        if (($f['search'] ?? null) !== null) {
+            return $this->searched($f, $stores, $size);
         }
         if ($f['state'] !== null && in_array($f['state'], self::UNIT_STATES, true)) {
             return $this->byUnit($f, $stores, $size, $scanMax);
@@ -263,6 +266,60 @@ final class SalesViews
         $sql = count($branches) === 1 ? $branches[0]
             : 'SELECT x.id, x.created_at FROM ((' . implode(') UNION ALL (', $branches) . ')) x ORDER BY x.created_at DESC, x.id DESC LIMIT ' . $limit;
         return array_map(static fn (array $r): int => (int) $r['id'], $this->db->all($sql, $params));
+    }
+
+    /**
+     * The search of Sales orders (the approved Sales.dc.html's "Search order number or item", docs/decisions.md SS2), newest first:
+     *   - the store's order reference as typed (`ref`): that order of each store shown, whatever its days or filters, on the first page
+     *     only (uq_reservation_order: one row a store);
+     *   - the items the text names (`skus`, Queries::searchSkus: words, CW number, barcode): the orders with a unit of one of them (not
+     *     the one the reference names: it is listed once, above), in the
+     *     period, state and way in chosen, read from the units of those items (ix_reservation_unit_sku_state), by order id below `before`
+     *     (order ids follow the time an order was placed).
+     *
+     * @param array{channel: ?int, state: ?string, origin: ?string, from: ?string, to: ?string, before: ?int, search: array{ref: ?string, skus: list<int>}} $f
+     * @param list<int> $stores
+     * @return array{ids: list<int>, next: ?int, stopped: ?int, read: int}
+     */
+    private function searched(array $f, array $stores, int $size): array
+    {
+        $ids = [];
+        if ($f['search']['ref'] !== null && $f['before'] === null) {
+            $ids = array_map('intval', $this->db->column('SELECT id FROM reservation WHERE order_ref = ? AND channel_id IN (' . self::marks($stores) . ') ORDER BY id DESC',
+                [$f['search']['ref'], ...$stores]));
+        }
+        $next = null;
+        $skus = $f['search']['skus'];
+        if ($skus !== []) {
+            $w = 'ru.sku_id IN (' . self::marks($skus) . ') AND ru.channel_id IN (' . self::marks($stores) . ')';
+            $p = [...$skus, ...$stores];
+            if ($f['search']['ref'] !== null) {
+                // the order the reference names is the first page's, never an item page's too (the Codex review of 517a331)
+                $w .= ' AND r.order_ref <> ?';
+                $p[] = $f['search']['ref'];
+            }
+            if ($f['state'] !== null && in_array($f['state'], self::UNIT_STATES, true)) {
+                $w .= ' AND ru.state = ?';
+                $p[] = $f['state'];
+            } elseif ($f['state'] !== null) {
+                $w .= ' AND r.status = ?';
+                $p[] = self::ORDER_STATUS[$f['state']];
+            }
+            foreach ([['r.origin = ?', $f['origin']], ['r.created_at >= ?', $f['from']], ['r.created_at < ?', $f['to']], ['r.id < ?', $f['before']]] as [$cond, $v]) {
+                if ($v !== null) {
+                    $w .= " AND {$cond}";
+                    $p[] = $v;
+                }
+            }
+            $found = array_map('intval', $this->db->column('SELECT /*+ INDEX(ru ix_reservation_unit_sku_state) */ DISTINCT r.id FROM reservation_unit ru '
+                . 'JOIN reservation r ON r.id = ru.reservation_id WHERE ' . $w . ' ORDER BY r.id DESC LIMIT ' . ($size + 1), $p));
+            if (count($found) > $size) {
+                $found = array_slice($found, 0, $size);
+                $next = $found[$size - 1];
+            }
+            $ids = array_values(array_unique([...$ids, ...$found]));
+        }
+        return ['ids' => $ids, 'next' => $next, 'stopped' => null, 'read' => count($ids)];
     }
 
     /**

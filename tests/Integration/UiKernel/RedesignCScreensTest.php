@@ -180,6 +180,49 @@ final class RedesignCScreensTest extends KernelUiTestCase
         }
     }
 
+    /**
+     * New on the stores offers All stores (the approved ByItem artboard's first choice, "All stores (N)", docs/decisions.md SS4): it is the
+     * tab's first choice and opens by default, with the tab's count; its list is every store's new products together, newest first, each
+     * row saying its store; its search reads every store; one store is still a choice; Match all new opens New variants of the first store
+     * with new products (New variants is one store's page); Match leads back to All stores.
+     */
+    public function testNewOnTheStoresOffersAllStores(): void
+    {
+        $alt = $this->site('alt', 'shadow');
+        $big = $this->site('vbig', 'off');
+        self::$db->exec("UPDATE channel SET name = 'Alt Store' WHERE code = 'alt'");
+        self::$db->exec("UPDATE channel SET name = 'Big Store' WHERE code = 'vbig'");
+        $a = $this->item('strict', 0, 'Alpha item');
+        $this->profiled($alt, 'A1', ['product_title' => 'Alpha on Alt'], $a);
+        $this->profiled($big, 'B2', ['product_title' => 'Brand new on Big']);
+        $this->profiled($big, 'B3', ['product_title' => 'Second on Big']);
+        $onAlt = $this->profiled($alt, 'A2', ['product_title' => 'Fresh on Alt']);
+        self::$db->exec('UPDATE channel_listing SET created_at = created_at + INTERVAL 1 SECOND WHERE id = ?', [$onAlt]);
+        $web = $this->signIn($this->uiUser('mapper'));
+
+        $new = $web->get('/ui/review/products', ['tab' => 'new']);
+        self::assertSame(200, $new->status, $new->describe() . ' ' . implode(' | ', self::$log));
+        $x = self::xp($new);
+        $options = self::texts($x, '//select[@name="channel"]/option');
+        self::assertSame(Words::say('RD_MATCH', 'store_n', Words::RD_MATCH['all_stores'], 3), $options[0], 'All stores first, with every store\'s count');
+        self::assertSame('All stores', Words::RD_MATCH['all_stores']);
+        self::assertSame(['', 'true'], [(string) $x->evaluate('string(//select[@name="channel"]/option[1]/@value)'),
+            $x->query('//select[@name="channel"]/option[1][@selected]')->length === 1 ? 'true' : 'false'], 'and chosen by default');
+        $rows = '//section[contains(@class, "bi-fresh")]/div[@class="bi-row"]';
+        self::assertSame(['Fresh on Alt', 'Second on Big', 'Brand new on Big'], self::texts($x, $rows . '//span[@class="o-name"]'), 'every store, newest first');
+        self::assertStringStartsWith('Alt Store · ', trim((string) $x->evaluate('string(' . $rows . '[1]//span[@class="o-sub"])')));
+        self::assertStringStartsWith('Big Store · ', trim((string) $x->evaluate('string(' . $rows . '[2]//span[@class="o-sub"])')));
+        self::assertSame('/ui/review/new-variants?channel=alt', (string) $x->evaluate('string(//header//div[@class="bi-actions"]/a[contains(@class, "btn primary")]/@href)'),
+            'Match all new: New variants of the first store with new products');
+
+        $found = self::xp($web->get('/ui/review/products', ['tab' => 'new', 'q' => 'Brand new']));
+        self::assertSame(['Brand new on Big'], self::texts($found, $rows . '//span[@class="o-name"]'), 'the search reads every store');
+        self::assertSame(['Fresh on Alt'], self::texts(self::xp($web->get('/ui/review/products', ['tab' => 'new', 'channel' => 'alt'])), $rows . '//span[@class="o-name"]'));
+
+        $check = $web->send('GET', '/ui/review/listing/' . $onAlt, [], [], ['referer' => 'http://cw-ui.review.invalid/ui/review/products?tab=new']);
+        self::assertSame('/ui/review/products?tab=new', (string) self::xp($check)->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'));
+    }
+
     public function testTheReportsShareOneLayoutWithTheCompanyTheTotalAndAllReports(): void
     {
         $this->site('vpg');

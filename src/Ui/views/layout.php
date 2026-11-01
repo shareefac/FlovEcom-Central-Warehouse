@@ -24,6 +24,7 @@
 $mark = \CW\Ui\Html::initials($who->displayName) ?: '?';
 $nav = $nav ?? []; $pagebar = $pagebar ?? null; $actions = $actions ?? []; $headDrawn = $headDrawn ?? false; $stores = $stores ?? [];
 $find = ($searchBox ?? false) === true && $nav !== [];
+$findWord = ($findOrders ?? false) === true ? 'side_find_orders' : 'side_find';
 $here = null;
 foreach ($nav as $navItem) {
     $here = $navItem['current'] ? $navItem : $here;
@@ -33,7 +34,7 @@ foreach ($nav as $navItem) {
   <a class="appbar-home" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="visually-hidden"><?= $word('UI', 'brand') ?></span></a>
   <span class="appbar-title"><?php if ($here !== null): ?><?= $e($here['label']) ?><?php else: ?><?= $word('UI', 'brand') ?><?php endif; ?></span>
 <?php if ($find): ?>
-  <a class="icon-btn" href="/ui/search"><span class="ico ico-search" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', 'side_find') ?></span></a>
+  <a class="icon-btn" href="/ui/search"><span class="ico ico-search" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', $findWord) ?></span></a>
 <?php endif; ?>
 <?php if ($nav !== []): ?>
   <a class="icon-btn menu-btn" href="#menu" aria-controls="menu"><span class="ico ico-menu" aria-hidden="true"></span><span class="visually-hidden"><?= $word('UI', 'open_menu') ?> (<?= $say('UI', 'signed_in_as', $who->displayName) ?>)</span></a>
@@ -45,8 +46,8 @@ foreach ($nav as $navItem) {
     <a class="side-brand" href="/ui/"><span class="brand-tile" aria-hidden="true">CW</span><span class="brand-text"><span class="brand-name"><?= $word('UI', 'brand') ?></span><?php if ($stores !== []): ?><span class="brand-stores"><?= $e(implode(' · ', $stores)) ?></span><?php endif; ?></span></a>
 <?php if ($find): ?>
     <form class="side-find" method="get" action="/ui/search" role="search">
-      <label class="visually-hidden" for="side-find"><?= $word('UI', 'side_find') ?></label>
-      <span class="ico ico-search" aria-hidden="true"></span><input id="side-find" type="search" name="q" maxlength="100" placeholder="<?= $word('UI', 'side_find') ?>" autocomplete="off">
+      <label class="visually-hidden" for="side-find"><?= $word('UI', $findWord) ?></label>
+      <span class="ico ico-search" aria-hidden="true"></span><input id="side-find" type="search" name="q" maxlength="100" placeholder="<?= $word('UI', $findWord) ?>" autocomplete="off">
     </form>
 <?php endif; ?>
 <?php if ($nav !== []): ?>

@@ -684,4 +684,65 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         self::assertNotContains(Words::COUNTS['counted'], $labels, 'no "Counted 0"');
         self::assertStringContainsString('ORD-77', $page->text(), 'why it waits: the order it names');
     }
+
+    /**
+     * Answered today (the approved Approvals artboard's last Show choice, docs/decisions.md SS3): the Show offers it after the kinds, with no
+     * count; it lists what was answered since midnight UK time in the kinds the person answers, by anyone, newest first, each row saying how
+     * it ended, who answered and when, and linking the kind's own page; an answer of yesterday and what still waits are not on it; nothing
+     * answered says so.
+     */
+    public function testAnsweredTodayListsTheAnswersSinceMidnight(): void
+    {
+        $f = $this->fill('vpg', 'Blue Razz 20mg');
+        $user = $this->uiUser('stock_controller');
+        $web = $this->signIn($user);
+        $none = $web->get(self::INBOX, ['show' => 'answered']);
+        self::assertSame(200, $none->status, $none->describe());
+        self::assertStringContainsString(Words::RD_INBOX['none_answered'], $none->text());
+        $xp = new \DOMXPath($web->get(self::INBOX)->dom());
+        $options = array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="show"]/option')));
+        self::assertSame('Answered today', end($options), 'the last choice, no count');
+        self::assertSame('answered', (string) $xp->evaluate('string(//select[@name="show"]/option[last()]/@value)'));
+
+        $now = \CW\Clock::now();
+        self::$db->exec("UPDATE count_review SET status = 'resolved', resolution = 'confirmed', resolved_by = ?, resolved_at = ? WHERE id = ?",
+            [$user['id'], \CW\Clock::db($now), $f['correction']]);
+        self::$db->exec("UPDATE oversell_event SET status = 'resolved', resolution = 'no_action', resolved_by = ?, resolved_at = ? WHERE id = ?",
+            [$user['id'], \CW\Clock::db($now->modify('-2 days')), $f['oversold']]);
+        self::$db->exec("UPDATE goods_in_suspense SET status = 'dismissed', resolved_by = NULL, resolved_at = ? WHERE id = ?", [\CW\Clock::db($now), $f['suspense']]);
+
+        $page = $web->get(self::INBOX, ['show' => 'answered']);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertSame([Words::INBOX['kind_corrections'] => 1, Words::INBOX['kind_suspense'] => 1], self::kindsShown($page), 'yesterday\'s and the waiting ones are not here');
+        $xp = new \DOMXPath($page->dom());
+        $row = static fn (string $kind): string => trim((string) preg_replace('/\s+/u', ' ', (string) $xp->evaluate('string(//h2[@id="ap-g-answered-' . $kind . '"]/following-sibling::ul//a)')));
+        self::assertSame('Blue Razz 20mg' . Words::say('RD_INBOX', 'answered_meta', Words::RD_INBOX['outcome_resolved'], 'Stock_controller ' . self::userNo($user),
+            \CW\Ui\Html::clock(\CW\Clock::db($now))), $row('corrections'));
+        self::assertStringContainsString(Words::say('RD_INBOX', 'answered_meta', Words::RD_INBOX['outcome_dismissed'], Words::RD_INBOX['by_system'], ''), $row('suspense') . ' ');
+        self::assertSame(InboxController::KINDS['corrections']['page'], (string) $xp->evaluate('string(//h2[@id="ap-g-answered-corrections"]/following-sibling::ul//a/@href)'));
+        self::assertSame(0, $xp->query('//form[@id="ap-answer"]')->length, 'nothing to answer here');
+        self::assertSame('answered', (string) $xp->evaluate('string(//select[@name="show"]/option[@selected]/@value)'));
+        // the waiting list still has what waits
+        self::assertArrayHasKey(Words::INBOX['kind_modes'], self::kindsShown($web->get(self::INBOX)));
+
+        // Count differences (the Codex review of 517a331, MEDIUM 2 and LOW 3): a rejected count says Not OK, an accepted one OK; a source
+        // the kind does not list (a VERIFY recount the system closed) is not under it.
+        $item = $this->item('strict', 5, 'Gamma pod 2ml');
+        foreach ([['count_after_movements', 'rejected', 'CNT-1'], ['ship_near_count', 'accepted', 'CNT-2'], ['verify_recount', 'uncancelled', 'CNT-3']] as [$source, $how, $ref]) {
+            self::$db->exec("INSERT INTO count_review (warehouse_id, sku_id, source, ref, status, resolution, resolved_by, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [self::warehouseId('MAIN'), $item, $source, $ref, $how === 'uncancelled' ? 'dismissed' : 'resolved', $how, $how === 'uncancelled' ? null : $user['id'],
+                    \CW\Clock::db($now)]);
+        }
+        $page = $web->get(self::INBOX, ['show' => 'answered']);
+        self::assertSame(2, self::kindsShown($page)[Words::INBOX['kind_counts']] ?? null, 'the two the kind lists');
+        $text = $page->text();
+        self::assertStringContainsString('Gamma pod 2ml' . Words::RD_INBOX['outcome_rejected'] . ' by ', $text);
+        self::assertStringContainsString('Gamma pod 2ml' . Words::RD_INBOX['outcome_approved'] . ' by ', $text);
+    }
+
+    /** The number uiUser() gave this person ("Stock_controller 3"). @param array{email: string} $user */
+    private static function userNo(array $user): string
+    {
+        return (string) preg_replace('/^k-.*-(\d+)@.*$/', '$1', $user['email']);
+    }
 }

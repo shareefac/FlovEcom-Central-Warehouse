@@ -10,13 +10,16 @@ use CW\Ui\Words;
 
 /**
  * /ui/search?q= (Find a product, plan §6.17): warehouse products by CW number, barcode or words; website products by their
- * option number on the website, barcode or words.
+ * option number on the website, barcode or words; for who may look at sales, the stores' orders by their order number (the
+ * approved Sidebar.dc.html's "Find an item or an order", docs/decisions.md SS5).
  */
 final class SearchController
 {
     /** At most this many warehouse products and website products are shown (Queries::searchSkus, searchListings). */
     private const ITEMS = 20;
     private const LISTINGS = 30;
+    /** At most this many orders of one number (one a store: uq_reservation_order). */
+    private const ORDERS = 10;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -24,6 +27,7 @@ final class SearchController
         $text = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
         $skus = [];
         $listings = [];
+        $orders = [];
         $short = false;
         if ($text !== '') {
             $short = mb_strlen($text) < 2;
@@ -49,8 +53,23 @@ final class SearchController
                 ];
             }
         }
+        // (an order number of one character too: Reservations::ref allows it; the item search needs two)
+        if ($text !== '' && $ctx->me()->can('sales.view')) {
+            // The store's order number as typed (a leading # left out), on every store: one read of uq_reservation_order a store.
+            $ref = ltrim($text, '#');
+            $stores = $q->channels();
+            $names = array_column($stores, 'name', 'id');
+            if ($ref !== '' && strlen($ref) <= 64 && $stores !== []) {
+                $ids = array_column($stores, 'id');
+                foreach ($ctx->db->all('SELECT id, channel_id, order_ref, CAST(status AS CHAR) AS status, created_at FROM reservation WHERE channel_id IN ('
+                    . implode(',', array_fill(0, count($ids), '?')) . ') AND order_ref = ? ORDER BY id DESC LIMIT ' . self::ORDERS, [...$ids, $ref]) as $r) {
+                    $orders[] = ['id' => (int) $r['id'], 'ref' => (string) $r['order_ref'], 'store' => (string) ($names[(int) $r['channel_id']] ?? ''),
+                        'state' => Words::RESV_STATE[(string) $r['status']] ?? (string) $r['status'], 'placed' => (string) $r['created_at']];
+                }
+            }
+        }
         // (the lists stop at their sizes: the page says so when one is full, docs/decisions.md SX5)
-        return $ctx->page('search', ['text' => $text, 'short' => $short, 'skus' => $skus, 'listings' => $listings, 'items_max' => self::ITEMS, 'listings_max' => self::LISTINGS],
+        return $ctx->page('search', ['text' => $text, 'short' => $short, 'skus' => $skus, 'listings' => $listings, 'orders' => $orders, 'items_max' => self::ITEMS, 'listings_max' => self::LISTINGS],
             200, ['title' => Words::title('search'), 'active' => 'search']);
     }
 

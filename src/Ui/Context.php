@@ -297,6 +297,8 @@ final class Context
             'actions' => $f['actions'],
             'list' => $f['list'],
             'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
+            // The find box finds orders too for who may look at sales (docs/decisions.md SS5): it says so then.
+            'findOrders' => !$forced && ($who?->can('catalogue.view') ?? false) && ($who?->can('sales.view') ?? false),
             'stores' => $f['nav'] === [] ? [] : $this->queries()->storeNames(),
             'tabs' => $f['phone'],
             'testSystem' => $this->testSystem,
