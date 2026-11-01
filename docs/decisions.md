@@ -15564,3 +15564,17 @@ form to `/ui/items/{id}/add-supplier?supplier=N`, which opens that supplier's ow
 (`SupplierItemsController::newForm` reads `sku_id`), where the box, price and the rest are typed and saved as before. Nothing is saved by
 the fold or the redirect. An item that is not there (or joined away), a supplier that is not there or is stopped: 404. Who only looks
 at suppliers sees the card without "+ Add"; the route refuses them (403).
+
+**DG4. By item: the board's five filters** (CW-909; ByItem.dc.html: Store, Match status, Brand, Kind, Stock; RD-C10 had kept one). The
+reading of the board, agreed with the first session and the owner's brief (1 Nov): Store and Match status make the list's one coverage
+filter (`cov`, as before, so every link, the pager, the CSV, the bulk bar and the way back from a variant's page keep working):
+a store and "Missing on a store" = missing on that store (`missing-<code>`, as before); All stores and it = missing on at least one store
+(`missing`, new); a store and "Any match status" = matched on that store (`on-<code>`, new); "On every store" (`every`) and "On no
+store" (`none`, new) leave the store aside; "With a suggestion" (`suggested`) stays as the last choice (nothing removed). The form sends
+`store` and `match`; the controller turns them into `cov` (`ByProductContext::coverageOf`), and an address with only `cov` (an old link)
+reads as before. Brand (the item's brand, every brand an item has, by name), Kind (the item card's product type, `ItemRules::TYPES`:
+CW's own kinds, not the board's sample words) and Stock ("Holding stock" = on hand above zero over every warehouse, "No stock" = zero or
+below) narrow any of them (`Queries::productExtra`). The board's words are the options; the counts beside each choice of before are gone
+(the board draws none); the list's "N items" line still says how many the filters hold. Any of the new filters, or a new coverage, is
+read in one pass (`productIds` with every id; no stored count holds them). Not carried: Brand, Kind and Stock do not travel to a
+variant's page and back (its context carries `cov` and the search only); the way back keeps the store and status.

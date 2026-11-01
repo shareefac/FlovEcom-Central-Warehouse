@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Catalogue\ItemRules;
 use CW\CwException;
 use CW\Db;
 use CW\Mapping\BulkDecisions;
@@ -91,10 +92,11 @@ final class ByProductController
                 'freshCount' => null],
                 200, $layout);
         }
-        $cov = ByProductContext::coverage($req->param('cov'), $stores);
+        $cov = self::coverageAsked($req, $stores);
         if ($cov['unknown']) {
             return $ctx->error(404, 'unknown_store', 'no such store', [ByProductContext::LIST_PATH, Words::MENU['by_product']]);
         }
+        $extra = self::extraAsked($req);
         $text = ByProductContext::text($req->param('q') ?? '');
         // How many items a page shows (U123): the number the person chose on the page (`n`), else the setting's. The links carry
         // `n` only when it is not the setting's, so a list nobody resized keeps its plain addresses.
@@ -109,8 +111,9 @@ final class ByProductController
         usort($ordered, static fn (int $a, int $b): int => [$counts['matched'][$a], $a] <=> [$counts['matched'][$b], $b]);
         // A search, and the items with a suggestion waiting, are few: their ids are read in one pass, which also says how many
         // there are. Every other list is long: its total comes from the filter entries' counts and only its page is read.
-        $onePass = $text !== '' || $cov['kind'] === 'suggested';
-        $all = $onePass ? $q->productIds($cov['kind'], $storeId, $ordered, $text) : [];
+        // (the board's other filters and Store + Match status, DG4: read in one pass too, no stored count holds them)
+        $onePass = $text !== '' || in_array($cov['kind'], ['suggested', 'missing_any', 'none', 'on'], true) || $extra !== [];
+        $all = $onePass ? $q->productIds($cov['kind'], $storeId, $ordered, $text, null, 0, false, $extra) : [];
         $total = $onePass ? count($all) : self::totalOf($counts, $cov['kind'], $storeId);
         $pages = max(1, (int) ceil($total / $per));
         // Back from a variant's page (`at`): the page of this list that holds that item. A page asked for is that page,
@@ -134,7 +137,7 @@ final class ByProductController
         if ($pinned) {
             usort($products, static fn (array $a, array $b): int => [(int) $a['id'] !== $at, (int) $a['id']] <=> [(int) $b['id'] !== $at, (int) $b['id']]);
         }
-        $base = ['cov' => $cov['value'], 'q' => $text === '' ? null : $text, 'n' => $n];
+        $base = ['cov' => $cov['value'], 'q' => $text === '' ? null : $text, 'n' => $n] + self::extraQuery($extra);
         $cells = self::marked($ctx->db, $q->productCells($pinned ? [$at, ...$ids] : $ids));
         $rows = self::rows($products, $stores, $cells, $me->canDecide(), $cov['value'], $text, $n);
         // The bulk action (M55, U124): the actions this person may take on the suggested variants of ticked items. A row can be
@@ -211,7 +214,16 @@ final class ByProductController
             // the search alone cleared (docs/decisions.md SX5): the filter and the number of rows stay
             'clear_search' => Html::url(ByProductContext::LIST_PATH, ['q' => null] + $base),
             'csv_link' => Html::url(ByProductContext::LIST_PATH . '.csv', ['n' => null] + $base),
-            'filtered' => $cov['kind'] !== null || $text !== '',
+            'filtered' => $cov['kind'] !== null || $text !== '' || $extra !== [],
+            // The board's five selects (DG4): what each holds and what is chosen.
+            'filters' => [
+                'store' => in_array($cov['kind'], ['missing', 'on'], true) && $cov['store'] !== null ? (string) $cov['store']['code'] : '',
+                'match' => match ($cov['kind']) { 'missing', 'missing_any' => 'missing', 'every', 'none', 'suggested' => (string) $cov['kind'], default => '' },
+                'brand' => $extra['brand'] ?? '', 'kind' => $extra['kind'] ?? '', 'stock' => isset($extra['stock']) ? ($extra['stock'] ? '1' : '0') : '',
+                'stores' => array_map(static fn (array $s): array => ['code' => (string) $s['code'], 'name' => (string) $s['name']], $stores),
+                'brands' => array_map('strval', $ctx->db->column("SELECT DISTINCT brand FROM sku WHERE merged_into_sku_id IS NULL AND brand IS NOT NULL AND brand <> '' ORDER BY brand")),
+                'kinds' => ItemRules::TYPES,
+            ],
             'lookOnly' => $lookOnly,
             // The person's own number of rows, when it is not the setting's: the search form keeps it.
             'per_page' => $n,
@@ -373,10 +385,11 @@ final class ByProductController
         $req = $ctx->req;
         $q = $ctx->queries();
         $stores = $q->everyStore();
-        $cov = ByProductContext::coverage($req->param('cov'), $stores);
+        $cov = self::coverageAsked($req, $stores);
         if ($cov['unknown']) {
             return $ctx->error(404, 'unknown_store', 'no such store', [ByProductContext::LIST_PATH, Words::MENU['by_product']]);
         }
+        $extra = self::extraAsked($req);
         $text = ByProductContext::text($req->param('q') ?? '');
         $storeIds = array_map(static fn (array $s): int => (int) $s['id'], $stores);
         $columns = [['cw_number', 'text'], ['name', 'text'], ['product', 'text'], ['brand', 'text']];
@@ -384,7 +397,8 @@ final class ByProductController
             $columns[] = [(string) $s['name'], 'text'];
         }
         $csv = new CsvWriter([...$columns, ['stores_matched', 'number'], ['stores', 'number']]);
-        $ids = $stores === [] ? [] : array_slice($q->productIds($cov['kind'], $cov['store'] === null ? null : (int) $cov['store']['id'], $storeIds, $text), 0, self::CSV_MAX);
+        $ids = $stores === [] ? [] : array_slice($q->productIds($cov['kind'], $cov['store'] === null ? null : (int) $cov['store']['id'], $storeIds, $text, null, 0, false, $extra),
+            0, self::CSV_MAX);
         // The rows and their cells in slices of 500 items. Of the profiles (the widest rows there are) only the matched variants'
         // are read, for the parent product's name; the variants are named by their option numbers.
         foreach (array_chunk($ids, 500) as $chunk) {
@@ -797,6 +811,50 @@ final class ByProductController
      *
      * @param array{total: int, every: int, matched: array<int, int>, suggested: int} $counts
      */
+    /**
+     * The coverage filter asked for (docs/decisions.md DG4): the board's two selects (`store`, `match`) when the form sent them, else the address's
+     * `cov` (the links, old ones too).
+     *
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @return array{kind: ?string, store: array{id: int, code: string, name: string}|null, value: ?string, unknown: bool}
+     */
+    private static function coverageAsked(UiRequest $req, array $stores): array
+    {
+        return $req->param('match') !== null || $req->param('store') !== null
+            ? ByProductContext::coverageOf($req->param('store'), $req->param('match'), $stores)
+            : ByProductContext::coverage($req->param('cov'), $stores);
+    }
+
+    /**
+     * The board's Brand, Kind and Stock (DG4): a brand as typed (at most 128 characters), a kind of ItemRules::TYPES, stock `1` (holding) or `0`
+     * (none); anything else is no filter.
+     *
+     * @return array{brand?: string, kind?: string, stock?: bool}
+     */
+    private static function extraAsked(UiRequest $req): array
+    {
+        $out = [];
+        $brand = mb_substr(trim($req->param('brand') ?? ''), 0, 128);
+        if ($brand !== '') {
+            $out['brand'] = $brand;
+        }
+        $kind = $req->param('kind');
+        if ($kind !== null && isset(ItemRules::TYPES[$kind])) {
+            $out['kind'] = $kind;
+        }
+        $stock = $req->param('stock');
+        if ($stock === '1' || $stock === '0') {
+            $out['stock'] = $stock === '1';
+        }
+        return $out;
+    }
+
+    /** @param array{brand?: string, kind?: string, stock?: bool} $extra @return array<string, ?string> what the links carry of them */
+    private static function extraQuery(array $extra): array
+    {
+        return ['brand' => $extra['brand'] ?? null, 'kind' => $extra['kind'] ?? null, 'stock' => isset($extra['stock']) ? ($extra['stock'] ? '1' : '0') : null];
+    }
+
     private static function totalOf(array $counts, ?string $kind, ?int $storeId): int
     {
         return match ($kind) {

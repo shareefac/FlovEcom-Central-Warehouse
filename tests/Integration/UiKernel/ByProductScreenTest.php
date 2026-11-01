@@ -138,9 +138,9 @@ final class ByProductScreenTest extends KernelUiTestCase
     private static function pills(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        // The filter is a choice of the board's one Show row since docs/decisions.md W12.7: "All (55)".
-        return array_map(static fn (\DOMNode $o): string => (string) preg_replace('/\s*\((\d[\d,]*)\)$/', ' $1', self::squash($o->textContent)),
-            iterator_to_array($xp->query('//form[@class="bi-find"]//select[@name="cov"]/option')));
+        // The ByItem board's Store and Match status selects (docs/decisions.md DG4; before them one select with counts, W12.7).
+        return array_map(static fn (\DOMNode $o): string => self::squash($o->textContent),
+            iterator_to_array($xp->query('//form[@class="bi-find"]//select[@name="store" or @name="match"]/option')));
     }
 
     /** The picker's rows of one list (`suggested` or `found`): [name, option line, state, barcode mark, Choose link]. @return list<array{0: string, 1: string, 2: string, 3: string, 4: string}> */
@@ -286,7 +286,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $cells = self::cells($four, $alpha);
         self::assertStringStartsWith(Words::PRODUCT_STORE['none'], $cells['Dee Store']);
         self::assertSame(Words::say('RD_MATCH', 'stores_n', 3, 4), $cells[Words::BY_PRODUCT['stores_matched']]);
-        self::assertContains(Words::say('BY_PRODUCT', 'missing', 'Dee Store') . ' 3', self::pills($four));
+        self::assertContains('Dee Store', self::pills($four), 'a fourth store is a fourth Store choice');
     }
 
     /**
@@ -412,9 +412,8 @@ final class ByProductScreenTest extends KernelUiTestCase
 
         $page = $web->get('/ui/review/products');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame([Words::BY_PRODUCT['all'] . ' 55', Words::BY_PRODUCT['every'] . ' 1', Words::say('BY_PRODUCT', 'missing', 'Alt Store') . ' 53',
-            Words::say('BY_PRODUCT', 'missing', 'Big Store') . ' 54', Words::say('BY_PRODUCT', 'missing', 'Cee Store') . ' 54', Words::BY_PRODUCT['suggested'] . ' 1'],
-            self::pills($page), 'each entry with its count; one "Missing on" per store');
+        self::assertSame(['All stores', 'Alt Store', 'Big Store', 'Cee Store', 'Any match status', 'Missing on a store', 'On every store', 'On no store',
+            Words::BY_PRODUCT['suggested']], self::pills($page), 'the board\'s Store and Match status (DG4)');
         self::assertCount(Queries::PER_PAGE, self::ids($page));
         self::assertSame(Words::say('BY_PRODUCT', 'shown', 55, 50), (string) (new \DOMXPath($page->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertStringContainsString(Words::say('QUEUE', 'page', 1, 2), $page->text());
@@ -432,7 +431,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(Words::say('BY_PRODUCT', 'shown', 53, 50), (string) (new \DOMXPath($missing->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
         self::assertSame('/ui/review/products?cov=missing-alt&page=2', (new \DOMXPath($missing->dom()))->evaluate('string(//nav[@class="pager"]/a[@rel="next"]/@href)'),
             'the pager keeps the filter');
-        self::assertSame('missing-alt', (new \DOMXPath($missing->dom()))->evaluate('string(//select[@name="cov"]/option[@selected]/@value)'), 'its entry is chosen');
+        self::assertSame(['alt', 'missing'], [(new \DOMXPath($missing->dom()))->evaluate('string(//select[@name="store"]/option[@selected]/@value)'),
+            (new \DOMXPath($missing->dom()))->evaluate('string(//select[@name="match"]/option[@selected]/@value)')], 'its store and status are chosen');
         self::assertSame([$bravo, $charlie, ...array_slice($fillers, 0, 48)], self::ids($web->get('/ui/review/products', ['cov' => 'missing-cee'])));
 
         // The search: words of the name, brand or flavour, a CW number, a barcode; with a filter too.
@@ -449,7 +449,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         $found = $web->get('/ui/review/products', ['q' => 'Filler', 'cov' => 'missing-vbig', 'page' => '2']);
         self::assertSame(array_slice($fillers, 50), self::ids($found));
         self::assertSame(Words::say('BY_PRODUCT', 'shown', 52, 2), (string) (new \DOMXPath($found->dom()))->evaluate('string(//section[contains(@class, "bi-list")]/@aria-label)'));
-        self::assertSame(['q' => 'Filler', 'cov' => 'missing-vbig'], $found->form('/ui/review/products'), 'the search keeps the filter and what was typed (one Show row, W12.7)');
+        self::assertSame(['q' => 'Filler', 'store' => 'vbig', 'match' => 'missing', 'brand' => '', 'kind' => '', 'stock' => ''], $found->form('/ui/review/products'),
+            'the search keeps the filter and what was typed (one Show row, W12.7; the board\'s selects, DG4)');
         self::assertSame('/ui/review/products.csv?cov=missing-vbig&q=Filler', (new \DOMXPath($found->dom()))->evaluate('string(//header//div[@class="bi-actions"]//a[contains(@href, ".csv")]/@href)'),
             'Export takes the filter and the search');
 

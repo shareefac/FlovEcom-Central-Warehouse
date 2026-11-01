@@ -23,10 +23,38 @@ $bar = $partial('by_product_bar', ['export' => $stores === [] ? null : $csv_link
   <label class="visually-hidden" for="bi-q"><?= $word('BY_PRODUCT', 'search') ?></label>
   <input id="bi-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('RD_MATCH', 'search_items') ?>" title="<?= $word('BY_PRODUCT', 'search') ?>" aria-keyshortcuts="/" data-page-search>
   <div class="bi-filters">
-    <label class="visually-hidden" for="bi-cov"><?= $word('RD_MATCH', 'match_status') ?></label>
-    <select id="bi-cov" name="cov" title="<?= $word('RD_MATCH', 'match_status') ?>">
-<?php foreach ($pills as $p): ?>
-      <option value="<?= $e($p['value']) ?>"<?php if ($p['current']): ?> selected<?php endif; ?>><?= $e($p['label']) ?> (<?= $n($p['count']) ?>)</option>
+<?php $fl = $filters; ?>
+    <label class="visually-hidden" for="bi-store"><?= $word('RD_MATCH', 'store') ?></label>
+    <select id="bi-store" name="store" title="<?= $word('RD_MATCH', 'store') ?>">
+      <option value=""><?= $word('RD_MATCH', 'all_stores') ?></option>
+<?php foreach ($fl['stores'] as $st): ?>
+      <option value="<?= $e($st['code']) ?>"<?php if ($fl['store'] === $st['code']): ?> selected<?php endif; ?>><?= $e($st['name']) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="bi-match"><?= $word('RD_MATCH', 'match_status') ?></label>
+    <select id="bi-match" name="match" title="<?= $word('RD_MATCH', 'match_status') ?>">
+<?php foreach (\CW\Ui\Words::RD_MATCH_FILTER['match'] as $v => $label): ?>
+      <option value="<?= $e($v) ?>"<?php if ($fl['match'] === $v): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="bi-brand"><?= $word('RD_MATCH_FILTER', 'brand') ?></label>
+    <select id="bi-brand" name="brand" title="<?= $word('RD_MATCH_FILTER', 'brand') ?>">
+      <option value=""><?= $word('RD_MATCH_FILTER', 'all_brands') ?></option>
+<?php foreach ($fl['brands'] as $br): ?>
+      <option value="<?= $e($br) ?>"<?php if ($fl['brand'] === $br): ?> selected<?php endif; ?>><?= $e($br) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="bi-kind"><?= $word('RD_MATCH_FILTER', 'kind') ?></label>
+    <select id="bi-kind" name="kind" title="<?= $word('RD_MATCH_FILTER', 'kind') ?>">
+      <option value=""><?= $word('RD_MATCH_FILTER', 'all_kinds') ?></option>
+<?php foreach ($fl['kinds'] as $kv => $kl): ?>
+      <option value="<?= $e($kv) ?>"<?php if ($fl['kind'] === $kv): ?> selected<?php endif; ?>><?= $e(ucfirst($kl)) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="bi-stock"><?= $word('RD_MATCH_FILTER', 'stock') ?></label>
+    <select id="bi-stock" name="stock" title="<?= $word('RD_MATCH_FILTER', 'stock') ?>">
+<?php foreach (\CW\Ui\Words::RD_MATCH_FILTER['stocks'] as $v => $label): ?>
+      <option value="<?= $e($v) ?>"<?php if ($fl['stock'] === (string) $v): ?> selected<?php endif; ?>><?= $e($label) ?></option>
 <?php endforeach; ?>
     </select>
     <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>

@@ -139,7 +139,7 @@ final class RedesignCScreensTest extends KernelUiTestCase
         self::assertSame(2, $xp->query('//div[@id="p-' . $b . '"]//details[contains(@class, "bi-quick")]/summary[contains(@class, "bi-chip")]')->length,
             'not on a store: the quick match\'s fold, "+ Store"');
         // One filter (the match status), Clear filters when it is on; ONE More holds every other matching page (the section's, RD6).
-        self::assertSame(['cov'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), iterator_to_array($xp->query('//form[@class="bi-find"]//select'))));
+        self::assertSame(['store', 'match', 'brand', 'kind', 'stock'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'), iterator_to_array($xp->query('//form[@class="bi-find"]//select'))));
         $more = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//header//div[@class="bi-actions"]/details//a[@href]')));
         foreach (['/ui/review/store', '/ui/review/samples', '/ui/review?queue=pending', '/ui/review/new-variants', '/ui/review/duplicates'] as $href) {
             self::assertContains($href, $more);
@@ -178,6 +178,64 @@ final class RedesignCScreensTest extends KernelUiTestCase
         if ($look->status === 200) {
             self::assertSame(0, self::xp($look)->query('//header//a[contains(@class, "btn primary")]')->length);
         }
+    }
+
+    /**
+     * By item's filters, as the ByItem board draws them (docs/decisions.md DG4): Store, Match status, Brand, Kind, Stock, in that order, with
+     * the board's words. Store + Match status: a store and "Missing on a store" = missing on that store (today's cov=missing-<code>), All
+     * stores and "Missing on a store" = missing on at least one store, a store and any status = matched on that store, "On every store" and
+     * "On no store" leave the store aside; "With a suggestion" stays. Brand, the card's kind and the stock (on hand, every warehouse) narrow
+     * any of them. An old cov= link keeps working; the filters stay on the pager and the page sizes.
+     */
+    public function testByItemFiltersByStoreMatchStatusBrandKindAndStock(): void
+    {
+        $alt = $this->site('alt', 'shadow');
+        $big = $this->site('vbig', 'off');
+        self::$db->exec("UPDATE channel SET name = 'Alt Store' WHERE code = 'alt'");
+        self::$db->exec("UPDATE channel SET name = 'Big Store' WHERE code = 'vbig'");
+        $a = $this->item('strict', 0, 'Alpha item');
+        $b = $this->item('strict', 0, 'Beta item');
+        $c = $this->item('strict', 5, 'Gamma item');
+        self::$db->exec("UPDATE sku SET brand = 'Elux' WHERE id IN (?, ?)", [$a, $c]);
+        self::$db->exec("UPDATE sku SET brand = 'Hayati' WHERE id = ?", [$b]);
+        (new \CW\Catalogue\ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $c, 0, ['product_type' => 'shortfill']);
+        $this->profiled($alt, 'A1', ['product_title' => 'Alpha on Alt'], $a);
+        $this->profiled($big, 'B1', ['product_title' => 'Alpha on Big'], $a);
+        $this->profiled($alt, 'A2', ['product_title' => 'Beta on Alt'], $b);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $names = static fn (array $q): array => self::texts(self::xp($web->get('/ui/review/products', $q)), '//div[contains(@class, "bi-row")]//a[@class="o-name"]');
+
+        $x = self::xp($web->get('/ui/review/products'));
+        self::assertSame(['store', 'match', 'brand', 'kind', 'stock'], array_map(static fn (\DOMElement $s): string => $s->getAttribute('name'),
+            iterator_to_array($x->query('//form[@class="bi-find"]//select'))), 'the board\'s five, in its order');
+        self::assertSame(['All stores', 'Any match status', 'All brands', 'All kinds', 'Any stock'], array_map(static fn (\DOMElement $s): string => trim($s->textContent),
+            iterator_to_array($x->query('//form[@class="bi-find"]//select/option[1]'))));
+        self::assertSame(['Any match status', 'Missing on a store', 'On every store', 'On no store', Words::BY_PRODUCT['suggested']],
+            self::texts($x, '//select[@name="match"]/option'));
+        self::assertSame(['All brands', 'Elux', 'Hayati'], self::texts($x, '//select[@name="brand"]/option'));
+        self::assertSame(['Any stock', 'Holding stock', 'No stock'], self::texts($x, '//select[@name="stock"]/option'));
+
+        self::assertSame(['Gamma item'], $names(['match' => 'none']), 'on no store');
+        self::assertSame(['Beta item', 'Gamma item'], $names(['match' => 'missing']), 'missing on at least one store');
+        self::assertSame(['Beta item', 'Gamma item'], $names(['match' => 'missing', 'store' => 'vbig']));
+        self::assertSame(['Gamma item'], $names(['match' => 'missing', 'store' => 'alt']));
+        self::assertSame(['Gamma item'], $names(['cov' => 'missing-alt']), 'an old link');
+        self::assertSame(['Alpha item', 'Beta item'], $names(['store' => 'alt']), 'matched on that store');
+        self::assertSame(['Alpha item'], $names(['match' => 'every', 'store' => 'alt']), 'every store: the store aside');
+        self::assertSame(['Alpha item', 'Gamma item'], $names(['brand' => 'Elux']));
+        self::assertSame(['Gamma item'], $names(['brand' => 'Elux', 'match' => 'none']));
+        self::assertSame(['Gamma item'], $names(['kind' => 'shortfill']));
+        self::assertSame(['Gamma item'], $names(['stock' => '1']), 'holding stock');
+        self::assertSame(['Alpha item', 'Beta item'], $names(['stock' => '0']), 'no stock');
+        self::assertSame([], $names(['brand' => 'Hayati', 'stock' => '1']));
+
+        // What is chosen stays chosen; the page sizes and Clear keep or drop it.
+        $p = self::xp($web->get('/ui/review/products', ['match' => 'missing', 'store' => 'alt', 'brand' => 'Elux', 'stock' => '1']));
+        self::assertSame(['alt', 'missing', 'Elux', '1'], [(string) $p->evaluate('string(//select[@name="store"]/option[@selected]/@value)'),
+            (string) $p->evaluate('string(//select[@name="match"]/option[@selected]/@value)'), (string) $p->evaluate('string(//select[@name="brand"]/option[@selected]/@value)'),
+            (string) $p->evaluate('string(//select[@name="stock"]/option[@selected]/@value)')]);
+        self::assertSame(1, $p->query('//a[@class="bi-clear"][@href="/ui/review/products"]')->length, 'Clear filters');
+        self::assertSame(404, $web->get('/ui/review/products', ['match' => 'missing', 'store' => 'nope'])->status, 'a store that is not there');
     }
 
     /**

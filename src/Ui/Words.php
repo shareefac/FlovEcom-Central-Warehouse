@@ -61,7 +61,7 @@ final class Words
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
-        'RD_MATCH', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        'RD_MATCH', 'RD_MATCH_FILTER', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
         'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -10177,6 +10177,18 @@ final class Words
     ];
 
     /** Approvals' Show (the approved Approvals artboard of 30 Oct 2026; docs/decisions.md RD-C13): everything waiting, or one kind of it. */
+    /** By item's filters (the ByItem board's five selects, docs/decisions.md DG4), with the board's words. */
+    public const RD_MATCH_FILTER = [
+        'match' => ['' => 'Any match status', 'missing' => 'Missing on a store', 'every' => 'On every store', 'none' => 'On no store',
+            'suggested' => self::BY_PRODUCT['suggested']],
+        'brand' => 'Brand',
+        'all_brands' => 'All brands',
+        'kind' => 'Kind',
+        'all_kinds' => 'All kinds',
+        'stock' => 'Stock',
+        'stocks' => ['' => 'Any stock', '1' => 'Holding stock', '0' => 'No stock'],
+    ];
+
     public const RD_INBOX = [
         'show' => 'Show',
         'show_label' => 'What the list shows',

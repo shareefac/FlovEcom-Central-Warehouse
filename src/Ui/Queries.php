@@ -1258,8 +1258,9 @@ final class Queries
      * @param list<int> $storeIds the stores, the one with the fewest matched products first for `every`
      * @return array{0: string, 1: list<mixed>, 2: string} the SQL after SELECT … , its values, and the product id's column
      */
-    private function productFrom(?string $coverage, ?int $storeId, array $storeIds, string $q, bool $matchable = false): array
+    private function productFrom(?string $coverage, ?int $storeId, array $storeIds, string $q, bool $matchable = false, array $extra = []): array
     {
+        [$more, $moreParams] = self::productExtra($extra);
         if ($matchable && $coverage === null) {
             $s = SearchText::parse($q);
             if ($s->explicitCw()) {
@@ -1272,7 +1273,7 @@ final class Queries
         if ($coverage === 'suggested') {
             return ['FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id JOIN sku s ON s.id = p.proposed_sku_id '
                 . "WHERE p.status = 'open' AND p.proposed_sku_id IS NOT NULL AND s.merged_into_sku_id IS NULL AND " . self::WAITING_LISTING
-                . ($text === '' ? '' : ' AND ' . $text), $textParams, 'p.proposed_sku_id'];
+                . ($text === '' ? '' : ' AND ' . $text) . $more, [...$textParams, ...$moreParams], 'p.proposed_sku_id'];
         }
         $where = ['s.merged_into_sku_id IS NULL'];
         $params = [];
@@ -1284,12 +1285,53 @@ final class Queries
         } elseif ($coverage === 'missing' && $storeId !== null) {
             $where[] = 'NOT EXISTS (SELECT ' . self::STORE_INDEX_HINT . '1 FROM channel_listing cl WHERE cl.sku_id = s.id AND cl.channel_id = ?)';
             $params[] = $storeId;
+        } elseif ($coverage === 'on' && $storeId !== null) {
+            // matched on that store (DG4)
+            $where[] = 'EXISTS (SELECT ' . self::STORE_INDEX_HINT . '1 FROM channel_listing cl WHERE cl.sku_id = s.id AND cl.channel_id = ?)';
+            $params[] = $storeId;
+        } elseif ($coverage === 'missing_any') {
+            // missing on at least one store (DG4)
+            $not = [];
+            foreach ($storeIds as $i => $id) {
+                $not[] = "NOT EXISTS (SELECT 1 FROM channel_listing m{$i} WHERE m{$i}.sku_id = s.id AND m{$i}.channel_id = ?)";
+                $params[] = $id;
+            }
+            $where[] = $not === [] ? '1 = 0' : '(' . implode(' OR ', $not) . ')';
+        } elseif ($coverage === 'none' && $storeIds !== []) {
+            // on no store (DG4)
+            $where[] = 'NOT EXISTS (SELECT 1 FROM channel_listing cl WHERE cl.sku_id = s.id AND cl.channel_id IN (' . implode(',', array_fill(0, count($storeIds), '?')) . '))';
+            array_push($params, ...$storeIds);
         }
         if ($text !== '') {
             $where[] = $text;
             array_push($params, ...$textParams);
         }
-        return ['FROM sku s WHERE ' . implode(' AND ', $where), $params, 's.id'];
+        return ['FROM sku s WHERE ' . implode(' AND ', $where) . $more, [...$params, ...$moreParams], 's.id'];
+    }
+
+    /**
+     * By item's other filters (the ByItem board's Brand, Kind and Stock; docs/decisions.md DG4), on the product `s`: its brand, its card's kind
+     * (item_card.product_type), and whether it holds stock (on hand, every warehouse, above zero or not).
+     *
+     * @param array{brand?: ?string, kind?: ?string, stock?: ?bool} $extra
+     * @return array{0: string, 1: list<mixed>} " AND …" (or ''), its values
+     */
+    private static function productExtra(array $extra): array
+    {
+        $sql = '';
+        $params = [];
+        if (($extra['brand'] ?? null) !== null) {
+            $sql .= ' AND s.brand = ?';
+            $params[] = $extra['brand'];
+        }
+        if (($extra['kind'] ?? null) !== null) {
+            $sql .= ' AND EXISTS (SELECT 1 FROM item_card kc WHERE kc.sku_id = s.id AND kc.product_type = ?)';
+            $params[] = $extra['kind'];
+        }
+        if (($extra['stock'] ?? null) !== null) {
+            $sql .= ' AND (SELECT COALESCE(SUM(sb.on_hand), 0) FROM stock_balance sb WHERE sb.sku_id = s.id) ' . ($extra['stock'] ? '> 0' : '<= 0');
+        }
+        return [$sql, $params];
     }
 
     /**
@@ -1298,9 +1340,10 @@ final class Queries
      * @param list<int> $storeIds
      * @return list<int>
      */
-    public function productIds(?string $coverage, ?int $storeId, array $storeIds, string $q, ?int $limit = null, int $offset = 0, bool $matchable = false): array
+    public function productIds(?string $coverage, ?int $storeId, array $storeIds, string $q, ?int $limit = null, int $offset = 0, bool $matchable = false,
+        array $extra = []): array
     {
-        [$from, $params, $id] = $this->productFrom($coverage, $storeId, $storeIds, $q, $matchable);
+        [$from, $params, $id] = $this->productFrom($coverage, $storeId, $storeIds, $q, $matchable, $extra);
         return array_map('intval', $this->db->column(
             'SELECT ' . ($coverage === 'suggested' ? self::OPEN_SKU_HINT . 'DISTINCT ' : '') . "{$id} {$from} ORDER BY {$id}" . ($limit !== null ? ' LIMIT ? OFFSET ?' : ''),
             $limit !== null ? [...$params, $limit, $offset] : $params,

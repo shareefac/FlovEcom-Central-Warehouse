@@ -112,7 +112,7 @@ final class ByProductContext
     }
 
     /**
-     * A coverage filter from its query value: `every`, `suggested` or `missing-<store code>`. `kind` is null for no filter (also
+     * A coverage filter from its query value: `every`, `suggested`, `missing-<store code>`, or (DG4) `missing`, `none`, `on-<store code>`. `kind` is null for no filter (also
      * for a value that is none of these); `unknown` says the value names a store that is not one.
      *
      * @param list<array{id: int, code: string, name: string}> $stores
@@ -124,11 +124,40 @@ final class ByProductContext
         if ($value === 'every' || $value === 'suggested') {
             return ['kind' => $value, 'store' => null, 'value' => $value, 'unknown' => false];
         }
+        // The ByItem board's Store + Match status (docs/decisions.md DG4): missing on at least one store, on no store, matched on a store.
+        if ($value === 'missing' || $value === 'none') {
+            return ['kind' => $value === 'missing' ? 'missing_any' : 'none', 'store' => null, 'value' => $value, 'unknown' => false];
+        }
+        if ($value !== null && str_starts_with($value, 'on-')) {
+            $store = self::store($stores, substr($value, 3));
+            return $store === null ? ['unknown' => true] + $none : ['kind' => 'on', 'store' => $store, 'value' => 'on-' . $store['code'], 'unknown' => false];
+        }
         if ($value !== null && str_starts_with($value, 'missing-')) {
             $store = self::store($stores, substr($value, 8));
             return $store === null ? ['unknown' => true] + $none : ['kind' => 'missing', 'store' => $store, 'value' => 'missing-' . $store['code'], 'unknown' => false];
         }
         return $none;
+    }
+
+    /**
+     * The coverage filter of the ByItem board's two selects (docs/decisions.md DG4): Store (a code, '' for All stores) and Match status
+     * ('' any, `missing`, `every`, `none`, `suggested`). A store and "Missing on a store" = `missing-<code>`; All stores and it = `missing`
+     * (missing on at least one store); a store and any status = `on-<code>` (matched on it); the others leave the store aside.
+     *
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @return array{kind: ?string, store: array{id: int, code: string, name: string}|null, value: ?string, unknown: bool}
+     */
+    public static function coverageOf(?string $store, ?string $match, array $stores): array
+    {
+        $code = $store ?? '';
+        if ($code !== '' && self::store($stores, $code) === null) {
+            return ['kind' => null, 'store' => null, 'value' => null, 'unknown' => true];
+        }
+        return self::coverage(match ($match ?? '') {
+            'missing' => $code === '' ? 'missing' : 'missing-' . $code,
+            'every', 'none', 'suggested' => $match,
+            default => $code === '' ? null : 'on-' . $code,
+        }, $stores);
     }
 
     /**

@@ -1292,5 +1292,6 @@ every other Items and Inventory page. Layout and view data only.
 | Path | What |
 |---|---|
 | `src/StockOps/StockOps.php` | `list()`: `net_units`, `line_reason` (DG2) |
+| `src/Ui/ByProductContext.php`, `src/Ui/Queries.php`, `src/Ui/Controller/ByProductController.php`, view `by_product` | `coverageOf()` (store + match -> cov: `missing`, `none`, `on-<code>`), `productExtra()` (brand, kind, stock), `coverageAsked()`, `extraAsked()`, `Words::RD_MATCH_FILTER` (DG4) |
 | `src/Ui/Controller/ItemController.php`, view `item` | `addSupplier()` `GET /ui/items/{id}/add-supplier`, `supplierChoices`, `details.card-add > form.add-supplier` (DG3) |
 | `src/Ui/Controller/StockOpsController.php`, `src/Ui/Sections.php` | `ALL_PATH` `/ui/stock/adjustments/all`, `all()`; Show choice `kinds_all`; Sections page `adjustments_all` (DG1) |

@@ -93,16 +93,16 @@ final class RedesignCTemplatesTest extends TestCase
             self::assertStringContainsString('<section class="card bi-list', $t[$name], $name);
         }
         $b = $t['by_product'];
-        foreach (['<form class="bi-find" method="get" action="/ui/review/products"', '<select id="bi-cov" name="cov"', '<a class="bi-clear" href="<?= $e($clear_link) ?>">',
+        foreach (['<form class="bi-find" method="get" action="/ui/review/products"', '<select id="bi-store" name="store"', '<select id="bi-match" name="match"', '<a class="bi-clear" href="<?= $e($clear_link) ?>">',
             '<div class="bi-row', '<div class="bi-item">', '<div class="bi-stores">', '<a class="bi-chip on', '<a class="bi-chip wait"', '<a class="bi-chip open suggested"',
             '<details class="quick-pick bi-quick" data-label="<?= $e($c[\'store\']) ?>" data-quick-pick', '<summary class="bi-chip open"', '<span class="bi-chip open off"',
             "\$say('RD_MATCH', 'stores_n', \$r['on'], count(\$stores))", 'name="pick_<?= $e($r[\'id\']) ?>"', 'name="cells_<?= $e($r[\'id\']) ?>"',
             '<form class="qp-form" method="get"', "\$partial('bulk_bar'"] as $part) {
             self::assertStringContainsString($part, $b, "by_product: {$part}");
         }
-        // One filter: the page's `cov` (its store choices name the store); no Brand, Kind or Stock select (RD-C10).
-        self::assertSame(1, substr_count($b, '<select '), 'By item: one filter select');
-        foreach (['name="brand"', 'name="kind"', 'name="stock"', 'class="tabs show-tabs"', 'grp-block doc-group', 'c-status doc-st', 'rows-choice'] as $old) {
+        // The ByItem board's five filters (docs/decisions.md DG4; RD-C10 had one): Store, Match status, Brand, Kind, Stock.
+        self::assertSame(5, substr_count($b, '<select '), 'By item: the board\'s five filter selects');
+        foreach (['class="tabs show-tabs"', 'grp-block doc-group', 'c-status doc-st', 'rows-choice'] as $old) {
             self::assertStringNotContainsString($old, $b, "by_product: {$old}");
         }
         $n = $t['by_product_new'];
