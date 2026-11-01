@@ -15538,3 +15538,16 @@ the item search still needs two; the Codex review, LOW 4).
 `SalesScreensTest::testTheFindBoxFindsAnOrderByItsNumber`, `ApprovalsInboxScreensTest::testAnsweredTodayListsTheAnswersSinceMidnight`,
 `RedesignCScreensTest::testNewOnTheStoresOffersAllStores`; each failing before its change (runs/ss_9xx_red.log); the Codex review's four (runs/ss_codex_review.txt) failing on 517a331
 (runs/ss_fix_red.log) and fixed in the same commit.
+
+## The design gaps: what the approved boards draw and the redesign left as "needs a build" (branch `design-gaps`, 1 Nov 2026; DG1-)
+
+The owner's tracker CW-902, 903, 904, 909, 912, 905, 907 (BATCH 2 of the second account): strictly as the approved boards in
+`redesign_20261030/project/` draw them; one commit each, each test failing first.
+
+**DG1. Adjustments: "All kinds"** (CW-902; Inventory.dc.html's first Show choice, the one it shows; RD-A5 said "no page: needs a build").
+`/ui/stock/adjustments/all` (documents.view, as every kind's list): the four kinds' lists (`StockOps::list`, the same search, state,
+warehouse and "stopped too") together, newest first, at most `LIST_LIMIT`, in the artboard's groups; each row is its own kind's (its kind
+word, reason, units and way; a correction's reason "On each line"). It is a page of the Adjustments entry (`Sections`, key
+`adjustments_all`, first): the sidebar's Adjustments opens it, as the board shows All kinds chosen; every kind's Show lists it first and
+keeps the filters. No create fold and no download of its own: the head's main button is the entry's "+ New adjustment" (the Corrections
+page's fold, `doc.ADJ.post`), each kind's page keeps its own CSV.

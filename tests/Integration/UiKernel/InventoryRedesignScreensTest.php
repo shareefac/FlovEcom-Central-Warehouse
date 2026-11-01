@@ -188,9 +188,9 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(303, $web->post($done . '/lines', ['action' => 'post'] + $web->get($done)->form($done . '/lines', true))->status);
 
         $list = $web->get('/ui/stock/in');
-        self::assertSame([[Words::INV_LIST['kinds_in'], true], [Words::INV_LIST['kinds_out'], false], [Words::INV_LIST['kinds_adjust'], false], [Words::INV_LIST['kinds_release'], false]],
-            self::assertSimpleList($list, 'stock in', Words::INV_LIST['adjustments']));
-        self::assertSame(['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/releases'], self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'));
+        self::assertSame([[Words::INV_LIST['kinds_all'], false], [Words::INV_LIST['kinds_in'], true], [Words::INV_LIST['kinds_out'], false], [Words::INV_LIST['kinds_adjust'], false],
+            [Words::INV_LIST['kinds_release'], false]], self::assertSimpleList($list, 'stock in', Words::INV_LIST['adjustments']));
+        self::assertSame(['/ui/stock/adjustments/all', '/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/releases'], self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'));
         self::assertSame([[Words::INV_LIST['g_draft'], '1'], [Words::INV_LIST['g_week'], '1']], self::groupHeads($list), 'made final today: Done this week');
         self::assertSame([Words::INV_LIST['col_adjustment'], Words::INV_LIST['col_kind'], Words::INV_LIST['col_reason'], Words::INV_LIST['col_units']],
             self::texts($list, '//div[@id="g-week"]//thead/tr/th'));
@@ -215,7 +215,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         // A state chosen under More: the search keeps it, the choice of kind keeps it too.
         $drafts = $web->get('/ui/stock/in', ['state' => 'draft']);
         self::assertSame(['state'], self::attrs($drafts, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));
-        self::assertSame('/ui/stock/out?state=draft', self::attrs($drafts, '//details[contains(@class, "show-menu")]//a', 'href')[0]);
+        self::assertSame('/ui/stock/out?state=draft', self::attrs($drafts, '//details[contains(@class, "show-menu")]//a', 'href')[1]);
         // Transfers: its own page; the state is its Show; From and To.
         $move = $this->start($web, 'transfer', ['warehouse' => (string) self::warehouseId('MAIN'), 'to_warehouse' => (string) self::warehouseId('VERIFY')]);
         self::assertNotSame('', $move);
@@ -225,6 +225,41 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([Words::INV_LIST['col_transfer'], Words::INV_LIST['col_from'], Words::INV_LIST['col_to'], Words::INV_LIST['col_units']],
             self::texts($tr, '//div[@id="g-draft"]//thead/tr/th'));
         self::assertSame(['warehouse'], self::attrs($tr, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
+    }
+
+    /**
+     * Adjustments' "All kinds" (the Inventory artboard's first Show choice, docs/decisions.md DG1): every stock in, stock out, correction and
+     * release together in the artboard's groups, newest first, each row saying its kind; its own address; the state and warehouse under More
+     * as on each kind's page; the main button is "+ New adjustment" (the Corrections page's create fold); the search and More keep it.
+     */
+    public function testAdjustmentsAllKindsListsEveryKindTogether(): void
+    {
+        $sku = $this->item('strict', 4, 'Omega pod 2ml');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $in = $this->start($web, 'in', ['reason_code' => 'found']);
+        self::assertSame(303, $web->post($in . '/add', ['q' => self::cw($sku), 'qty' => '5', 'cost' => '1.50'] + $web->get($in)->form($in . '/add', true))->status);
+        $adjust = $this->start($web, 'adjust');
+        self::assertSame(303, $web->post($adjust . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($adjust)->form($adjust . '/add', true))->status);
+        $out = $this->start($web, 'out', ['reason_code' => 'trade_sale']);
+
+        $all = $web->get('/ui/stock/adjustments/all');
+        self::assertSame(200, $all->status, $all->describe());
+        self::assertSame('All kinds', Words::INV_LIST['kinds_all']);
+        self::assertSame([[Words::INV_LIST['kinds_all'], true], [Words::INV_LIST['kinds_in'], false], [Words::INV_LIST['kinds_out'], false], [Words::INV_LIST['kinds_adjust'], false],
+            [Words::INV_LIST['kinds_release'], false]], self::assertSimpleList($all, 'adjustments', Words::INV_LIST['adjustments']));
+        self::assertSame([$out, $adjust, $in], self::attrs($all, '//div[@id="g-draft"]//tbody/tr/th/a[contains(@class, "row-link")]', 'href'), 'every kind, newest first');
+        self::assertSame([Words::INV_LIST['kind_out'], Words::INV_LIST['kind_adjust'], Words::INV_LIST['kind_in']], self::texts($all, '//div[@id="g-draft"]//tbody/tr/td[1]'));
+        $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
+        self::assertSame(['/ui/stock/adjustments#new'], self::attrs($all, $head . '/a[contains(@class, "primary")]', 'href'), '+ New adjustment');
+        self::assertSame(['state', 'warehouse'], self::attrs($all, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
+        self::assertSame(0, self::xp($all)->query('//details[@id="new"]')->length, 'no create fold of its own');
+
+        $drafts = $web->get('/ui/stock/adjustments/all', ['state' => 'draft', 'q' => 'nothing like this']);
+        self::assertSame(200, $drafts->status);
+        self::assertSame(['/ui/stock/adjustments/all'], self::attrs($drafts, '//div[@class="empty"]//a', 'href'), 'Clear goes back to All kinds');
+        self::assertSame('/ui/stock/adjustments/all?state=draft', self::attrs($web->get('/ui/stock/in', ['state' => 'draft']), '//details[contains(@class, "show-menu")]//a', 'href')[0]);
+        // Who may not look at records cannot open it either.
+        self::assertSame(403, $this->signIn($this->uiUser('mapper'))->get('/ui/stock/adjustments/all')->status);
     }
 
     // ------------------------------------------------------------------------------------------

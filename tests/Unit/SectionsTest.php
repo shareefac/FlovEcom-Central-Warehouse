@@ -379,8 +379,8 @@ final class SectionsTest extends TestCase
     public function testTheShowChoicesTheHeadersMoreAndTheCreateButton(): void
     {
         $show = static fn (array $f): array => array_map(static fn (array $s): string => $s['label'] . ($s['here'] ? '*' : ($s['current'] ? '+' : '')), $f['segments']);
-        self::assertSame(['Corrections', 'Stock in*', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in')));
-        self::assertSame(['Corrections', 'Stock in+', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in/12')), 'a record: its page current, no "here"');
+        self::assertSame(['All kinds', 'Corrections', 'Stock in*', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in')));
+        self::assertSame(['All kinds', 'Corrections', 'Stock in+', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in/12')), 'a record: its page current, no "here"');
         self::assertSame(['Items to count', 'Count sheets*', 'Differences'], $show(Sections::frame(['buyer'], [], '/ui/stock/counts/sheets')));
         self::assertSame(['Transfers', 'Balance owed*'], $show(Sections::frame(['buyer'], [], '/ui/stock/accounts')));
         self::assertSame(['All items*', 'Made by hand'], $show(Sections::frame(['stock_controller'], [], '/ui/items/cards')));

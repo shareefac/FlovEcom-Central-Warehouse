@@ -58,10 +58,10 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get('/ui/stock/in');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame([['Stock on hand', '/ui/stock'], ['Adjustments', '/ui/stock/adjustments'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
+        self::assertSame([['Stock on hand', '/ui/stock'], ['Adjustments', '/ui/stock/adjustments/all'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
             ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)), 'Stock in is an Adjustments page (RD4): its entry a link from here');
-        self::assertSame([['Stock in', null], ['Stock out', '/ui/stock/out'], ['Corrections', '/ui/stock/adjustments'], ['Releases', '/ui/stock/releases']],
+        self::assertSame([['All kinds', '/ui/stock/adjustments/all'], ['Stock in', null], ['Stock out', '/ui/stock/out'], ['Corrections', '/ui/stock/adjustments'], ['Releases', '/ui/stock/releases']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($page)), 'Adjustments\' Show, in Inventory.dc.html\'s order (RD-A5)');
         self::assertSame([], self::moreTabs($page));
         self::assertSame(['Inventory', 'Adjustments'], [self::currentSection($page), self::currentTab($page)]);
@@ -69,7 +69,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         foreach (['/ui/stock/out', '/ui/stock/adjustments', '/ui/stock/transfers', '/ui/stock/releases', '/ui/stock/accounts'] as $path) {
             self::assertSame(200, $web->get($path)->status, $path);
         }
-        self::assertSame(['Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($web->get('/ui/stock/releases')), 'label'), 'a release is an Adjustments page (RD4)');
+        self::assertSame(['All kinds', 'Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($web->get('/ui/stock/releases')), 'label'), 'a release is an Adjustments page (RD4)');
         self::assertSame(['Transfers', 'Balance owed'], array_column(self::segments($web->get('/ui/stock/accounts')), 'label'), 'the balance owed stays with Transfers (RD4)');
         // A viewer sees the stock but not the records; a buyer reads them but keeps none.
         $viewer = $this->signIn($this->uiUser('viewer'));

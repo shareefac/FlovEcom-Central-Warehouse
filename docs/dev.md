@@ -1286,3 +1286,9 @@ every other Items and Inventory page. Layout and view data only.
 | `src/Ui/Controller/ByProductController.php` | New on the stores: All stores by default, `newOnEveryStore()` (`NEW_ALL_PAGES`), `first` (Match all new's store) |
 | `src/Ui/Controller/SearchController.php`, `src/Ui/Context.php`, views `search` (`table.found-orders`), `layout` | orders by reference for `sales.view`; `findOrders` (the box's words) |
 | `src/Ui/Words.php` | `INV_LIST items_search`, `CARDS search`/`none_search_text`, `SALE search`, `RD_INBOX answered*`/`outcome_*`/`by_*`, `RD_MATCH all_stores*`, `UI side_find_orders`, `SEARCH orders*` |
+
+### The design gaps (`docs/decisions.md` DG1-; tracker CW-902, 903, 904, 909, 912, 905, 907; 1 Nov 2026)
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/StockOpsController.php`, `src/Ui/Sections.php` | `ALL_PATH` `/ui/stock/adjustments/all`, `all()`; Show choice `kinds_all`; Sections page `adjustments_all` (DG1) |

@@ -44,8 +44,10 @@ final class StockOpsController
      * then done before this week, cancelled, the cancellation records, stopped.
      */
     public const LIST_GROUPS = ['awaiting_approval', 'draft', 'week', 'earlier', 'reversed', 'reversal', 'cancelled'];
-    /** The kinds the Adjustments page's Show chooses between, in the artboard's order (its "All kinds" is not built: RD-A5). */
+    /** The kinds the Adjustments page's Show chooses between, in the artboard's order (after its "All kinds": ALL_PATH, docs/decisions.md DG1). */
     public const ADJUSTMENT_KINDS = ['in', 'out', 'adjust', 'release'];
+    /** Adjustments' "All kinds" (the Inventory artboard's first Show choice, docs/decisions.md DG1): every kind of ADJUSTMENT_KINDS together. */
+    public const ALL_PATH = '/ui/stock/adjustments/all';
     /** The kinds that print a PDF (the transfer note, the release invoice). */
     public const PDF_KINDS = ['transfer', 'release'];
 
@@ -53,6 +55,7 @@ final class StockOpsController
     public static function routes(Router $r): void
     {
         $c = new self();
+        $r->add('GET', self::ALL_PATH, 'documents.view', $c->all(...));
         foreach (StockOps::PATHS as $kind => $base) {
             $post = 'doc.' . StockOps::KINDS[$kind] . '.post';
             $r->add('GET', $base, 'documents.view', static fn (Context $ctx): HtmlResponse => $c->index($ctx, $kind));
@@ -120,6 +123,52 @@ final class StockOpsController
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => $kind === 'release' ? Words::SEGMENT['releases'] : Words::MENU[$page]]);
+    }
+
+    /**
+     * Adjustments' "All kinds" (docs/decisions.md DG1): the four kinds' lists (StockOps::list, the same filters) together, newest first, at most
+     * LIST_LIMIT, in the artboard's groups, each row its own kind's (its kind word, reason and units). No create fold of its own: the head's
+     * main button is the section's "+ New adjustment" (the Corrections page's fold); the state and warehouse under More as on each kind's page.
+     */
+    public function all(Context $ctx): HtmlResponse
+    {
+        $f = self::filters($ctx->req);
+        $rows = [];
+        foreach (self::ADJUSTMENT_KINDS as $k) {
+            foreach ($ctx->stockOps()->list($k, $f) as $r) {
+                $rows[] = $this->listRow($k, $r);
+            }
+        }
+        usort($rows, static fn (array $a, array $b): int => $b['id'] <=> $a['id']);
+        $rows = array_slice($rows, 0, StockOps::LIST_LIMIT);
+        $week = self::weekStart();
+        $groups = [];
+        foreach ($rows as $r) {
+            $groups[$r['group'] === 'posted' ? ($r['posted_at'] !== null && $r['posted_at'] >= $week ? 'week' : 'earlier') : $r['group']][] = $r;
+        }
+        $filtered = $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null || $f['cancelled'];
+        return $ctx->page('stock_ops', [
+            'kind' => 'all',
+            'k' => Words::STOCK_KIND['adjust'],
+            'pageKey' => self::PAGES['adjust'],
+            'base' => self::ALL_PATH,
+            'groups' => array_filter(array_map(static fn (string $g): array => $groups[$g] ?? [], array_combine(self::LIST_GROUPS, self::LIST_GROUPS)),
+                static fn (array $g): bool => $g !== []),
+            'groupNames' => self::groupNames(),
+            'show' => self::showChoices('all', $f),
+            'bar' => self::bar('all', $f, $filtered, null, false, $ctx->stockOps()->formChoices('adjust')['warehouses']),
+            'rows_n' => count($rows),
+            'limit' => StockOps::LIST_LIMIT,
+            'f' => $f,
+            'filtered' => $filtered,
+            'form' => null,
+            'canPost' => false,
+            'formKey' => null,
+            'item' => null,
+            'lookOnly' => null,
+            'error' => null,
+            'errorCode' => null,
+        ], 200, ['title' => Words::INV_LIST['adjustments']]);
     }
 
     /** The list as CSV (the same filters; formula-safe, CsvWriter). */
@@ -650,9 +699,10 @@ final class StockOpsController
     {
         $q = $f['q'] === '' ? null : $f['q'];
         if ($kind !== 'transfer') {
-            return array_map(static fn (string $k): array => ['label' => Words::INV_LIST['kinds_' . $k],
-                'href' => Html::url(StockOps::PATHS[$k], ['q' => $q, 'state' => $f['state'], 'warehouse' => $f['warehouse'], 'cancelled' => $f['cancelled'] ? '1' : null]),
-                'current' => $k === $kind], self::ADJUSTMENT_KINDS);
+            $keep = ['q' => $q, 'state' => $f['state'], 'warehouse' => $f['warehouse'], 'cancelled' => $f['cancelled'] ? '1' : null];
+            return [['label' => Words::INV_LIST['kinds_all'], 'href' => Html::url(self::ALL_PATH, $keep), 'current' => $kind === 'all'],
+                ...array_map(static fn (string $k): array => ['label' => Words::INV_LIST['kinds_' . $k], 'href' => Html::url(StockOps::PATHS[$k], $keep),
+                    'current' => $k === $kind], self::ADJUSTMENT_KINDS)];
         }
         $out = [['label' => Words::STOCK_OPS['any_state'], 'href' => Html::url(StockOps::PATHS[$kind], ['q' => $q, 'warehouse' => $f['warehouse']]),
             'current' => $f['state'] === null && !$f['cancelled']]];
@@ -672,8 +722,9 @@ final class StockOpsController
      * @param list<array<string, mixed>> $warehouses
      * @return array<string, mixed>
      */
-    private static function bar(string $kind, array $f, bool $filtered, string $csv, bool $rows, array $warehouses): array
+    private static function bar(string $kind, array $f, bool $filtered, ?string $csv, bool $rows, array $warehouses): array
     {
+        $path = $kind === 'all' ? self::ALL_PATH : StockOps::PATHS[$kind];
         $selects = [];
         if ($kind !== 'transfer') {
             $selects[] = ['name' => 'state', 'label' => Words::INV_LIST['state'], 'value' => (string) $f['state'],
@@ -685,16 +736,16 @@ final class StockOpsController
             static fn (string $v): bool => $v !== '');
         $links = [];
         if ($filtered) {
-            $links[] = ['label' => Words::STOCK_OPS['clear'], 'href' => StockOps::PATHS[$kind]];
+            $links[] = ['label' => Words::STOCK_OPS['clear'], 'href' => $path];
         }
-        if ($rows) {
+        if ($rows && $csv !== null) {
             $links[] = ['label' => Words::STOCK_OPS['download'], 'href' => $csv, 'download' => true];
         }
         if ($kind === 'in') {
             $links[] = ['label' => Words::INV_LIST['goods_in'], 'href' => '/ui/receiving'];
         }
         return [
-            'filters' => ['action' => StockOps::PATHS[$kind], 'keep' => $keep, 'open' => $f['warehouse'] !== null || ($kind !== 'transfer' && $f['state'] !== null),
+            'filters' => ['action' => $path, 'keep' => $keep, 'open' => $f['warehouse'] !== null || ($kind !== 'transfer' && $f['state'] !== null),
                 'selects' => $selects],
             'links' => $links,
         ];
@@ -722,7 +773,7 @@ final class StockOpsController
         };
         $dir = self::unitsWay($kind, $r['reverses_id'] !== null);
         return [
-            'id' => (int) $r['id'], 'group' => $group, 'href' => StockOps::PATHS[$kind] . '/' . (int) $r['id'],
+            'id' => (int) $r['id'], 'kind' => $kind, 'group' => $group, 'href' => StockOps::PATHS[$kind] . '/' . (int) $r['id'],
             'number_line' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
             'date_line' => $r['number'] === null ? Words::say('STOCK_OPS', 'started', Html::day((string) $r['created_at'])) : Words::say('STOCK_OPS', 'dated', Html::day((string) $r['doc_date'])),
             'where' => $to === null ? $from : Words::say('STOCK_OPS', 'to', $from, $to),

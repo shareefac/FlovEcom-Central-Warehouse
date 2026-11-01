@@ -292,6 +292,7 @@ final class Words
 
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
     public const SEGMENT = [
+        'adjustments_all' => 'All kinds', // Adjustments' first Show choice (DG1)
         'review' => 'To review',
         'samples' => 'Spot check',
         'pending' => 'Second approval',
@@ -2258,6 +2259,7 @@ final class Words
         'state' => 'State',
         // Adjustments (the artboard Inventory: Adjustments) and Transfers
         'adjustments' => 'Adjustments',
+        'kinds_all' => 'All kinds', // Adjustments' first Show choice (the Inventory artboard, DG1)
         'kinds_in' => 'Stock in',
         'kinds_out' => 'Stock out',
         'kinds_adjust' => 'Corrections',

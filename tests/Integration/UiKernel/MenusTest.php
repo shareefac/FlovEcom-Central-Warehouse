@@ -79,10 +79,10 @@ final class MenusTest extends KernelUiTestCase
             'a buyer makes no item: Made by hand is not theirs, so only the list\'s own choices (RD-A3, RD-I8)');
         // Inventory: everyone who sees a product's stock; the stock records and the counts for the people who read records.
         $stockPage = $desk->get('/ui/stock');
-        self::assertSame([['Stock on hand', null], ['Adjustments', '/ui/stock/adjustments'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
+        self::assertSame([['Stock on hand', null], ['Adjustments', '/ui/stock/adjustments/all'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
             ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($stockPage)));
-        self::assertSame(['Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($desk->get('/ui/stock/in')), 'label'), 'Inventory.dc.html\'s order (RD-A5)');
+        self::assertSame(['All kinds', 'Stock in', 'Stock out', 'Corrections', 'Releases'], array_column(self::segments($desk->get('/ui/stock/in')), 'label'), 'Inventory.dc.html\'s order (RD-A5)');
         self::assertSame('Adjustments', self::currentTab($desk->get('/ui/stock/out')), 'a stock out is an Adjustments page (RD4)');
         // Sales: its five entries, the trade sales and the customers since the redesign.
         self::assertSame(['Sales orders', 'Shipments', 'Sales returns', 'Trade sales', 'Customers'], self::tabLabels($desk->get('/ui/stock/sales')));

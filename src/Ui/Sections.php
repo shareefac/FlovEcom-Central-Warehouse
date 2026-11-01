@@ -84,6 +84,9 @@ final class Sections
         'inventory' => ['tabs' => [
             'stock' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock', 'match' => ['/ui/stock']]]],
             'adjustments' => ['pages' => [
+                // "All kinds", the artboard's first Show choice and the one it shows (docs/decisions.md DG1): every kind together.
+                ['key' => 'adjustments_all', 'perm' => 'documents.view', 'path' => '/ui/stock/adjustments/all', 'match' => ['/ui/stock/adjustments/all'],
+                    'new' => ['perm' => 'doc.ADJ.post', 'href' => '/ui/stock/adjustments#new', 'label' => 'adjustments']],
                 ['key' => 'adjustments', 'perm' => 'documents.view', 'path' => '/ui/stock/adjustments', 'match' => ['/ui/stock/adjustments*'],
                     'badge' => 'adjustments_open', 'new' => ['perm' => 'doc.ADJ.post', 'href' => '/ui/stock/adjustments#new', 'label' => 'adjustments']],
                 ['key' => 'stock_in', 'perm' => 'documents.view', 'path' => '/ui/stock/in', 'match' => ['/ui/stock/in', '/ui/stock/in.csv', '/ui/stock/in/*'],

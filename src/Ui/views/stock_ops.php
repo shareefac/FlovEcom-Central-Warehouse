@@ -5,7 +5,7 @@
 // two columns); one search and ONE Show choice (on Adjustments the kind, each its own page; on Transfers the state); then the records grouped
 // Waiting for an OK, Draft, Done this week (and, when the list holds them, done before this week, cancelled, the cancellation records,
 // stopped), four columns: the record (its number opens it, its date under it), the kind, the reason, the units. An old link's
-// "stopped too" (cancelled=1) is kept.
+// "stopped too" (cancelled=1) is kept. "All kinds" (docs/decisions.md DG1): kind 'all', every kind's rows together, no create fold.
 ?>
 <?php $transfer = $kind === 'transfer'; ?>
 <?= $head($transfer ? (string) $k['tab'] : \CW\Ui\Words::INV_LIST['adjustments'], intro: $pageKey, look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second']),
@@ -84,7 +84,7 @@
         <td data-label="<?= $word('INV_LIST', 'col_to') ?>"><?= $e($r['to'] ?? '') ?></td>
 <?php else: ?>
         <td data-label="<?= $word('INV_LIST', 'col_kind') ?>"><?= $e($r['kind_word']) ?></td>
-        <td data-label="<?= $word('INV_LIST', 'col_reason') ?>"><?php if ($kind === 'adjust'): ?><span class="muted"><?= $word('INV_LIST', 'reason_lines') ?></span><?php else: ?><?= $e($r['why']) ?><?php endif; ?><?php if ($r['given'] !== null): ?><span class="o-sub"><?= $e($r['given']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('INV_LIST', 'col_reason') ?>"><?php if ($r['kind'] === 'adjust'): ?><span class="muted"><?= $word('INV_LIST', 'reason_lines') ?></span><?php else: ?><?= $e($r['why']) ?><?php endif; ?><?php if ($r['given'] !== null): ?><span class="o-sub"><?= $e($r['given']) ?></span><?php endif; ?></td>
 <?php endif; ?>
         <td data-label="<?= $word('INV_LIST', 'col_units') ?>" class="num chg<?php if ($r['units_dir'] !== ''): ?> <?= $e($r['units_dir']) ?><?php endif; ?>"><?= $e($r['units_shown']) ?></td>
       </tr>
