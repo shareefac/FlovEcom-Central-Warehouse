@@ -253,7 +253,7 @@ final class HomeScreenTest extends KernelUiTestCase
             iterator_to_array($xp->query('//main//section[contains(@class, "hm-figs")]/a'))));
         self::assertMatchesRegularExpression('/^[0-9,]+$/', trim((string) $xp->evaluate('string(//main//a[@data-tile="units"]/span[@class="hm-fig-n"])')),
             'each a number');
-        self::assertNotContains('value', \CW\Ui\DashboardTiles::ORDER, 'no tile reads the whole valuation');
+        // (the stock value tile reads the total the reports' refresh stores: none stored yet here, so no tile; docs/decisions.md DG5)
 
         // One answer: 1 of 20, and the button opens the next member.
         // (the spot check's own "Same item": its own small form in the bar, docs/decisions.md W12.3)
@@ -409,6 +409,71 @@ final class HomeScreenTest extends KernelUiTestCase
         }
         self::assertSame(['units', 'orders', 'products'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
             iterator_to_array((new \DOMXPath($home->dom()))->query('//main//section[contains(@class, "hm-figs")]/a'))), 'no Goods In for a buyer: three figures');
+    }
+
+    /**
+     * The Main board's first tile and its Today card's "Deliveries expected" (docs/decisions.md DG5): the stock value at cost is the total the
+     * reports' refresh stored on its last run (Home reads that one row, never the balances), with the items holding stock under it and a
+     * link to the valuation report, for who sees values; before the refresh has stored one, no tile. "Deliveries expected" counts the open
+     * purchase orders due today (UK) for who sees purchasing, and opens the purchase orders.
+     */
+    public function testTheStockValueTileAndDeliveriesExpected(): void
+    {
+        $pm = $this->uiUser('purchasing_manager');
+        $bc = Caller::staff($pm['id']);
+        $reviewer = $this->uiUser('reviewer');
+        $svc = new Suppliers(self::$db);
+        $s = $this->supplierDraft($pm['id'], 'Due Supplies');
+        $s = $svc->requestActivation($bc, (int) $s['id'], (int) $s['version']);
+        $svc->approve(Caller::staff($reviewer['id']), (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND subject_id = ? AND state = 'open'",
+            [(int) $s['id']]), null);
+        $sku = $this->item('strict', 0, 'Valued item');
+        $si = (new SupplierItems(self::$db))->create($bc, (int) $s['id'], $sku, ['units_per_pack' => '1', 'supplier_code' => 'DUE-1'], ['pack_price' => '5.0000']);
+        $docs = new Documents(self::$db, DocumentHandlers::all(self::$db));
+        $pos = new PurchaseOrders(self::$db, $docs);
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+        foreach ([$today, $today, (new \DateTimeImmutable('+3 days', new \DateTimeZone('Europe/London')))->format('Y-m-d')] as $due) {
+            $d = $pos->createDraft($bc, (int) $s['id'], ['expected_date' => $due]);
+            $d = $pos->saveDraft($bc, $d->id, $d->version, ['expected_date' => $due], [['supplier_item_id' => (int) $si['id'], 'packs' => 2]]);
+            $pos->approve($bc, $d->id, $d->version);
+        }
+        $web = $this->signIn($pm);
+        $tiles = static fn (\CW\Tests\Support\UiResponse $h): array => array_map(static fn (\DOMElement $a): string => $a->getAttribute('data-tile'),
+            iterator_to_array((new \DOMXPath($h->dom()))->query('//main//section[contains(@class, "hm-figs")]/a')));
+        $home = $web->get('/ui/');
+        self::assertSame(200, $home->status, $home->describe());
+        self::assertNotContains('value', $tiles($home), 'no total stored yet: no tile');
+        $today = static fn (\CW\Tests\Support\UiResponse $h): array => self::todayCard($h);
+        self::assertSame(['2', '/ui/purchasing/orders'], $today($home)[Words::RD_HOME['deliveries_expected']] ?? null, 'two due today, the third in 3 days');
+        self::assertSame('Deliveries expected', Words::RD_HOME['deliveries_expected']);
+
+        (new \CW\Reports\ReportRefresh(self::$db))->run(true);
+        $figures = (new \CW\Reports\ReportViews(self::$db))->valueFigures();
+        self::assertSame([(string) $figures['value'], $figures['items']], [(string) self::$db->value('SELECT stock_value FROM report_refresh WHERE id = 1'),
+            (int) self::$db->value('SELECT items_with_stock FROM report_refresh WHERE id = 1')], 'the refresh stores the valuation report\'s own figures');
+        $home = $web->get('/ui/');
+        self::assertSame('value', $tiles($home)[0], 'the first tile, as the board draws it');
+        $xp = new \DOMXPath($home->dom());
+        self::assertSame('/ui/reports/stock-value', (string) $xp->evaluate('string(//main//a[@data-tile="value"]/@href)'));
+        self::assertSame('£' . number_format((float) $figures['value'], 0), trim((string) $xp->evaluate('string(//main//a[@data-tile="value"]/span[@class="hm-fig-n"])')));
+        self::assertStringContainsString(Words::say('RD_HOME', 'sub_value', \CW\Ui\Html::int($figures['items'])), $home->text());
+        self::assertSame('Stock value at cost', Words::RD_HOME['tile_value']);
+        // Who does not see values: no value tile.
+        self::assertNotContains('value', $tiles($this->signIn($this->uiUser('buyer'))->get('/ui/')));
+    }
+
+    /** @return array<string, array{0: string, 1: string}> the Today card: label => [figure, link] */
+    private static function todayCard(\CW\Tests\Support\UiResponse $h): array
+    {
+        $xp = new \DOMXPath($h->dom());
+        $out = [];
+        foreach ($xp->query('//main//section[contains(@class, "hm-today")]//a') ?: [] as $a) {
+            $parts = array_values(array_filter(array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array($a->childNodes)), static fn (string $t): bool => $t !== ''));
+            if (count($parts) >= 2) {
+                $out[$parts[0]] = [$parts[1], $a instanceof \DOMElement ? $a->getAttribute('href') : ''];
+            }
+        }
+        return $out;
     }
 
     /** Nothing waiting: the empty state says so; its counts are built (pack A2a), so nothing comes later; the sidebar's Counts. */

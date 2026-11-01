@@ -3254,6 +3254,9 @@ section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr
 .hm-tile.hm-grey { background: var(--sf-grey); border-color: var(--hairline); }
 .hm-tile.hm-grey .hm-tile-ico { background: var(--st-grey); }
 .hm-tile.hm-grey .hm-tile-sub { color: var(--ink-body); }
+.hm-tile.hm-teal { background: var(--sf-teal); border-color: #bfe4df; }
+.hm-tile.hm-teal .hm-tile-ico { background: var(--st-teal); }
+.hm-tile.hm-teal .hm-tile-sub { color: #0b5e56; }
 .hm-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .hm-grid > .hm-jobs { grid-column: span 2; margin: 0; border-radius: var(--r-16); }
 .hm-grid > .hm-jobs:only-child { grid-column: 1 / -1; }

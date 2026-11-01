@@ -21,13 +21,12 @@ final class DashboardTiles
      * The figures, first first (the approved Main artboard of 30 Oct 2026; docs/decisions.md RD-C15): the units on the shelf, what waits for
      * this person's OK and the store listings to match; then, for whoever may see fewer of those, the figures Home showed before (open purchase
      * orders, deliveries to receive, products). Each in its tile's tint (`tone`) with its icon and a line under it. The artboard's first tile,
-     * the stock value at cost, is not drawn: it is the whole valuation (every balance, its average cost), too heavy for every Home load, and CW
-     * keeps no stored total of it (the fix round, docs/decisions.md RD-F8; the valuation report has it; needs a build: a total kept by the
-     * reports' refresh).
+     * the stock value at cost (values.view), is the total the reports' refresh stored on its last run (report_refresh, 0057; docs/decisions.md
+     * DG5): one row, never the balances (RD-F8); none stored yet, no tile.
      */
-    public const ORDER = ['units', 'inbox', 'matches', 'orders', 'deliveries', 'products'];
+    public const ORDER = ['value', 'units', 'inbox', 'matches', 'orders', 'deliveries', 'products'];
     /** A figure's tint and icon (the artboard's: blue, purple, magenta; the fill-ins grey). */
-    public const LOOK = ['units' => ['blue', 'stock'], 'inbox' => ['purple', 'approvals'], 'matches' => ['magenta', 'matching'],
+    public const LOOK = ['value' => ['teal', 'reports'], 'units' => ['blue', 'stock'], 'inbox' => ['purple', 'approvals'], 'matches' => ['magenta', 'matching'],
         'orders' => ['grey', 'orders'], 'deliveries' => ['grey', 'goods-in'], 'products' => ['grey', 'products']];
     /** The kinds of Approvals' badges, for the inbox tile's line (its biggest kind), as Ui\Context::badges counts them. */
     private const INBOX_BADGES = ['queue_corrections' => 'kind_corrections', 'queue_suspense' => 'kind_suspense', 'counts_open' => 'kind_counts',
@@ -44,6 +43,14 @@ final class DashboardTiles
         foreach (self::ORDER as $key) {
             if (count($out) >= self::MAX) {
                 break;
+            }
+            if ($key === 'value') {
+                $v = $me->can('values.view') ? self::storedValue($db) : null;
+                if ($v !== null) {
+                    $out[] = self::tile('value', (int) round((float) $v['value']), '£' . Html::int((int) round((float) $v['value'])),
+                        Words::say('RD_HOME', 'sub_value', Html::int($v['items'])), '/ui/reports/stock-value');
+                }
+                continue;
             }
             if ($key === 'inbox' && Controller\InboxController::kinds($me->roles) !== []) {
                 $b = $ctx->badges();
@@ -80,6 +87,24 @@ final class DashboardTiles
     {
         return ['key' => $key, 'title' => Words::RD_HOME['tile_' . $key], 'value' => $value, 'shown' => $shown, 'sub' => $sub, 'href' => $href,
             'tone' => self::LOOK[$key][0], 'icon' => self::LOOK[$key][1]];
+    }
+
+    /**
+     * The valuation total the reports' refresh stored (0057, DG5), or null: not worked out yet, or a schema before 0057.
+     *
+     * @return array{value: string, items: int}|null
+     */
+    private static function storedValue(\CW\Db $db): ?array
+    {
+        try {
+            $r = $db->one('SELECT stock_value, items_with_stock FROM report_refresh WHERE id = 1');
+        } catch (\PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) === 1054) {
+                return null; // before 0057
+            }
+            throw $e;
+        }
+        return $r === null || $r['stock_value'] === null ? null : ['value' => (string) $r['stock_value'], 'items' => (int) $r['items_with_stock']];
     }
 
     /** The purchase orders not finished: drafts, waiting for an OK, and confirmed or sent ones still open. */

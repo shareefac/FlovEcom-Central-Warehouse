@@ -104,7 +104,14 @@ final class DashboardController
             $out[] = ['label' => Words::RD_HOME['orders_today'], 'value' => Html::int($orders), 'href' => $href];
             $out[] = ['label' => Words::RD_HOME['units_today'], 'value' => Html::int($units), 'href' => $href];
         }
-        if ($me->can('receiving.view')) {
+        if ($me->can('purchasing.view')) {
+            // The board's "Deliveries expected" (docs/decisions.md DG5): the purchase orders still to arrive that are due today (UK).
+            $due = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+            $open = "'" . implode("', '", \CW\PurchaseOrders\PurchaseOrders::OPEN_STATES) . "'";
+            $out[] = ['label' => Words::RD_HOME['deliveries_expected'], 'value' => Html::int((int) $ctx->db->value(
+                "SELECT COUNT(*) FROM purchase_order po JOIN document d ON d.id = po.document_id WHERE po.expected_date = ? AND d.status = 'posted' "
+                . "AND d.reverses_id IS NULL AND po.state IN ({$open})", [$due])), 'href' => '/ui/purchasing/orders'];
+        } elseif ($me->can('receiving.view')) {
             $out[] = ['label' => Words::RD_HOME['deliveries_open'], 'value' => Html::int((int) $ctx->db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'GRN' AND status = 'draft'")),
                 'href' => '/ui/receiving'];
         }

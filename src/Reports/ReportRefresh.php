@@ -75,7 +75,26 @@ final class ReportRefresh
         $note = "items {$items}, value rows {$rows}, history batches {$batches}, sales days {$days}"
             . ($waiting === null ? '' : ", history waits for batch {$waiting['id']} ({$waiting['status']})");
         $this->db->exec('UPDATE report_refresh SET ran_at = ?, note = ? WHERE id = 1', [Clock::db(($this->clock)()), $note]);
+        $this->storeValue();
         return ['off' => false, 'items' => $items, 'seq_rows' => $rows, 'history_batches' => $batches, 'days' => $days, 'sales_through' => $through];
+    }
+
+    /**
+     * Keeps the valuation total for Home's stock value tile (0057; docs/decisions.md DG5): the valuation report's own figures (on hand above zero
+     * in our warehouses at each item's average cost, as just refreshed), in report_refresh. On a schema before 0057 (no such column) it does
+     * nothing.
+     */
+    private function storeValue(): void
+    {
+        $f = (new ReportViews($this->db))->valueFigures();
+        try {
+            $this->db->exec('UPDATE report_refresh SET stock_value = ?, items_with_stock = ?, value_at = ? WHERE id = 1',
+                [$f['value'], $f['items'], Clock::db(($this->clock)())]);
+        } catch (\PDOException $e) {
+            if ((int) ($e->errorInfo[1] ?? 0) !== 1054) {
+                throw $e; // only "unknown column" (before 0057) is expected
+            }
+        }
     }
 
     /** @return array{sales_through: ?string, history_batch_id: int, ran_at: ?string, note: ?string} */

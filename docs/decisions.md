@@ -15578,3 +15578,14 @@ below) narrow any of them (`Queries::productExtra`). The board's words are the o
 (the board draws none); the list's "N items" line still says how many the filters hold. Any of the new filters, or a new coverage, is
 read in one pass (`productIds` with every id; no stored count holds them). Not carried: Brand, Kind and Stock do not travel to a
 variant's page and back (its context carries `cov` and the search only); the way back keeps the store and status.
+
+**DG5. Home: the stock value tile and "Deliveries expected"** (CW-912; Main.dc.html's first tile "Stock value at cost · N items with
+stock" and its Today card). The tile is back as RD-F8 asked: migration **0057** adds `report_refresh.stock_value`, `items_with_stock` and
+`value_at` (NULL columns, in place); `ReportRefresh::run()` stores the valuation report's own figures (`ReportViews::valueFigures`: our
+warehouses, on hand above zero, each item at its average cost) at the end of each run. Home reads that one row (`DashboardTiles::storedValue`),
+never the balances. The tile is first (teal, as drawn) for who sees values (`values.view`), in whole pounds as the board writes it, with "N
+items with stock" under it, and links the valuation report; before the refresh has stored a figure (or on a schema before 0057) it is not
+drawn and the figures of before fill in. The figure is as of the last refresh (the job runs every few minutes), not to the second.
+The Today card's third row is the board's "Deliveries expected" for who sees purchasing: the confirmed purchase orders still to arrive
+(`PurchaseOrders::OPEN_STATES`) whose expected date is today (UK), linking the purchase orders; who sees receiving but not purchasing keeps
+"Deliveries being checked" there, as before.

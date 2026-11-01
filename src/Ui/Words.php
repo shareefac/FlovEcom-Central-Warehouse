@@ -10234,6 +10234,8 @@ final class Words
         'jobs_one' => '1 job',
         'jobs_many' => '%s jobs',
         'open_approvals' => 'Open Approvals',
+        'tile_value' => 'Stock value at cost', // the Main board's first tile (DG5)
+        'sub_value' => '%s items with stock',
         'tile_units' => 'Units on the shelf',
         'sub_units' => 'In the warehouses that sell',
         'tile_inbox' => 'Waiting for your OK',
@@ -10254,6 +10256,7 @@ final class Words
         'orders_today' => 'Orders taken',
         'units_today' => 'Units in those orders',
         'deliveries_open' => 'Deliveries being checked',
+        'deliveries_expected' => 'Deliveries expected', // the Main board's Today card (DG5): purchase orders due today
         'oversold' => 'Oversold',
         // "Waiting for you" as the owner's checklist in tabs (31 Oct 2026; docs/decisions.md RD-H1-RD-H5): the tab row's name, All, the list's
         // name, an urgent job's label, the fold.
