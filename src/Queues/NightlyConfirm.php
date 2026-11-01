@@ -41,12 +41,12 @@ final class NightlyConfirm
     /** The most of SECONDS that finding the ready ones may take (NC14). */
     public const FIND_SECONDS = 60;
     /** How many open corrections one page of the search reads: one chunk of Corrections::readiness()'s reads (200), so a page's statements are few and fixed. */
-    public const PAGE = 200;
+    public const PAGE = Corrections::CHUNK;
     /**
-     * The most statements one page of the search runs (Corrections::readiness() of PAGE rows: 9 or 10, and spare; NightlyConfirmTest counts
-     * them). Each statement's time is its share of the search's time left, so a page ends within it (NC14).
+     * The most statements one page of the search runs (Corrections::readStatements() of PAGE rows; NightlyConfirmTest counts them). Each
+     * statement's time is its share of the search's time left, so a page ends within it (NC14).
      */
-    public const FIND_STATEMENTS = 15;
+    public const FIND_STATEMENTS = Corrections::READ_FIXED + Corrections::READ_PER_CHUNK;
     public const UK = 'Europe/London';
     /** The note on each confirmation of a nightly run (the coordinator's words of 1 Nov 2026). */
     public const NOTE = 'Nightly Confirm all (setting on since %s, by %s)';

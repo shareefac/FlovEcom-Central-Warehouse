@@ -83,10 +83,24 @@ final class Corrections
     public const CONFIRMED_SQL = "SELECT id, sku_id, warehouse_id, CAST(detail AS CHAR) AS detail, created_at, resolved_at FROM count_review WHERE source = ? "
         . "AND status = 'resolved' AND (sku_id, warehouse_id) IN (%s)";
     public const BALANCE_SQL = 'SELECT warehouse_id, sku_id, on_hand, counted_at FROM stock_balance WHERE (warehouse_id, sku_id) IN (%s)';
-    public const FIX_SQL = 'SELECT warehouse_id, sku_id, MAX(created_at) AS at FROM stock_ledger FORCE INDEX (ix_stock_ledger_balance) '
+    /**
+     * The fixes of the items (CA20 (a), CW-913): one range read of the fixes' own rows by doc_ref (ix_stock_ledger_doc_ref, migration 0056),
+     * not each item's whole ledger at its place.
+     */
+    public const FIX_SQL = 'SELECT warehouse_id, sku_id, MAX(created_at) AS at FROM stock_ledger FORCE INDEX (ix_stock_ledger_doc_ref) '
         . "WHERE (warehouse_id, sku_id) IN (%s) AND bucket = 'on_hand' AND movement_type = 'adjustment' AND doc_ref LIKE ? GROUP BY warehouse_id, sku_id";
     /** When the last one-time stock fix was booked (CA25): its bookings' audit rows (entity movement, id = its doc_ref), by their index. */
     public const LATEST_FIX_SQL = 'SELECT MAX(created_at) FROM audit_log FORCE INDEX (ix_audit_entity) WHERE entity_type = ? AND entity_id LIKE ?';
+
+    /** How many open corrections the list reads at once (each chunk: one statement per read below). */
+    public const CHUNK = 200;
+    /**
+     * The most statements readiness() runs (CW-111, NC14; NightlyConfirmTest and ConfirmAllTest count them): READ_FIXED (the settings, the
+     * list, its names and stores, the last fix) and READ_PER_CHUNK per CHUNK rows (three for effects(), three for facts()), with spare. A
+     * read under a deadline gives each statement its share of the time left (readStatements()), so all of them end by it.
+     */
+    public const READ_FIXED = 8;
+    public const READ_PER_CHUNK = 6;
 
     /** The audit row of one press of Confirm all, written before its first id (CA7, CA15): its id is the done page's. */
     public const RUN_ACTION = 'count_review.confirm_all';
@@ -174,7 +188,7 @@ final class Corrections
     {
         $forSale = self::forSale($settings);
         $out = [];
-        foreach (array_chunk($rows, 200) as $chunk) {
+        foreach (array_chunk($rows, self::CHUNK) as $chunk) {
             // 1. The last ledger row booked by each moment: effect()'s statement, once per moment, in one UNION ALL.
             $ats = array_values(array_unique(array_map(static fn (array $r): string => (string) $r['at'], $chunk)));
             $last = [];
@@ -481,7 +495,7 @@ final class Corrections
         $lastFix = $rows === [] ? null : $db->value(self::LATEST_FIX_SQL, ['movement', self::FIX_PREFIX . '%']);
         $lastFix = $lastFix === null ? null : (string) $lastFix;
         $out = [];
-        foreach (array_chunk($rows, 200) as $chunk) {
+        foreach (array_chunk($rows, self::CHUNK) as $chunk) {
             $pairs = [];
             $skus = [];
             foreach ($chunk as $r) {
@@ -661,12 +675,17 @@ final class Corrections
                 $added += max(0, $r['delta']);
                 $taken += max(0, -$r['delta']);
             }
-            // The end, in its reserve: the list's reads stop at the deadline; the end row is always written.
+            // The end, in its reserve (CW-111): each of the list's statements gets its share of the time left, so all of them end by the
+            // deadline; none is started once it has passed. The end row is always written.
             $this->press = null;
             $this->db->exec('SET SESSION innodb_lock_wait_timeout = 1');
-            $this->db->exec('SET SESSION max_execution_time = ' . max(1000, (int) floor(($deadline - ($this->clock)()) * 1000)));
             $unlisted = false;
             try {
+                $ms = (int) floor(($deadline - ($this->clock)()) * 1000 / self::readStatements(self::BULK_MAX));
+                if ($ms < 1) {
+                    throw new CwException('out_of_time', 'no time left for the list', 409);
+                }
+                $this->db->exec('SET SESSION max_execution_time = ' . $ms);
                 $listed = array_column($left, 'id');
                 foreach ($this->readiness() as $r) {
                     if ($r['why'] !== null && !in_array((int) $r['id'], $listed, true)) {
@@ -688,6 +707,12 @@ final class Corrections
             $this->db->exec('SET SESSION max_execution_time = ' . $timeWas);
         }
         return ['run' => $run, 'confirmed' => $confirmed, 'left' => $left];
+    }
+
+    /** The most statements readiness() runs for $rows open corrections (READ_FIXED, READ_PER_CHUNK). */
+    public static function readStatements(int $rows): int
+    {
+        return self::READ_FIXED + self::READ_PER_CHUNK * max(1, (int) ceil(min($rows, self::BULK_MAX) / self::CHUNK));
     }
 
     /**

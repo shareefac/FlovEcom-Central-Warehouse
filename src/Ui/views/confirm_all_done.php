@@ -2,12 +2,13 @@
 // "Confirm all ready": the done page of a press (ConfirmAllDone.dc.html; docs/decisions.md CA8), read from the press's audit row. The green
 // status line ("N confirmed. K left for you."), the "Left for you" card (an amber dot, its count; each row the item, why in amber, and Open › to
 // it in Approvals), where the press is saved, and Back to Approvals. A press that stopped before its end (CA15) says so under the status line:
-// what it confirmed is counted, the rest is left; a night's run still going (NC16) says that instead. Plain links: no script needed.
+// what it confirmed is counted, the rest is left; a night's run still going (NC16) says that instead. A press that booked nothing new (the
+// same page pressed again: each one confirmed already) says "Already confirmed before" (CW-109). Plain links: no script needed.
 ?>
 <?= $head(\CW\Ui\Words::CONFIRM_ALL['done_title'], eyebrow: \CW\Ui\Words::CONFIRM_ALL['eyebrow'], side: '') ?>
 <?= $showNav() ?>
 <div class="ca-page">
-<p class="ca-status" role="status"><span class="ico ico-check" aria-hidden="true"></span><?= $say('CONFIRM_ALL', 'done_status', $confirmed, count($left)) ?></p>
+<p class="ca-status" role="status"><span class="ico ico-check" aria-hidden="true"></span><?= $say('CONFIRM_ALL', $again ? 'done_status_again' : 'done_status', $confirmed, count($left)) ?></p>
 <?php if ($stopped || $running): ?>
 <p class="ca-stopped" role="note"><?= $word('CONFIRM_ALL', $running ? 'running' : 'stopped') ?></p>
 <?php endif; ?>

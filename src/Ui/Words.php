@@ -11516,6 +11516,7 @@ final class Words
         // The done page
         'done_title' => 'Confirm all: done',
         'done_status' => '%s confirmed. %s left for you.',
+        'done_status_again' => 'Already confirmed before: %s. Nothing was booked again. %s left for you.',
         'left_title' => 'Left for you',
         'open' => 'Open ›',
         'open_named' => 'Open %s',

@@ -15450,6 +15450,19 @@ refused everywhere else), `tests/Integration/Queues/Migration0055Test` (the sett
 it, the card's rows and On / Off; a nightly run's done page for every stock controller, refused to a buyer; a person's press still its
 presser's). The stock invariants after each.
 
+**CA27-CA29. Confirm all ready: the tracker's follow-ups CW-913, CW-111, CW-109 (1 Nov 2026, branch `ca-followups`; each shown failing first).**
+- **CA27 (CW-913, CA20 (a)). The fix lookup reads an index.** Migration 0056 adds `ix_stock_ledger_doc_ref (doc_ref, warehouse_id, sku_id,
+  created_at)` to stock_ledger (ALGORITHM = INPLACE, LOCK = NONE; the ALTER runs only while the index is not there, so the file runs again
+  safely). `Corrections::FIX_SQL` reads it by FORCE INDEX: one range read of the fixes' own rows, not each item's whole ledger at its place
+  (QueueListPlansTest, Migration0056Test). The code needs 0056 first: the installers migrate before they switch.
+- **CA28 (CW-111, the Codex re-check ca3 MEDIUM). The end's reads end by the deadline.** `readStatements()` bounds the statements of
+  `readiness()` (READ_FIXED 8, READ_PER_CHUNK 6 per CHUNK of 200; ConfirmAllTest counts them); at the press's end each statement's
+  max_execution_time is its share of the time left over readStatements(BULK_MAX), so together they end by the deadline; with no time left
+  none is started. Either way the end row is written (`unlisted` when the list did not fit: Approvals lists them). NightlyConfirm's search
+  uses the same bound (FIND_STATEMENTS = READ_FIXED + READ_PER_CHUNK, PAGE = CHUNK).
+- **CA29 (CW-109). A press that booked nothing new says so.** Its done page reads "Already confirmed before: N. Nothing was booked again. K
+  left for you." when every one it confirmed was confirmed already (each key replayed: the same page pressed again), instead of "N confirmed".
+
 **NC13-NC16. The Codex review of 774f39e (3 MEDIUM, 1 LOW), each shown failing first on 774f39e.**
 - **NC13. The whole queue is searched.** The ready ones were read from the oldest 500 open corrections only, so 500 doubtful ones in front hid
   a ready one every night. `NightlyConfirm::ready()` reads the open queue page by page (`Corrections::readiness(..., $after)`, by the open

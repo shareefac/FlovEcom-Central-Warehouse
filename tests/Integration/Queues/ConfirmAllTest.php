@@ -859,6 +859,48 @@ final class ConfirmAllTest extends StockTestCase
      * CA17 (Codex MEDIUM 5): the list reads a fixed number of queries for 253 open corrections (not about four each), and its figures are
      * effect()'s, row by row (the booking-time figure stays effect()'s own, read fresh under the locks), carried corrections too.
      */
+    /**
+     * CW-111 (Codex ca3 MEDIUM): the end's reads (what needs a look now) end by the deadline. Each statement gets its share of the time left
+     * (the time left over Corrections::readStatements(BULK_MAX)), not the whole time left each; with no time left none is started, and the
+     * end row is written all the same ("unlisted": Approvals lists them).
+     */
+    public function testTheEndsReadsShareTheTimeLeftAndNoneStartsAfterTheDeadline(): void
+    {
+        $controller = $this->person('stock_controller');
+        foreach ([[30.0, false], [100.0, true]] as [$endAt, $unlisted]) {
+            $this->stocked(1, 'E' . (int) $endAt);
+            $id = $this->correction('E' . (int) $endAt, 3);
+            $now = 0.0;
+            $die = false;
+            $clock = self::clock($now, $die);
+            $limits = [];
+            $selects = 0;
+            $timeWas = (int) self::$db->value('SELECT @@SESSION.max_execution_time');
+            $run = self::hooked(static function (string $sql) use (&$now, $endAt, &$limits, &$selects): void {
+                if ($now === 0.0 && str_starts_with(ltrim($sql), 'UPDATE count_review SET detail = JSON_SET')) {
+                    $now = $endAt; // the id is booked; the end starts $endAt seconds into the press
+                } elseif (preg_match('/^SET SESSION max_execution_time = (\d+)$/', trim($sql), $m) === 1) {
+                    $limits[] = (int) $m[1];
+                } elseif ($now !== 0.0 && str_starts_with(ltrim($sql), 'SELECT') && !str_contains($sql, '@@SESSION')) {
+                    $selects++;
+                }
+            }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, [$id], 'the end in its time'));
+            self::assertSame([$id], $run['confirmed']);
+            $end = json_decode((string) self::$db->value('SELECT CAST(detail AS CHAR) FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ?',
+                [Corrections::TABLE, 'confirm_all:' . $run['run'], Corrections::RUN_END_ACTION]), true);
+            self::assertSame($unlisted, $end['unlisted'] ?? false, "end at {$endAt} s");
+            if ($unlisted) {
+                self::assertSame(0, $selects, 'past the deadline: no read is started');
+                self::assertSame([$timeWas], $limits, 'only the session\'s own time given back');
+            } else {
+                $share = (int) floor((Corrections::BULK_SECONDS - $endAt) * 1000 / Corrections::readStatements(Corrections::BULK_MAX));
+                self::assertSame([$share, $timeWas], $limits, 'each read gets its share, then the session\'s own time back');
+                self::assertGreaterThan(0, $selects);
+                self::assertLessThanOrEqual(Corrections::readStatements(Corrections::BULK_MAX), $selects);
+            }
+        }
+    }
+
     public function testTheListReadsAFixedNumberOfQueriesAndItsFiguresAreEffects(): void
     {
         $n = 253;
@@ -888,7 +930,7 @@ final class ConfirmAllTest extends StockTestCase
             $queries++;
         }, fn (): array => $queue->readiness());
         self::assertCount($n + 1, $rows);
-        self::assertLessThanOrEqual(30, $queries, "{$queries} queries for " . ($n + 1) . ' open corrections');
+        self::assertLessThanOrEqual(Corrections::readStatements($n + 1), $queries, "{$queries} queries for " . ($n + 1) . ' open corrections (CW-111: the bound the end\'s reads share their time by)');
         foreach ($rows as $r) {
             self::assertSame($queue->effect((int) $r['warehouse_id'], (int) $r['sku_id'], (int) $r['proposed_qty'], (string) $r['at'], null, (int) $r['id']), $r['effect'],
                 "correction {$r['id']}");

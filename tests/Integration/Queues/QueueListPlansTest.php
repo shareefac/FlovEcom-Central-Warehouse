@@ -90,7 +90,7 @@ final class QueueListPlansTest extends IntegrationTestCase
                 [0, 'on_hand', $main, $sku, PHP_INT_MAX, 'on_hand', 1, 'allocated', $main, $other, PHP_INT_MAX, 'allocated'], 'stock_ledger', 'ix_stock_ledger_balance', ['range', 'ref']],
             'confirmed of items' => [sprintf(Corrections::CONFIRMED_SQL, $two), ['erp_reconciliation', $sku, $main, $other, $main], 'count_review', 'ix_count_review_sku', ['range', 'ref']],
             'balances' => [sprintf(Corrections::BALANCE_SQL, $two), [$main, $sku, $main, $other], 'stock_balance', 'PRIMARY', ['range', 'eq_ref', 'const']],
-            'fixes of items' => [sprintf(Corrections::FIX_SQL, $two), [$main, $sku, $main, $other, Corrections::FIX_PREFIX . '%'], 'stock_ledger', 'ix_stock_ledger_balance', ['range']],
+            'fixes of items' => [sprintf(Corrections::FIX_SQL, $two), [$main, $sku, $main, $other, Corrections::FIX_PREFIX . '%'], 'stock_ledger', 'ix_stock_ledger_doc_ref', ['range']],
             // CA25: the moment of the last fix, from the audit log's entity index (read once, before any ledger read for rule f).
             'last fix' => [Corrections::LATEST_FIX_SQL, ['movement', Corrections::FIX_PREFIX . '%'], 'audit_log', 'ix_audit_entity', ['range']],
         ];

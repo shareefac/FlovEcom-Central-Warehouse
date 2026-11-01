@@ -365,6 +365,8 @@ final class StoreQueuesController
         ], $left);
         return $ctx->page('confirm_all_done', [
             'confirmed' => count($run['confirmed']),
+            // CW-109: a press that booked nothing new (each one it confirmed was confirmed already: its key replayed) says so.
+            'again' => $run['confirmed'] !== [] && count($run['replayed']) === count($run['confirmed']),
             'stopped' => $run['state'] === 'stopped',
             'running' => $run['state'] === 'running',
             'left' => $rows,

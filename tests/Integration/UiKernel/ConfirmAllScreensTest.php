@@ -300,6 +300,9 @@ final class ConfirmAllScreensTest extends KernelUiTestCase
         self::assertSame(303, $again->status, $again->describe());
         self::assertSame($ledger, (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger'));
         self::assertSame([4, 2], [$this->onHand($c['Alpha pod']['sku']), $this->onHand($c['Beta pod']['sku'])]);
+        // CW-109: its done page says nothing new was booked, not "1 confirmed".
+        self::assertSame(['Already confirmed before: 1. Nothing was booked again. 1 left for you.'],
+            self::texts(self::xp($web->follow($again)), '//p[contains(@class, "ca-status")]'));
         // The done page is its presser's: another person, an unknown run, another audit row: 404 (the same answer for each).
         $run = (string) $r->location();
         $stranger = $this->sc();
