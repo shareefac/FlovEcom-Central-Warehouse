@@ -1292,6 +1292,7 @@ every other Items and Inventory page. Layout and view data only.
 | Path | What |
 |---|---|
 | `src/StockOps/StockOps.php` | `list()`: `net_units`, `line_reason` (DG2) |
+| `src/Ui/Controller/ReportsController.php`, `src/Reports/ReportViews.php`, views `report_bar`, `report_value` | `xlsx()`, `sheet()`, `file()`, `slug()` (.csv/.xlsx), route `/ui/reports/{slug}.xlsx`; valuation `wh` (`valueByProduct`/`valueByBrand` `$warehouseId`); `details.rp-export` (DG7) |
 | view `po_bar`, `public/ui/assets/app.js` | `button[data-print][hidden]` (`Words::ORDER paper_copy`); app.js shows it and calls `window.print()` (DG6) |
 | `migrations/0057_report_stock_value.sql`, `src/Reports/ReportRefresh.php`, `src/Ui/DashboardTiles.php`, `src/Ui/Controller/DashboardController.php` | report_refresh `stock_value`/`items_with_stock`/`value_at`, `storeValue()`, tile `value` (teal), Today `deliveries_expected` (DG5); test `tests/Integration/Reports/Migration0057Test.php` |
 | `src/Ui/ByProductContext.php`, `src/Ui/Queries.php`, `src/Ui/Controller/ByProductController.php`, view `by_product` | `coverageOf()` (store + match -> cov: `missing`, `none`, `on-<code>`), `productExtra()` (brand, kind, stock), `coverageAsked()`, `extraAsked()`, `Words::RD_MATCH_FILTER` (DG4) |

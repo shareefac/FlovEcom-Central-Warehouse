@@ -144,9 +144,14 @@ final class ReportViews
      *
      * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
      */
-    public function valueByProduct(string $q, bool $noCost, int $page, ?int $limit = self::PAGE): array
+    public function valueByProduct(string $q, bool $noCost, int $page, ?int $limit = self::PAGE, ?int $warehouseId = null): array
     {
         [$where, $params] = StockViews::skuMatch($q, 's');
+        if ($warehouseId !== null) {
+            // one of our warehouses (the Reports board's Warehouse, docs/decisions.md DG7)
+            $where[] = 'b.warehouse_id = ?';
+            $params[] = $warehouseId;
+        }
         if ($noCost) {
             $where[] = 'COALESCE(r.in_units, 0) = 0';
         }
@@ -171,13 +176,14 @@ final class ReportViews
     }
 
     /** @return list<array{brand: ?string, products: int, units: int, value: string, not_costed: int}> our stock by brand, the biggest value first */
-    public function valueByBrand(): array
+    public function valueByBrand(?int $warehouseId = null): array
     {
         return array_map(static fn (array $r): array => ['brand' => $r['brand'] === null || $r['brand'] === '' ? null : (string) $r['brand'],
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => (string) $r['value'], 'not_costed' => (int) $r['not_costed']],
             $this->db->all('SELECT s.brand, COUNT(DISTINCT b.sku_id) AS products, SUM(b.on_hand) AS units, SUM(' . self::VALUE . ') AS value, '
                 . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' "
-                . 'JOIN sku s ON s.id = b.sku_id LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY s.brand ORDER BY value DESC, s.brand'));
+                . 'JOIN sku s ON s.id = b.sku_id LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0' . ($warehouseId === null ? '' : ' AND b.warehouse_id = ?')
+                . ' GROUP BY s.brand ORDER BY value DESC, s.brand', $warehouseId === null ? [] : [$warehouseId]));
     }
 
     /** @return list<array{id: int, name: string, ours: bool, products: int, units: int, value: string, not_costed: int}> every warehouse with stock, ours first */

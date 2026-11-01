@@ -74,7 +74,9 @@ final class ReportsSettingsPatternsScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $xp = self::xp($page);
         self::assertSame(1, $xp->query('//main//header[contains(@class, "page-head")]//a[@download and starts-with(@href, "' . $csv . '")]')->length, "{$csv}: Export");
-        self::assertSame(Words::RD_REPORTS['export'], trim((string) $xp->evaluate('string(//main//header//a[@download])')));
+        // Export: the CSV, alone (the audit log, the duty register) or in the reports' menu beside Excel (docs/decisions.md DG7).
+        self::assertContains(Words::RD_REPORTS['export'], [trim((string) $xp->evaluate('string(//main//header//a[@download])')),
+            trim((string) $xp->evaluate('string(//main//header//details[contains(@class, "rp-export")]/summary)'))]);
         self::assertSame('#all-reports', (string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'), "{$csv}: ‹ All reports");
         self::assertSame(1, $xp->query('//main//form[contains(@class, "rp-options") and @method="get"]/button[contains(@class, "primary")]')->length, "{$csv}: Run report");
         if ($paper) {

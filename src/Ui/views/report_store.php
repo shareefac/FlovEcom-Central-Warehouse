@@ -9,7 +9,7 @@ foreach ($stores as $s) {
         $fig = $s;
     }
 }
-$bar = $store !== null ? $partial('report_bar', ['href' => $csv_link]) : '';
+$bar = $store !== null ? $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]) : '';
 $line = $fig === null ? '' : implode(' · ', array_filter([\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), (string) $fig['name'],
     $fig['warehouse'] === null ? \CW\Ui\Words::REPORTS['no_warehouse'] : \CW\Ui\Words::say('REPORTS', 'sells_from', (string) $fig['warehouse']),
     \CW\Ui\Words::REPORTS['show_' . $f['show']]], static fn (string $v): bool => $v !== ''));

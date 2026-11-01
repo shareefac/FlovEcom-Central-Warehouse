@@ -15595,3 +15595,14 @@ plain "Print" button (`button[data-print]`), `hidden` in the page: `app.js` show
 script; without the script there is no button that does nothing). The page's print style (`@media print`, as before) leaves the menus
 and the actions out. The PDF stays under More as the supplier's copy; Print is the page as staff see it. The word key is `paper_copy`
 (the template rule forbids the PHP construct's name in a template's code).
+
+**DG7. Reports: Print, Export (Excel and CSV) and the valuation's Warehouse** (CW-907, part b; Reports.dc.html's head "Print · Export ▾" and
+options "Warehouse"). Every report's head (`report_bar`) has Print first (DG6's button). The five reports' Export is a menu of two files
+with the same columns and rows: Excel (`/ui/reports/{slug}.xlsx`, `XlsxWriter`, the report's own permission) and CSV as before; each
+report builds its rows once, for the writer the address asks for (`ReportsController::sheet()`/`file()`), and the report is told from
+the address with either ending (`slug()`). The audit log and the duty register keep their one CSV button. The Inventory valuation has the
+board's Warehouse: All warehouses, or one of ours (`stock_owner = 'own'`, VERIFY included as the valuation counts it; another account's
+room, or a number that is none of ours, is no choice: all), on the page, its line ("As of … · Spare room · …") and both files; grouped by
+warehouse it keeps only that one. The strip's figures stay the whole company's. Left for CW-907b (its own reviewed piece, agreed 1 Nov):
+"As of" a past date (the on-hand and the average cost as they were then) and a PDF. Not in the tracker's task: the items under brand
+headings (RD-C12), unchanged.

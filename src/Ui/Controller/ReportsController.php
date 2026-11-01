@@ -6,6 +6,7 @@ namespace CW\Ui\Controller;
 
 use CW\Clock;
 use CW\Output\CsvWriter;
+use CW\Output\XlsxWriter;
 use CW\Reports\ReportRefresh;
 use CW\Reports\ReportViews;
 use CW\Settings;
@@ -45,6 +46,34 @@ final class ReportsController
         };
     }
 
+    /** The file the report's download writes: `csv` (CsvWriter) or `xlsx` (XlsxWriter: the same columns and rows; docs/decisions.md DG7). */
+    private string $format = 'csv';
+
+    /** GET /ui/reports/{slug}.xlsx: the same rows as the CSV, as an Excel file (the Reports board's Export; docs/decisions.md DG7). */
+    public function xlsx(Context $ctx): HtmlResponse
+    {
+        $this->format = 'xlsx';
+        try {
+            return $this->csv($ctx);
+        } finally {
+            $this->format = 'csv';
+        }
+    }
+
+    /** @param list<array{0: string, 1: 'text'|'number'}> $columns @return CsvWriter|XlsxWriter the file's writer, by the format asked */
+    private function sheet(array $columns): CsvWriter|XlsxWriter
+    {
+        return $this->format === 'xlsx' ? new XlsxWriter($columns) : new CsvWriter($columns);
+    }
+
+    /** The download of a report file: its name without the extension. */
+    private function file(CsvWriter|XlsxWriter $out, string $name): HtmlResponse
+    {
+        return $this->format === 'xlsx'
+            ? FilesController::download($out->output(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $name . '.xlsx')
+            : FilesController::download($out->output(), 'text/csv; charset=utf-8', $name . '.csv');
+    }
+
     public function csv(Context $ctx): HtmlResponse
     {
         return match (self::slug($ctx)) {
@@ -78,13 +107,13 @@ final class ReportsController
         $result = $store === null ? ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1]
             : $views->storeItems($store['id'], $store['warehouse_id'], $f['q'], $f['show'], $f['page'], $csv ? null : ReportViews::PAGE);
         if ($csv) {
-            $out = new CsvWriter([['store', 'text'], ['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['warehouse_units_it_can_sell', 'number'],
+            $out = $this->sheet([['store', 'text'], ['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['warehouse_units_it_can_sell', 'number'],
                 ['units_per_sale', 'number'], ['website_uses_its_own_stock', 'text']]);
             foreach ($result['rows'] as $r) {
                 $out->add([$store['name'] ?? '', (string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['available'],
                     (int) $r['pack'], $r['sell_policy'] === 'legacy' ? 'yes' : 'no']);
             }
-            return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'stock-by-store-' . ($store['code'] ?? 'none') . '.csv');
+            return $this->file($out, 'stock-by-store-' . ($store['code'] ?? 'none'));
         }
         $query = ['store' => $f['store'], 'q' => $f['q'], 'show' => $f['show'] === 'all' ? null : $f['show']];
         return $ctx->page('report_store', self::shared($ctx, 'stock_by_store') + [
@@ -96,7 +125,7 @@ final class ReportsController
                 'policy' => (string) $r['sell_policy']], $result['rows']),
             'total' => $result['total'], 'page_no' => $result['page'], 'pages' => $result['pages'],
             'filtered' => $f['q'] !== '' || $f['show'] !== 'all',
-            'csv_link' => Html::url('/ui/reports/stock-by-store.csv', $query),
+            'csv_link' => Html::url('/ui/reports/stock-by-store.csv', $query), 'xlsx_link' => Html::url('/ui/reports/stock-by-store.xlsx', $query),
             'clear_link' => Html::url('/ui/reports/stock-by-store', ['store' => $f['store']]),
             'prev_link' => $result['page'] > 1 ? Html::url('/ui/reports/stock-by-store', $query + ['page' => $result['page'] - 1]) : null,
             'next_link' => $result['page'] < $result['pages'] ? Html::url('/ui/reports/stock-by-store', $query + ['page' => $result['page'] + 1]) : null,
@@ -125,20 +154,20 @@ final class ReportsController
             }
         }
         if ($csv) {
-            $out = new CsvWriter([['day', 'text'], ['store', 'text'], ['orders', 'number'], ['units_sold', 'number'], ['units_sent', 'number'],
+            $out = $this->sheet([['day', 'text'], ['store', 'text'], ['orders', 'number'], ['units_sold', 'number'], ['units_sent', 'number'],
                 ['units_cancelled', 'number'], ['units_returned', 'number']]);
             $name = $storeId === null ? Words::REPORTS['all_stores'] : (string) (array_column($stores, 'name', 'id')[$storeId] ?? '');
             foreach ($sales['days'] as $d) {
                 $out->add([$d['day'], $name, $d['orders'], $d['units_sold'], $d['units_sent'], $d['units_cancelled'], $d['units_returned']]);
             }
-            return FilesController::download($out->output(), 'text/csv; charset=utf-8', "sales-by-store-{$from}-{$to}.csv");
+            return $this->file($out, "sales-by-store-{$from}-{$to}");
         }
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $storeId];
         return $ctx->page('report_sales', self::shared($ctx, 'sales_by_store') + [
             'period' => $period, 'periods' => self::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'max' => $max,
             'stores' => $stores, 'storeId' => $storeId, 'byStore' => $byStore, 'total' => $total, 'days' => $sales['days'],
             'any' => $total !== $zero,
-            'csv_link' => Html::url('/ui/reports/sales-by-store.csv', $query),
+            'csv_link' => Html::url('/ui/reports/sales-by-store.csv', $query), 'xlsx_link' => Html::url('/ui/reports/sales-by-store.xlsx', $query),
             'asOf' => self::asOf($ctx),
         ], 200, ['title' => Words::MENU['sales_by_store']]);
     }
@@ -151,13 +180,13 @@ final class ReportsController
             'page' => UiRequest::id($req->param('page')) ?? 1];
         $result = (new ReportViews($ctx->db))->lowStock($f['show'], $f['q'], $default, $f['page'], $csv ? null : ReportViews::PAGE);
         if ($csv) {
-            $out = new CsvWriter([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units_the_stores_can_sell', 'number'], ['low_at', 'number'],
+            $out = $this->sheet([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units_the_stores_can_sell', 'number'], ['low_at', 'number'],
                 ['own_low_level', 'text']]);
             foreach ($result['rows'] as $r) {
                 $out->add([(string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['available'], (int) $r['low_at'],
                     $r['min_stock'] === null ? 'no' : 'yes']);
             }
-            return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'low-stock-' . $f['show'] . '.csv');
+            return $this->file($out, 'low-stock-' . $f['show']);
         }
         $query = ['q' => $f['q'], 'show' => $f['show'] === 'low' ? null : $f['show']];
         return $ctx->page('report_low', self::shared($ctx, 'low_stock') + [
@@ -167,7 +196,7 @@ final class ReportsController
                 'own' => $r['min_stock'] !== null], $result['rows']),
             'total' => $result['total'], 'page_no' => $result['page'], 'pages' => $result['pages'],
             'canReorder' => $ctx->me()->can('reorder.view'),
-            'csv_link' => Html::url('/ui/reports/low-stock.csv', $query),
+            'csv_link' => Html::url('/ui/reports/low-stock.csv', $query), 'xlsx_link' => Html::url('/ui/reports/low-stock.xlsx', $query),
             'prev_link' => $result['page'] > 1 ? Html::url('/ui/reports/low-stock', $query + ['page' => $result['page'] - 1]) : null,
             'next_link' => $result['page'] < $result['pages'] ? Html::url('/ui/reports/low-stock', $query + ['page' => $result['page'] + 1]) : null,
         ], 200, ['title' => Words::MENU['low_stock']]);
@@ -177,37 +206,42 @@ final class ReportsController
     {
         $req = $ctx->req;
         $views = new ReportViews($ctx->db);
+        // The board's Warehouse (DG7): all of ours, or one of ours (another account's room, or a number that is none, is no choice: all).
+        $ours = $ctx->db->all("SELECT id, name FROM warehouse WHERE stock_owner = 'own' ORDER BY sort_order, id");
+        $wh = UiRequest::id($req->param('wh'));
+        $wh = $wh !== null && in_array($wh, array_map(static fn (array $w): int => (int) $w['id'], $ours), true) ? $wh : null;
         $f = ['by' => in_array($req->param('by'), ReportViews::VALUE_BY, true) ? (string) $req->param('by') : 'product', 'q' => self::text($req->param('q')),
-            'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1];
-        $products = $f['by'] === 'product' ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $csv ? null : ReportViews::PAGE) : null;
+            'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1, 'wh' => $wh];
+        $products = $f['by'] === 'product' ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $csv ? null : ReportViews::PAGE, $wh) : null;
         // The one search finds a brand or an item (the approved TP_Report, W13.3): grouped by brand or by warehouse, the rows whose name
         // holds the words (the page and its file alike); by item, the item search as before.
         $holds = static fn (?string $name): bool => $f['q'] === '' || mb_stripos((string) $name, $f['q']) !== false;
-        $brands = $f['by'] === 'brand' ? array_values(array_filter($views->valueByBrand(),
+        $brands = $f['by'] === 'brand' ? array_values(array_filter($views->valueByBrand($wh),
             static fn (array $b): bool => $holds($b['brand'] ?? Words::REPORTS['no_brand']))) : [];
-        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($views->valueByWarehouse(), static fn (array $w): bool => $holds($w['name']))) : [];
+        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($views->valueByWarehouse(),
+            static fn (array $w): bool => $holds($w['name']) && ($wh === null || $w['id'] === $wh))) : [];
         if ($csv) {
             if ($products !== null) {
-                $out = new CsvWriter([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units', 'number'], ['average_cost_gbp', 'number'], ['value_gbp', 'number']]);
+                $out = $this->sheet([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units', 'number'], ['average_cost_gbp', 'number'], ['value_gbp', 'number']]);
                 foreach ($products['rows'] as $r) {
                     $out->add([(string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['units'],
                         $r['avg_cost'] === null ? null : (string) $r['avg_cost'], $r['avg_cost'] === null ? null : (string) $r['value']]);
                 }
             } elseif ($f['by'] === 'brand') {
-                $out = new CsvWriter([['brand', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'], ['units_without_a_cost', 'number']]);
+                $out = $this->sheet([['brand', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'], ['units_without_a_cost', 'number']]);
                 foreach ($brands as $b) {
                     $out->add([$b['brand'], $b['products'], $b['units'], $b['value'], $b['not_costed']]);
                 }
             } else {
-                $out = new CsvWriter([['warehouse', 'text'], ['ours', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'],
+                $out = $this->sheet([['warehouse', 'text'], ['ours', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'],
                     ['units_without_a_cost', 'number']]);
                 foreach ($warehouses as $w) {
                     $out->add([$w['name'], $w['ours'] ? 'yes' : 'no', $w['products'], $w['units'], $w['value'], $w['not_costed']]);
                 }
             }
-            return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'stock-value-by-' . $f['by'] . '.csv');
+            return $this->file($out, 'stock-value-by-' . $f['by']);
         }
-        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null];
+        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null, 'wh' => $wh];
         $slowDays = Settings::number($ctx->db, 'reports.slow_after_days', 60);
         $figures = $views->valueFigures();
         // Each brand's or our warehouse's share of our stock value (whole percent, for the bar), and the shown rows added up (W13.3; the
@@ -237,8 +271,10 @@ final class ReportsController
             'brands' => $brands, 'warehouses' => $warehouses,
             'total' => $products['total'] ?? 0, 'page_no' => $products['page'] ?? 1, 'pages' => $products['pages'] ?? 1,
             'groupings' => ReportViews::VALUE_BY,
-            'filtered' => $f['q'] !== '' || $f['nocost'],
-            'csv_link' => Html::url('/ui/reports/stock-value.csv', $query),
+            'ours' => array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $ours),
+            'whName' => $wh === null ? null : (string) (array_column($ours, 'name', 'id')[$wh] ?? ''),
+            'filtered' => $f['q'] !== '' || $f['nocost'] || $wh !== null,
+            'csv_link' => Html::url('/ui/reports/stock-value.csv', $query), 'xlsx_link' => Html::url('/ui/reports/stock-value.xlsx', $query),
             'nocost_link' => Html::url('/ui/reports/stock-value', ['nocost' => '1']),
             'all_link' => Html::url('/ui/reports/stock-value'),
             'prev_link' => ($products['page'] ?? 1) > 1 ? Html::url('/ui/reports/stock-value', $query + ['page' => $products['page'] - 1]) : null,
@@ -264,7 +300,7 @@ final class ReportsController
             if ($money) {
                 $cols[] = ['value_gbp', 'number'];
             }
-            $out = new CsvWriter($cols);
+            $out = $this->sheet($cols);
             foreach ($result['rows'] as $r) {
                 $row = [(string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['units'],
                     $r['last_sale_on'] === null ? null : (string) $r['last_sale_on'], $r['first_in_on'] === null ? null : (string) $r['first_in_on'], $days((string) $r['since'])];
@@ -273,7 +309,7 @@ final class ReportsController
                 }
                 $out->add($row);
             }
-            return FilesController::download($out->output(), 'text/csv; charset=utf-8', 'slow-stock-' . $f['show'] . '.csv');
+            return $this->file($out, 'slow-stock-' . $f['show']);
         }
         $query = ['q' => $f['q'], 'show' => $f['show'] === 'slow' ? null : $f['show']];
         return $ctx->page('report_slow', self::shared($ctx, 'slow_stock') + [
@@ -283,7 +319,7 @@ final class ReportsController
                 'last_sale' => $r['last_sale_on'] === null ? null : (string) $r['last_sale_on'], 'since' => $r['first_in_on'] === null ? null : (string) $r['first_in_on'],
                 'days' => $days((string) $r['since']), 'value' => (string) $r['value']], $result['rows']),
             'total' => $result['total'], 'page_no' => $result['page'], 'pages' => $result['pages'],
-            'csv_link' => Html::url('/ui/reports/slow-stock.csv', $query),
+            'csv_link' => Html::url('/ui/reports/slow-stock.csv', $query), 'xlsx_link' => Html::url('/ui/reports/slow-stock.xlsx', $query),
             'prev_link' => $result['page'] > 1 ? Html::url('/ui/reports/slow-stock', $query + ['page' => $result['page'] - 1]) : null,
             'next_link' => $result['page'] < $result['pages'] ? Html::url('/ui/reports/slow-stock', $query + ['page' => $result['page'] + 1]) : null,
             'asOf' => self::asOf($ctx),
@@ -382,7 +418,8 @@ final class ReportsController
     {
         $path = $ctx->req->path;
         $slug = substr($path, strlen('/ui/reports/'));
-        return str_ends_with($slug, '.csv') ? substr($slug, 0, -4) : $slug;
+        // the page, its CSV or its Excel file (DG7)
+        return (string) preg_replace('/\.(csv|xlsx)$/D', '', $slug);
     }
 
     private static function text(?string $v): string

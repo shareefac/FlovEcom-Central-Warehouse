@@ -10138,6 +10138,10 @@ final class Words
         'all' => 'All reports',
         'export' => 'Export',
         'export_title' => 'Download this report as a spreadsheet file (CSV, opens in Excel)',
+        'export_xlsx' => 'Excel', // the Reports board's Export menu (DG7)
+        'export_csv' => 'CSV',
+        'warehouse' => 'Warehouse',
+        'all_warehouses' => 'All warehouses',
         'options' => 'Report options',
         'run' => 'Run report',
         'paper' => 'The report',

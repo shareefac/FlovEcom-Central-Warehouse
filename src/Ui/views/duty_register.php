@@ -4,7 +4,7 @@
 // has (find, the dates, the supplier, the stamp, the delivery's state) and Run report; then the report: its centred head (the company, the
 // report's name, the dates, its figures), a plain table of the register's lines (the stamp a pill), then its two groups: the unstamped stock
 // held and where, what was taken in on a supplier's declaration, each with its total; "All reports" under it.
-$bar = $total > 0 ? $partial('report_bar', ['href' => $csv]) : '';
+$bar = $total > 0 ? $partial('report_bar', ['href' => $csv, 'xlsx' => null]) : '';
 $line = implode(' · ', array_filter([$f['from'] !== null || $f['to'] !== null ? \CW\Ui\Words::say('RD_REPORTS', 'period_line', $f['from'] !== null ? \CW\Ui\Html::day($f['from']) : '…',
     $f['to'] !== null ? \CW\Ui\Html::day($f['to']) : \CW\Ui\Html::day($today)) : \CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)),
     $allLines ? \CW\Ui\Words::DUTY['lines_all'] : \CW\Ui\Words::DUTY['lines_stamp']], static fn (string $v): bool => $v !== ''));

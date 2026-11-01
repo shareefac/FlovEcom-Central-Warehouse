@@ -206,6 +206,59 @@ final class ReportsScreenTest extends KernelUiTestCase
         unset($other);
     }
 
+    /**
+     * The Reports board's head and options on the valuation (docs/decisions.md DG7): Print (hidden until the script shows it) and "Export"
+     * with Excel and CSV, the same rows in both files; a Warehouse choice (All warehouses, then each of ours) that narrows the report, its
+     * line and its files; another account's room is no choice.
+     */
+    public function testStockValueHasPrintExcelAndAWarehouseChoice(): void
+    {
+        $a = $this->item('strict', 0, 'Alpha');
+        $b = $this->item('strict', 0, 'Beta');
+        self::$db->exec("UPDATE sku SET brand = 'Elux' WHERE id = ?", [$a]);
+        $spare = self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, stock_owner, sort_order) VALUES ('SPARE', 'Spare room', 0, 'own', 50)");
+        self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, stock_owner, owner_entity) VALUES ('ROOM2', 'Room of VPG 2', 0, 'other', 'VPG 2 Ltd')");
+        $this->book('goods_in', $a, 10, 'MAIN', null, '2.500000');
+        $this->book('goods_in', $b, 4, 'SPARE', null, '1.000000');
+        (new ReportRefresh(self::$db))->run(true);
+        $web = $this->signIn($this->uiUser('accountant'));
+        $page = $web->get('/ui/reports/stock-value');
+        self::assertSame(200, $page->status, $page->describe());
+        $xp = new \DOMXPath($page->dom());
+        $actions = '//main//header//div[contains(@class, "doc-actions")]';
+        $print = $xp->query($actions . '/button[@data-print]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $print, 'Print');
+        self::assertSame(['Print', true], [trim($print->textContent), $print->hasAttribute('hidden')]);
+        self::assertSame(['/ui/reports/stock-value.xlsx', '/ui/reports/stock-value.csv'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query($actions . '/details//a[@download]'))), 'Export: Excel and CSV');
+        self::assertSame([Words::RD_REPORTS['export']], [trim((string) $xp->evaluate('string(' . $actions . '/details/summary)'))]);
+        $choices = array_map(static fn (\DOMNode $o): string => trim($o->textContent), iterator_to_array($xp->query('//form[contains(@class, "rp-options")]//select[@name="wh"]/option')));
+        self::assertSame(['All warehouses', 'Main warehouse'], array_slice($choices, 0, 2));
+        self::assertContains('Spare room', $choices);
+        self::assertNotContains('Room of VPG 2', $choices, 'ours only');
+        self::assertStringContainsString('All warehouses', (string) $xp->evaluate('string(//div[@class="rp-paper-head"]/p[contains(@class, "rp-line")][1])'));
+        self::assertSame(['Alpha', 'Beta'], self::names($page, 'report-value'));
+
+        $one = $web->get('/ui/reports/stock-value', ['wh' => (string) $spare]);
+        self::assertSame(['Beta'], self::names($one, 'report-value'), 'one warehouse');
+        $ox = new \DOMXPath($one->dom());
+        self::assertStringContainsString('Spare room', (string) $ox->evaluate('string(//div[@class="rp-paper-head"]/p[contains(@class, "rp-line")][1])'));
+        self::assertSame((string) $spare, (string) $ox->evaluate('string(//select[@name="wh"]/option[@selected]/@value)'));
+        self::assertSame('/ui/reports/stock-value.csv?wh=' . $spare, (string) $ox->evaluate('string(' . $actions . '/details//a[contains(@href, ".csv")]/@href)'));
+        self::assertSame([['brand', 'products', 'units', 'value_gbp', 'units_without_a_cost'], ['', '1', '4', '4.00', '0']],
+            self::csv($web->get('/ui/reports/stock-value.csv', ['by' => 'brand', 'wh' => (string) $spare])), 'the file holds the warehouse');
+        self::assertSame(['Beta'], self::names($web->get('/ui/reports/stock-value', ['wh' => (string) $spare, 'by' => 'product']), 'report-value'));
+        self::assertSame(['Alpha', 'Beta'], self::names($web->get('/ui/reports/stock-value', ['wh' => '999999']), 'report-value'), 'a warehouse that is not ours: all');
+
+        $x = $web->get('/ui/reports/stock-value.xlsx', ['wh' => (string) $spare]);
+        self::assertSame(200, $x->status, $x->describe());
+        self::assertStringStartsWith('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', (string) $x->header('Content-Type'));
+        self::assertStringStartsWith('PK', $x->body, 'a real .xlsx (a zip)');
+        self::assertStringContainsString('stock-value-by-product.xlsx', (string) $x->header('Content-Disposition'));
+        self::assertSame(403, $this->signIn($this->uiUser('buyer'))->get('/ui/reports/stock-value.xlsx')->status, 'the report\'s own permission');
+        self::assertSame(200, $web->get('/ui/reports/slow-stock.xlsx')->status, 'every report has its Excel file');
+    }
+
     public function testSlowStockByDaysWithoutASale(): void
     {
         $p1 = $this->item('strict', 4, 'P1 sold lately');

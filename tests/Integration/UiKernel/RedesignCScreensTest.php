@@ -293,8 +293,9 @@ final class RedesignCScreensTest extends KernelUiTestCase
         $xp = self::xp($page);
         self::assertSame(Words::RD_REPORTS['stock_value'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertSame('#all-reports', (string) $xp->evaluate('string(//main//p[contains(@class, "ph-back")]/a/@href)'), '‹ All reports');
-        self::assertSame(Words::RD_REPORTS['export'], trim((string) $xp->evaluate('string(//header//a[@download])')));
-        self::assertStringStartsWith('/ui/reports/stock-value.csv', (string) $xp->evaluate('string(//header//a[@download]/@href)'));
+        // Export: a menu of Excel and CSV (docs/decisions.md DG7).
+        self::assertSame(Words::RD_REPORTS['export'], trim((string) $xp->evaluate('string(//header//details[contains(@class, "rp-export")]/summary)')));
+        self::assertStringStartsWith('/ui/reports/stock-value.csv', (string) $xp->evaluate('string(//header//a[@download and contains(@href, ".csv")]/@href)'));
         self::assertSame(Words::RD_REPORTS['run'], trim((string) $xp->evaluate('string(//form[contains(@class, "rp-options")]/button)')));
         $company = trim((string) $xp->evaluate('string(//div[@class="rp-paper-head"]/p[@class="rp-co"])'));
         self::assertTrue(in_array($company, [Words::say('RD_REPORTS', 'company_line', 'Acme Vapes Ltd'), Words::RD_REPORTS['cw']], true), $company);

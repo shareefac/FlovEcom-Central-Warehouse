@@ -1,12 +1,12 @@
 <?php
 // Reports › Inventory valuation summary (the approved Reports artboard of 30 Oct 2026, the standard report layout; docs/decisions.md RD-C11;
 // before it W13.3): "‹ All reports" and the title, Export (the CSV) at the right, what the value leaves out under its "?"; the options CW has
-// (find a brand or an item, group by item, brand or warehouse, only the items without a cost) and Run report; then the report: its centred
+// (find a brand or an item, one of our warehouses or all (DG7), group by item, brand or warehouse, only the items without a cost) and Run report; then the report: its centred
 // head (the company, the report's name, the day, how it is grouped, at average cost, when the costs were last brought up to date), a plain
 // table (by item, paged; by brand or by warehouse each with its share of our value) and its Total row; "All reports" under it.
 $help = \CW\Ui\Words::REPORTS['cost_note'] . ' ' . \CW\Ui\Words::REPORTS['below_zero'] . ' ' . \CW\Ui\Words::REPORTS['past_date'];
-$bar = $partial('report_bar', ['href' => $csv_link]);
-$line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), \CW\Ui\Words::say('RD_REPORTS', 'grouped_by', mb_strtolower(\CW\Ui\Words::REPORTS['group_' . $f['by']])),
+$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]);
+$line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), $whName ?? \CW\Ui\Words::RD_REPORTS['all_warehouses'], \CW\Ui\Words::say('RD_REPORTS', 'grouped_by', mb_strtolower(\CW\Ui\Words::REPORTS['group_' . $f['by']])),
     \CW\Ui\Words::RD_REPORTS['at_cost']]);
 $more = array_values(array_filter([
     implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'items_n', \CW\Ui\Html::int($figures['items'])), \CW\Ui\Words::say('RD_REPORTS', 'not_sold', \CW\Ui\Html::money($notSold), $slowDays)]),
@@ -20,6 +20,14 @@ $more = array_values(array_filter([
 
 <form class="card rp-options" method="get" aria-label="<?= $word('RD_REPORTS', 'options') ?>">
   <div class="rp-opt rp-find"><label for="rp-q"><?= $word('RD_REPORTS', 'find') ?></label><input id="rp-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPORTS', 'find_value') ?>"></div>
+  <div class="rp-opt"><label for="rp-wh"><?= $word('RD_REPORTS', 'warehouse') ?></label>
+    <select id="rp-wh" name="wh">
+      <option value=""><?= $word('RD_REPORTS', 'all_warehouses') ?></option>
+<?php foreach ($ours as $w): ?>
+      <option value="<?= $e($w['id']) ?>"<?php if ($f['wh'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
+<?php endforeach; ?>
+    </select>
+  </div>
   <div class="rp-opt"><label for="rp-by"><?= $word('REPORTS', 'group_by') ?></label>
     <select id="rp-by" name="by">
 <?php foreach ($groupings as $by): ?>

@@ -565,6 +565,8 @@ final class Kernel
         foreach (ReportsController::PAGES as $slug => $perm) {
             $r->add('GET', '/ui/reports/' . $slug, $perm, $reports->page(...));
             $r->add('GET', '/ui/reports/' . $slug . '.csv', $perm, $reports->csv(...));
+            // the same rows as an Excel file (the Reports board's Export, docs/decisions.md DG7)
+            $r->add('GET', '/ui/reports/' . $slug . '.xlsx', $perm, $reports->xlsx(...));
         }
         // ---- end Pack E
         $system = new SystemController();
