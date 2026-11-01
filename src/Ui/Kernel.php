@@ -568,6 +568,8 @@ final class Kernel
             // the same rows as an Excel file (the Reports board's Export, docs/decisions.md DG7)
             $r->add('GET', '/ui/reports/' . $slug . '.xlsx', $perm, $reports->xlsx(...));
         }
+        // the valuation as a PDF (docs/decisions.md AO5)
+        $r->add('GET', '/ui/reports/stock-value.pdf', ReportsController::PAGES['stock-value'], $reports->pdf(...));
         // ---- end Pack E
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));

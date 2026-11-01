@@ -49,6 +49,71 @@ final class ReportsController
     /** The file the report's download writes: `csv` (CsvWriter) or `xlsx` (XlsxWriter: the same columns and rows; docs/decisions.md DG7). */
     private string $format = 'csv';
 
+    /** GET /ui/reports/stock-value.pdf: the valuation as a PDF, the same rows as its files (A4; docs/decisions.md AO5). */
+    public function pdf(Context $ctx): HtmlResponse
+    {
+        $this->format = 'pdf';
+        try {
+            return $this->stockValue($ctx, true);
+        } finally {
+            $this->format = 'csv';
+        }
+    }
+
+    /**
+     * The valuation's PDF (AO5): the company, the report's name, the day ("As of" a past day or today), the warehouse, then the table with the
+     * same columns and rows as the CSV, money right-aligned.
+     *
+     * @param list<array{0: string, 1: 'text'|'number'}> $cols
+     * @param list<list<scalar|null>> $data
+     */
+    private static function valuePdf(Context $ctx, array $cols, array $data, ?string $day, ?string $warehouse, string $name): HtmlResponse
+    {
+        $shared = self::shared($ctx, 'stock_value');
+        $line = implode(' · ', [Words::say('RD_REPORTS', 'as_of', Html::day($day ?? ReportRefresh::ukDay(Clock::db(Clock::now())))),
+            $warehouse ?? Words::RD_REPORTS['all_warehouses'], Words::RD_REPORTS['at_cost']]);
+        $pdf = new \CW\Output\PdfWriter(Words::RD_REPORTS['stock_value'], $shared['company'] . ' · ' . $line);
+        if ($day !== null) {
+            $pdf->paragraph(Words::RD_REPORTS['as_of_note']);
+        }
+        $width = 180 / max(1, count($cols));
+        $pdf->table(array_map(static fn (array $c): array => ['title' => str_replace('_', ' ', $c[0]), 'width_mm' => $width, 'align' => $c[1] === 'number' ? 'R' : 'L'], $cols),
+            array_map(static fn (array $r): array => array_map(static fn (mixed $v): string => $v === null ? '' : (string) $v, $r), $data));
+        return FilesController::download($pdf->output(), 'application/pdf', $name . '.pdf');
+    }
+
+    /** A UK day asked for as `asof` (Y-m-d) that is a real day before today, else null (docs/decisions.md AO1). */
+    private static function pastDay(?string $v): ?string
+    {
+        if ($v === null || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $v) !== 1) {
+            return null;
+        }
+        $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $v, new \DateTimeZone('Europe/London'));
+        return $d !== false && $d->format('Y-m-d') === $v && $v < ReportRefresh::ukDay(Clock::db(Clock::now())) ? $v : null;
+    }
+
+    /** The end of a UK day (its next day's midnight, UK time) as a UTC database time. */
+    private static function endOfDay(string $day): string
+    {
+        return Clock::db((new \DateTimeImmutable($day . ' 00:00', new \DateTimeZone('Europe/London')))->modify('+1 day')->setTimezone(Clock::utc()));
+    }
+
+    /**
+     * A page of rows already in their order, as ReportViews::paged() returns one ($limit null: all of them).
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
+     */
+    private static function pageOf(array $rows, int $page, ?int $limit): array
+    {
+        if ($limit === null) {
+            return ['rows' => $rows, 'total' => count($rows), 'page' => 1, 'pages' => 1];
+        }
+        $pages = max(1, (int) ceil(count($rows) / $limit));
+        $page = min(max(1, $page), $pages);
+        return ['rows' => array_slice($rows, ($page - 1) * $limit, $limit), 'total' => count($rows), 'page' => $page, 'pages' => $pages];
+    }
+
     /** GET /ui/reports/{slug}.xlsx: the same rows as the CSV, as an Excel file (the Reports board's Export; docs/decisions.md DG7). */
     public function xlsx(Context $ctx): HtmlResponse
     {
@@ -210,40 +275,73 @@ final class ReportsController
         $ours = $ctx->db->all("SELECT id, name FROM warehouse WHERE stock_owner = 'own' ORDER BY sort_order, id");
         $wh = UiRequest::id($req->param('wh'));
         $wh = $wh !== null && in_array($wh, array_map(static fn (array $w): int => (int) $w['id'], $ours), true) ? $wh : null;
+        // "As of" a past UK day (docs/decisions.md AO1-AO6; the owner's "Yes, A B C"): the valuation from the ledger as it stood at the end of
+        // that day; no day, today or later, or not a real day: today's report as before.
+        $day = self::pastDay($req->param('asof'));
         $f = ['by' => in_array($req->param('by'), ReportViews::VALUE_BY, true) ? (string) $req->param('by') : 'product', 'q' => self::text($req->param('q')),
-            'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1, 'wh' => $wh];
-        $products = $f['by'] === 'product' ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $csv ? null : ReportViews::PAGE, $wh) : null;
+            'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1, 'wh' => $wh, 'asof' => $day];
+        $at = null;
+        $tooFar = false;
+        $before = null;
+        if ($day !== null) {
+            try {
+                $at = $views->valueAt(self::endOfDay($day), $f['by'] === 'product' ? $f['q'] : '', $f['nocost'], $wh);
+            } catch (\PDOException $e) {
+                if ((int) ($e->errorInfo[1] ?? 0) !== 3024) {
+                    throw $e;
+                }
+                // the statement ran out of its time (ReportViews::AS_OF_MAX_MS): too far back to read now; nothing shown, nothing saved
+                $tooFar = true;
+                $at = ['products' => [], 'brands' => [], 'warehouses' => [], 'figures' => ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'items' => 0, 'theirs' => 0]];
+            }
+            if (!$tooFar && $at['warehouses'] === []) {
+                $first = $views->firstRecordDay();
+                $before = $first !== null && $first > $day ? $first : null;
+            }
+        }
+        $per = $csv ? null : ReportViews::PAGE;
+        $products = $f['by'] !== 'product' ? null : ($at === null ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $per, $wh)
+            : self::pageOf($at['products'], $f['page'], $per));
         // The one search finds a brand or an item (the approved TP_Report, W13.3): grouped by brand or by warehouse, the rows whose name
         // holds the words (the page and its file alike); by item, the item search as before.
         $holds = static fn (?string $name): bool => $f['q'] === '' || mb_stripos((string) $name, $f['q']) !== false;
-        $brands = $f['by'] === 'brand' ? array_values(array_filter($views->valueByBrand($wh),
+        $brands = $f['by'] === 'brand' ? array_values(array_filter($at['brands'] ?? $views->valueByBrand($wh),
             static fn (array $b): bool => $holds($b['brand'] ?? Words::REPORTS['no_brand']))) : [];
-        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($views->valueByWarehouse(),
+        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($at['warehouses'] ?? $views->valueByWarehouse(),
             static fn (array $w): bool => $holds($w['name']) && ($wh === null || $w['id'] === $wh))) : [];
         if ($csv) {
+            $data = [];
             if ($products !== null) {
-                $out = $this->sheet([['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units', 'number'], ['average_cost_gbp', 'number'], ['value_gbp', 'number']]);
+                $cols = [['cw_code', 'text'], ['product', 'text'], ['brand', 'text'], ['units', 'number'], ['average_cost_gbp', 'number'], ['value_gbp', 'number']];
                 foreach ($products['rows'] as $r) {
-                    $out->add([(string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['units'],
-                        $r['avg_cost'] === null ? null : (string) $r['avg_cost'], $r['avg_cost'] === null ? null : (string) $r['value']]);
+                    $data[] = [(string) $r['code'], (string) $r['name'], $r['brand'] === null ? null : (string) $r['brand'], (int) $r['units'],
+                        $r['avg_cost'] === null ? null : (string) $r['avg_cost'], $r['avg_cost'] === null ? null : (string) $r['value']];
                 }
             } elseif ($f['by'] === 'brand') {
-                $out = $this->sheet([['brand', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'], ['units_without_a_cost', 'number']]);
+                $cols = [['brand', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'], ['units_without_a_cost', 'number']];
                 foreach ($brands as $b) {
-                    $out->add([$b['brand'], $b['products'], $b['units'], $b['value'], $b['not_costed']]);
+                    $data[] = [$b['brand'], $b['products'], $b['units'], $b['value'], $b['not_costed']];
                 }
             } else {
-                $out = $this->sheet([['warehouse', 'text'], ['ours', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'],
-                    ['units_without_a_cost', 'number']]);
+                $cols = [['warehouse', 'text'], ['ours', 'text'], ['products', 'number'], ['units', 'number'], ['value_gbp', 'number'], ['units_without_a_cost', 'number']];
                 foreach ($warehouses as $w) {
-                    $out->add([$w['name'], $w['ours'] ? 'yes' : 'no', $w['products'], $w['units'], $w['value'], $w['not_costed']]);
+                    $data[] = [$w['name'], $w['ours'] ? 'yes' : 'no', $w['products'], $w['units'], $w['value'], $w['not_costed']];
                 }
             }
-            return $this->file($out, 'stock-value-by-' . $f['by']);
+            $name = 'stock-value-by-' . $f['by'] . ($day === null ? '' : '-as-of-' . $day);
+            if ($this->format === 'pdf') {
+                return self::valuePdf($ctx, $cols, $data, $day, $wh === null ? null : (string) (array_column($ours, 'name', 'id')[$wh] ?? ''), $name);
+            }
+            $out = $this->sheet($cols);
+            foreach ($data as $row) {
+                $out->add($row);
+            }
+            return $this->file($out, $name);
         }
-        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null, 'wh' => $wh];
+        $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null, 'wh' => $wh,
+            'asof' => $day];
         $slowDays = Settings::number($ctx->db, 'reports.slow_after_days', 60);
-        $figures = $views->valueFigures();
+        $figures = $at['figures'] ?? $views->valueFigures();
         // Each brand's or our warehouse's share of our stock value (whole percent, for the bar), and the shown rows added up (W13.3; the
         // total row of the approved TP_Report). Pennies, so the total is exact; another account's warehouse has no share and no part in it.
         $pence = static fn (string $v): int => (int) round((float) $v * 100);
@@ -264,7 +362,9 @@ final class ReportsController
             'f' => $f, 'figures' => $figures,
             'sum' => $f['by'] === 'brand' ? $sum($brands) : $sum($warehouses),
             // "Not sold in N days" (W13.3): N is Slow Stock's own setting, so the figure and that report's lists agree.
-            'slowDays' => $slowDays, 'notSold' => $views->notSoldValue(ReportRefresh::ukDay(Clock::db(Clock::now())), $slowDays),
+            // (a past day has no "not sold" figure: the sales report's days are today's)
+            'slowDays' => $slowDays, 'notSold' => $day === null ? $views->notSoldValue(ReportRefresh::ukDay(Clock::db(Clock::now())), $slowDays) : null,
+            'pastDay' => $day, 'tooFar' => $tooFar, 'beforeRecords' => $before,
             'rows' => $products === null ? [] : array_map(static fn (array $r): array => ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'],
                 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'], 'units' => (int) $r['units'],
                 'avg' => $r['avg_cost'] === null ? null : (string) $r['avg_cost'], 'value' => $r['avg_cost'] === null ? null : (string) $r['value']], $products['rows']),
@@ -273,8 +373,11 @@ final class ReportsController
             'groupings' => ReportViews::VALUE_BY,
             'ours' => array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $ours),
             'whName' => $wh === null ? null : (string) (array_column($ours, 'name', 'id')[$wh] ?? ''),
-            'filtered' => $f['q'] !== '' || $f['nocost'] || $wh !== null,
+            'filtered' => $f['q'] !== '' || $f['nocost'] || $wh !== null || $day !== null,
+            // the list is a part of the stock (the Total row is the whole's only then); a past day is still the whole of that day
+            'narrowed' => $f['q'] !== '' || $f['nocost'] || $wh !== null,
             'csv_link' => Html::url('/ui/reports/stock-value.csv', $query), 'xlsx_link' => Html::url('/ui/reports/stock-value.xlsx', $query),
+            'pdf_link' => Html::url('/ui/reports/stock-value.pdf', $query),
             'nocost_link' => Html::url('/ui/reports/stock-value', ['nocost' => '1']),
             'all_link' => Html::url('/ui/reports/stock-value'),
             'prev_link' => ($products['page'] ?? 1) > 1 ? Html::url('/ui/reports/stock-value', $query + ['page' => $products['page'] - 1]) : null,

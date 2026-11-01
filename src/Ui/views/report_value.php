@@ -1,18 +1,19 @@
 <?php
 // Reports › Inventory valuation summary (the approved Reports artboard of 30 Oct 2026, the standard report layout; docs/decisions.md RD-C11;
 // before it W13.3): "‹ All reports" and the title, Export (the CSV) at the right, what the value leaves out under its "?"; the options CW has
-// (find a brand or an item, one of our warehouses or all (DG7), group by item, brand or warehouse, only the items without a cost) and Run report; then the report: its centred
+// (As of a past UK day (AO1-AO6: the ledger as it stood then, with the note that a past day can change), find a brand or an item, one of our warehouses or all (DG7), group by item, brand or warehouse, only the items without a cost) and Run report; then the report: its centred
 // head (the company, the report's name, the day, how it is grouped, at average cost, when the costs were last brought up to date), a plain
 // table (by item, paged; by brand or by warehouse each with its share of our value) and its Total row; "All reports" under it.
-$help = \CW\Ui\Words::REPORTS['cost_note'] . ' ' . \CW\Ui\Words::REPORTS['below_zero'] . ' ' . \CW\Ui\Words::REPORTS['past_date'];
-$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]);
-$line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), $whName ?? \CW\Ui\Words::RD_REPORTS['all_warehouses'], \CW\Ui\Words::say('RD_REPORTS', 'grouped_by', mb_strtolower(\CW\Ui\Words::REPORTS['group_' . $f['by']])),
+$help = \CW\Ui\Words::REPORTS['cost_note'] . ' ' . \CW\Ui\Words::REPORTS['below_zero'];
+$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link, 'pdf' => $pdf_link]);
+$line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($pastDay ?? $today)), $whName ?? \CW\Ui\Words::RD_REPORTS['all_warehouses'], \CW\Ui\Words::say('RD_REPORTS', 'grouped_by', mb_strtolower(\CW\Ui\Words::REPORTS['group_' . $f['by']])),
     \CW\Ui\Words::RD_REPORTS['at_cost']]);
 $more = array_values(array_filter([
-    implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'items_n', \CW\Ui\Html::int($figures['items'])), \CW\Ui\Words::say('RD_REPORTS', 'not_sold', \CW\Ui\Html::money($notSold), $slowDays)]),
+    implode(' · ', array_values(array_filter([\CW\Ui\Words::say('RD_REPORTS', 'items_n', \CW\Ui\Html::int($figures['items'])),
+        $notSold === null ? null : \CW\Ui\Words::say('RD_REPORTS', 'not_sold', \CW\Ui\Html::money($notSold), $slowDays)]))),
     $figures['not_costed'] > 0 ? \CW\Ui\Words::say('RD_REPORTS', 'no_cost', \CW\Ui\Html::int($figures['not_costed'])) : null,
     $figures['theirs'] > 0 ? \CW\Ui\Words::say('RD_REPORTS', 'theirs', \CW\Ui\Html::int($figures['theirs'])) : null,
-    $asOf], static fn (?string $v): bool => $v !== null && $v !== ''));
+    $pastDay === null ? $asOf : \CW\Ui\Words::RD_REPORTS['as_of_note']], static fn (?string $v): bool => $v !== null && $v !== ''));
 ?>
 <div class="doc-head rp-head">
 <?= $head(\CW\Ui\Words::RD_REPORTS['stock_value'], intro: 'stock_value', more: $help, side: $bar, back: ['#all-reports', \CW\Ui\Words::RD_REPORTS['all']]) ?>
@@ -20,6 +21,7 @@ $more = array_values(array_filter([
 
 <form class="card rp-options" method="get" aria-label="<?= $word('RD_REPORTS', 'options') ?>">
   <div class="rp-opt rp-find"><label for="rp-q"><?= $word('RD_REPORTS', 'find') ?></label><input id="rp-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPORTS', 'find_value') ?>"></div>
+  <div class="rp-opt"><label for="rp-asof"><?= $word('RD_REPORTS', 'as_of_label') ?></label><input id="rp-asof" type="date" name="asof" value="<?= $e($f['asof'] ?? '') ?>"></div>
   <div class="rp-opt"><label for="rp-wh"><?= $word('RD_REPORTS', 'warehouse') ?></label>
     <select id="rp-wh" name="wh">
       <option value=""><?= $word('RD_REPORTS', 'all_warehouses') ?></option>
@@ -46,7 +48,11 @@ $more = array_values(array_filter([
 <?php if ($none): ?>
 <p class="note rp-asof" role="status"><?= $e($asOf) ?></p>
 <?php endif; ?>
-<?php if ($none && $filtered): ?>
+<?php if ($tooFar): ?>
+<?= $empty(\CW\Ui\Words::RD_REPORTS['too_far'], '', $all_link, \CW\Ui\Words::RD_REPORTS['clear']) ?>
+<?php elseif ($beforeRecords !== null): ?>
+<?= $empty(\CW\Ui\Words::say('RD_REPORTS', 'before_records', \CW\Ui\Html::day($beforeRecords)), '', $all_link, \CW\Ui\Words::RD_REPORTS['clear']) ?>
+<?php elseif ($none && $filtered): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['none_filtered'], \CW\Ui\Words::REPORTS['none_filtered_text'], $all_link, \CW\Ui\Words::RD_REPORTS['clear']) ?>
 <?php elseif ($none): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['no_value'], \CW\Ui\Words::REPORTS['no_value_text']) ?>
@@ -75,7 +81,7 @@ $more = array_values(array_filter([
         <td class="num" data-label="<?= $word('RD_REPORTS', 'value') ?>"><?php if ($r['value'] !== null): ?><?= $money($r['value']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if (!$filtered): ?>
+<?php if (!$narrowed): ?>
       <tr class="rp-total">
         <th scope="row" colspan="2"><?= $word('RD_REPORTS', 'total') ?></th>
         <td class="num" data-label="<?= $word('RD_REPORTS', 'on_hand') ?>"><?= $n($figures['costed'] + $figures['not_costed']) ?></td>

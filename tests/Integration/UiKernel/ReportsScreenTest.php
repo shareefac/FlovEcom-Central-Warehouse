@@ -202,7 +202,7 @@ final class ReportsScreenTest extends KernelUiTestCase
         $csv = self::csv($web->get('/ui/reports/stock-value.csv'));
         self::assertSame(['Alpha', '15', '4.263158', '63.95'], [$csv[1][1], $csv[1][3], $csv[1][4], $csv[1][5]]);
         self::assertSame(['Beta', '3', '', ''], [$csv[3][1], $csv[3][3], $csv[3][4], $csv[3][5]]);
-        self::assertStringContainsString(Words::REPORTS['past_date'], $page->text());
+        self::assertStringNotContainsString(Words::REPORTS['past_date'], $page->text(), 'a past date has its value now (AO1)');
         unset($other);
     }
 
@@ -229,8 +229,8 @@ final class ReportsScreenTest extends KernelUiTestCase
         $print = $xp->query($actions . '/button[@data-print]')->item(0);
         self::assertInstanceOf(\DOMElement::class, $print, 'Print');
         self::assertSame(['Print', true], [trim($print->textContent), $print->hasAttribute('hidden')]);
-        self::assertSame(['/ui/reports/stock-value.xlsx', '/ui/reports/stock-value.csv'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array($xp->query($actions . '/details//a[@download]'))), 'Export: Excel and CSV');
+        self::assertSame(['/ui/reports/stock-value.xlsx', '/ui/reports/stock-value.csv', '/ui/reports/stock-value.pdf'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query($actions . '/details//a[@download]'))), 'Export: Excel and CSV (and the valuation\'s PDF, AO5)');
         self::assertSame([Words::RD_REPORTS['export']], [trim((string) $xp->evaluate('string(' . $actions . '/details/summary)'))]);
         $choices = array_map(static fn (\DOMNode $o): string => trim($o->textContent), iterator_to_array($xp->query('//form[contains(@class, "rp-options")]//select[@name="wh"]/option')));
         self::assertSame(['All warehouses', 'Main warehouse'], array_slice($choices, 0, 2));
@@ -257,6 +257,90 @@ final class ReportsScreenTest extends KernelUiTestCase
         self::assertStringContainsString('stock-value-by-product.xlsx', (string) $x->header('Content-Disposition'));
         self::assertSame(403, $this->signIn($this->uiUser('buyer'))->get('/ui/reports/stock-value.xlsx')->status, 'the report\'s own permission');
         self::assertSame(200, $web->get('/ui/reports/slow-stock.xlsx')->status, 'every report has its Excel file');
+    }
+
+    /**
+     * The valuation "As of" a past UK day (docs/decisions.md AO1-AO6; the owner's "Yes, A B C" of 1 Nov 2026), worked by hand:
+     *   Alpha at MAIN: +10 at £2.00 on day -22, -4 on day -20, -1 on day -18, +10 at £3.00 on day -12; at another account's room +3 at
+     *   £9.00 on day -19 (its cost counts, as CW's own average does; its units are not ours); Beta at SPARE (ours): +5 at £1.00 on day -21.
+     *   As of day -16: Alpha 5 at 47/13 = £3.615385 = £18.08; Beta 5 at £1.000000 = £5.00; ours £23.08, 10 units; 3 of another account.
+     *   As of day -10: Alpha 15 at 77/23 = £3.347826 = £50.22; total £55.22.
+     *   A record entered now but dated day -19 (-2 at MAIN) changes day -16: Alpha 3 = £10.85 (rule C, said on the page).
+     * A record's day is its real date (effective_at, else when entered: rule A); the cost is CW's average up to then (rule B).
+     */
+    public function testStockValueAsOfAPastDayIsWorkedOutFromTheLedger(): void
+    {
+        $uk = new \DateTimeZone('Europe/London');
+        $day = static fn (int $n): \DateTimeImmutable => (new \DateTimeImmutable('today', $uk))->modify("{$n} days")->setTime(12, 0);
+        $ymd = static fn (int $n): string => $day($n)->format('Y-m-d');
+        $a = $this->item('strict', 0, 'Alpha');
+        $b = $this->item('strict', 0, 'Beta');
+        self::$db->exec("UPDATE sku SET brand = 'Elux' WHERE id = ?", [$a]);
+        self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, stock_owner, sort_order) VALUES ('SPARE', 'Spare room', 0, 'own', 50)");
+        self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, stock_owner, owner_entity) VALUES ('ROOM2', 'Room of VPG 2', 0, 'other', 'VPG 2 Ltd')");
+        // Each booking, then its real date (the engine books at the real clock; a record's day is what the report reads).
+        $at = function (int $n, string $type, int $sku, int $qty, string $wh = 'MAIN', ?string $cost = null) use ($day): void {
+            $before = (int) self::$db->value('SELECT COALESCE(MAX(id), 0) FROM stock_ledger');
+            $this->book($type, $sku, $qty, $wh, null, $cost);
+            self::$db->exec("UPDATE stock_ledger SET effective_at = ? WHERE id > ? AND bucket = 'on_hand'", [\CW\Clock::db($day($n)->setTimezone(new \DateTimeZone('UTC'))), $before]);
+        };
+        $at(-22, 'goods_in', $a, 10, 'MAIN', '2.000000');
+        $at(-21, 'goods_in', $b, 5, 'SPARE', '1.000000');
+        $at(-20, 'adjustment', $a, -4);
+        $at(-19, 'goods_in', $a, 3, 'ROOM2', '9.000000');
+        $at(-18, 'adjustment', $a, -1);
+        $at(-12, 'goods_in', $a, 10, 'MAIN', '3.000000');
+        (new ReportRefresh(self::$db))->run(true);
+        $web = $this->signIn($this->uiUser('accountant'));
+        $cells = static fn (UiResponse $r): array => array_map(static fn (array $c): array => [$c[0], ...array_slice($c, 2)], self::cells($r, 'report-value'));
+        $total = static fn (UiResponse $r): array => array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "report-value")]//tr[@class="rp-total"]/*')));
+
+        $p16 = $web->get('/ui/reports/stock-value', ['asof' => $ymd(-16)]);
+        self::assertSame(200, $p16->status, $p16->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame([['Alpha', '5', '£3.62', '£18.08'], ['Beta', '5', '£1.00', '£5.00']], $cells($p16), 'by hand: 47/13 and 1');
+        self::assertSame([Words::RD_REPORTS['total'], '10', '', '£23.08'], $total($p16));
+        $x = new \DOMXPath($p16->dom());
+        self::assertStringStartsWith(Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($ymd(-16))) . ' · All warehouses',
+            trim((string) $x->evaluate('string(//div[@class="rp-paper-head"]/p[contains(@class, "rp-line")][1])')));
+        self::assertStringContainsString(Words::RD_REPORTS['as_of_note'], $p16->text(), 'rule C, said on the page');
+        self::assertSame($ymd(-16), (string) $x->evaluate('string(//form[contains(@class, "rp-options")]//input[@name="asof"]/@value)'));
+        self::assertStringContainsString(Words::say('RD_REPORTS', 'theirs', 3), $p16->text(), 'another account\'s units, not ours');
+
+        $p10 = $web->get('/ui/reports/stock-value', ['asof' => $ymd(-10)]);
+        self::assertSame([['Alpha', '15', '£3.35', '£50.22'], ['Beta', '5', '£1.00', '£5.00']], $cells($p10), 'by hand: 77/23');
+        self::assertSame([Words::RD_REPORTS['total'], '20', '', '£55.22'], $total($p10));
+        self::assertSame($cells($web->get('/ui/reports/stock-value')), $cells($p10), 'nothing since: the same as today\'s report');
+
+        // By brand and by warehouse, one warehouse, and the files: that day too.
+        $brands = $web->get('/ui/reports/stock-value', ['asof' => $ymd(-16), 'by' => 'brand']);
+        self::assertSame([['Elux', '1', '5', '£18.08', '78%'], [Words::REPORTS['no_brand'], '1', '5', '£5.00', '22%']], self::cells($brands, 'report-brands'));
+        $byWh = self::cells($web->get('/ui/reports/stock-value', ['asof' => $ymd(-16), 'by' => 'warehouse']), 'report-warehouses');
+        self::assertSame([['Main warehouse', Words::REPORTS['ours'], '1', '5', '£18.08', '78%'], ['Spare room', Words::REPORTS['ours'], '1', '5', '£5.00', '22%'],
+            ['Room of VPG 2', Words::REPORTS['not_ours'], '1', '3', '£10.85', '']], $byWh);
+        $spare = (int) self::$db->value("SELECT id FROM warehouse WHERE code = 'SPARE'");
+        self::assertSame([['Beta', '5', '£1.00', '£5.00']], $cells($web->get('/ui/reports/stock-value', ['asof' => $ymd(-16), 'wh' => (string) $spare])));
+        $csv = self::csv($web->get('/ui/reports/stock-value.csv', ['asof' => $ymd(-16)]));
+        self::assertSame(['Alpha', '5', '3.615385', '18.08'], [$csv[1][1], $csv[1][3], $csv[1][4], $csv[1][5]]);
+        $pdf = $web->get('/ui/reports/stock-value.pdf', ['asof' => $ymd(-16)]);
+        self::assertSame(200, $pdf->status, $pdf->describe());
+        self::assertStringStartsWith('application/pdf', (string) $pdf->header('Content-Type'));
+        self::assertStringStartsWith('%PDF', $pdf->body);
+        self::assertSame(['/ui/reports/stock-value.xlsx?asof=' . $ymd(-16), '/ui/reports/stock-value.csv?asof=' . $ymd(-16), '/ui/reports/stock-value.pdf?asof=' . $ymd(-16)],
+            array_map(static fn (\DOMElement $e): string => $e->getAttribute('href'), iterator_to_array($x->query('//main//header//details//a[@download]'))), 'Export: Excel, CSV, PDF');
+
+        // Rule C: a record entered now, dated day -19, changes day -16.
+        $at(-19, 'adjustment', $a, -2);
+        self::assertSame([['Alpha', '3', '£3.62', '£10.85'], ['Beta', '5', '£1.00', '£5.00']], $cells($web->get('/ui/reports/stock-value', ['asof' => $ymd(-16)])));
+
+        // Before CW's first record: said, no table; a day that is not a real day, today or later: today's report.
+        $early = $web->get('/ui/reports/stock-value', ['asof' => $ymd(-40)]);
+        self::assertSame(200, $early->status);
+        self::assertStringContainsString(Words::say('RD_REPORTS', 'before_records', \CW\Ui\Html::day($ymd(-22))), $early->text());
+        self::assertSame([], $cells($early));
+        foreach (['2026-02-31', 'yesterday', $ymd(0), $ymd(3)] as $odd) {
+            self::assertSame($cells($web->get('/ui/reports/stock-value')), $cells($web->get('/ui/reports/stock-value', ['asof' => $odd])), $odd);
+        }
     }
 
     public function testSlowStockByDaysWithoutASale(): void

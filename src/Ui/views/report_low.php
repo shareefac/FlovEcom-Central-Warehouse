@@ -4,7 +4,7 @@
 // report; then the report: its centred head (the company, the report's name, the day, how many are low and none left, the level an item is
 // low at), a plain table, the fewest first (the units the stores can sell, the low level, the reorder page for the buyers), and its Total row
 // (how many items); "All reports" under it.
-$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]);
+$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link, 'pdf' => null]);
 $line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), $f['show'] === 'out' ? \CW\Ui\Words::REPORTS['show_none'] : \CW\Ui\Words::REPORTS['show_low']]);
 $more = [\CW\Ui\Words::say('RD_REPORTS', 'low_line', \CW\Ui\Html::int($counts['low']), \CW\Ui\Html::int($counts['out']), \CW\Ui\Html::int($default))];
 ?>

@@ -197,6 +197,103 @@ final class ReportViews
                 . "ORDER BY w.stock_owner = 'own' DESC, w.sort_order, w.id"));
     }
 
+    // ---- Inventory valuation as of a past moment (docs/decisions.md AO1-AO6) ---------------------------------------------------------
+
+    /** The longest one statement of a past day's valuation may run (ms): a day too far back says so instead of loading the database. */
+    public const AS_OF_MAX_MS = 20000;
+
+    /**
+     * The valuation as it stood at $end (a UTC database time: the end of a UK day), from the ledger (the owner's "Yes, A B C", 1 Nov 2026):
+     *   A. a ledger row happened at its effective time, else when it was entered (COALESCE(effective_at, created_at));
+     *   B. an item's average cost then is CW's own rule up to then: every on-hand rise with a unit cost (any warehouse, as report_item reads
+     *      them), their value / their units, rounded half up to 6 places; the units of a balance then are its on-hand rows before $end
+     *      (invariant 2: the ledger adds up to the balance); each balance's value is its units x that cost, to the penny, as VALUE does;
+     *   C. a row entered later with an earlier date counts: a past day's figure can change (the page says so).
+     * The same shapes as today's reads: `products` (ours, units above zero; $q as the item search, $warehouseId one of ours), `brands`,
+     * `warehouses` (every one with units above zero, ours first) and `figures` (valueFigures). One statement for the balances and the costs,
+     * bounded by AS_OF_MAX_MS (a PDOException 3024 when it runs out: the caller says "choose a later day").
+     *
+     * @return array{products: list<array<string, mixed>>, brands: list<array<string, mixed>>, warehouses: list<array<string, mixed>>,
+     *     figures: array{value: string, costed: int, not_costed: int, items: int, theirs: int}}
+     */
+    public function valueAt(string $end, string $q, bool $noCost, ?int $warehouseId): array
+    {
+        $at = 'COALESCE(l.effective_at, l.created_at) < ?';
+        $rows = $this->db->all('SELECT /*+ MAX_EXECUTION_TIME(' . self::AS_OF_MAX_MS . ') */ u.sku_id, u.warehouse_id, u.units, c.avg_cost, '
+            . 'IF(c.avg_cost IS NULL, 0, ROUND(u.units * c.avg_cost, 2)) AS value, s.code, s.name, s.brand, w.name AS wname, w.stock_owner, w.sort_order '
+            . 'FROM (SELECT l.sku_id, l.warehouse_id, SUM(l.qty_delta) AS units FROM stock_ledger l WHERE l.bucket = \'on_hand\' AND ' . $at
+            . ' GROUP BY l.sku_id, l.warehouse_id HAVING units > 0) u '
+            . 'LEFT JOIN (SELECT l.sku_id, ROUND(SUM(l.qty_delta * l.unit_cost) / SUM(l.qty_delta), 6) AS avg_cost FROM stock_ledger l '
+            . 'WHERE l.bucket = \'on_hand\' AND l.qty_delta > 0 AND l.unit_cost IS NOT NULL AND ' . $at . ' GROUP BY l.sku_id) c ON c.sku_id = u.sku_id '
+            . 'JOIN sku s ON s.id = u.sku_id JOIN warehouse w ON w.id = u.warehouse_id', [$end, $end]);
+        $found = null;
+        if ($q !== '') {
+            [$where, $params] = StockViews::skuMatch($q, 's');
+            $found = array_fill_keys(array_map('intval', $this->db->column('SELECT s.id FROM sku s' . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)), $params)), true);
+        }
+        $pence = static fn (mixed $v): int => (int) round((float) $v * 100);
+        $money = static fn (int $p): string => number_format($p / 100, 2, '.', '');
+        $products = [];
+        $brands = [];
+        $warehouses = [];
+        $fig = ['value' => 0, 'costed' => 0, 'not_costed' => 0, 'items' => [], 'theirs' => 0];
+        foreach ($rows as $r) {
+            $sku = (int) $r['sku_id'];
+            $units = (int) $r['units'];
+            $ours = $r['stock_owner'] === 'own';
+            $costed = $r['avg_cost'] !== null;
+            $w = (int) $r['warehouse_id'];
+            $warehouses[$w] ??= ['id' => $w, 'name' => (string) $r['wname'], 'ours' => $ours, 'products' => 0, 'units' => 0, 'pence' => 0, 'not_costed' => 0,
+                'sort' => [(int) !$ours, (int) $r['sort_order'], $w]];
+            $warehouses[$w]['products']++;
+            $warehouses[$w]['units'] += $units;
+            $warehouses[$w]['pence'] += $pence($r['value']);
+            $warehouses[$w]['not_costed'] += $costed ? 0 : $units;
+            if (!$ours) {
+                $fig['theirs'] += $units;
+                continue;
+            }
+            $fig['value'] += $pence($r['value']);
+            $fig[$costed ? 'costed' : 'not_costed'] += $units;
+            $fig['items'][$sku] = true;
+            if ($warehouseId !== null && $w !== $warehouseId) {
+                continue;
+            }
+            $brand = $r['brand'] === null || $r['brand'] === '' ? null : (string) $r['brand'];
+            $bk = $brand ?? '';
+            $brands[$bk] ??= ['brand' => $brand, 'items' => [], 'units' => 0, 'pence' => 0, 'not_costed' => 0];
+            $brands[$bk]['items'][$sku] = true;
+            $brands[$bk]['units'] += $units;
+            $brands[$bk]['pence'] += $pence($r['value']);
+            $brands[$bk]['not_costed'] += $costed ? 0 : $units;
+            if (($found !== null && !isset($found[$sku])) || ($noCost && $costed)) {
+                continue;
+            }
+            $products[$sku] ??= ['sku_id' => $sku, 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $brand, 'units' => 0,
+                'avg_cost' => $r['avg_cost'] === null ? null : (string) $r['avg_cost'], 'pence' => 0];
+            $products[$sku]['units'] += $units;
+            $products[$sku]['pence'] += $pence($r['value']);
+        }
+        $products = array_values(array_map(static fn (array $p): array => ['value' => $money($p['pence'])] + array_diff_key($p, ['pence' => 1]), $products));
+        usort($products, $noCost ? static fn (array $a, array $b): int => [$b['units'], $a['name'], $a['sku_id']] <=> [$a['units'], $b['name'], $b['sku_id']]
+            : static fn (array $a, array $b): int => [(float) $b['value'], $a['name'], $a['sku_id']] <=> [(float) $a['value'], $b['name'], $b['sku_id']]);
+        $brands = array_values(array_map(static fn (array $b): array => ['brand' => $b['brand'], 'products' => count($b['items']), 'units' => $b['units'],
+            'value' => $money($b['pence']), 'not_costed' => $b['not_costed']], $brands));
+        usort($brands, static fn (array $a, array $b): int => [(float) $b['value'], (string) $a['brand']] <=> [(float) $a['value'], (string) $b['brand']]);
+        usort($warehouses, static fn (array $a, array $b): int => $a['sort'] <=> $b['sort']);
+        $warehouses = array_map(static fn (array $w): array => ['id' => $w['id'], 'name' => $w['name'], 'ours' => $w['ours'], 'products' => $w['products'],
+            'units' => $w['units'], 'value' => $money($w['pence']), 'not_costed' => $w['not_costed']], $warehouses);
+        return ['products' => $products, 'brands' => $brands, 'warehouses' => array_values($warehouses),
+            'figures' => ['value' => $money($fig['value']), 'costed' => $fig['costed'], 'not_costed' => $fig['not_costed'], 'items' => count($fig['items']), 'theirs' => $fig['theirs']]];
+    }
+
+    /** The UK day of CW's first stock record (a ledger row's own day, rule A), or null when there is none; bounded as valueAt. */
+    public function firstRecordDay(): ?string
+    {
+        $v = $this->db->value('SELECT /*+ MAX_EXECUTION_TIME(' . self::AS_OF_MAX_MS . ') */ MIN(COALESCE(effective_at, created_at)) FROM stock_ledger WHERE bucket = \'on_hand\'');
+        return $v === null ? null : ReportRefresh::ukDay((string) $v);
+    }
+
     // ---- Slow Stock ----------------------------------------------------------------------------------------------------------------
 
     /**

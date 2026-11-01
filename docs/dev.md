@@ -1298,3 +1298,11 @@ every other Items and Inventory page. Layout and view data only.
 | `src/Ui/ByProductContext.php`, `src/Ui/Queries.php`, `src/Ui/Controller/ByProductController.php`, view `by_product` | `coverageOf()` (store + match -> cov: `missing`, `none`, `on-<code>`), `productExtra()` (brand, kind, stock), `coverageAsked()`, `extraAsked()`, `Words::RD_MATCH_FILTER` (DG4) |
 | `src/Ui/Controller/ItemController.php`, view `item` | `addSupplier()` `GET /ui/items/{id}/add-supplier`, `supplierChoices`, `details.card-add > form.add-supplier` (DG3) |
 | `src/Ui/Controller/StockOpsController.php`, `src/Ui/Sections.php` | `ALL_PATH` `/ui/stock/adjustments/all`, `all()`; Show choice `kinds_all`; Sections page `adjustments_all` (DG1) |
+
+### The valuation "As of" a past day and its PDF (`docs/decisions.md` AO1-AO6; tracker CW-914; 1 Nov 2026)
+
+| Path | What |
+|---|---|
+| `src/Reports/ReportViews.php` | `valueAt($end, $q, $noCost, $warehouseId)` (one bounded read: units and cost then, rules A-B), `firstRecordDay()`, `AS_OF_MAX_MS` |
+| `src/Ui/Controller/ReportsController.php`, `src/Ui/Kernel.php` | `asof` (`pastDay()`, `endOfDay()`, `pageOf()`), `pdf()` + `valuePdf()` (`GET /ui/reports/stock-value.pdf`), 3024 -> `tooFar` |
+| views `report_value` (input `asof`, `narrowed`), `report_bar` (`$pdf`) | the day in the line, the rule C note, the two messages; Words `RD_REPORTS as_of_label/as_of_note/too_far/before_records/export_pdf` |

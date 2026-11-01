@@ -3,7 +3,7 @@
 // heading with the search's file (Download (Excel)) at its right; one search (a record number) and the Show row (from, to, who, what was done,
 // the kind of record) with its Show button, Clear under the toolbar's More; then the entries as one board with its blue edge, newest first,
 // each with its technical details folded; "Older entries" under it.
-$bar = $partial('report_bar', ['href' => $csv, 'xlsx' => null]);
+$bar = $partial('report_bar', ['href' => $csv, 'xlsx' => null, 'pdf' => null]);
 ?>
 <div class="doc-head">
 <?= $head(\CW\Ui\Words::MENU['audit'], intro: 'audit', side: $bar) ?>

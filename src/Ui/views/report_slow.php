@@ -4,7 +4,7 @@
 // item, slow or dead with their counts) and Run report; then the report: its centred head (the company, the report's name, the day, the slow
 // and dead days and how many each holds, when the sales were last brought up to date), a plain table, the longest without a sale first (its
 // value for whoever may see money), and its Total row (how many items); "All reports" under it.
-$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]);
+$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link, 'pdf' => null]);
 $line = implode(' · ', [\CW\Ui\Words::say('RD_REPORTS', 'as_of', \CW\Ui\Html::day($today)), $f['show'] === 'dead' ? \CW\Ui\Words::REPORTS['show_dead'] : \CW\Ui\Words::REPORTS['show_slow']]);
 $more = [\CW\Ui\Words::say('RD_REPORTS', 'slow_line', \CW\Ui\Html::int($counts['slow']), $slowDays, \CW\Ui\Html::int($counts['dead']), $deadDays), $asOf];
 ?>

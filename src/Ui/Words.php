@@ -10140,6 +10140,11 @@ final class Words
         'export_title' => 'Download this report as a spreadsheet file (CSV, opens in Excel)',
         'export_xlsx' => 'Excel', // the Reports board's Export menu (DG7)
         'export_csv' => 'CSV',
+        'export_pdf' => 'PDF', // the valuation's (AO5)
+        'as_of_label' => 'As of', // the valuation's past day (AO1)
+        'as_of_note' => 'A past day can change when a record dated on or before it is entered later.',
+        'too_far' => 'Too much to read for that day. Choose a later day.',
+        'before_records' => 'CW has no stock records before %s.',
         'warehouse' => 'Warehouse',
         'all_warehouses' => 'All warehouses',
         'options' => 'Report options',

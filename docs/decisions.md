@@ -15613,3 +15613,37 @@ bulk state (`ByItemBulkController::state`) and the batch page's list (`BulkContr
 (`ByProductController::extraFrom` / `extraQuery`). LOW 2: with the choices' counts gone, a filtered list says how many it holds in words
 (`p.bi-total`, "N items"; a search keeps its own line). Also: `ByProductContextTest` pinned `missing` as no filter; it is DG4's
 "missing on at least one store" now (with `none`, `on-<code>`, `coverageOf`).
+
+## The Inventory valuation "As of" a past day, and its PDF (branch `as-of`, 1 Nov 2026; AO1-AO6; tracker CW-914)
+
+The plan (runs/cw914_plan.md) was put to the owner through the first session; his answer, 1 Nov 2026: **"Yes, A B C"**.
+
+**AO1. The day.** The valuation's options start with the board's "As of" (a date box; empty = today, as before). A real UK day before
+today is a past day; today, a later day or anything that is not a real day is today's report. "As of 15 Oct" is the end of 15 Oct, UK
+time (the next midnight in London, as a UTC time: `ReportsController::endOfDay`). The line under the title says the day; the head's
+second line says (rule C) "A past day can change when a record dated on or before it is entered later." The files carry the day too.
+
+**AO2. Rule A (the owner's yes): when a ledger row happened** = its effective time (a count's counted time, a dispatch's time), else
+when it was entered: `COALESCE(effective_at, created_at)`, the rule the reports already use for first-in and last-sale days.
+
+**AO3. Rule B (the owner's yes): units and cost then.** `ReportViews::valueAt($end)`: each balance's units = the sum of its on-hand ledger
+rows that happened before the end (invariant 2: the ledger adds up to the balance; read whole, not as "today minus later", so a row
+entered before the day with a later date, or after it with an earlier one, is placed by its own date); an item's average cost then = CW's
+own rule (report_item's): every on-hand rise with a unit cost, in any warehouse, that happened before the end: their value / their
+units, rounded half up to 6 places; a balance's value = units x that cost to the penny, as today's VALUE; units above zero only, ours
+in our value, another account's shown by warehouse and in "units of another account", as today. Items, brands, warehouses and the
+strip's figures come from that one read, in today's shapes and orders; the item search, "only without a cost" and the Warehouse choice
+work as for today. Worked by hand in `ReportsScreenTest::testStockValueAsOfAPastDayIsWorkedOutFromTheLedger` (47/13, 77/23, the
+shares, the other account's room, the CSV's six places).
+
+**AO4. Rule C (the owner's yes): a past day can change** when a record dated on or before it is entered later (a count, a late delivery
+with its real date); the page says so (AO1). A frozen month-end figure would need a saved snapshot: not built.
+
+**AO5. PDF.** The valuation's Export menu has PDF (`/ui/reports/stock-value.pdf`, values.view): A4, the company and the line under the
+title (the day, the warehouse, at average cost), the rule C note for a past day, then the table with the CSV's columns and rows.
+The other reports have no PDF (CW-914 is the valuation's).
+
+**AO6. Safety and limits.** Reads only. The one statement of a past day (and the first-record day) runs at most
+`ReportViews::AS_OF_MAX_MS` (20 s, `MAX_EXECUTION_TIME`): when it runs out (MySQL 3024) the page says "Too much to read for that day.
+Choose a later day." and shows no table. A day before CW's first stock record says "CW has no stock records before <day>". A past day
+has no "not sold in N days" figure (the sales data is today's). The help sentence "The value on a past date is not available yet" went.

@@ -3,7 +3,7 @@
 // "‹ All reports" and the title, Export (the CSV) at the right, what a unit is under its "?"; the options CW has (the days, or days of one's
 // own, and the store) and Run report; then the report: its centred head (the company, the report's name, the days and the store, when the
 // figures were brought up to date), a plain table grouped by store and day by day, each group with its Total row; "All reports" under it.
-$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link]);
+$bar = $partial('report_bar', ['href' => $csv_link, 'xlsx' => $xlsx_link, 'pdf' => null]);
 $storeName = \CW\Ui\Words::REPORTS['all_stores'];
 foreach ($stores as $s) {
     if ($storeId === $s['id']) {
