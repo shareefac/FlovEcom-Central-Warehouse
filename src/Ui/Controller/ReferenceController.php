@@ -224,7 +224,7 @@ final class ReferenceController
         $at = \CW\Clock::fromDb((string) $run['created_at'])->setTimezone($uk);
         $confirmed = count($run['confirmed']);
         $text = ($confirmed === 1 ? sprintf(Words::NIGHTLY['counts_one'], number_format(count($run['left'])))
-            : sprintf(Words::NIGHTLY['counts'], number_format($confirmed), number_format(count($run['left'])))) . ($run['state'] === 'stopped' ? ' ' . Words::NIGHTLY['stopped'] : '');
+            : sprintf(Words::NIGHTLY['counts'], number_format($confirmed), number_format(count($run['left'])))) . (in_array($run['state'], ['stopped', 'running'], true) ? ' ' . Words::NIGHTLY[$run['state']] : '');
         $may = $ctx->me()->can(Corrections::PERM);
         return ['tone' => 'done', 'lead' => $last ? sprintf(Words::NIGHTLY['last'], $at->format('H:i')) : sprintf(Words::NIGHTLY['last_run'], Html::when((string) $run['created_at'])),
             'text' => $text, 'href' => $may ? '/ui/queues/corrections/confirm-all/' . (int) $run['id'] : null, 'link' => $may ? Words::NIGHTLY[$last ? 'open' : 'open_run'] : null,

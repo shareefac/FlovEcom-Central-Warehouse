@@ -20,6 +20,9 @@ use CW\Settings;
  *   - when no nightly run has started for that night: its run row (Corrections::RUN_ACTION, entity `nightly:<date>`) is looked for and
  *     written under the night's named lock (lockName(): server-wide, freed on disconnect), so two ticks at once make one run, a second tick
  *     the same night does nothing, and a run that stopped half way is not started again that night.
+ * Time (NC13, NC14): one deadline, SECONDS from the tick's start, for all of it. The ready ones are found first, the whole open queue page
+ * by page (PAGE, oldest first, until the page that reaches "At most per night", or the queue's end), within FIND_SECONDS (each page's reads stopped
+ * there: a page that does not fit ends the search with what was found); the press gets what is left of the deadline.
  * Its press is Corrections::confirmNightly(): the job's own system caller, let through there and nowhere else. The note on each confirmation
  * says whose switch it is: "Nightly Confirm all (setting on since <UK date, time>, by <person>)".
  */
@@ -33,19 +36,30 @@ final class NightlyConfirm
     public const DEFAULT_MAX = 500;
     /** How long after the time it runs a tick may still start the night's run. */
     public const WINDOW_MINUTES = 60;
-    /** The longest one night's press takes (no web page waits for it; under the five-minute cron). */
+    /** The longest one night's run takes, finding the ready ones and the press (no web page waits for it; under the five-minute cron). */
     public const SECONDS = Corrections::NIGHTLY_SECONDS;
+    /** The most of SECONDS that finding the ready ones may take (NC14). */
+    public const FIND_SECONDS = 60;
+    /** How many open corrections one page of the search reads (Corrections::readiness()'s most). */
+    public const PAGE = Corrections::BULK_MAX;
     public const UK = 'Europe/London';
     /** The note on each confirmation of a nightly run (the coordinator's words of 1 Nov 2026). */
     public const NOTE = 'Nightly Confirm all (setting on since %s, by %s)';
 
     /** @var \Closure(): \DateTimeImmutable */
     private \Closure $now;
+    /** @var \Closure(): float seconds (the run's deadline; the monotonic clock) */
+    private \Closure $clock;
 
-    /** @param (\Closure(): \DateTimeImmutable)|null $now the window's clock (tests move it; the bookings keep the database's) */
-    public function __construct(private readonly Db $db, ?\Closure $now = null)
+    /**
+     * @param (\Closure(): \DateTimeImmutable)|null $now the window's clock (tests move it; the bookings keep the database's)
+     * @param (\Closure(): float)|null $clock seconds, for the run's deadline (tests move it; the press keeps the same clock)
+     * @param int $page how many open corrections one page of the search reads (tests make it small)
+     */
+    public function __construct(private readonly Db $db, ?\Closure $now = null, ?\Closure $clock = null, private readonly int $page = self::PAGE)
     {
         $this->now = $now ?? static fn (): \DateTimeImmutable => Clock::now();
+        $this->clock = $clock ?? static fn (): float => hrtime(true) / 1e9;
     }
 
     /**
@@ -111,16 +125,56 @@ final class NightlyConfirm
             if ($done !== null) {
                 return ['result' => 'done', 'night' => $night, 'run' => $done];
             }
-            $corrections = new Corrections($this->db);
-            $ready = array_values(array_map(static fn (array $r): int => (int) $r['id'],
-                array_filter($corrections->readiness(), static fn (array $r): bool => $r['why'] === null)));
-            $press = $corrections->confirmNightly($night, $ready, self::note($this->db), $set['max']);
+            $started = ($this->clock)();
+            $corrections = new Corrections($this->db, $this->clock);
+            $ready = $this->ready($corrections, $set['max'], $started + self::FIND_SECONDS);
+            $press = $corrections->confirmNightly($night, $ready, self::note($this->db), $set['max'], max(0.0, $started + self::SECONDS - ($this->clock)()));
             $run = $corrections->run($press['run']);
             return ['result' => 'ran', 'night' => $night, 'run' => $press['run'], 'confirmed' => count($press['confirmed']), 'booked' => (int) ($run['booked'] ?? 0),
                 'left' => count($press['left'])];
         } finally {
             $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
         }
+    }
+
+    /**
+     * The ready ones (NC13): the open corrections page by page, oldest first, until the page that brings them to $max (all its ready ones:
+     * the press confirms $max and shows the rest "not reached") or the queue's end, within $until (each page's reads stopped there; a page
+     * that does not fit ends the search with what was found). The session's statement time comes back.
+     *
+     * @return list<int>
+     */
+    private function ready(Corrections $corrections, int $max, float $until): array
+    {
+        $ready = [];
+        $after = null;
+        $timeWas = (int) $this->db->value('SELECT @@SESSION.max_execution_time');
+        try {
+            while (count($ready) < $max) {
+                $left = $until - ($this->clock)();
+                if ($left < 1) {
+                    break;
+                }
+                $this->db->exec('SET SESSION max_execution_time = ' . (int) floor($left * 1000));
+                try {
+                    $rows = $corrections->readiness($this->page, null, $after);
+                } catch (\RuntimeException) {
+                    break; // the page did not fit in the time: what was found so far
+                }
+                foreach ($rows as $r) {
+                    if ($r['why'] === null) {
+                        $ready[] = (int) $r['id'];
+                    }
+                }
+                if (count($rows) < $this->page) {
+                    break;
+                }
+                $after = (int) $rows[count($rows) - 1]['id'];
+            }
+        } finally {
+            $this->db->exec('SET SESSION max_execution_time = ' . $timeWas);
+        }
+        return $ready;
     }
 
     /** The run row of a night's run, if one has started (its entity, by audit_log's entity index). */

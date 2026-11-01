@@ -11503,6 +11503,7 @@ final class Words
         'back_list' => 'Back to Approvals',
         'item_gone' => 'Correction %s',
         'stopped' => 'This press stopped before its end. What it confirmed is counted; the rest is left for you.',
+        'running' => 'This night run is still going. What it confirmed so far is counted; open this page again in a few minutes.',
         // A nightly run's done page (docs/decisions.md NC9): who saved it.
         'by_night' => 'CW, every night',
     ];
@@ -11518,6 +11519,7 @@ final class Words
         'counts' => '%s ERPNext corrections confirmed, %s left for you in Approvals.',
         'counts_one' => '1 ERPNext correction confirmed, %s left for you in Approvals.',
         'stopped' => 'It stopped before its end: what it confirmed is counted.',
+        'running' => 'It is running now: what it confirmed so far is counted.',
         'open' => 'Open last night\'s run ›',
         'open_run' => 'Open the last run ›',
         'next' => 'Next run: tonight at %s. It confirms only the ready ones, exactly like pressing Confirm all ready; the doubtful ones wait for a person.',

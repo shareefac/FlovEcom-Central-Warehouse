@@ -239,6 +239,76 @@ final class NightlyConfirmTest extends StockTestCase
         self::assertSame('open', self::state($c['id']), 'waits for the next night or for Confirm all ready');
     }
 
+    /**
+     * NC13 (the Codex review of 774f39e): a ready correction behind a full page of ones that need a look is found; the search reads the
+     * queue page by page (the oldest page of 500 all "big" used to hide it every night).
+     */
+    public function testAReadyOneBehindAFullPageOfDoubtfulOnesIsFound(): void
+    {
+        $big = $this->corrected(0, 400);
+        $cols = 'warehouse_id, sku_id, source, proposed_qty, ref, detail, status, created_at';
+        for ($i = 1; $i < 500; $i++) {
+            self::$db->exec("INSERT INTO count_review ({$cols}) SELECT {$cols} FROM count_review WHERE id = ?", [$big['id']]);
+        }
+        $ready = $this->corrected(10, 13);
+        $this->on('04:30');
+        $r = self::tick('2026-11-02 04:40:00');
+        self::assertSame(['ran', 1], [$r['result'], $r['confirmed']], json_encode($r));
+        self::assertSame('resolved', self::state($ready['id']));
+        self::assertSame('open', self::state($big['id']), 'the doubtful ones wait for a person');
+        // Small pages: the same, page after page; the cap stops the search.
+        $more = [$this->corrected(1, 2), $this->corrected(1, 3), $this->corrected(1, 4)];
+        $this->on('04:30', 2);
+        $r = (new NightlyConfirm(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-03 04:40:00', new \DateTimeZone('UTC')), null, 7))->tick();
+        $run = (new Corrections(self::$db))->run((int) $r['run']);
+        self::assertSame([$more[0]['id'], $more[1]['id']], $run['confirmed']);
+        self::assertSame('open', self::state($more[2]['id']), 'at most per night');
+    }
+
+    /**
+     * NC14 (the Codex review of 774f39e): the run's one deadline counts the search too. A search that took 236 of the 240 seconds leaves
+     * the press 4: nothing more is started ("not reached"), the run is saved with its end, and the next night runs as usual.
+     */
+    public function testTheSearchCountsInTheNightsDeadline(): void
+    {
+        $a = $this->corrected(10, 13);
+        $this->on('04:30');
+        $calls = 0;
+        // The run's clock: its start and the search's one check at 0 s, every later reading (the press's) at 236 s.
+        $clock = static function () use (&$calls): float {
+            return ++$calls <= 2 ? 0.0 : 236.0;
+        };
+        $r = (new NightlyConfirm(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-02 04:40:00', new \DateTimeZone('UTC')), $clock))->tick();
+        $run = (new Corrections(self::$db))->run((int) $r['run']);
+        self::assertSame(['finished', [], [['id' => $a['id'], 'why' => ['code' => 'not_reached']]]], [$run['state'], $run['confirmed'], $run['left']]);
+        self::assertSame('open', self::state($a['id']));
+        self::assertSame('ran', self::tick('2026-11-03 04:40:00')['result']);
+        self::assertSame('resolved', self::state($a['id']), 'the next night confirms it');
+    }
+
+    /**
+     * NC16 (the Codex review of 774f39e): a night's run with no end row yet while its job still holds the night's lock is "running", not
+     * "stopped"; without the lock, or started longer ago than the job's longest run, it stopped.
+     */
+    public function testARunStillGoingIsRunningNotStopped(): void
+    {
+        $a = $this->corrected(1, 3);
+        $job = Caller::system(Corrections::NIGHTLY_JOB);
+        \CW\Audit::write(self::$db, $job, Corrections::RUN_ACTION, Corrections::TABLE, 'nightly:2026-11-02', null, ['state' => 'running', 'note' => 'n', 'asked' => 1, 'ids' => [$a['id']]]);
+        $id = (int) self::$db->value('SELECT LAST_INSERT_ID()');
+        $queue = new Corrections(self::$db);
+        self::assertSame('stopped', $queue->run($id)['state'], 'no lock held: it stopped');
+        $other = TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [NightlyConfirm::lockName(self::$db)]));
+        try {
+            self::assertSame('running', $queue->run($id)['state']);
+            self::$db->exec('UPDATE audit_log SET created_at = ? WHERE id = ?', [Clock::db(Clock::now()->modify('-6 minutes')), $id]);
+            self::assertSame('stopped', $queue->run($id)['state'], 'older than the longest run: another night\'s job holds the lock');
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [NightlyConfirm::lockName(self::$db)]);
+        }
+    }
+
     /** NC4: the job's caller passes only through the nightly press, with the switch on; nowhere else, and no other caller through it. */
     public function testTheJobsCallerPassesOnlyThroughTheNightlyPress(): void
     {

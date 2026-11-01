@@ -121,22 +121,26 @@ final class Corrections
 
     /**
      * The list: open rows oldest first (each with its effect(), read for all rows at once: effects()), or every row of a status, newest
-     * first. $only: that one row (Approvals opening a correction beyond the first rows it shows, CA18).
+     * first. $only: that one row (Approvals opening a correction beyond the first rows it shows, CA18). $after: the open rows after that id
+     * (the nightly job reading the queue page by page, NC13).
      *
      * @return list<array<string, mixed>>
      */
-    public function list(?string $status = 'open', int $limit = QueueRules::PAGE + 1, ?int $only = null): array
+    public function list(?string $status = 'open', int $limit = QueueRules::PAGE + 1, ?int $only = null, ?int $after = null): array
     {
         $limit = max(1, min(500, $limit));
         $params = $status === null ? [self::SOURCE] : [self::SOURCE, $status];
         if ($only !== null) {
             $params[] = $only;
         }
+        if ($after !== null) {
+            $params[] = $after;
+        }
         $rows = $this->db->all(
             'SELECT STRAIGHT_JOIN r.id, r.warehouse_id, w.code AS warehouse_code, w.name AS warehouse, r.sku_id, s.code AS sku_code, s.name AS sku_name, r.proposed_qty, r.ref, '
             . 'CAST(r.detail AS CHAR) AS detail, CAST(r.status AS CHAR) AS status, r.resolution, r.resolved_by, r.resolved_at, r.note, r.created_at '
             . 'FROM count_review r' . ($status === null || $only !== null ? '' : ' FORCE INDEX (ix_count_review_open)') . ' JOIN sku s ON s.id = r.sku_id JOIN warehouse w ON w.id = r.warehouse_id '
-            . 'WHERE r.source = ?' . ($status === null ? '' : ' AND r.status = ?') . ($only === null ? '' : ' AND r.id = ?')
+            . 'WHERE r.source = ?' . ($status === null ? '' : ' AND r.status = ?') . ($only === null ? '' : ' AND r.id = ?') . ($after === null ? '' : ' AND r.id > ?')
             . ' ORDER BY r.id' . ($status === 'open' ? '' : ' DESC') . " LIMIT {$limit}",
             $params,
         );
@@ -400,14 +404,14 @@ final class Corrections
     /**
      * The open corrections, oldest first (at most BULK_MAX), each a list() row with `why`: null when it is READY for Confirm all, else the
      * first rule of NOT_READY that applies (why()). The list, the check page and the press itself (after its run) read it; at booking time
-     * confirm() reads the same facts again for the one row, under its locks.
+     * confirm() reads the same facts again for the one row, under its locks. $after: the open ones after that id (NC13).
      *
      * @return list<array<string, mixed>>
      */
-    public function readiness(int $limit = self::BULK_MAX, ?int $only = null): array
+    public function readiness(int $limit = self::BULK_MAX, ?int $only = null, ?int $after = null): array
     {
         $units = self::bigLimit(new Settings($this->db));
-        $rows = $this->list('open', max(1, min($limit, self::BULK_MAX)), $only);
+        $rows = $this->list('open', max(1, min($limit, self::BULK_MAX)), $only, $after);
         $facts = self::facts($this->db, $rows);
         foreach ($rows as &$r) {
             $r['why'] = self::why((string) $r['at'], $r['effect'], $facts[(int) $r['id']], $units);
@@ -699,8 +703,9 @@ final class Corrections
     /**
      * A press as saved (CA15, CA22): its run row (who, when, the note, the ids it was given) with its end row (`finished`: what it did); a
      * press that stopped before its end (`stopped`: no end row) as its own marks show it: the ids whose booking carries this run's id
-     * (count_review.detail.booked.run, written in the booking's transaction), the rest "not reached, or answered elsewhere". null: no such
-     * press.
+     * (count_review.detail.booked.run, written in the booking's transaction), the rest "not reached, or answered elsewhere"; a night's run
+     * with no end row yet while its job still runs (the night's lock held, the run younger than the job's longest run; NC16) is `running`,
+     * its marks so far. null: no such press.
      *
      * `actor` is who pressed (a person's staff:<id>, or the nightly job's system:confirm_nightly), `night` the night of a nightly run (NC3).
      *
@@ -744,11 +749,25 @@ final class Corrections
                 }
             }
         }
-        return $out + ['state' => 'stopped', 'confirmed' => array_values(array_filter($ids, static fn (int $id): bool => isset($mine[$id]))), 'replayed' => [],
+        return $out + ['state' => self::running($this->db, $out) ? 'running' : 'stopped', 'confirmed' => array_values(array_filter($ids, static fn (int $id): bool => isset($mine[$id]))), 'replayed' => [],
             'booked' => count(array_filter($mine)), 'units_added' => array_sum(array_map(static fn (int $d): int => max(0, $d), $mine)),
             'units_taken' => array_sum(array_map(static fn (int $d): int => max(0, -$d), $mine)),
             'left' => array_values(array_map(static fn (int $id): array => ['id' => $id, 'why' => ['code' => 'not_reached_or_elsewhere']],
                 array_filter($ids, static fn (int $id): bool => !isset($mine[$id]))))];
+    }
+
+    /**
+     * Whether a run with no end row is a night's run still going (NC16): the night's lock is held (NightlyConfirm::tick() holds it for the
+     * whole run) and the run started less than the job's longest run (NIGHTLY_SECONDS, and a minute to spare) ago. Any other: stopped.
+     *
+     * @param array{night: ?string, created_at: string} $run
+     */
+    private static function running(Db $db, array $run): bool
+    {
+        if ($run['night'] === null || Clock::fromDb($run['created_at'])->getTimestamp() < Clock::now()->getTimestamp() - self::NIGHTLY_SECONDS - 60) {
+            return false;
+        }
+        return $db->value('SELECT IS_USED_LOCK(?)', [NightlyConfirm::lockName($db)]) !== null;
     }
 
     /** The moment ERPNext set the number: the relayed posted_at, else when CW received it (the database's form). @param array<string, mixed> $row */

@@ -366,6 +366,7 @@ final class StoreQueuesController
         return $ctx->page('confirm_all_done', [
             'confirmed' => count($run['confirmed']),
             'stopped' => $run['state'] === 'stopped',
+            'running' => $run['state'] === 'running',
             'left' => $rows,
             'saved' => Words::say('CONFIRM_ALL', 'saved', Words::AUDIT_ACTION[Corrections::RUN_ACTION], Html::when((string) $run['created_at']),
                 $nightly ? Words::CONFIRM_ALL['by_night'] : $ctx->me()->displayName),

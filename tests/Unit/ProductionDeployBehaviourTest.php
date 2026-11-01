@@ -420,7 +420,10 @@ final class ProductionDeployBehaviourTest extends TestCase
         self::assertSame(4, substr_count(substr($calls, 0, $migrate), 'pgrep -f'), 'the running cw_prod job waited for (two busy, one free, one last check), not the other schema\'s');
     }
 
-    /** Jobs still running after two minutes: the run stops with the writers paused and the schema untouched. */
+    /**
+     * Jobs still running after six minutes (longer than the nightly Confirm all's longest run, Corrections::NIGHTLY_SECONDS; NC15): the run
+     * stops with the writers paused and the schema untouched.
+     */
     public function testJobsThatDoNotFinishLeaveTheWritersPausedAndTheSchemaAlone(): void
     {
         $this->needBox();
@@ -429,10 +432,11 @@ final class ProductionDeployBehaviourTest extends TestCase
         $this->answer('jobs', "1000 php bin/invariants.php --db=cw_prod\n");
         [$code, $out, $err] = $this->runScript('install_cron.sh', ['--migrate']);
         self::assertSame(1, $code, $out . $err);
-        self::assertStringContainsString('jobs still running after 2 minutes; the writers stay paused, run this again with --migrate', $err);
+        self::assertStringContainsString('jobs still running after 6 minutes; the writers stay paused, run this again with --migrate', $err);
         self::assertSame([], $this->migrations(), 'no migration ran');
         self::assertSame($this->paused(), $this->running());
-        self::assertSame(121, substr_count($this->calls(), 'pgrep -f'), 'two minutes of checks, then the last one');
+        self::assertSame(361, substr_count($this->calls(), 'pgrep -f'), 'six minutes of checks, then the last one');
+        self::assertGreaterThan(\CW\Queues\Corrections::NIGHTLY_SECONDS + 60, 360, 'the wait outlasts the nightly run with a minute to spare');
     }
 
     /**

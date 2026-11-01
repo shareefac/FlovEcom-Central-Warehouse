@@ -158,4 +158,30 @@ final class NightlyConfirmScreensTest extends KernelUiTestCase
         self::assertSame(404, $this->signIn($this->uiUser('stock_controller'))->get('/ui/queues/corrections/confirm-all/' . $own['run'])->status);
         self::assertSame(200, $this->signIn($presser)->get('/ui/queues/corrections/confirm-all/' . $own['run'])->status);
     }
+
+    /** NC16: a night's run still going (no end row yet, its job holding the night's lock) reads "running now" on Settings and its done page. */
+    public function testARunStillGoingSaysSoOnSettingsAndItsDonePage(): void
+    {
+        $this->on('04:30');
+        $id = $this->correction(1, 3);
+        $night = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+        \CW\Audit::write(self::$db, Caller::system(Corrections::NIGHTLY_JOB), Corrections::RUN_ACTION, Corrections::TABLE, 'nightly:' . $night, null,
+            ['state' => 'running', 'note' => 'n', 'asked' => 1, 'ids' => [$id]]);
+        $run = (int) self::$db->value('SELECT LAST_INSERT_ID()');
+        $other = \CW\Tests\Support\TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [NightlyConfirm::lockName(self::$db)]));
+        try {
+            $web = $this->signIn($this->uiUser('stock_controller'));
+            self::assertStringContainsString(Words::NIGHTLY['running'], self::lastNight($web->get(self::SETTINGS)));
+            $done = $web->get('/ui/queues/corrections/confirm-all/' . $run);
+            self::assertSame(200, $done->status, $done->describe());
+            self::assertSame([Words::CONFIRM_ALL['running']], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+                iterator_to_array(self::xp($done)->query('//p[contains(@class, "ca-stopped")]'))));
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [NightlyConfirm::lockName(self::$db)]);
+        }
+        // The job gone without its end: it stopped.
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        self::assertStringContainsString(Words::NIGHTLY['stopped'], self::lastNight($web->get(self::SETTINGS)));
+    }
 }

@@ -15449,3 +15449,18 @@ refused everywhere else), `tests/Integration/Queues/Migration0055Test` (the sett
 `tests/Integration/UiKernel/NightlyConfirmScreensTest` (the Last night line off, none yet and with a run, its link only for who may open
 it, the card's rows and On / Off; a nightly run's done page for every stock controller, refused to a buyer; a person's press still its
 presser's). The stock invariants after each.
+
+**NC13-NC16. The Codex review of 774f39e (3 MEDIUM, 1 LOW), each shown failing first on 774f39e.**
+- **NC13. The whole queue is searched.** The ready ones were read from the oldest 500 open corrections only, so 500 doubtful ones in front hid
+  a ready one every night. `NightlyConfirm::ready()` reads the open queue page by page (`Corrections::readiness(..., $after)`, by the open
+  index, oldest first) until the page that reaches "At most per night" (all its ready ones: the press confirms the most and shows the rest
+  "not reached") or the queue's end.
+- **NC14. One deadline for the whole run.** The 240 seconds (`NIGHTLY_SECONDS`) start before the search: the search may take at most
+  `FIND_SECONDS` (60) of them, each page's reads stopped there (a page that does not fit ends the search with what was found), and the press
+  gets what is left (its own reserve for the end row inside it), on the same clock.
+- **NC15. The installer waits longer than the longest job.** `install_cron.sh --migrate` waited 2 minutes for running jobs; a night's run may
+  take 4. It now waits 6 minutes (the run and a margin) before it stops with the writers paused.
+- **NC16. A run still going is "running".** A night's run with no end row while its job holds the night's lock, started less than
+  `NIGHTLY_SECONDS` + 60 seconds ago, is `running` (Corrections::run()): Settings' Last night line says "It is running now: what it
+  confirmed so far is counted." and its done page "This night run is still going ...", instead of "stopped". Without the lock, or older, it
+  stopped, as before.

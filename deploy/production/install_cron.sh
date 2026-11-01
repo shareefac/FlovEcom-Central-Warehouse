@@ -138,12 +138,13 @@ if [[ $migrate -eq 1 ]]; then
         systemctl stop php8.3-fpm
         say "php-fpm stopped (its requests finished first)"
     fi
-    for _ in $(seq 1 120); do
+    # The longest job is the nightly Confirm all (Corrections::NIGHTLY_SECONDS, 240 s, finding and press together): 6 minutes covers it (NC15).
+    for _ in $(seq 1 360); do
         pgrep -f "bin/[a-z_]+\.php .*--db=$schema" >/dev/null || break
         sleep 1
     done
     if pgrep -f "bin/[a-z_]+\.php .*--db=$schema" >/dev/null; then
-        echo "install_cron: jobs still running after 2 minutes; the writers stay paused, run this again with --migrate" >&2
+        echo "install_cron: jobs still running after 6 minutes; the writers stay paused, run this again with --migrate" >&2
         exit 1
     fi
 fi
