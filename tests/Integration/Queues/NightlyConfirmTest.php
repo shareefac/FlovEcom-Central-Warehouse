@@ -308,8 +308,12 @@ final class NightlyConfirmTest extends StockTestCase
             return $now;
         };
         $reads = 0;
-        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [static function (string $sql) use (&$now, &$reads): void {
-            if ($now < 60.0 && str_starts_with(ltrim($sql), 'SELECT') && !str_contains($sql, '@@SESSION') && !str_contains($sql, 'GET_LOCK')) {
+        $search = false;
+        // From the night's own check (has it run? no) on, each read of the search "takes" 25 s; the reads before it take none.
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [static function (string $sql) use (&$now, &$reads, &$search): void {
+            if (str_contains($sql, 'SELECT id FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ?')) {
+                $search = true;
+            } elseif ($search && $now < 60.0 && str_starts_with(ltrim($sql), 'SELECT')) {
                 $reads++;
                 $now += 25.0;
             }
