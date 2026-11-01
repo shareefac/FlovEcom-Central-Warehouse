@@ -211,7 +211,17 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $corr = $web->get('/ui/stock/adjustments');
         self::assertSame([Words::INV_LIST['kinds_adjust']], self::texts($corr, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame([Words::INV_LIST['kind_adjust']], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[1]'));
-        self::assertSame([Words::INV_LIST['reason_lines']], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'));
+        // A correction's reason and net units (the Inventory board: "Count difference", "−12"; docs/decisions.md DG2): the reason when every
+        // line has the same one, the units signed by which way they go in all.
+        self::assertSame(['Damaged'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'));
+        self::assertSame(['−1'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[contains(@class, "chg") and contains(@class, "down")]'));
+        $mixed = $this->start($web, 'adjust');
+        self::assertSame(303, $web->post($mixed . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($mixed)->form($mixed . '/add', true))->status);
+        $other = $this->item('strict', 0, 'Psi pod 2ml');
+        self::assertSame(303, $web->post($mixed . '/add', ['q' => self::cw($other), 'qty' => '3', 'reason' => 'found'] + $web->get($mixed)->form($mixed . '/add', true))->status);
+        $corr = $web->get('/ui/stock/adjustments');
+        self::assertSame([Words::INV_LIST['reason_lines'], 'Damaged'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'), 'two reasons: on each line');
+        self::assertSame(['+2'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr[1]/td[contains(@class, "chg") and contains(@class, "up")]'), 'net +2');
         // A state chosen under More: the search keeps it, the choice of kind keeps it too.
         $drafts = $web->get('/ui/stock/in', ['state' => 'draft']);
         self::assertSame(['state'], self::attrs($drafts, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));

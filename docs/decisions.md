@@ -15551,3 +15551,9 @@ word, reason, units and way; a correction's reason "On each line"). It is a page
 `adjustments_all`, first): the sidebar's Adjustments opens it, as the board shows All kinds chosen; every kind's Show lists it first and
 keeps the filters. No create fold and no download of its own: the head's main button is the entry's "+ New adjustment" (the Corrections
 page's fold, `doc.ADJ.post`), each kind's page keeps its own CSV.
+
+**DG2. Corrections: the net units and the reason on the row** (CW-903; Inventory.dc.html's correction rows: "Count difference", "−12").
+`StockOps::list` also reads each record's net units (the signed sum of its lines, `net_units`) and the reason its lines share
+(`line_reason`: the label when every line carries the same reason code, else NULL). A correction's row says that reason, or "On each line"
+when its lines give more than one (or one has none); its units are the net change, "+N" green or "−N" red, plain "0" when it nets out
+(a cancellation record's lines are already the other way, so its sign is right). The other kinds are as before.

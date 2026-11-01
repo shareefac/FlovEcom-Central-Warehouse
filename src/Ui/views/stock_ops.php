@@ -84,7 +84,7 @@
         <td data-label="<?= $word('INV_LIST', 'col_to') ?>"><?= $e($r['to'] ?? '') ?></td>
 <?php else: ?>
         <td data-label="<?= $word('INV_LIST', 'col_kind') ?>"><?= $e($r['kind_word']) ?></td>
-        <td data-label="<?= $word('INV_LIST', 'col_reason') ?>"><?php if ($r['kind'] === 'adjust'): ?><span class="muted"><?= $word('INV_LIST', 'reason_lines') ?></span><?php else: ?><?= $e($r['why']) ?><?php endif; ?><?php if ($r['given'] !== null): ?><span class="o-sub"><?= $e($r['given']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('INV_LIST', 'col_reason') ?>"><?php if ($r['kind'] === 'adjust' && $r['why'] === ''): ?><span class="muted"><?= $word('INV_LIST', 'reason_lines') ?></span><?php else: ?><?= $e($r['why']) ?><?php endif; ?><?php if ($r['given'] !== null): ?><span class="o-sub"><?= $e($r['given']) ?></span><?php endif; ?></td>
 <?php endif; ?>
         <td data-label="<?= $word('INV_LIST', 'col_units') ?>" class="num chg<?php if ($r['units_dir'] !== ''): ?> <?= $e($r['units_dir']) ?><?php endif; ?>"><?= $e($r['units_shown']) ?></td>
       </tr>

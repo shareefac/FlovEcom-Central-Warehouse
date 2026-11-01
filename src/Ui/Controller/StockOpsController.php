@@ -760,6 +760,8 @@ final class StockOpsController
         $why = match ($kind) {
             'in', 'out' => (string) ($r['reason_label'] ?? ''),
             'release' => (string) ($r['account_name'] ?? $r['warehouse_entity'] ?? ''),
+            // a correction: the reason its lines share, else '' ("On each line"; DG2)
+            'adjust' => (string) ($r['line_reason'] ?? ''),
             default => '',
         };
         $next = match (true) {
@@ -772,6 +774,11 @@ final class StockOpsController
             default => Words::STOCK_OPS['next_stopped'],
         };
         $dir = self::unitsWay($kind, $r['reverses_id'] !== null);
+        $net = (int) ($r['net_units'] ?? 0);
+        if ($kind === 'adjust') {
+            // A correction's units are its net change, signed (the Inventory board's "−12", "+7"; docs/decisions.md DG2).
+            $dir = $net > 0 ? 'up' : ($net < 0 ? 'down' : '');
+        }
         return [
             'id' => (int) $r['id'], 'kind' => $kind, 'group' => $group, 'href' => StockOps::PATHS[$kind] . '/' . (int) $r['id'],
             'number_line' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
@@ -781,15 +788,16 @@ final class StockOpsController
             'tone' => $group === 'reversal' ? 'off' : Words::tone('DOC_STATUS', $status), 'state_word' => Words::of('DOC_STATUS', $status),
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => $r['priced'] === null ? null : (string) $r['priced'],
             'made_by' => (string) ($r['created_by_name'] ?? ''), 'next' => $next,
-            // The redesign's columns (docs/decisions.md RD-A5): the kind, the reason (an adjustment's are on its lines), the units with the way
+            // The redesign's columns (docs/decisions.md RD-A5, DG2): the kind, the reason (a correction's when its lines share one), the units with the way
             // they move (stock in: +, stock out: −; an adjustment's lines go both ways, a transfer or a release moves stock between rooms: no sign),
             // from and to. A cancellation record (reverses_id) moves them the other way: a stock in's takes them off (−), a stock out's puts them
             // back (+) (the fix round, docs/decisions.md RD-F4).
             'posted_at' => $r['posted_at'] === null ? null : (string) $r['posted_at'],
             'kind_word' => Words::INV_LIST['kind_' . $kind],
-            'units_shown' => match ($dir) {
-                'up' => '+' . Html::int((int) $r['units']),
-                'down' => '−' . Html::int((int) $r['units']),
+            'units_shown' => match (true) {
+                $kind === 'adjust' => ($net > 0 ? '+' : ($net < 0 ? '−' : '')) . Html::int(abs($net)),
+                $dir === 'up' => '+' . Html::int((int) $r['units']),
+                $dir === 'down' => '−' . Html::int((int) $r['units']),
                 default => Html::int((int) $r['units']),
             },
             'units_dir' => $dir,

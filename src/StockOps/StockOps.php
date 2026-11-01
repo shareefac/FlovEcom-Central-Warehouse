@@ -388,6 +388,10 @@ final class StockOps
             . 'w.owner_entity AS warehouse_entity, cb.display_name AS created_by_name, od.number AS reverses_number, '
             . '(SELECT COUNT(DISTINCT x.sku_id) FROM document_line x WHERE x.document_id = d.id) AS products, '
             . '(SELECT COALESCE(SUM(ABS(x.qty)), 0) FROM document_line x WHERE x.document_id = d.id) AS units, '
+            // a correction's net units and its one reason when every line gives the same (the Inventory board, docs/decisions.md DG2)
+            . '(SELECT COALESCE(SUM(x.qty), 0) FROM document_line x WHERE x.document_id = d.id) AS net_units, '
+            . '(SELECT IF(COUNT(DISTINCT x.reason_code) = 1 AND COUNT(x.reason_code) = COUNT(*), MIN(xr.label), NULL) FROM document_line x '
+            . 'LEFT JOIN reason_code xr ON xr.code = x.reason_code WHERE x.document_id = d.id) AS line_reason, '
             . '(SELECT SUM(ROUND(x.qty * x.unit_cost, 2)) FROM document_line x WHERE x.document_id = d.id AND x.unit_cost IS NOT NULL) AS priced, '
             . "(SELECT t.kind FROM review_task t WHERE t.subject_type = 'document' AND t.subject_id = d.id AND t.state = 'open' ORDER BY t.id LIMIT 1) AS open_task "
             . 'FROM document d LEFT JOIN stock_op op ON op.document_id = d.id LEFT JOIN warehouse w ON w.id = d.warehouse_id '
