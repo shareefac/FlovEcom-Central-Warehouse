@@ -380,6 +380,47 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(0, self::xp($look)->query('//section[contains(@class, "item-suppliers")] | //section[@id="card"]/div[@class="card-head"]/a')->length);
     }
 
+    /**
+     * The item page's Suppliers card has "+ Add" (the Item board's card head; docs/decisions.md DG3) for who manages suppliers: a fold with the
+     * supplier to choose (every supplier not stopped, by name) whose GET form opens that supplier's "add an item" form with this item
+     * chosen; nothing is saved until that form is sent. Who only looks at suppliers has no "+ Add"; a supplier that is not there is a 404.
+     */
+    public function testTheItemPageAddsASupplier(): void
+    {
+        $sku = $this->item('strict', 3, 'Elux Legend Mr Blue 10mg');
+        $buyer = $this->uiUser('buyer');
+        $sup = new Suppliers(self::$db);
+        $made = static fn (string $name): array => $sup->create(Caller::staff($buyer['id']), ['name' => $name, 'address_line1' => '2 Mill Lane', 'city' => 'Leeds',
+            'postcode' => 'M1 1AA', 'email' => 'sales@example.com', 'payment_terms' => '30 days']);
+        $b = $made('Bravo Vapes');
+        $a = $made('Alpha Liquids');
+        $off = $made('Old Supplier');
+        self::$db->exec("UPDATE supplier SET status = 'inactive', deactivated_at = NOW(6) WHERE id = ?", [(int) $off['id']]);
+
+        $web = $this->signIn($buyer);
+        $page = $web->get('/ui/items/' . $sku);
+        self::assertSame(200, $page->status, $page->describe());
+        $fold = '//section[contains(@class, "item-suppliers")]/details[contains(@class, "card-add")]';
+        self::assertSame(Words::ITEM_PAGE['add'], trim((string) self::xp($page)->evaluate('string(' . $fold . '/summary/text())')), '+ Add');
+        self::assertSame(['get'], self::attrs($page, $fold . '//form', 'method'));
+        self::assertSame(['/ui/items/' . $sku . '/add-supplier'], self::attrs($page, $fold . '//form', 'action'));
+        self::assertSame(['Alpha Liquids', 'Bravo Vapes'], self::texts($page, $fold . '//select[@name="supplier"]/option'), 'by name, not the stopped one');
+
+        $go = $web->get('/ui/items/' . $sku . '/add-supplier', ['supplier' => (string) $a['id']]);
+        self::assertSame(303, $go->status, $go->describe());
+        self::assertSame('/ui/purchasing/suppliers/' . $a['id'] . '/items/new?sku_id=' . $sku, $go->location());
+        $form = $web->follow($go);
+        self::assertSame(200, $form->status, $form->describe());
+        self::assertSame(1, self::xp($form)->query('//input[@name="sku_id" and @value="' . $sku . '" and @checked]')->length, 'the item is chosen');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM supplier_item WHERE sku_id = ?', [$sku]), 'nothing saved yet');
+        self::assertSame(404, $web->get('/ui/items/' . $sku . '/add-supplier', ['supplier' => '999999'])->status);
+        self::assertSame(404, $web->get('/ui/items/999999/add-supplier', ['supplier' => (string) $a['id']])->status);
+
+        $look = $this->signIn($this->uiUser('stock_controller'));
+        self::assertSame(0, self::xp($look->get('/ui/items/' . $sku))->query($fold)->length, 'who only looks: no + Add');
+        self::assertSame(403, $look->get('/ui/items/' . $sku . '/add-supplier', ['supplier' => (string) $a['id']])->status);
+    }
+
     // ------------------------------------------------------------------------------------------
     // The other Items and Inventory pages
     // ------------------------------------------------------------------------------------------

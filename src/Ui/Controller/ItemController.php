@@ -21,6 +21,7 @@ use CW\Ui\Duplicates;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
@@ -54,6 +55,23 @@ final class ItemController
 
     /** The weeks after which "lasts about N weeks" says "over a year" (a year's weeks: a fact of the calendar, not a setting). */
     private const YEAR_WEEKS = 52;
+
+    /**
+     * GET /ui/items/{id}/add-supplier?supplier=N (suppliers.manage; docs/decisions.md DG3): the Suppliers card's "+ Add" sends here; it opens
+     * that supplier's "add an item" form with this item chosen (SupplierItemsController::newForm reads `sku_id`). Saves nothing. An item or
+     * a supplier that is not there (or a stopped one) answers 404.
+     */
+    public function addSupplier(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $supplier = UiRequest::id($ctx->req->param('supplier'));
+        $ok = $ctx->db->value('SELECT 1 FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [$id]) !== null
+            && $supplier !== null && $ctx->db->value("SELECT 1 FROM supplier WHERE id = ? AND status <> 'inactive'", [$supplier]) !== null;
+        if (!$ok) {
+            return $ctx->error(404, 'unknown_supplier', Words::ERROR['unknown_item'], ['/ui/items/' . $id, Words::ITEM_PAGE['suppliers']]);
+        }
+        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $supplier . '/items/new', ['sku_id' => $id]));
+    }
 
     public function show(Context $ctx): HtmlResponse
     {
@@ -236,6 +254,9 @@ final class ItemController
                 : Words::say('ITEM_PAGE', 'box_of', $b['units'])], $barcodes),
             'supplierRows' => $suppliers === null ? null : array_values(array_filter($suppliers, static fn (array $r): bool => $r['active'])),
             'supplierRowsOff' => $suppliers === null ? [] : array_values(array_filter($suppliers, static fn (array $r): bool => !$r['active'])),
+            // "+ Add" on the Suppliers card (the Item board; docs/decisions.md DG3): every supplier not stopped, by name, for who manages them.
+            'supplierChoices' => $suppliers !== null && $ctx->me()->can('suppliers.manage')
+                ? $ctx->db->all("SELECT id, name FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : null,
             // Pack B: the family and pack box, and its refusals in its words.
             'groups' => $groupVars,
             'error' => $error === null ? null : (isset(Words::ITEMS_ERROR[$error->errorCode]) ? FamiliesController::plain($error) : ItemCardsController::plain($error)),

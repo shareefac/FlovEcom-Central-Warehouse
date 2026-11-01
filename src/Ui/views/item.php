@@ -468,6 +468,20 @@
 <?php if ($supplierRows !== null): ?>
 <section class="card side-card item-suppliers" aria-labelledby="sp-h">
   <div class="card-head"><h2 id="sp-h"><?= $word('ITEM_PAGE', 'suppliers') ?></h2></div>
+<?php if ($supplierChoices !== null && $supplierChoices !== []): ?>
+  <details class="card-add">
+    <summary class="card-link"><?= $word('ITEM_PAGE', 'add') ?><span class="visually-hidden"> <?= $word('ITEM_PAGE', 'add_supplier') ?></span></summary>
+  <form class="add-supplier" method="get" action="<?= $u('/ui/items/' . $sku['id'] . '/add-supplier') ?>">
+    <label for="new-supplier"><?= $word('ITEM_PAGE', 'add_supplier') ?></label>
+    <select id="new-supplier" name="supplier">
+<?php foreach ($supplierChoices as $sc): ?>
+      <option value="<?= $e($sc['id']) ?>"><?= $e($sc['name']) ?></option>
+<?php endforeach; ?>
+    </select>
+    <button class="btn" type="submit"><?= $word('ITEM_PAGE', 'add_supplier_go') ?></button>
+  </form>
+  </details>
+<?php endif; ?>
 <?php if ($supplierRows === [] && $supplierRowsOff === []): ?>
   <p class="muted side-row"><?= $word('ITEM_PAGE', 'no_suppliers') ?></p>
 <?php endif; ?>

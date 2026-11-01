@@ -15557,3 +15557,10 @@ page's fold, `doc.ADJ.post`), each kind's page keeps its own CSV.
 (`line_reason`: the label when every line carries the same reason code, else NULL). A correction's row says that reason, or "On each line"
 when its lines give more than one (or one has none); its units are the net change, "+N" green or "−N" red, plain "0" when it nets out
 (a cancellation record's lines are already the other way, so its sign is right). The other kinds are as before.
+
+**DG3. The item page: "+ Add" on Suppliers** (CW-904; Item.dc.html's Suppliers card head). For who manages suppliers (`suppliers.manage`):
+the card's "+ Add" is a fold (as Barcodes' "+ Add") with one choice, the supplier (every supplier not stopped, by name), and Next: a GET
+form to `/ui/items/{id}/add-supplier?supplier=N`, which opens that supplier's own "add an item" form with this item chosen
+(`SupplierItemsController::newForm` reads `sku_id`), where the box, price and the rest are typed and saved as before. Nothing is saved by
+the fold or the redirect. An item that is not there (or joined away), a supplier that is not there or is stopped: 404. Who only looks
+at suppliers sees the card without "+ Add"; the route refuses them (403).

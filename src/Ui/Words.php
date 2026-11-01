@@ -2311,6 +2311,8 @@ final class Words
 
     /** The item page on the approved redesign of 30 Oct 2026 (artboard Item; docs/decisions.md RD-A4): one page in sections, no tab row. */
     public const ITEM_PAGE = [
+        'add_supplier' => 'Supplier', // the Suppliers card's "+ Add" (DG3): the supplier to add this item to
+        'add_supplier_go' => 'Next',
         'more' => 'More',
         'stock' => 'Stock',
         'sells_week' => 'Sells about %s a week',

@@ -482,6 +482,8 @@ final class Kernel
         $r->add('GET', '/ui/review/samples', 'linking.view', $samples->index(...));
         $r->add('GET', '/ui/review/samples/{id}', 'linking.view', $samples->show(...));
         $r->add('GET', '/ui/items/{id}', 'catalogue.view', $items->show(...));
+        // The Suppliers card's "+ Add" (docs/decisions.md DG3): opens the chosen supplier's "add an item" form with this item chosen.
+        $r->add('GET', '/ui/items/{id}/add-supplier', 'suppliers.manage', $items->addSupplier(...));
         $r->add('GET', '/ui/search', 'catalogue.view', $search->index(...));
         // The item card and barcodes (IM3, I100-I112): everyone with catalogue.view reads the cards list and the item page; the
         // catalogue team (catalogue.edit, checked again by CW\Catalogue\*, never admin) changes cards, barcodes and decides the
