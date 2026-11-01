@@ -78,7 +78,7 @@ final class QueueListPlansTest extends IntegrationTestCase
     public function testTheGatheredReadsOfTheCorrectionsListKeepToTheirIndexes(): void
     {
         [, $main, $sku] = $this->fill();
-        foreach (['count_review', 'stock_ledger', 'stock_balance'] as $t) {
+        foreach (['count_review', 'stock_ledger', 'stock_balance', 'audit_log'] as $t) {
             self::$db->all("ANALYZE TABLE {$t}");
         }
         $other = (int) self::$db->value('SELECT sku_id FROM stock_balance WHERE warehouse_id = ? AND sku_id <> ? ORDER BY sku_id LIMIT 1', [$main, $sku]);
@@ -91,6 +91,8 @@ final class QueueListPlansTest extends IntegrationTestCase
             'confirmed of items' => [sprintf(Corrections::CONFIRMED_SQL, $two), ['erp_reconciliation', $sku, $main, $other, $main], 'count_review', 'ix_count_review_sku', ['range', 'ref']],
             'balances' => [sprintf(Corrections::BALANCE_SQL, $two), [$main, $sku, $main, $other], 'stock_balance', 'PRIMARY', ['range', 'eq_ref', 'const']],
             'fixes of items' => [sprintf(Corrections::FIX_SQL, $two), [$main, $sku, $main, $other, Corrections::FIX_PREFIX . '%'], 'stock_ledger', 'ix_stock_ledger_balance', ['range']],
+            // CA25: the moment of the last fix, from the audit log's entity index (read once, before any ledger read for rule f).
+            'last fix' => [Corrections::LATEST_FIX_SQL, ['movement', Corrections::FIX_PREFIX . '%'], 'audit_log', 'ix_audit_entity', ['range']],
         ];
         $out = [];
         foreach ($plans as $name => [$sql, $params, $table, $index, $types]) {

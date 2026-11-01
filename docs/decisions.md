@@ -15317,3 +15317,51 @@ id = its doc_ref, and its key `<doc_ref>:<item>` names the item: one indexed que
 **CA21. Not changed.** The other findings' parts the review confirmed (the same key and request as one by one, the lock order, the done
 page's access) stay as built. Tests: the four files of CA12 plus `ConfirmAllUnitTest` (the signature's binding, the time bounds),
 `Migration0054Test`, `ConfirmAllTest` and `ConfirmAllScreensTest` (new and updated cases above).
+
+## "Confirm all ready": the Codex re-review of 557cf03, 2 MEDIUM and 2 LOW, each shown failing first (branch `confirm-all`, third commit, 1 Nov 2026; CA22-CA26)
+
+The owner, 1 Nov 2026: "Fix CW-110 first". The re-review (`runs/ca2_codex_review.txt`, its last block) found the three HIGH of the first
+review FIXED; the four below remained. Each fix is pinned by a test that failed on 557cf03 (`runs/ca3_failfirst_557cf03.log`).
+
+**CA22. A stopped press claims only what it booked** (MEDIUM 1). Each confirmation a press books carries the press's run id on its row,
+written in its booking's own transaction: `count_review.detail.booked.run` (beside `delta` and `at`, which confirm() already writes there;
+the audit log stays append-only). The run id is not part of the key's stored request (`{id, note}`), so a one-by-one click on the record
+afterwards still replays. `Corrections::run()` builds a stopped press (no end row) from these marks only: the ids carrying its run id are
+"confirmed", with what they booked; every other id of the press is "Not reached, or answered elsewhere: open it to see" (`not_reached_or_elsewhere`),
+whoever answered it and with whatever note. A finished press keeps reading its end row. Test, Codex's case: 41 confirmed one by one, the
+press (same person, same note) stops before its first id, 42 confirmed one by one after: the stopped press shows nothing confirmed, nothing
+booked. A press's booking carries its mark, a one-by-one booking none, and a click on the record after the press replays.
+
+**CA23. One deadline for the whole press** (MEDIUM 2). The press has one deadline, `BULK_SECONDS` (40 s) from its start (by its clock, which
+tests move). The ids and all their waits end `BULK_FINAL_SECONDS` (5 s) before it, and the end runs in that reserve. Before each id, and again
+at the start of every try of it inside confirm()'s transaction (the first try, and a retry after a deadlock, which `Db::transaction()`
+makes), the press works out what is left until then and gives each of the `BULK_WAITS` (8) waits one confirmation may meet (its key, its
+queue row, its balance, the item's row, the limit's setting, the value clock, the feed clock, one to spare) an equal share, at most
+`BULK_LOCK_WAIT` (5 s): the session's `innodb_lock_wait_timeout` and the key's wait are set to it. When that is less than a second each, the
+id is not started (or the try is stopped with `out_of_time`, before it books anything: "Not reached: run it again"). So no try runs past
+the ids' time, and no retry is made after it; one-by-one confirmations are unchanged (no deadline outside a press). The end: the list of
+what needs a look now is read with `max_execution_time` set to what is left until the deadline; if it does not fit it is left out of the
+end row (`unlisted`), and the end row is always written. Tests: a deadlock whose retry would come after the deadline (the retry starts,
+sees it and stops: the id rolled back whole and left "not reached", the next not started, the end row written), and each wait's share as
+the time goes down (4 s at the start, 1 s at 25 s, nothing started at 28 s).
+
+**CA24. The session comes back exactly** (LOW 3). The session's `innodb_lock_wait_timeout` and `max_execution_time` are read before the press
+changes them and set back to exactly those values in a `finally` (a press that ends, one refused, one stopped by an error), not
+`max(1, ...)`. Tests: a session whose wait reads 0 (scripted: the server keeps at least 1) gets 0 back, after a press that ends and one that
+stops; on the server, a session at 50 is at 50 again after both.
+
+**CA25. Rule f reads the ledger only when it can apply** (LOW 4). No schema change, no `stock_ledger` index. `facts()` first reads when the
+last one-time stock fix was booked, once per call (once per list or check page; once per booking, inside its transaction, so it is never
+older than the booking), from the audit log's existing entity index: `SELECT MAX(created_at) FROM audit_log FORCE INDEX (ix_audit_entity)
+WHERE entity_type = 'movement' AND entity_id LIKE 'listening-fix:%'` (`LATEST_FIX_SQL`): every fix booking (the fix tool books through
+`Movements::record()`) writes that audit row in its own transaction, after its ledger row, so the audit time is never earlier than the
+ledger's. A correction made at or after that moment cannot have been made before a fix: its ledger is not read for rule f. The ledger is
+still read, as before, for the corrections made before it. The guard relies on every listening-fix booking going through
+`Movements::record()` (the fix tool does; nothing else writes that doc_ref). Tests: with every open correction newer than the last fix,
+the list and the press read no ledger row for rule f; a correction made before it is read and left as "fixed"; the plan of the audit read
+is a range on `ix_audit_entity`.
+
+**CA26. Tests.** `ConfirmAllTest`: `testAStoppedPressClaimsOnlyWhatItBooked`, `testADeadlockRetryPastTheDeadlineIsNotTriedAndThePressEndsWhole`,
+`testEachWaitGetsItsShareOfTheTimeLeft`, `testTheSessionsLockWaitIsGivenBackExactly`, `testRuleFReadsTheLedgerOnlyForCorrectionsMadeBeforeTheLastFix`,
+and the deadline test on a clock the test moves (the number of clock calls per id changed); `QueueListPlansTest` (the last fix's plan);
+`ConfirmAllUnitTest` (the bounds, the new reason's words); `tests/Support/ScriptedStatement.php` (a scripted answer, for the 0 case).

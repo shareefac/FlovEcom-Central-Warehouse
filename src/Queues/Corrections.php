@@ -51,15 +51,21 @@ final class Corrections
     /** The most open corrections Confirm all reads and confirms in one press, the oldest first; the rest wait for the next press (CA6). */
     public const BULK_MAX = 500;
     /**
-     * The longest one press takes, in seconds (the UI pool stops a page at 50; CA6, CA15): no id is started after BULK_SECONDS - 2 x
-     * BULK_LOCK_WAIT - BULK_FINAL_SECONDS (25 s), so the id under way (its key's wait and one lock wait, at most BULK_LOCK_WAIT each) and
-     * the end (what needs a look now, the end row) still fit; the ids not started are "not reached".
+     * The press's one deadline, in seconds (the UI pool stops a page at 50; CA6, CA15, CA23): the ids and all their waits end
+     * BULK_FINAL_SECONDS before it, the end (what needs a look now, the end row) in that reserve. An id is started only while the time
+     * left for the ids gives each of the BULK_WAITS waits it may meet at least a second; each wait then gets its share of that time, at
+     * most BULK_LOCK_WAIT seconds, set again before every try (a retry after a deadlock too, which is not made once the time is gone).
      */
     public const BULK_SECONDS = 40;
-    /** How long a press waits for one lock or one key before it leaves that id (its session's innodb_lock_wait_timeout; CA15). */
+    /** The longest one lock or key wait of a press (CA15, CA23). */
     public const BULK_LOCK_WAIT = 5;
-    /** The time kept for the end of a press (CA15). */
+    /** The time kept for the end of a press (CA15, CA23). */
     public const BULK_FINAL_SECONDS = 5;
+    /**
+     * The most lock waits one confirmation may meet (CA23): its key, its queue row, its balance, the item's row, the limit's setting, the
+     * value clock, the feed clock, and one to spare.
+     */
+    public const BULK_WAITS = 8;
     /** The setting of the big-change rule (0054; CA3), and what is used while it is not there yet. */
     public const BIG_SETTING = 'relay.correction_bulk_max_units';
     public const BIG_DEFAULT = 100;
@@ -79,6 +85,8 @@ final class Corrections
     public const BALANCE_SQL = 'SELECT warehouse_id, sku_id, on_hand, counted_at FROM stock_balance WHERE (warehouse_id, sku_id) IN (%s)';
     public const FIX_SQL = 'SELECT warehouse_id, sku_id, MAX(created_at) AS at FROM stock_ledger FORCE INDEX (ix_stock_ledger_balance) '
         . "WHERE (warehouse_id, sku_id) IN (%s) AND bucket = 'on_hand' AND movement_type = 'adjustment' AND doc_ref LIKE ? GROUP BY warehouse_id, sku_id";
+    /** When the last one-time stock fix was booked (CA25): its bookings' audit rows (entity movement, id = its doc_ref), by their index. */
+    public const LATEST_FIX_SQL = 'SELECT MAX(created_at) FROM audit_log FORCE INDEX (ix_audit_entity) WHERE entity_type = ? AND entity_id LIKE ?';
 
     /** The audit row of one press of Confirm all, written before its first id (CA7, CA15): its id is the done page's. */
     public const RUN_ACTION = 'count_review.confirm_all';
@@ -87,8 +95,12 @@ final class Corrections
 
     /** @var \Closure(): float seconds (a press's deadline; tests move it) */
     private \Closure $clock;
-    /** How long a confirmation waits for its key (Idempotency): the default, or BULK_LOCK_WAIT while a press runs (CA15). */
+    /** How long a confirmation waits for its key (Idempotency): the default, or its share of the time while a press runs (CA15, CA23). */
     private int $keyWait = Idempotency::KEY_LOCK_WAIT_SEC;
+    /** While a press runs: the moment (by $clock) its ids' work must end, the longest one wait, and the press (its run row) (CA22, CA23). */
+    private ?float $deadline = null;
+    private int $bulkWait = self::BULK_LOCK_WAIT;
+    private ?int $press = null;
 
     /** @param (\Closure(): float)|null $clock seconds, for the press's deadline (default: the monotonic clock) */
     public function __construct(private readonly Db $db, ?\Closure $clock = null)
@@ -296,8 +308,18 @@ final class Corrections
         // Who first (and again inside): a person without the job hears that, not what the key stored for someone else's answer.
         QueueRules::authorise($this->db, $caller, self::PERM);
         $key = self::KEY . $id;
+        // The press this confirmation belongs to (CA22): marked on what it books, never part of the key's request (a replay still matches).
+        $press = $this->press;
         $r = (new Idempotency($this->db, $this->keyWait))->run($caller, $key, 'queue.correction.confirm', '/ui/queues/corrections/' . $id, ['id' => $id, 'note' => $note],
-            self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $note, $key, $whenReady): OpResult {
+            self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $note, $key, $whenReady, $press): OpResult {
+                if ($this->deadline !== null) {
+                    // CA23: a press's try (the first, or one after a deadlock) starts only with time left for all its waits, each its share.
+                    $wait = $this->share($this->deadline);
+                    if ($wait === null) {
+                        throw new CwException('out_of_time', 'the press has no time left for this one: run it again', 409);
+                    }
+                    $db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
+                }
                 QueueRules::authorise($db, $caller, self::PERM);
                 $row = QueueRules::lockOpen($db, self::TABLE, $id, 'source = ?', [self::SOURCE]);
                 $d = json_decode((string) ($row['detail'] ?? '{}'), true);
@@ -339,8 +361,13 @@ final class Corrections
                     $bookedAt = (string) $db->value("SELECT created_at FROM stock_ledger FORCE INDEX (ix_stock_ledger_balance) WHERE warehouse_id = ? AND sku_id = ? "
                         . "AND bucket = 'on_hand' ORDER BY id DESC LIMIT 1", [(int) $row['warehouse_id'], (int) $row['sku_id']]);
                 }
-                $db->exec("UPDATE count_review SET detail = JSON_SET(COALESCE(detail, JSON_OBJECT()), '$.booked', JSON_OBJECT('delta', ?, 'at', ?)) WHERE id = ?",
-                    [$e['delta'], $bookedAt, $id]);
+                if ($press === null) {
+                    $db->exec("UPDATE count_review SET detail = JSON_SET(COALESCE(detail, JSON_OBJECT()), '$.booked', JSON_OBJECT('delta', ?, 'at', ?)) WHERE id = ?",
+                        [$e['delta'], $bookedAt, $id]);
+                } else {
+                    $db->exec("UPDATE count_review SET detail = JSON_SET(COALESCE(detail, JSON_OBJECT()), '$.booked', JSON_OBJECT('delta', ?, 'at', ?, 'run', ?)) WHERE id = ?",
+                        [$e['delta'], $bookedAt, $press, $id]);
+                }
                 Audit::write($db, $caller, 'count_review.confirm', self::TABLE, (string) $id, $key, ['ref' => $row['ref'], 'at' => $at,
                     'units' => (int) $row['proposed_qty'], 'note' => $note] + $e);
                 return OpResult::of(200, ['result' => $e['delta'] === 0 ? 'no_difference' : 'booked', 'id' => $id, 'delta' => $e['delta'], 'on_hand' => $onHand]);
@@ -438,6 +465,11 @@ final class Corrections
      */
     public static function facts(Db $db, array $rows): array
     {
+        // CA25 (Codex re-review LOW 4): when the last one-time stock fix was booked, read once from the audit log's entity index (each fix
+        // booking writes its audit row in its own transaction, after its ledger row: entity movement, id = its doc_ref). A correction made
+        // at or after that moment cannot be "made before a fix": its ledger is not read for rule f; the others' still is.
+        $lastFix = $rows === [] ? null : $db->value(self::LATEST_FIX_SQL, ['movement', self::FIX_PREFIX . '%']);
+        $lastFix = $lastFix === null ? null : (string) $lastFix;
         $out = [];
         foreach (array_chunk($rows, 200) as $chunk) {
             $pairs = [];
@@ -458,8 +490,17 @@ final class Corrections
                 $links[(int) $l['sku_id']][(int) $l['channel_id']] = (int) $l['n'];
             }
             $fixed = [];
-            foreach ($db->all(sprintf(self::FIX_SQL, $in), [...$flat, self::FIX_PREFIX . '%']) as $f) {
-                $fixed[(int) $f['warehouse_id'] . ':' . (int) $f['sku_id']] = (string) $f['at'];
+            $before = [];
+            foreach ($chunk as $r) {
+                if ($lastFix !== null && (string) ($r['at'] ?? self::at($r)) < $lastFix) {
+                    $before[(int) $r['warehouse_id'] . ':' . (int) $r['sku_id']] = [(int) $r['warehouse_id'], (int) $r['sku_id']];
+                }
+            }
+            if ($before !== []) {
+                foreach ($db->all(sprintf(self::FIX_SQL, implode(', ', array_fill(0, count($before), '(?, ?)'))), [...array_merge(...array_values($before)),
+                    self::FIX_PREFIX . '%']) as $f) {
+                    $fixed[(int) $f['warehouse_id'] . ':' . (int) $f['sku_id']] = (string) $f['at'];
+                }
             }
             foreach ($chunk as $r) {
                 $k = (int) $r['warehouse_id'] . ':' . (int) $r['sku_id'];
@@ -478,16 +519,21 @@ final class Corrections
     }
 
     /**
-     * One press of "Confirm all ready" (CA5-CA7, CA15): each id of the check page, in its order, confirmed exactly as one by one (confirm():
-     * the same caller, key, request, ledger line and audit rows) when it is still READY at that moment, under its locks ($whenReady). Any
-     * refusal (it changed: counted, confirmed or closed by someone, a rule applies now) or a database failure of that one id (rolled back
-     * whole by its own transaction) leaves it for a person, nothing of it booked, and the rest go on.
+     * One press of "Confirm all ready" (CA5-CA7, CA15, CA22-CA24): each id of the check page, in its order, confirmed exactly as one by one
+     * (confirm(): the same caller, key, request, ledger line and audit rows) when it is still READY at that moment, under its locks
+     * ($whenReady). Any refusal (it changed: counted, confirmed or closed by someone, a rule applies now) or a database failure of that one
+     * id (rolled back whole by its own transaction) leaves it for a person, nothing of it booked, and the rest go on.
      *
-     * The press is saved FIRST, as its run row (RUN_ACTION: who, when, the note, the ids it was given; the done page's id), so a press that
-     * stops half way still shows what it booked (run()); its end row (RUN_END_ACTION) after the last id says what it did. While it runs, a
-     * lock or a key is waited for at most $lockWait seconds (its session's innodb_lock_wait_timeout, the key's wait), then that id is left;
-     * no id is started after $maxSeconds - 2 x $lockWait - BULK_FINAL_SECONDS, nor after $maxIds ids: the rest are "not reached: run it
-     * again". A second press of the same page books nothing again: each id's key replays its first answer.
+     * The press is saved FIRST, as its run row (RUN_ACTION: who, when, the note, the ids it was given; the done page's id); each confirmation
+     * it books carries the run's id (count_review.detail.booked.run, in its own transaction), so a press that stops half way shows exactly
+     * what it booked (run()); its end row (RUN_END_ACTION) after the last id says what it did.
+     *
+     * Time (CA23): one deadline, $maxSeconds from the start. The ids and their waits end BULK_FINAL_SECONDS before it; an id, and every try
+     * of it (a retry after a deadlock too), starts only while that time gives each of its BULK_WAITS waits a second, and its key's wait and
+     * the session's lock wait are its share of what is left (at most $lockWait). The rest are "not reached: run it again". The end (what needs
+     * a look now, the end row) runs in the reserve: the list's reads are stopped at the deadline (max_execution_time) and left out of the end
+     * row if they are, never the end row. The session's lock wait and statement time come back exactly as they were, however the press ends.
+     * A second press of the same page books nothing again: each id's key replays its first answer.
      *
      * @param list<int> $ids
      * @return array{run: int, confirmed: list<int>, left: list<array{id: int, why: array<string, mixed>}>}
@@ -499,33 +545,42 @@ final class Corrections
         QueueRules::authorise($this->db, $caller, self::PERM);
         $ids = array_values(array_unique(array_map('intval', $ids)));
         $started = ($this->clock)();
+        $deadline = $started + $maxSeconds;
+        $workUntil = $deadline - self::BULK_FINAL_SECONDS;
         Audit::write($this->db, $caller, self::RUN_ACTION, self::TABLE, null, null, ['state' => 'running', 'note' => $note, 'asked' => count($ids), 'ids' => $ids]);
         $run = (int) $this->db->value('SELECT LAST_INSERT_ID()');
-        $lockWait = max(1, $lockWait);
-        $startBy = $maxSeconds - 2 * $lockWait - self::BULK_FINAL_SECONDS;
         $confirmed = [];
         $replayed = [];
         $left = [];
         $booked = 0;
         $added = 0;
         $taken = 0;
-        $before = (int) $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
-        $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $lockWait);
-        $this->keyWait = $lockWait;
+        // The session as it was (CA24): given back exactly, on every way out.
+        $waitWas = (int) $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+        $timeWas = (int) $this->db->value('SELECT @@SESSION.max_execution_time');
         try {
+            $this->bulkWait = max(1, $lockWait);
+            $this->press = $run;
             foreach ($ids as $i => $id) {
-                if ($i >= $maxIds || ($this->clock)() - $started >= $startBy) {
+                $wait = $i < $maxIds ? $this->share($workUntil) : null;
+                if ($wait === null) {
                     $left[] = ['id' => $id, 'why' => ['code' => 'not_reached']];
                     continue;
                 }
+                $this->keyWait = $wait;
+                $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
+                $this->deadline = $workUntil;
                 try {
                     $r = $this->confirm($caller, $id, $note, true);
                 } catch (\RuntimeException $e) {
-                    // CwException (a refusal) or a database failure of this one (a lock waited for too long, a deadlock given up, a
-                    // statement that failed): its own transaction rolled it back whole; it is left and listed, the rest go on.
+                    // CwException (a refusal, or no time left for its try) or a database failure of this one (a lock waited for too long, a
+                    // deadlock given up, a statement that failed): its own transaction rolled it back whole; it is left, the rest go on.
+                    $code = $e instanceof CwException ? $e->errorCode : 'failed';
                     $now = $e instanceof CwException && is_array($e->detail['reason'] ?? null) ? ['now' => $e->detail['reason']] : [];
-                    $left[] = ['id' => $id, 'why' => ['code' => 'changed', 'error' => $e instanceof CwException ? $e->errorCode : 'failed'] + $now];
+                    $left[] = ['id' => $id, 'why' => ['code' => $code === 'out_of_time' ? 'not_reached' : 'changed', 'error' => $code] + $now];
                     continue;
+                } finally {
+                    $this->deadline = null;
                 }
                 $confirmed[] = $id;
                 if ($r['replayed']) {
@@ -536,25 +591,50 @@ final class Corrections
                 $added += max(0, $r['delta']);
                 $taken += max(0, -$r['delta']);
             }
-        } finally {
-            $this->keyWait = Idempotency::KEY_LOCK_WAIT_SEC;
-            $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . max(1, $before));
-        }
-        $listed = array_column($left, 'id');
-        foreach ($this->readiness() as $r) {
-            if ($r['why'] !== null && !in_array((int) $r['id'], $listed, true)) {
-                $left[] = ['id' => (int) $r['id'], 'why' => $r['why']];
+            // The end, in its reserve: the list's reads stop at the deadline; the end row is always written.
+            $this->press = null;
+            $this->db->exec('SET SESSION innodb_lock_wait_timeout = 1');
+            $this->db->exec('SET SESSION max_execution_time = ' . max(1000, (int) floor(($deadline - ($this->clock)()) * 1000)));
+            $unlisted = false;
+            try {
+                $listed = array_column($left, 'id');
+                foreach ($this->readiness() as $r) {
+                    if ($r['why'] !== null && !in_array((int) $r['id'], $listed, true)) {
+                        $left[] = ['id' => (int) $r['id'], 'why' => $r['why']];
+                    }
+                }
+            } catch (\RuntimeException) {
+                $unlisted = true; // the list of what needs a look now did not fit: the end row says so, Approvals lists them
             }
+            Audit::write($this->db, $caller, self::RUN_END_ACTION, self::TABLE, 'confirm_all:' . $run, null, ['state' => 'finished', 'run' => $run,
+                'confirmed' => $confirmed, 'replayed' => $replayed, 'booked' => $booked, 'units_added' => $added, 'units_taken' => $taken, 'left' => $left]
+                + ($unlisted ? ['unlisted' => true] : []));
+        } finally {
+            $this->press = null;
+            $this->deadline = null;
+            $this->keyWait = Idempotency::KEY_LOCK_WAIT_SEC;
+            $this->bulkWait = self::BULK_LOCK_WAIT;
+            $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $waitWas);
+            $this->db->exec('SET SESSION max_execution_time = ' . $timeWas);
         }
-        Audit::write($this->db, $caller, self::RUN_END_ACTION, self::TABLE, 'confirm_all:' . $run, null, ['state' => 'finished', 'run' => $run,
-            'confirmed' => $confirmed, 'replayed' => $replayed, 'booked' => $booked, 'units_added' => $added, 'units_taken' => $taken, 'left' => $left]);
         return ['run' => $run, 'confirmed' => $confirmed, 'left' => $left];
     }
 
     /**
-     * A press as saved (CA15): its run row (who, when, the note, the ids it was given) with its end row (`finished`: what it did); a press
-     * that stopped before its end (`stopped`: no end row) as the queue shows it: the ids of the press confirmed by its person with its note,
-     * the rest not reached. null: no such press.
+     * One wait's share of the time left until $until (CA23): that time shared by the BULK_WAITS waits one confirmation may meet, at most the
+     * press's longest wait; null when that is less than a second each (nothing more is started).
+     */
+    private function share(float $until): ?int
+    {
+        $left = $until - ($this->clock)();
+        return $left < self::BULK_WAITS ? null : max(1, min($this->bulkWait, (int) floor($left / self::BULK_WAITS)));
+    }
+
+    /**
+     * A press as saved (CA15, CA22): its run row (who, when, the note, the ids it was given) with its end row (`finished`: what it did); a
+     * press that stopped before its end (`stopped`: no end row) as its own marks show it: the ids whose booking carries this run's id
+     * (count_review.detail.booked.run, written in the booking's transaction), the rest "not reached, or answered elsewhere". null: no such
+     * press.
      *
      * @return array{id: int, staff_user_id: ?int, created_at: string, state: string, note: string, asked: int, confirmed: list<int>, replayed: list<int>,
      *               booked: int, units_added: int, units_taken: int, left: list<array{id: int, why: array<string, mixed>}>}|null
@@ -580,20 +660,25 @@ final class Corrections
                 'units_added' => (int) ($e['units_added'] ?? 0), 'units_taken' => (int) ($e['units_taken'] ?? 0),
                 'left' => array_map(static fn (array $l): array => ['id' => (int) $l['id'], 'why' => is_array($l['why'] ?? null) ? $l['why'] : []], $left)];
         }
-        // Stopped before its end: what the queue shows of its ids.
+        // Stopped before its end: what its own marks show (CA22). A confirmation of one of its ids made otherwise (one by one, another press)
+        // carries no mark of this run, whoever made it and with whatever note.
         $ids = $ints($s['ids'] ?? []);
-        $done = [];
-        if ($ids !== [] && $out['staff_user_id'] !== null) {
+        $mine = [];
+        if ($ids !== []) {
             foreach ($this->db->all('SELECT id, CAST(detail AS CHAR) AS detail FROM count_review WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ") "
-                . "AND source = ? AND status = 'resolved' AND resolved_by = ? AND note = ?", [...$ids, self::SOURCE, $out['staff_user_id'], $out['note']]) as $r) {
+                . "AND source = ? AND status = 'resolved'", [...$ids, self::SOURCE]) as $r) {
                 $d = json_decode((string) $r['detail'], true);
-                $done[(int) $r['id']] = (int) (is_array($d) && is_array($d['booked'] ?? null) ? ($d['booked']['delta'] ?? 0) : 0);
+                $b = is_array($d) && is_array($d['booked'] ?? null) ? $d['booked'] : [];
+                if (isset($b['run']) && (int) $b['run'] === $runId) {
+                    $mine[(int) $r['id']] = (int) ($b['delta'] ?? 0);
+                }
             }
         }
-        $confirmed = array_values(array_filter($ids, static fn (int $id): bool => isset($done[$id])));
-        return $out + ['state' => 'stopped', 'confirmed' => $confirmed, 'replayed' => [], 'booked' => count(array_filter($done)),
-            'units_added' => array_sum(array_map(static fn (int $d): int => max(0, $d), $done)), 'units_taken' => array_sum(array_map(static fn (int $d): int => max(0, -$d), $done)),
-            'left' => array_values(array_map(static fn (int $id): array => ['id' => $id, 'why' => ['code' => 'not_reached']], array_filter($ids, static fn (int $id): bool => !isset($done[$id]))))];
+        return $out + ['state' => 'stopped', 'confirmed' => array_values(array_filter($ids, static fn (int $id): bool => isset($mine[$id]))), 'replayed' => [],
+            'booked' => count(array_filter($mine)), 'units_added' => array_sum(array_map(static fn (int $d): int => max(0, $d), $mine)),
+            'units_taken' => array_sum(array_map(static fn (int $d): int => max(0, -$d), $mine)),
+            'left' => array_values(array_map(static fn (int $id): array => ['id' => $id, 'why' => ['code' => 'not_reached_or_elsewhere']],
+                array_filter($ids, static fn (int $id): bool => !isset($mine[$id]))))];
     }
 
     /** The moment ERPNext set the number: the relayed posted_at, else when CW received it (the database's form). @param array<string, mixed> $row */

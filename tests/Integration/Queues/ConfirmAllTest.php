@@ -11,6 +11,7 @@ use CW\Db;
 use CW\Movements;
 use CW\Queues\Corrections;
 use CW\Relay\RelayIntake;
+use CW\Tests\Support\ScriptedStatement;
 use CW\Tests\Support\StatementHook;
 use CW\Tests\Support\StockTestCase;
 use CW\Tests\Support\TestDb;
@@ -498,6 +499,29 @@ final class ConfirmAllTest extends StockTestCase
         unset($second);
     }
 
+    /** A clock the test moves ($now), that stops the press with an \Error once $die is set (the worker killed). */
+    private static function clock(float &$now, bool &$die): \Closure
+    {
+        return static function () use (&$now, &$die): float {
+            if ($die) {
+                throw new \Error('the worker was stopped');
+            }
+            return $now;
+        };
+    }
+
+    /** Runs $fn, with $then run once right after the first stock line of the press is written (inside its booking). */
+    private static function afterFirstBooking(\Closure $then, \Closure $fn): mixed
+    {
+        $done = false;
+        return self::hooked(static function (string $sql) use ($then, &$done): void {
+            if (!$done && str_starts_with(ltrim($sql), 'UPDATE count_review SET detail = JSON_SET')) {
+                $done = true;
+                $then();
+            }
+        }, $fn);
+    }
+
     /** CA15 (Codex MEDIUM 4): the press stops starting ids at its deadline; it is saved first, so a press that stops shows what it booked. */
     public function testThePressStopsStartingIdsAtItsDeadlineAndAStoppedPressShowsWhatItBooked(): void
     {
@@ -506,13 +530,14 @@ final class ConfirmAllTest extends StockTestCase
         $this->stocked(1, 'D2');
         $d1 = $this->correction('D1', 3);
         $d2 = $this->correction('D2', 3);
-        // The clock: the start, the first id at 0 s, the second at 100 s: past the deadline.
-        $times = [0.0, 0.0, 100.0];
-        $clock = static function () use (&$times): float {
-            return count($times) > 1 ? array_shift($times) : $times[0];
-        };
+        // The clock: 0 s until the first id is booked, then 100 s: past the deadline before the second.
+        $now = 0.0;
+        $die = false;
         $before = self::lockWait(self::$db);
-        $run = (new Corrections(self::$db, $clock))->confirmAll($controller, [$d1, $d2], 'until the deadline');
+        $clock = self::clock($now, $die); // made here: an arrow function would hold copies of $now and $die
+        $run = self::afterFirstBooking(static function () use (&$now): void {
+            $now = 100.0;
+        }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, [$d1, $d2], 'until the deadline'));
         self::assertSame([$d1], $run['confirmed']);
         self::assertSame([['id' => $d2, 'why' => ['code' => 'not_reached']]], $run['left']);
         self::assertSame($before, self::lockWait(self::$db), 'the session\'s lock wait is given back');
@@ -521,15 +546,11 @@ final class ConfirmAllTest extends StockTestCase
         $this->stocked(1, 'D4');
         $d3 = $this->correction('D3', 3);
         $d4 = $this->correction('D4', 3);
-        $calls = 0;
-        $dying = static function () use (&$calls): float {
-            if (++$calls === 3) {
-                throw new \Error('the worker was stopped');
-            }
-            return 0.0;
-        };
+        $now = 0.0;
         try {
-            (new Corrections(self::$db, $dying))->confirmAll($controller, [$d3, $d4], 'stopped half way');
+            self::afterFirstBooking(static function () use (&$die): void {
+                $die = true;
+            }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, [$d3, $d4], 'stopped half way'));
             self::fail('the press should have stopped');
         } catch (\Error $e) {
             self::assertSame('the worker was stopped', $e->getMessage());
@@ -537,9 +558,230 @@ final class ConfirmAllTest extends StockTestCase
         self::assertFalse(self::$db->inTransaction());
         self::assertSame($before, self::lockWait(self::$db));
         $stopped = (new Corrections(self::$db))->run((int) self::$db->value('SELECT MAX(id) FROM audit_log WHERE action = ?', [Corrections::RUN_ACTION]));
-        self::assertSame(['stopped', 'stopped half way', [$d3], [['id' => $d4, 'why' => ['code' => 'not_reached']]]],
-            [$stopped['state'], $stopped['note'], $stopped['confirmed'], $stopped['left']]);
+        self::assertSame(['stopped', 'stopped half way', [$d3], 1, 2, [['id' => $d4, 'why' => ['code' => 'not_reached_or_elsewhere']]]],
+            [$stopped['state'], $stopped['note'], $stopped['confirmed'], $stopped['booked'], $stopped['units_added'], $stopped['left']]);
         self::assertSame(['resolved', 'open'], [self::state($d3), self::state($d4)]);
+    }
+
+    /**
+     * CA22 (Codex re-review MEDIUM 1): a press that stopped claims only what IT booked. Each confirmation the press books is marked with the
+     * press (count_review.detail.booked.run, in its booking's transaction; not part of the key's request, so one-by-one replays still match).
+     * Codex's case: 41 confirmed one by one before, the press stops before its first id, 42 confirmed one by one after, all with the same note.
+     */
+    public function testAStoppedPressClaimsOnlyWhatItBooked(): void
+    {
+        $controller = $this->person('stock_controller');
+        $s41 = $this->stocked(1, 'P41');
+        $s42 = $this->stocked(1, 'P42');
+        $c41 = $this->correction('P41', 3);
+        $c42 = $this->correction('P42', 4);
+        $queue = new Corrections(self::$db);
+        $queue->confirm($controller, $c41, 'morning check');
+        $now = 0.0;
+        $die = false;
+        $calls = 0;
+        $dying = static function () use (&$calls): float {
+            if (++$calls > 1) {
+                throw new \Error('the worker was stopped');
+            }
+            return 0.0;
+        };
+        try {
+            (new Corrections(self::$db, $dying))->confirmAll($controller, [$c41, $c42], 'morning check');
+            self::fail('the press should have stopped');
+        } catch (\Error) {
+        }
+        $queue->confirm($controller, $c42, 'morning check');
+        $run = (int) self::$db->value('SELECT MAX(id) FROM audit_log WHERE action = ?', [Corrections::RUN_ACTION]);
+        $stopped = $queue->run($run);
+        self::assertSame(['stopped', [], 0, 0, 0], [$stopped['state'], $stopped['confirmed'], $stopped['booked'], $stopped['units_added'], $stopped['units_taken']],
+            'the press booked nothing: the two confirmations one by one are not its');
+        self::assertSame([[$c41, 'not_reached_or_elsewhere'], [$c42, 'not_reached_or_elsewhere']],
+            array_map(static fn (array $l): array => [$l['id'], $l['why']['code']], $stopped['left']));
+        // A press's own booking carries its mark; a one-by-one booking none; a click on the record's Confirm after the press still replays.
+        $this->stocked(1, 'P43');
+        $c43 = $this->correction('P43', 2);
+        $done = $queue->confirmAll($controller, [$c43], 'the press books this one');
+        $mark = static fn (int $id): mixed => json_decode((string) self::$db->value('SELECT CAST(detail AS CHAR) FROM count_review WHERE id = ?', [$id]), true)['booked']['run'] ?? null;
+        self::assertSame([$done['run'], null, null], [$mark($c43), $mark($c41), $mark($c42)]);
+        self::assertTrue($queue->confirm($controller, $c43, 'the press books this one')['replayed']);
+        $this->assertBal(3, 0, 0, $s41);
+        $this->assertBal(4, 0, 0, $s42);
+        unset($now, $die);
+    }
+
+    /**
+     * CA23 (Codex re-review MEDIUM 2): the press has one deadline for all its work. A deadlock is not tried again once the deadline has
+     * passed (the retry checks it before it starts, and stops): the id is rolled back whole and left "not reached", the next ones are not
+     * started, and the press still ends with its end row.
+     */
+    public function testADeadlockRetryPastTheDeadlineIsNotTriedAndThePressEndsWhole(): void
+    {
+        $controller = $this->person('stock_controller');
+        $sa = $this->stocked(2, 'T1');
+        $sb = $this->stocked(2, 'T2');
+        $a = $this->correction('T1', 6);
+        $b = $this->correction('T2', 6);
+        $now = 0.0;
+        $die = false;
+        $lines = (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger WHERE sku_id = ?', [$sa]);
+        $retries = Db::deadlockRetries();
+        $thrown = 0;
+        $clock = self::clock($now, $die);
+        $run = self::hooked(static function (string $sql) use (&$now, &$thrown): void {
+            if ($thrown > 0 || !str_starts_with(ltrim($sql), 'INSERT INTO stock_ledger')) {
+                return;
+            }
+            // The first booking meets a deadlock, and the time runs out meanwhile.
+            $thrown++;
+            $now = 1000.0;
+            $e = new \PDOException('SQLSTATE[40001]: Deadlock found when trying to get lock');
+            $e->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+            throw $e;
+        }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, [$a, $b], 'a deadlock at the end of the time'));
+        self::assertSame(1, $thrown);
+        self::assertSame(1, Db::deadlockRetries() - $retries, 'the retry began, saw the deadline and stopped');
+        self::assertSame([], $run['confirmed']);
+        self::assertSame([[$a, 'not_reached', 'out_of_time'], [$b, 'not_reached', null]],
+            array_map(static fn (array $l): array => [$l['id'], $l['why']['code'], $l['why']['error'] ?? null], $run['left']));
+        self::assertSame(['open', 'open'], [self::state($a), self::state($b)]);
+        self::assertSame($lines, (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger WHERE sku_id = ?', [$sa]), 'nothing of it booked');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM idempotency WHERE idem_key IN (?, ?)', [Corrections::KEY . $a, Corrections::KEY . $b]));
+        $this->assertBal(2, 0, 0, $sa);
+        $this->assertBal(2, 0, 0, $sb);
+        self::assertSame('finished', (new Corrections(self::$db))->run($run['run'])['state'], 'the end row is written in its own reserve');
+    }
+
+    /**
+     * CA23: each lock wait of an id gets its share of the time left (the time left for the ids, shared by the most waits one confirmation
+     * meets, at most BULK_LOCK_WAIT each), so all the waits of one id end before the deadline; with too little left, no id is started.
+     */
+    public function testEachWaitGetsItsShareOfTheTimeLeft(): void
+    {
+        $controller = $this->person('stock_controller');
+        foreach (['S1', 'S2', 'S3'] as $v) {
+            $this->stocked(1, $v);
+        }
+        $ids = [$this->correction('S1', 2), $this->correction('S2', 2), $this->correction('S3', 2)];
+        $now = 0.0;
+        $die = false;
+        $waits = [];
+        $booked = 0;
+        $clock = self::clock($now, $die);
+        $run = self::hooked(static function (string $sql) use (&$waits, &$now, &$booked): void {
+            if (str_starts_with(ltrim($sql), 'SELECT *, CAST(status AS CHAR) AS status FROM count_review WHERE id = ?')) {
+                $waits[] = (int) self::$db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+            }
+            if (str_starts_with(ltrim($sql), 'UPDATE count_review SET detail = JSON_SET')) {
+                $now = [25.0, 28.0][$booked++] ?? $now;
+            }
+        }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, $ids, 'shares of the time'));
+        $work = Corrections::BULK_SECONDS - Corrections::BULK_FINAL_SECONDS;
+        self::assertSame([min(Corrections::BULK_LOCK_WAIT, intdiv($work, Corrections::BULK_WAITS)), intdiv($work - 25, Corrections::BULK_WAITS)], $waits,
+            'the first id at 0 s, the second at 25 s');
+        self::assertSame(array_slice($ids, 0, 2), $run['confirmed']);
+        self::assertSame([['id' => $ids[2], 'why' => ['code' => 'not_reached']]], $run['left'], 'at 28 s too little is left to start one');
+        unset($die);
+    }
+
+    /**
+     * CA24 (Codex re-review LOW 3): the session's lock wait comes back exactly as it was, after a press that ends and after one that stops
+     * half way. A stop: the clock fails on its 4th call (the press's start, then the first id's share of the time and its booking's, then
+     * the second id's share), after the first id was booked.
+     */
+    public function testTheSessionsLockWaitIsGivenBackExactly(): void
+    {
+        $controller = $this->person('stock_controller');
+        $dyingAt = static function (int $n): \Closure {
+            $calls = 0;
+            return static function () use (&$calls, $n): float {
+                if (++$calls >= $n) {
+                    throw new \Error('the worker was stopped');
+                }
+                return 0.0;
+            };
+        };
+        $press = function (string $case, bool $stops) use ($controller, $dyingAt): void {
+            $this->stocked(1, "Z1-{$case}");
+            $this->stocked(1, "Z2-{$case}");
+            $ids = [$this->correction("Z1-{$case}", 2), $this->correction("Z2-{$case}", 2)];
+            try {
+                (new Corrections(self::$db, $stops ? $dyingAt(4) : null))->confirmAll($controller, $ids, "the press {$case}");
+                self::assertFalse($stops, "{$case}: it should have stopped");
+            } catch (\Error $e) {
+                self::assertSame('the worker was stopped', $e->getMessage());
+                self::assertSame('resolved', self::state($ids[0]), "{$case}: it stopped after the first id");
+            }
+        };
+        $sets = static fn (): array => array_values(array_filter(ScriptedStatement::$seen, static fn (string $q): bool => str_starts_with($q, 'SET SESSION innodb_lock_wait_timeout')));
+        $original = self::lockWait(self::$db);
+        foreach (['ends' => false, 'stops' => true] as $case => $stops) {
+            // A session whose wait reads 0 (scripted: the server keeps at least 1, and is never sent 0 here): the press sets back 0, not 1.
+            ScriptedStatement::reset();
+            ScriptedStatement::$answers = ['SELECT @@SESSION.innodb_lock_wait_timeout' => '0'];
+            ScriptedStatement::$skip = ['SET SESSION innodb_lock_wait_timeout = 0'];
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [ScriptedStatement::class, []]);
+            try {
+                $press("0-{$case}", $stops);
+            } finally {
+                self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+            }
+            self::assertGreaterThan(1, count($sets()), "{$case}: the press set its own waits");
+            self::assertSame('SET SESSION innodb_lock_wait_timeout = 0', array_slice($sets(), -1)[0], "{$case}: given back exactly");
+            ScriptedStatement::reset();
+        }
+        // A session at 50 (the server's default), on the real server: 50 again after a press that ends and after one that stops.
+        try {
+            foreach (['ends' => false, 'stops' => true] as $case => $stops) {
+                self::$db->exec('SET SESSION innodb_lock_wait_timeout = 50');
+                $press("50-{$case}", $stops);
+                self::assertSame(50, self::lockWait(self::$db), $case);
+            }
+        } finally {
+            self::$db->exec('SET SESSION innodb_lock_wait_timeout = ' . $original);
+        }
+    }
+
+    /**
+     * CA25 (Codex re-review LOW 4): rule f reads the ledger only for corrections made before the last one-time stock fix. That moment is read
+     * once, from the audit log's entity index (every fix booking writes its row: entity movement, its doc_ref); a correction made after it
+     * cannot have been made before a fix, so the ledger is not read for it.
+     */
+    public function testRuleFReadsTheLedgerOnlyForCorrectionsMadeBeforeTheLastFix(): void
+    {
+        $fixed = $this->stocked(5, 'RF1');
+        $this->move('adjustment', $fixed, 2, 'listening-fix:vapeandgo:2026-11-01');
+        $this->stocked(5, 'RF2');
+        // Made after the fix (relayed now, no ERPNext time): ready, and the ledger is not read for rule f.
+        $this->ok((new RelayIntake(self::$db))->reconciliations($this->site, ['doc_ref' => 'MAT-RECO-AFTER', 'lines' => [['variant_id' => 'RF2', 'qty' => 6]]],
+            $this->key('reco')));
+        $afterId = (int) self::$db->value("SELECT id FROM count_review WHERE ref = 'MAT-RECO-AFTER'");
+        $ledgerReads = static function (\Closure $fn): array {
+            $n = 0;
+            $out = self::hooked(static function (string $sql) use (&$n): void {
+                if (str_starts_with(ltrim($sql), 'SELECT warehouse_id, sku_id, MAX(created_at) AS at FROM stock_ledger')) {
+                    $n++;
+                }
+            }, $fn);
+            return [$n, $out];
+        };
+        [$n, $rows] = $ledgerReads(static fn (): array => (new Corrections(self::$db))->readiness());
+        self::assertSame(0, $n, 'every open correction is newer than the last fix: no ledger read');
+        self::assertSame([[$afterId, null]], array_map(static fn (array $r): array => [(int) $r['id'], $r['why']], $rows));
+        // Made before the fix: the ledger is read (once, for the corrections that need it), and rule f applies.
+        $before = $this->correction('RF1', 7, 120);
+        [$n, $rows] = $ledgerReads(static fn (): array => (new Corrections(self::$db))->readiness());
+        self::assertSame(1, $n);
+        $whys = [];
+        foreach ($rows as $r) {
+            $whys[(int) $r['id']] = $r['why']['code'] ?? '';
+        }
+        self::assertSame([$afterId => '', $before => 'fixed'], $whys);
+        // At booking time likewise: the newer one books without a ledger read; the older one is left.
+        [$n, $press] = $ledgerReads(fn (): array => (new Corrections(self::$db))->confirmAll($this->person('stock_controller'), [$afterId, $before], 'after and before the fix'));
+        self::assertSame([$afterId], $press['confirmed']);
+        self::assertSame(['changed', 'fixed'], [$press['left'][0]['why']['code'], $press['left'][0]['why']['now']['code'] ?? null]);
+        self::assertSame(2, $n, 'one read at booking (the older one), one by the end\'s list (the older one)');
     }
 
     /** CA15: one id waiting on a lock cannot eat the press: the press's session gives up a lock wait after its short wait, and goes on. */

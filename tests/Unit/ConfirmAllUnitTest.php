@@ -99,6 +99,9 @@ final class ConfirmAllUnitTest extends TestCase
             StoreQueuesController::confirmAllWhy(['code' => 'fixed', 'fix_at' => '2026-10-31 07:26:00.000000']), 'the UK day of the fix');
         self::assertSame('Changed while Confirm all ran: answer it on its own', StoreQueuesController::confirmAllWhy(['code' => 'changed', 'error' => 'not_ready']));
         self::assertSame('Not reached: run it again', StoreQueuesController::confirmAllWhy(['code' => 'not_reached']));
+        self::assertSame('Not reached: run it again', StoreQueuesController::confirmAllWhy(['code' => 'not_reached', 'error' => 'out_of_time']), 'out of time (CA23)');
+        self::assertSame('Not reached, or answered elsewhere: open it to see', StoreQueuesController::confirmAllWhy(['code' => 'not_reached_or_elsewhere']),
+            'a stopped press (CA22)');
         self::assertSame(Words::CONFIRM_ALL['why_changed'], StoreQueuesController::confirmAllWhy(['code' => 'nonsense']), 'anything else reads as changed');
         // A ready row's line.
         $ready = static fn (int $set, int $delta): string => StoreQueuesController::confirmAllLine(['why' => null, 'proposed_qty' => $set, 'effect' => ['delta' => $delta]]);
@@ -130,9 +133,10 @@ final class ConfirmAllUnitTest extends TestCase
         self::assertNotSame($sig, StoreQueuesController::confirmAllSignature(Csrf::fromSecretKey(base64_encode(str_repeat('j', 32))), 7, 1_761_900_000, '12,15'));
         self::assertNotSame($csrf->forSession("7\n1761900000\n12,15"), $sig, 'never a CSRF token of the same text');
         self::assertSame(1800, StoreQueuesController::CONFIRM_ALL_PAGE_SECONDS, '30 minutes');
-        // The press: no id starts after 25 s; one id waits at most twice the short lock wait; the end has its reserve; all inside 50 s.
-        self::assertSame(25, Corrections::BULK_SECONDS - 2 * Corrections::BULK_LOCK_WAIT - Corrections::BULK_FINAL_SECONDS);
-        self::assertSame(5, Corrections::BULK_LOCK_WAIT);
+        // The press (CA23): one deadline of 40 s, inside the UI pool's 50; the end keeps 5 s; an id starts only while the time left for the
+        // ids is at least one second for each wait it may meet, and each wait gets its share of that time, at most 5 s.
+        self::assertSame([40, 5, 5, 8], [Corrections::BULK_SECONDS, Corrections::BULK_FINAL_SECONDS, Corrections::BULK_LOCK_WAIT, Corrections::BULK_WAITS]);
         self::assertLessThan(50, Corrections::BULK_SECONDS, 'the UI pool stops a page at 50 s');
+        self::assertSame(Corrections::BULK_SECONDS - Corrections::BULK_FINAL_SECONDS - Corrections::BULK_WAITS, 27, 'the last moment an id may start');
     }
 }

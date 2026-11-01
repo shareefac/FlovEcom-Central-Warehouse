@@ -416,7 +416,7 @@ final class StoreQueuesController
             'big' => Words::say('CONFIRM_ALL', 'why_big', self::signedUnits((int) ($why['delta'] ?? 0)), (int) ($why['limit'] ?? 0)),
             'variants' => Words::say('CONFIRM_ALL', 'why_variants', (int) ($why['links'] ?? 2)),
             'fixed' => Words::say('CONFIRM_ALL', 'why_fixed', Html::day((string) ($why['fix_at'] ?? ''))),
-            'counted', 'newer', 'below_zero', 'not_reached' => Words::CONFIRM_ALL['why_' . $code],
+            'counted', 'newer', 'below_zero', 'not_reached', 'not_reached_or_elsewhere' => Words::CONFIRM_ALL['why_' . $code],
             default => Words::CONFIRM_ALL['why_changed'],
         };
     }

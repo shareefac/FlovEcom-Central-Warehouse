@@ -11454,6 +11454,7 @@ final class Words
         // ... and why one of the press was left (the done page)
         'why_changed' => 'Changed while Confirm all ran: answer it on its own',
         'why_not_reached' => 'Not reached: run it again',
+        'why_not_reached_or_elsewhere' => 'Not reached, or answered elsewhere: open it to see',
         // The board's "The list is split in two" (the right of the list until a row is opened)
         'how' => 'How Confirm all decides',
         'split' => 'The list is split in two',
