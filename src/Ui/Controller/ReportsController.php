@@ -88,6 +88,10 @@ final class ReportsController
         if ($v === null || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $v) !== 1) {
             return null;
         }
+        [$y, $m, $dd] = array_map('intval', explode('-', $v));
+        if (!checkdate($m, $dd, $y) || $y < 2000) {
+            return null; // not a real day (year 0000 too: the Codex review of 18ca94b, LOW 6), or long before CW
+        }
         $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $v, new \DateTimeZone('Europe/London'));
         return $d !== false && $d->format('Y-m-d') === $v && $v < ReportRefresh::ukDay(Clock::db(Clock::now())) ? $v : null;
     }
@@ -96,22 +100,6 @@ final class ReportsController
     private static function endOfDay(string $day): string
     {
         return Clock::db((new \DateTimeImmutable($day . ' 00:00', new \DateTimeZone('Europe/London')))->modify('+1 day')->setTimezone(Clock::utc()));
-    }
-
-    /**
-     * A page of rows already in their order, as ReportViews::paged() returns one ($limit null: all of them).
-     *
-     * @param list<array<string, mixed>> $rows
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
-     */
-    private static function pageOf(array $rows, int $page, ?int $limit): array
-    {
-        if ($limit === null) {
-            return ['rows' => $rows, 'total' => count($rows), 'page' => 1, 'pages' => 1];
-        }
-        $pages = max(1, (int) ceil(count($rows) / $limit));
-        $page = min(max(1, $page), $pages);
-        return ['rows' => array_slice($rows, ($page - 1) * $limit, $limit), 'total' => count($rows), 'page' => $page, 'pages' => $pages];
     }
 
     /** GET /ui/reports/{slug}.xlsx: the same rows as the CSV, as an Excel file (the Reports board's Export; docs/decisions.md DG7). */
@@ -280,35 +268,37 @@ final class ReportsController
         $day = self::pastDay($req->param('asof'));
         $f = ['by' => in_array($req->param('by'), ReportViews::VALUE_BY, true) ? (string) $req->param('by') : 'product', 'q' => self::text($req->param('q')),
             'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1, 'wh' => $wh, 'asof' => $day];
-        $at = null;
-        $tooFar = false;
-        $before = null;
-        if ($day !== null) {
-            try {
-                $at = $views->valueAt(self::endOfDay($day), $f['by'] === 'product' ? $f['q'] : '', $f['nocost'], $wh);
-            } catch (\PDOException $e) {
-                if ((int) ($e->errorInfo[1] ?? 0) !== 3024) {
-                    throw $e;
-                }
-                // the statement ran out of its time (ReportViews::AS_OF_MAX_MS): too far back to read now; nothing shown, nothing saved
-                $tooFar = true;
-                $at = ['products' => [], 'brands' => [], 'warehouses' => [], 'figures' => ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'items' => 0, 'theirs' => 0]];
-            }
-            if (!$tooFar && $at['warehouses'] === []) {
-                $first = $views->firstRecordDay();
-                $before = $first !== null && $first > $day ? $first : null;
-            }
-        }
-        $per = $csv ? null : ReportViews::PAGE;
-        $products = $f['by'] !== 'product' ? null : ($at === null ? $views->valueByProduct($f['q'], $f['nocost'], $f['page'], $per, $wh)
-            : self::pageOf($at['products'], $f['page'], $per));
         // The one search finds a brand or an item (the approved TP_Report, W13.3): grouped by brand or by warehouse, the rows whose name
         // holds the words (the page and its file alike); by item, the item search as before.
         $holds = static fn (?string $name): bool => $f['q'] === '' || mb_stripos((string) $name, $f['q']) !== false;
-        $brands = $f['by'] === 'brand' ? array_values(array_filter($at['brands'] ?? $views->valueByBrand($wh),
-            static fn (array $b): bool => $holds($b['brand'] ?? Words::REPORTS['no_brand']))) : [];
-        $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($at['warehouses'] ?? $views->valueByWarehouse(),
-            static fn (array $w): bool => $holds($w['name']) && ($wh === null || $w['id'] === $wh))) : [];
+        // Today's reads, or (a past day) the same reads as of the end of that day, every statement bounded (AO3, AO6).
+        $read = $day === null ? $views : $views->at(self::endOfDay($day));
+        $per = $csv ? null : ReportViews::PAGE;
+        $load = static function () use ($read, $f, $per, $wh, $holds, $day): array {
+            $products = $f['by'] === 'product' ? $read->valueByProduct($f['q'], $f['nocost'], $f['page'], $per, $wh) : null;
+            $brands = $f['by'] === 'brand' ? array_values(array_filter($read->valueByBrand($wh),
+                static fn (array $b): bool => $holds($b['brand'] ?? Words::REPORTS['no_brand']))) : [];
+            $warehouses = $f['by'] === 'warehouse' ? array_values(array_filter($read->valueByWarehouse(),
+                static fn (array $w): bool => $holds($w['name']) && ($wh === null || $w['id'] === $wh))) : [];
+            $figures = $read->valueFigures();
+            $first = $day !== null && $figures['items'] === 0 && $figures['theirs'] === 0 ? $read->firstRecordDay() : null;
+            return [$products, $brands, $warehouses, $figures, $first !== null && $first > $day ? $first : null];
+        };
+        $tooFar = false;
+        try {
+            [$products, $brands, $warehouses, $figures, $before] = $day === null ? $load() : $read->bounded($load);
+        } catch (\PDOException $e) {
+            if ($day === null || (int) ($e->errorInfo[1] ?? 0) !== 3024) {
+                throw $e;
+            }
+            // a statement ran out of its time (ReportViews::AS_OF_MAX_MS): too far back to read now; no table, and no file (the Codex
+            // review of 18ca94b, HIGH 1: an empty file would read as an empty valuation)
+            $tooFar = true;
+            [$products, $brands, $warehouses, $figures, $before] = [null, [], [], ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'items' => 0, 'theirs' => 0], null];
+            if ($csv) {
+                return $ctx->error(503, 'too_far', Words::RD_REPORTS['too_far'], [Html::url('/ui/reports/stock-value', ['asof' => $day]), Words::RD_REPORTS['stock_value']]);
+            }
+        }
         if ($csv) {
             $data = [];
             if ($products !== null) {
@@ -341,7 +331,6 @@ final class ReportsController
         $query = ['by' => $f['by'] === 'product' ? null : $f['by'], 'q' => $f['q'], 'nocost' => $f['nocost'] && $f['by'] === 'product' ? '1' : null, 'wh' => $wh,
             'asof' => $day];
         $slowDays = Settings::number($ctx->db, 'reports.slow_after_days', 60);
-        $figures = $at['figures'] ?? $views->valueFigures();
         // Each brand's or our warehouse's share of our stock value (whole percent, for the bar), and the shown rows added up (W13.3; the
         // total row of the approved TP_Report). Pennies, so the total is exact; another account's warehouse has no share and no part in it.
         $pence = static fn (string $v): int => (int) round((float) $v * 100);

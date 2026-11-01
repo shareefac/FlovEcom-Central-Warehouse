@@ -343,6 +343,82 @@ final class ReportsScreenTest extends KernelUiTestCase
         }
     }
 
+    /**
+     * The Codex review of 18ca94b (docs/decisions.md AO7): a past day is today's SQL with its two sources as they stood then, so its brands
+     * group as today's do (case and empty brands, the collation), and every figure equals today's when nothing happened since; a statement
+     * that runs out of its time shows "choose a later day" and makes no file (503), also when it is the first-record lookup; the session's
+     * time limit is put back; year 0000 is no day.
+     */
+    public function testStockValueAsOfIsTodaysReadsAndAStatementOutOfTimeMakesNoFile(): void
+    {
+        $uk = new \DateTimeZone('Europe/London');
+        $old = (new \DateTimeImmutable('today', $uk))->modify('-5 days')->setTime(12, 0);
+        $a = $this->item('strict', 0, 'Alpha');
+        $b = $this->item('strict', 0, 'Beta');
+        $c = $this->item('strict', 0, 'Gamma');
+        self::$db->exec("UPDATE sku SET brand = 'Elux' WHERE id = ?", [$a]);
+        self::$db->exec("UPDATE sku SET brand = 'ELUX' WHERE id = ?", [$b]);
+        self::$db->exec("UPDATE sku SET brand = '' WHERE id = ?", [$c]);
+        foreach ([[$a, '2.000000'], [$b, '3.000000'], [$c, '1.500000']] as [$sku, $cost]) {
+            $this->book('goods_in', $sku, 4, 'MAIN', null, $cost);
+        }
+        self::$db->exec("UPDATE stock_ledger SET effective_at = ? WHERE bucket = 'on_hand'", [\CW\Clock::db($old->setTimezone(new \DateTimeZone('UTC')))]);
+        (new ReportRefresh(self::$db))->run(true);
+        $web = $this->signIn($this->uiUser('accountant'));
+        $yesterday = (new \DateTimeImmutable('yesterday', $uk))->format('Y-m-d');
+        foreach (['product', 'brand', 'warehouse'] as $by) {
+            $t = $web->get('/ui/reports/stock-value', ['by' => $by]);
+            $p = $web->get('/ui/reports/stock-value', ['by' => $by, 'asof' => $yesterday]);
+            $table = $by === 'product' ? 'report-value' : 'report-' . $by . 's';
+            self::assertNotSame([], self::cells($t, $table), $by);
+            self::assertSame(self::cells($t, $table), self::cells($p, $table), "{$by}: nothing since, so today's figures (brands grouped as today's)");
+        }
+        self::assertSame(self::cells($web->get('/ui/reports/stock-value'), 'report-value'), self::cells($web->get('/ui/reports/stock-value', ['asof' => '0000-01-01']), 'report-value'),
+            'year 0000 is no day: today\'s report');
+
+        // A statement out of its time (MySQL 3024), on the kernel's own connection: the page says so, the files are refused, the limit goes back.
+        $was = (int) self::$appDb->value('SELECT @@SESSION.max_execution_time');
+        $timeout = static function (string $sql): void {
+            if (str_contains($sql, 'COALESCE(l.effective_at, l.created_at) <') || str_contains($sql, 'MIN(COALESCE(effective_at, created_at))')) {
+                $e = new \PDOException('Query execution was interrupted, maximum statement execution time exceeded');
+                $e->errorInfo = ['HY000', 3024, 'Query execution was interrupted, maximum statement execution time exceeded'];
+                throw $e;
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($timeout)]]);
+        try {
+            $page = $web->get('/ui/reports/stock-value', ['asof' => $yesterday]);
+            self::assertSame(200, $page->status, $page->describe());
+            self::assertStringContainsString(Words::RD_REPORTS['too_far'], $page->text());
+            self::assertSame([], self::cells($page, 'report-value'), 'no table');
+            foreach (['csv', 'xlsx', 'pdf'] as $ext) {
+                $file = $web->get('/ui/reports/stock-value.' . $ext, ['asof' => $yesterday]);
+                self::assertSame(503, $file->status, "{$ext}: no file that reads as an empty valuation");
+                self::assertStringContainsString(Words::RD_REPORTS['too_far'], $file->text());
+            }
+            self::assertSame(200, $web->get('/ui/reports/stock-value')->status, 'today\'s report never reads the past');
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertSame($was, (int) self::$appDb->value('SELECT @@SESSION.max_execution_time'), 'the session\'s limit is put back');
+        // The first-record lookup out of its time (a day before any record): said the same way, not a 500 (MEDIUM 4).
+        $first = static function (string $sql): void {
+            if (str_contains($sql, 'MIN(COALESCE(effective_at, created_at))')) {
+                $e = new \PDOException('interrupted');
+                $e->errorInfo = ['HY000', 3024, 'interrupted'];
+                throw $e;
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($first)]]);
+        try {
+            $early = $web->get('/ui/reports/stock-value', ['asof' => $old->modify('-30 days')->format('Y-m-d')]);
+            self::assertSame(200, $early->status, $early->describe());
+            self::assertStringContainsString(Words::RD_REPORTS['too_far'], $early->text());
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+    }
+
     public function testSlowStockByDaysWithoutASale(): void
     {
         $p1 = $this->item('strict', 4, 'P1 sold lately');

@@ -30,6 +30,9 @@ final class ReportViews
     private const AVG = 'IF(r.in_units > 0, ROUND(r.in_value / r.in_units, 6), NULL)';
     private const VALUE = 'IF(r.in_units > 0, ROUND(b.on_hand * ROUND(r.in_value / r.in_units, 6), 2), 0)';
 
+    /** The end of a past UK day the valuation reads are as of (at()), or null: today's tables. */
+    private ?string $end = null;
+
     public function __construct(private readonly Db $db)
     {
     }
@@ -123,9 +126,10 @@ final class ReportViews
     public function valueFigures(): array
     {
         $out = ['value' => '0.00', 'costed' => 0, 'not_costed' => 0, 'items' => 0, 'theirs' => 0];
+        [$bal, $rep, $src] = $this->sources();
         foreach ($this->db->all('SELECT w.stock_owner, COALESCE(SUM(' . self::VALUE . '), 0) AS value, COALESCE(SUM(IF(r.in_units > 0, b.on_hand, 0)), 0) AS costed, '
-            . 'COALESCE(SUM(IF(r.in_units > 0, 0, b.on_hand)), 0) AS not_costed, COUNT(DISTINCT b.sku_id) AS items FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
-            . 'LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.stock_owner') as $r) {
+            . "COALESCE(SUM(IF(r.in_units > 0, 0, b.on_hand)), 0) AS not_costed, COUNT(DISTINCT b.sku_id) AS items FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id "
+            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.stock_owner", $src) as $r) {
             if ($r['stock_owner'] === 'own') {
                 $out['value'] = (string) $r['value'];
                 $out['costed'] = (int) $r['costed'];
@@ -155,11 +159,12 @@ final class ReportViews
         if ($noCost) {
             $where[] = 'COALESCE(r.in_units, 0) = 0';
         }
+        [$bal, $rep, $src] = $this->sources();
         $inner = 'SELECT s.id AS sku_id, s.code, s.name, s.brand, SUM(b.on_hand) AS units, ' . self::AVG . ' AS avg_cost, SUM(' . self::VALUE . ') AS value '
-            . "FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN sku s ON s.id = b.sku_id "
-            . 'LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0' . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
+            . "FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN sku s ON s.id = b.sku_id "
+            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
             . ' GROUP BY s.id, s.code, s.name, s.brand, r.in_units, r.in_value';
-        return $this->paged($inner, $params, $noCost ? 'units DESC, name, sku_id' : 'value DESC, name, sku_id', $page, $limit);
+        return $this->paged($inner, [...$src, ...$params], $noCost ? 'units DESC, name, sku_id' : 'value DESC, name, sku_id', $page, $limit);
     }
 
     /**
@@ -178,23 +183,25 @@ final class ReportViews
     /** @return list<array{brand: ?string, products: int, units: int, value: string, not_costed: int}> our stock by brand, the biggest value first */
     public function valueByBrand(?int $warehouseId = null): array
     {
+        [$bal, $rep, $src] = $this->sources();
         return array_map(static fn (array $r): array => ['brand' => $r['brand'] === null || $r['brand'] === '' ? null : (string) $r['brand'],
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => (string) $r['value'], 'not_costed' => (int) $r['not_costed']],
             $this->db->all('SELECT s.brand, COUNT(DISTINCT b.sku_id) AS products, SUM(b.on_hand) AS units, SUM(' . self::VALUE . ') AS value, '
-                . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' "
-                . 'JOIN sku s ON s.id = b.sku_id LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0' . ($warehouseId === null ? '' : ' AND b.warehouse_id = ?')
-                . ' GROUP BY s.brand ORDER BY value DESC, s.brand', $warehouseId === null ? [] : [$warehouseId]));
+                . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' "
+                . "JOIN sku s ON s.id = b.sku_id LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . ($warehouseId === null ? '' : ' AND b.warehouse_id = ?')
+                . ' GROUP BY s.brand ORDER BY value DESC, s.brand', $warehouseId === null ? $src : [...$src, $warehouseId]));
     }
 
     /** @return list<array{id: int, name: string, ours: bool, products: int, units: int, value: string, not_costed: int}> every warehouse with stock, ours first */
     public function valueByWarehouse(): array
     {
+        [$bal, $rep, $src] = $this->sources();
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'ours' => $r['stock_owner'] === 'own',
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => (string) $r['value'], 'not_costed' => (int) $r['not_costed']],
             $this->db->all('SELECT w.id, w.name, w.stock_owner, COUNT(*) AS products, SUM(b.on_hand) AS units, SUM(' . self::VALUE . ') AS value, '
-                . 'SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
-                . "LEFT JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.id, w.name, w.stock_owner, w.sort_order "
-                . "ORDER BY w.stock_owner = 'own' DESC, w.sort_order, w.id"));
+                . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id "
+                . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.id, w.name, w.stock_owner, w.sort_order "
+                . "ORDER BY w.stock_owner = 'own' DESC, w.sort_order, w.id", $src));
     }
 
     // ---- Inventory valuation as of a past moment (docs/decisions.md AO1-AO6) ---------------------------------------------------------
@@ -203,94 +210,59 @@ final class ReportViews
     public const AS_OF_MAX_MS = 20000;
 
     /**
-     * The valuation as it stood at $end (a UTC database time: the end of a UK day), from the ledger (the owner's "Yes, A B C", 1 Nov 2026):
-     *   A. a ledger row happened at its effective time, else when it was entered (COALESCE(effective_at, created_at));
-     *   B. an item's average cost then is CW's own rule up to then: every on-hand rise with a unit cost (any warehouse, as report_item reads
-     *      them), their value / their units, rounded half up to 6 places; the units of a balance then are its on-hand rows before $end
-     *      (invariant 2: the ledger adds up to the balance); each balance's value is its units x that cost, to the penny, as VALUE does;
-     *   C. a row entered later with an earlier date counts: a past day's figure can change (the page says so).
-     * The same shapes as today's reads: `products` (ours, units above zero; $q as the item search, $warehouseId one of ours), `brands`,
-     * `warehouses` (every one with units above zero, ours first) and `figures` (valueFigures). One statement for the balances and the costs,
-     * bounded by AS_OF_MAX_MS (a PDOException 3024 when it runs out: the caller says "choose a later day").
-     *
-     * @return array{products: list<array<string, mixed>>, brands: list<array<string, mixed>>, warehouses: list<array<string, mixed>>,
-     *     figures: array{value: string, costed: int, not_costed: int, items: int, theirs: int}}
+     * The same reads as of a past moment (docs/decisions.md AO1-AO6; the owner's "Yes, A B C"): $end, a UTC database time (the end of a UK
+     * day). The four valuation reads below keep their own SQL (grouping, collation, NULL brands, order, paging: as today's to the letter) with
+     * their two sources as they stood then (sources()): the balances (each balance's on-hand ledger rows that happened before $end, rule A:
+     * COALESCE(effective_at, created_at); invariant 2) and report_item's two sums (every on-hand rise with a unit cost, any warehouse, before
+     * $end: rule B, CW's own average). Run them inside bounded().
      */
-    public function valueAt(string $end, string $q, bool $noCost, ?int $warehouseId): array
+    public function at(string $end): self
     {
-        $at = 'COALESCE(l.effective_at, l.created_at) < ?';
-        $rows = $this->db->all('SELECT /*+ MAX_EXECUTION_TIME(' . self::AS_OF_MAX_MS . ') */ u.sku_id, u.warehouse_id, u.units, c.avg_cost, '
-            . 'IF(c.avg_cost IS NULL, 0, ROUND(u.units * c.avg_cost, 2)) AS value, s.code, s.name, s.brand, w.name AS wname, w.stock_owner, w.sort_order '
-            . 'FROM (SELECT l.sku_id, l.warehouse_id, SUM(l.qty_delta) AS units FROM stock_ledger l WHERE l.bucket = \'on_hand\' AND ' . $at
-            . ' GROUP BY l.sku_id, l.warehouse_id HAVING units > 0) u '
-            . 'LEFT JOIN (SELECT l.sku_id, ROUND(SUM(l.qty_delta * l.unit_cost) / SUM(l.qty_delta), 6) AS avg_cost FROM stock_ledger l '
-            . 'WHERE l.bucket = \'on_hand\' AND l.qty_delta > 0 AND l.unit_cost IS NOT NULL AND ' . $at . ' GROUP BY l.sku_id) c ON c.sku_id = u.sku_id '
-            . 'JOIN sku s ON s.id = u.sku_id JOIN warehouse w ON w.id = u.warehouse_id', [$end, $end]);
-        $found = null;
-        if ($q !== '') {
-            [$where, $params] = StockViews::skuMatch($q, 's');
-            $found = array_fill_keys(array_map('intval', $this->db->column('SELECT s.id FROM sku s' . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)), $params)), true);
-        }
-        $pence = static fn (mixed $v): int => (int) round((float) $v * 100);
-        $money = static fn (int $p): string => number_format($p / 100, 2, '.', '');
-        $products = [];
-        $brands = [];
-        $warehouses = [];
-        $fig = ['value' => 0, 'costed' => 0, 'not_costed' => 0, 'items' => [], 'theirs' => 0];
-        foreach ($rows as $r) {
-            $sku = (int) $r['sku_id'];
-            $units = (int) $r['units'];
-            $ours = $r['stock_owner'] === 'own';
-            $costed = $r['avg_cost'] !== null;
-            $w = (int) $r['warehouse_id'];
-            $warehouses[$w] ??= ['id' => $w, 'name' => (string) $r['wname'], 'ours' => $ours, 'products' => 0, 'units' => 0, 'pence' => 0, 'not_costed' => 0,
-                'sort' => [(int) !$ours, (int) $r['sort_order'], $w]];
-            $warehouses[$w]['products']++;
-            $warehouses[$w]['units'] += $units;
-            $warehouses[$w]['pence'] += $pence($r['value']);
-            $warehouses[$w]['not_costed'] += $costed ? 0 : $units;
-            if (!$ours) {
-                $fig['theirs'] += $units;
-                continue;
-            }
-            $fig['value'] += $pence($r['value']);
-            $fig[$costed ? 'costed' : 'not_costed'] += $units;
-            $fig['items'][$sku] = true;
-            if ($warehouseId !== null && $w !== $warehouseId) {
-                continue;
-            }
-            $brand = $r['brand'] === null || $r['brand'] === '' ? null : (string) $r['brand'];
-            $bk = $brand ?? '';
-            $brands[$bk] ??= ['brand' => $brand, 'items' => [], 'units' => 0, 'pence' => 0, 'not_costed' => 0];
-            $brands[$bk]['items'][$sku] = true;
-            $brands[$bk]['units'] += $units;
-            $brands[$bk]['pence'] += $pence($r['value']);
-            $brands[$bk]['not_costed'] += $costed ? 0 : $units;
-            if (($found !== null && !isset($found[$sku])) || ($noCost && $costed)) {
-                continue;
-            }
-            $products[$sku] ??= ['sku_id' => $sku, 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $brand, 'units' => 0,
-                'avg_cost' => $r['avg_cost'] === null ? null : (string) $r['avg_cost'], 'pence' => 0];
-            $products[$sku]['units'] += $units;
-            $products[$sku]['pence'] += $pence($r['value']);
-        }
-        $products = array_values(array_map(static fn (array $p): array => ['value' => $money($p['pence'])] + array_diff_key($p, ['pence' => 1]), $products));
-        usort($products, $noCost ? static fn (array $a, array $b): int => [$b['units'], $a['name'], $a['sku_id']] <=> [$a['units'], $b['name'], $b['sku_id']]
-            : static fn (array $a, array $b): int => [(float) $b['value'], $a['name'], $a['sku_id']] <=> [(float) $a['value'], $b['name'], $b['sku_id']]);
-        $brands = array_values(array_map(static fn (array $b): array => ['brand' => $b['brand'], 'products' => count($b['items']), 'units' => $b['units'],
-            'value' => $money($b['pence']), 'not_costed' => $b['not_costed']], $brands));
-        usort($brands, static fn (array $a, array $b): int => [(float) $b['value'], (string) $a['brand']] <=> [(float) $a['value'], (string) $b['brand']]);
-        usort($warehouses, static fn (array $a, array $b): int => $a['sort'] <=> $b['sort']);
-        $warehouses = array_map(static fn (array $w): array => ['id' => $w['id'], 'name' => $w['name'], 'ours' => $w['ours'], 'products' => $w['products'],
-            'units' => $w['units'], 'value' => $money($w['pence']), 'not_costed' => $w['not_costed']], $warehouses);
-        return ['products' => $products, 'brands' => $brands, 'warehouses' => array_values($warehouses),
-            'figures' => ['value' => $money($fig['value']), 'costed' => $fig['costed'], 'not_costed' => $fig['not_costed'], 'items' => count($fig['items']), 'theirs' => $fig['theirs']]];
+        $c = clone $this;
+        $c->end = $end;
+        return $c;
     }
 
-    /** The UK day of CW's first stock record (a ledger row's own day, rule A), or null when there is none; bounded as valueAt. */
+    /**
+     * Runs $read with every statement of this session bounded by AS_OF_MAX_MS (`max_execution_time`, put back after, whatever happens):
+     * a past day's reads read the whole ledger. A statement that runs out throws a PDOException 3024 (the caller says "choose a later day").
+     *
+     * @template T
+     * @param callable(): T $read
+     * @return T
+     */
+    public function bounded(callable $read): mixed
+    {
+        $was = (int) $this->db->value('SELECT @@SESSION.max_execution_time');
+        $this->db->exec('SET SESSION max_execution_time = ' . self::AS_OF_MAX_MS);
+        try {
+            return $read();
+        } finally {
+            $this->db->exec('SET SESSION max_execution_time = ' . $was);
+        }
+    }
+
+    /**
+     * The FROM sources of the valuation reads: [balances `b`, report_item `r`, their values in that order]: today's tables, or (at()) the
+     * same columns as they stood at the end.
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    private function sources(): array
+    {
+        if ($this->end === null) {
+            return ['stock_balance', 'report_item', []];
+        }
+        $at = 'COALESCE(l.effective_at, l.created_at) < ?';
+        return ["(SELECT l.warehouse_id, l.sku_id, SUM(l.qty_delta) AS on_hand FROM stock_ledger l WHERE l.bucket = 'on_hand' AND {$at} GROUP BY l.warehouse_id, l.sku_id)",
+            "(SELECT l.sku_id, SUM(l.qty_delta) AS in_units, SUM(l.qty_delta * l.unit_cost) AS in_value FROM stock_ledger l WHERE l.bucket = 'on_hand' "
+            . "AND l.qty_delta > 0 AND l.unit_cost IS NOT NULL AND {$at} GROUP BY l.sku_id)", [$this->end, $this->end]];
+    }
+
+    /** The UK day of CW's first stock record (a ledger row's own day, rule A), or null when there is none; read it inside bounded(). */
     public function firstRecordDay(): ?string
     {
-        $v = $this->db->value('SELECT /*+ MAX_EXECUTION_TIME(' . self::AS_OF_MAX_MS . ') */ MIN(COALESCE(effective_at, created_at)) FROM stock_ledger WHERE bucket = \'on_hand\'');
+        $v = $this->db->value("SELECT MIN(COALESCE(effective_at, created_at)) FROM stock_ledger WHERE bucket = 'on_hand'");
         return $v === null ? null : ReportRefresh::ukDay((string) $v);
     }
 

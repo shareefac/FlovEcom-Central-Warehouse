@@ -1303,6 +1303,6 @@ every other Items and Inventory page. Layout and view data only.
 
 | Path | What |
 |---|---|
-| `src/Reports/ReportViews.php` | `valueAt($end, $q, $noCost, $warehouseId)` (one bounded read: units and cost then, rules A-B), `firstRecordDay()`, `AS_OF_MAX_MS` |
+| `src/Reports/ReportViews.php` | `at($end)` + `sources()` (the balances and report_item as of then, rules A-B, inside today's four reads), `bounded()` (session `max_execution_time`), `firstRecordDay()`, `AS_OF_MAX_MS` (AO7) |
 | `src/Ui/Controller/ReportsController.php`, `src/Ui/Kernel.php` | `asof` (`pastDay()`, `endOfDay()`, `pageOf()`), `pdf()` + `valuePdf()` (`GET /ui/reports/stock-value.pdf`), 3024 -> `tooFar` |
 | views `report_value` (input `asof`, `narrowed`), `report_bar` (`$pdf`) | the day in the line, the rule C note, the two messages; Words `RD_REPORTS as_of_label/as_of_note/too_far/before_records/export_pdf` |

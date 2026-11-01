@@ -15647,3 +15647,14 @@ The other reports have no PDF (CW-914 is the valuation's).
 `ReportViews::AS_OF_MAX_MS` (20 s, `MAX_EXECUTION_TIME`): when it runs out (MySQL 3024) the page says "Too much to read for that day.
 Choose a later day." and shows no table. A day before CW's first stock record says "CW has no stock records before <day>". A past day
 has no "not sold in N days" figure (the sales data is today's). The help sentence "The value on a past date is not available yet" went.
+
+**AO7. The Codex review of 18ca94b** (runs/asof_codex_review.txt: 1 HIGH, 3 MEDIUM, 2 LOW; failing first on 18ca94b, runs/asof_fix_red.log).
+A past day is now **today's SQL with its two sources as they stood then** (`ReportViews::at($end)` + `sources()`: the balances and
+report_item's two sums from the ledger, rules A-B; `valueAt()` and its PHP grouping went). So the brands group, the ties order and the
+pages cut exactly as today's (MEDIUM 2, LOW 5: collation, NULL and '' brands, `name, sku_id`), only one page is read (MEDIUM 3: no
+loading every balance into PHP; a file reads every row, as today's files do), and with nothing since the day every figure equals
+today's (tested by item, brand and warehouse). Every statement of a past day runs inside `ReportViews::bounded()` (the session's
+`max_execution_time` = AS_OF_MAX_MS, put back after), the first-record lookup too (MEDIUM 4); a statement out of time (3024) shows "Too
+much to read for that day" and **makes no file**: the CSV, Excel and PDF answer 503 with those words (HIGH 1). `pastDay()` takes only a
+real calendar day from 2000 on (LOW 6: year 0000). Test: `testStockValueAsOfIsTodaysReadsAndAStatementOutOfTimeMakesNoFile` (a 3024
+scripted on the kernel's own connection, `StatementHook`).
