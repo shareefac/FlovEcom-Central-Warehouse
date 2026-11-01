@@ -6157,6 +6157,7 @@ final class Words
 
     /** One purchase order and the draft editor (/ui/purchasing/orders/{id}, plan §6.19, 6.20). */
     public const ORDER = [
+        'paper_copy' => 'Print', // a saved order's head (the PurchaseOrder board, DG6); the Reports' too
         'title_draft' => 'New order for %s (draft, no PO number yet)',
         'title_awaiting' => 'Order for %s (no number yet)',
         'title' => '%s – %s',

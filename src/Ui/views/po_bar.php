@@ -1,9 +1,11 @@
 <?php
 // A saved purchase order's action bar (docs/decisions.md PV19, PV27, RD-B4: the approved PurchaseOrder.dc.html): in the page's head, at its
 // right beside the title; More first (the other actions, po_action, then the lines' downloads and the record), then the next step in the
-// accent. An action under More refused for its reason opens More too (PV26).
+// accent; the paper-copy button before More (DG6). An action under More refused for its reason opens More too (PV26).
 ?>
 <div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
+<?php // The paper-copy button first, as the board draws it (docs/decisions.md DG6): hidden until app.js shows it. ?>
+  <button type="button" class="btn" data-print hidden><?= $word('ORDER', 'paper_copy') ?></button>
 <?php if ($moreActions !== []): ?>
 <?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
 $moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') || (in_array('cancel', $moreActions, true) && $reasonError === 'cancel')

@@ -824,4 +824,29 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         self::assertSame(['', ''], array_map(static fn (\DOMElement $li): string => $li->getAttribute('data-si'),
             iterator_to_array((new \DOMXPath($any->dom()))->query('//ul[@data-po-choices]/li'))));
     }
+
+    /**
+     * A saved order's head has Print first, as the PurchaseOrder board draws it (docs/decisions.md DG6): a plain button, hidden until the
+     * script shows it (without the script the page has no button that does nothing), which prints the page with the browser (the print
+     * style leaves the menus and the actions out). The PDF stays the supplier's copy, as before.
+     */
+    public function testASavedOrderHasPrintFirstInItsHead(): void
+    {
+        $buyerUser = $this->uiUser('buyer');
+        $s = $this->supplier($buyerUser['id'], 'Print Supplies');
+        $d = $this->pos()->createDraft(Caller::staff($buyerUser['id']), (int) $s['id'], []);
+        $d = $this->pos()->saveDraft(Caller::staff($buyerUser['id']), $d->id, $d->version, [], [['sku_id' => self::makeSku('Print pod'), 'packs' => 2]]);
+        $this->pos()->approve(Caller::staff($buyerUser['id']), $d->id, $d->version);
+        $page = $this->signIn($buyerUser)->get("/ui/purchasing/orders/{$d->id}");
+        self::assertSame(200, $page->status, $page->describe());
+        $xp = new \DOMXPath($page->dom());
+        $first = $xp->query('//div[contains(@class, "doc-actions")]/*[1]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $first);
+        self::assertSame(['button', 'button', '', '', 'Print'], [$first->nodeName, $first->getAttribute('type'), $first->getAttribute('data-print'),
+            $first->hasAttribute('hidden') ? '' : 'shown', trim($first->textContent)], 'Print first, hidden until the script shows it');
+        self::assertSame('Print', Words::ORDER['paper_copy']);
+        $js = (string) file_get_contents(__DIR__ . '/../../../public/ui/assets/app.js');
+        self::assertStringContainsString("document.querySelectorAll('button[data-print]')", $js);
+        self::assertStringContainsString('window.print()', $js);
+    }
 }

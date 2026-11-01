@@ -15589,3 +15589,9 @@ drawn and the figures of before fill in. The figure is as of the last refresh (t
 The Today card's third row is the board's "Deliveries expected" for who sees purchasing: the confirmed purchase orders still to arrive
 (`PurchaseOrders::OPEN_STATES`) whose expected date is today (UK), linking the purchase orders; who sees receiving but not purchasing keeps
 "Deliveries being checked" there, as before.
+
+**DG6. Purchase order: Print** (CW-905; PurchaseOrder.dc.html's head: Print, More, the next step). A saved order's action bar starts with a
+plain "Print" button (`button[data-print]`), `hidden` in the page: `app.js` shows it and calls the browser's print (CSP: no inline
+script; without the script there is no button that does nothing). The page's print style (`@media print`, as before) leaves the menus
+and the actions out. The PDF stays under More as the supplier's copy; Print is the page as staff see it. The word key is `paper_copy`
+(the template rule forbids the PHP construct's name in a template's code).

@@ -2045,6 +2045,12 @@
   })();
   // ==== end search-match-ux ==========================================================================================================
 
+  // Print (the PurchaseOrder and Reports boards; docs/decisions.md DG6): the button is hidden without the script; with it, the browser's print.
+  each(document.querySelectorAll('button[data-print]'), function (b) {
+    b.hidden = false;
+    b.addEventListener('click', function () { window.print(); });
+  });
+
   // New delivery: "receive all as ordered" follows the purchase order chosen.
   each(document.querySelectorAll('select[data-ticks]'), function (s) {
     var box = document.getElementById(s.getAttribute('data-ticks'));
