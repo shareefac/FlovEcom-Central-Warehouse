@@ -15658,3 +15658,10 @@ today's (tested by item, brand and warehouse). Every statement of a past day run
 much to read for that day" and **makes no file**: the CSV, Excel and PDF answer 503 with those words (HIGH 1). `pastDay()` takes only a
 real calendar day from 2000 on (LOW 6: year 0000). Test: `testStockValueAsOfIsTodaysReadsAndAStatementOutOfTimeMakesNoFile` (a 3024
 scripted on the kernel's own connection, `StatementHook`).
+
+**AO8. The Codex re-check of 4e37d82** (runs/asof_codex_recheck.txt: the six of AO7 confirmed fixed; 1 MEDIUM, 1 LOW new; failing first,
+runs/asof_fix2_red.log). MEDIUM: a past day's rows and totals were separate statements under READ COMMITTED: a back-dated record
+committed between them could make the table and its Total disagree. `bounded()` now runs every read of a past day in one read-only
+REPEATABLE READ transaction (`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`, then the connection's own transaction,
+committed after): one snapshot for the page. LOW: a page number beyond any list (`page=999999999999999999`) made an offset the SQL refused;
+the page is capped at 1,000,000 before the offset (the last page after that, as before). Today's report is unchanged.

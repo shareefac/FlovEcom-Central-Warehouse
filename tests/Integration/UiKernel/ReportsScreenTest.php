@@ -401,6 +401,25 @@ final class ReportsScreenTest extends KernelUiTestCase
             self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
         }
         self::assertSame($was, (int) self::$appDb->value('SELECT @@SESSION.max_execution_time'), 'the session\'s limit is put back');
+        // The Codex re-check of 4e37d82: a past day's reads are one consistent snapshot (rows and totals of one moment: a read-only
+        // REPEATABLE READ transaction with a consistent snapshot, ended after), and a huge page number is a page, not an SQL error.
+        $seen = [];
+        $record = static function (string $sql) use (&$seen): void {
+            $seen[] = [$sql, self::$appDb->inTransaction()];
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($record)]]);
+        try {
+            self::assertSame(200, $web->get('/ui/reports/stock-value', ['asof' => $yesterday])->status);
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        $reads = array_values(array_filter($seen, static fn (array $x): bool => str_contains($x[0], 'COALESCE(l.effective_at, l.created_at) <')));
+        self::assertGreaterThanOrEqual(2, count($reads), 'the rows and the totals');
+        self::assertSame([true], array_values(array_unique(array_column($reads, 1))), 'every past-day read inside the one transaction');
+        self::assertContains('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY', array_column($seen, 0), 'one snapshot, read only');
+        self::assertFalse(self::$appDb->inTransaction(), 'and it is ended');
+        $huge = $web->get('/ui/reports/stock-value', ['asof' => $yesterday, 'page' => '999999999999999999']);
+        self::assertSame(200, $huge->status, $huge->describe());
         // The first-record lookup out of its time (a day before any record): said the same way, not a 500 (MEDIUM 4).
         $first = static function (string $sql): void {
             if (str_contains($sql, 'MIN(COALESCE(effective_at, created_at))')) {

@@ -267,7 +267,8 @@ final class ReportsController
         // that day; no day, today or later, or not a real day: today's report as before.
         $day = self::pastDay($req->param('asof'));
         $f = ['by' => in_array($req->param('by'), ReportViews::VALUE_BY, true) ? (string) $req->param('by') : 'product', 'q' => self::text($req->param('q')),
-            'nocost' => $req->param('nocost') === '1', 'page' => UiRequest::id($req->param('page')) ?? 1, 'wh' => $wh, 'asof' => $day];
+            // (a page number beyond any list is the last page; never an offset too big for the SQL: the Codex re-check of 4e37d82)
+            'nocost' => $req->param('nocost') === '1', 'page' => min(UiRequest::id($req->param('page')) ?? 1, 1_000_000), 'wh' => $wh, 'asof' => $day];
         // The one search finds a brand or an item (the approved TP_Report, W13.3): grouped by brand or by warehouse, the rows whose name
         // holds the words (the page and its file alike); by item, the item search as before.
         $holds = static fn (?string $name): bool => $f['q'] === '' || mb_stripos((string) $name, $f['q']) !== false;

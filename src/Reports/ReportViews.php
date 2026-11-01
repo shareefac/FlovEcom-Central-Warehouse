@@ -224,7 +224,8 @@ final class ReportViews
     }
 
     /**
-     * Runs $read with every statement of this session bounded by AS_OF_MAX_MS (`max_execution_time`, put back after, whatever happens):
+     * Runs $read in one read-only REPEATABLE READ transaction (one snapshot for every read) with every statement of this session bounded by
+     * AS_OF_MAX_MS (`max_execution_time`, put back after, whatever happens):
      * a past day's reads read the whole ledger. A statement that runs out throws a PDOException 3024 (the caller says "choose a later day").
      *
      * @template T
@@ -235,8 +236,21 @@ final class ReportViews
     {
         $was = (int) $this->db->value('SELECT @@SESSION.max_execution_time');
         $this->db->exec('SET SESSION max_execution_time = ' . self::AS_OF_MAX_MS);
+        // One moment for every read (the Codex re-check of 4e37d82): a read-only REPEATABLE READ transaction, so the rows, the totals and the
+        // shares come from one snapshot even when a back-dated record commits between two of them (READ COMMITTED reads each statement anew).
+        $own = !$this->db->inTransaction();
         try {
-            return $read();
+            if ($own) {
+                $this->db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+                $this->db->pdo()->beginTransaction();
+            }
+            try {
+                return $read();
+            } finally {
+                if ($own && $this->db->inTransaction()) {
+                    $this->db->pdo()->commit();
+                }
+            }
         } finally {
             $this->db->exec('SET SESSION max_execution_time = ' . $was);
         }
