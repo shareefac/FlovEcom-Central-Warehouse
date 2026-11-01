@@ -739,6 +739,17 @@ final class ByItemBulkTest extends KernelUiTestCase
             + self::ticked($web->get('/ui/review/products', ['page' => '2']), [$last], 'link'));
         self::assertSame(200, $evil->status, $evil->describe());
         self::assertSame('/ui/review/products?q=x%0D%0ALocation%3A%20%2F%2Fevil.example&ticked=' . $last, (new \DOMXPath($evil->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
+        // The board's Brand, Kind and Stock travel the same way (the Codex review of the design gaps, MEDIUM 1; docs/decisions.md DG4).
+        self::$db->exec("UPDATE sku SET brand = 'Zeta' WHERE id IN (?, ?)", [$late, $last]);
+        $page = $web->get('/ui/review/products', ['cov' => 'suggested', 'brand' => 'Zeta', 'stock' => '0']);
+        self::assertSame([$last], self::ids($page), 'Late kit was matched above');
+        $preview = $web->post('/ui/review/products/bulk', self::ticked($page, [$last], 'link'));
+        self::assertSame("/ui/review/products?cov=suggested&brand=Zeta&stock=0&ticked={$last}", (new \DOMXPath($preview->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
+        $apply = $preview->form('/ui/review/products/bulk/apply');
+        self::assertSame(['Zeta', '0'], [$apply['brand'] ?? null, $apply['stock'] ?? null]);
+        $done = $web->post('/ui/review/products/bulk/apply', $apply);
+        self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+\?from=item&cov=suggested&brand=Zeta&stock=0$#', (string) $done->location());
+        self::assertSame('/ui/review/products?cov=suggested&brand=Zeta&stock=0', (new \DOMXPath($web->follow($done)->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
     }
 
     /**

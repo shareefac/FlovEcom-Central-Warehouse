@@ -291,7 +291,8 @@ final class BulkController
         $text = ByProductContext::text($req->param('q') ?? '');
         $page = UiRequest::id($req->param('page'));
         return Html::url(ByProductContext::LIST_PATH, ['cov' => ByProductContext::coverage($req->param('cov'), $ctx->queries()->everyStore())['value'],
-            'q' => $text === '' ? null : $text, 'n' => ByProductContext::pageSize($req->param('n')), 'page' => $page !== null && $page > 1 ? $page : null]);
+            'q' => $text === '' ? null : $text] + ByProductController::extraQuery(ByProductController::extraFrom($req->param('brand'), $req->param('kind'), $req->param('stock')))
+            + ['n' => ByProductContext::pageSize($req->param('n')), 'page' => $page !== null && $page > 1 ? $page : null]);
     }
 
     /** The list a refused or confirmed request goes back to ([path, its name]). @return array{0: string, 1: string} */

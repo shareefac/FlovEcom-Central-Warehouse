@@ -833,16 +833,25 @@ final class ByProductController
      */
     private static function extraAsked(UiRequest $req): array
     {
+        return self::extraFrom($req->param('brand'), $req->param('kind'), $req->param('stock'));
+    }
+
+    /**
+     * The same three from any source (the list's address, the bulk forms' fields: ByItemBulkController, BulkController; the Codex review
+     * of the design gaps, MEDIUM 1).
+     *
+     * @return array{brand?: string, kind?: string, stock?: bool}
+     */
+    public static function extraFrom(?string $brandIn, ?string $kind, ?string $stock): array
+    {
         $out = [];
-        $brand = mb_substr(trim($req->param('brand') ?? ''), 0, 128);
+        $brand = mb_substr(trim($brandIn ?? ''), 0, 128);
         if ($brand !== '') {
             $out['brand'] = $brand;
         }
-        $kind = $req->param('kind');
         if ($kind !== null && isset(ItemRules::TYPES[$kind])) {
             $out['kind'] = $kind;
         }
-        $stock = $req->param('stock');
         if ($stock === '1' || $stock === '0') {
             $out['stock'] = $stock === '1';
         }
@@ -850,7 +859,7 @@ final class ByProductController
     }
 
     /** @param array{brand?: string, kind?: string, stock?: bool} $extra @return array<string, ?string> what the links carry of them */
-    private static function extraQuery(array $extra): array
+    public static function extraQuery(array $extra): array
     {
         return ['brand' => $extra['brand'] ?? null, 'kind' => $extra['kind'] ?? null, 'stock' => isset($extra['stock']) ? ($extra['stock'] ? '1' : '0') : null];
     }

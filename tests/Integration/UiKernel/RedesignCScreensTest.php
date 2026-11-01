@@ -228,6 +228,8 @@ final class RedesignCScreensTest extends KernelUiTestCase
         self::assertSame(['Gamma item'], $names(['stock' => '1']), 'holding stock');
         self::assertSame(['Alpha item', 'Beta item'], $names(['stock' => '0']), 'no stock');
         self::assertSame([], $names(['brand' => 'Hayati', 'stock' => '1']));
+        // How many the filters hold, in words on the page (the Codex review, LOW 2: the choices carry no counts any more).
+        self::assertSame(Words::say('RD_MATCH_FILTER', 'total', 2), trim((string) self::xp($web->get('/ui/review/products', ['brand' => 'Elux']))->evaluate('string(//p[contains(@class, "bi-total")])')));
 
         // What is chosen stays chosen; the page sizes and Clear keep or drop it.
         $p = self::xp($web->get('/ui/review/products', ['match' => 'missing', 'store' => 'alt', 'brand' => 'Elux', 'stock' => '1']));

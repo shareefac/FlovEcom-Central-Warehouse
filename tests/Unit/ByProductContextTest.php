@@ -121,10 +121,20 @@ final class ByProductContextTest extends TestCase
         self::assertSame(['kind' => 'every', 'store' => null, 'value' => 'every', 'unknown' => false], ByProductContext::coverage('every', self::STORES));
         self::assertSame(['kind' => 'suggested', 'store' => null, 'value' => 'suggested', 'unknown' => false], ByProductContext::coverage('suggested', self::STORES));
         self::assertSame(['kind' => 'missing', 'store' => self::STORES[1], 'value' => 'missing-vbig', 'unknown' => false], ByProductContext::coverage('missing-vbig', self::STORES));
-        foreach ([null, '', 'nonsense', 'EVERY', 'missing', '//evil.example'] as $v) {
+        // The ByItem board's Store + Match status (docs/decisions.md DG4): missing on at least one store, on no store, matched on a store.
+        self::assertSame(['kind' => 'missing_any', 'store' => null, 'value' => 'missing', 'unknown' => false], ByProductContext::coverage('missing', self::STORES));
+        self::assertSame(['kind' => 'none', 'store' => null, 'value' => 'none', 'unknown' => false], ByProductContext::coverage('none', self::STORES));
+        self::assertSame(['kind' => 'on', 'store' => self::STORES[0], 'value' => 'on-alt', 'unknown' => false], ByProductContext::coverage('on-alt', self::STORES));
+        self::assertTrue(ByProductContext::coverage('on-nosuch', self::STORES)['unknown']);
+        self::assertSame('missing-vbig', ByProductContext::coverageOf('vbig', 'missing', self::STORES)['value']);
+        self::assertSame('on-alt', ByProductContext::coverageOf('alt', '', self::STORES)['value']);
+        self::assertSame('every', ByProductContext::coverageOf('alt', 'every', self::STORES)['value'], 'the store aside');
+        self::assertNull(ByProductContext::coverageOf('', '', self::STORES)['value']);
+        self::assertTrue(ByProductContext::coverageOf('nosuch', 'missing', self::STORES)['unknown']);
+        foreach ([null, '', 'nonsense', 'EVERY', '//evil.example'] as $v) {
             self::assertSame(['kind' => null, 'store' => null, 'value' => null, 'unknown' => false], ByProductContext::coverage($v, self::STORES), json_encode($v));
         }
-        foreach (['missing-nosuch', 'missing-', 'missing-ALT', 'missing-//evil.example'] as $v) {
+        foreach (['missing-nosuch', 'missing-', 'missing-ALT', 'missing-//evil.example', 'on-ALT', 'on-'] as $v) {
             $c = ByProductContext::coverage($v, self::STORES);
             self::assertSame([null, null, true], [$c['kind'], $c['value'], $c['unknown']], $v);
         }

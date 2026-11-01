@@ -237,8 +237,10 @@ final class ByItemBulkController
         $on = $code === '' ? null : ByProductContext::store($stores, $code);
         $text = ByProductContext::text($req->field('q') ?? '');
         $page = UiRequest::id($req->field('page'));
-        $list = ['cov' => ByProductContext::coverage($req->field('cov'), $stores)['value'], 'q' => $text === '' ? null : $text,
-            'n' => ByProductContext::pageSize($req->field('n')), 'page' => $page !== null && $page > 1 ? $page : null];
+        // the list's filters as By item reads them, its Brand, Kind and Stock too (docs/decisions.md DG4)
+        $list = ['cov' => ByProductContext::coverage($req->field('cov'), $stores)['value'], 'q' => $text === '' ? null : $text]
+            + ByProductController::extraQuery(ByProductController::extraFrom($req->field('brand'), $req->field('kind'), $req->field('stock')))
+            + ['n' => ByProductContext::pageSize($req->field('n')), 'page' => $page !== null && $page > 1 ? $page : null];
         $ticked = implode('.', array_slice($picked, 0, ByProductContext::MAX_TICKED));
         $more = ['on' => $on === null ? null : (string) $on['code'], 'ticked' => $ticked === '' ? null : $ticked];
         return [

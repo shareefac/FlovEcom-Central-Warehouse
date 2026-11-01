@@ -65,6 +65,8 @@ $bar = $partial('by_product_bar', ['export' => $stores === [] ? null : $csv_link
 </form>
 <?php if ($text !== '' && $total > 0): ?>
 <?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_search]) ?>
+<?php elseif ($filtered): ?>
+<p class="muted bi-total"><?= $say('RD_MATCH_FILTER', 'total', $total) ?></p>
 <?php endif; ?>
 
 <?php if ($rows === []): ?>

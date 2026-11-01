@@ -10192,6 +10192,7 @@ final class Words
         'all_kinds' => 'All kinds',
         'stock' => 'Stock',
         'stocks' => ['' => 'Any stock', '1' => 'Holding stock', '0' => 'No stock'],
+        'total' => '%s items', // how many the filters hold, on the page (the Codex review, LOW 2)
     ];
 
     public const RD_INBOX = [

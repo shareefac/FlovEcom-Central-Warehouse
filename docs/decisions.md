@@ -15606,3 +15606,10 @@ room, or a number that is none of ours, is no choice: all), on the page, its lin
 warehouse it keeps only that one. The strip's figures stay the whole company's. Left for CW-907b (its own reviewed piece, agreed 1 Nov):
 "As of" a past date (the on-hand and the average cost as they were then) and a PDF. Not in the tracker's task: the items under brand
 headings (RD-C12), unchanged.
+
+**DG8. The Codex review of the design gaps** (runs/dg_codex_review.txt: no HIGH, 1 MEDIUM, 1 LOW; each shown failing first, runs/dg_fix_red.log).
+MEDIUM 1: a bulk action from By item lost Brand, Kind and Stock on its preview's way back, its apply and the batch page's way back: the
+bulk state (`ByItemBulkController::state`) and the batch page's list (`BulkController::itemList`) read them as the list does
+(`ByProductController::extraFrom` / `extraQuery`). LOW 2: with the choices' counts gone, a filtered list says how many it holds in words
+(`p.bi-total`, "N items"; a search keeps its own line). Also: `ByProductContextTest` pinned `missing` as no filter; it is DG4's
+"missing on at least one store" now (with `none`, `on-<code>`, `coverageOf`).
