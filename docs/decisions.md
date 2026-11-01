@@ -15455,11 +15455,16 @@ presser's). The stock invariants after each.
   created_at)` to stock_ledger (ALGORITHM = INPLACE, LOCK = NONE; the ALTER runs only while the index is not there, so the file runs again
   safely). `Corrections::FIX_SQL` reads it by FORCE INDEX: one range read of the fixes' own rows, not each item's whole ledger at its place
   (QueueListPlansTest, Migration0056Test). The code needs 0056 first: the installers migrate before they switch.
-- **CA28 (CW-111, the Codex re-check ca3 MEDIUM). The end's reads end by the deadline.** `readStatements()` bounds the statements of
-  `readiness()` (READ_FIXED 8, READ_PER_CHUNK 6 per CHUNK of 200; ConfirmAllTest counts them); at the press's end each statement's
-  max_execution_time is its share of the time left over readStatements(BULK_MAX), so together they end by the deadline; with no time left
-  none is started. Either way the end row is written (`unlisted` when the list did not fit: Approvals lists them). NightlyConfirm's search
-  uses the same bound (FIND_STATEMENTS = READ_FIXED + READ_PER_CHUNK, PAGE = CHUNK).
+- **CA28 (CW-111, the Codex re-check ca3 MEDIUM, and its review of 0317222). The end's reads end by the deadline.** `Db::readsUntil($until,
+  $clock, $fn)`: before each statement $fn makes, the time left until $until becomes the session's max_execution_time, and with none left
+  none is started (out_of_time); the session's own value comes back after. The press's end reads its list through it, so the reads end by the
+  deadline however long the ones before took (round trips and PHP included: the time is read again before each). Either way the end row is
+  written (`unlisted` when the list did not fit: Approvals lists them). NightlyConfirm's search reads each page through it too (NC14).
+  `readStatements()` (READ_FIXED 8, READ_PER_CHUNK 6 per CHUNK of 200) is the few fixed statements the list makes; the tests hold it to them.
+- **CA30. Staging's installer publishes before it migrates (the review of 0317222, MEDIUM): accepted for staging.** deploy/staging copies
+  the code into the served directory and then migrates, so for the seconds between, the new FIX_SQL can name an index 0056 has not made
+  yet (error 1176 on a correction page). Production's installer migrates first and switches after (install_cron.sh), so production never
+  runs the code before its migration; merge_deploy always passes --migrate. Not changed.
 - **CA29 (CW-109). A press that booked nothing new says so.** Its done page reads "Already confirmed before: N. Nothing was booked again. K
   left for you." when every one it confirmed was confirmed already (each key replayed: the same page pressed again), instead of "N confirmed".
 
@@ -15470,10 +15475,10 @@ presser's). The stock invariants after each.
   "not reached") or the queue's end.
 - **NC14. One deadline for the whole run.** The 240 seconds (`NIGHTLY_SECONDS`) start before the search: the search may take at most
   `FIND_SECONDS` (60) of them, and the press gets what is left (its own reserve for the end row inside it), on the same clock. A page is
-  `PAGE` (200) rows, one chunk of readiness()'s reads, so it runs a few fixed statements (at most `FIND_STATEMENTS`, 15; the test counts
-  them); each statement's time (max_execution_time) is its share of the search's time left, so a page ends within it (the Codex re-check of
-  3de1a33: one limit per page let five slow statements run past the whole budget). A page that does not fit ends the search with what was
-  found.
+  `PAGE` (200) rows, one chunk of readiness()'s reads, so it runs a few fixed statements (the test counts them); each page is read through
+  `Db::readsUntil` (CA28): before each statement the time left is its time, so the search ends by its 60 s however slow the reads (the
+  Codex re-check of 3de1a33: one limit per page let five slow statements run past the whole budget). A page that does not fit ends the
+  search with what was found.
 - **NC15. The installer waits longer than the longest job.** `install_cron.sh --migrate` waited 2 minutes for running jobs; a night's run may
   take 4. It now waits 6 minutes (the run and a margin) before it stops with the writers paused.
 - **NC16. A run still going is "running".** A night's run with no end row while its job holds the night's lock, started less than

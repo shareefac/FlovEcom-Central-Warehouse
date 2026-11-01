@@ -41,6 +41,9 @@ final class Db
     /** Transactions transaction() has begun on this connection (I7). */
     private int $txSerial = 0;
 
+    /** While set (readsUntil()): called before each statement, with no statement of its own run through run(). */
+    private ?\Closure $before = null;
+
     private function __construct(private readonly PDO $pdo, public readonly DbSettings $settings)
     {
     }
@@ -98,9 +101,41 @@ final class Db
         return $this->pdo;
     }
 
+    /**
+     * Runs $fn with a deadline on every statement it makes on this connection (CW-111, NC14): before each one, the time left until $until
+     * (by $clock, seconds) becomes the session's max_execution_time, so each read ends by the deadline however long the ones before took;
+     * with no time left none is started (CwException out_of_time, 409). The session's statement time comes back as it was, however $fn ends.
+     * Reads only (MySQL bounds SELECTs by it).
+     *
+     * @template T
+     * @param \Closure(): float $clock
+     * @param \Closure(): T $fn
+     * @return T
+     */
+    public function readsUntil(float $until, \Closure $clock, \Closure $fn): mixed
+    {
+        $was = (int) $this->pdo->query('SELECT @@SESSION.max_execution_time')->fetchColumn();
+        $this->before = function () use ($until, $clock): void {
+            $ms = (int) floor(($until - $clock()) * 1000);
+            if ($ms < 1) {
+                throw new CwException('out_of_time', 'no time left for this read', 409);
+            }
+            $this->pdo->exec('SET SESSION max_execution_time = ' . $ms);
+        };
+        try {
+            return $fn();
+        } finally {
+            $this->before = null;
+            $this->pdo->exec('SET SESSION max_execution_time = ' . $was);
+        }
+    }
+
     /** @param array<int|string, mixed> $params */
     public function run(string $sql, array $params = []): PDOStatement
     {
+        if ($this->before !== null) {
+            ($this->before)();
+        }
         $st = $this->pdo->prepare($sql);
         foreach ($params as $k => $v) {
             if (is_bool($v)) {

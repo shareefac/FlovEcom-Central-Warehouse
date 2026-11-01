@@ -21,8 +21,8 @@ use CW\Settings;
  *     written under the night's named lock (lockName(): server-wide, freed on disconnect), so two ticks at once make one run, a second tick
  *     the same night does nothing, and a run that stopped half way is not started again that night.
  * Time (NC13, NC14): one deadline, SECONDS from the tick's start, for all of it. The ready ones are found first, the whole open queue page
- * by page (PAGE, oldest first, until the page that reaches "At most per night", or the queue's end), within FIND_SECONDS (each statement of a
- * page given its share of the time left: a page that does not fit ends the search with what was found); the press gets what is left.
+ * by page (PAGE, oldest first, until the page that reaches "At most per night", or the queue's end), within FIND_SECONDS (before each read
+ * the time left is its time, Db::readsUntil: a page that does not fit ends the search with what was found); the press gets what is left.
  * Its press is Corrections::confirmNightly(): the job's own system caller, let through there and nowhere else. The note on each confirmation
  * says whose switch it is: "Nightly Confirm all (setting on since <UK date, time>, by <person>)".
  */
@@ -42,11 +42,6 @@ final class NightlyConfirm
     public const FIND_SECONDS = 60;
     /** How many open corrections one page of the search reads: one chunk of Corrections::readiness()'s reads (200), so a page's statements are few and fixed. */
     public const PAGE = Corrections::CHUNK;
-    /**
-     * The most statements one page of the search runs (Corrections::readStatements() of PAGE rows; NightlyConfirmTest counts them). Each
-     * statement's time is its share of the search's time left, so a page ends within it (NC14).
-     */
-    public const FIND_STATEMENTS = Corrections::READ_FIXED + Corrections::READ_PER_CHUNK;
     public const UK = 'Europe/London';
     /** The note on each confirmation of a nightly run (the coordinator's words of 1 Nov 2026). */
     public const NOTE = 'Nightly Confirm all (setting on since %s, by %s)';
@@ -144,9 +139,9 @@ final class NightlyConfirm
 
     /**
      * The ready ones (NC13): the open corrections page by page, oldest first, until the page that brings them to $max (all its ready ones:
-     * the press confirms $max and shows the rest "not reached") or the queue's end, within $until: each of a page's statements (at most
-     * FIND_STATEMENTS) may take its share of the time left, so the page ends by $until; a page that does not fit ends the search with what was
-     * found. The session's statement time comes back.
+     * the press confirms $max and shows the rest "not reached") or the queue's end, within $until: before each read the time left is its
+     * time (Db::readsUntil, NC14, CW-111), so the search ends by $until however long the reads before took; a page that does not fit ends
+     * the search with what was found.
      *
      * @return list<int>
      */
@@ -154,31 +149,21 @@ final class NightlyConfirm
     {
         $ready = [];
         $after = null;
-        $timeWas = (int) $this->db->value('SELECT @@SESSION.max_execution_time');
-        try {
-            while (count($ready) < $max) {
-                $left = $until - ($this->clock)();
-                if ($left < 1) {
-                    break;
-                }
-                $this->db->exec('SET SESSION max_execution_time = ' . max(1, (int) floor($left * 1000 / self::FIND_STATEMENTS)));
-                try {
-                    $rows = $corrections->readiness($this->page, null, $after);
-                } catch (\RuntimeException) {
-                    break; // the page did not fit in the time: what was found so far
-                }
-                foreach ($rows as $r) {
-                    if ($r['why'] === null) {
-                        $ready[] = (int) $r['id'];
-                    }
-                }
-                if (count($rows) < $this->page) {
-                    break;
-                }
-                $after = (int) $rows[count($rows) - 1]['id'];
+        while (count($ready) < $max) {
+            try {
+                $rows = $this->db->readsUntil($until, $this->clock, fn (): array => $corrections->readiness($this->page, null, $after));
+            } catch (\RuntimeException) {
+                break; // the page did not fit in the time: what was found so far
             }
-        } finally {
-            $this->db->exec('SET SESSION max_execution_time = ' . $timeWas);
+            foreach ($rows as $r) {
+                if ($r['why'] === null) {
+                    $ready[] = (int) $r['id'];
+                }
+            }
+            if (count($rows) < $this->page) {
+                break;
+            }
+            $after = (int) $rows[count($rows) - 1]['id'];
         }
         return $ready;
     }

@@ -860,43 +860,48 @@ final class ConfirmAllTest extends StockTestCase
      * effect()'s, row by row (the booking-time figure stays effect()'s own, read fresh under the locks), carried corrections too.
      */
     /**
-     * CW-111 (Codex ca3 MEDIUM): the end's reads (what needs a look now) end by the deadline. Each statement gets its share of the time left
-     * (the time left over Corrections::readStatements(BULK_MAX)), not the whole time left each; with no time left none is started, and the
-     * end row is written all the same ("unlisted": Approvals lists them).
+     * CW-111 (Codex ca3 MEDIUM, and the review of 0317222): the end's reads (what needs a look now) end by the deadline. Before each read the
+     * time left is its time (Db::readsUntil); none starts once the deadline has passed, however slow the reads before it; the end row is
+     * written all the same ("unlisted": Approvals lists them). Three ends: 10 s left (the list read), none left (no read), and reads that
+     * "take" 3 s each on the press's clock from 10 s left (at most four start).
      */
-    public function testTheEndsReadsShareTheTimeLeftAndNoneStartsAfterTheDeadline(): void
+    public function testTheEndsReadsEndByTheDeadlineAndNoneStartsAfterIt(): void
     {
         $controller = $this->person('stock_controller');
-        foreach ([[30.0, false], [100.0, true]] as [$endAt, $unlisted]) {
-            $this->stocked(1, 'E' . (int) $endAt);
-            $id = $this->correction('E' . (int) $endAt, 3);
+        foreach ([['E1', 30.0, 0.0, false], ['E2', 100.0, 0.0, true], ['E3', 30.0, 3.0, true]] as [$v, $endAt, $step, $unlisted]) {
+            $this->stocked(1, $v);
+            $id = $this->correction($v, 3);
             $now = 0.0;
             $die = false;
             $clock = self::clock($now, $die);
-            $limits = [];
-            $selects = 0;
+            $reads = 0;
+            $booked = false;
+            $end = false;
             $timeWas = (int) self::$db->value('SELECT @@SESSION.max_execution_time');
-            $run = self::hooked(static function (string $sql) use (&$now, $endAt, &$limits, &$selects): void {
-                if ($now === 0.0 && str_starts_with(ltrim($sql), 'UPDATE count_review SET detail = JSON_SET')) {
-                    $now = $endAt; // the id is booked; the end starts $endAt seconds into the press
-                } elseif (preg_match('/^SET SESSION max_execution_time = (\d+)$/', trim($sql), $m) === 1) {
-                    $limits[] = (int) $m[1];
-                } elseif ($now !== 0.0 && str_starts_with(ltrim($sql), 'SELECT') && !str_contains($sql, '@@SESSION')) {
-                    $selects++;
+            $run = self::hooked(static function (string $sql) use (&$now, $endAt, $step, &$reads, &$booked, &$end): void {
+                $sql = trim($sql);
+                if (str_starts_with($sql, 'UPDATE count_review SET detail = JSON_SET')) {
+                    $booked = true;
+                } elseif ($booked && !$end && $sql === 'SET SESSION innodb_lock_wait_timeout = 1') {
+                    $end = true; // the end starts, $endAt seconds into the press
+                    $now = $endAt;
+                } elseif ($end && str_starts_with($sql, 'SELECT')) {
+                    $reads++;
+                    $now += $step;
                 }
             }, fn (): array => (new Corrections(self::$db, $clock))->confirmAll($controller, [$id], 'the end in its time'));
             self::assertSame([$id], $run['confirmed']);
-            $end = json_decode((string) self::$db->value('SELECT CAST(detail AS CHAR) FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ?',
+            $endRow = json_decode((string) self::$db->value('SELECT CAST(detail AS CHAR) FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ?',
                 [Corrections::TABLE, 'confirm_all:' . $run['run'], Corrections::RUN_END_ACTION]), true);
-            self::assertSame($unlisted, $end['unlisted'] ?? false, "end at {$endAt} s");
-            if ($unlisted) {
-                self::assertSame(0, $selects, 'past the deadline: no read is started');
-                self::assertSame([$timeWas], $limits, 'only the session\'s own time given back');
+            self::assertSame($unlisted, $endRow['unlisted'] ?? false, "{$v}: end at {$endAt} s, {$step} s a read");
+            self::assertSame($timeWas, (int) self::$db->value('SELECT @@SESSION.max_execution_time'), 'the session\'s own statement time back');
+            if ($endAt >= Corrections::BULK_SECONDS) {
+                self::assertSame(0, $reads, 'past the deadline: no read is started');
+            } elseif ($step > 0.0) {
+                self::assertLessThanOrEqual(4, $reads, "{$reads} reads started in the 10 s left");
             } else {
-                $share = (int) floor((Corrections::BULK_SECONDS - $endAt) * 1000 / Corrections::readStatements(Corrections::BULK_MAX));
-                self::assertSame([$share, $timeWas], $limits, 'each read gets its share, then the session\'s own time back');
-                self::assertGreaterThan(0, $selects);
-                self::assertLessThanOrEqual(Corrections::readStatements(Corrections::BULK_MAX), $selects);
+                self::assertGreaterThan(0, $reads);
+                self::assertLessThanOrEqual(Corrections::readStatements(Corrections::BULK_MAX), $reads);
             }
         }
     }

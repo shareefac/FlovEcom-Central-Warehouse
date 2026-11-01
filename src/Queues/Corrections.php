@@ -95,9 +95,9 @@ final class Corrections
     /** How many open corrections the list reads at once (each chunk: one statement per read below). */
     public const CHUNK = 200;
     /**
-     * The most statements readiness() runs (CW-111, NC14; NightlyConfirmTest and ConfirmAllTest count them): READ_FIXED (the settings, the
-     * list, its names and stores, the last fix) and READ_PER_CHUNK per CHUNK rows (three for effects(), three for facts()), with spare. A
-     * read under a deadline gives each statement its share of the time left (readStatements()), so all of them end by it.
+     * The most statements readiness() runs (NightlyConfirmTest and ConfirmAllTest hold it to them): READ_FIXED (the settings, the list, its
+     * names and stores, the last fix) and READ_PER_CHUNK per CHUNK rows (three for effects(), three for facts()), with spare. Few and fixed,
+     * so a read under a deadline (Db::readsUntil) is a few statements, each checked against it.
      */
     public const READ_FIXED = 8;
     public const READ_PER_CHUNK = 6;
@@ -675,19 +675,15 @@ final class Corrections
                 $added += max(0, $r['delta']);
                 $taken += max(0, -$r['delta']);
             }
-            // The end, in its reserve (CW-111): each of the list's statements gets its share of the time left, so all of them end by the
-            // deadline; none is started once it has passed. The end row is always written.
+            // The end, in its reserve (CW-111): before each of the list's reads, the time left until the deadline is its time
+            // (Db::readsUntil), so they all end by it, however long the ones before took; none is started once it has passed. The end row
+            // is always written.
             $this->press = null;
             $this->db->exec('SET SESSION innodb_lock_wait_timeout = 1');
             $unlisted = false;
             try {
-                $ms = (int) floor(($deadline - ($this->clock)()) * 1000 / self::readStatements(self::BULK_MAX));
-                if ($ms < 1) {
-                    throw new CwException('out_of_time', 'no time left for the list', 409);
-                }
-                $this->db->exec('SET SESSION max_execution_time = ' . $ms);
                 $listed = array_column($left, 'id');
-                foreach ($this->readiness() as $r) {
+                foreach ($this->db->readsUntil($deadline, $this->clock, fn (): array => $this->readiness()) as $r) {
                     if ($r['why'] !== null && !in_array((int) $r['id'], $listed, true)) {
                         $left[] = ['id' => (int) $r['id'], 'why' => $r['why']];
                     }

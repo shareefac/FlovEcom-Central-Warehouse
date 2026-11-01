@@ -273,12 +273,21 @@ final class NightlyConfirmTest extends StockTestCase
     {
         $a = $this->corrected(10, 13);
         $this->on('04:30');
-        $calls = 0;
-        // The run's clock: its start and the search's one check at 0 s, every later reading (the press's) at 236 s.
-        $clock = static function () use (&$calls): float {
-            return ++$calls <= 2 ? 0.0 : 236.0;
+        // The run's clock: 0 s through the search; 236 s from the first read after it (the note's), so the press is left 4 seconds.
+        $now = 0.0;
+        $clock = static function () use (&$now): float {
+            return $now;
         };
-        $r = (new NightlyConfirm(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-02 04:40:00', new \DateTimeZone('UTC')), $clock))->tick();
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [static function (string $sql) use (&$now): void {
+            if (str_contains($sql, 'SELECT updated_actor, updated_at FROM app_setting')) {
+                $now = 236.0;
+            }
+        }]]);
+        try {
+            $r = (new NightlyConfirm(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-02 04:40:00', new \DateTimeZone('UTC')), $clock))->tick();
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
         $run = (new Corrections(self::$db))->run((int) $r['run']);
         self::assertSame(['finished', [], [['id' => $a['id'], 'why' => ['code' => 'not_reached']]]], [$run['state'], $run['confirmed'], $run['left']]);
         self::assertSame('open', self::state($a['id']));
@@ -287,9 +296,37 @@ final class NightlyConfirmTest extends StockTestCase
     }
 
     /**
-     * NC14 (the Codex re-check of 3de1a33): one page of the search runs at most FIND_STATEMENTS statements, whatever the rows on it, so each
-     * statement's share of the time left (its max_execution_time) bounds the page; and a page is one chunk of the reads (no more statements
-     * for a full page).
+     * NC14, CW-111 (the Codex review of 0317222): no read of the search starts after its time, however slow the reads before it (each read
+     * here "takes" 25 s on the run's clock: the third finds the search's 60 s gone); the search ends with what it found, the press runs.
+     */
+    public function testNoReadOfTheSearchStartsAfterItsTime(): void
+    {
+        $this->corrected(10, 13);
+        $this->on('04:30');
+        $now = 0.0;
+        $clock = static function () use (&$now): float {
+            return $now;
+        };
+        $reads = 0;
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [static function (string $sql) use (&$now, &$reads): void {
+            if ($now < 60.0 && str_starts_with(ltrim($sql), 'SELECT') && !str_contains($sql, '@@SESSION') && !str_contains($sql, 'GET_LOCK')) {
+                $reads++;
+                $now += 25.0;
+            }
+        }]]);
+        try {
+            $r = (new NightlyConfirm(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-02 04:40:00', new \DateTimeZone('UTC')), $clock))->tick();
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertSame('ran', $r['result']);
+        self::assertLessThanOrEqual(3, $reads, 'the search stopped at its time: ' . $reads . ' reads');
+        self::assertSame(0, $r['confirmed'], 'the page did not fit: nothing found tonight');
+    }
+
+    /**
+     * NC14 (the Codex re-check of 3de1a33): one page of the search runs a few fixed statements (Corrections::readStatements()), whatever the
+     * rows on it, each checked against the time left (Db::readsUntil); a page is one chunk of the reads (no more statements for a full page).
      */
     public function testOnePageOfTheSearchRunsAFewFixedStatements(): void
     {
@@ -305,7 +342,7 @@ final class NightlyConfirmTest extends StockTestCase
             $counts[] = $selects() - $before;
             self::assertNotSame([], $rows);
         }
-        self::assertLessThanOrEqual(NightlyConfirm::FIND_STATEMENTS, max($counts), json_encode($counts));
+        self::assertLessThanOrEqual(Corrections::readStatements(NightlyConfirm::PAGE), max($counts), json_encode($counts));
         self::assertSame($counts[0], $counts[1], 'the same few statements for more rows: ' . json_encode($counts));
     }
 
