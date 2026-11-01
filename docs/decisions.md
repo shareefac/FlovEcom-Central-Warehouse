@@ -15456,8 +15456,11 @@ presser's). The stock invariants after each.
   index, oldest first) until the page that reaches "At most per night" (all its ready ones: the press confirms the most and shows the rest
   "not reached") or the queue's end.
 - **NC14. One deadline for the whole run.** The 240 seconds (`NIGHTLY_SECONDS`) start before the search: the search may take at most
-  `FIND_SECONDS` (60) of them, each page's reads stopped there (a page that does not fit ends the search with what was found), and the press
-  gets what is left (its own reserve for the end row inside it), on the same clock.
+  `FIND_SECONDS` (60) of them, and the press gets what is left (its own reserve for the end row inside it), on the same clock. A page is
+  `PAGE` (200) rows, one chunk of readiness()'s reads, so it runs a few fixed statements (at most `FIND_STATEMENTS`, 15; the test counts
+  them); each statement's time (max_execution_time) is its share of the search's time left, so a page ends within it (the Codex re-check of
+  3de1a33: one limit per page let five slow statements run past the whole budget). A page that does not fit ends the search with what was
+  found.
 - **NC15. The installer waits longer than the longest job.** `install_cron.sh --migrate` waited 2 minutes for running jobs; a night's run may
   take 4. It now waits 6 minutes (the run and a margin) before it stops with the writers paused.
 - **NC16. A run still going is "running".** A night's run with no end row while its job holds the night's lock, started less than

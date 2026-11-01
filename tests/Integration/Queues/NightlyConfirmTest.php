@@ -287,6 +287,29 @@ final class NightlyConfirmTest extends StockTestCase
     }
 
     /**
+     * NC14 (the Codex re-check of 3de1a33): one page of the search runs at most FIND_STATEMENTS statements, whatever the rows on it, so each
+     * statement's share of the time left (its max_execution_time) bounds the page; and a page is one chunk of the reads (no more statements
+     * for a full page).
+     */
+    public function testOnePageOfTheSearchRunsAFewFixedStatements(): void
+    {
+        self::assertLessThanOrEqual(200, NightlyConfirm::PAGE, 'one chunk of readiness()\'s reads');
+        $selects = static fn (): int => (int) self::$db->one("SHOW SESSION STATUS LIKE 'Com_select'")['Value'];
+        $counts = [];
+        foreach ([1, 3] as $n) {
+            for ($i = 0; $i < $n; $i++) {
+                $this->corrected(10, 13 + $i);
+            }
+            $before = $selects();
+            $rows = (new Corrections(self::$db))->readiness(NightlyConfirm::PAGE);
+            $counts[] = $selects() - $before;
+            self::assertNotSame([], $rows);
+        }
+        self::assertLessThanOrEqual(NightlyConfirm::FIND_STATEMENTS, max($counts), json_encode($counts));
+        self::assertSame($counts[0], $counts[1], 'the same few statements for more rows: ' . json_encode($counts));
+    }
+
+    /**
      * NC16 (the Codex review of 774f39e): a night's run with no end row yet while its job still holds the night's lock is "running", not
      * "stopped"; without the lock, or started longer ago than the job's longest run, it stopped.
      */
