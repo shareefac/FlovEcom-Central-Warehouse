@@ -868,6 +868,9 @@ final class ConfirmAllTest extends StockTestCase
     public function testTheEndsReadsEndByTheDeadlineAndNoneStartsAfterIt(): void
     {
         $controller = $this->person('stock_controller');
+        // One that needs a look stays open throughout, so the end's list has rows to read (its full set of statements).
+        $this->stocked(0, 'EBIG');
+        $this->correction('EBIG', 400);
         foreach ([['E1', 30.0, 0.0, false], ['E2', 100.0, 0.0, true], ['E3', 30.0, 3.0, true]] as [$v, $endAt, $step, $unlisted]) {
             $this->stocked(1, $v);
             $id = $this->correction($v, 3);
