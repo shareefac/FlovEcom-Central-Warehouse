@@ -15722,3 +15722,6 @@ any other order state stays back and the report says "held back". The report's c
 link gives `units_per_item`), looks an "extra" up at any date so moving the start cannot make a booked unit extra, and keeps the proto prefix when the start is given by hand. The mock's return moves
 its stock and the recovery test asserts one unit. Accepted, not changed: a --catch-up over 14 days after a re-send gets a dead row with nothing booked (the base key holds a refusal, or the unit a
 second document): loud, no stock effect, and it needs a refusal, a re-send and a stop of over 14 days together.
+
+**AR12. The last Codex check** (runs/ar_codex_recheck2.txt: 3 MEDIUM). Fixed in the report: a CW return whose doc_ref names no unit counts as extra, never passed over; a return from before the start moment gets the same item and
+quantity check. Accepted: the mock's `returned` is a count, not its stock figure: what proves one unit on the real stock is CW's own AR1 test (assertBal) and the staging run.
