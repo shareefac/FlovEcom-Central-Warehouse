@@ -3242,7 +3242,7 @@ a.set-nav-item[href]:hover { background: var(--row-open); color: var(--ink); tex
    for you" over two thirds (its count, Open Approvals at the right; each row a link: the number on a 44 px square in the task's colour, the
    name and its line, the action in the dark accent with "›") and the Stores and Today cards in the last third. A phone (Phone artboard): the
    greeting and "Waiting for you" only. */
-body:has(.hm-grid) .page { max-width: 1100px; }
+body:has(.hm-grid) .page { max-width: calc(1100px / var(--zoom)); }
 .hm-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0 0 24px; padding: 0; overflow: visible; background: none; border: 0; }
 .hm-tile { display: flex; flex-direction: column; gap: 6px; padding: 18px 18px 16px; border-radius: var(--r-16); border: 1px solid; text-decoration: none; color: var(--ink-body); }
