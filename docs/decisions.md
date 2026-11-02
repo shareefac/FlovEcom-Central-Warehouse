@@ -15708,3 +15708,11 @@ for a day before they were sent stays short by them.
 old_returns_audit.csv. If CW sends no list the first line FAILs: the compare is never silently left out. Restocks that do not pass through Returns are not sent: a cancel before dispatch is of a
 unit CW holds, and a refund's Restock has no saved restock date, so a unit restocked long ago and refunded today would look like a new return (since T0 none on an order CW does not hold). A
 fourth line FAILs when such a restock leaves an item above CW and its gap moved since the last report.
+
+**AR10. The Codex review of the build** (runs/ar_codex_review.txt: 3 HIGH, 2 MEDIUM, 1 LOW, each checked by hand and shown failing first). HIGH 1: an order below T0's id can still complete
+after it, so its commit may be waiting while a unit comes back: the sweep would then send the unit as well. The step leaves out an order with a `cw_order_state` row and reads ownership again
+just before queueing (unit state, order state, a commit pending or dead). HIGH 2: a restock before T0 is in CW's opening figure, so the read starts at the later of old_returns_from and T0;
+a T0 with no readable time stops the step. HIGH 3: any dead 422 used to allow a new key, but `idempotency_key_reused` can mean the key booked: only `unresolved_line`, where CW books nothing.
+MEDIUM 1: only a real calendar moment switches the step on (`cw_config_moment_ok`, one check for the config and the writer). MEDIUM 2: the mock gives a return CW's real answers (a stored
+422, no line dedupe) and the recovery test drains the new key. LOW: the Stores page shows a return-only grant. The report's compare uses the same selection.
+Cost measured on live, read only: the step's read 5-7 ms for 72 rows of 3,800, the outbox check 4 ms for 500 keys, `idem_key` ascii_bin takes the IN as it is.
