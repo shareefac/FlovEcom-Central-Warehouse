@@ -90,6 +90,7 @@
   --backdrop: rgba(26, 21, 34, .45);
   --side-w: 264px; --topbar-h: 60px; --tabbar-h: 72px; --row-h: 44px; --gutter: 32px;
   --page-w: 1180px;          /* the work column of the mockups, centred (Home: 1100 px) */
+  --zoom: 1;                 /* how large the whole page is drawn (a computer: below) */
 
   /* 1b. The names the page bodies use, from the brief's tokens */
   --surface: var(--card);
@@ -374,12 +375,18 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 .work.is-list .rp-figs:not(.rp-keep) { display: none; }
 
 @media (min-width: 700px) {
-  .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); align-items: start; min-height: 100vh; }
+  .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); align-items: start; min-height: calc(100vh / var(--zoom)); }
   .side {
-    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 14px 24px;
+    position: sticky; top: 0; height: calc(100vh / var(--zoom)); overflow-y: auto; padding: 20px 14px 24px;
     border-right: 1px solid var(--hairline); scrollbar-width: thin;
   }
-  body:has(.strip.test-system) .side { height: calc(100vh - 28px); top: 0; }
+  body:has(.strip.test-system) .side { height: calc(100vh / var(--zoom) - 28px); top: 0; }
+}
+/* A computer fits more on every page (owner, 2 Nov 2026): the whole page is drawn smaller and the work column is wider. Phones and
+   tablets stay as they are. 100vh is the screen's height, so a full-height box divides it by --zoom; app.js does the same for a list. */
+@media screen and (min-width: 1024px) and (pointer: fine) {
+  :root { --zoom: .85; --page-w: 1520px; }
+  html { zoom: var(--zoom); }
 }
 @media (min-width: 700px) and (max-width: 1023.98px) { :root { --gutter: 24px; } .work { padding-top: 24px; } }
 
@@ -2047,8 +2054,8 @@ form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: f
 .main.bare:has(.signin) { padding: 0; }
 .main.bare:has(.signin) > .page { max-width: none; margin: 0; container-type: normal; }
 .main.bare:has(.signin) > .page > .notice { position: fixed; right: 24px; bottom: 24px; z-index: 90; max-width: 420px; }
-.signin { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100vh; background: var(--card); }
-body:has(.strip.test-system) .signin { min-height: calc(100vh - 28px); }
+.signin { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: calc(100vh / var(--zoom)); background: var(--card); }
+body:has(.strip.test-system) .signin { min-height: calc(100vh / var(--zoom) - 28px); }
 .signin-brand {
   position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 0;
   padding: 56px clamp(32px, 6vw, 88px); color: var(--on-fill);

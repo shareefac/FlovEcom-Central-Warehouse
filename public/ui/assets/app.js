@@ -558,8 +558,10 @@
         return;
       }
       var css = window.getComputedStyle(root);
-      var rem = parseFloat(css.fontSize) || 16;
-      var edge = Math.min(16, parseFloat(css.getPropertyValue('--gutter')) || 16);
+      // What is measured here is on the screen; the list is placed in the page, drawn at --zoom (app.css).
+      var zoom = parseFloat(css.getPropertyValue('--zoom')) || 1;
+      var rem = (parseFloat(css.fontSize) || 16) * zoom;
+      var edge = Math.min(16, parseFloat(css.getPropertyValue('--gutter')) || 16) * zoom;
       var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);
       var left = r.left;
       if (left + width > vw - edge) {
@@ -569,10 +571,10 @@
       var below = vh - r.bottom - 8;
       var above = r.top - 8;
       var up = below < 200 && above > below;
-      list.style.left = left + 'px';
-      list.style.width = width + 'px';
-      list.style.maxHeight = Math.max(96, Math.min(24 * rem, up ? above : below)) + 'px';
-      list.style.top = (up ? Math.max(4, r.top - 4 - list.offsetHeight) : r.bottom + 4) + 'px';
+      list.style.left = left / zoom + 'px';
+      list.style.width = width / zoom + 'px';
+      list.style.maxHeight = Math.max(96, Math.min(24 * rem, up ? above : below)) / zoom + 'px';
+      list.style.top = (up ? Math.max(4, r.top - 4 - list.offsetHeight * zoom) : r.bottom + 4) / zoom + 'px';
     };
     // Shown only while the box has the focus and the list has choices (and Escape did not shut it since the words last changed); one
     // list open at a time; the choice in force is the one the keys start from.
