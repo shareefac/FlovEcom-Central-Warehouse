@@ -354,6 +354,29 @@ final class StockOps
     }
 
     /**
+     * The products a quick adjustment names, with their stock at $warehouseId (docs/decisions.md AG4): sku_id => code, name, brand, on_hand and
+     * available. A product with no stock row there holds 0. One joined into another is still named, so a redrawn line never vanishes: the save refuses it.
+     *
+     * @param list<int> $skuIds
+     * @return array<int, array{code: string, name: string, brand: ?string, on_hand: int, available: int}>
+     */
+    public function itemsAt(int $warehouseId, array $skuIds): array
+    {
+        $skuIds = array_values(array_unique($skuIds));
+        if ($skuIds === []) {
+            return [];
+        }
+        $marks = implode(', ', array_fill(0, count($skuIds), '?'));
+        $out = [];
+        foreach ($this->db->all("SELECT s.id, s.code, s.name, s.brand, COALESCE(b.on_hand, 0) AS on_hand, COALESCE(b.on_hand - b.allocated - b.held, 0) AS available FROM sku s "
+            . "LEFT JOIN stock_balance b ON b.sku_id = s.id AND b.warehouse_id = ? WHERE s.id IN ({$marks})", [$warehouseId, ...$skuIds]) as $r) {
+            $out[(int) $r['id']] = ['code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'],
+                'on_hand' => (int) $r['on_hand'], 'available' => (int) $r['available']];
+        }
+        return $out;
+    }
+
+    /**
      * The records of $kind for its list (newest first, at most LIST_LIMIT): q (a number, reference, note, "given to" or the other
      * account's name), state (STATES), warehouse (an id: from or to), cancelled (show the stopped drafts too).
      *

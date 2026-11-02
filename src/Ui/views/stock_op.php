@@ -25,7 +25,14 @@ $bar = $partial('stock_op_bar', ['doc' => $doc, 'base' => $base, 'k' => $k, 'ver
 <p class="note read-only"><?= $word('STOCK_OPS', 'not_creator') ?></p>
 <?php endif; ?>
 
-<?php if ($editable): ?>
+<?php if ($grid !== null): ?>
+<?= $partial('stock_adjust_grid', $grid) ?>
+
+<section class="doc-files" aria-labelledby="files-h" id="files">
+  <h2 id="files-h"><?= $word('STOCK_OPS', 'files') ?></h2>
+<?= $partial('stock_op_files', ['files' => $files, 'canFile' => $canFile, 'fileRoles' => $fileRoles, 'maxMb' => $maxMb, 'action' => $base . '/' . $doc->id . '/files']) ?>
+</section>
+<?php elseif ($editable): ?>
 <form class="doc-details" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($headerTyped): ?> data-dirty="1"<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($version) ?>">

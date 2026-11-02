@@ -48,6 +48,8 @@ final class StockOpsController
     public const ADJUSTMENT_KINDS = ['in', 'out', 'adjust', 'release'];
     /** Adjustments' "All kinds" (the Inventory artboard's first Show choice, docs/decisions.md DG1): every kind of ADJUSTMENT_KINDS together. */
     public const ALL_PATH = '/ui/stock/adjustments/all';
+    /** What "Why, for every line" opens on (AG2): the reason most corrections have. */
+    private const GRID_REASON = 'data_correction';
     /** The kinds that print a PDF (the transfer note, the release invoice). */
     public const PDF_KINDS = ['transfer', 'release'];
 
@@ -56,6 +58,12 @@ final class StockOpsController
     {
         $c = new self();
         $r->add('GET', self::ALL_PATH, 'documents.view', $c->all(...));
+        // The quick adjustment screen (docs/decisions.md AG1-AG8).
+        $adjust = StockOps::PATHS['adjust'];
+        $r->add('GET', $adjust . '/new', 'doc.ADJ.post', $c->gridNew(...));
+        $r->add('POST', $adjust . '/new', 'doc.ADJ.post', $c->gridCreate(...));
+        $r->add('GET', $adjust . '/products', 'doc.ADJ.post', $c->gridProducts(...));
+        $r->add('POST', $adjust . '/{id}/grid', 'doc.ADJ.post', $c->gridSave(...));
         foreach (StockOps::PATHS as $kind => $base) {
             $post = 'doc.' . StockOps::KINDS[$kind] . '.post';
             $r->add('GET', $base, 'documents.view', static fn (Context $ctx): HtmlResponse => $c->index($ctx, $kind));
@@ -98,6 +106,9 @@ final class StockOpsController
         $page = self::PAGES[$kind];
         // The item page's Move stock and More (docs/decisions.md IV2): the new form names the item, which goes into the draft's add box.
         $item = self::itemOf($ctx, UiRequest::id($typed['item'] ?? $ctx->req->param('item')));
+        if ($kind === 'adjust' && $item !== null && $canPost && $error === null) {
+            return HtmlResponse::redirect(Html::url(StockOps::PATHS['adjust'] . '/new', ['item' => $item['id']])); // AG1: one page, the item its first line
+        }
         $filtered = $f['q'] !== '' || $f['state'] !== null || $f['warehouse'] !== null || $f['cancelled'];
         $csv = Html::url(StockOps::PATHS[$kind] . '.csv', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => $f['state'], 'warehouse' => $f['warehouse'],
             'cancelled' => $f['cancelled'] ? '1' : null]);
@@ -117,7 +128,7 @@ final class StockOpsController
             'filtered' => $filtered,
             'form' => self::form($kind, $choices, $typed),
             'canPost' => $canPost,
-            'formKey' => $canPost ? FormOnce::newKey() : null,
+            'formKey' => $canPost && $kind !== 'adjust' ? FormOnce::newKey() : null, // an adjustment starts on its own page (AG1)
             'item' => $item,
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $type . '.post'),
             'error' => $error === null ? null : self::plain($error),
@@ -395,6 +406,296 @@ final class StockOpsController
         });
     }
 
+    // ------------------------------------------------------------------------------------------
+    // The quick adjustment screen (docs/decisions.md AG1-AG8)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * GET adjustments/new: one page, nothing saved yet (AG1). The item page's way here names its item: the first line.
+     *
+     * @param array<string, string>|null $typed the header and `why` a refused form sent
+     * @param list<array{sku: int, u: string, r: string, l?: int}>|null $rows the lines it sent
+     */
+    public function gridNew(Context $ctx, int $status = 200, ?CwException $error = null, ?array $typed = null, ?array $rows = null): HtmlResponse
+    {
+        $ops = $ctx->stockOps();
+        $choices = $ops->formChoices('adjust');
+        $form = self::form('adjust', $choices, $typed);
+        $item = self::itemOf($ctx, UiRequest::id($ctx->req->param('item')));
+        $rows ??= $item === null ? [] : [['sku' => $item['id'], 'u' => '', 'r' => '']];
+        $type = $ctx->documents()->typeInfo('ADJ');
+        $ruleWaits = $type['approval_rule'] !== 'none' || (int) ($type['size_approval'] ?? 0) === 1;
+        return $ctx->page('stock_adjust_new', [
+            'base' => StockOps::PATHS['adjust'],
+            'listName' => Words::STOCK_KIND['adjust']['tab'],
+            'grid' => self::gridVars($ctx, $form, $choices, StockOps::PATHS['adjust'] . '/new', FormOnce::newKey(), null,
+                self::gridShown($ctx, (int) $form['warehouse'], $rows), self::gridTop($choices['reasons'], $typed['why'] ?? null), $ruleWaits, $typed !== null),
+            'error' => $error === null ? null : self::plain($error),
+            'errorCode' => $error?->errorCode,
+        ], $status, ['title' => Words::ADJ_GRID['title']]);
+    }
+
+    /**
+     * POST adjustments/new: the draft and its lines in one transaction (FormOnce: a second send makes no second record), so a refusal leaves
+     * nothing behind and the page keeps what was typed; `action` = post then makes it final, as the draft's own form does (AG3).
+     */
+    public function gridCreate(Context $ctx): HtmlResponse
+    {
+        $req = $ctx->req;
+        $typed = self::typedHeader($req);
+        $why = (string) ($req->field('why') ?? '');
+        $rows = [];
+        try {
+            $rows = self::gridRows($req);
+            if ($rows === []) {
+                throw new CwException('no_lines', 'add a product first', 422);
+            }
+            $lines = self::gridLines($rows, $why);
+            $r = FormOnce::run($ctx, 'ui.stockop.grid', ['header' => $typed, 'lines' => $lines], function (Db $db) use ($ctx, $typed, $lines): OpResult {
+                $ops = $ctx->stockOps();
+                $d = $ops->createDraft($ctx->caller(), 'adjust', $typed);
+                $d = $ops->saveLines($ctx->caller(), $d->id, $d->version, $lines);
+                return OpResult::of(303, ['result' => 'created', 'document_id' => $d->id, 'version' => $d->version,
+                    'redirect' => Html::url(StockOps::PATHS['adjust'] . '/' . $d->id, ['notice' => 'lines'])]);
+            });
+        } catch (CwException $e) {
+            return $this->gridNew($ctx, $e->httpStatus, $e, $typed + ['why' => $why], $rows);
+        }
+        if ($req->field('action') !== 'post' || $r->replayed) {
+            return FormOnce::redirect($r);
+        }
+        return $this->gridPost($ctx, (int) $r->body['document_id'], (int) $r->body['version']);
+    }
+
+    /** POST {id}/grid: the draft's details and every line as the page sent them, in one transaction; `action` = post then makes it final (AG3). */
+    public function gridSave(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        if (!$this->belongs($ctx, 'adjust', $id)) {
+            return $ctx->error(404, 'not_found', 'there is no such record', [StockOps::PATHS['adjust'], Words::STOCK_KIND['adjust']['tab']]);
+        }
+        $version = UiRequest::id($ctx->req->field('version'));
+        if ($version === null) {
+            return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
+        }
+        $typed = self::typedHeader($ctx->req);
+        $why = (string) ($ctx->req->field('why') ?? '');
+        $ops = $ctx->stockOps();
+        $rows = [];
+        try {
+            self::checkDrawn($ctx, $id, $version);
+            $rows = self::gridRows($ctx->req);
+            $lines = self::gridKept($ctx, $id, $rows, self::gridLines($rows, $why));
+            $saved = $ctx->db->transaction(function () use ($ctx, $ops, $id, $version, $typed, $lines): int {
+                return $ops->saveLines($ctx->caller(), $id, $ops->saveHeader($ctx->caller(), $id, $version, $typed)->version, $lines)->version;
+            });
+        } catch (CwException $e) {
+            return $this->page($ctx, 'adjust', $id, $e->httpStatus, $e, null, in_array($e->errorCode, ['version_conflict', 'not_draft'], true) ? []
+                : ['header' => $typed, 'gridRows' => $rows, 'typedWhy' => $why, 'typedVersion' => $version]);
+        }
+        if ($ctx->req->field('action') !== 'post') {
+            return HtmlResponse::redirect(Html::url(StockOps::PATHS['adjust'] . '/' . $id, ['notice' => 'lines']));
+        }
+        return $this->gridPost($ctx, $id, $saved);
+    }
+
+    /** Makes a saved draft final; a refusal keeps the draft and says it was saved, not made final (OV3). */
+    private function gridPost(Context $ctx, int $id, int $version): HtmlResponse
+    {
+        try {
+            return $this->posted($ctx, 'adjust', $ctx->stockOps()->post($ctx->caller(), $id, $version));
+        } catch (CwException $e) {
+            return $this->page($ctx, 'adjust', $id, $e->httpStatus, $e, null, ['notFinal' => true]);
+        }
+    }
+
+    /**
+     * GET adjustments/products: the read-only fragment of a line's product box (AG4): what was scanned or typed (StockOps::resolve, 2 characters
+     * or more), or the products of `skus` again when the warehouse changes, each with its stock in `warehouse`.
+     */
+    public function gridProducts(Context $ctx): HtmlResponse
+    {
+        $ops = $ctx->stockOps();
+        $warehouse = UiRequest::id($ctx->req->param('warehouse')) ?? 0;
+        $q = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
+        $units = [];
+        $ids = [];
+        $sent = (string) ($ctx->req->param('skus') ?? '');
+        if ($sent !== '') {
+            $ids = array_slice(array_values(array_filter(array_map(static fn (string $v): ?int => UiRequest::id($v), explode(',', $sent)))), 0, StockOps::MAX_LINES);
+        } elseif (mb_strlen($q) >= 2) {
+            $r = $ops->resolve($q);
+            if ($r['status'] === 'found') {
+                $ids = [(int) $r['sku_id']];
+                $units[(int) $r['sku_id']] = (int) $r['units'];
+            } elseif ($r['status'] === 'choices') {
+                $ids = array_map(static fn (array $c): int => (int) $c['sku_id'], $r['choices']);
+            }
+        }
+        $items = $ops->itemsAt($warehouse, $ids);
+        $choices = [];
+        foreach ($ids as $id) {
+            if (isset($items[$id])) {
+                $i = $items[$id];
+                $choices[] = ['sku' => $id, 'label' => trim((string) preg_replace('/\s+/u', ' ', $i['name'])), 'code' => $i['code'], 'hand' => $i['on_hand'], 'units' => $units[$id] ?? 1,
+                    'meta' => implode(' · ', array_filter([$i['code'], (string) $i['brand'], Words::say('ADJ_GRID', 'free', number_format($i['available']))], static fn (string $v): bool => $v !== ''))];
+            }
+        }
+        return $ctx->fragment('stock_adjust_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('ADJ_GRID', 'none', $q) : '']);
+    }
+
+    /**
+     * The lines the page sent, one JSON field however many there are (AG3): [{sku, u, r, l}], the product, the units as typed, the line's own reason and
+     * the saved line it stands for (0: a new one).
+     *
+     * @return list<array{sku: int, u: string, r: string, l: int}>
+     */
+    private static function gridRows(UiRequest $req): array
+    {
+        $raw = json_decode((string) ($req->field('lines') ?? '[]'), true);
+        if (!is_array($raw) || !array_is_list($raw)) {
+            throw new CwException('bad_form', 'this form is not as it was drawn: reload the page', 400);
+        }
+        $out = [];
+        foreach ($raw as $r) {
+            $sku = is_array($r) ? ($r['sku'] ?? null) : null;
+            if (!is_int($sku) || $sku <= 0) {
+                throw new CwException('bad_form', 'this form is not as it was drawn: reload the page', 400);
+            }
+            $line = $r['l'] ?? 0;
+            $out[] = ['sku' => $sku, 'u' => mb_substr(trim((string) ($r['u'] ?? '')), 0, 16), 'r' => mb_substr(trim((string) ($r['r'] ?? '')), 0, 64), 'l' => is_int($line) ? $line : 0];
+        }
+        return $out;
+    }
+
+    /**
+     * The rows as StockOps::saveLines takes them: a line with no reason of its own has the one for every line (AG2).
+     *
+     * @param list<array{sku: int, u: string, r: string, l: int}> $rows
+     * @return list<array<string, mixed>>
+     */
+    private static function gridLines(array $rows, string $why): array
+    {
+        if (count($rows) > StockOps::MAX_LINES) {
+            throw new CwException('too_many_lines', 'a stock record has too many lines', 422); // here, so the page keeps what was typed
+        }
+        $out = [];
+        foreach ($rows as $i => $r) {
+            if (preg_match('/^[+-]?[0-9]{1,8}$/D', $r['u']) !== 1) {
+                throw new CwException('qty_nonzero', 'the units are a whole number', 422, ['line' => $i + 1]);
+            }
+            $reason = $r['r'] !== '' ? $r['r'] : ($why !== '' ? $why : null);
+            $out[] = ['sku_id' => $r['sku'], 'qty' => (int) $r['u'], 'unit_cost' => null, 'reason_code' => $reason, 'description' => null];
+        }
+        return $out;
+    }
+
+    /**
+     * A draft's lines may hold what this screen does not show (a + line's unit cost, a description; the add route and the API can set them). A row that
+     * stands for a saved line (`l`, the form was drawn over this version: checkDrawn) keeps them while it is the same product going the same way.
+     *
+     * @param list<array{sku: int, u: string, r: string, l: int}> $rows
+     * @param list<array<string, mixed>> $lines
+     * @return list<array<string, mixed>>
+     */
+    private static function gridKept(Context $ctx, int $id, array $rows, array $lines): array
+    {
+        $stored = [];
+        foreach ($ctx->db->all('SELECT line_no, sku_id, qty, unit_cost, description FROM document_line WHERE document_id = ?', [$id]) as $l) {
+            $stored[(int) $l['line_no']] = $l;
+        }
+        foreach ($lines as $i => $l) {
+            $was = $stored[$rows[$i]['l']] ?? null;
+            if ($was !== null && (int) $was['sku_id'] === $l['sku_id'] && ((int) $was['qty'] > 0) === ($l['qty'] > 0)) {
+                $lines[$i]['unit_cost'] = $was['unit_cost'] === null ? null : (string) $was['unit_cost'];
+                $lines[$i]['description'] = $was['description'] === null ? null : (string) $was['description'];
+            }
+        }
+        return $lines;
+    }
+
+    /**
+     * The rows as the page draws them: each with its product's words and stock (a product that is gone is left out).
+     *
+     * @param list<array{sku: int, u: string, r: string, l?: int}> $rows
+     * @return list<array<string, mixed>>
+     */
+    private static function gridShown(Context $ctx, int $warehouse, array $rows): array
+    {
+        $items = $ctx->stockOps()->itemsAt($warehouse, array_map(static fn (array $r): int => $r['sku'], $rows));
+        $out = [];
+        foreach ($rows as $r) {
+            if (isset($items[$r['sku']])) {
+                $i = $items[$r['sku']];
+                $out[] = ['sku' => $r['sku'], 'name' => trim((string) preg_replace('/\s+/u', ' ', $i['name'])), 'code' => $i['code'], 'hand' => $i['on_hand'], 'u' => $r['u'], 'r' => $r['r'], 'l' => $r['l'] ?? 0];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The reason for every line (AG2): what was typed, else what the draft's first line says, else Data correction while it is offered.
+     *
+     * @param list<array<string, mixed>> $reasons
+     */
+    private static function gridTop(array $reasons, ?string $wanted): string
+    {
+        $codes = array_column($reasons, 'code');
+        foreach ([$wanted, self::GRID_REASON] as $c) {
+            if ($c !== null && in_array($c, $codes, true)) {
+                return $c;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * The grid of the creator's draft: its stored lines, or what a refused form sent (drawn over the version it was drawn with, OV9). A line whose
+     * reason is the one for every line says "Same as above".
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param array<string, mixed> $choices
+     * @param array<string, mixed> $extra
+     * @param list<array{sku: int, u: string, r: string, l: int}>|null $typedGrid
+     * @return array<string, mixed>
+     */
+    private static function draftGrid(Context $ctx, Document $doc, array $lines, array $choices, array $extra, ?array $typedGrid, bool $ruleWaits): array
+    {
+        $first = null;
+        foreach ($lines as $l) {
+            $first ??= $l['reason_code'];
+        }
+        $top = self::gridTop($choices['reasons'], $extra['typedWhy'] ?? $first);
+        $rows = $typedGrid ?? array_map(static fn (array $l): array => ['sku' => (int) $l['sku_id'], 'u' => ($l['qty'] > 0 ? '+' : '') . $l['qty'],
+            'r' => $l['reason_code'] === $top ? '' : (string) $l['reason_code'], 'l' => (int) $l['line_no']], array_values(array_filter($lines, static fn (array $l): bool => $l['sku_id'] !== null)));
+        // A record started from the item page (IV2): the item is a line of the draft's, its units still to type.
+        $add = (string) ($extra['typedAdd']['q'] ?? '');
+        if ($add !== '' && preg_match('/^CW-[0-9]{1,10}$/D', $add) === 1) {
+            $r = $ctx->stockOps()->resolve($add);
+            if ($r['status'] === 'found') {
+                $rows[] = ['sku' => (int) $r['sku_id'], 'u' => '', 'r' => ''];
+            }
+        }
+        $rec = $ctx->stockOps()->record($doc->id);
+        $form = self::form('adjust', $choices, $extra['header'] ?? null, $rec);
+        return self::gridVars($ctx, $form, $choices, StockOps::PATHS['adjust'] . '/' . $doc->id . '/grid', null, $doc->version,
+            self::gridShown($ctx, (int) $form['warehouse'], $rows), $top, $ruleWaits, isset($extra['header']));
+    }
+
+    /**
+     * What stock_adjust_grid draws.
+     *
+     * @param array<string, mixed> $form
+     * @param array<string, mixed> $choices
+     * @param list<array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private static function gridVars(Context $ctx, array $form, array $choices, string $action, ?string $formKey, ?int $version, array $rows, string $top, bool $ruleWaits, bool $dirty): array
+    {
+        return ['form' => $form, 'reasons' => $choices['reasons'], 'action' => $action, 'formKey' => $formKey, 'version' => $version, 'rows' => $rows, 'top' => $top,
+            'ruleWaits' => $ruleWaits, 'dirty' => $dirty, 'k' => Words::STOCK_KIND['adjust'], 'options' => StockOps::PATHS['adjust'] . '/products?'];
+    }
+
     /** The record's page after it was made final or sent for a reviewer's OK, with its notice. */
     private function posted(Context $ctx, string $kind, Document $d): HtmlResponse
     {
@@ -533,7 +834,9 @@ final class StockOpsController
         $shown = array_map(static fn (array $l): array => $l + ['reason_text' => $l['reason_label'] ?? null], $lines);
         $oneForm = $editable && $lines !== [] && self::oneFormFits($kind, count($lines));
         $page = self::linesPage($ctx->req, $shown, $oneForm, self::linesPerPage($kind));
+        $typedGrid = ($extra['typedVersion'] ?? null) === $doc->version ? ($extra['gridRows'] ?? null) : null;
         return $ctx->page('stock_op', [
+            'grid' => $kind === 'adjust' && $editable ? self::draftGrid($ctx, $doc, $lines, $choices, $extra, $typedGrid, $ruleWaits) : null,
             'kind' => $kind,
             'k' => Words::STOCK_KIND[$kind],
             'base' => StockOps::PATHS[$kind],
@@ -595,6 +898,7 @@ final class StockOpsController
         $d = $e->detail;
         return match ($e->errorCode) {
             'reason_direction', 'price_required' => Words::say('STOCK_ERROR', $e->errorCode, (int) ($d['line'] ?? 0)),
+            'qty_nonzero', 'reason_required' => isset($d['line']) ? Words::say('ADJ_GRID', $e->errorCode, (int) $d['line']) : Words::STOCK_ERROR[$e->errorCode],
             'below_zero' => Words::say('STOCK_ERROR', 'below_zero', (int) ($d['line'] ?? 0), (string) ($d['sku_code'] ?? ''), (int) ($d['have'] ?? 0), (int) ($d['wanted'] ?? 0)),
             'not_enough_held' => Words::say('STOCK_ERROR', 'not_enough_held', (int) ($d['line'] ?? 0), (int) ($d['on_hand'] ?? 0), (string) ($d['sku_code'] ?? '')),
             'not_found' => Words::say('STOCK_ERROR', 'not_found', (string) ($d['q'] ?? '')),

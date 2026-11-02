@@ -99,7 +99,9 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
 
     private function start(KernelBrowser $web, string $kind, array $over = []): string
     {
-        $r = $web->post(StockOps::PATHS[$kind], $over + $web->get(StockOps::PATHS[$kind])->form(StockOps::PATHS[$kind], true));
+        // An adjustment starts on its own page (docs/decisions.md AG1): its form is that page's, the create route stays.
+        $form = $kind === 'adjust' ? $web->get(StockOps::PATHS[$kind] . '/new')->form(StockOps::PATHS[$kind] . '/new', true) : $web->get(StockOps::PATHS[$kind])->form(StockOps::PATHS[$kind], true);
+        $r = $web->post(StockOps::PATHS[$kind], $over + $form);
         self::assertSame(303, $r->status, $r->describe());
         return (string) parse_url((string) $r->location(), PHP_URL_PATH);
     }
@@ -260,7 +262,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([$out, $adjust, $in], self::attrs($all, '//div[@id="g-draft"]//tbody/tr/th/a[contains(@class, "row-link")]', 'href'), 'every kind, newest first');
         self::assertSame([Words::INV_LIST['kind_out'], Words::INV_LIST['kind_adjust'], Words::INV_LIST['kind_in']], self::texts($all, '//div[@id="g-draft"]//tbody/tr/td[1]'));
         $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
-        self::assertSame(['/ui/stock/adjustments#new'], self::attrs($all, $head . '/a[contains(@class, "primary")]', 'href'), '+ New adjustment');
+        self::assertSame(['/ui/stock/adjustments/new'], self::attrs($all, $head . '/a[contains(@class, "primary")]', 'href'), '+ New adjustment');
         self::assertSame(['state', 'warehouse'], self::attrs($all, $head . '/details[contains(concat(" ", @class, " "), " more ")]//form//select', 'name'));
         self::assertSame(0, self::xp($all)->query('//details[@id="new"]')->length, 'no create fold of its own');
 

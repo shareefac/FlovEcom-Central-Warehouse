@@ -51,7 +51,7 @@ final class Words
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME', 'CHECK',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW', 'SIMPLE_MATCH',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
-        'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
+        'STOCK_OPS', 'ADJ_GRID', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         // The Items and Inventory pages on the approved redesign (docs/decisions.md RD-A)
         'INV_LIST', 'ITEM_PAGE',
         // "Final uses what is on the screen" (docs/decisions.md OV)
@@ -1873,7 +1873,7 @@ final class Words
             'start_text' => 'Put the stock figure right: stock found, lost or damaged, a correction, or a write-off. Each line says why.',
             'how' => ['Choose the warehouse.', 'Scan or find each product, type + for units found or - for units gone, and choose why.',
                 'Make it final. Units gone for good are booked as a write-off; a big adjustment may wait for a reviewer\'s OK first.'],
-            'none' => 'No adjustments yet.', 'none_text' => 'Start one above when the stock figure is wrong.',
+            'none' => 'No adjustments yet.', 'none_text' => 'Press New adjustment when the stock figure is wrong.',
             'final_button' => 'Make it final: change the stock', 'final_does' => 'The stock figure changes now, or after a reviewer\'s OK when a rule asks for one.',
         ],
         'transfer' => [
@@ -2035,6 +2035,41 @@ final class Words
      * "Final uses what is on the screen" (docs/decisions.md OV1-OV8): a stock record's and a hand-over's lines and their final button are one
      * form. "Save" keeps a draft; the final button saves what is on the screen, then makes it final.
      */
+    /** The quick adjustment screen (docs/decisions.md AG1-AG8; the owner's drawing of 2 Nov 2026). */
+    public const ADJ_GRID = [
+        'title' => 'New adjustment',
+        'why_all' => 'Why, for every line',
+        'optional' => 'Optional',
+        'product_hint' => 'Type a name or a CW number',
+        'col_no' => '#',
+        'col_product' => 'Product',
+        'col_units' => 'Units (+ / -)',
+        'col_why' => 'Why',
+        'col_now' => 'Stock now',
+        'col_after' => 'After',
+        'same' => 'Same as above',
+        'product_line' => 'Product',
+        'units_line' => 'Units',
+        'why_line' => 'Why',
+        'after_line' => 'After',
+        'remove' => 'Remove this line',
+        'list' => 'Matching products',
+        'products' => '{n} products',
+        'found' => '{n} found',
+        'gone' => '{n} gone',
+        'save' => 'Save for later',
+        'free' => '%s free',
+        'none' => 'No product found for "%s".',
+        'loading' => 'Looking...',
+        'failed' => 'The products could not be loaded. Try again.',
+        'choose' => 'Line {n}: choose a product from the list, or clear the line.',
+        'no_script' => 'This page needs JavaScript switched on in the browser.',
+        'note_hint' => 'Needed for this reason',
+        'note_needed' => 'Write a note first: this reason needs one. Nothing was saved.',
+        'qty_nonzero' => 'Line %d: the units are a whole number, + for units found, - for units gone, never 0. Nothing was saved.',
+        'reason_required' => 'Line %d: say why. Nothing was booked.',
+    ];
+
     public const OP_FINAL = [
         'save' => 'Save',
         // A posting refused after its save (the draft keeps the saved lines). %s: the refusal in words, "Nothing was saved." left out.

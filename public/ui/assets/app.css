@@ -3504,3 +3504,59 @@ a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 3
   a.nc-open { min-height: 44px; }
 }
 /* ==== end nc ================================================================================================================================ */
+
+/* The quick adjustment screen (docs/decisions.md AG1-AG8; the owner's drawing of 2 Nov 2026): the details in one row, one table of lines, Tab and the arrow keys
+   move through it. A cell shows no frame until the pointer or the focus is on it. On a phone a line stacks: product, then units and after, then why. */
+.aj-form { display: grid; gap: 12px; }
+.aj-form .card { margin: 0; }
+.aj-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; padding: 12px 14px; }
+.aj-top label { display: grid; gap: 3px; margin: 0; color: var(--ink-muted); font: 600 12px/16px var(--font); }
+.aj-top .aj-note { grid-column: span 2; }
+.aj-lines { padding: 0; overflow: visible; }
+.aj-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.aj-table th { padding: 8px 10px; background: var(--page-alt); border-bottom: 1px solid var(--hairline); color: var(--ink-muted); font: 600 12px/16px var(--font); text-align: left; }
+.aj-table th:first-child { border-top-left-radius: var(--r-12); }
+.aj-table th:last-child { border-top-right-radius: var(--r-12); }
+.aj-table th.num, .aj-table td.num { text-align: right; }
+.aj-table td { padding: 3px 6px; border-bottom: 1px solid var(--divider); font-variant-numeric: tabular-nums; }
+.aj-c-no { width: 44px; color: var(--ink-muted); text-align: center; }
+.aj-c-units { width: 104px; }
+.aj-c-why { width: 190px; }
+.aj-c-fig { width: 100px; }
+.aj-c-x { width: 44px; }
+.aj-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.aj-code { flex: none; color: var(--ink-muted); font-size: 12px; }
+.aj-form input.aj-cell, .aj-form select.aj-cell { width: 100%; min-width: 0; height: 36px; min-height: 36px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-8); background-color: transparent; color: var(--ink); font: 500 14px/20px var(--font); }
+.aj-form input.aj-cell::placeholder { color: var(--ink-muted); font-weight: 400; }
+.aj-form select.aj-cell { color: var(--ink-muted); font-weight: 400; }
+.aj-form input.aj-cell:hover:not(:disabled), .aj-form select.aj-cell:hover { border-color: var(--hairline); }
+.aj-form input.aj-cell:focus, .aj-form select.aj-cell:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 0; background-color: var(--card); }
+.aj-form input.aj-cell.num { text-align: right; font-weight: 600; }
+.aj-form input.aj-cell:disabled { background: none; border-color: transparent; }
+.aj-row.is-up input[data-cell="u"] { color: var(--sf-green-ink); }
+.aj-row.is-down input[data-cell="u"] { color: var(--sf-red-ink); }
+.aj-x { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-8); background: none; color: var(--ink-muted); cursor: pointer; }
+.aj-x:hover { background: var(--sf-red); color: var(--sf-red-ink); }
+.aj-row:last-child .aj-x { visibility: hidden; }
+.aj-alarm { margin: 8px 12px 0; }
+.aj-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px; background: var(--page-alt); border-radius: 0 0 var(--r-12) var(--r-12); position: sticky; bottom: 0; z-index: 2; }
+.aj-sum { color: var(--ink); font-weight: 600; }
+.aj-up { color: var(--sf-green-ink); }
+.aj-down { color: var(--sf-red-ink); }
+.aj-waits { flex: 1 1 16rem; font-size: 12px; line-height: 16px; }
+.aj-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  .aj-table thead { display: none; }
+  .aj-table, .aj-table tbody { display: block; }
+  .aj-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 40px; gap: 4px; padding: 8px; border-bottom: 1px solid var(--divider); }
+  .aj-row td { width: auto; padding: 0; border: 0; }
+  .aj-row .aj-c-no { display: none; }
+  .aj-row .aj-product { grid-column: 1 / -1; }
+  .aj-row .aj-c-why { grid-row: 2; grid-column: 1; }
+  .aj-form input.aj-cell, .aj-form select.aj-cell { height: 44px; min-height: 44px; font-size: 16px; }
+  .aj-top .aj-note { grid-column: auto; }
+  .aj-x { width: 40px; height: 44px; }
+}
+@media (max-width: 699.98px) {
+  body:has(.tabbar) .aj-foot { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+}

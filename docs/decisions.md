@@ -15725,3 +15725,38 @@ second document): loud, no stock effect, and it needs a refusal, a re-send and a
 
 **AR12. The last Codex check** (runs/ar_codex_recheck2.txt: 3 MEDIUM). Fixed in the report: a CW return whose doc_ref names no unit counts as extra, never passed over; a return from before the start moment gets the same item and
 quantity check. Accepted: the mock's `returned` is a count, not its stock figure: what proves one unit on the real stock is CW's own AR1 test (assertBal) and the staging run.
+
+## The quick adjustment screen (branch `adjust-grid`, 2 Nov 2026; AG1-AG8; tracker CW-212)
+
+The owner watched an adjustment being typed product by product and asked for ERPNext's way: "you can just keep going on by pressing tab and add new line". He drew the
+screen with Claude on the canvas https://claude.ai/artifact/7tqoX6sbiPJH4LKqTvPq6M and said "Yes, build it". Adjustments only: Stock in, Stock out, Transfers and Releases
+keep the add box, because their lines carry prices, a place to and a "given to".
+
+**AG1. One page, nothing saved until a button.** "New adjustment" opens `/ui/stock/adjustments/new`; the list has no start form. The item page's `?item=` lands there with
+the item as the first line. The creator's draft shows the same screen; every other record keeps the record page. The add and lines routes stay: older pages open in a
+tab keep working.
+
+**AG2. One reason for every line.** "Why, for every line" opens on Data correction while it is offered. A line's Why says "Same as above" unless it has its own, and Tab
+skips it. On a saved draft the box takes the first line's reason.
+
+**AG3. Every line in one field.** The form sends `lines`, JSON of `[{sku, u, r}]`, so PHP's max_input_vars cannot cut lines off (OV4). The server trusts nothing in it: not
+a list, or a product that is no positive whole number, is 400 bad_form; units are read as before. New: the draft and its lines are one transaction under FormOnce, so a
+refusal leaves no record and a second send makes no second one. A draft: details and lines are one transaction. Make it final then posts in its own transaction (OV3): a
+refused posting keeps the saved draft and says so.
+
+**AG4. The product box is the site's one dropdown** (SM11, combo) filled from a read-only fragment, `/ui/stock/adjustments/products`, marker `data-aj-fragment`, using
+StockOps::resolve, so a barcode, a CW number and words of a name all work. It gives each choice's stock in the warehouse on the page. Changing the warehouse asks again by
+`skus`. A choice is never taken on an exact answer alone: a CW number being typed passes through other numbers on the way (id 1380 on the way to 13801). Only Tab or Enter takes one.
+
+**AG5. Keys.** Tab or Enter in Product takes the marked choice, else the first; before the answer comes (a scanner) it waits for it. Tab or Enter in Units goes to the next
+line, or to After when Units is empty. After sets Units, and Units sets After. Up and Down move in a column, Left and Right between cells, in a text box from its ends. In
+Why, Space opens the list. Enter never sends the form. One empty line is always ready at the end.
+
+**AG6. Stock now is on hand**, as the old line showed first, and After is on hand plus the units. The units are what is booked: stock that moves after the page was drawn
+does not change them.
+
+**AG7. A reason that needs a note says so before the send.** Data correction needs one (reason_code.needs_note), which the old page only said after the press. The Note box's
+hint changes and Make it final stops in the page. The server's own check stays.
+
+**AG8. The rules are unchanged.** Who may post, the OK first, the reviewer's check, below-zero and reason direction all stay in Documents and StockOpHandler. The hint under
+the lines shows while a rule can ask for an OK.

@@ -301,7 +301,7 @@
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?' };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker) {
@@ -2060,5 +2060,413 @@
       return;
     }
     s.addEventListener('change', function () { box.checked = s.value !== ''; });
+  });
+
+  // The quick adjustment screen (docs/decisions.md AG1-AG8; the owner's drawing of 2 Nov 2026: "ERPNext is easier"). The lines are drawn here from the form's
+  // data-rows and the row template, and one empty line is always ready at the end. A line's product box is the site's one dropdown (combo), filled from the
+  // read-only fragment of the products route (2 characters or more, 300 ms after the last key). Tab or Enter takes the choice marked, else the first one (when
+  // the answer is still on its way, as with a scanner, it is taken when it comes), and goes to Units; Tab or Enter in Units goes to the next line, or to After
+  // when Units is empty; After sets Units, and Units sets After. Up and Down move between the lines of a column, Left and Right between the cells (in a text
+  // box from its ends). Sending puts every line in one field (`lines`): the server checks everything; here a typed word that names no product stops the send.
+  each(document.querySelectorAll('form[data-aj-grid]'), function (form) {
+    var base = form.getAttribute('data-options') || '';
+    var body = form.querySelector('tbody[data-aj-rows]');
+    var tpl = form.querySelector('template[data-aj-row]');
+    var lines = form.querySelector('input[name="lines"]');
+    var alarm = form.querySelector('[data-aj-alarm]');
+    var warehouse = form.querySelector('select[name="warehouse"]');
+    if (base.indexOf('/ui/stock/adjustments/products?') !== 0 || !body || !tpl || !tpl.content || !lines || !alarm || !warehouse) {
+      return;
+    }
+    var CELLS = ['p', 'u', 'w', 'a'];
+    var marker = '[data-aj-fragment]';
+    var refreshing = false; // the figures are on their way from another warehouse: After waits for them
+    var note = form.querySelector('input[name="note"]');
+    var whyAll = form.querySelector('select[name="why"]');
+    var rows = [];
+    var made = 0;
+    var say = function (text) {
+      alarm.textContent = text;
+      alarm.hidden = text === '';
+    };
+    var number = function (n) { return Number(n).toLocaleString('en-GB'); };
+    var units = function (r) {
+      var v = r.u.value.trim();
+      return /^[+-]?[0-9]{1,8}$/.test(v) ? parseInt(v, 10) : null;
+    };
+    var blank = function (r) { return r.sku === null && r.p.value.trim() === ''; };
+    var count = function () {
+      var n = { products: 0, found: 0, gone: 0 };
+      each(rows, function (r) {
+        var v = units(r);
+        if (r.sku !== null && v !== null && v !== 0) {
+          n.products += 1;
+          n.found += v > 0 ? v : 0;
+          n.gone += v < 0 ? -v : 0;
+        }
+      });
+      each(form.querySelectorAll('[data-aj-count]'), function (el) {
+        el.textContent = (el.getAttribute('data-text') || '').replace('{n}', number(n[el.getAttribute('data-aj-count')]));
+      });
+    };
+    // A line's figures from its product and units; `typing`: After is what the person is typing, left as it is.
+    var show = function (r, typing) {
+      var v = units(r);
+      r.tr.classList.toggle('is-up', v !== null && v > 0);
+      r.tr.classList.toggle('is-down', v !== null && v < 0);
+      r.now.textContent = r.sku === null ? '' : number(r.hand);
+      r.a.disabled = r.sku === null || refreshing;
+      if (!typing) {
+        r.a.value = r.sku !== null && v !== null ? number(r.hand + v) : '';
+      }
+      count();
+    };
+    var goTo = function (el) {
+      el.focus();
+      if (el.select) {
+        el.select();
+      }
+    };
+    // A reason may ask for a note (the Reasons page): the box says so, and Make it final waits for it.
+    var noted = function (select) {
+      var o = select && select.options[select.selectedIndex];
+      return !!o && o.getAttribute('data-note') === '1';
+    };
+    var noteWanted = function () {
+      return rows.some(function (r) { return r.sku !== null && (r.w.value !== '' ? noted(r.w) : noted(whyAll)); });
+    };
+    var noteHint = function () {
+      if (note) {
+        note.placeholder = form.getAttribute(noteWanted() ? 'data-note-hint' : 'data-optional') || '';
+      }
+    };
+    var renumber = function () {
+      each(rows, function (r, i) { r.no.textContent = String(i + 1); });
+    };
+    var add; // (the lines make lines)
+    var hold = function () { // one empty line stays ready at the end
+      if (rows.length === 0 || !blank(rows[rows.length - 1])) {
+        add({});
+      }
+    };
+    var nextLine = function (r) {
+      hold();
+      goTo(rows[rows.indexOf(r) + 1].p);
+    };
+    var move = function (ev, r, field) {
+      var i = rows.indexOf(r);
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        var to = rows[i + (ev.key === 'ArrowDown' ? 1 : -1)];
+        if (to) {
+          goTo(to[field].disabled ? to.u : to[field]);
+        }
+      } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+        var t = ev.target;
+        if (t.tagName === 'INPUT' && !(ev.key === 'ArrowLeft' ? t.selectionStart === 0 : t.selectionEnd === t.value.length)) {
+          return;
+        }
+        var next = r[CELLS[CELLS.indexOf(field) + (ev.key === 'ArrowRight' ? 1 : -1)]];
+        if (next && !next.disabled) {
+          ev.preventDefault();
+          goTo(next);
+        }
+      }
+    };
+    add = function (d) {
+      var tr = tpl.content.firstElementChild.cloneNode(true);
+      var cell = function (name) { return tr.querySelector('[data-cell="' + name + '"]'); };
+      var list = tr.querySelector('ul');
+      list.id = 'aj-list-' + (++made);
+      var r = { tr: tr, p: cell('p'), u: cell('u'), w: cell('w'), a: cell('a'), no: tr.querySelector('[data-aj-no]'), code: tr.querySelector('[data-aj-code]'),
+        now: tr.querySelector('[data-aj-now]'), sku: null, hand: 0, line: 0 };
+      body.appendChild(tr);
+      rows.push(r);
+      var timer = 0;
+      var turn = 0;
+      var waiting = false; // Tab or Enter came before the answer: the first choice is taken when it comes
+      var options = function () { return list.querySelectorAll('li[role="option"]'); };
+      var c = null;
+      var draw = function (from) {
+        while (list.firstChild) {
+          list.removeChild(list.firstChild);
+        }
+        each(from, function (o, i) {
+          var li = document.createElement('li');
+          li.id = list.id + '-' + i;
+          li.setAttribute('role', 'option');
+          li.setAttribute('aria-selected', 'false');
+          each(['data-label', 'data-sku', 'data-code', 'data-hand', 'data-units'], function (name) {
+            li.setAttribute(name, o.getAttribute(name) || '');
+          });
+          var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+          twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+          list.appendChild(li);
+        });
+        c.mark(-1);
+      };
+      var take = function (li) {
+        window.clearTimeout(timer);
+        turn++;
+        waiting = false;
+        r.sku = parseInt(li.getAttribute('data-sku'), 10);
+        r.hand = parseInt(li.getAttribute('data-hand'), 10) || 0;
+        r.p.value = li.getAttribute('data-label') || '';
+        r.code.textContent = li.getAttribute('data-code') || '';
+        var scan = parseInt(li.getAttribute('data-units'), 10) || 1;
+        if (scan > 1 && r.u.value.trim() === '') {
+          r.u.value = '+' + scan; // a case's barcode stands for its units
+        }
+        draw([]);
+        c.close();
+        say('');
+        show(r);
+        noteHint();
+        hold();
+        goTo(r.u);
+      };
+      var load = function (q) {
+        var mine = ++turn;
+        say(form.getAttribute('data-loading') || '');
+        fragment(base + 'warehouse=' + encodeURIComponent(warehouse.value) + '&q=' + encodeURIComponent(q), marker)
+          .then(function (node) {
+            if (mine !== turn) {
+              return;
+            }
+            draw(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'));
+            var says = node.querySelector('[data-aj-says]');
+            say(says ? says.textContent.trim() : '');
+            var all = options();
+            if (waiting && all.length > 0) {
+              take(all[0]);
+              return;
+            }
+            waiting = false;
+            c.open(); // (only while the box has the focus)
+          })
+          .catch(function () {
+            if (mine !== turn) {
+              return;
+            }
+            waiting = false;
+            draw([]);
+            say(form.getAttribute('data-failed') || '');
+          });
+      };
+      var commit = function () {
+        if (r.sku !== null) {
+          goTo(r.u);
+          return;
+        }
+        var all = options();
+        if (all.length > 0) {
+          take(list.querySelector('li.is-active') || all[0]);
+          return;
+        }
+        var v = r.p.value.trim();
+        if (v.length >= 2) {
+          waiting = true;
+          window.clearTimeout(timer);
+          load(v);
+        }
+      };
+      c = combo(r.p, list, {
+        options: options,
+        choose: take,
+        enter: function (ev) {
+          ev.preventDefault();
+          commit();
+        },
+      });
+      r.forget = function () { // the search on show was for another warehouse
+        window.clearTimeout(timer);
+        turn++;
+        waiting = false;
+        draw([]);
+        c.close();
+      };
+      r.drop = function () {
+        window.clearTimeout(timer);
+        turn++;
+        c.close();
+        if (list.parentNode) {
+          list.parentNode.removeChild(list);
+        }
+      };
+      r.p.addEventListener('input', function () {
+        window.clearTimeout(timer);
+        turn++;
+        waiting = false;
+        r.sku = null;
+        r.hand = 0;
+        r.line = 0;
+        r.code.textContent = '';
+        c.unshut();
+        draw([]);
+        say('');
+        show(r);
+        var v = r.p.value.trim();
+        if (v.length >= 2) {
+          timer = window.setTimeout(function () { load(v); }, 300);
+        }
+      });
+      r.p.addEventListener('keydown', function (ev) {
+        if (ev.isComposing || ev.defaultPrevented) {
+          return; // the list took the key
+        }
+        if (ev.key === 'Tab' && !ev.shiftKey && !blank(r)) {
+          ev.preventDefault();
+          commit();
+          return;
+        }
+        move(ev, r, 'p');
+      });
+      r.u.addEventListener('input', function () { show(r); });
+      r.u.addEventListener('keydown', function (ev) {
+        if ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter') {
+          if (r.sku === null) {
+            return; // an empty line: Tab leaves the table
+          }
+          ev.preventDefault();
+          if (r.u.value.trim() === '') {
+            goTo(r.a);
+          } else {
+            nextLine(r);
+          }
+          return;
+        }
+        move(ev, r, 'u');
+      });
+      r.w.addEventListener('keydown', function (ev) { move(ev, r, 'w'); });
+      r.w.addEventListener('change', noteHint);
+      r.a.addEventListener('input', function () {
+        var t = r.a.value.replace(/[,\s]/g, '');
+        var d = /^-?[0-9]{1,8}$/.test(t) ? parseInt(t, 10) - r.hand : null;
+        r.u.value = d === null ? '' : (d > 0 ? '+' + d : String(d));
+        show(r, true);
+      });
+      r.a.addEventListener('blur', function () { show(r); });
+      r.a.addEventListener('keydown', function (ev) {
+        if ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter') {
+          ev.preventDefault();
+          nextLine(r);
+          return;
+        }
+        move(ev, r, 'a');
+      });
+      tr.querySelector('[data-aj-x]').addEventListener('click', function () {
+        r.drop();
+        rows.splice(rows.indexOf(r), 1);
+        body.removeChild(tr);
+        form.setAttribute('data-dirty', '1');
+        hold();
+        renumber();
+        count();
+      });
+      if (d.sku) {
+        r.sku = d.sku;
+        r.line = d.l || 0;
+        r.hand = d.hand || 0;
+        r.p.value = d.name || '';
+        r.code.textContent = d.code || '';
+        r.u.value = d.u || '';
+        r.w.value = d.r || '';
+      }
+      show(r);
+      renumber();
+      noteHint();
+      return r;
+    };
+    var kept = [];
+    try {
+      kept = JSON.parse(form.getAttribute('data-rows') || '[]');
+    } catch (e) {
+      kept = [];
+    }
+    each(kept, function (d) { add(d); });
+    hold();
+    if (whyAll) {
+      whyAll.addEventListener('change', noteHint);
+    }
+    // Another warehouse: the figures of the lines are that warehouse's.
+    // Only the last answer counts, and After waits for it: it is worked out from the figure on show. No answer: back to the warehouse the figures are for.
+    var stockTurn = 0;
+    var shownWarehouse = warehouse.value;
+    warehouse.addEventListener('change', function () {
+      var skus = [];
+      each(rows, function (r) {
+        if (r.sku === null) {
+          r.forget();
+        } else {
+          skus.push(r.sku);
+          r.a.disabled = true;
+        }
+      });
+      if (skus.length === 0) {
+        shownWarehouse = warehouse.value;
+        return;
+      }
+      refreshing = true;
+      var mine = ++stockTurn;
+      var asked = warehouse.value;
+      fragment(base + 'warehouse=' + encodeURIComponent(asked) + '&skus=' + skus.join(','), marker)
+        .then(function (node) {
+          if (mine !== stockTurn) {
+            return;
+          }
+          shownWarehouse = asked;
+          refreshing = false;
+          each(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'), function (o) {
+            each(rows, function (r) {
+              if (String(r.sku) === o.getAttribute('data-sku')) {
+                r.hand = parseInt(o.getAttribute('data-hand'), 10) || 0;
+              }
+            });
+          });
+          each(rows, function (r) { show(r); });
+        })
+        .catch(function () {
+          if (mine !== stockTurn) {
+            return;
+          }
+          warehouse.value = shownWarehouse;
+          refreshing = false;
+          each(rows, function (r) { show(r); });
+          say(form.getAttribute('data-failed') || '');
+        });
+    });
+    // Enter in a box of the page never sends it: the two buttons do.
+    form.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && ev.target.tagName === 'INPUT') {
+        ev.preventDefault();
+      }
+    });
+    form.addEventListener('submit', function (ev) {
+      var out = [];
+      var bad = null;
+      each(rows, function (r) {
+        if (r.sku !== null) {
+          out.push({ sku: r.sku, u: r.u.value.trim(), r: r.w.value, l: r.line });
+        } else if (!blank(r) && bad === null) {
+          bad = r;
+        }
+      });
+      if (bad !== null) {
+        ev.preventDefault();
+        say((form.getAttribute('data-choose') || '').replace('{n}', String(rows.indexOf(bad) + 1)));
+        goTo(bad.p);
+        return;
+      }
+      if (ev.submitter && ev.submitter.value === 'post' && note && note.value.trim() === '' && noteWanted()) {
+        ev.preventDefault();
+        say(form.getAttribute('data-note-needed') || '');
+        note.focus();
+        return;
+      }
+      lines.value = JSON.stringify(out);
+    }, true);
+    if (!form.hasAttribute('data-dirty') && !document.querySelector('.error[role="alert"]:not([hidden])')) {
+      rows[rows.length - 1].p.focus(); // ready to type
+    }
   });
 })();
