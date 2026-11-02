@@ -2869,6 +2869,8 @@ a.set-kt:hover { color: var(--accent-hover); text-decoration: underline; }
 /* A row whose change has several fields: its Change sits at the row's right like a Save; open, its fold takes the card's width under the
    row (an approval rule, a reason's uses, a warehouse's place) */
 .set-row > details.set-fold { flex: 0 1 auto; margin: 0 0 0 auto; }
+/* Closed, only Change shows: the button is the one frame, the card look of every details would draw a second round it */
+.set-row > details.set-fold:not([open]) { padding: 0; border: 0; background: none; }
 .set-row > details.set-fold[open] { flex: 1 1 100%; margin: 0; }
 .set-row > details.set-fold > summary { display: inline-flex; list-style: none; }
 .set-row > details.set-fold > summary::-webkit-details-marker { display: none; }
