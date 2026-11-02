@@ -331,7 +331,7 @@ another big page comes from disk), so compare runs made back to back, with no PH
 | `migrations/0003_review_fixes.sql` | `channel_opening` (T0 watermarks + opening marker, off the channel row), `channel.movement_types` (R1, R12, R17) |
 | `src/Stock.php` | the only writer of `stock_balance` / `stock_ledger` / `stock_change`: `lock()` → `apply()` → `flush()`; policy + warehouse assignment |
 | `src/Reservations.php` | reserve / commit / release / cancel / uncancel (D46) / ship / unship / return / opening orders / `expireDue()` |
-| `src/Movements.php` | goods_in, supplier_return, erp_sale, adjustment, count, write_off, transfer_out/in |
+| `src/Movements.php` | goods_in, supplier_return, erp_sale, adjustment, count, write_off, transfer_out/in, return (a store's return of an order CW never held, AR1) |
 | `src/Availability.php` | per-listing views, `changes()` feed, `snapshot()` paging |
 | `src/Idempotency.php`, `Caller.php`, `OpResult.php`, `CwException.php` | one effect per key (D27–D29) |
 | `src/Invariants.php` | the nightly bucket check (D44; 10–11: the units' moves through VERIFY, D46), asserted after every stock test |

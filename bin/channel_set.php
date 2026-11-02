@@ -27,6 +27,7 @@ declare(strict_types=1);
  * --relay gives or ends the store's ERPNext relay (channel.movement_types; R17 left it "SQL for now"): `on` = every relay grant (the three
  *   stock kinds goods_in, supplier_return, erp_sale and the two queue kinds erp_reconciliation, erp_mode), `off` = none (CW then answers
  *   403 to every relayed message and stores nothing), or a list of grants. Audited `channel.relay` {from, to, by}.
+ *   `return` (returns of orders CW never held, AR1) is given only in a list, never by `on`: name every grant the store keeps.
  * --actor names the person behind the change (default: the login running the tool, SUDO_USER first).
  * The site sees a new mode on its next call (X-CW-Channel-Mode). No key is read or printed.
  * Exit codes: 0 ok (dry run included) · 1 refused (unknown channel, bad mode/address) · 2 usage · 3 cannot run.

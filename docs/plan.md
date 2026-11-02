@@ -238,7 +238,7 @@ every in-flight order is already inside `allocated` — nothing is lost at the s
 | `POST …/{ref}/ship` / `unship` `{unit_ids, dispatched_at}` | worker saw units shipped / a dispatch reset | allocated −u, on_hand −u (unship reverses) |
 | `POST …/{ref}/return` `{unit_ids}` | return received after dispatch | on_hand +u (later: into RETURNS for inspection); key `return:<ordi_id>` so a refund-with-restock and a return receipt never double-count |
 | `POST /v1/opening_orders` | once, at a site's shadow start | paid-not-shipped units → committed (`origin=opening`) |
-| `POST /v1/movements` `{type, lines, doc_ref}` | ERP relay, staff screens | `goods_in`, `supplier_return`, `erp_sale`, `adjustment`, `count` (with `counted_at`), `write_off`, `transfer_out/in` |
+| `POST /v1/movements` `{type, lines, doc_ref}` | ERP relay, staff screens, a store's return of an order CW never held (`return`, AR1) | `goods_in`, `supplier_return`, `erp_sale`, `adjustment`, `count` (with `counted_at`), `write_off`, `transfer_out/in` |
 | `GET /v1/changes?after=<seq>` | site worker every 2 s | per **listing**: link status, central code, policy, u, available, state, version = global `seq`; stock, link, policy and warehouse changes all appear; `head_seq` = the feed head (below the site's last seq = CW was restored → resync) |
 | `GET /v1/availability?variant_ids=` · snapshot | cart pre-check · every 15 min | current values, same version rule |
 | `PUT /v1/listings` | on product save (15-min hash delta) + nightly | writes `listing_profile` only (titles, brand, attributes, all barcodes, price, perma_link, units); `DecisionService` creates the `unmapped` listing row |

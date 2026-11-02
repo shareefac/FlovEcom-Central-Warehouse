@@ -7,6 +7,8 @@ namespace CW\Tests\Integration\Stock;
 use CW\Caller;
 use CW\ChannelAdmin;
 use CW\CwException;
+use CW\Invariants;
+use CW\Ops\RollbackExport;
 use CW\Tests\Support\StockTestCase;
 
 /** POST /v1/movements semantics and the goods-in relay (§3, §9, §14 "Goods-in relay"). */
@@ -195,5 +197,99 @@ final class MovementsTest extends StockTestCase
         } catch (CwException $e) {
             self::assertSame('bad_movement_type', $e->errorCode);
         }
+    }
+
+    /**
+     * AR1 (CW-211): a store's return of an order CW never held books on_hand up as a Customer return, only with the store's own grant,
+     * once per key; a site cannot send a cost, and the store's relay switch (RELAY_GRANTS) does not give it.
+     */
+    public function testAStoreWithTheGrantBooksAReturnOfAnOrderCwNeverHeld(): void
+    {
+        $site = $this->site();
+        $sku = $this->item('strict', 3);
+        $this->listing($site, 'V1', $sku);
+        $this->listing($site, 'TEN', $sku, 10);
+        $req = ['type' => 'return', 'doc_ref' => 'return:RMA-00001:7', 'note' => 'Older order, RMA-00001', 'lines' => [['variant_id' => 'V1', 'qty' => 1]]];
+        try {
+            $this->moves->record($site, $req, 'oret-7');
+            self::fail('a store needs the grant');
+        } catch (CwException $e) {
+            self::assertSame([403, 'movement_not_allowed'], [$e->httpStatus, $e->errorCode]);
+        }
+        $this->grant($site, 'goods_in', 'supplier_return', 'erp_sale', 'erp_reconciliation', 'erp_mode');
+        try {
+            $this->moves->record($site, $req, 'oret-7');
+            self::fail('the relay grants do not include a return');
+        } catch (CwException $e) {
+            self::assertSame('movement_not_allowed', $e->errorCode);
+        }
+        $this->assertBal(3, 0, 0, $sku);
+
+        $this->grant($site, 'return');
+        $this->ok($this->moves->record($site, $req, 'oret-7'));
+        $this->assertBal(4, 0, 0, $sku);
+        $row = self::$db->one("SELECT * FROM stock_ledger WHERE movement_type = 'return'");
+        self::assertNotNull($row);
+        self::assertSame([1, 'on_hand', 'channel:vpg', 'return:RMA-00001:7', null, null, (int) $site->channelId],
+            [(int) $row['qty_delta'], (string) $row['bucket'], $row['actor'], $row['doc_ref'], $row['order_ref'], $row['unit_id'], (int) $row['channel_id']]);
+        self::assertStringContainsString('RMA-00001', (string) $row['note']);
+
+        // The same key again books nothing; a pack multiplies by its listing's units; the type sets the sign.
+        $this->ok($this->moves->record($site, $req, 'oret-7'));
+        $this->assertBal(4, 0, 0, $sku);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM stock_ledger WHERE movement_type = 'return'"));
+        $this->ok($this->moves->record($site, ['type' => 'return', 'doc_ref' => 'return:RMA-00001:8', 'lines' => [['variant_id' => 'TEN', 'qty' => -1]]], 'oret-8'));
+        $this->assertBal(14, 0, 0, $sku);
+        self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /** AR2 (CW-211): what a store's return must carry, and that it never lands in goods-in suspense. */
+    public function testAStoresReturnNeedsItsDocumentAndAnItemCwKnows(): void
+    {
+        $site = $this->site();
+        $sku = $this->item('strict', 3);
+        $this->listing($site, 'V1', $sku);
+        $this->grant($site, 'return');
+        try {
+            $this->moves->record($site, ['type' => 'return', 'lines' => [['variant_id' => 'V1', 'qty' => 1]]], 'oret-a');
+            self::fail('a return names its document');
+        } catch (CwException $e) {
+            self::assertSame([400, 'doc_ref_required'], [$e->httpStatus, $e->errorCode]);
+        }
+        try {
+            $this->moves->record($site, ['type' => 'return', 'doc_ref' => 'return:R:1', 'lines' => [['variant_id' => 'V1', 'qty' => 1, 'unit_cost' => '1.00']]], 'oret-b');
+            self::fail('a site sends no cost');
+        } catch (CwException $e) {
+            self::assertSame('cost_not_allowed', $e->errorCode);
+        }
+        $r = $this->moves->record($site, ['type' => 'return', 'doc_ref' => 'return:R:2', 'lines' => [['variant_id' => 'GHOST', 'qty' => 1]]], 'oret-c');
+        self::assertSame(422, $r->status);
+        self::assertSame('unresolved_line', $r->body['error']);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM goods_in_suspense WHERE doc_ref = 'return:R:2'"));
+        $this->assertBal(3, 0, 0, $sku);
+    }
+
+    /** AR3 (CW-211): only a store sends a return. Staff keep their corrections; a way-back counts these rows and never carries them to ERPNext. */
+    public function testOnlyAStoreSendsAReturnAndAWayBackDoesNotCarryIt(): void
+    {
+        $sku = $this->item('strict', 3);
+        try {
+            $this->moves->record(self::staff(), ['type' => 'return', 'doc_ref' => 'return:R:3', 'lines' => [['sku_id' => $sku, 'qty' => 1]]], 'oret-d');
+            self::fail('staff cannot send a return');
+        } catch (CwException $e) {
+            self::assertSame([403, 'movement_not_allowed'], [$e->httpStatus, $e->errorCode]);
+        }
+        $this->assertBal(3, 0, 0, $sku);
+        self::assertContains('return', RollbackExport::WEBSITE_TYPES);
+        self::assertNotContains('return', RollbackExport::CARRIED_TYPES);
+    }
+
+    /** AR4 (CW-211): the grant is given by name; "--relay=on" (RELAY_GRANTS) stays the five relay kinds. */
+    public function testTheReturnGrantIsGivenByNameOnly(): void
+    {
+        self::assertNotContains('return', ChannelAdmin::RELAY_GRANTS);
+        self::assertSame(['goods_in', 'return'], ChannelAdmin::movementTypes(['return', 'goods_in']));
+        $this->expectException(CwException::class);
+        ChannelAdmin::movementTypes(['adjustment']);
     }
 }

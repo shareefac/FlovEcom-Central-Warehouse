@@ -15665,3 +15665,46 @@ committed between them could make the table and its Total disagree. `bounded()` 
 REPEATABLE READ transaction (`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`, then the connection's own transaction,
 committed after): one snapshot for the page. LOW: a page number beyond any list (`page=999999999999999999`) made an offset the SQL refused;
 the page is capped at 1,000,000 before the offset (the last page after that, as before). Today's report is unchanged.
+
+## Returns of orders CW never held (branch `auto-returns`, 2 Nov 2026; AR1-AR8; tracker CW-211; connector 0.4.7)
+
+The plan: /root/cw_work/runs/cw211_auto_returns_plan.md (the owner's "Yes, build", 2 Nov). The match fell from 99.55% to 99.40% on 1 Nov: 7 returns of orders from before T0
+(72 units) were restocked on the shop that evening and CW never heard. Those batches touch 24 to 97 items and land after staff hours, with room for about 10 items.
+
+**AR1. A store sends a return; CW books it as a Customer return.** POST /v1/movements takes `type: return` from a site: on_hand + |qty| x u at the store's warehouse, ledger
+`movement_type` `return`, channel set, `order_ref` and `unit_id` NULL (there is no reservation to tie it to), `doc_ref` `return:<RMA>:<unit>`. The existing type was
+chosen, not a new one: its label, the sales report's units returned and `RollbackExport::WEBSITE_TYPES` are already right. An adjustment is CARRIED on a way-back, so a
+booking by hand would count twice for every unit ERPNext already has.
+
+**AR2. Least privilege (R17).** `return` is in `Movements::SITE_RETURN_TYPES`, not CHANNEL_TYPES: `RELAY_GRANTS` and so `--relay=on` stay the five relay kinds, and the grant is
+given by name (`--relay=<list>`). Staff get 403 for it: a person's correction stays an adjustment. `RollbackExport`'s classification of channel rows is unchanged.
+
+**AR3. What it must carry.** doc_ref is required, a site sends no cost (valued at the average cost, as any return), the type sets the sign. It is NOT a SUSPENSE type: a line CW
+cannot place refuses the call (422 `unresolved_line`, nothing booked) and nothing lands in goods-in suspense, whose queue is for ERPNext documents.
+
+**AR4. Once only.** One unit per call, one key per unit. /v1/movements keys are never pruned (Housekeeping), so a resend answers from the stored result, whatever the outbox
+has pruned. It does not use `relay_line`: that is per document line for the ERP relay, and a unit is its own document here.
+
+**AR5. The connector (0.4.7, old_returns.php).** No hook and no SQL: a worker step reads `order_return_items` once a minute and queues `relay_movement` rows, a kind that
+already has the ENUM value, the long timeout, the answer handler and the park on a missing grant. It reads no site table in a hot path, so no page gets slower. Off until the
+config's `old_returns_from` is a London-local moment; nothing before that moment is sent. Selected: restocked, order at or below T0's last order, no `cw_unit_state` row, a CW link.
+Reviewed plan: the unit test goes by "CW holds this unit", not the date: 2 of the 340 units since T0 were opening units, sent by the sweep.
+The key and doc_ref name the order unit (`ordi_id`), not the return row: a unit comes back once, whatever rows name it. The step reads the saved record and nothing else, not the
+staff's request (the owner, 2 Nov: "any successful restock shouldn't be missed, any failed restock shouldn't add the stock"): a rolled-back restock is not there, a saved one is, however the
+worker was. Sending from the request was rejected: the save can still fail after it, and a lost send is lost for good.
+
+**AR6. Waiting for the opening.** A missing `cw_unit_state` row proves nothing until the opening batch is answered (its handler seeds the units), so the step waits while an
+`opening_orders` row is pending or dead (Codex's plan review, HIGH 2). On Vape and Go all 5 batches are sent.
+
+**AR7. The window.** The read goes back at most 10 days, inside the outbox's 14-day prune, so the outbox still blocks a repeat; a unit older than that with the step off is the
+report's `missing` line, and `bin/cw_old_returns.php --catch-up --apply` sends it (CW's stored keys book nothing twice). Starting from a past moment works within 10 days of it without the catch-up.
+
+**AR8. A refused line.** CW stores the 422 under the key, so a retry cannot work. `bin/cw_old_returns.php --resend=<orti_id> --apply` voids the dead row and sends the unit under a
+new key, in one transaction, only for a dead row answered 422. Left as gaps, the owner told: these returns are not in Sales > Returns (it reads order units); an As-of value
+for a day before they were sent stays short by them.
+
+**AR9. If it ever goes wrong, it is found (the owner's rule, 2 Nov).** The 05:10 report compares both sides from the start moment, not a day's: the units saved on the shop against CW's own
+`return:` ledger rows (`store_returns`, by the doc_ref index). Three lines: every saved return is on CW (15 minutes' grace), CW has none the shop did not save, none booked twice; the units in
+old_returns_audit.csv. If CW sends no list the first line FAILs: the compare is never silently left out. Restocks that do not pass through Returns are not sent: a cancel before dispatch is of a
+unit CW holds, and a refund's Restock has no saved restock date, so a unit restocked long ago and refunded today would look like a new return (since T0 none on an order CW does not hold). A
+fourth line FAILs when such a restock leaves an item above CW and its gap moved since the last report.

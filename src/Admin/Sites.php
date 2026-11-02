@@ -69,6 +69,7 @@ final class Sites
                 'has_key' => (int) $r['has_key'] === 1, 'ips' => (int) ($r['ips'] ?? 0),
                 // Pack F (PF4): what the store's ERPNext relay may send (channel.movement_types), in ChannelAdmin::RELAY_GRANTS order.
                 'relay' => self::relay((string) ($r['relay'] ?? '[]')),
+                'returns' => self::sendsReturns((string) ($r['relay'] ?? '[]')), // AR1: granted by name, so not among the relay grants
             ];
         }
         return $out;
@@ -80,6 +81,13 @@ final class Sites
         $g = json_decode($json, true);
         $g = is_array($g) ? $g : [];
         return array_values(array_filter(\CW\ChannelAdmin::RELAY_GRANTS, static fn (string $k): bool => in_array($k, $g, true)));
+    }
+
+    /** AR1: may the store send returns of orders CW never held (Movements::SITE_RETURN_TYPES)? */
+    public static function sendsReturns(string $json): bool
+    {
+        $g = json_decode($json, true);
+        return is_array($g) && array_intersect(\CW\Movements::SITE_RETURN_TYPES, $g) !== [];
     }
 
     /**

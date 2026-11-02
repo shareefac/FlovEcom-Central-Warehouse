@@ -2602,6 +2602,11 @@ e-mail; staging has none set up: the run log then says "could not send to the e-
 ends it (CW then answers 403 to every relayed ERPNext message and stores nothing; the store keeps them). The Stores page shows what each
 store's relay may send. Switch night's S2 ("the relay permission is given back on CW") is `--relay=on --apply`.
 
+**Returns of older orders (AR1-AR8).** `return` is given by name and `--relay=on` does not include it: list every grant the store keeps, e.g.
+`php bin/channel_set.php --code=vapeandgo --relay=erp_mode,erp_reconciliation,erp_sale,goods_in,supplier_return,return --actor="<name>"` (a dry run; add `--apply`). Running
+`--relay=on` afterwards drops it. Then the shop's side: `php bin/cw_write_config.php --keep-key --old-returns-from="YYYY-MM-DD HH:MM:SS"` (London; a moment at most 10 days back),
+`php bin/cw_old_returns.php` shows what it would send; empty `--old-returns-from=` switches it off. A line CW refused: `php bin/cw_old_returns.php --resend=<orti_id>` (add `--apply`).
+
 **The queues (Approvals › From the stores).** Lines to place: type the item's code (and the units of one line unit when the document counts
 packs) and a note, then "Book it on this item"; a relayed correction goes on to ERPNext corrections instead. ERPNext corrections: the card
 says what the warehouse held when ERPNext set the figure and what confirming books now; confirm or close, with a note (it is not a count).

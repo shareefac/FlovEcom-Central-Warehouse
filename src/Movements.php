@@ -9,7 +9,7 @@ use CW\Relay\RelayLines;
 /**
  * Stock movements that are not sales (plan §3 POST /v1/movements, §8.2, §9):
  *
- *   goods_in, transfer_in                        on_hand + |qty| x u
+ *   goods_in, transfer_in, return                on_hand + |qty| x u
  *   supplier_return, erp_sale, write_off,
  *   transfer_out, trade_sale, stock_out
  *   (the last two: documents only)               on_hand - |qty| x u   (the type sets the sign)
@@ -32,6 +32,9 @@ use CW\Relay\RelayLines;
  * Who may send what (R17): a site (channel caller) may send only the ERP-relay types
  * (CHANNEL_TYPES) that its channel.movement_types grants (none by default): 403 otherwise.
  * Counts, adjustments, write-offs and transfers are staff-only (/ui, session + TOTP).
+ * `return` (AR1, CW-211) goes the other way: only a site sends it, for a unit of an order CW never held (placed before the store's T0;
+ * a unit CW holds comes back through POST /v1/reservations/<ref>/return). It is granted by name (SITE_RETURN_TYPES), never by
+ * "--relay=on". It needs doc_ref, carries no cost, and books once per key: its keys are never pruned (Housekeeping).
  * counted_at must be plausible (R5): not after CW's clock + Clock::MAX_AHEAD_SEC and at most
  * COUNT_MAX_AGE_SEC old; staff may send `backdated: true` for a count up to BACKDATED_MAX_AGE_SEC old.
  *
@@ -44,12 +47,14 @@ use CW\Relay\RelayLines;
  */
 final class Movements
 {
-    public const TYPES = ['goods_in', 'supplier_return', 'erp_sale', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in'];
-    private const PLUS = ['goods_in', 'transfer_in'];
+    public const TYPES = ['goods_in', 'supplier_return', 'erp_sale', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in', 'return'];
+    private const PLUS = ['goods_in', 'transfer_in', 'return'];
     private const MINUS = ['supplier_return', 'erp_sale', 'write_off', 'transfer_out', 'trade_sale', 'stock_out'];
     private const SUSPENSE = ['goods_in', 'supplier_return', 'erp_sale'];
     /** The only types a site may be granted (the ERP relay, §9). */
     public const CHANNEL_TYPES = ['goods_in', 'supplier_return', 'erp_sale'];
+    /** What only a site sends, each granted by name, never by the relay switch (AR1). ChannelAdmin::movementTypes() accepts them. */
+    public const SITE_RETURN_TYPES = ['return'];
     /** Types whose lines may carry a unit cost (I1): the stock that comes in or goes out at a known price. */
     public const COST_TYPES = Stock::COST_TYPES;
     /**
@@ -395,14 +400,19 @@ final class Movements
     /** R17: a site may send only the relay types its channel is granted. */
     private function checkAllowed(Caller $caller, string $type): void
     {
+        $siteOnly = in_array($type, self::SITE_RETURN_TYPES, true);
         if (!$caller->isChannel()) {
+            if ($siteOnly) {
+                throw new CwException('movement_not_allowed', "{$type} movements come from a site", 403, ['type' => $type]);
+            }
             return;
         }
+        $mayHold = $siteOnly || in_array($type, self::CHANNEL_TYPES, true);
         $granted = $this->db->value('SELECT movement_types FROM channel WHERE id = ?', [$caller->channelId]);
         $granted = $granted === null ? [] : json_decode((string) $granted, true);
-        if (!in_array($type, self::CHANNEL_TYPES, true) || !is_array($granted) || !in_array($type, $granted, true)) {
+        if (!$mayHold || !is_array($granted) || !in_array($type, $granted, true)) {
             throw new CwException('movement_not_allowed', "this site may not send {$type} movements"
-                . (in_array($type, self::CHANNEL_TYPES, true) ? ' (not granted to its channel)' : ' (staff only)'), 403, ['type' => $type]);
+                . ($mayHold ? ' (not granted to its channel)' : ' (staff only)'), 403, ['type' => $type]);
         }
     }
 
@@ -425,7 +435,7 @@ final class Movements
         }
         $this->checkAllowed($caller, $type);
         $docRef = self::optString($req['doc_ref'] ?? null, 'doc_ref', 191);
-        if ($docRef === null && in_array($type, self::SUSPENSE, true)) {
+        if ($docRef === null && (in_array($type, self::SUSPENSE, true) || in_array($type, self::SITE_RETURN_TYPES, true))) {
             throw new CwException('doc_ref_required', "{$type} needs doc_ref (the document name)", 400);
         }
         $docType = $forDocument ? null : self::optString($req['doc_type'] ?? null, 'doc_type', 32) ?? (self::DOC_TYPES[$type] ?? null);

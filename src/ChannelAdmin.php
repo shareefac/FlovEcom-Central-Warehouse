@@ -18,6 +18,7 @@ final class ChannelAdmin
     /**
      * What a store's relay may be granted (channel.movement_types; R17, pack F PF4): the three stock kinds of POST /v1/movements and the
      * two queue kinds of /v1/relay/* (ERPNext's corrections, its selling-mode changes). "--relay=on" grants them all, "off" none.
+     * Movements::SITE_RETURN_TYPES are not among them: they are given by name ("--relay=<list>"; AR1), so "on" never gives them.
      */
     public const RELAY_GRANTS = [...Movements::CHANNEL_TYPES, 'erp_reconciliation', 'erp_mode'];
 
@@ -280,8 +281,9 @@ final class ChannelAdmin
             if ($t === '') {
                 continue;
             }
-            if (!in_array($t, self::RELAY_GRANTS, true)) {
-                throw new CwException('bad_movement_type', "{$t} cannot be granted to a site (only " . implode(', ', self::RELAY_GRANTS) . ')', 400);
+            $allowed = [...self::RELAY_GRANTS, ...Movements::SITE_RETURN_TYPES];
+            if (!in_array($t, $allowed, true)) {
+                throw new CwException('bad_movement_type', "{$t} cannot be granted to a site (only " . implode(', ', $allowed) . ')', 400);
             }
             $out[$t] = true;
         }

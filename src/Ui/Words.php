@@ -9721,6 +9721,7 @@ final class Words
         'relay_all' => 'All received',
         'relay_none' => 'None received',
         'relay_some' => 'Received: %s',
+        'relay_returns' => '. Returns of older orders received too',
         'look' => 'Needs a look', // the board's tag on a store that never called or whose mode differs (wave w13, W13.18)
     ];
 
