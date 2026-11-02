@@ -106,6 +106,12 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         return (string) parse_url((string) $r->location(), PHP_URL_PATH);
     }
 
+    /** Saves an adjustment's lines through its one form (docs/decisions.md AG3). @param list<array<string, mixed>> $rows */
+    private function grid(KernelBrowser $web, string $page, array $rows): int
+    {
+        return $web->post($page . '/grid', ['lines' => (string) json_encode($rows), 'action' => 'save'] + $web->get($page)->form($page . '/grid', true))->status;
+    }
+
     // ------------------------------------------------------------------------------------------
     // Items
     // ------------------------------------------------------------------------------------------
@@ -209,7 +215,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(1, self::xp($list)->query('//details[@id="new"]//form[@action="/ui/stock/in"]')->length, 'the create form as before');
         // Corrections: the reasons are on each line.
         $adjust = $this->start($web, 'adjust');
-        self::assertSame(303, $web->post($adjust . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($adjust)->form($adjust . '/add', true))->status);
+        self::assertSame(303, $this->grid($web, $adjust, [['sku' => $sku, 'u' => '-1', 'r' => 'damaged']]));
         $corr = $web->get('/ui/stock/adjustments');
         self::assertSame([Words::INV_LIST['kinds_adjust']], self::texts($corr, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame([Words::INV_LIST['kind_adjust']], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[1]'));
@@ -218,9 +224,8 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame(['Damaged'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'));
         self::assertSame(['−1'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[contains(@class, "chg") and contains(@class, "down")]'));
         $mixed = $this->start($web, 'adjust');
-        self::assertSame(303, $web->post($mixed . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($mixed)->form($mixed . '/add', true))->status);
         $other = $this->item('strict', 0, 'Psi pod 2ml');
-        self::assertSame(303, $web->post($mixed . '/add', ['q' => self::cw($other), 'qty' => '3', 'reason' => 'found'] + $web->get($mixed)->form($mixed . '/add', true))->status);
+        self::assertSame(303, $this->grid($web, $mixed, [['sku' => $sku, 'u' => '-1', 'r' => 'damaged'], ['sku' => $other, 'u' => '+3', 'r' => 'found']]));
         $corr = $web->get('/ui/stock/adjustments');
         self::assertSame([Words::INV_LIST['reason_lines'], 'Damaged'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr/td[2]'), 'two reasons: on each line');
         self::assertSame(['+2'], self::texts($corr, '//div[@id="g-draft"]//tbody/tr[1]/td[contains(@class, "chg") and contains(@class, "up")]'), 'net +2');
@@ -251,7 +256,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $in = $this->start($web, 'in', ['reason_code' => 'found']);
         self::assertSame(303, $web->post($in . '/add', ['q' => self::cw($sku), 'qty' => '5', 'cost' => '1.50'] + $web->get($in)->form($in . '/add', true))->status);
         $adjust = $this->start($web, 'adjust');
-        self::assertSame(303, $web->post($adjust . '/add', ['q' => self::cw($sku), 'qty' => '-1', 'reason' => 'damaged'] + $web->get($adjust)->form($adjust . '/add', true))->status);
+        self::assertSame(303, $this->grid($web, $adjust, [['sku' => $sku, 'u' => '-1', 'r' => 'damaged']]));
         $out = $this->start($web, 'out', ['reason_code' => 'trade_sale']);
 
         $all = $web->get('/ui/stock/adjustments/all');

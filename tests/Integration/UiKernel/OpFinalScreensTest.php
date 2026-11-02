@@ -55,7 +55,9 @@ final class OpFinalScreensTest extends KernelUiTestCase
     /** Starts a stock record of $kind through its create form and returns its page's path. @param array<string, string> $over */
     private function start(KernelBrowser $web, string $kind, array $over = []): string
     {
-        $form = $web->get(StockOps::PATHS[$kind])->form(StockOps::PATHS[$kind], true);
+        // An adjustment starts on its own page (docs/decisions.md AG1): its form is that page's, the create route stays.
+        $from = StockOps::PATHS[$kind] . ($kind === 'adjust' ? '/new' : '');
+        $form = $web->get($from)->form($from, true);
         $r = $web->post(StockOps::PATHS[$kind], $over + $form);
         self::assertSame(303, $r->status, $r->describe());
         return (string) parse_url((string) $r->location(), PHP_URL_PATH);
@@ -203,9 +205,9 @@ final class OpFinalScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $this->start($web, 'adjust');
         $id = (int) basename($page);
-        self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => (string) $sku, 'qty' => '5', 'reason' => 'found'])->status);
+        self::assertSame(303, $this->submit($web, $page, $page . '/grid', ['lines' => (string) json_encode([['sku' => $sku, 'u' => '+5', 'r' => 'found']]), 'action' => 'save'])->status);
         // +5 is under the "stock put back" limit (10); +12 typed on the screen is over it: the OK first, with 12.
-        $r = $this->submit($web, $page, $page . '/lines', ['u_1' => '12', 'action' => 'post']);
+        $r = $this->submit($web, $page, $page . '/grid', ['lines' => (string) json_encode([['sku' => $sku, 'u' => '+12', 'r' => 'found']]), 'action' => 'post']);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         self::assertStringContainsString(Words::STOCK_NOTICE['submitted'], $web->follow($r)->text());
         self::assertSame(['awaiting_approval', 12], [self::docStatus($id), self::lineQty($id)]);
@@ -215,19 +217,19 @@ final class OpFinalScreensTest extends KernelUiTestCase
     public function testTheOneFormCountsEveryFieldItCanSend(): void
     {
         // The budget against max_input_vars (OV4) is worked out from the fields the form really has: every named control of the lines
-        // form (a ticked "remove" included) plus the one button sent.
+        // form (a ticked "remove" included) plus the one button sent. An adjustment is not here: its screen sends its lines in one field (docs/decisions.md AG3).
         $web = $this->signIn($this->uiUser(['stock_controller', 'purchasing_desk']));
         $other = (int) self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, is_active, stock_owner, owner_entity, sort_order) VALUES ('OVTWO', 'OV room', 0, 1, 'other', 'OV Two Ltd', 40)");
         $a = $this->item('strict', 20, 'Phi pod');
         $b = $this->item('strict', 20, 'Chi pod');
         $shop = (int) self::$db->insert("INSERT INTO warehouse (code, name, is_sellable, is_active, stock_owner, sort_order) VALUES ('OVSHOP', 'OV shop room', 0, 1, 'own', 45)");
-        foreach (['in' => ['reason_code' => 'found'], 'out' => ['reason_code' => 'trade_sale'], 'adjust' => [], 'transfer' => ['to_warehouse' => (string) $shop],
+        foreach (['in' => ['reason_code' => 'found'], 'out' => ['reason_code' => 'trade_sale'], 'transfer' => ['to_warehouse' => (string) $shop],
             'release' => ['warehouse' => (string) $other]] as $kind => $over) {
             $page = $this->start($web, $kind, $over);
             $id = (int) basename($page);
             foreach ([$a, $b] as $sku) {
-                self::$db->exec('INSERT INTO document_line (document_id, line_no, sku_id, qty, reason_code) VALUES (?, ?, ?, 1, ?)',
-                    [$id, (int) self::$db->value('SELECT COUNT(*) + 1 FROM document_line WHERE document_id = ?', [$id]), $sku, $kind === 'adjust' ? 'found' : null]);
+                self::$db->exec('INSERT INTO document_line (document_id, line_no, sku_id, qty) VALUES (?, ?, ?, 1)',
+                    [$id, (int) self::$db->value('SELECT COUNT(*) + 1 FROM document_line WHERE document_id = ?', [$id]), $sku]);
             }
             $draft = $web->get($page);
             self::assertSame(200, $draft->status, $kind . ' ' . $draft->describe() . ' ' . implode(' | ', self::$log));

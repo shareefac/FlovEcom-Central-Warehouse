@@ -32,9 +32,11 @@ final class StockOpsScreensTest extends KernelUiTestCase
     /** Starts a record of $kind through its create form (its fields as drawn, with $over), and returns its page's path. @param array<string, string> $over */
     private function start(\CW\Tests\Support\KernelBrowser $web, string $kind, array $over = []): string
     {
-        $list = $web->get(StockOps::PATHS[$kind]);
+        // An adjustment starts on its own page (docs/decisions.md AG1): its form is that page's, the create route stays.
+        $from = StockOps::PATHS[$kind] . ($kind === 'adjust' ? '/new' : '');
+        $list = $web->get($from);
         self::assertSame(200, $list->status, $list->describe());
-        $form = $list->form(StockOps::PATHS[$kind], true);
+        $form = $list->form($from, true);
         self::assertArrayHasKey('form_key', $form, 'the create form is there for someone who keeps records');
         $r = $web->post(StockOps::PATHS[$kind], $over + $form);
         self::assertSame(303, $r->status, $r->describe());
@@ -201,7 +203,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $id = (int) basename($page);
         $buyer = $this->signIn($this->uiUser('buyer'));
         $admin = $this->signIn($this->uiUser('admin'));
-        foreach (['details', 'lines', 'add', 'post', 'cancel', 'reverse', 'withdraw'] as $action) {
+        foreach (['details', 'lines', 'grid', 'add', 'post', 'cancel', 'reverse', 'withdraw'] as $action) {
             self::assertSame(403, $buyer->post($page . '/' . $action, ['csrf' => $this->token($buyer), 'version' => '1'])->status, "buyer {$action}");
             self::assertSame(403, $admin->post($page . '/' . $action, ['csrf' => $this->token($admin), 'version' => '1'])->status, "admin {$action}");
             self::assertSame(403, $sc->post($page . '/' . $action, ['version' => '1'])->status, "no token {$action}");
@@ -210,12 +212,13 @@ final class StockOpsScreensTest extends KernelUiTestCase
             self::assertSame(403, $buyer->post($base, ['csrf' => $this->token($buyer), 'form_key' => str_repeat('a', 32)])->status, "buyer creates {$kind}");
             self::assertSame(403, $sc->post($base, ['form_key' => str_repeat('b', 32)])->status, "no token {$kind}");
         }
+        self::assertSame(403, $buyer->post(StockOps::PATHS['adjust'] . '/new', ['csrf' => $this->token($buyer), 'form_key' => str_repeat('c', 32)])->status, 'buyer, the one adjustment page');
+        self::assertSame(403, $sc->post(StockOps::PATHS['adjust'] . '/new', ['form_key' => str_repeat('d', 32)])->status, 'no token, the one adjustment page');
         self::assertSame(403, $sc->post('/ui/stock/accounts/1/payments', ['amount' => '1'])->status, 'no token, payment');
         // A record of another kind is not found under this kind's path.
         self::assertSame(404, $sc->get('/ui/stock/in/' . $id)->status);
         // The adjustment needs a reason on each line.
-        $this->submit($sc, $page, 'add', ['q' => (string) $sku, 'qty' => '-1', 'reason' => 'damaged']);
-        $r = $this->submit($sc, $page, 'lines', ['action' => 'post']);
+        $r = $this->submit($sc, $page, 'grid', ['lines' => (string) json_encode([['sku' => $sku, 'u' => '-1', 'r' => 'damaged']]), 'action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(3, (int) self::$db->value('SELECT on_hand FROM stock_balance WHERE sku_id = ? AND warehouse_id = 1', [$sku]));
         self::assertSame('write_off', self::$db->value('SELECT movement_type FROM stock_ledger WHERE document_id = ?', [$id]));

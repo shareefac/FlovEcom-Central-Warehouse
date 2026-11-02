@@ -15739,10 +15739,11 @@ tab keep working.
 **AG2. One reason for every line.** "Why, for every line" opens on Data correction while it is offered. A line's Why says "Same as above" unless it has its own, and Tab
 skips it. On a saved draft the box takes the first line's reason.
 
-**AG3. Every line in one field.** The form sends `lines`, JSON of `[{sku, u, r}]`, so PHP's max_input_vars cannot cut lines off (OV4). The server trusts nothing in it: not
-a list, or a product that is no positive whole number, is 400 bad_form; units are read as before. New: the draft and its lines are one transaction under FormOnce, so a
-refusal leaves no record and a second send makes no second one. A draft: details and lines are one transaction. Make it final then posts in its own transaction (OV3): a
-refused posting keeps the saved draft and says so.
+**AG3. Every line in one field.** The form sends `lines`, JSON of `[{sku, u, r, l}]`, so PHP's max_input_vars cannot cut lines off (OV4). The server trusts nothing in it: not
+a list, or a product that is no positive whole number, is 400 bad_form; units are read as before. `l` names the saved line a row came from, so a line the screen does not
+show keeps its unit cost and description (gridKept) when the product and the direction are the same, even with the same product on two lines. New: the draft and its lines
+are one transaction under FormOnce, so a refusal leaves no record and a second send makes no second one. A draft: details and lines are one transaction. Make it final then
+posts in its own transaction (OV3): a refused posting keeps the saved draft and says so.
 
 **AG4. The product box is the site's one dropdown** (SM11, combo) filled from a read-only fragment, `/ui/stock/adjustments/products`, marker `data-aj-fragment`, using
 StockOps::resolve, so a barcode, a CW number and words of a name all work. It gives each choice's stock in the warehouse on the page. Changing the warehouse asks again by
@@ -15760,3 +15761,6 @@ hint changes and Make it final stops in the page. The server's own check stays.
 
 **AG8. The rules are unchanged.** Who may post, the OK first, the reviewer's check, below-zero and reason direction all stay in Documents and StockOpHandler. The hint under
 the lines shows while a rule can ask for an OK.
+
+Codex read the build twice (2 HIGH, 6 MEDIUM, all fixed): the answer of an older warehouse overwriting a newer one, a stored cost lost on save, a merged product, 501 lines
+losing what was typed, After taking part of a number, the phone's foot under the tab bar, the cost of a product on two lines, After typed while the stock figures refresh.

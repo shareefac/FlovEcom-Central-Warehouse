@@ -96,7 +96,7 @@ $rowsJson = (string) json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_
         </td>
         <td class="aj-c-fig num" data-label="<?= $word('ADJ_GRID', 'col_now') ?>" data-aj-now></td>
         <td class="aj-c-fig num"><input class="aj-cell num aj-after" type="text" data-cell="a" maxlength="11" autocomplete="off" inputmode="numeric" disabled aria-label="<?= $word('ADJ_GRID', 'after_line') ?>"></td>
-        <td class="aj-c-x"><button class="aj-x" type="button" tabindex="-1" data-aj-x aria-label="<?= $word('ADJ_GRID', 'remove') ?>"><span class="ico ico-close" aria-hidden="true"></span></button></td>
+        <td class="aj-c-x"><button class="btn ghost sm" type="button" tabindex="-1" data-aj-x aria-label="<?= $word('ADJ_GRID', 'remove') ?>"><span class="ico ico-close" aria-hidden="true"></span></button></td>
       </tr>
     </template>
     <p class="error aj-alarm" role="alert" data-aj-alarm hidden></p>

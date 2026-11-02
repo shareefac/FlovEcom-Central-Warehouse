@@ -954,7 +954,7 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
-        self::assertSame(4, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product and Lines to place\'s item (LQ4)');
+        self::assertSame(5, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4) and a quick adjustment\'s line (AG4)');
         foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
             'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
             self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
@@ -1069,8 +1069,8 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         // No new dropdown for the invoice: its supplier and item boxes are the order page's. The fourth combo() call is Lines to place's item
-        // box (docs/decisions.md LQ4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
-        self::assertSame(4, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
+        // box (docs/decisions.md LQ4) and the fifth a quick adjustment's line (AG4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
+        self::assertSame(5, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
         self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
         self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
@@ -1471,7 +1471,7 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('--page-w: 1180px;', $css);
         self::assertStringContainsString('padding: 28px var(--gutter) 48px', $rule('.work'));
         self::assertStringContainsString('max-width: var(--page-w); margin: 0 auto;', $rule('.page'), 'the column centred');
-        self::assertSame(' max-width: 1100px; ', $rule('body:has(.hm-grid) .page'), 'Home\'s column (the Main artboard, RD-C15)');
+        self::assertSame(' max-width: calc(1100px / var(--zoom)); ', $rule('body:has(.hm-grid) .page'), 'Home\'s column (the Main artboard, RD-C15), 1100 px on the screen at any zoom');
         // DC9: TP_Parts' tabs wrap from 700 px up, 12 by 14 px, the open tab's bar over the row's line.
         self::assertSame(1, preg_match('/@media \(min-width: 700px\) \{\n  \.tabs \{ flex-wrap: wrap; overflow: visible; box-shadow: none; border-bottom: 1px solid var\(--hairline\); \}\n'
             . '  \.tabs > \.tab \{ margin-bottom: -1px; \}/', $css));
@@ -1556,7 +1556,7 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
-            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?' };", $js,
+            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');
