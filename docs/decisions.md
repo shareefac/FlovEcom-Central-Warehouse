@@ -15716,3 +15716,9 @@ a T0 with no readable time stops the step. HIGH 3: any dead 422 used to allow a 
 MEDIUM 1: only a real calendar moment switches the step on (`cw_config_moment_ok`, one check for the config and the writer). MEDIUM 2: the mock gives a return CW's real answers (a stored
 422, no line dedupe) and the recovery test drains the new key. LOW: the Stores page shows a return-only grant. The report's compare uses the same selection.
 Cost measured on live, read only: the step's read 5-7 ms for 72 rows of 3,800, the outbox check 4 ms for 500 keys, `idem_key` ascii_bin takes the IN as it is.
+
+**AR11. The Codex re-check** (runs/ar_codex_recheck.txt: 1 HIGH, 6 MEDIUM, each checked by hand). HIGH: an order the opening `skipped` has a `cw_order_state` row but never reached CW: its return is sent;
+any other order state stays back and the report says "held back". The report's compare now reads the same ownership, also finds a wrong item or quantity (`store_returns` gives the item, the shop's
+link gives `units_per_item`), looks an "extra" up at any date so moving the start cannot make a booked unit extra, and keeps the proto prefix when the start is given by hand. The mock's return moves
+its stock and the recovery test asserts one unit. Accepted, not changed: a --catch-up over 14 days after a re-send gets a dead row with nothing booked (the base key holds a refusal, or the unit a
+second document): loud, no stock effect, and it needs a refusal, a re-send and a stop of over 14 days together.
