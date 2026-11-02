@@ -3534,7 +3534,8 @@ a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 3
 .aj-form input.aj-cell.num { text-align: right; font-weight: 600; }
 .aj-form input.aj-cell:disabled { background: none; border-color: transparent; }
 .aj-row.is-up input[data-cell="u"] { color: var(--sf-green-ink); }
-.aj-row.is-down input[data-cell="u"] { color: var(--sf-red-ink); }
+.aj-row.is-down input[data-cell="u"], .aj-row.is-below input[data-cell="a"] { color: var(--sf-red-ink); }
+.aj-form select.aj-cell.is-own { color: var(--ink); }
 .aj-c-x .btn { display: grid; place-items: center; width: 32px; min-width: 0; height: 32px; min-height: 0; padding: 0; border: 0; background: none; color: var(--ink-muted); }
 .aj-c-x .btn:hover { background: var(--sf-red); color: var(--sf-red-ink); }
 .aj-row:last-child .aj-c-x .btn { visibility: hidden; }

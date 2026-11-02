@@ -301,7 +301,8 @@ final class DocumentsController
         }
         $rejectRecords = ($type['reject_action'] ?? 'reverse') === 'record';
         $kind = mb_strtolower(Words::docType($doc->docType, false, (string) $type['name']));
-        $size = $value !== null ? Html::money($value) : Words::say('CHECKS', 'items', (int) ($open['units'] ?? 0));
+        $units = (int) ($open['units'] ?? 0);
+        $size = $value !== null ? Html::money($value) : Words::say('CHECKS', $units === 1 ? 'items_one' : 'items', $units);
         // refusalFor: also the people a type names as having written part of it (a receipt's bench check, I133).
         $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $open['kind']);
         $approval = $open['kind'] === 'approval';

@@ -2106,7 +2106,8 @@
         }
       });
       each(form.querySelectorAll('[data-aj-count]'), function (el) {
-        el.textContent = (el.getAttribute('data-text') || '').replace('{n}', number(n[el.getAttribute('data-aj-count')]));
+        var v = n[el.getAttribute('data-aj-count')];
+        el.textContent = ((v === 1 && el.getAttribute('data-one')) || el.getAttribute('data-text') || '').replace('{n}', number(v));
       });
     };
     // A line's figures from its product and units; `typing`: After is what the person is typing, left as it is.
@@ -2114,6 +2115,8 @@
       var v = units(r);
       r.tr.classList.toggle('is-up', v !== null && v > 0);
       r.tr.classList.toggle('is-down', v !== null && v < 0);
+      r.tr.classList.toggle('is-below', r.sku !== null && v !== null && r.hand + v < 0);
+      r.w.classList.toggle('is-own', r.w.value !== '');
       r.now.textContent = r.sku === null ? '' : number(r.hand);
       r.a.disabled = r.sku === null || refreshing;
       if (!typing) {
@@ -2338,7 +2341,10 @@
         move(ev, r, 'u');
       });
       r.w.addEventListener('keydown', function (ev) { move(ev, r, 'w'); });
-      r.w.addEventListener('change', noteHint);
+      r.w.addEventListener('change', function () {
+        show(r);
+        noteHint();
+      });
       r.a.addEventListener('input', function () {
         var t = r.a.value.replace(/[,\s]/g, '');
         var d = /^-?[0-9]{1,8}$/.test(t) ? parseInt(t, 10) - r.hand : null;

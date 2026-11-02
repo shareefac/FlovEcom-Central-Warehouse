@@ -76,6 +76,7 @@ final class AdjustGridScreensTest extends KernelUiTestCase
         $page = $web->get(self::NEW);
         self::assertSame(200, $page->status, $page->describe());
         self::assertStringContainsString(Words::ADJ_GRID['why_all'], $page->text());
+        self::assertSame(Words::ADJ_GRID['product_one'], (new \DOMXPath($page->dom()))->evaluate('string(//*[@data-aj-count="products"]/@data-one)'), '1 product, not 1 products');
         self::assertSame($before, self::docs(), 'opening the page makes no record');
     }
 

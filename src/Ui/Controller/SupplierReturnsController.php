@@ -458,7 +458,7 @@ final class SupplierReturnsController
             [Words::RETURNS['claim'], $rec['claim_total'] === null ? null : Html::money((string) $rec['claim_total'])],
             [Words::RETURNS['credited'], $rec['credit_state'] === null ? null : Words::of('CREDIT_STATE', (string) $rec['credit_state'])
                 . ($credited > 0 ? ' (' . Html::money(InvoiceMath::fromE2($credited)) . ')' : '')],
-            [Words::STOCK_OPS['note'], $doc->note],
+            [Words::STOCK_OPS['note_short'], $doc->note],
             [Words::STOCK_OPS['made'], $by($doc->createdAt, $rec['created_by_name'] === null ? null : (string) $rec['created_by_name'])],
             [Words::STOCK_OPS['asked'], $by($doc->submittedAt, $rec['submitted_by_name'] === null ? null : (string) $rec['submitted_by_name'])],
             [Words::INVOICES['posted'], $by($doc->postedAt, $rec['posted_by_name'] === null ? null : (string) $rec['posted_by_name'])],

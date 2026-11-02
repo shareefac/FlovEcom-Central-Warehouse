@@ -868,7 +868,7 @@ final class InvoicesController
             [Words::INVOICES['debit_note'], $kind === 'credit_note' && $rec['debit_note_number'] !== null ? (string) $rec['debit_note_number'] : null],
             [Words::INVOICES['credited'], $kind === 'invoice' && $rec['credited_e2'] > 0 ? Html::money(InvoiceMath::fromE2((int) $rec['credited_e2'])) : null],
             [Words::INVOICES['owed'], $kind === 'invoice' && $rec['owed_e2'] !== null && $doc->status === 'posted' ? Html::money(InvoiceMath::fromE2((int) $rec['owed_e2'])) : null],
-            [Words::STOCK_OPS['note'], $doc->note],
+            [Words::STOCK_OPS['note_short'], $doc->note],
             [Words::STOCK_OPS['made'], $by($doc->createdAt, $rec['created_by_name'] === null ? null : (string) $rec['created_by_name'])],
             [Words::STOCK_OPS['asked'], $by($doc->submittedAt, $rec['submitted_by_name'] === null ? null : (string) $rec['submitted_by_name'])],
             [Words::INVOICES['posted'], $by($doc->postedAt, $rec['posted_by_name'] === null ? null : (string) $rec['posted_by_name'])],

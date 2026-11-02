@@ -39,7 +39,7 @@ $rowsJson = (string) json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_
     <label><?= $word('STOCK_OPS', 'date') ?>
       <input type="date" name="doc_date" value="<?= $e($form['doc_date']) ?>">
     </label>
-    <label><?= $word('STOCK_OPS', 'ref') ?>
+    <label><?= $word('STOCK_OPS', 'ref_short') ?>
       <input type="text" name="external_ref" value="<?= $e($form['external_ref']) ?>" maxlength="100" autocomplete="off" placeholder="<?= $word('ADJ_GRID', 'optional') ?>">
     </label>
     <label><?= $word('ADJ_GRID', 'why_all') ?>
@@ -55,7 +55,7 @@ $rowsJson = (string) json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_
       <input type="text" name="given_to" value="<?= $e($form['given_to']) ?>" maxlength="100" autocomplete="off" title="<?= $e((string) $form['givenHint']) ?>">
     </label>
 <?php endif; ?>
-    <label class="aj-note"><?= $word('STOCK_OPS', 'note') ?>
+    <label class="aj-note"><?= $word('STOCK_OPS', 'note_short') ?>
       <input type="text" name="note" value="<?= $e($form['note']) ?>" maxlength="1000" autocomplete="off" placeholder="<?= $word('ADJ_GRID', 'optional') ?>">
     </label>
   </section>
@@ -101,7 +101,7 @@ $rowsJson = (string) json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_
     </template>
     <p class="error aj-alarm" role="alert" data-aj-alarm hidden></p>
     <div class="aj-foot">
-      <span class="aj-sum" data-aj-count="products" data-text="<?= $word('ADJ_GRID', 'products') ?>"></span>
+      <span class="aj-sum" data-aj-count="products" data-text="<?= $word('ADJ_GRID', 'products') ?>" data-one="<?= $word('ADJ_GRID', 'product_one') ?>"></span>
       <span class="aj-sum aj-up" data-aj-count="found" data-text="<?= $word('ADJ_GRID', 'found') ?>"></span>
       <span class="aj-sum aj-down" data-aj-count="gone" data-text="<?= $word('ADJ_GRID', 'gone') ?>"></span>
 <?php if ($ruleWaits): ?>
