@@ -1913,6 +1913,25 @@ has run. No grant changes (no new table; a generated column needs no privilege t
 `php bin/migrate.php --status` lists no PENDING file; `SELECT COUNT(*) FROM listing_profile WHERE search_on_row = 1` (expect a handful
 at most) and `SELECT COUNT(*) FROM listing_profile WHERE search_names = ''` (the profiles with no title, brand or option title).
 
+### The stores' choices at Add product (`bin/apply_store_choices.php`, `docs/decisions.md` SC1–SC12, tracker CW-217)
+
+A store sends what its staff chose for each new variant (PUT /v1/store-choices): a new item, a pack of an item, or not stock. The job
+follows each once the variant has arrived; on the timer every minute (`cw-staging.cron`, `cw-prod.cron`), log
+`/var/log/cw/apply_store_choices.log` (a line only when it looked at something).
+
+```
+php bin/apply_store_choices.php                  # DRY RUN: what it would do; writes nothing
+php bin/apply_store_choices.php --list           # the same, one line per choice
+php bin/apply_store_choices.php --choice=<id>    # one choice: what it would do now (always dry)
+php bin/apply_store_choices.php --apply          # what the timer runs
+```
+
+The log line: `looked` (waiting choices whose variant is there) and one count per outcome (SC8): `made`, `linked`, `waiting_second`,
+`not_stock`, `already_decided`, the doubts (`barcode_on_item`, `same_name`, `close_name`, ...: they wait on Approvals > New products),
+`again` (something moved under it: tried on the next run) and `decided_elsewhere`. A choice whose variant never arrives stays waiting and
+costs nothing. Who chose what: `SELECT * FROM store_choice ORDER BY id DESC LIMIT 20;`. Undo of one followed choice: the variant's own
+page (undo the match, or "it is a real product" for a landing mark), as for any decision.
+
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
 
 The barcodes the sites hold for linked listings (`listing_profile.barcodes`) into the items' barcodes. A barcode no item has is
@@ -1936,9 +1955,10 @@ item that has it was merged into the listing's item), `review_multipack_listing`
 it at the same moment: the next run sees it), `open_reviews_now`, `source_unlinked` (barcodes added earlier from a listing that
 is no longer linked to their item, as found before the run; the first 20 are listed under the line). The sync never changes
 those: a person checks each on the item page and removes what is wrong. Exit 0 also when reviews were opened (they are work for
-people). A real run writes one `sku_barcode.sync` audit row. **No cron is installed**: when the owner wants it nightly, after the
-listing pushes (`PUT /v1/listings` or `bin/import_listings.php`), add `php bin/sync_barcodes.php --apply` to the staging crontab,
-after a decision on who watches the review queue. Use `sync_barcodes`, not `seed_barcodes`, from now on: the seeder marks a clash
+people). A real run writes one `sku_barcode.sync` audit row. **On the timer since 3 Nov 2026** (SC11): nightly at 02:41 on staging and
+production (`cw-staging.cron`, `cw-prod.cron`), log `/var/log/cw/sync_barcodes.log`; the owner watches the review queue. Before the first
+timer run on production, read a dry run (`php bin/sync_barcodes.php --db=cw_prod`): its `review_on_another_item` is the reviews the first
+night opens. Use `sync_barcodes`, not `seed_barcodes`, from now on: the seeder marks a clash
 unusable without opening a review (it does honour the decisions people made, I118).
 
 **The review queue** (Items › Barcode review; the menu shows the open count to the people who decide):

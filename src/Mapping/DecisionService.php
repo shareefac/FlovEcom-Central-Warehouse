@@ -81,6 +81,17 @@ final class DecisionService
     public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split', 'unignore', 'send_back', 'landing', 'not_landing'];
     /** The decisions the system makes alone (no person): a suggestion, and a landing page's mark (LP2; the CHECK of 0050). */
     public const SYSTEM_ACTIONS = ['suggest', 'landing'];
+    /**
+     * A store's choice at Add product (docs/decisions.md SC4; the CHECK of 0058): the job that follows it (CW\Mapping\StoreChoices) makes
+     * a new item or a link with no warehouse person, because the person is the store's staff member who chose it (named in the
+     * decision's detail, `store_choice`). Only on a variant nobody has decided (STORE_CHOICE_FROM, not held back, in no spot check),
+     * against the suggestion the job saw (I7), and every two-person rule of a link still applies (a pack waits for a matching lead
+     * while approvals.match_multiple is on). Its "Not stock" is the system's landing mark (LP2), with the reason LANDING_STORE_CHOICE.
+     */
+    public const STORE_CHOICE_ACTOR = 'system:store_choice';
+    public const STORE_CHOICE_ACTIONS = ['new_item', 'link'];
+    public const STORE_CHOICE_FROM = ['unmapped', 'suggested'];
+    public const LANDING_STORE_CHOICE = 'store_choice';
     /** The statuses a landing page's mark applies to: an unlinked website product (an ignored one when the tool is asked to, LP5). */
     public const LANDING_FROM = ['unmapped', 'suggested', 'ignored'];
     /**
@@ -617,8 +628,18 @@ final class DecisionService
     {
         $staff = $this->staff($caller);
         $action = $r['action'];
-        if ($staff === null && !in_array($action, self::SYSTEM_ACTIONS, true)) {
+        // A store's choice (SC4): the job that follows it, for a new item or a link (its "Not stock" is the system's landing mark).
+        $storeChoice = $staff === null && $caller->actor === self::STORE_CHOICE_ACTOR;
+        if ($staff === null && !in_array($action, self::SYSTEM_ACTIONS, true) && !($storeChoice && in_array($action, self::STORE_CHOICE_ACTIONS, true))) {
             throw new CwException('staff_required', 'only a person can make this decision', 403);
+        }
+        if (($r['store_choice'] !== null) !== ($storeChoice && $action !== 'suggest')) {
+            // Whose choice it was travels only with that job, and always with it.
+            throw new CwException('bad_request', 'store_choice is sent with every decision of the job that follows a store\'s choice, and only then', 400,
+                ['field' => 'store_choice']);
+        }
+        if ($storeChoice && $r['bulk_batch_id'] !== null) {
+            throw new CwException('bad_request', 'a store\'s choice is followed one variant at a time, never in a batch', 400, ['field' => 'bulk_batch_id']);
         }
         if ($staff !== null && !Permissions::can($staff['roles'], 'mapping.decide')) {
             throw new CwException('role_not_allowed', (count($staff['roles']) === 1 ? 'role ' : 'roles ')
@@ -665,6 +686,18 @@ final class DecisionService
             $seen = OneAtATime::seen($this->db, $l['id']);
             if ($seen !== null && !str_starts_with($seen, OneAtATime::ARRIVAL . ':')) {
                 throw new CwException('one_at_a_time', 'this listing is held back or in a spot check: a person marks it on its own page', 409);
+            }
+        }
+        if ($storeChoice && $action !== 'landing') {
+            // SC4: only a variant nobody has decided. A linked, ignored or landing one is a person's (or the system's mark) already; one
+            // set aside or in a spot check is that person's, on its own page. The suggestion it names is the one the job saw (I7, below).
+            if ($l['linked'] || !in_array($l['status'], self::STORE_CHOICE_FROM, true)) {
+                throw new CwException('not_open', "the listing is {$l['status']}: a store's choice is followed only on a variant nobody has decided", 409,
+                    ['status' => $l['status']]);
+            }
+            $seen = OneAtATime::seen($this->db, $l['id']);
+            if ($seen !== null && !str_starts_with($seen, OneAtATime::ARRIVAL . ':')) {
+                throw new CwException('one_at_a_time', 'this listing is held back or in a spot check: a person decides it on its own page', 409);
             }
         }
         if ($r['proposal_id'] !== null && ($open === null || $open['id'] !== $r['proposal_id'])) {
@@ -739,8 +772,12 @@ final class DecisionService
         $units = in_array($action, self::LINK_OUTCOMES, true) ? $target['units'] : null;
         $detail = $card === null ? null : ['card' => $card] + ($mint !== null ? ['origin' => $mint] : []);
         if ($action === 'landing') {
-            // Why it is a landing page (LP2): the website's own flag or the rule (and its version), or a person's word.
+            // Why it is a landing page (LP2): the website's own flag or the rule (and its version), the store's choice, or a person's word.
             $detail = ['landing' => $r['landing'] ?? ['reason' => 'person']];
+        }
+        if ($r['store_choice'] !== null) {
+            // Whose choice it was, on which store and when (SC4): the decision's person, since no warehouse person made it.
+            $detail = ($detail ?? []) + ['store_choice' => $r['store_choice']];
         }
         if ($action === 'split') {
             $detail = ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id']] + ($detail ?? []);
@@ -2038,15 +2075,29 @@ final class DecisionService
             'bulk_batch_id' => null,
             'split_to' => null,
             'landing' => null,
+            'store_choice' => null,
         ];
-        // Why a website product is a landing page (LP2): the system names the website's flag or the rule, with its evidence; a person
-        // names nothing (`person`).
+        // Whose choice at Add product a decision follows (SC4): {id, store, staff_ref, staff_name, chosen_at}, short texts only. Who may
+        // send it is run()'s question (the store choice job, always).
+        $choice = $req['store_choice'] ?? null;
+        if ($choice !== null) {
+            $text = static fn (mixed $v, int $max): bool => is_string($v) && $v !== '' && mb_strlen($v) <= $max;
+            if (!is_array($choice) || !is_int($choice['id'] ?? null) || $choice['id'] < 1 || !$text($choice['store'] ?? null, 32)
+                || !$text($choice['staff_ref'] ?? null, 64) || !$text($choice['staff_name'] ?? null, 128) || !$text($choice['chosen_at'] ?? null, 32)
+                || array_diff(array_keys($choice), ['id', 'store', 'staff_ref', 'staff_name', 'chosen_at']) !== []) {
+                throw new CwException('bad_request', 'store_choice is {id, store, staff_ref, staff_name, chosen_at}', 400, ['field' => 'store_choice']);
+            }
+            $r['store_choice'] = $choice;
+        }
+        // Why a website product is a landing page (LP2): the system names the website's flag or the rule, with its evidence, or the store's
+        // choice (SC5); a person names nothing (`person`).
         $landing = $req['landing'] ?? null;
+        $reasons = [...LandingRule::REASONS, self::LANDING_STORE_CHOICE, 'person'];
         if ($landing !== null) {
             $why = is_array($landing) ? ($landing['reason'] ?? null) : null;
-            if ($action !== 'landing' || !is_string($why) || !in_array($why, [...LandingRule::REASONS, 'person'], true)
+            if ($action !== 'landing' || !is_string($why) || !in_array($why, $reasons, true)
                 || !is_array($landing['evidence'] ?? []) || strlen(Idempotency::json($landing)) > 4000) {
-                throw new CwException('bad_request', 'landing is for a landing mark: {reason: ' . implode(', ', [...LandingRule::REASONS, 'person']) . ', evidence?}', 400,
+                throw new CwException('bad_request', 'landing is for a landing mark: {reason: ' . implode(', ', $reasons) . ', evidence?}', 400,
                     ['field' => 'landing']);
             }
             $r['landing'] = ['reason' => $why] + array_intersect_key($landing, array_flip(['rule', 'evidence', 'source']));

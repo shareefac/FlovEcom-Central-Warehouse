@@ -72,7 +72,7 @@ fail=0
 # (check_arrivals.php in its dry-run form: it reads and prints, and writes nothing, whatever the setting names)
 # (health_alert.php --no-send: the smoke checks and prints, and records or sends nothing; housekeeping.php --dry-run counts only;
 #  refresh_reports.php --status: it reads how far the reports are and writes nothing, the timer's first run does the work)
-for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "refresh_reports.php --status" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
+for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "apply_store_choices.php" "refresh_reports.php --status" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
     set +e
     out=$(php bin/$job --db="$schema" 2>&1)
     code=$?

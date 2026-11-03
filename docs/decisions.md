@@ -15764,3 +15764,54 @@ the lines shows while a rule can ask for an OK.
 
 Codex read the build twice (2 HIGH, 6 MEDIUM, all fixed): the answer of an older warehouse overwriting a newer one, a stored cost lost on save, a merged product, 501 lines
 losing what was typed, After taking part of a number, the phone's foot under the tab bar, the cost of a product on two lines, After typed while the stock figures refresh.
+
+## A store's choice at Add product (branch `store-choice`, 3 Nov 2026; SC1-SC12; tracker CW-217)
+
+The owner, 2 Nov 2026: a new product on Vape and Go should connect to the warehouse by itself, without matching by hand. His drawing of 3 Nov ("Add product to CW",
+five screens) was approved with "ശരി, പണി തുടങ്ങൂ" (start the work). Step 1 is Vape and Go only; the other stores follow once Vape and Go is fully right.
+
+**SC1. The store says what a new variant is, once.** At Add product (simple and variable) and Add variant, staff choose per new variant: New item (already chosen), A pack
+of an item (its CW number and how many one pack holds), or Not stock. A variable product's landing page is Not stock by itself. The store keeps the choice and its
+connector sends it, after the variant's own listing, with PUT /v1/store-choices. `store_choice` (0058) keeps it; never removed.
+
+**SC2. The first choice of a variant is the one.** A second send of a variant is answered `already_received` and changes nothing: a store that retries after a timeout is
+harmless, and a later choice never undoes what was followed. A malformed call is refused whole (400), so a product is never half-sent. Allowed while the store is off: a
+choice moves no stock (like a listing push).
+
+**SC3. Followed only once the variant is there.** bin/apply_store_choices.php, every minute, looks at the waiting choices whose listing and profile have arrived, oldest
+first, one transaction each: the choice's row locked first, then DecisionService's own locks in its order, then the row's state (no new lock after the feed clock).
+
+**SC4. No warehouse person, so the store's person is named.** The job decides as `system:store_choice`. The CHECK of 0058 lets that actor make a new item or a link with no
+`decided_by`; every other decision still names its person. The decision's reason says whose choice it followed ("Chosen at Add product on vapeandgo by Aswin: a new item.")
+and its detail holds `store_choice` {id, store, staff_ref, staff_name, chosen_at}. DecisionService takes `store_choice` only from that job, and always from it (400 else).
+The job never makes a bulk batch, only decides a variant nobody has decided (unmapped or suggested; not held back, not in a spot check: 409 not_open, one_at_a_time), and
+names the suggestion it saw (I7: a suggestion written in between makes it try again on the next run).
+
+**SC5. Not stock is the landing mark.** The system's landing mark (LP2) with the reason `store_choice`; a person's "it is a real product" still stops it (said_real).
+
+**SC6. A new item is made only when the warehouse has nothing like it.** Before `new_item` the job looks for: a suggestion of the check on arrival that names an item; a
+barcode of the variant (any form one scan may take, Gtin::forms) on an item or on another store's variant; an item, not joined into another, with the same name (the
+item table's own comparison) or a name that differs only in letter case, spaces and punctuation, "&" read as "and" (StoreChoices::key(): "Mr Blue Nic-Salt 10ml - 10mg"
+and "mr blue nic salt 10ml 10mg" are one name; 10mg and 20mg stay apart). Any of them: nothing is made, the row waits for a person (to_check) with what was found. Two
+variants of one name in one run: the second waits. Unlike the bulk "create as new" (seedCheck), a Draft variant is made: connecting at the Draft stage is the point.
+
+**SC7. A pack is a link with its units, and keeps the two-person rule.** The CW number is followed to the item it was joined into. While approvals.match_multiple is on, the
+link waits for a matching lead (pending_second): the store's staff member chose it, a warehouse person says yes, which one person may do since the decision has no
+`decided_by`. An unknown CW number is refused (no_such_item) and waits for a person.
+
+**SC8. What each row says.** done: made, linked, waiting_second, not_stock, already_decided (someone decided the variant first: a link, an ignore, a landing page, a
+decision waiting for a second person), and the answers below. to_check: suggested_match, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held,
+has_history (a person decided the variant before, whatever it is now). refused: no_such_item, no_name, or DecisionService's code.
+
+**SC9. A person answers on Approvals > New products** (and in Waiting for you): Yes, the same (a link to the item found, one sale one item), No, a new item, or Not stock;
+a pack is decided on the variant's own page. Each answer is a DecisionService decision as that person (their role, the version and the suggestion they saw), in one
+transaction with the row. A row whose variant was decided on its own page leaves the list at once and the job settles it (decided_elsewhere).
+
+**SC10. The store shows the result.** The feed already carries each variant's link and CW number to the store (cw_listing_state): the product page's Variations table
+shows the CW number, Not stock, or Waiting for CW. Nothing new is sent back.
+
+**SC11. The barcodes follow nightly.** A barcode often comes days after the Draft. bin/sync_barcodes.php (I106-I108) is now on the timer at 02:41: a new barcode on a
+linked variant is added to its item; one already on another item opens a barcode review, as before.
+
+**SC12. What it does not do.** It never replaces a choice, never touches a decided variant, never makes a second item of a name or a barcode the warehouse has, never
+deletes. Price, descriptions and the other stores (the plan's step 2) are not part of this.

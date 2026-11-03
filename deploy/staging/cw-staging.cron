@@ -26,6 +26,10 @@ MAILTO=""
 # address copied from the main store, points at an item. It does nothing ("switched off", exit 0) until a store is named in the
 # setting mapping.arrival_stores; it takes only the variants the listing intake marked, never the ones that were there before.
 */10 * * * *  root  cd /opt/cw-staging && php bin/check_arrivals.php --db=cw_staging --apply >> /var/log/cw/check_arrivals.log 2>&1
+# The stores' choices at Add product (docs/decisions.md SC1-SC12, CW-217): followed once the variant has arrived; a doubt waits on Approvals > New products.
+* * * * *  root  cd /opt/cw-staging && php bin/apply_store_choices.php --db=cw_staging --apply >> /var/log/cw/apply_store_choices.log 2>&1
+# The barcodes the stores hold for linked variants, onto their items, nightly (SC11; I106-I108): a barcode on another item opens a review.
+41 2 * * *  root  cd /opt/cw-staging && php bin/sync_barcodes.php --db=cw_staging --apply >> /var/log/cw/sync_barcodes.log 2>&1
 
 # Landing pages (docs/decisions.md LP4): the website products that arrived in the last two days, marked as on arrival (the website's
 # own flag; the rule while mapping.landing_rule_on_arrival is on): a mark a listing push could not make is made here. Older products

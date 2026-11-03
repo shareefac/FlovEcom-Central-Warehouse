@@ -15,6 +15,7 @@ use CW\Api\Controller\PurchasingController;
 use CW\Api\Controller\RelayController;
 use CW\Api\Controller\ReservationsController;
 use CW\Api\Controller\SnapshotController;
+use CW\Api\Controller\StoreChoicesController;
 use CW\Config;
 use CW\ConfigException;
 use CW\CwException;
@@ -144,6 +145,9 @@ final class Kernel
         $r->add('GET', '/v1/availability', (new AvailabilityController())->index(...));
         $r->add('GET', '/v1/snapshot', (new SnapshotController())->index(...));
         $r->add('PUT', '/v1/listings', (new ListingsController())->put(...));
+        // A store's choice at Add product (docs/decisions.md SC1, SC2): kept for bin/apply_store_choices.php; allowed while the store is off, like
+        // its listings (a choice moves no stock).
+        $r->add('PUT', '/v1/store-choices', (new StoreChoicesController())->put(...));
         $r->add('POST', '/v1/heartbeat', (new HeartbeatController())->create(...));
         $r->add('GET', '/v1/purchasing', (new PurchasingController())->index(...));
         $r->add('GET', '/v1/health', (new HealthController())->show(...));

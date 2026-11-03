@@ -192,7 +192,9 @@ final class Grants
         'counterparty', 'counterparty_price', 'handover',
         // --- Pack J (0041; docs/decisions.md PJ2, PJ5): a final invoice's goods on their way (opened, received, cancelled: never removed),
         // and a supplier's own arrival choices (changed with audit).
-        'invoice_arrival', 'supplier_arrival_pref'];
+        'invoice_arrival', 'supplier_arrival_pref',
+        // 0058 (docs/decisions.md SC1): a store's choice at Add product, followed or answered (state, outcome, who, when), never removed.
+        'store_choice'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

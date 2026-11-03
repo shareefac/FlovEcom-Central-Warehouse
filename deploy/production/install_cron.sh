@@ -188,7 +188,7 @@ say "installed $cron_file, $R/etc/logrotate.d/cw-prod, $R/var/log/cw"
 
 # 5. Smoke: each job once, exactly as cron runs it (the forms that write nothing, as on staging).
 fail=0
-for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "refresh_reports.php --status" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
+for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "apply_store_choices.php" "refresh_reports.php --status" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
     set +e
     out=$(php bin/$job --db="$schema" 2>&1)
     code=$?
