@@ -15815,7 +15815,8 @@ shows the CW number, Not stock, or Waiting for CW. Nothing new is sent back.
 
 **SC11. The barcodes follow nightly.** A barcode often comes days after the Draft. bin/sync_barcodes.php (I106-I108) is now on the timer at 02:41: a new barcode on a
 linked variant is added to its item; one already on another item opens a barcode review, as before. Held at go-live (3 Nov 2026) and switched on the same afternoon on the
-owner's word: the first production night adds 556, opens 64 reviews and makes 62 barcodes unusable until each review is decided.
+owner's word, for Vape and Go only: the first production night adds 271, opens 20 reviews and makes 18 barcodes unusable until each
+review is decided (all channels would be 556, 64 and 62; Electrofag and Vape Big wait for Vape and Go).
 
 **SC12. What it does not do.** It never replaces a choice, never touches a decided variant, never makes a second item of a name or a barcode the warehouse has, never
 deletes. Price, descriptions and the other stores (the plan's step 2) are not part of this.

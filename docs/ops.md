@@ -1955,9 +1955,10 @@ item that has it was merged into the listing's item), `review_multipack_listing`
 it at the same moment: the next run sees it), `open_reviews_now`, `source_unlinked` (barcodes added earlier from a listing that
 is no longer linked to their item, as found before the run; the first 20 are listed under the line). The sync never changes
 those: a person checks each on the item page and removes what is wrong. Exit 0 also when reviews were opened (they are work for
-people). A real run writes one `sku_barcode.sync` audit row. **The timer line (SC11), nightly at 02:41, is ON since 3 Nov 2026**
+people). A real run writes one `sku_barcode.sync` audit row. **The timer line (SC11), nightly at 02:41, is ON since 3 Nov 2026, for Vape and Go only (`--channel=vapeandgo`)**
 in `cw-prod.cron` and `cw-staging.cron` (the two stay the same jobs; held from the go-live until the owner's word that afternoon). The
-production dry run of 3 Nov said its first night adds 556, opens 64 reviews and makes 62 barcodes unusable until each is decided: most
+production dry run of 3 Nov said its first night adds 271, opens 20 reviews and makes 18 barcodes unusable until each is decided (all
+channels: 556, 64 and 62; Electrofag and Vape Big wait for Vape and Go, owner 1 Nov): most
 are one product with two CW items, or a barcode typed on the wrong product in a store (runs/barcode_sync_3nov/conflicts_prod.tsv). Log `/var/log/cw/sync_barcodes.log`; the owner watches the review queue. Before the first
 timer run on production, read a dry run (`php bin/sync_barcodes.php --db=cw_prod`): its `review_on_another_item` is the reviews the first
 night opens. Use `sync_barcodes`, not `seed_barcodes`, from now on: the seeder marks a clash
