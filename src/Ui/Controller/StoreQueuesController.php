@@ -773,7 +773,7 @@ final class StoreQueuesController
             'why' => $why,
             'tone' => $done ? 'done' : ($r['state'] === 'refused' ? 'blocked' : 'needs'),
             'from' => Words::say('QUEUES', 'from', $store),
-            'chosen' => Words::say('NEW_PRODUCTS', 'chosen', (string) $r['staff_name'], $store, $what),
+            'chosen' => Words::say('NEW_PRODUCTS', 'chosen', (string) $r['staff_name'], $what),
             'received' => Words::say('QUEUES', 'received', Html::when((string) $r['received_at'])),
             'new_on' => Words::say('NEW_PRODUCTS', 'new_on', $store),
             'barcode' => $r['barcodes'] === [] ? Words::NEW_PRODUCTS['no_barcode'] : implode(', ', $r['barcodes']),

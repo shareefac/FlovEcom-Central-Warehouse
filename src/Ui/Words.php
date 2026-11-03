@@ -11747,7 +11747,8 @@ final class Words
      */
     public const NEW_PRODUCTS = [
         'heading' => 'New products to check',
-        'chosen' => 'Chosen by %s on %s at Add product: %s.',
+        // The store is said once, in "From …" before it.
+        'chosen' => 'Chosen by %s at Add product: %s.',
         'choice_new' => 'a new item',
         'choice_pack' => 'a pack of %s x %s',
         'choice_none' => 'not stock',

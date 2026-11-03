@@ -95,8 +95,8 @@ final class NewProductsScreensTest extends KernelUiTestCase
         foreach (['barcode_on_item', 'close_name', 'no_such_item'] as $why) {
             self::assertStringContainsString(Words::NEW_PRODUCT_WHY[$why], $text, $why);
         }
-        self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'chosen', 'Aswin', 'VAPEANDGO test site', Words::NEW_PRODUCTS['choice_new']), $text);
-        self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'chosen', 'Aswin', 'VAPEANDGO test site', Words::say('NEW_PRODUCTS', 'choice_pack', 5, 'CW-999999')), $text);
+        self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'chosen', 'Aswin', Words::NEW_PRODUCTS['choice_new']), $text);
+        self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'chosen', 'Aswin', Words::say('NEW_PRODUCTS', 'choice_pack', 5, 'CW-999999')), $text);
         self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'same_barcode', '5059000999999'), $text, 'the barcode they share');
         $xp = new \DOMXPath($page->dom());
         $card = '//article[@id="new-products-' . $f['ids']['1001'] . '"]';

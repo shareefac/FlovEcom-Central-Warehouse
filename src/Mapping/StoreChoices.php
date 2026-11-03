@@ -616,7 +616,7 @@ final class StoreChoices
     private function choice(int $id, bool $lock): ?array
     {
         $c = $this->db->one('SELECT sc.id, sc.channel_id, sc.external_variant_id, CAST(sc.choice AS CHAR) AS choice, sc.pack_of_code, sc.units, sc.staff_ref, sc.staff_name, '
-            . 'sc.chosen_at, CAST(sc.state AS CHAR) AS state, sc.outcome, CAST(sc.detail AS CHAR) AS detail, c.code AS store FROM store_choice sc '
+            . 'sc.chosen_at, CAST(sc.state AS CHAR) AS state, sc.outcome, CAST(sc.detail AS CHAR) AS detail, c.code AS store, c.name AS store_name FROM store_choice sc '
             . 'JOIN channel c ON c.id = sc.channel_id WHERE sc.id = ?' . ($lock ? ' FOR UPDATE' : ''), [$id]);
         if ($c === null) {
             return null;
@@ -657,7 +657,9 @@ final class StoreChoices
             'none' => 'not stock',
             default => 'a new item',
         };
-        $s = "Chosen at Add product on {$c['store']} by {$c['staff_name']}: {$what}.";
+        // The store's name, as people read it on the Second approval page ("vpgproto" read as a code).
+        $store = (string) ($c['store_name'] ?? $c['store']);
+        $s = "Chosen at Add product on {$store} by {$c['staff_name']}: {$what}.";
         if ($note !== null && trim($note) !== '') {
             $s .= ' ' . trim($note);
         }

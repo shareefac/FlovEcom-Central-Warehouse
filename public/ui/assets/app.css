@@ -1581,6 +1581,8 @@ article.incident { margin: 0; display: grid; gap: 8px; border-left: 4px solid va
 article.incident > * { margin: 0; }
 article.incident h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
 article.incident a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; overflow-wrap: anywhere; }
+/* A link inside a side-by-side party name stays in its line: the 44px box pushed it below the name beside it. */
+article.incident .doc-party-name a { display: inline; min-height: 0; }
 form.close-incident fieldset { margin: 4px 0 0; }
 .note.duty-rule > .help { justify-self: start; }
 

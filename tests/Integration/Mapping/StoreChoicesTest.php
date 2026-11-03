@@ -130,7 +130,7 @@ final class StoreChoicesTest extends MappingTestCase
         $d = self::$db->one("SELECT decided_by, actor, reason, CAST(detail AS CHAR) AS detail FROM match_decision WHERE listing_id = ? AND action = 'new_item'", [$lid]);
         self::assertSame([null, 'system:store_choice'], [$d['decided_by'], $d['actor']]);
         self::assertSame('Aswin (Add product)', (new \CW\Ui\Queries(self::$db))->decisionsOf($lid)[0]['decider']);
-        self::assertSame('Chosen at Add product on vapeandgo by Aswin: a new item.', $d['reason']);
+        self::assertSame('Chosen at Add product on VAPEANDGO test site by Aswin: a new item.', $d['reason'], 'the store by its name, not its code');
         $who = json_decode((string) $d['detail'], true)['store_choice'];
         self::assertSame(['Aswin', '17', 'vapeandgo', $this->idOf('1001')], [$who['staff_name'], $who['staff_ref'], $who['store'], $who['id']]);
         $row = $this->row('1001');
