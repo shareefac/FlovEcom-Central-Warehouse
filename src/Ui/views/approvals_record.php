@@ -3,12 +3,14 @@
 // title (a link to its own page where it has one) and status, the facts as big figures, the lines that say what it is and what the answers
 // do, the refusal of the last answer, then ONE decision: the form `ap-answer` posts to the kind's own route (inbox=1, the next record and
 // this one's place), with the fields the kind needs (the item box of Lines to place, how it was sorted out, the note), its main answer in
-// the accent, and the rarer answers under More: a button of the same form with its own route (formaction), or a fold with its own small
-// form and note. Without the script every answer is a plain form. Its forms keep what is typed: a link that leaves the page asks first
-// (data-unsaved, CV14; AV19), and a refused answer comes back with them marked as not saved. The approved Approvals artboard of 30 Oct 2026
-// (docs/decisions.md RD-C13): the figures as tiles (the first in the kind's tint), the note under them, then "Next: …" at the left of the
-// answers, More and the main answer at the right; the kind shown on the list travels with the answer (inbox_show). Enter in a field sends the
-// main answer: the form's first submit button is its hidden twin (More's buttons stand before the main one; docs/decisions.md RD-F1).
+// the accent, and the rarer answers under More: a button of the same form with its own route (formaction), a fold with its own small
+// form and note, or a link to the page where that answer is given (a store's choice's pack, SC9). Without the script every answer is a
+// plain form. Its forms keep what is typed: a link that leaves the page asks first (data-unsaved, CV14; AV19), and a refused answer comes
+// back with them marked as not saved. The approved Approvals artboard of 30 Oct 2026 (docs/decisions.md RD-C13): the figures as tiles (the
+// first in the kind's tint), the note under them, then "Next: …" at the left of the answers, More and the main answer at the right; the kind
+// shown on the list travels with the answer (inbox_show). Enter in a field sends the main answer: the form's first submit button is its
+// hidden twin (More's buttons stand before the main one; docs/decisions.md RD-F1). A record answered only on its own page (a store's choice
+// set aside, SC9) has no form: its main action is the link there.
 ?>
 <section class="ap-record <?= $e($record['tone']) ?>" aria-labelledby="ap-h">
 <div class="card ap-card">
@@ -45,6 +47,7 @@
 <?php if ($record['error'] !== null): ?>
   <p class="error" role="alert" data-code="<?= $e($record['errorCode']) ?>"><?= $e($record['error']) ?></p>
 <?php endif; ?>
+<?php if ($record['action'] !== ''): ?>
   <form class="ap-answer" id="ap-answer" method="post" action="<?= $u($record['action']) ?>" data-unsaved="1"<?php if ($record['error'] !== null && !$record['moreOpen']): ?> data-dirty="1"<?php endif; ?>>
     <button type="submit" class="po-default" tabindex="-1" aria-hidden="true"<?php if ($record['mainName'] !== null): ?> name="<?= $e($record['mainName']) ?>" value="<?= $e($record['mainValue']) ?>"<?php endif; ?>><?= $e($record['main']) ?></button>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -82,6 +85,7 @@
     <label><?= $e($record['note']['label']) ?> <input type="text" name="note" value="<?= $e($record['note']['value']) ?>"<?php if ($record['note']['required']): ?> minlength="<?= $e($record['note']['min']) ?>" required<?php endif; ?> maxlength="<?= $e($record['note']['max']) ?>"<?php if ($record['note']['hint'] !== ''): ?> placeholder="<?= $e($record['note']['hint']) ?>"<?php endif; ?>></label>
 <?php endif; ?>
   </form>
+<?php endif; ?>
   <div class="ap-actions">
     <p class="ap-next"><?php if ($record['next'] !== null): ?><?= $e($record['next']) ?><?php else: ?><?= $word('INBOX', 'last') ?><?php endif; ?></p>
 <?php if ($record['more'] !== []): ?>
@@ -108,6 +112,8 @@
             </form>
           </div>
         </details>
+<?php elseif (isset($m['href'])): ?>
+        <a class="menu-item" href="<?= $u($m['href']) ?>"><?= $e($m['label']) ?></a>
 <?php else: ?>
         <button type="submit" form="ap-answer" class="btn risky" formaction="<?= $u($m['formaction']) ?>"<?php if (isset($m['name'])): ?> name="<?= $e($m['name']) ?>" value="<?= $e($m['value']) ?>"<?php endif; ?>><?= $e($m['label']) ?></button>
 <?php endif; ?>
@@ -115,7 +121,11 @@
       </div>
     </details>
 <?php endif; ?>
+<?php if ($record['action'] !== ''): ?>
     <button type="submit" form="ap-answer" class="btn primary"<?php if ($record['mainName'] !== null): ?> name="<?= $e($record['mainName']) ?>" value="<?= $e($record['mainValue']) ?>"<?php endif; ?>><?= $e($record['main']) ?></button>
+<?php elseif ($record['mainHref'] !== null): ?>
+    <a class="btn primary" href="<?= $u($record['mainHref']) ?>"><?= $e($record['main']) ?></a>
+<?php endif; ?>
   </div>
 </div>
 </section>

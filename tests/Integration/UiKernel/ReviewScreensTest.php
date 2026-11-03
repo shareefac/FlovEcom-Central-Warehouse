@@ -53,7 +53,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         // The menu's Approvals entry opens Waiting for you (docs/decisions.md AV1); this queue is its second tab.
         self::assertSame(['href' => '/ui/approvals', 'count' => 0], self::nav($queue)['Approvals']);
         self::assertSame([['Waiting for you', false], ['Documents to review', true], ['History', false], ['Staff requests', false], ['Lines to place', false],
-            ['ERPNext corrections', false], ['Mode changes', false], ['Oversold', false], ['Website bugs', false]],
+            ['ERPNext corrections', false], ['Mode changes', false], ['Oversold', false], ['Website bugs', false], ['New products', false]],
             array_map(static fn (array $t): array => [$t['label'], $t['current']], self::segments($queue)), 'Approvals\' one Show (RD7)');
 
         $poster = $this->uiUser(['stock_controller', 'reviewer']);

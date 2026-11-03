@@ -119,6 +119,9 @@ final class WordsTest extends TestCase
             'QUEUE_STATE' => \CW\Queues\QueueRules::STATUSES,
             'RELAY_KIND' => \CW\Relay\RelayLines::KINDS,
             'OVERSELL_RESOLUTION' => \CW\Queues\Oversells::RESOLUTIONS,
+            // 0058 (docs/decisions.md SC9): why a store's choice waits for a person (and the two refusals it names), how one ended
+            'NEW_PRODUCT_WHY' => [...\CW\Mapping\StoreChoices::OUTCOMES_CHECK, 'no_such_item', 'no_name'],
+            'NEW_PRODUCT_DONE' => \CW\Mapping\StoreChoices::OUTCOMES_DONE,
         ];
     }
 

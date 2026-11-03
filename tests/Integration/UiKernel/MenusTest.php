@@ -57,10 +57,10 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(0, (new \DOMXPath($buyer->get('/ui/purchasing/orders')->dom()))->query('//ol[contains(@class, "flow")]')->length, 'no buying-flow strip (DC5)');
 
         // Approvals: one entry; its Show: the inbox for who answers, the reviews, the history, the staff requests, the stores' queues.
-        self::assertSame(['History', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'],
+        self::assertSame(['History', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs', 'New products'],
             array_column(self::segments($buyer->get('/ui/documents')), 'label'));
         self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold',
-            'Website bugs'], array_column(self::segments($reviewer->get('/ui/documents')), 'label'));
+            'Website bugs', 'New products'], array_column(self::segments($reviewer->get('/ui/documents')), 'label'));
         self::assertSame([], self::sectionTabs($reviewer->get('/ui/documents')), 'one entry: no sub-items');
         self::assertSame('/ui/documents', self::nav($buyer->get('/ui/'))['Approvals']['href'], 'a buyer answers nothing: the history');
         // Settings: one entry; everyone reads; Stores (system.view) for the reviewer; "Users and roles" (who can do what, for those who may not
@@ -239,7 +239,8 @@ final class MenusTest extends KernelUiTestCase
         $dash = $mapper->get('/ui/');
         self::assertSame(200, $dash->status);
         self::assertStringNotContainsString(Words::HOME['coverage'], $dash->text(), 'the matching progress is in Matching (HV5)');
-        self::assertSame(['Home', 'Items', 'Inventory', 'Store listings', 'Settings'], array_keys(self::nav($dash)));
+        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Store listings', 'Settings'], array_keys(self::nav($dash)),
+            'a Matcher answers the new products on Approvals (docs/decisions.md SC9)');
         $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
         self::assertSame('Store listings', self::currentSection($queue));
         self::assertSame([['By item', '/ui/review/products'], ['Check a match', null]],
@@ -252,7 +253,7 @@ final class MenusTest extends KernelUiTestCase
         $overview = $mapper->get('/ui/review');
         self::assertStringContainsString(Words::HOME['coverage'], $overview->text(), 'Store listings › Check a match: how much of what we sell is matched');
         self::assertSame('Home', self::currentSection($dash), 'Home is the same page for a matcher');
-        self::assertSame(['Home', 'More'], array_column(self::tabs($dash), 'label'));
+        self::assertSame(['Home', 'Approvals', 'More'], array_column(self::tabs($dash), 'label'), 'the new products wait on Approvals (SC9)');
 
         // A person whose roles were all taken away (admin SQL only) is told so and sees no menu and no tab bar.
         $none = $this->uiUser('viewer');

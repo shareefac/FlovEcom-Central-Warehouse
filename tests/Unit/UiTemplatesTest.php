@@ -469,8 +469,9 @@ final class UiTemplatesTest extends TestCase
         self::assertGreaterThan($start, $tabs);
         self::assertStringContainsString('<a href="/ui/"><span class="ico ico-sec-home" aria-hidden="true"></span><span>Home</span></a>' . "\n"
             . '  <a href="/ui/stock/counts"><span class="ico ico-count" aria-hidden="true"></span><span>Count</span></a>' . "\n"
-            . '  <a href="/ui/documents"><span class="ico ico-sec-approvals" aria-hidden="true"></span><span>Approvals</span></a>' . "\n"
-            . '  <a href="#menu"><span class="ico ico-dots" aria-hidden="true"></span><span>More</span></a>', substr($html, $tabs), 'Phone.dc.html');
+            . '  <a href="/ui/approvals"><span class="ico ico-sec-approvals" aria-hidden="true"></span><span>Approvals</span></a>' . "\n"
+            . '  <a href="#menu"><span class="ico ico-dots" aria-hidden="true"></span><span>More</span></a>', substr($html, $tabs),
+            'Phone.dc.html (a matching lead answers the new products: Approvals opens Waiting for you, docs/decisions.md SC9)');
         self::assertStringNotContainsString('test-system', $html);
         self::assertStringNotContainsString('admin-off', $html);
         self::assertStringNotContainsString('<svg', $html, 'the icons are the sprite drawn by the stylesheet: a page has no svg (UiSecurityTest::assertInert)');
@@ -1414,11 +1415,13 @@ final class UiTemplatesTest extends TestCase
 
     /**
      * The forms of a template whose main buttons submit them a page may draw several of (docs/decisions.md DS5, AV13): a work queue whose
-     * rows are each one small form answered in turn (Simple matching's Apply; Lines to place's Place is the data's choice, checked on the
-     * rendered page), and the OK of each record's decision where a page lists several records. template => a piece of the form's action.
+     * rows are each one small form answered in turn (Simple matching's Apply, New products' answer: docs/decisions.md SC9; Lines to place's
+     * Place is the data's choice, checked on the rendered page), and the OK of each record's decision where a page lists several records.
+     * template => a piece of the form's action.
      */
     private const ROW_MAIN = [
         'simple_match' => '$apply',
+        'queue_new_products' => '/answer',
         'staff_requests' => '/ui/staff-requests/',
         'company' => '/ui/reference/company/reviews/',
         'purchase_order' => '/ui/documents/reviews/',

@@ -57,6 +57,10 @@ final class Sections
                 ['key' => 'queue_oversold', 'perm' => 'queues.view', 'path' => '/ui/queues/oversold', 'match' => ['/ui/queues/oversold*'], 'badge' => 'queue_oversold'],
                 // Website bugs (0050, docs/decisions.md LP8): orders a store took for a landing page.
                 ['key' => 'queue_landing', 'perm' => 'queues.view', 'path' => '/ui/queues/landing', 'match' => ['/ui/queues/landing*'], 'badge' => 'queue_landing'],
+                // New products (0058, docs/decisions.md SC9): a store's choice at Add product that waits for a person. Who looks at the queues
+                // and who answers these (the Matchers hold no queues.view): a route open to every signed-in person, whose page refuses the rest.
+                ['key' => 'queue_new_products', 'perm' => ['queues.view', \CW\Mapping\StoreChoices::PERM], 'path' => '/ui/queues/new-products',
+                    'match' => ['/ui/queues/new-products*'], 'badge' => 'queue_new_products'],
             ]],
         ]],
         // Items: the warehouse's items (the items made by hand a Show choice; "+ New item" opens the one-page form), the item groups (the

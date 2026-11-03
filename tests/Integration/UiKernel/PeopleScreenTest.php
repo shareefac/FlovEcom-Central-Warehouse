@@ -244,7 +244,8 @@ final class PeopleScreenTest extends KernelUiTestCase
         self::assertSame(303, $admin->post('/ui/people/' . $u['id'] . '/roles', $form)->status);
         // A stock controller still answers the stores' queues: Waiting for you stays (docs/decisions.md AV1), the reviewer's queue goes.
         self::assertSame([Words::SEGMENT['inbox'], Words::SEGMENT['documents'], Words::SEGMENT['queue_suspense'], Words::SEGMENT['queue_corrections'],
-            Words::SEGMENT['queue_modes'], Words::SEGMENT['queue_oversold'], Words::SEGMENT['queue_landing']], array_column(self::segments($web->get('/ui/documents')), 'label'),
+            Words::SEGMENT['queue_modes'], Words::SEGMENT['queue_oversold'], Words::SEGMENT['queue_landing'], Words::SEGMENT['queue_new_products']],
+            array_column(self::segments($web->get('/ui/documents')), 'label'),
             'the same session, the next request');
         self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Reports', 'Settings'], array_keys(self::nav($web->get('/ui/'))),
             'a stock controller now (with the store reports, pack E)');

@@ -30,7 +30,8 @@ final class DashboardTiles
         'orders' => ['grey', 'orders'], 'deliveries' => ['grey', 'goods-in'], 'products' => ['grey', 'products']];
     /** The kinds of Approvals' badges, for the inbox tile's line (its biggest kind), as Ui\Context::badges counts them. */
     private const INBOX_BADGES = ['queue_corrections' => 'kind_corrections', 'queue_suspense' => 'kind_suspense', 'counts_open' => 'kind_counts',
-        'queue_oversold' => 'kind_oversold', 'queue_modes' => 'kind_modes', 'queue_landing' => 'kind_landing', 'reviews_open' => 'kind_documents'];
+        'queue_oversold' => 'kind_oversold', 'queue_modes' => 'kind_modes', 'queue_landing' => 'kind_landing', 'queue_new_products' => 'kind_new_products',
+        'reviews_open' => 'kind_documents'];
 
     /**
      * @return list<array{key: string, title: string, value: int, shown: string, sub: string, href: string, tone: string, icon: string}>

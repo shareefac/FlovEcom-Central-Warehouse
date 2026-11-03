@@ -129,6 +129,7 @@ final class StoreChoicesTest extends MappingTestCase
         self::assertSame(['Mr Blue Nic Salt E-Liquid by Elux Legend 10ml - 10mg', $lid], [$sku['name'], (int) $sku['origin_listing_id']]);
         $d = self::$db->one("SELECT decided_by, actor, reason, CAST(detail AS CHAR) AS detail FROM match_decision WHERE listing_id = ? AND action = 'new_item'", [$lid]);
         self::assertSame([null, 'system:store_choice'], [$d['decided_by'], $d['actor']]);
+        self::assertSame('Aswin (Add product)', (new \CW\Ui\Queries(self::$db))->decisionsOf($lid)[0]['decider']);
         self::assertSame('Chosen at Add product on vapeandgo by Aswin: a new item.', $d['reason']);
         $who = json_decode((string) $d['detail'], true)['store_choice'];
         self::assertSame(['Aswin', '17', 'vapeandgo', $this->idOf('1001')], [$who['staff_name'], $who['staff_ref'], $who['store'], $who['id']]);
@@ -211,6 +212,8 @@ final class StoreChoicesTest extends MappingTestCase
         self::assertSame([null, 'system:store_choice', 'pending_second', 10], [$pending['decided_by'], $pending['actor'], $pending['state'], (int) $pending['units_per_item']]);
         self::assertSame(['done', 'waiting_second'], [$this->row('1001')['state'], $this->row('1001')['outcome']]);
         self::assertSame('unmapped', $this->link($ten)['status'], 'nothing linked until a matching lead says yes');
+        $q = new \CW\Ui\Queries(self::$db);
+        self::assertSame(['Aswin (Add product)'], array_column($q->pendingDecisions(), 'decider'), 'the screens name the store\'s staff member');
         // One matching lead approves: the staff member chose it, the lead says yes (two people).
         $this->ds->approve($this->staffUser('mapping_lead'), (int) $pending['id']);
         self::assertSame([$single, 'mapped', 10], [$this->link($ten)['sku_id'], $this->link($ten)['status'], $this->link($ten)['units_per_item']]);

@@ -77,6 +77,8 @@ final class Words
         'QUEUE_NOTICE', 'QUEUE_ERROR', 'INBOX', 'ALERT',
         // 0050: landing pages (docs/decisions.md LP1-LP12)
         'LANDING', 'WEBSITE_BUG', 'LANDING_RESOLUTION',
+        // 0058: a store's choice at Add product that waits for a person (docs/decisions.md SC9)
+        'NEW_PRODUCTS', 'NEW_PRODUCT_WHY', 'NEW_PRODUCT_DONE',
         'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
         // --- Pack G (the reorder engine)
         'REORDER_ENGINE', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
@@ -329,6 +331,7 @@ final class Words
         'queue_modes' => 'Mode changes',
         'queue_oversold' => 'Oversold',
         'queue_landing' => 'Website bugs', // 0050 (LP8)
+        'queue_new_products' => 'New products', // 0058 (SC9)
         // --- Pack G (Purchasing › Reorder) ---
         'reorder_suppliers' => 'Suppliers',
         'low_stock_levels' => 'Low-stock warnings',
@@ -473,6 +476,7 @@ final class Words
         'queue_modes' => 'mode changes waiting for your answer',
         'queue_oversold' => 'oversold orders not handled yet',
         'queue_landing' => 'orders for landing pages not handled yet', // 0050 (LP8)
+        'queue_new_products' => 'new products waiting for your answer', // 0058 (SC9)
     ];
 
     /** Permissions::COMING_LATER key => words for Home's "Coming later" line (no phase codes, no dates). */
@@ -721,6 +725,9 @@ final class Words
             'Sort each one out with the customer, add notes as you go, then mark it handled.'],
         'queue_landing' => ['Orders a website took for a landing page. A landing page is not a product, so each one is a website bug. No stock moved for it.',
             'Fix each order by hand with the customer, then mark it handled with a note.'],
+        // 0058 (docs/decisions.md SC9): a store's choice at Add product the warehouse did not follow alone.
+        'queue_new_products' => ['A store added a product that may already be in the warehouse, or that the warehouse could not follow. Nothing was made for it yet.',
+            'Say if it is the same product, a new item, or not stock. A pack is said on the variant\'s own page.'],
         // ---- Pack E
         'stock_by_store' => ['What each store can sell now, from the warehouse it sells from.', 'Choose a store. Open a product to see every change to its stock.'],
         'sales_by_store' => ['Orders and units each store sold, day by day.', 'Choose the days. The figures come from the orders the stores send to CW.'],
@@ -10258,6 +10265,10 @@ final class Words
         'outcome_dismissed' => 'Dismissed',
         'outcome_approved' => 'OK',
         'outcome_rejected' => 'Not OK',
+        // New products (0058, SC9): a person's answer to a store's choice
+        'outcome_joined' => 'Joined',
+        'outcome_made_by_person' => 'New item made',
+        'outcome_not_stock_by_person' => 'Not stock',
     ];
 
     /** Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in its order. */
@@ -11686,6 +11697,7 @@ final class Words
         'why_website_flag' => 'Why: the website itself calls it a landing page.',
         'why_same_page' => 'Why: it has no option of its own, and other options of the same page have one.',
         'why_person' => 'Why: a person marked it.',
+        'why_store_choice' => 'Why: the store\'s staff chose "Not stock" when they added it.',
         'why_unknown' => 'Why: not known.',
         'marked_cw' => 'Marked on %s by the warehouse system.',
         'marked_by' => 'Marked on %s by %s.',
@@ -11726,6 +11738,80 @@ final class Words
         'no_action' => 'Nothing needed',
     ];
 
+    // ---- 0058: a store's choice at Add product (docs/decisions.md SC9) --------------------------------------------------
+
+    /**
+     * Approvals › New products (CW\Mapping\StoreChoices; the owner's drawing "CW asks first", 3 Nov 2026): a store's choice at Add product
+     * the warehouse did not follow alone, as a card: why it waits (NEW_PRODUCT_WHY), whose choice it was, the variant beside the item the
+     * warehouse found, and the answers. A pack is said on the variant's own page.
+     */
+    public const NEW_PRODUCTS = [
+        'heading' => 'New products to check',
+        'chosen' => 'Chosen by %s on %s at Add product: %s.',
+        'choice_new' => 'a new item',
+        'choice_pack' => 'a pack of %s x %s',
+        'choice_none' => 'not stock',
+        'new_on' => 'New on %s',
+        'in_cw' => 'Already in CW',
+        'barcode' => 'Barcode',
+        'no_barcode' => 'None',
+        'same_barcode' => '%s, the same',
+        'on_hand' => 'On hand',
+        'nothing_found' => 'The warehouse found no item to compare it with.',
+        'other_store' => 'The same barcode is on a product of %s, option number %s.',
+        'ask_same' => 'Is it the same product?',
+        'ask_what' => 'What is it for the warehouse?',
+        'same' => 'Yes, the same: use %s',
+        'different' => 'No, different: make a new item',
+        'make_new' => 'Make a new item',
+        'none' => 'Not stock',
+        'pack' => 'It is a pack: open the variant\'s page',
+        'line_same' => 'The same: the variant sells the stock of %s, one for one.',
+        'line_new' => 'A new item: made from the variant\'s own details. Its stock starts at 0.',
+        'line_none' => 'Not stock: a page that holds no stock. It leaves every matching list.',
+        'line_pack' => 'A pack of an item: say on the variant\'s own page which item, and how many one pack holds.',
+        'held_line' => 'This variant is set aside: decide it on its own page.',
+        'open_page' => 'Open the variant\'s page',
+        'note' => 'Note (if you like)',
+        'why_other' => 'The warehouse could not follow the choice (%s)',
+        'closed' => '%s on %s by %s.',
+        'closed_cw' => '%s by the warehouse system.',
+        'item_line' => 'Item: %s.',
+        'note_line' => 'Note: %s',
+        'not_yours' => 'Your jobs neither look at the stores\' lists nor answer these. Nothing was changed.',
+        'none_open_text' => 'A product waits here when a store adds one that may already be in the warehouse, or one the warehouse cannot follow.',
+    ];
+
+    /** Why a store's choice waits for a person (StoreChoices::OUTCOMES_CHECK, and its refusals): the card's chip. */
+    public const NEW_PRODUCT_WHY = [
+        'suggested_match' => 'The warehouse\'s check found a likely match',
+        'conflict' => 'Two or more items look like it: a matching lead decides',
+        'barcode_on_item' => 'Same barcode',
+        'barcode_on_listing' => 'Same barcode as another store\'s product',
+        'same_name' => 'Same name',
+        'close_name' => 'Very close name',
+        'said_real' => 'A person said it is a real product',
+        'held' => 'Set aside by a person',
+        'has_history' => 'Decided before by a person',
+        'no_such_item' => 'The CW number for the pack is not an item',
+        'no_name' => 'It has no name',
+    ];
+
+    /** How a store's choice ended (StoreChoices::OUTCOMES_DONE): the line of a done one. */
+    public const NEW_PRODUCT_DONE = [
+        'made' => 'A new item was made',
+        'linked' => 'Linked as a pack',
+        'waiting_second' => 'The pack waits for a matching lead\'s second OK',
+        'not_stock' => 'Marked not stock',
+        'already_decided' => 'Someone had decided it already',
+        'joined' => 'Joined to the item found',
+        'made_by_person' => 'A new item was made',
+        'not_stock_by_person' => 'Marked not stock',
+        'decided_elsewhere' => 'Decided on the variant\'s own page',
+    ];
+
+    // ---- end of 0058 ----
+
     /** The notice after an answer on Approvals › From the stores (the item's code where one was picked). */
     public const QUEUE_NOTICE = [
         'booked' => 'Booked on %s. The line is done.',
@@ -11740,6 +11826,11 @@ final class Words
         'kept' => 'Closed. The warehouse system keeps what it had.',
         'handled' => 'Marked handled.',
         'noted' => 'The note is added.',
+        // New products (0058, SC9)
+        'joined' => 'Joined. The variant now uses %s and its stock.',
+        'made_new' => 'Made %s for it. Its stock starts at 0.',
+        'not_stock' => 'Marked not stock. It is in no matching list now.',
+        'waits_second' => 'Saved, not live yet: a matching lead gives the second OK.',
     ];
 
     /** A refused answer on Approvals › From the stores, by error code (the service's message otherwise: `other`). */
@@ -11764,13 +11855,22 @@ final class Words
         'newer_correction' => 'A newer ERPNext correction of this item was confirmed already. Close this one. Nothing was booked.',
         'newer_count' => 'A later shelf count already set this stock figure. Close this correction. Nothing was booked.',
         'bad_field' => 'Choose how it was sorted out. Nothing was saved.',
+        // New products (0058, SC9): an answer is a matching decision (its other refusals: MATCH_ERROR's words)
+        'map_version_conflict' => 'This variant changed since the page was drawn. Look again. Nothing was saved.',
+        'proposal_changed' => 'The warehouse\'s suggestion for this variant changed since the page was drawn. Look again. Nothing was saved.',
+        'proposal_closed' => 'The warehouse\'s suggestion for this variant changed since the page was drawn. Look again. Nothing was saved.',
+        'already_settled' => 'Someone already answered this one, or decided the variant on its own page. Nothing more was saved.',
+        'nothing_found' => 'The warehouse found no item for this one, so there is nothing to join it to. Nothing was saved.',
+        'one_at_a_time' => 'This variant is set aside: decide it on its own page. Nothing was saved.',
+        'not_found' => 'This row is not in the list any more. Nothing was saved.',
+        'bad_answer' => 'Choose one of the answers on the page. Nothing was saved.',
         'other' => 'This did not work: %s. Nothing was saved.',
     ];
 
     /**
      * Approvals › Waiting for you (docs/decisions.md AV1-AV14; the approved mockups AP_Inbox, AP_Phone): the groups, the rows, the open
      * record's head and facts, the next record. Each answer keeps the words of its kind's own page (CORRECTIONS, LQ, COUNTS, OVERSOLD,
-     * MODES, WEBSITE_BUG, STAFF_REQUESTS, RECORD, SUPPLIER, COMPANY), and so does its notice.
+     * MODES, WEBSITE_BUG, NEW_PRODUCTS, STAFF_REQUESTS, RECORD, SUPPLIER, COMPANY), and so does its notice.
      */
     public const INBOX = [
         // The groups, in the page's order, and one record of each
@@ -11780,6 +11880,7 @@ final class Words
         'kind_oversold' => 'Oversold',
         'kind_modes' => 'Mode changes',
         'kind_landing' => 'Website bugs',
+        'kind_new_products' => 'New products',
         'kind_staff' => 'Staff requests',
         'kind_documents' => 'Documents to review',
         'one_corrections' => 'ERPNext correction',
@@ -11788,6 +11889,7 @@ final class Words
         'one_oversold' => 'Oversold order',
         'one_modes' => 'Mode change',
         'one_landing' => 'Website bug',
+        'one_new_products' => 'New product',
         'one_staff' => 'Staff request',
         'one_documents' => 'To review',
         'task_approval' => 'Needs your OK',
@@ -11803,6 +11905,7 @@ final class Words
         'meta_oversold' => 'Short by %s · %s',
         'meta_mode' => 'ERPNext set %s · %s',
         'meta_landing' => 'Order %s · %s',
+        'meta_new_products' => '%s · %s',
         'meta_staff' => 'Asks for %s · %s',
         'meta_document' => '%s · check by %s',
         'late' => 'Late: %s',

@@ -106,9 +106,9 @@ final class SectionsTest extends TestCase
                 self::assertSame(array_values(array_unique($keys)), $keys, "{$what}: a key marks one page");
             }
         }
-        self::assertSame(['approvals_inbox', 'reviews_open', 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing', 'barcodes_open',
-            'adjustments_open', 'stock_in_open', 'stock_out_open', 'releases_open', 'transfers_open', 'counts_open', 'incidents_open', 'arrivals_late', 'invoices_to_match',
-            'invoices_timed_failed', 'linking_pending', 'linking_duplicates'], Sections::badgeNames());
+        self::assertSame(['approvals_inbox', 'reviews_open', 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing', 'queue_new_products',
+            'barcodes_open', 'adjustments_open', 'stock_in_open', 'stock_out_open', 'releases_open', 'transfers_open', 'counts_open', 'incidents_open', 'arrivals_late',
+            'invoices_to_match', 'invoices_timed_failed', 'linking_pending', 'linking_duplicates'], Sections::badgeNames());
     }
 
     /** Every staff page belongs to one section, entry and page: the current ones stay marked on a detail page (with its back link). */
@@ -268,7 +268,8 @@ final class SectionsTest extends TestCase
         self::assertSame(['Inventory valuation summary', 'Stock summary by store', 'Low stock', 'Inventory aging', 'Sales by store'], $entries(['reviewer'], 'reports'));
         // Admin: people and settings, no buying, no sales and no approvals (I12); the audit log is a Settings page now (RD7).
         self::assertSame(['Home', 'Items', 'Inventory', 'Store listings', 'Settings'], $sections(['admin']));
-        self::assertSame(['Home', 'Items', 'Inventory', 'Store listings', 'Settings'], $sections(['mapper']));
+        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Store listings', 'Settings'], $sections(['mapper']),
+            'a Matcher answers the new products on Approvals (docs/decisions.md SC9)');
         self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Store listings', 'Reports', 'Settings'], $sections(['mapping_lead', 'reviewer']),
             'the owner\'s daily view: all nine');
         self::assertNotSame(Sections::menu(['buyer']), Sections::menu(['purchasing_desk']));
@@ -344,7 +345,7 @@ final class SectionsTest extends TestCase
         self::assertSame(['count'], $phone('/ui/stock/counts/12'));
         self::assertSame(['approvals'], $phone('/ui/queues/landing'));
         self::assertSame([], $phone('/ui/stock'));
-        self::assertSame(['Home', 'More'], array_column(Sections::frame(['mapper'], [], '/ui/')['phone'], 'label'), 'only the entries the person has');
+        self::assertSame(['Home', 'Approvals', 'More'], array_column(Sections::frame(['mapper'], [], '/ui/')['phone'], 'label'), 'only the entries the person has');
         self::assertSame(['Home', 'Count', 'Approvals', 'More'], array_column(Sections::frame(['buyer'], [], '/ui/')['phone'], 'label'));
         self::assertSame([], Sections::frame([], [], '/ui/')['nav'], 'no roles, no menu');
         self::assertSame([], Sections::frame([], [], '/ui/')['phone'], 'no roles, no bar');
@@ -394,8 +395,10 @@ final class SectionsTest extends TestCase
         self::assertSame(['Suggestions*', 'Brands', 'Anomalies', 'Sales history', 'Suppliers', 'Low-stock warnings'], $show(Sections::frame(['buyer'], [], '/ui/purchasing/reorder')));
         self::assertSame(['Customers*', 'Balances'], $show(Sections::frame(['warehouse'], [], '/ui/stock/handovers/customers')));
         self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests*', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold',
-            'Website bugs'], $show(Sections::frame(['reviewer'], [], '/ui/staff-requests')));
-        self::assertSame(['History*', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs'], $show(Sections::frame(['buyer'], [], '/ui/documents')));
+            'Website bugs', 'New products'], $show(Sections::frame(['reviewer'], [], '/ui/staff-requests')));
+        self::assertSame(['History*', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs', 'New products'],
+            $show(Sections::frame(['buyer'], [], '/ui/documents')));
+        self::assertSame(['Waiting for you', 'New products*'], $show(Sections::frame(['mapper'], [], '/ui/queues/new-products')), 'a Matcher: the inbox and the new products (SC9)');
         self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering',
             'System checks', 'Audit log*'], $show(Sections::frame(['admin'], [], '/ui/system/audit')));
         $counted = Sections::frame(['stock_controller'], ['counts_open' => 3], '/ui/stock/counts')['segments'];

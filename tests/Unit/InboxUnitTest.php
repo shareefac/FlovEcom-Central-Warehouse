@@ -28,7 +28,8 @@ final class InboxUnitTest extends TestCase
         self::assertSame(InboxController::PERMS, Sections::MAP['approvals']['tabs']['inbox']['pages'][0]['perm']);
         self::assertSame('inbox', array_key_first(Sections::MAP['approvals']['tabs']), 'the menu\'s Approvals entry opens the inbox');
         self::assertSame('inbox', Sections::MAP['approvals']['count']);
-        self::assertSame(['corrections', 'suspense', 'counts', 'oversold', 'modes', 'landing', 'staff', 'documents'], array_keys(InboxController::KINDS), 'the brief\'s order');
+        self::assertSame(['corrections', 'suspense', 'counts', 'oversold', 'modes', 'landing', 'new_products', 'staff', 'documents'], array_keys(InboxController::KINDS),
+            'the brief\'s order (a store\'s choice after the stores\' other queues, docs/decisions.md SC9)');
         foreach (Permissions::ROLES as $role) {
             self::assertSame(InboxController::kinds([$role]) !== [], Sections::may([$role], InboxController::PERMS), "{$role}: the tab is shown exactly to who the page lets in");
         }
@@ -37,6 +38,8 @@ final class InboxUnitTest extends TestCase
         self::assertSame(['counts'], InboxController::kinds(['warehouse']));
         self::assertSame(['corrections', 'suspense', 'counts', 'oversold', 'modes', 'landing'], InboxController::kinds(['stock_controller']));
         self::assertSame(['staff', 'documents'], InboxController::kinds(['reviewer']));
+        self::assertSame(['new_products'], InboxController::kinds(['mapper']), 'a store\'s choice is a matching decision (SC9)');
+        self::assertSame(['new_products'], InboxController::kinds(['mapping_lead']));
         // The section counts its inbox once (the other tabs list the same records again).
         $frame = Sections::frame(['stock_controller'], ['approvals_inbox' => 4, 'queue_suspense' => 1, 'queue_corrections' => 1, 'queue_modes' => 1, 'queue_oversold' => 1,
             'counts_open' => 0], '/ui/approvals');
@@ -59,6 +62,7 @@ final class InboxUnitTest extends TestCase
         self::assertSame(Words::SEGMENT['queue_oversold'], Words::INBOX['kind_oversold']);
         self::assertSame(Words::SEGMENT['queue_modes'], Words::INBOX['kind_modes']);
         self::assertSame(Words::SEGMENT['queue_landing'], Words::INBOX['kind_landing']);
+        self::assertSame(Words::SEGMENT['queue_new_products'], Words::INBOX['kind_new_products']);
         self::assertSame(Words::MENU['staff_requests'], Words::INBOX['kind_staff']);
     }
 

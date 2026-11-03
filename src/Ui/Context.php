@@ -372,6 +372,10 @@ final class Context
             // The website bugs (LP8): the same people sort out an order for a landing page with the customer.
             $out['queue_landing'] = (new \CW\Queues\LandingOrders($this->db))->openCount();
         }
+        if ($this->who !== null && $this->who->can(\CW\Mapping\StoreChoices::PERM)) {
+            // New products (0058, docs/decisions.md SC9): a store's choice at Add product that waits for a person, for who answers it.
+            $out['queue_new_products'] = (new \CW\Mapping\StoreChoices($this->db, $this->decisions()))->openCount();
+        }
         // ---- end of pack F ----
         $checks = $this->checks();
         if ($checks !== null) {
@@ -390,7 +394,7 @@ final class Context
             $docs = array_sum(array_map(static fn (array $k): int => (int) ($k['review'] ?? 0) + (int) ($k['approval'] ?? 0), $this->checksByType ?? []));
             $reviews = ($out['reviews_open'] ?? 0) - ($this->who->can('documents.review') ? 0 : $docs);
             $out['approvals_inbox'] = $staff + $reviews + ($out['counts_open'] ?? 0) + ($out['queue_suspense'] ?? 0) + ($out['queue_corrections'] ?? 0)
-                + ($out['queue_modes'] ?? 0) + ($out['queue_oversold'] ?? 0) + ($out['queue_landing'] ?? 0);
+                + ($out['queue_modes'] ?? 0) + ($out['queue_oversold'] ?? 0) + ($out['queue_landing'] ?? 0) + ($out['queue_new_products'] ?? 0);
         }
         return $this->badges = $out;
     }

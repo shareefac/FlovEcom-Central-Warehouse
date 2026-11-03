@@ -15794,18 +15794,21 @@ barcode of the variant (any form one scan may take, Gtin::forms) on an item or o
 item table's own comparison) or a name that differs only in letter case, spaces and punctuation, "&" read as "and" (StoreChoices::key(): "Mr Blue Nic-Salt 10ml - 10mg"
 and "mr blue nic salt 10ml 10mg" are one name; 10mg and 20mg stay apart). Any of them: nothing is made, the row waits for a person (to_check) with what was found. Two
 variants of one name in one run: the second waits. Unlike the bulk "create as new" (seedCheck), a Draft variant is made: connecting at the Draft stage is the point.
+Before it makes the item the job takes the name's guard row (item_name_guard, as an item made by hand does) and looks again with fresh reads, so a making of the same
+name at the same moment is seen. The close-name check reads the items' names fresh each time (one pass in the database, the same key), never a list kept from earlier.
+A Conflict suggestion (two or more items look like it) is a matching lead's: the row waits (to_check conflict), and DecisionService refuses the job on it under the lock.
 
 **SC7. A pack is a link with its units, and keeps the two-person rule.** The CW number is followed to the item it was joined into. While approvals.match_multiple is on, the
 link waits for a matching lead (pending_second): the store's staff member chose it, a warehouse person says yes, which one person may do since the decision has no
 `decided_by`. An unknown CW number is refused (no_such_item) and waits for a person.
 
 **SC8. What each row says.** done: made, linked, waiting_second, not_stock, already_decided (someone decided the variant first: a link, an ignore, a landing page, a
-decision waiting for a second person), and the answers below. to_check: suggested_match, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held,
-has_history (a person decided the variant before, whatever it is now). refused: no_such_item, no_name, or DecisionService's code.
+decision waiting for a second person), and the answers below. to_check: suggested_match, conflict, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held,
+has_history (a person decided the variant before, whatever it is now; asked again under the listing's lock, since a "not this item" moves no version). refused: no_such_item, no_name, or DecisionService's code.
 
 **SC9. A person answers on Approvals > New products** (and in Waiting for you): Yes, the same (a link to the item found, one sale one item), No, a new item, or Not stock;
-a pack is decided on the variant's own page. Each answer is a DecisionService decision as that person (their role, the version and the suggestion they saw), in one
-transaction with the row. A row whose variant was decided on its own page leaves the list at once and the job settles it (decided_elsewhere).
+a pack is decided on the variant's own page. Each answer is a DecisionService decision as that person (their role, the version, the suggestion and what the page
+showed of a variant decided one at a time, `seen`), in one transaction with the row. A variant set aside or in a spot check is answered only on its own page (409). A row whose variant was decided on its own page leaves the list at once and the job settles it (decided_elsewhere).
 
 **SC10. The store shows the result.** The feed already carries each variant's link and CW number to the store (cw_listing_state): the product page's Variations table
 shows the CW number, Not stock, or Waiting for CW. Nothing new is sent back.
@@ -15815,3 +15818,7 @@ linked variant is added to its item; one already on another item opens a barcode
 
 **SC12. What it does not do.** It never replaces a choice, never touches a decided variant, never makes a second item of a name or a barcode the warehouse has, never
 deletes. Price, descriptions and the other stores (the plan's step 2) are not part of this.
+
+Codex read the core (0a65014) at xhigh: 2 HIGH (a Conflict followed without a lead; a name made twice at once), 5 MEDIUM (a person's "not this item" between the look
+and the decision, the close-name list kept for a whole run, two first sends at once, a day like 31 February, an answer on a variant set aside), all fixed in b0de157
+with tests; the eighth (the screen) is SC9's.

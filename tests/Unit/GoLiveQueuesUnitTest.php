@@ -71,8 +71,8 @@ final class GoLiveQueuesUnitTest extends TestCase
         self::assertFalse(Permissions::can(['purchasing_desk'], 'queues.corrections'), 'a correction moves stock without a count: the stock controller\'s');
         // Approvals' one entry (RD1): what the stores send is among its Show choices, after the inbox, the reviews, the history and the staff requests.
         $tab = Sections::MAP['approvals']['tabs']['inbox'];
-        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], array_slice(array_column($tab['pages'], 'key'), 4),
-            'and the website bugs (0050, LP8)');
+        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing', 'queue_new_products'],
+            array_slice(array_column($tab['pages'], 'key'), 4), 'and the website bugs (0050, LP8) and the new products (0058, SC9)');
         self::assertSame(['approvals', 'inbox', 'queue_modes'], array_values(Sections::locate('/ui/queues/modes')));
         self::assertSame(['approvals', 'inbox', 'queue_oversold'], array_values(Sections::locate('/ui/queues/oversold')));
     }
@@ -80,7 +80,7 @@ final class GoLiveQueuesUnitTest extends TestCase
     /** The queue pages take every word from Words (no word typed in a template), and every POST form carries the token. */
     public function testTheQueuePagesTakeEveryWordFromWords(): void
     {
-        foreach (['queue_filter', 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'] as $name) {
+        foreach (['queue_filter', 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_new_products'] as $name) {
             $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . "/{$name}.php");
             $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
             self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");

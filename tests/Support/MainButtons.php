@@ -19,12 +19,13 @@ final class MainButtons
 {
     /**
      * The routes whose forms may each hold a main button on one page (docs/decisions.md DS5; the Codex review of DS1-DS6, AV13), as
-     * patterns of the form's address with every number made `{n}`: Lines to place's Place (LP_Queue), Simple matching's Apply, and the OK
-     * of a record's decision (a review or approval task, a staff request, a check of the company details, a supplier's task, the second
-     * approval of a match).
+     * patterns of the form's address with every number made `{n}`: Lines to place's Place (LP_Queue), New products' answer (the drawing
+     * "CW asks first", docs/decisions.md SC9), Simple matching's Apply, and the OK of a record's decision (a review or approval task, a staff
+     * request, a check of the company details, a supplier's task, the second approval of a match).
      */
     public const ROW_ANSWERS = [
         '/ui/queues/suspense/{n}/pick',
+        '/ui/queues/new-products/{n}/answer',
         '/ui/match/apply',
         '/ui/documents/reviews/{n}/approve',
         '/ui/staff-requests/{n}/approve',

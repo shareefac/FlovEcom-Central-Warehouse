@@ -512,7 +512,7 @@ final class StoreChoices
         $open = $state === 'open';
         $rows = $this->db->all(
             'SELECT sc.id, sc.channel_id, sc.external_variant_id, CAST(sc.choice AS CHAR) AS choice, sc.pack_of_code, sc.units, sc.staff_name, sc.chosen_at, '
-            . 'CAST(sc.state AS CHAR) AS state, sc.outcome, CAST(sc.detail AS CHAR) AS detail, sc.listing_id, sc.decision_id, sc.settled_by, sc.settled_at, sc.received_at, '
+            . 'CAST(sc.state AS CHAR) AS state, sc.outcome, CAST(sc.detail AS CHAR) AS detail, sc.listing_id, sc.decision_id, sc.settled_by, sc.settled_at, sc.received_at, sc.looked_at, '
             . 'CAST(cl.status AS CHAR) AS listing_status, cl.map_version, cl.sku_id, lp.product_title, lp.variant_title, CAST(lp.barcodes AS CHAR) AS barcodes, '
             . '(SELECT p.id FROM match_proposal p WHERE p.open_listing_id = cl.id) AS proposal_id '
             . 'FROM store_choice sc JOIN channel_listing cl ON cl.id = sc.listing_id LEFT JOIN listing_profile lp ON lp.listing_id = sc.listing_id '

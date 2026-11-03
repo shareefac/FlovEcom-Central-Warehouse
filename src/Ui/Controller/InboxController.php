@@ -8,6 +8,7 @@ use CW\Auth\Permissions;
 use CW\Clock;
 use CW\CwException;
 use CW\Documents\Documents;
+use CW\Mapping\StoreChoices;
 use CW\Queues\Corrections;
 use CW\Queues\LandingOrders;
 use CW\Queues\ModeChanges;
@@ -58,6 +59,8 @@ final class InboxController
         'oversold' => ['perms' => [Oversells::PERM], 'tone' => 'blocked', 'page' => '/ui/queues/oversold'],
         'modes' => ['perms' => [ModeChanges::PERM], 'tone' => 'off', 'page' => '/ui/queues/modes'],
         'landing' => ['perms' => [LandingOrders::PERM], 'tone' => 'waiting', 'page' => '/ui/queues/landing'],
+        // A store's choice at Add product that waits for a person (docs/decisions.md SC9): answered as a matching decision.
+        'new_products' => ['perms' => [StoreChoices::PERM], 'tone' => 'review', 'page' => '/ui/queues/new-products'],
         'staff' => ['perms' => ['staff.approve'], 'tone' => 'info', 'page' => '/ui/staff-requests'],
         // The routes of its answers (AV16): a document's OK and Not OK need documents.review (Kernel), a supplier's task suppliers.approve,
         // the company details' check company.confirm; documents.approve alone answers none of them.
@@ -68,8 +71,8 @@ final class InboxController
     public const TASK_ROUTE_PERMS = ['document' => 'documents.review', 'supplier' => 'suppliers.approve', 'company' => 'company.confirm'];
 
     /** Every permission that answers a kind (KINDS' `perms`, once each; tests/Unit/InboxUnitTest holds them equal): Ui\Sections shows the tab to their holders. */
-    public const PERMS = ['queues.corrections', 'queues.suspense', 'doc.CNT.post', 'queues.oversell', 'queues.modes', 'staff.approve', 'documents.review',
-        'suppliers.approve', 'company.confirm'];
+    public const PERMS = ['queues.corrections', 'queues.suspense', 'doc.CNT.post', 'queues.oversell', 'queues.modes', 'mapping.decide', 'staff.approve',
+        'documents.review', 'suppliers.approve', 'company.confirm'];
 
     /**
      * The notice words of the kinds' own pages, by the `words` an answer names (answered()): the first table that has the code, as the page
@@ -81,7 +84,7 @@ final class InboxController
         'return' => [Words::RETURN_NOTICE, Words::INVOICE_NOTICE, Words::RECORD_NOTICE], 'supplier' => [Words::SUPPLIER_NOTICE], 'company' => [Words::COMPANY_NOTICE]];
 
     /** A record's key: its kind and its id in that kind (a count line: l<sheet>_<line>, a count review: r<id>; a task: its id). */
-    private const KEY = '/^[a-z]{4,12}-[a-z0-9_]{1,40}$/D';
+    private const KEY = '/^[a-z][a-z_]{3,11}-[a-z0-9_]{1,40}$/D';
 
     public static function routes(Router $r): void
     {
@@ -347,6 +350,16 @@ final class InboxController
                 }
                 $more = count($list) > QueueRules::PAGE;
                 break;
+            case 'new_products':
+                $svc = new StoreChoices($ctx->db, $ctx->decisions());
+                $list = $svc->list();
+                $count = $svc->openCount();
+                foreach (array_slice($list, 0, QueueRules::PAGE) as $r) {
+                    $w = StoreQueuesController::newProductRow($r);
+                    $rows[] = $row((string) $r['id'], $w['title'], Words::say('INBOX', 'meta_new_products', $w['why'], (string) ($r['store']['name'] ?? Words::QUEUES['store_unknown'])), $r);
+                }
+                $more = count($list) > QueueRules::PAGE;
+                break;
             case 'staff':
                 foreach ((new RoleRequests($ctx->db))->pending($me->id) as $r) {
                     if ($r['can']) {
@@ -418,9 +431,10 @@ final class InboxController
     /**
      * The open record in words: its head (kind, where from, its place in the list), its title (a link to its own page where it has one),
      * the facts as big figures, the lines that say what it is and what the answers do, the refusal of its last answer, and its decision:
-     * the main answer (its route, its words), the fields its form sends (the note when the kind needs one, as typed after a refusal),
-     * and the rarer answers (More): each either a button of the same form with another route (`formaction`), or a fold with its own small
-     * form and note (`fold`).
+     * the main answer (its route, its words; or, for a record answered only on its own page, no form and a link there: `mainHref`), the
+     * fields its form sends (the note when the kind needs one, as typed after a refusal),
+     * and the rarer answers (More): each either a button of the same form with another route (`formaction`), a fold with its own small
+     * form and note (`fold`), or a link to the page where it is given (`href`: a store's choice's pack, SC9).
      *
      * @param array<string, mixed> $row a row of group()
      * @param array<string, mixed>|null $next the row after it
@@ -450,7 +464,7 @@ final class InboxController
             'place' => Words::say('INBOX', 'of', $pos + 1, $total), 'title' => (string) $row['title'], 'href' => null, 'sub' => null,
             'facts' => [], 'lines' => [], 'list' => [], 'links' => [],
             'error' => $refused['error'] ?? null, 'errorCode' => $refused['code'] ?? null,
-            'action' => '', 'main' => '', 'mainName' => null, 'mainValue' => null, 'hidden' => [],
+            'action' => '', 'main' => '', 'mainName' => null, 'mainValue' => null, 'mainHref' => null, 'hidden' => [],
             'note' => null, 'resolution' => null, 'item' => null, 'more' => [], 'moreOpen' => false,
             'pos' => $pos, 'nextKey' => $next['key'] ?? null, 'next' => $next === null ? null : Words::say('INBOX', 'next', (string) $next['title']),
         ];
@@ -578,6 +592,44 @@ final class InboxController
                 $r['resolution'] = ['label' => Words::WEBSITE_BUG['how'], 'group' => 'LANDING_RESOLUTION', 'options' => LandingOrders::RESOLUTIONS,
                     'value' => $typed('resolution', 40) ?? LandingOrders::RESOLUTIONS[0]];
                 $r['note'] = $note(Words::INBOX['note'], true, Words::INBOX['note_hint']);
+                break;
+            case 'new_products':
+                // A store's choice (docs/decisions.md SC9): the item found is the main answer when there is one, else a new item; the other
+                // answers under More (the same form, the same route, another `answer`), and a pack on the variant's own page.
+                $w = StoreQueuesController::newProductRow($d);
+                $found = $d['found'];
+                $route = $q . '/new-products/' . (int) $d['id'] . '/answer';
+                $canOpen = $ctx->me()->can('linking.view');
+                $r['from'] = $w['from'];
+                $r['href'] = $canOpen ? $w['link'] : null;
+                $r['sub'] = $w['product'] !== '' && $w['product'] !== $w['title'] ? $w['product'] : null;
+                $r['facts'][] = $fact(Words::NEW_PRODUCTS['barcode'], $w['barcode']);
+                if ($found !== null) {
+                    $r['facts'][] = $fact(Words::NEW_PRODUCTS['in_cw'], (string) $found['code']);
+                    $r['facts'][] = $fact(Words::NEW_PRODUCTS['on_hand'], Html::int((int) $found['on_hand']));
+                    $r['links'][] = ['label' => (string) $found['code'] . ' · ' . (string) $found['name'], 'href' => '/ui/items/' . (int) $found['id']];
+                }
+                if ($w['held']) {
+                    // Set aside or in a spot check (DG2): no answer here, its own page is the one way (StoreChoices::answer() refuses it).
+                    $r['lines'] = [$w['why'] . '.', $w['chosen'], Words::NEW_PRODUCTS['held_line']];
+                    $r['main'] = Words::NEW_PRODUCTS['open_page'];
+                    $r['mainHref'] = $canOpen ? $w['link'] : null;
+                    break;
+                }
+                $r['lines'] = [$w['why'] . '.', $w['chosen'], ...($w['other'] !== null ? [$w['other']] : []), ...$w['does']];
+                $r['action'] = $route;
+                $r['main'] = $w['same'] ?? Words::NEW_PRODUCTS['make_new'];
+                $r['mainName'] = 'answer';
+                $r['mainValue'] = $found !== null ? 'same' : 'new';
+                $r['hidden'] = ['version' => (string) (int) $d['map_version'], 'proposal' => $d['proposal_id'] === null ? '' : (string) (int) $d['proposal_id']];
+                $r['note'] = $note(Words::NEW_PRODUCTS['note'], false);
+                if ($found !== null) {
+                    $r['more'][] = ['label' => Words::NEW_PRODUCTS['different'], 'formaction' => $route, 'name' => 'answer', 'value' => 'new'];
+                }
+                $r['more'][] = ['label' => Words::NEW_PRODUCTS['none'], 'formaction' => $route, 'name' => 'answer', 'value' => 'none'];
+                if ($canOpen) {
+                    $r['more'][] = ['label' => Words::NEW_PRODUCTS['pack'], 'href' => $w['link']];
+                }
                 break;
             case 'staff':
                 $setup = StaffAdmin::setupInfo($ctx->db, (int) $d['staff_user_id']);

@@ -528,8 +528,13 @@ final class Queries
      * card a new_item will mint: detail), why it waits, who decided, and whether it went stale (the
      * listing's map_version or its open proposal changed since; approve() refuses those).
      */
+    /**
+     * Who made a decision, as the screens name them: the person, or for a store's choice at Add product (docs/decisions.md SC4: no warehouse
+     * person) the store's staff member, "Aswin (Add product)". NULL for the system's own (a suggestion, a landing mark).
+     */
+    public const DECIDER = "COALESCE(u.display_name, IF(d.actor = 'system:store_choice', CONCAT(JSON_UNQUOTE(JSON_EXTRACT(d.detail, '$.store_choice.staff_name')), ' (Add product)'), NULL)) AS decider";
     private const PENDING_COLUMNS = 'd.id, d.listing_id, d.action, d.sku_id, d.units_per_item, d.merge_from_sku_id, d.needs_second, d.reason, '
-        . 'd.decided_by, d.created_at, d.expected_map_version, d.proposal_id, d.detail, u.display_name AS decider, cl.map_version, '
+        . 'd.decided_by, d.created_at, d.expected_map_version, d.proposal_id, d.detail, ' . self::DECIDER . ', cl.map_version, '
         . '(SELECT op.id FROM match_proposal op WHERE op.open_listing_id = d.listing_id) AS open_proposal_id, '
         . 's.code AS sku_code, s.name AS sku_name, mf.code AS merge_from_code, mf.name AS merge_from_name, '
         . 'd.prev_sku_id, ps.code AS prev_sku_code, ps.name AS prev_sku_name ';
@@ -1671,7 +1676,7 @@ final class Queries
     public function decisionsOf(int $listingId, int $limit = 10): array
     {
         return $this->db->all(
-            'SELECT d.id, d.action, d.state, d.sku_id, d.units_per_item, d.reason, d.created_at, d.applied_at, u.display_name AS decider, s.code AS sku_code '
+            'SELECT d.id, d.action, d.state, d.sku_id, d.units_per_item, d.reason, d.created_at, d.applied_at, ' . self::DECIDER . ', s.code AS sku_code '
             . 'FROM match_decision d LEFT JOIN staff_user u ON u.id = d.decided_by LEFT JOIN sku s ON s.id = d.sku_id WHERE d.listing_id = ? ORDER BY d.id DESC LIMIT ?',
             [$listingId, $limit],
         );
@@ -1930,7 +1935,7 @@ final class Queries
         }
         $out = [];
         foreach ($this->db->all(
-            'SELECT h.listing_id, h.sku_id, h.units_per_item, h.valid_from, h.valid_to, h.decision_id, d.action, u.display_name AS decider, s.code AS sku_code '
+            'SELECT h.listing_id, h.sku_id, h.units_per_item, h.valid_from, h.valid_to, h.decision_id, d.action, ' . self::DECIDER . ', s.code AS sku_code '
             . 'FROM listing_map_history h JOIN match_decision d ON d.id = h.decision_id LEFT JOIN staff_user u ON u.id = d.decided_by JOIN sku s ON s.id = h.sku_id '
             . 'WHERE h.listing_id IN (' . implode(',', array_fill(0, count($listingIds), '?')) . ') ORDER BY h.listing_id, h.valid_from DESC, h.id DESC LIMIT ?',
             [...$listingIds, $limit],

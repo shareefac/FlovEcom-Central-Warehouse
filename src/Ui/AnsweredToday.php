@@ -61,7 +61,7 @@ final class AnsweredToday
 
     /**
      * One kind's answers since $since (a UTC database time), newest first, at most PAGE + 1: what it was (`title`), how it ended (`outcome`:
-     * resolved, dismissed, approved, rejected), who answered (`by`: a staff id, null for the system) and when (`at`).
+     * resolved, dismissed, approved, rejected; a store's choice joined, made_by_person, not_stock_by_person), who answered (`by`: a staff id, null for the system) and when (`at`).
      *
      * @return list<array{title: string, outcome: string, by: ?int, at: string}>
      */
@@ -85,6 +85,10 @@ final class AnsweredToday
                 . "WHERE p.source = ? AND p.status <> 'open' AND p.resolved_at >= ?", [ModeChanges::SOURCE, $since]],
             'landing' => ["SELECT o.order_ref AS title, CAST(o.status AS CHAR) AS outcome, o.resolved_by AS by_id, o.resolved_at AS at FROM landing_order o "
                 . "WHERE o.status <> 'open' AND o.resolved_at >= ?", [$since]],
+            // A store's choice a person answered (docs/decisions.md SC9; the job's own are not answers): joined, a new item, not stock.
+            'new_products' => ["SELECT COALESCE(NULLIF(lp.variant_title, ''), lp.product_title, sc.external_variant_id) AS title, sc.outcome AS outcome, sc.settled_by AS by_id, "
+                . 'sc.settled_at AS at FROM store_choice sc LEFT JOIN listing_profile lp ON lp.listing_id = sc.listing_id WHERE sc.settled_by IS NOT NULL AND sc.settled_at >= ?',
+                [$since]],
             'staff' => ["SELECT u.display_name AS title, CAST(q.state AS CHAR) AS outcome, q.decided_by AS by_id, q.decided_at AS at FROM staff_role_request q "
                 . "JOIN staff_user u ON u.id = q.staff_user_id WHERE q.state IN ('approved', 'rejected') AND q.decided_at >= ?", [$since]],
             'documents' => ["SELECT COALESCE(d.number, sp.name, '') AS title, CAST(t.state AS CHAR) AS outcome, t.decided_by AS by_id, t.decided_at AS at FROM review_task t "

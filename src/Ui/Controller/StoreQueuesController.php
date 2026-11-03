@@ -6,6 +6,7 @@ namespace CW\Ui\Controller;
 
 use CW\Auth\Csrf;
 use CW\CwException;
+use CW\Mapping\StoreChoices;
 use CW\Matching\Gtin;
 use CW\Queues\Corrections;
 use CW\Queues\LandingOrders;
@@ -17,6 +18,7 @@ use CW\Relay\RelayIntake;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Route;
 use CW\Ui\Router;
 use CW\Ui\Words;
 
@@ -27,10 +29,12 @@ use CW\Ui\Words;
  *   Mode changes        policy_review (ERPNext's)    accept the change, or keep what CW has                queues.modes
  *   Oversold            oversell_event               mark it handled with how and a note; add notes       queues.oversell
  *   Website bugs        landing_order (0050, LP8)    mark it handled with how and a note                  queues.oversell
- * Everyone who reads records looks (queues.view, the GET routes); each POST needs its action's permission (the route) and is checked
- * again by its service (CW\Queues\*) inside its transaction. Every answer needs a note. A row is settled once: a second answer is
- * refused (409) and says so; a second click of the same booking shows its first answer. Plain words: Words::QUEUES, SUSPENSE,
- * CORRECTIONS, MODES, OVERSOLD, QUEUE_STATE, QUEUE_NOTICE, QUEUE_ERROR, RELAY_KIND, RELAY_REASON, OVERSELL_KIND, OVERSELL_RESOLUTION.
+ *   New products        store_choice (0058, SC9)     the same item, a new item, or not stock              mapping.decide
+ * Everyone who reads records looks (queues.view, the GET routes; New products also who answers it); each POST needs its action's
+ * permission (the route) and is checked again by its service (CW\Queues\*, CW\Mapping\StoreChoices) inside its transaction. Every answer
+ * needs a note (a store's choice: a note if you like). A row is settled once: a second answer is refused (409) and says so; a second click
+ * of the same booking shows its first answer. Plain words: Words::QUEUES, SUSPENSE, CORRECTIONS, MODES, OVERSOLD, NEW_PRODUCTS,
+ * QUEUE_STATE, QUEUE_NOTICE, QUEUE_ERROR, RELAY_KIND, RELAY_REASON, OVERSELL_KIND, OVERSELL_RESOLUTION.
  */
 final class StoreQueuesController
 {
@@ -58,6 +62,10 @@ final class StoreQueuesController
         $r->add('POST', self::PATH . '/oversold/{id}/note', 'queues.oversell', $c->oversoldNote(...));
         $r->add('GET', self::PATH . '/landing', 'queues.view', $c->landing(...));
         $r->add('POST', self::PATH . '/landing/{id}/handle', 'queues.oversell', $c->landingHandle(...));
+        // New products (docs/decisions.md SC9): who looks at the queues and who answers these (the Matchers hold no queues.view) open the page,
+        // which refuses the rest itself; an answer is a matching decision.
+        $r->add('GET', self::PATH . '/new-products', Route::ANY, $c->newProducts(...));
+        $r->add('POST', self::PATH . '/new-products/{id}/answer', StoreChoices::PERM, $c->newProductAnswer(...));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -531,6 +539,50 @@ final class StoreQueuesController
         return self::toInbox($ctx, 'handled') ?? HtmlResponse::redirect(Html::url(self::PATH . '/landing', ['notice' => 'handled']));
     }
 
+    // ------------------------------------------------------------------------------------------
+    // New products (store_choice: a store's choice at Add product, docs/decisions.md SC9)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The choices that wait for a person, oldest first (StoreChoices::list), or with the Show's Done the latest answered and followed ones.
+     * Who looks at the queues (queues.view) and who answers these (StoreChoices::PERM) open it; anyone else: 403, as the inbox refuses.
+     */
+    public function newProducts(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
+    {
+        $me = $ctx->me();
+        if (!$me->can('queues.view') && !$me->can(StoreChoices::PERM)) {
+            return $ctx->error(403, 'role_not_allowed', Words::NEW_PRODUCTS['not_yours']);
+        }
+        $state = $ctx->req->param('status') === 'resolved' ? 'resolved' : 'open';
+        $rows = (new StoreChoices($ctx->db, $ctx->decisions()))->list($state === 'open' ? 'open' : 'done');
+        return $this->page($ctx, 'queue_new_products', 'queue_new_products', StoreChoices::PERM, $state, $rows, self::newProductRow(...), $status, $error,
+            ['states' => ['open', 'resolved'], 'canOpen' => $me->can('linking.view')]);
+    }
+
+    /**
+     * An answer (SC9): `same` (the item found), `new` (a new item) or `none` (not stock), with the variant's version and the suggestion the
+     * page showed; StoreChoices::answer() makes it as this person (their permission, the two-person rules; 409 when the variant changed).
+     */
+    public function newProductAnswer(Context $ctx): HtmlResponse
+    {
+        $answer = (string) ($ctx->req->field('answer') ?? '');
+        $version = (string) ($ctx->req->field('version') ?? '');
+        $proposal = (string) ($ctx->req->field('proposal') ?? '');
+        try {
+            if (!in_array($answer, StoreChoices::ANSWERS, true) || preg_match('/^\d{1,18}$/D', $version) !== 1 || preg_match('/^(\d{1,18})?$/D', $proposal) !== 1) {
+                throw new CwException('bad_answer', 'say same, new or none, with the version and the suggestion the page showed', 400);
+            }
+            $r = (new StoreChoices($ctx->db, $ctx->decisions()))->answer($ctx->caller(), $ctx->id(), $answer, (int) $version, $proposal === '' ? null : (int) $proposal,
+                (string) ($ctx->req->field('note') ?? ''));
+        } catch (CwException $e) {
+            return self::fromInbox($ctx, 'new_products', $e) ?? $this->newProducts($ctx, $e->httpStatus, $e);
+        }
+        $d = $r['decision'];
+        $notice = $d['state'] === 'pending_second' ? 'waits_second' : match ($r['outcome']) { 'joined' => 'joined', 'made_by_person' => 'made_new', default => 'not_stock' };
+        $code = (string) ($d['sku_code'] ?? (($d['sku_id'] ?? null) === null ? '' : $ctx->db->value('SELECT code FROM sku WHERE id = ?', [(int) $d['sku_id']])));
+        return self::toInbox($ctx, $notice, $code) ?? HtmlResponse::redirect(Html::url(self::PATH . '/new-products', ['notice' => $notice, 'item' => $code]));
+    }
+
     /**
      * An answer sent from Approvals › Waiting for you (docs/decisions.md AV5): the same route, permission, service and notice; only where it
      * leads differs. toInbox: the inbox on the next record (or on $stay), with this notice; null when the answer came from the queue's page.
@@ -683,6 +735,60 @@ final class StoreQueuesController
         ];
     }
 
+    /**
+     * A store's choice in words (docs/decisions.md SC9; the drawing "CW asks first"): the variant's title, why it waits (the chip, amber; a
+     * choice the warehouse could not follow red), whose choice it was, the variant's barcodes beside the item the warehouse found (the
+     * barcode they share, its stock), the other store's variant of the same barcode, the main answer's words and what each answer does (a
+     * variant set aside: none, its own page only); a done one, how it ended, by whom.
+     *
+     * @param array<string, mixed> $r a StoreChoices::list() row
+     * @return array<string, mixed>
+     */
+    public static function newProductRow(array $r): array
+    {
+        $d = $r['detail'];
+        $store = (string) ($r['store']['name'] ?? Words::QUEUES['store_unknown']);
+        $outcome = (string) $r['outcome'];
+        $code = $r['found'] === null ? null : (string) $r['found']['code'];
+        $done = $r['state'] === 'done';
+        $why = $done ? Words::of('NEW_PRODUCT_DONE', $outcome)
+            : (Words::has('NEW_PRODUCT_WHY', $outcome) ? Words::NEW_PRODUCT_WHY[$outcome] : Words::say('NEW_PRODUCTS', 'why_other', $outcome));
+        $what = match ((string) $r['choice']) {
+            'pack' => Words::say('NEW_PRODUCTS', 'choice_pack', (int) $r['units'], (string) $r['pack_of_code']),
+            'none' => Words::NEW_PRODUCTS['choice_none'],
+            default => Words::NEW_PRODUCTS['choice_new'],
+        };
+        $title = (string) ($r['variant_title'] ?? '') !== '' ? (string) $r['variant_title'] : ((string) ($r['product_title'] ?? '') !== '' ? (string) $r['product_title']
+            : Words::LISTING['no_title']);
+        $other = $outcome === 'barcode_on_listing' ? (string) ($d['store'] ?? '') : null;
+        return $r + [
+            'title' => $title,
+            'product' => (string) ($r['product_title'] ?? ''),
+            'why' => $why,
+            'tone' => $done ? 'done' : ($r['state'] === 'refused' ? 'blocked' : 'needs'),
+            'from' => Words::say('QUEUES', 'from', $store),
+            'chosen' => Words::say('NEW_PRODUCTS', 'chosen', (string) $r['staff_name'], $store, $what),
+            'received' => Words::say('QUEUES', 'received', Html::when((string) $r['received_at'])),
+            'new_on' => Words::say('NEW_PRODUCTS', 'new_on', $store),
+            'barcode' => $r['barcodes'] === [] ? Words::NEW_PRODUCTS['no_barcode'] : implode(', ', $r['barcodes']),
+            'found_barcode' => $code !== null && is_string($d['barcode'] ?? null) ? Words::say('NEW_PRODUCTS', 'same_barcode', $d['barcode']) : null,
+            'other' => $other === null ? null : Words::say('NEW_PRODUCTS', 'other_store', Words::SITE[$other] ?? $other, (string) ($d['variant'] ?? '')),
+            'other_link' => is_int($d['listing_id'] ?? null) ? '/ui/review/listing/' . $d['listing_id'] : null,
+            'link' => '/ui/review/listing/' . (int) $r['listing_id'],
+            // Set aside or in a spot check: decided on its own page only (DG2; StoreChoices::answer() refuses it, 409 one_at_a_time).
+            'held' => !$done && $outcome === 'held',
+            'same' => $code === null ? null : Words::say('NEW_PRODUCTS', 'same', $code),
+            'does' => [...($code === null ? [] : [Words::say('NEW_PRODUCTS', 'line_same', $code)]), Words::NEW_PRODUCTS['line_new'], Words::NEW_PRODUCTS['line_none'],
+                Words::NEW_PRODUCTS['line_pack']],
+            'closed' => !$done ? null : ($r['settled_by'] === null ? Words::say('NEW_PRODUCTS', 'closed_cw', $why)
+                : Words::say('NEW_PRODUCTS', 'closed', $why, Html::when((string) $r['settled_at']), (string) ($r['settled_by_name'] ?? Words::QUEUES['someone']))),
+            // The item an ending names (a person's new item, not stock or a decision on the variant's page keep what the check had found).
+            'item_line' => in_array($outcome, ['made', 'linked', 'waiting_second', 'joined', 'already_decided'], true) && is_string($d['sku'] ?? null)
+                ? Words::say('NEW_PRODUCTS', 'item_line', $d['sku']) : null,
+            'note_line' => is_string($d['note'] ?? null) ? Words::say('NEW_PRODUCTS', 'note_line', $d['note']) : null,
+        ];
+    }
+
     /** "Done on 7 Oct 2026, 10:26 by Hari: booked on the right item." for a settled row. @param array<string, mixed> $r */
     private static function closed(array $r): ?string
     {
@@ -715,8 +821,8 @@ final class StoreQueuesController
             'more' => count($rows) > QueueRules::PAGE,
             'pageSize' => QueueRules::PAGE,
             'state' => $state ?? 'all',
-            'states' => [...QueueRules::STATUSES, 'all'],
-            'action' => self::PATH . '/' . substr($page, strlen('queue_')),
+            'states' => $more['states'] ?? [...QueueRules::STATUSES, 'all'],
+            'action' => self::PATH . '/' . str_replace('_', '-', substr($page, strlen('queue_'))),
             'canAct' => $canAct,
             'lookOnly' => $canAct ? null : Words::whoCan($perm),
             'noteMin' => QueueRules::NOTE_MIN,
@@ -726,9 +832,13 @@ final class StoreQueuesController
         ] + $more, $status, ['title' => Words::SEGMENT[$page], 'notice' => $notice]);
     }
 
-    /** A refusal in words: by its code (Words::QUEUE_ERROR), else the service's message as a sentence. */
+    /**
+     * A refusal in words: by its code (Words::QUEUE_ERROR; a store's choice is answered by a matching decision, whose other refusals the
+     * matching pages say: Words::MATCH_ERROR, those without a figure to fill in), else the service's message as a sentence.
+     */
     public static function plain(CwException $e): string
     {
-        return Words::QUEUE_ERROR[$e->errorCode] ?? Words::say('QUEUE_ERROR', 'other', rtrim($e->getMessage(), '.'));
+        $match = Words::MATCH_ERROR[$e->errorCode] ?? '%';
+        return Words::QUEUE_ERROR[$e->errorCode] ?? (!str_contains($match, '%') ? $match : Words::say('QUEUE_ERROR', 'other', rtrim($e->getMessage(), '.')));
     }
 }
