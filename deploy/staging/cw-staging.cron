@@ -29,8 +29,8 @@ MAILTO=""
 # The stores' choices at Add product (docs/decisions.md SC1-SC12, CW-217): followed once the variant has arrived; a doubt waits on Approvals > New products.
 * * * * *  root  cd /opt/cw-staging && php bin/apply_store_choices.php --db=cw_staging --apply >> /var/log/cw/apply_store_choices.log 2>&1
 # The barcodes the stores hold for linked variants, onto their items, nightly (SC11; I106-I108): a barcode on another item opens a review.
-# HELD with production's (the two crons stay the same jobs): until the owner's word on the first production night (see cw-prod.cron).
-#41 2 * * *  root  cd /opt/cw-staging && php bin/sync_barcodes.php --db=cw_staging --apply >> /var/log/cw/sync_barcodes.log 2>&1
+# On since 3 Nov 2026 with production's (the two crons stay the same jobs).
+41 2 * * *  root  cd /opt/cw-staging && php bin/sync_barcodes.php --db=cw_staging --apply >> /var/log/cw/sync_barcodes.log 2>&1
 
 # Landing pages (docs/decisions.md LP4): the website products that arrived in the last two days, marked as on arrival (the website's
 # own flag; the rule while mapping.landing_rule_on_arrival is on): a mark a listing push could not make is made here. Older products

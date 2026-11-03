@@ -15814,8 +15814,8 @@ showed of a variant decided one at a time, `seen`), in one transaction with the 
 shows the CW number, Not stock, or Waiting for CW. Nothing new is sent back.
 
 **SC11. The barcodes follow nightly.** A barcode often comes days after the Draft. bin/sync_barcodes.php (I106-I108) is now on the timer at 02:41: a new barcode on a
-linked variant is added to its item; one already on another item opens a barcode review, as before. HELD at go-live (3 Nov 2026): the line is commented out in both
-crons until the owner's word, because the first production night would add 556, open 64 reviews and make 62 barcodes unusable (cw-prod.cron).
+linked variant is added to its item; one already on another item opens a barcode review, as before. Held at go-live (3 Nov 2026) and switched on the same afternoon on the
+owner's word: the first production night adds 556, opens 64 reviews and makes 62 barcodes unusable until each review is decided.
 
 **SC12. What it does not do.** It never replaces a choice, never touches a decided variant, never makes a second item of a name or a barcode the warehouse has, never
 deletes. Price, descriptions and the other stores (the plan's step 2) are not part of this.

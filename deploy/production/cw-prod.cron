@@ -30,9 +30,9 @@ MAILTO=""
 # The stores' choices at Add product (docs/decisions.md SC1-SC12, CW-217): followed once the variant has arrived; a doubt waits on Approvals > New products.
 * * * * *  root  cd /opt/cw-prod && php bin/apply_store_choices.php --db=cw_prod --apply >> /var/log/cw/apply_store_choices.log 2>&1
 # The barcodes the stores hold for linked variants, onto their items, nightly (SC11; I106-I108): a barcode on another item opens a review.
-# HELD OFF production until the owner's word: the dry run of 3 Nov 2026 07:56 UK said the first night adds 556, opens 64 reviews and
-# makes 62 barcodes unusable on items. Remove the "#" below (then install_cron.sh) once he says yes.
-#41 2 * * *  root  cd /opt/cw-prod && php bin/sync_barcodes.php --db=cw_prod --apply >> /var/log/cw/sync_barcodes.log 2>&1
+# On since 3 Nov 2026 (owner: "Ok do it then"). Its first night was dry-run first: it adds 556, opens 64 reviews (Items > Barcode review)
+# and marks 62 barcodes unusable on their items until each review is decided.
+41 2 * * *  root  cd /opt/cw-prod && php bin/sync_barcodes.php --db=cw_prod --apply >> /var/log/cw/sync_barcodes.log 2>&1
 
 # Landing pages (docs/decisions.md LP4): the website products that arrived in the last two days, marked as on arrival (the website's
 # own flag; the rule while mapping.landing_rule_on_arrival is on): a mark a listing push could not make is made here. Older products
