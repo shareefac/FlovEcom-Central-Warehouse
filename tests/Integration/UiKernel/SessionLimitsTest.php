@@ -495,7 +495,8 @@ final class SessionLimitsTest extends KernelUiTestCase
         self::assertMatchesRegularExpression('/^cw_session=; Path=\/ui; HttpOnly; SameSite=Strict; Max-Age=0$/D', (string) $r->setCookie('cw_session'));
         self::assertArrayNotHasKey('cw_session', $fresh->cookies);
 
-        // A live session whose request fails keeps its cookie; a 404 never looks at the cookie and keeps it too.
+        // A live session whose request fails keeps its cookie. A mistyped address looks at the cookie since 3 Nov 2026 (the signed-in
+        // frame, docs/decisions.md MA1): a check that fails keeps the 404 and the cookie; an ended cookie is cleared there too.
         $live = $this->counted();
         $this->login($u, $live);
         HookedStatement::$before['UPDATE staff_session SET last_seen_at'] = static function (): void {
@@ -505,11 +506,19 @@ final class SessionLimitsTest extends KernelUiTestCase
         self::assertSame(500, $r->status, $r->describe());
         self::assertNull($r->setCookie('cw_session'));
         self::assertSame(200, $live->get('/ui/')->status, 'still signed in');
+        HookedStatement::$before['UPDATE staff_session SET last_seen_at'] = static function (): void {
+            throw new \RuntimeException('the mistyped address fails while the session is checked');
+        };
+        $r = $live->get('/ui/no-such-page');
+        self::assertSame(404, $r->status, 'a failure on the way keeps the 404, never a 500');
+        self::assertNull($r->setCookie('cw_session'));
+        self::assertSame(200, $live->get('/ui/')->status, 'still signed in');
         $nowhere = $this->browser();
         $nowhere->cookies['cw_session'] = $old;
         $r = $nowhere->get('/ui/no-such-page');
         self::assertSame(404, $r->status);
-        self::assertNull($r->setCookie('cw_session'));
+        self::assertStringContainsString(Words::UI['back_sign_in'], $r->body, 'the plain page: nobody is signed in');
+        self::assertMatchesRegularExpression('/^cw_session=; Path=\/ui; HttpOnly; SameSite=Strict; Max-Age=0$/D', (string) $r->setCookie('cw_session'));
     }
 
     public function testTheSignedOutWordsHoldForAnySetting(): void

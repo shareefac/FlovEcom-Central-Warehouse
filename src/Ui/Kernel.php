@@ -70,7 +70,8 @@ use CW\Ui\Controller\RepackController;
 /**
  * The /ui staff screens (plan §7.1, §11): one request in, one HTML page out.
  *
- *   1. route (404 / 405; no database work for a path that does not exist)
+ *   1. route (404 / 405; no database work for a path that does not exist, unless a session cookie came with it: a signed-in
+ *      person gets that page in their own frame, with Home and the menu)
  *   2. connect as the app login (cw_app) and load `ui_secret_key` (CSRF); 503 page when either fails
  *   3. resolve the session cookie: live session (not revoked, MFA done, idle and age within the limits of the settings
  *      session.idle_minutes and session.absolute_hours, 30 minutes and 12 hours by default: Auth\Sessions::limits) or nobody
@@ -155,17 +156,14 @@ final class Kernel
         try {
             $response = $this->dispatch($req, $rid);
         } catch (CwException $e) {
-            $response = $this->bare($e->httpStatus, $e->errorCode, Words::error($e->errorCode, $e->getMessage()), $rid);
-            if ($e->errorCode === 'method_not_allowed' && is_array($e->detail['allow'] ?? null)) {
-                $response->withHeader('Allow', implode(', ', $e->detail['allow']));
-            }
+            $response = self::withAllow($this->bare($e->httpStatus, $e->errorCode, Words::error($e->errorCode, $e->getMessage()), $rid), $e);
         } catch (\Throwable $e) {
             $response = $this->failure($e, $req, $rid);
         }
         // A session cookie that resolved to nobody (its session ended, or nobody issued it) is cleared on every answer that does not set
-        // a new one: the public pages too (the sign-in page opened after the session ended, a failed sign-in) and a failure page (500,
-        // 503), since the cookie outlives the browser (Max-Age, SL3; SL7, SL8). A cookie the request never got to check (a 404, a failure
-        // before or while it was checked) is left alone: it may be live.
+        // a new one: the public pages too (the sign-in page opened after the session ended, a failed sign-in, a mistyped address) and a
+        // failure page (500, 503), since the cookie outlives the browser (Max-Age, SL3; SL7, SL8). A cookie the request never got to check
+        // (a failure before or while it was checked) is left alone: it may be live.
         if ($this->deadCookie && !self::setsCookie($response, self::SESSION_COOKIE)) {
             $response->withoutCookie(self::SESSION_COOKIE, $req->secure);
         }
@@ -194,7 +192,15 @@ final class Kernel
 
     private function dispatch(UiRequest $req, string $rid): HtmlResponse
     {
-        [$route, $params] = $this->router()->match($req->method, $req->path);
+        try {
+            [$route, $params] = $this->router()->match($req->method, $req->path);
+        } catch (CwException $e) {
+            // A mistyped address (no such page, or the wrong method): without a session cookie it never touches the database.
+            if ($req->cookie(self::SESSION_COOKIE) === null) {
+                throw $e;
+            }
+            return $this->missed($req, $rid, $e);
+        }
         try {
             $db = ($this->connect)();
             // Pack E (PE2): the permission map in force (role_permission), read like the roles, on every request.
@@ -222,6 +228,46 @@ final class Kernel
         } catch (CwException $e) {
             return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
         }
+    }
+
+    /**
+     * A mistyped address sent with a session cookie (seen 2 Nov 2026): a signed-in person gets the page in their own frame, with Home and
+     * the menu, never "Back to sign in". A cookie that resolves to nobody, or any failure on the way (the database, the key, the frame),
+     * gives the plain page with the same 404 or 405 (and its Allow), never a 503 in its place.
+     */
+    private function missed(UiRequest $req, string $rid, CwException $miss): HtmlResponse
+    {
+        try {
+            $db = ($this->connect)();
+            \CW\Auth\RoleMap::load($db);
+            $key = ($this->secretKey)();
+            if ($key === null || $key === '') {
+                throw $miss;
+            }
+            $sessions = new Sessions($db);
+            $who = $sessions->resolve($req->cookie(self::SESSION_COOKIE));
+            $this->deadCookie = $who === null;
+            if ($who === null) {
+                throw $miss;
+            }
+            $ctx = new Context($req, $db, $who, Csrf::fromSecretKey($key), [], $rid, null, $key, $this->handlers, $this->log, $this->testSystem(),
+                $sessions);
+            return self::withAllow($ctx->error($miss->httpStatus, $miss->errorCode, $miss->getMessage()), $miss);
+        } catch (\Throwable $e) {
+            if ($e !== $miss) {
+                ($this->log)("{$rid} {$req->method} {$req->path}: the signed-in frame of a {$miss->httpStatus} failed: " . self::describe($e));
+            }
+            throw $miss;
+        }
+    }
+
+    /** The methods a page takes, on the answer to the wrong one (405). */
+    private static function withAllow(HtmlResponse $r, CwException $e): HtmlResponse
+    {
+        if ($e->errorCode === 'method_not_allowed' && is_array($e->detail['allow'] ?? null)) {
+            $r->withHeader('Allow', implode(', ', $e->detail['allow']));
+        }
+        return $r;
     }
 
     /** Whether $res sets (or clears) the cookie $name. */

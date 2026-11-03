@@ -15814,7 +15814,8 @@ showed of a variant decided one at a time, `seen`), in one transaction with the 
 shows the CW number, Not stock, or Waiting for CW. Nothing new is sent back.
 
 **SC11. The barcodes follow nightly.** A barcode often comes days after the Draft. bin/sync_barcodes.php (I106-I108) is now on the timer at 02:41: a new barcode on a
-linked variant is added to its item; one already on another item opens a barcode review, as before.
+linked variant is added to its item; one already on another item opens a barcode review, as before. HELD at go-live (3 Nov 2026): the line is commented out in both
+crons until the owner's word, because the first production night would add 556, open 64 reviews and make 62 barcodes unusable (cw-prod.cron).
 
 **SC12. What it does not do.** It never replaces a choice, never touches a decided variant, never makes a second item of a name or a barcode the warehouse has, never
 deletes. Price, descriptions and the other stores (the plan's step 2) are not part of this.
@@ -15822,3 +15823,21 @@ deletes. Price, descriptions and the other stores (the plan's step 2) are not pa
 Codex read the core (0a65014) at xhigh: 2 HIGH (a Conflict followed without a lead; a name made twice at once), 5 MEDIUM (a person's "not this item" between the look
 and the decision, the close-name list kept for a whole run, two first sends at once, a day like 31 February, an answer on a variant set aside), all fixed in b0de157
 with tests; the eighth (the screen) is SC9's.
+
+## Two small screen fixes (branch `small-fixes`, 3 Nov 2026; MA1-MA3)
+**MA1. A mistyped address while signed in keeps the person's frame.** Seen in Chrome on 2 Nov: a wrong address showed the bare page with
+"Back to sign in" to someone signed in. A 404 or 405 from the router with no session cookie is unchanged (no database work,
+`testAnUnknownPathOrMethodNeverTouchesTheDatabase`). With a cookie, `Kernel::missed()` checks it: a live session gets the page in its own
+frame (the menu, Back to Home; a 405 keeps its Allow); a cookie that resolves to nobody gets the plain page and is cleared (SL7, SL8 now
+cover a 404 with a cookie); any failure on the way (the database, the key, the frame) gives the plain 404 or 405, never a 503 or 500, and
+leaves the cookie alone. `MistypedAddressTest`, `UiUnitTest::testAMistypedAddressWithACookieKeepsItsStatusWhenTheDatabaseFails`,
+`SessionLimitsTest::testAFailurePageClearsAnEndedCookieButNeverALiveOne`.
+
+**MA2. The bottom bar of a short page stands at the foot of the screen.** Seen on 2 Nov: a new purchase order with one line had its bar
+half way up the screen (sticky only sticks on a page that scrolls). app.js moves the free space under the page above the last `.doc-bar`
+(and the work area's bottom padding with it, so nothing scrolls), again on resize and when the page changes size. A page that scrolls,
+and a bar with something drawn under it (a stock operation's files), are left as they are. No change without the script.
+
+**MA3. Review.** Codex (runs/sf_codex1.txt): 1 MEDIUM (a database failure while checking the cookie turned the 404 into a 503 without
+Allow) and 2 LOW (the bar stopped the padding's height above the foot; a bar with files under it was moved), all fixed; the re-check
+(runs/sf_codex2.txt) found none.

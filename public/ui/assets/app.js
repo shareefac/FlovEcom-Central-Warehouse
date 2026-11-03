@@ -2475,4 +2475,35 @@
       rows[rows.length - 1].p.focus(); // ready to type
     }
   });
+
+  // A short page (a new purchase order with a line or two) left the bottom bar half way up the screen (seen 2 Nov 2026): the free space
+  // under the page goes above the bar, so the bar stands at the foot of the screen as on a long page. A page that scrolls, or one with
+  // something drawn under its bar (a stock operation's files), is not touched.
+  var footBars = document.querySelectorAll('.work .doc-bar');
+  var footBar = footBars.length > 0 ? footBars[footBars.length - 1] : null;
+  var work = footBar ? footBar.closest('.work') : null;
+  if (footBar && work) {
+    var lift = function () {
+      footBar.style.marginTop = '';
+      footBar.style.marginBottom = '';
+      if (footBar.offsetParent === null) {
+        return; // not drawn
+      }
+      // Measured on the screen, set in the page, drawn at --zoom (app.css), as the lists' place() does.
+      var zoom = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1;
+      var pad = parseFloat(window.getComputedStyle(work).paddingBottom) || 0;
+      var end = work.getBoundingClientRect().bottom;
+      var free = window.innerHeight - end;
+      if (free > 1 && Math.abs(end - pad * zoom - footBar.getBoundingClientRect().bottom) < 2) {
+        // The work area's own bottom padding moves above the bar too: flush with the foot of the screen, and still nothing to scroll.
+        footBar.style.marginTop = (parseFloat(window.getComputedStyle(footBar).marginTop) || 0) + free / zoom + pad + 'px';
+        footBar.style.marginBottom = -pad + 'px';
+      }
+    };
+    lift();
+    window.addEventListener('resize', lift);
+    if (window.ResizeObserver) {
+      new window.ResizeObserver(lift).observe(footBar.closest('.page') || work); // a fold opened, a line added
+    }
+  }
 })();

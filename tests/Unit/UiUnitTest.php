@@ -289,6 +289,31 @@ final class UiUnitTest extends TestCase
         }
     }
 
+    /** A mistyped address sent with a session cookie looks for the person's frame; a database that fails keeps the 404 / 405, never a 503. */
+    public function testAMistypedAddressWithACookieKeepsItsStatusWhenTheDatabaseFails(): void
+    {
+        $logged = [];
+        $kernel = new Kernel(
+            static function (): never {
+                throw new \PDOException('SQLSTATE[HY000] [2002] Connection refused');
+            },
+            static fn (): ?string => 'k',
+            static function (string $m) use (&$logged): void {
+                $logged[] = $m;
+            },
+        );
+        $with = static fn (string $method, string $path): UiRequest => new UiRequest($method, $path, [], [], ['cw_session' => str_repeat('A', 43)], [], '127.0.0.1', false);
+        $nf = $kernel->handle($with('GET', '/ui/nothing-here'));
+        self::assertSame(404, $nf->status);
+        self::assertStringContainsString(Words::UI['back_sign_in'], $nf->body);
+        self::assertSame([], $nf->headerValues('Set-Cookie'), 'a cookie never checked is left alone');
+        $m = $kernel->handle($with('DELETE', '/ui/login'));
+        self::assertSame(405, $m->status);
+        self::assertSame('GET, POST', $m->header('Allow'));
+        self::assertCount(2, $logged, 'each failure is logged');
+        self::assertStringContainsString('Connection refused', $logged[0]);
+    }
+
     // ---- Router ----------------------------------------------------------------------------------------
 
     public function testRouter(): void
