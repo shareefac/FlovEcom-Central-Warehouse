@@ -197,6 +197,23 @@ final class StoreChoicesTest extends MappingTestCase
         self::refused(403, 'role_not_allowed', fn () => $this->svc()->answer($this->staffUser('viewer'), $this->idOf('1001'), 'same', $this->version($lid), null));
     }
 
+    public function testAnAnswerNeverMovesAVariantDecidedElsewhere(): void
+    {
+        $item = $this->item('legacy', 0, 'Peach Ice / 10mg');
+        $other = $this->item('legacy', 0, 'Something else 10mg');
+        $lid = $this->variant('1001', 'Peach Ice / 10mg');
+        $this->svc()->receive($this->shop, [self::choice('1001')]);
+        $this->svc()->run(true);
+        self::assertSame('same_name', $this->row('1001')['outcome']);
+        $lead = $this->staffUser('mapping_lead');
+        // Linked on its own page meanwhile; a form naming the version as it is now still moves nothing.
+        $this->decide($lead, 'link', $lid, ['sku_id' => $other]);
+        self::refused(409, 'decided_elsewhere', fn () => $this->svc()->answer($lead, $this->idOf('1001'), 'same', $this->version($lid), null, null, ''));
+        self::assertSame([$other, 'mapped'], [$this->link($lid)['sku_id'], $this->link($lid)['status']]);
+        self::assertSame('to_check', $this->row('1001')['state'], 'the job settles it (decided_elsewhere)');
+        unset($item);
+    }
+
     public function testAPackLinksToItsItemAndWaitsForAMatchingLeadWhileTheRuleIsOn(): void
     {
         $single = $this->item('legacy', 0, 'Nic Nic 10ml 18mg');

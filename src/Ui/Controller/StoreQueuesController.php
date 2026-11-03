@@ -547,7 +547,7 @@ final class StoreQueuesController
      * The choices that wait for a person, oldest first (StoreChoices::list), or with the Show's Done the latest answered and followed ones.
      * Who looks at the queues (queues.view) and who answers these (StoreChoices::PERM) open it; anyone else: 403, as the inbox refuses.
      */
-    public function newProducts(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
+    public function newProducts(Context $ctx, int $status = 200, ?CwException $error = null, ?array $typed = null): HtmlResponse
     {
         $me = $ctx->me();
         if (!$me->can('queues.view') && !$me->can(StoreChoices::PERM)) {
@@ -555,6 +555,8 @@ final class StoreQueuesController
         }
         $state = $ctx->req->param('status') === 'resolved' ? 'resolved' : 'open';
         $rows = (new StoreChoices($ctx->db, $ctx->decisions()))->list($state === 'open' ? 'open' : 'done');
+        // A refused answer's note, drawn again in its row's box as typed.
+        $rows = array_map(static fn (array $r): array => ['typed_note' => $typed !== null && $typed['id'] === (int) $r['id'] ? $typed['note'] : ''] + $r, $rows);
         return $this->page($ctx, 'queue_new_products', 'queue_new_products', StoreChoices::PERM, $state, $rows, self::newProductRow(...), $status, $error,
             ['states' => ['open', 'resolved'], 'canOpen' => $me->can('linking.view')]);
     }
@@ -568,14 +570,18 @@ final class StoreQueuesController
         $answer = (string) ($ctx->req->field('answer') ?? '');
         $version = (string) ($ctx->req->field('version') ?? '');
         $proposal = (string) ($ctx->req->field('proposal') ?? '');
+        $seen = (string) ($ctx->req->field('seen') ?? '');
+        $note = (string) ($ctx->req->field('note') ?? '');
         try {
-            if (!in_array($answer, StoreChoices::ANSWERS, true) || preg_match('/^\d{1,18}$/D', $version) !== 1 || preg_match('/^(\d{1,18})?$/D', $proposal) !== 1) {
+            if (!in_array($answer, StoreChoices::ANSWERS, true) || preg_match('/^\d{1,18}$/D', $version) !== 1 || preg_match('/^(\d{1,18})?$/D', $proposal) !== 1
+                || preg_match('/^([a-z_]{1,32}:\d{1,18})?$/D', $seen) !== 1) {
                 throw new CwException('bad_answer', 'say same, new or none, with the version and the suggestion the page showed', 400);
             }
             $r = (new StoreChoices($ctx->db, $ctx->decisions()))->answer($ctx->caller(), $ctx->id(), $answer, (int) $version, $proposal === '' ? null : (int) $proposal,
-                (string) ($ctx->req->field('note') ?? ''));
+                $note, $seen);
         } catch (CwException $e) {
-            return self::fromInbox($ctx, 'new_products', $e) ?? $this->newProducts($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'new_products', $e)
+                ?? $this->newProducts($ctx, $e->httpStatus, $e, ['id' => $ctx->id(), 'note' => mb_strlen($note) <= 2 * QueueRules::NOTE_MAX ? $note : '']);
         }
         $d = $r['decision'];
         $notice = $d['state'] === 'pending_second' ? 'waits_second' : match ($r['outcome']) { 'joined' => 'joined', 'made_by_person' => 'made_new', default => 'not_stock' };

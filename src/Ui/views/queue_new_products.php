@@ -65,9 +65,10 @@
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($r['map_version']) ?>">
       <input type="hidden" name="proposal" value="<?= $e($r['proposal_id'] ?? '') ?>">
+      <input type="hidden" name="seen" value="<?= $e($r['seen'] ?? '') ?>">
       <fieldset>
         <legend><?php if ($r['same'] !== null): ?><?= $word('NEW_PRODUCTS', 'ask_same') ?><?php else: ?><?= $word('NEW_PRODUCTS', 'ask_what') ?><?php endif; ?></legend>
-        <label><?= $word('NEW_PRODUCTS', 'note') ?> <input type="text" name="note" maxlength="<?= $e($noteMax) ?>"></label>
+        <label><?= $word('NEW_PRODUCTS', 'note') ?> <input type="text" name="note" maxlength="<?= $e($noteMax) ?>" value="<?= $e($r['typed_note'] ?? '') ?>"></label>
         <p class="actions">
 <?php if ($r['same'] !== null): ?>
           <button class="btn primary" type="submit" name="answer" value="same"><?= $e($r['same']) ?></button>

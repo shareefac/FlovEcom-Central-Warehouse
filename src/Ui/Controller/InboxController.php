@@ -621,7 +621,8 @@ final class InboxController
                 $r['main'] = $w['same'] ?? Words::NEW_PRODUCTS['make_new'];
                 $r['mainName'] = 'answer';
                 $r['mainValue'] = $found !== null ? 'same' : 'new';
-                $r['hidden'] = ['version' => (string) (int) $d['map_version'], 'proposal' => $d['proposal_id'] === null ? '' : (string) (int) $d['proposal_id']];
+                $r['hidden'] = ['version' => (string) (int) $d['map_version'], 'proposal' => $d['proposal_id'] === null ? '' : (string) (int) $d['proposal_id'],
+                    'seen' => (string) ($d['seen'] ?? '')];
                 $r['note'] = $note(Words::NEW_PRODUCTS['note'], false);
                 if ($found !== null) {
                     $r['more'][] = ['label' => Words::NEW_PRODUCTS['different'], 'formaction' => $route, 'name' => 'answer', 'value' => 'new'];

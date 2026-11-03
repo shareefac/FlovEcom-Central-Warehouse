@@ -528,6 +528,8 @@ final class StoreChoices
             $r['barcodes'] = self::strings(json_decode((string) ($r['barcodes'] ?? 'null'), true));
             $r['store'] = $stores[(int) $r['channel_id']] ?? null;
             $r['settled_by_name'] = $r['settled_by'] === null ? null : ($names[(int) $r['settled_by']] ?? null);
+            // What the page shows of a variant decided one at a time (OneAtATime::seen, DG2): its answer sends it back (answer()).
+            $r['seen'] = $open ? (OneAtATime::seen($this->db, (int) $r['listing_id']) ?? '') : '';
             $r['found'] = null;
             if (is_int($r['detail']['sku_id'] ?? null)) {
                 $root = $this->ds->rootOf((int) $r['detail']['sku_id']);
@@ -546,7 +548,7 @@ final class StoreChoices
      *
      * @return array{outcome: string, decision: array<string, mixed>}
      */
-    public function answer(Caller $person, int $id, string $answer, int $seenVersion, ?int $seenProposal, ?string $note = null): array
+    public function answer(Caller $person, int $id, string $answer, int $seenVersion, ?int $seenProposal, ?string $note = null, ?string $seenPage = null): array
     {
         if (!in_array($answer, self::ANSWERS, true)) {
             throw new CwException('bad_request', 'answer must be one of ' . implode(', ', self::ANSWERS), 400, ['field' => 'answer']);
@@ -554,7 +556,7 @@ final class StoreChoices
         if ($person->staffUserId === null) {
             throw new CwException('staff_required', 'a person answers', 403);
         }
-        return $this->db->transaction(function () use ($person, $id, $answer, $seenVersion, $seenProposal, $note): array {
+        return $this->db->transaction(function () use ($person, $id, $answer, $seenVersion, $seenProposal, $note, $seenPage): array {
             $c = $this->choice($id, true);
             if ($c === null) {
                 throw new CwException('not_found', 'no such choice', 404);
@@ -569,7 +571,7 @@ final class StoreChoices
                 throw new CwException('one_at_a_time', 'this variant is set aside or in a spot check: decide it on its own page', 409);
             }
             $base = ['listing_id' => (int) $c['listing']['id'], 'expected_map_version' => $seenVersion, 'proposal_id' => $seenProposal,
-                'reason' => self::reasonText($c, $note), 'seen' => $seen ?? ''];
+                'reason' => self::reasonText($c, $note), 'seen' => $seenPage ?? ($seen ?? '')];
             switch ($answer) {
                 case 'same':
                     $sku = $c['detail']['sku_id'] ?? null;
@@ -587,7 +589,15 @@ final class StoreChoices
                     $req = ['action' => 'landing'] + $base;
                     $outcome = 'not_stock_by_person';
             }
-            $decision = $this->ds->decide($person, $req);
+            // Under the variant's lock (DecisionService asks it after its own checks): a variant decided on its own page meanwhile is that
+            // decision's, whatever version the form names (a form drawn again after it, or made by hand, never moves it).
+            $lid = (int) $c['listing']['id'];
+            $decision = $this->ds->decide($person, $req, function () use ($lid): void {
+                $status = (string) $this->db->value('SELECT CAST(status AS CHAR) FROM channel_listing WHERE id = ?', [$lid]);
+                if (!in_array($status, DecisionService::STORE_CHOICE_FROM, true)) {
+                    throw new CwException('decided_elsewhere', 'this variant was decided on its own page meanwhile', 409, ['status' => $status]);
+                }
+            });
             $detail = $c['detail'] + ['answer' => $answer] + ($note !== null && $note !== '' ? ['note' => mb_substr($note, 0, QueueRules::NOTE_MAX)] : []);
             $this->settle($c, 'done', $outcome, $detail, (int) $decision['decision_id'], $person);
             return ['outcome' => $outcome, 'decision' => $decision];
