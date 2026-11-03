@@ -60,21 +60,21 @@ final class StoreChoices
      *   done      made (a new item), linked (a pack's link), waiting_second (a pack's link waits for a matching lead), not_stock (marked),
      *             already_decided (someone decided the variant first: nothing done), and a person's answers: joined, made_by_person,
      *             not_stock_by_person, decided_elsewhere (on the variant's own page).
-     *   to_check  suggested_match, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held, has_history.
+     *   to_check  suggested_match, conflict, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held, has_history.
      *   refused   no_such_item, no_name, and any other refusal of DecisionService (its code).
      */
     public const OUTCOMES_DONE = ['made', 'linked', 'waiting_second', 'not_stock', 'already_decided', 'joined', 'made_by_person', 'not_stock_by_person',
         'decided_elsewhere'];
-    public const OUTCOMES_CHECK = ['suggested_match', 'barcode_on_item', 'barcode_on_listing', 'same_name', 'close_name', 'said_real', 'held',
+    public const OUTCOMES_CHECK = ['suggested_match', 'conflict', 'barcode_on_item', 'barcode_on_listing', 'same_name', 'close_name', 'said_real', 'held',
         'has_history'];
     /** A person's answers (answer()): the item found, a new item, not stock. */
     public const ANSWERS = ['same', 'new', 'none'];
+    /** What key() leaves out of a name: everything but letters and digits (PCRE and MySQL's ICU read it alike). */
+    private const KEY_DROP = '[^\\p{L}\\p{N}]';
     /** Refusals of DecisionService that only mean "something moved under the job": the row stays waiting for the next run. */
     private const AGAIN = ['map_version_conflict', 'proposal_changed', 'proposal_closed'];
 
     private readonly DecisionService $ds;
-    /** @var array<string, list<array{id: int, code: string, name: string}>>|null key() of every item's name => the items (one run's) */
-    private ?array $names = null;
 
     public function __construct(private readonly Db $db, ?DecisionService $ds = null)
     {
@@ -130,8 +130,17 @@ final class StoreChoices
                     continue;
                 }
                 $r = $rows[$v];
-                $db->exec('INSERT INTO store_choice (channel_id, external_variant_id, choice, pack_of_code, units, staff_ref, staff_name, chosen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [$channelId, $v, $r['choice'], $r['pack_of'], $r['units'], $r['staff_ref'], $r['staff_name'], $r['chosen_at']]);
+                try {
+                    $db->exec('INSERT INTO store_choice (channel_id, external_variant_id, choice, pack_of_code, units, staff_ref, staff_name, chosen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$channelId, $v, $r['choice'], $r['pack_of'], $r['units'], $r['staff_ref'], $r['staff_name'], $r['chosen_at']]);
+                } catch (\PDOException $e) {
+                    if (Db::driverCode($e) !== 1062) {
+                        throw $e;
+                    }
+                    // Another send of the same variant got there first (the FOR UPDATE above locks no row that was not there): its choice is kept.
+                    $ignored[] = ['variant_id' => $v, 'why' => 'already_received'];
+                    continue;
+                }
                 $accepted++;
             }
             Audit::write($db, $caller, 'store_choice.receive', 'channel', (string) $channelId, null, ['accepted' => $accepted, 'ignored' => count($ignored)]);
@@ -187,14 +196,33 @@ final class StoreChoices
         if (!$printable($name, 128)) {
             throw $bad('staff.name', 'must be the name of who chose it (at most 128)');
         }
-        $at = $c['chosen_at'] ?? null;
-        $when = is_string($at) && strlen($at) <= 40 ? \DateTimeImmutable::createFromFormat(\DateTimeInterface::RFC3339, $at)
-            ?: \DateTimeImmutable::createFromFormat(\DateTimeInterface::RFC3339_EXTENDED, $at) : false;
-        if ($when === false) {
-            throw $bad('chosen_at', 'must be a time with its zone (2026-11-03T10:42:00Z)');
+        $when = self::time($c['chosen_at'] ?? null);
+        if ($when === null) {
+            throw $bad('chosen_at', 'must be a real time with its zone, from 2020 on (2026-11-03T10:42:00Z)');
         }
         return ['variant_id' => $v, 'choice' => $choice, 'pack_of' => $choice === 'pack' ? $packOf : null, 'units' => $choice === 'pack' ? $units : null,
-            'staff_ref' => trim((string) $ref), 'staff_name' => trim((string) $name), 'chosen_at' => Clock::db($when->setTimezone(Clock::utc()))];
+            'staff_ref' => trim((string) $ref), 'staff_name' => trim((string) $name), 'chosen_at' => Clock::db($when)];
+    }
+
+    /**
+     * A time with its zone (RFC 3339, with or without milliseconds), as UTC, or null: a day that does not exist (31 February) is not moved
+     * to another, a stray byte is not a time, and only 2020 to 2099 is believed.
+     */
+    private static function time(mixed $at): ?\DateTimeImmutable
+    {
+        if (!is_string($at) || strlen($at) > 40 || preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/D', $at) !== 1) {
+            return null;
+        }
+        foreach (['Y-m-d\TH:i:sP', 'Y-m-d\TH:i:s.uP'] as $format) {
+            $t = \DateTimeImmutable::createFromFormat('!' . $format, str_replace('Z', '+00:00', $at));
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($t !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+                $utc = $t->setTimezone(Clock::utc());
+                $year = (int) $utc->format('Y');
+                return $year >= 2020 && $year <= 2099 ? $utc : null;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -216,7 +244,6 @@ final class StoreChoices
             . 'JOIN channel_listing cl ON cl.channel_id = sc.channel_id AND cl.external_variant_id = sc.external_variant_id '
             . 'JOIN listing_profile lp ON lp.listing_id = cl.id '
             . "WHERE sc.state = 'waiting' ORDER BY sc.id LIMIT " . max(1, min(5000, $limit)));
-        $this->names = null; // read again each run (follow() adds the items it makes, so two variants of one name: the second is checked)
         foreach ($waiting as $w) {
             $r = $apply ? $this->follow((int) $w['id']) : $this->plan((int) $w['id']);
             if ($r === null) {
@@ -267,6 +294,14 @@ final class StoreChoices
                     return null;
                 }
                 $look = $this->look($c);
+                if ($look['outcome'] === 'made') {
+                    // The name's guard row (as an item made by hand takes it, HandMade): a making of the same name at this moment waits for
+                    // the other, then everything is looked at again with fresh reads (READ COMMITTED), so two makings never see "no such
+                    // item" at once (SC6).
+                    $this->db->exec('INSERT INTO item_name_guard (name_key, last_at) VALUES (SHA2(WEIGHT_STRING(CAST(? AS CHAR CHARACTER SET utf8mb4) '
+                        . 'COLLATE utf8mb4_0900_ai_ci), 256), UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE last_at = UTC_TIMESTAMP(6)', [(string) $look['detail']['name']]);
+                    $look = $this->look($c);
+                }
                 $decision = null;
                 if (isset($look['request'])) {
                     $decision = $this->ds->decide($caller, $look['request'] + ['store_choice' => self::who($c)]);
@@ -275,10 +310,6 @@ final class StoreChoices
                     }
                     if ($look['outcome'] === 'made') {
                         $look['detail']['sku'] = (string) $this->db->value('SELECT code FROM sku WHERE id = ?', [$decision['sku_id']]);
-                        if ($this->names !== null) {
-                            $this->names[self::key((string) $look['detail']['name'])][] = ['id' => (int) $decision['sku_id'], 'code' => $look['detail']['sku'],
-                                'name' => (string) $look['detail']['name']];
-                        }
                     }
                 }
                 $this->settle($c, $look['state'], $look['outcome'], $look['detail'], $decision['decision_id'] ?? null, null);
@@ -339,6 +370,10 @@ final class StoreChoices
         }
         $open = $this->db->one('SELECT id, CAST(band AS CHAR) AS band, proposed_sku_id FROM match_proposal WHERE open_listing_id = ?', [$lid]);
         $request['proposal_id'] = $open === null ? null : (int) $open['id'];
+        if ($open !== null && $open['band'] === 'Conflict' && $c['choice'] !== 'none') {
+            // A Conflict is a matching lead's to decide (DecisionService): never followed alone.
+            return $check('conflict', ['band' => 'Conflict']);
+        }
 
         switch ($c['choice']) {
             case 'none':
@@ -424,14 +459,11 @@ final class StoreChoices
         if ($key === '') {
             return null;
         }
-        if ($this->names === null) {
-            $this->names = [];
-            foreach ($this->db->all('SELECT id, code, name FROM sku WHERE merged_into_sku_id IS NULL AND name IS NOT NULL') as $s) {
-                $this->names[self::key((string) $s['name'])][] = ['id' => (int) $s['id'], 'code' => (string) $s['code'], 'name' => (string) $s['name']];
-            }
-        }
-        $hit = $this->names[$key][0] ?? null;
-        return $hit === null ? null : ['outcome' => 'close_name', 'detail' => ['sku_id' => $hit['id'], 'sku' => $hit['code'], 'item_name' => $hit['name']]];
+        // Read fresh each time (an item made a moment ago by anyone counts): one pass over the items' names in the database, the same key
+        // as key() works it out.
+        $hit = $this->db->one('SELECT id, code, name FROM sku WHERE merged_into_sku_id IS NULL AND name IS NOT NULL AND '
+            . "REGEXP_REPLACE(LOWER(REPLACE(name, '&', ' and ')), ?, '') = ? ORDER BY id LIMIT 1", [self::KEY_DROP, $key]);
+        return $hit === null ? null : ['outcome' => 'close_name', 'detail' => ['sku_id' => (int) $hit['id'], 'sku' => (string) $hit['code'], 'item_name' => (string) $hit['name']]];
     }
 
     /**
@@ -441,7 +473,7 @@ final class StoreChoices
     public static function key(string $name): string
     {
         $s = mb_strtolower(str_replace('&', ' and ', $name), 'UTF-8');
-        return (string) preg_replace('/[^\p{L}\p{N}]+/u', '', $s);
+        return (string) preg_replace('/' . self::KEY_DROP . '+/u', '', $s);
     }
 
     /**
@@ -530,8 +562,14 @@ final class StoreChoices
             if (!in_array($c['state'], self::OPEN, true) || $c['listing'] === null) {
                 throw new CwException('already_settled', 'this choice is not waiting for an answer any more', 409, ['state' => $c['state']]);
             }
+            // A variant set aside or in a spot check is that person's, on its own page (DG2): never answered here. What this page showed of
+            // it otherwise (nothing, or the check on arrival's suggestion) goes with the decision, which checks it again under its lock.
+            $seen = OneAtATime::seen($this->db, (int) $c['listing']['id']);
+            if ($seen !== null && !str_starts_with($seen, OneAtATime::ARRIVAL . ':')) {
+                throw new CwException('one_at_a_time', 'this variant is set aside or in a spot check: decide it on its own page', 409);
+            }
             $base = ['listing_id' => (int) $c['listing']['id'], 'expected_map_version' => $seenVersion, 'proposal_id' => $seenProposal,
-                'reason' => self::reasonText($c, $note)];
+                'reason' => self::reasonText($c, $note), 'seen' => $seen ?? ''];
             switch ($answer) {
                 case 'same':
                     $sku = $c['detail']['sku_id'] ?? null;
@@ -622,6 +660,8 @@ final class StoreChoices
         return match ($code) {
             'pending_second_exists', 'not_open', 'already_linked', 'linked' => ['done', 'already_decided'],
             'one_at_a_time' => ['to_check', 'held'],
+            'has_history' => ['to_check', 'has_history'],
+            'lead_required' => ['to_check', 'conflict'],
             'said_real' => ['to_check', 'said_real'],
             'landing_page' => ['done', 'already_decided'],
             'unknown_sku', 'sku_merged' => ['refused', 'no_such_item'],

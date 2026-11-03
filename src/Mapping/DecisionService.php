@@ -699,6 +699,14 @@ final class DecisionService
             if ($seen !== null && !str_starts_with($seen, OneAtATime::ARRIVAL . ':')) {
                 throw new CwException('one_at_a_time', 'this listing is held back or in a spot check: a person decides it on its own page', 409);
             }
+            // Under the lock, again: a person who decided anything on it (a "not this item" too, which moves no version) has it now; a
+            // Conflict is a matching lead's (below), never the job's.
+            if ($this->db->value('SELECT 1 FROM match_decision WHERE listing_id = ? AND decided_by IS NOT NULL LIMIT 1', [$l['id']]) !== null) {
+                throw new CwException('has_history', 'a person has decided on this listing before: a store\'s choice is not followed on it', 409);
+            }
+            if ($open !== null && $open['band'] === 'Conflict') {
+                throw new CwException('lead_required', 'a listing with a Conflict proposal is decided by a mapping_lead', 403);
+            }
         }
         if ($r['proposal_id'] !== null && ($open === null || $open['id'] !== $r['proposal_id'])) {
             $p = $this->db->one('SELECT listing_id, status FROM match_proposal WHERE id = ?', [$r['proposal_id']]);

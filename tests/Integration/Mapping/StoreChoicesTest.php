@@ -99,6 +99,10 @@ final class StoreChoicesTest extends MappingTestCase
             [self::choice('V-1')],                                                            // the store's variant number is digits
             [self::choice('2005', 'new', ['staff' => ['id' => '17']])],                      // who chose it, by name
             [self::choice('2006', 'new', ['chosen_at' => '3 Nov'])],
+            [self::choice('2010', 'new', ['chosen_at' => '2026-02-31T10:00:00Z'])],          // a day that does not exist is not moved to March
+            [self::choice('2011', 'new', ['chosen_at' => '9999-12-31T23:59:59-05:00'])],
+            [self::choice('2012', 'new', ['chosen_at' => "2026-11-03T10:42:00Z\0"])],
+            [self::choice('2013', 'new', ['chosen_at' => '2026-11-03T10:42:00'])],           // a time without its zone
             [self::choice('2007'), self::choice('2007')],
             [self::choice('2008'), self::choice('2009', 'pack', ['pack_of' => 'X', 'units' => 5])], // one bad choice: the whole call is refused
         ] as $i => $bad) {
@@ -275,6 +279,34 @@ final class StoreChoicesTest extends MappingTestCase
         self::assertSame(1, $this->svc()->openCount(), 'only 1003 now');
         self::assertSame(['decided_elsewhere' => 1], $this->svc()->run(true)['counts']);
         self::assertSame(['done', 'decided_elsewhere'], [$this->row('1004')['state'], $this->row('1004')['outcome']]);
+    }
+
+    public function testAConflictAndAPersonsDecisionUnderTheLockStopTheJob(): void
+    {
+        $item = $this->item('legacy', 0, 'Conflicted 10mg');
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$item]);
+        $conflict = $this->variant('1001', 'Two items look like it');
+        $this->propose($conflict, 'Conflict');
+        $pack = $this->variant('1002', 'A conflicted pack');
+        $this->propose($pack, 'Conflict');
+        $this->setting('approvals.match_multiple', 'false');
+        $this->svc()->receive($this->shop, [self::choice('1001'), self::choice('1002', 'pack', ['pack_of' => $code, 'units' => 5])]);
+        $this->svc()->run(true);
+        self::assertSame(['to_check', 'conflict'], [$this->row('1001')['state'], $this->row('1001')['outcome']]);
+        self::assertSame(['to_check', 'conflict'], [$this->row('1002')['state'], $this->row('1002')['outcome']]);
+        self::assertSame(['suggested', 'suggested'], [$this->link($conflict)['status'], $this->link($pack)['status']]);
+
+        // The job's own look found nothing; a person's "not this item" (it moves no version) lands before the decision: refused under the lock.
+        $lid = $this->variant('1003', 'Rejected meanwhile');
+        $p = $this->propose($lid, 'Check', $item);
+        $this->decide($this->staffUser('mapping_lead'), 'reject', $lid, ['sku_id' => $item, 'proposal_id' => $p]);
+        $who = ['id' => 9, 'store' => 'vapeandgo', 'staff_ref' => '17', 'staff_name' => 'Aswin', 'chosen_at' => '2026-11-03 10:42:00.000000'];
+        $open = self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$lid]);
+        self::refused(409, 'has_history', fn () => $this->decide(Caller::system(StoreChoices::JOB), 'new_item', $lid,
+            ['store_choice' => $who, 'proposal_id' => $open === null ? null : (int) $open]));
+        $c = self::refused(403, 'lead_required', fn () => $this->decide(Caller::system(StoreChoices::JOB), 'new_item', $conflict,
+            ['store_choice' => $who, 'proposal_id' => (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$conflict])]));
+        self::assertStringContainsString('Conflict', $c->getMessage());
     }
 
     public function testOnlyTheStoreChoiceJobMakesADecisionWithNoPersonAndOnlyOnAVariantNobodyDecided(): void
