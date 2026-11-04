@@ -16021,13 +16021,14 @@ the one before it; the first invoice of a run is always taken with what it needs
 wait for (`original_missing`) are read within what is left. (3) A back-fill from a date BEFORE the setting's that reached the cap is
 drained by the next runs with its own date (for reading and for copying) until a run of it is not capped; then the setting's date again.
 
-**EC19. The re-checks of ce9e1a0, 438dfb1 and bcb68d1 (runs/ec_codex_review5.txt to 7).** Fixed: a numeric name of an invoice a debit note needs stays a name (no
+**EC19. The re-checks of ce9e1a0, 438dfb1 and bcb68d1 (runs/ec_codex_review5.txt to 8).** Fixed: a numeric name of an invoice a debit note needs stays a name (no
 type error); a run switched off before its end counts as one with more to read, so a back-fill from an earlier date is still gone on
 with from its date; and a share of each run's budget (a quarter, at least one, never all: so `erp_copy.per_run` is at least 2) is kept
 first for the copies whose cancellation was refused and the invoices waiting debit notes need, so a steady flow of fresh changes can
 never starve them; the two kinds are taken in turn, and the kind that goes first changes from one run to the next (a copy whose
 cancellation stays refused never keeps out an invoice a debit note waits for), and what the fresh changes leave of the budget reads more
-of them (a fresh invoice read and then left for the next run is counted as read); a debit note whose invoice ERPNext cannot give now waits
+of them (a fresh invoice read and then left for the next run is counted as read; the turn is taken from the runs before, so a dry run
+reads what the real run then reads); a debit note whose invoice ERPNext cannot give now waits
 for it (`original_missing`) instead of stopping the run; `erp_copy.per_run` is taken as at least 2 whatever is stored (`--limit=1`, a run
 by hand, keeps no share); a copy whose attempt was refused is counted with the waiting ones in a run's summary. Kept as decided: the first
 invoice of a run is always taken with what it needs (at most two more reads than the budget), and an invoice read and then left for the

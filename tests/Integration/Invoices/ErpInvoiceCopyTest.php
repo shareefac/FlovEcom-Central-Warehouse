@@ -469,12 +469,20 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
             $this->erp->invoices['PI-M'] = $this->pi('PI-M', [['item' => 'A', 'qty' => 3, 'rate' => 3]], ['modified' => '2026-09-15 10:00:00.000000']);
             $this->setting(ErpInvoiceCopy::PER_RUN, '2');
             $reads = [];
+            $readOf = function (): array {
+                $r = array_values(array_map(static fn (array $c): string => substr($c['path'], strlen('/api/resource/Purchase Invoice/')),
+                    array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/'))));
+                $this->erp->calls = [];
+                return $r;
+            };
             foreach (['PI-N1', 'PI-N2'] as $i => $name) {
                 $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 6]], ['modified' => '2026-10-0' . ($i + 7) . ' 10:00:00.000000']);
                 $this->erp->calls = [];
+                $this->copy()->run($this->reader(), false);
+                $dry = $readOf();
                 $this->copy()->run($this->reader(), true);
-                $reads[] = array_values(array_map(static fn (array $c): string => substr($c['path'], strlen('/api/resource/Purchase Invoice/')),
-                    array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/'))));
+                $reads[] = $readOf();
+                self::assertSame($dry, $reads[$i], 'a dry run reads what the real run then reads (the Codex re-check of cd3f07f)');
             }
             self::assertSame([2, 2, 'PI-N1', 'PI-N2'], [count($reads[0]), count($reads[1]), $reads[0][0], $reads[1][0]], 'two a run, the fresh one first');
             self::assertEqualsCanonicalizing(['PI-K', 'PI-M'], [$reads[0][1], $reads[1][1]], 'then each kind in turn');

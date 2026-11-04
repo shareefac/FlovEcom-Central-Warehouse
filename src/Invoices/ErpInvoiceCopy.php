@@ -216,7 +216,8 @@ final class ErpInvoiceCopy
                 . 'ORDER BY MIN(p.read_at), p.return_against LIMIT ' . $cap));
             // The kind that goes first changes from one run to the next (the Codex re-check of bcb68d1): with one share and a stuck
             // refusal, an invoice a debit note waits for still gets its turn.
-            $flip = (int) $this->db->value('SELECT COUNT(*) FROM erp_copy_run') % 2 === 1;
+            // The runs before this one (a dry run writes no row, a real run's own is left out: both choose the same).
+            $flip = (int) $this->db->value('SELECT COUNT(*) FROM erp_copy_run WHERE id <> ?', [$runId ?? 0]) % 2 === 1;
             $candidates = [];
             for ($k = 0; $k < max(count($refused), count($missing)); $k++) {
                 foreach ($flip ? [$missing[$k] ?? null, $refused[$k] ?? null] : [$refused[$k] ?? null, $missing[$k] ?? null] as $c) {
