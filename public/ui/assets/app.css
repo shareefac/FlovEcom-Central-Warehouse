@@ -1087,7 +1087,7 @@ tr.urgent > :first-child { box-shadow: inset 3px 0 0 var(--st-red); }
   table.stack td.c-status[data-label], table.rtable td.c-status[data-label] { display: block; }
   table.stack td.c-status[data-label]::before, table.rtable td.c-status[data-label]::before { content: none; }
   table.stack .c-status .chip, table.rtable .c-status .chip { display: inline-block; width: max-content; max-width: 38cqw; white-space: normal; border-radius: 10px; }
-  table.stack td[data-label] .chip, table.rtable td[data-label] .chip { white-space: normal; max-width: 100%; }
+  table.stack td[data-label]:not(.c-status) .chip, table.rtable td[data-label]:not(.c-status) .chip { white-space: normal; max-width: 100%; }
   table.stack .c-wide, table.rtable .c-wide { border-top: 1px solid var(--divider); margin-top: 6px; padding-top: 10px; }
   table.stack .c-next, table.rtable .c-next { border-top: 1px solid var(--divider); margin-top: 8px; padding-top: 12px; }
   table.stack .c-next .btn, table.stack .c-next button { width: 100%; }
@@ -3385,6 +3385,8 @@ table.stock-records td.chg.down { color: var(--sf-red-ink); }
 form.count-open > button.po-default, form.ap-answer > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 .count-bar > details.count-more { margin: 0; }
 .count-bar > details.count-more > .more-menu { left: auto; right: 0; min-width: 280px; }
+/* On a phone these two menus are no wider than the screen either (the Codex review of 1ab1ed9, LOW): their minimums give way below 640 px. */
+@media (max-width: 639.98px) { .ph-actions > details.more:has(form.list-filters) > .more-menu, .count-bar > details.count-more > .more-menu { min-width: 0; } }
 .count-more .count-fields { display: grid; gap: 10px; padding: 12px 14px; }
 .count-bar .count-more .count-field { display: grid; gap: 4px; }
 .count-bar .count-more .count-field select, .count-bar .count-more .count-note input { width: 100%; max-width: none; }
