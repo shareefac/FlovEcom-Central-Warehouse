@@ -38,6 +38,7 @@ final class StoreQueuesScreensTest extends KernelUiTestCase
         $moves->record(Caller::system('test'), ['type' => 'goods_in', 'doc_ref' => 'OPEN-1', 'lines' => [['sku_id' => $sku, 'qty' => 1]]], 'open-1');
         (new Stock(self::$db))->setPolicy(Caller::system('test'), $sku, 'strict', 'pol-1');
         $moves->record($caller, ['type' => 'goods_in', 'doc_ref' => 'ACC-PINV-1', 'lines' => [['variant_id' => 'NEW', 'qty' => 2, 'description' => 'Mango 10ml']]], 'relay-1');
+        self::askModeChanges(true); // the mode change is asked about (MO4)
         $relay = new RelayIntake(self::$db);
         $relay->reconciliations($caller, ['doc_ref' => 'MAT-RECO-1', 'lines' => [['variant_id' => 'V1', 'qty' => 4]]], 'reco-1');
         $relay->modes($caller, ['doc_ref' => 'vpg-mode-1', 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]], 'mode-1');

@@ -21,6 +21,7 @@ final class RelayRoutesTest extends ApiKernelTestCase
         $reco = ['doc_ref' => 'MAT-RECO-1', 'lines' => [['variant_id' => 'V1', 'qty' => 2]]];
         $mode = ['doc_ref' => 'vpg-mode-9', 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]];
 
+        self::askModeChanges(true); // the mode change is asked about (MO4)
         self::envelope($this->call('POST', '/v1/relay/reconciliations', $key, $reco), 403, 'relay_not_allowed');
         self::envelope($this->call('POST', '/v1/relay/modes', $key, $mode), 403, 'relay_not_allowed');
         $this->grant($site, 'erp_reconciliation', 'erp_mode');

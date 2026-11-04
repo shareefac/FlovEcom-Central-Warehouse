@@ -87,6 +87,7 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         $moves->record(Caller::system('test'), ['type' => 'goods_in', 'doc_ref' => 'OPEN-' . $code, 'lines' => [['sku_id' => $sku, 'qty' => 1]]], 'open-' . $code);
         (new Stock(self::$db))->setPolicy(Caller::system('test'), $sku, 'strict', 'pol-' . $code);
         $moves->record($caller, ['type' => 'goods_in', 'doc_ref' => 'ACC-PINV-' . $code, 'lines' => [['variant_id' => 'NEW', 'qty' => 2, 'description' => 'Mango 10ml']]], 'relay-' . $code);
+        self::askModeChanges(true); // the mode change is asked about (MO4)
         $relay = new RelayIntake(self::$db);
         $relay->reconciliations($caller, ['doc_ref' => 'MAT-RECO-1', 'lines' => [['variant_id' => 'V1', 'qty' => 4]]], 'reco-' . $code);
         $relay->modes($caller, ['doc_ref' => $code . '-mode-1', 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]], 'mode-' . $code);

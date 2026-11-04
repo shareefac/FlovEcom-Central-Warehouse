@@ -2763,6 +2763,7 @@ final class Words
         'relay.correction_bulk_max_units' => 'Big change: leave for a person above',
         'relay.nightly_confirm_max' => 'At most per night',
         'relay.correction_is_for_sale' => 'An ERPNext correction is the figure for sale',
+        'relay.mode_review' => 'Ask about ERPNext mode changes',
         'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
         'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
         'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
@@ -4059,6 +4060,8 @@ final class Words
         'housekeeping.max_seconds' => 'The nightly clean-up stops after this many seconds; the rest goes the next night.',
         'relay.correction_is_for_sale' => 'On: a figure set in ERPNext is what the website may sell, so the units kept for paid orders not sent '
             . 'yet are added to get the shelf figure. Off: the figure is the shelf figure.',
+        'relay.mode_review' => 'On: each selling-mode change ERPNext makes waits in Approvals › Mode changes for a person. Off: CW notes it '
+            . 'and asks no one (the owner, 4 Nov 2026: while CW only listens, ERPNext owns the selling modes).',
         'relay.mode_in_stock' => 'When ERPNext sets a counted, protected item to In-Stock, accepting the change gives it this stock rule.',
         'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
         'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
@@ -11632,6 +11635,7 @@ final class Words
     /** A switch's two words where they are not Yes / No (docs/decisions.md NC8: the board's On / Off). */
     public const SETTING_BOOL = [
         'relay.nightly_confirm' => ['On', 'Off'],
+        'relay.mode_review' => ['On', 'Off'],
     ];
 
     /** Approvals › From the stores › Mode changes. */

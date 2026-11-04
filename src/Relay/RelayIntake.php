@@ -30,7 +30,9 @@ use CW\SiteWriter\SiteModes;
  *       recorded and not shown to a person (the go-live plan's queue filter, D14): the store says the mode and low-stock level were
  *       already so (previous_mode, previous_low_stock), or CW already has that mode for the item on this store (a legacy item), or
  *       the stock rule it proposes is the item's already (a protected item). The others go to the policy-review queue (policy_review,
- *       source erp_update_product); a newer change of the same variant replaces an older one still open (dismissed, `superseded`).
+ *       source erp_update_product) while the switch relay.mode_review is on; off (its default since 0059, MO1-MO2), they are recorded
+ *       too (`review_off`) and no one is asked. A newer change of the same variant replaces an older one still open (dismissed,
+ *       `superseded`).
  *       A variant CW does not know, or that is not matched, is recorded as skipped: there is no item to apply it to.
  *       {doc_ref (the store's message id), changed_at?, lines: [{line_index?, variant_id | erp_item_code, mode (In-Stock,
  *       From-Warehouse, Out-Of-Stock), low_stock?, previous_mode?, previous_low_stock?}]}
@@ -47,6 +49,8 @@ final class RelayIntake
     public const KIND_MODE = 'erp_mode';
     public const SOURCE_RECONCILIATION = 'erp_reconciliation';
     public const SOURCE_MODE = 'erp_update_product';
+    /** The switch "Ask about ERPNext mode changes" (0059; docs/decisions.md MO1): off, a mode change is noted and asks no one. */
+    public const MODE_REVIEW = 'relay.mode_review';
     public const MAX_LINES = 2000;
     /** How old a relayed time may be (a store that was off for a while sends its messages later; Movements' backdating limit). */
     public const MAX_AGE_SEC = Movements::BACKDATED_MAX_AGE_SEC;
@@ -253,6 +257,11 @@ final class RelayIntake
             // Nothing to ask a person, but the store's latest state is this one: an older request still open is out of date (finding 3).
             $this->supersede($db, $earlier, null);
             return ['outcome' => 'no_change', 'reason' => $same, 'sku_id' => $skuId];
+        }
+        if (!Settings::flag($db, self::MODE_REVIEW, false)) {
+            // MO2: the switch is off, so no one is asked; like a change that changes nothing, it is noted and closes an older request.
+            $this->supersede($db, $earlier, null);
+            return ['outcome' => 'no_change', 'reason' => 'review_off', 'sku_id' => $skuId];
         }
         $key = Movements::queueKey(self::KIND_MODE . ':' . $caller->channelId . ":{$docRef}#{$line['line_index']}", self::KIND_MODE . ':' . $caller->channelId . ':#',
             [self::KIND_MODE, (string) $caller->channelId, $docRef, (string) $line['line_index']]);

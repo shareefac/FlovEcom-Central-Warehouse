@@ -997,6 +997,7 @@ CW-" . sprintf('%06d', $b) . ",20
         $site = Caller::channel($id, 'relay');
         $app = $this->appSession();
         $moves = new Movements($app);
+        self::askModeChanges(true); // the mode change is asked about (MO4)
         $relay = new RelayIntake($app);
         $movement = ['type' => 'goods_in', 'doc_ref' => 'PINV-APP', 'lines' => [['variant_id' => 'V1', 'qty' => 3]]];
         $correction = ['doc_ref' => 'RECO-APP', 'lines' => [['variant_id' => 'V1', 'qty' => 2]]];

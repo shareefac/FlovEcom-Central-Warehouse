@@ -15842,3 +15842,24 @@ and a bar with something drawn under it (a stock operation's files), are left as
 **MA3. Review.** Codex (runs/sf_codex1.txt): 1 MEDIUM (a database failure while checking the cookie turned the 404 into a 503 without
 Allow) and 2 LOW (the bar stopped the padding's height above the foot; a bar with files under it was moved), all fixed; the re-check
 (runs/sf_codex2.txt) found none.
+
+## ERPNext mode changes no longer wait in Approvals (branch `mode-review-off`, 4 Nov 2026; MO1-MO4; tracker CW-209)
+
+**MO1. A switch, off.** The owner, 4 Nov 2026, seeing 1,924 "Mode changes" in Approvals: "you close it all and it should not come to
+approvals any more". While CW only listens ERPNext owns the selling modes, so answering them changed nothing useful (CW-209), and at the
+switch CW starts from the shop's modes. 0059 adds `relay.mode_review` (bool, off, agreed: Settings › Rules and numbers › Messages from
+ERPNext, "Ask about ERPNext mode changes"; On / Off). On is the behaviour before 0059, for the day someone wants them asked again.
+
+**MO2. Off: noted, never asked.** `RelayIntake::modeLine()` checks the switch after the "changes nothing" filter (D14), so every line is
+still claimed and settled in relay_line (`no_change`, reason `review_off`), relay_mode_seen keeps the newest change time (an older message
+arriving late is still `older_than_known` after the switch goes back on), and an older request of the same variant still open is closed
+as `superseded`, exactly as a change that changes nothing closes it. Unknown or unmatched variants stay `skipped`. Nothing is applied: no
+stock rule, selling mode or low-stock level changes.
+
+**MO3. The ones open are closed in one go, by 0059.** Every open policy_review row of source `erp_update_product` becomes `dismissed`,
+resolution `review_off`, with a note; one audit row (`queues.modes.close_all`, actor system:migrate) says how many and the oldest and
+newest, written before the close and only while some are open, so a second run adds nothing. Other policy_review sources (count_gate and
+the rest) are untouched. `Migration0059Test`.
+
+**MO4. Tests.** The tests that relay mode changes to see them queued turn the switch on (`IntegrationTestCase::askModeChanges()`); every
+integration test starts with it back at its seeded off. `RelayIntakeTest::testWithTheSwitchOffAModeChangeIsNotedAndAsksNoOne`.

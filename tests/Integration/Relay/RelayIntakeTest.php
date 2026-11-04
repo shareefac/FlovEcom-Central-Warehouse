@@ -33,6 +33,7 @@ final class RelayIntakeTest extends StockTestCase
     {
         parent::setUp();
         $this->relay = new RelayIntake(self::$db);
+        self::askModeChanges(true); // the mode change is asked about (MO4)
     }
 
     public function testARelayedLineIsBookedOncePerDocumentAndLineWhateverTheKey(): void
@@ -217,6 +218,40 @@ final class RelayIntakeTest extends StockTestCase
         $r = $this->ok($this->relay->modes($site, ['doc_ref' => 'm-2', 'changed_at' => $this->ago(300), 'lines' => [['variant_id' => 'V1', 'mode' => 'From-Warehouse']]], 'm-2'));
         self::assertSame('no_change', $r->body['lines'][0]['result']);
         self::assertSame(['dismissed', 'superseded'], array_values(self::$db->one('SELECT CAST(status AS CHAR) AS s, resolution FROM policy_review')));
+    }
+
+    /** MO2: with "Ask about ERPNext mode changes" off, a change is recorded, asks no one, and closes an older request still open. */
+    public function testWithTheSwitchOffAModeChangeIsNotedAndAsksNoOne(): void
+    {
+        $site = $this->site();
+        $this->grant($site, 'erp_mode');
+        $sku = $this->item('strict', 0);
+        $this->listing($site, 'V1', $sku);
+        $this->listing($site, 'U1', null);
+        $this->ok($this->relay->modes($site, ['doc_ref' => 'm-1', 'changed_at' => $this->ago(900), 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]], 'm-1'));
+        self::assertSame('open', (string) self::$db->value('SELECT CAST(status AS CHAR) FROM policy_review'), 'asked while on');
+
+        self::askModeChanges(false);
+        $r = $this->ok($this->relay->modes($site, ['doc_ref' => 'm-2', 'changed_at' => $this->ago(600), 'lines' => [
+            ['variant_id' => 'V1', 'mode' => 'Out-Of-Stock', 'line_index' => 0],
+            ['variant_id' => 'U1', 'mode' => 'Out-Of-Stock', 'line_index' => 1],
+        ]], 'm-2'));
+        self::assertSame([['no_change', 'review_off'], ['skipped', 'unlinked_listing']],
+            array_map(static fn (array $l): array => [$l['result'], $l['reason'] ?? null], $r->body['lines']));
+        self::assertSame([['In-Stock', 'dismissed', 'superseded']], array_map(static fn (array $x): array => array_values($x),
+            self::$db->all('SELECT site_mode, CAST(status AS CHAR) AS s, resolution FROM policy_review ORDER BY id')), 'no new request, the older one closed');
+        self::assertSame(['no_change', 'review_off'], array_values(self::$db->one(
+            "SELECT CAST(outcome AS CHAR) AS o, reason FROM relay_line WHERE kind = 'erp_mode' AND doc_ref = 'm-2' AND line_index = 0")));
+        self::assertSame('strict', (string) self::$db->value('SELECT sell_policy FROM sku WHERE id = ?', [$sku]), 'nothing applied');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM item_channel_mode'), 'no selling mode written');
+
+        // Its time is kept: back on, a message older than it is still out of date; a newer one is asked again.
+        self::askModeChanges(true);
+        $late = $this->ok($this->relay->modes($site, ['doc_ref' => 'm-0', 'changed_at' => $this->ago(800), 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]], 'm-0'));
+        self::assertSame(['no_change', 'older_than_known'], [$late->body['lines'][0]['result'], $late->body['lines'][0]['reason'] ?? null]);
+        $new = $this->ok($this->relay->modes($site, ['doc_ref' => 'm-3', 'changed_at' => $this->ago(300), 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]], 'm-3'));
+        self::assertSame('queued', $new->body['lines'][0]['result']);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM policy_review WHERE status = 'open'"));
     }
 
     /** Review finding 4: the change time decides, not the arrival order. */

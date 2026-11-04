@@ -29,6 +29,7 @@ final class StoreQueuesTest extends StockTestCase
         parent::setUp();
         $this->site = $this->site();
         $this->grant($this->site, 'goods_in', 'supplier_return', 'erp_sale', 'erp_reconciliation', 'erp_mode');
+        self::askModeChanges(true); // the mode change is asked about (MO4)
     }
 
     public function testPickingTheItemBooksASuspendedLineOnceAndSettlesIt(): void

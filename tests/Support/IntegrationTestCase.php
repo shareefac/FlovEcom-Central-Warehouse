@@ -23,6 +23,14 @@ abstract class IntegrationTestCase extends TestCase
     protected function setUp(): void
     {
         TestDb::clean(self::$db);
+        // app_setting is a seed table clean() keeps: the one switch tests turn on starts back at its seeded off (MO4).
+        self::askModeChanges(false);
+    }
+
+    /** "Ask about ERPNext mode changes" (relay.mode_review, 0059): on, a mode change that changes something waits in Approvals. */
+    protected static function askModeChanges(bool $on): void
+    {
+        self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = 'relay.mode_review'", [$on ? 'true' : 'false']);
     }
 
     /** Runs $fn and returns the MySQL error code it raised (fails the test if none). */
