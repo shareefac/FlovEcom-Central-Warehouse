@@ -54,7 +54,7 @@ final class ErpCopyUnitTest extends TestCase
         $keys = array_values(array_unique($m[1]));
         self::assertSame([ErpInvoiceCopy::SWITCH, ErpInvoiceCopy::COMPANY, ErpInvoiceCopy::FROM, ErpInvoiceCopy::CREATE_SUPPLIERS, ErpInvoiceCopy::UPDATE_PRICES,
             ErpInvoiceCopy::PER_RUN], $keys);
-        self::assertSame(['min' => 1, 'max' => 5000], Settings::RULES[ErpInvoiceCopy::PER_RUN]);
+        self::assertSame(['min' => 2, 'max' => 5000], Settings::RULES[ErpInvoiceCopy::PER_RUN]);
         self::assertStringContainsString("'erp_copy.per_run', 'int', '200'", $sql, 'the most a run reads starts at 200');
         foreach ($keys as $key) {
             self::assertArrayHasKey($key, Words::SETTING, $key);

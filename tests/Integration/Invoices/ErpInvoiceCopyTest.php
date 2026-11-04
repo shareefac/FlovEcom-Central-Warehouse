@@ -416,6 +416,28 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(3, (int) self::$db->value("SELECT COUNT(*) FROM erp_pi WHERE name LIKE 'PI-G%' AND state = 'copied'"));
     }
 
+    /** The Codex re-check of ce9e1a0: a back-fill from an earlier date switched off before its end is gone on with from its date. */
+    public function testAnEarlierBackFillSwitchedOffBeforeItsEndGoesOnWithItsDate(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        $this->setting(ErpInvoiceCopy::PER_RUN, '2');
+        foreach (['PI-H1', 'PI-H2', 'PI-H3', 'PI-H4'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 5]], ['modified' => '2026-10-2' . ($i + 1) . ' 10:00:00.000000',
+                'posting_date' => '2026-08-20', 'bill_date' => '2026-08-20']);
+        }
+        self::assertSame(['copied' => 2], $this->copy()->run($this->reader(), true, '2026-08-15')['counts']);
+        $this->setting(ErpInvoiceCopy::PER_RUN, '4'); // H3 and H4 are fewer than it reads: not capped
+        $off = $this->copy()->run($this->reader(), true, null, null, static function (string $name): void {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST('false' AS JSON) WHERE setting_key = ?", [ErpInvoiceCopy::SWITCH]); // off after H3
+        });
+        self::assertSame(['2026-08-15', true, ['copied' => 1]], [$off['from'], $off['stopped'], $off['counts']]);
+        $this->setting(ErpInvoiceCopy::SWITCH, 'true');
+        $back = $this->copy()->run($this->reader(), true);
+        self::assertSame(['2026-08-15', ['copied' => 1, 'unchanged' => 1]], [$back['from'], self::sorted($back['counts'])], 'H4 is copied: August still');
+        self::assertSame(4, (int) self::$db->value("SELECT COUNT(*) FROM erp_pi WHERE name LIKE 'PI-H%' AND state = 'copied'"));
+    }
+
     /** The Codex review of d8af941, MEDIUM 3: the job's reasons must be able to cancel a copy, or the run stops before it reads anything. */
     public function testARunStopsBeforeReadingWhenItsReasonsCannotCancelACopy(): void
     {
@@ -483,8 +505,14 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(['copied', 'refused'], [$p['state'], $p['problem']]);
         self::assertStringContainsString('reversal_pending', (string) $p['problem_detail']);
         self::assertSame(['PI-C1'], array_column((new ErpInvoiceCopy(self::$db))->list(), 'name'), 'listed with the waiting ones');
-        $r = $this->copy()->run($this->reader(), true); // ERPNext lists nothing new: it is read again all the same
-        self::assertSame(['reversed' => 1], $r['counts']);
+        // Fresh changes fill more than a run reads (two a run): PI-C1 is read again all the same, in the share kept for it (the Codex
+        // re-check of ce9e1a0).
+        $this->setting(ErpInvoiceCopy::PER_RUN, '2');
+        foreach (['PI-F1', 'PI-F2', 'PI-F3'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 2]], ['modified' => '2026-10-1' . ($i + 1) . ' 10:00:00.000000']);
+        }
+        $r = $this->copy()->run($this->reader(), true);
+        self::assertSame([2, ['copied' => 1, 'reversed' => 1], true], [$r['read'], self::sorted($r['counts']), $r['capped']]);
         self::assertSame(['reversed', null], [$this->erpRow('PI-C1')['state'], $this->erpRow('PI-C1')['problem']]);
         self::assertSame('reversed', self::$db->value('SELECT status FROM document WHERE id = ?', [(int) $p['document_id']]));
     }

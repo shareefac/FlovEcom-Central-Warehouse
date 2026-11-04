@@ -15888,7 +15888,7 @@ item ERPNext does not return stops the run (fail closed: without it the relay's 
 
 **EC2. Six settings, the switch off.** 0060: `erp_copy.on` (OFF; On / Off), `erp_copy.company` (VAPE AND GO; typed as ERPNext writes it,
 a formula refused), `erp_copy.from_date` (2026-09-01), `erp_copy.create_suppliers` (on), `erp_copy.update_prices` (on), `erp_copy.per_run`
-(200, 1-5000: the most invoices one run reads, EC17); Settings › Rules and
+(200, 2-5000: the most invoices one run reads, EC17, EC19); Settings › Rules and
 numbers › "Invoices from ERPNext"; each with its baseline, provisional as every new one. While the switch is off the job reads and writes
 nothing and says so. There is no setting for the cost (EC5).
 
@@ -16020,3 +16020,10 @@ amendment needs and the copies read again included: an invoice whose needs no lo
 the one before it; the first invoice of a run is always taken with what it needs, so every run goes on), and the invoices debit notes
 wait for (`original_missing`) are read within what is left. (3) A back-fill from a date BEFORE the setting's that reached the cap is
 drained by the next runs with its own date (for reading and for copying) until a run of it is not capped; then the setting's date again.
+
+**EC19. The re-check of ce9e1a0 (runs/ec_codex_review5.txt).** Fixed: a numeric name of an invoice a debit note needs stays a name (no
+type error); a run switched off before its end counts as one with more to read, so a back-fill from an earlier date is still gone on
+with from its date; and a share of each run's budget (a quarter, at least one, never all: so `erp_copy.per_run` is at least 2) is kept
+first for the copies whose cancellation was refused and the invoices waiting debit notes need, so a steady flow of fresh changes can
+never starve them. Kept as decided: the first invoice of a run is always taken with what it needs (at most two more reads than the
+budget), and an invoice read and then left for the next run costs that read: both keep every run moving, and the overshoot is bounded.

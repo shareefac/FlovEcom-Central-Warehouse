@@ -201,9 +201,23 @@ final class ErpInvoiceCopy
             // ONE budget of $cap invoices read from ERPNext a run, the invoices a debit note or an amendment needs included (the Codex
             // reviews of d8af941 and fac1ea9, MEDIUM 2): a back-fill of thousands at once could run out of memory before it copied anything,
             // and its cursor would never move. An invoice whose own needs no longer fit is left for the next run (the cursor stays on the
-            // one before it); the first one is always taken with what it needs, so a run always goes on.
-            $budget = $cap;
-            $listed = $reader->changed($s['company'], $fromDate, $cursor, $cap);
+            // one before it); the first one is always taken with what it needs (at most two more), so a run always goes on.
+            //
+            // A share of it (a quarter, at least one, never all) is kept first for what must be read again whatever the cursor (the Codex
+            // re-check of ce9e1a0: fresh changes alone could use every run's budget): a copy whose last attempt was refused (its
+            // cancellation, say: past the cursor nothing else would bring it back), and the invoices waiting debit notes return against
+            // (`original_missing`); the longest-untried first.
+            $quota = $cap >= 2 ? min(max(1, intdiv($cap, 4)), $cap - 1) : 0;
+            $again = $quota < 1 ? [] : array_map('strval', $this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT "
+                . $quota));
+            if (count($again) < $quota) {
+                $again = [...$again, ...array_map('strval', $this->db->column("SELECT DISTINCT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
+                    . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL ORDER BY p.return_against LIMIT "
+                    . ($quota - count($again))))];
+            }
+            $listLimit = $cap - count($again);
+            $budget = $listLimit;
+            $listed = $reader->changed($s['company'], $fromDate, $cursor, $listLimit);
             $docs = [];
             foreach ($listed as $i => $l) {
                 if ($i > 0 && $budget < 1) {
@@ -214,7 +228,7 @@ final class ErpInvoiceCopy
                 $sum['read']++;
                 $needs = [];
                 foreach (['return_against', 'amended_from'] as $k) {
-                    $o = is_string($d[$k] ?? null) && $d[$k] !== '' ? $d[$k] : null;
+                    $o = is_scalar($d[$k] ?? null) && (string) $d[$k] !== '' ? (string) $d[$k] : null;
                     if ($o !== null && $o !== $l['name'] && !isset($docs[$o]) && $this->db->value('SELECT 1 FROM erp_pi WHERE name = ?', [$o]) === null) {
                         $needs[$o] = true;
                     }
@@ -230,32 +244,22 @@ final class ErpInvoiceCopy
                 $sum['cursor_to'] = $l['modified'];
                 $sum['cursor_name'] = $l['name'];
                 foreach (array_keys($needs) as $o) {
+                    $o = (string) $o; // a numeric name became an int key (the Codex re-check of ce9e1a0)
                     $docs[$o] = $reader->invoice($o);
                     $sum['read']++;
                     $budget--;
                 }
             }
-            $sum['capped'] = $sum['capped'] || count($listed) >= $cap;
+            $sum['capped'] = $sum['capped'] || count($listed) >= $listLimit;
             unset($listed);
-            // A copy whose last attempt was refused (its cancellation, say) is read again from ERPNext: past the cursor nothing else would
-            // bring it back (the Codex re-check of 6102935, NEW 1). Then the invoices debit notes waiting from earlier runs return against
-            // (a debit note waits for it as `original_missing`). Within what is left of the budget, the longest-untried first.
-            $again = $budget < 1 ? [] : $this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . $budget);
-            $again = [...$again, ...($budget < 1 ? [] : $this->db->column("SELECT DISTINCT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
-                . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL ORDER BY p.return_against LIMIT " . $budget))];
             foreach ($again as $name) {
-                if ($budget < 1) {
-                    break;
-                }
-                if (!isset($docs[(string) $name])) {
+                if (!isset($docs[$name])) {
                     try {
-                        $docs[(string) $name] = $reader->invoice((string) $name);
+                        $docs[$name] = $reader->invoice($name);
                     } catch (CwException) {
-                        continue; // not readable now: it stays as it is (waiting, or copied with its problem) for a later run
-                    } finally {
-                        $sum['read']++;
-                        $budget--;
+                        // not readable now: it stays as it is (waiting, or copied with its problem) for a later run
                     }
+                    $sum['read']++;
                 }
             }
             $codes = [];
@@ -1191,7 +1195,9 @@ final class ErpInvoiceCopy
     {
         return ['read' => $sum['read'], 'counts' => $sum['counts'], 'problems' => $sum['problems'], 'suppliers_created' => $sum['suppliers_created'],
             'prices' => $sum['prices'], 'retried' => $sum['retried'], 'relay_rechecked' => $sum['relay_rechecked'], 'stopped' => $sum['stopped'],
-            'capped' => $sum['capped'] ?? false];
+            // More to read from its date (the cap reached, or switched off before the end: the Codex re-check of ce9e1a0): continuation()
+            // goes on with this run's date until a run of it ends with nothing left.
+            'capped' => ($sum['capped'] ?? false) || $sum['stopped']];
     }
 
     private function channel(): ?int
