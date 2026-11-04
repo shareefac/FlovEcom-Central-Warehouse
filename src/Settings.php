@@ -234,6 +234,12 @@ final class Settings
         'erp_copy.company' => ['pattern' => '/^[^\x00-\x20\x7F=+\-@][^\x00-\x1F\x7F]{0,139}$/Du', 'pattern_says' => 'an ERPNext company name, like VAPE AND GO'],
         // The most invoices one run reads from ERPNext (a big back-fill goes on run after run; the Codex review of d8af941, MEDIUM 2).
         'erp_copy.per_run' => ['min' => 2, 'max' => 5000], // at least one fresh change and one read again a run (ErpInvoiceCopy::run)
+        // ---- Reorder › Suggestions "Buy for N days" (0061; docs/decisions.md BF5): the numbers of days offered (up to 12, each 1-999; one
+        // outside the smallest and largest below is not offered), and the smallest and largest number a person may choose (1-365 each).
+        'reorder.buy_for_presets' => ['pattern' => '/^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,11}$/D',
+            'pattern_says' => 'numbers of days separated by commas, like 7,14,28 (empty: only a typed number)'],
+        'reorder.buy_for_min_days' => ['min' => 1, 'max' => 365, 'at_most' => ['reorder.buy_for_max_days']],
+        'reorder.buy_for_max_days' => ['min' => 1, 'max' => 365, 'at_least' => ['reorder.buy_for_min_days']],
     ];
 
     /**

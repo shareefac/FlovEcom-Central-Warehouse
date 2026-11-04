@@ -45,6 +45,11 @@ use CW\Ui\Words;
  * ReorderRefresh: "Figures worked out on ..."); the website-stock view still works its lines out on the page. The filter "below the safety
  * stock only" (whatever there is to buy). After "create draft orders", an item's or a brand's settings and Recalculate, the lines they
  * touch are worked out again at once (a brand's only up to reorder.refresh_inline_max_items items; the schedule does the rest).
+ *
+ * "Buy for N days" (docs/decisions.md BF1-BF8): the choice `buy_for` (the presets of reorder.buy_for_presets) or a number typed in
+ * `buy_days` (it wins: the field is drawn empty, so a number there was just typed), within reorder.buy_for_min_days..max_days. The list,
+ * its counts and costs, its order, the download, the "Why" and "Create draft orders" (the form carries `buy_for`) then follow N; the usual
+ * list is the one without it.
  */
 final class ReorderController
 {
@@ -65,7 +70,8 @@ final class ReorderController
 
     public function index(Context $ctx): HtmlResponse
     {
-        return $this->listPage($ctx, ReorderList::filters($this->query($ctx->req)), 200, null);
+        [$f, $note] = $this->buyFor($ctx, $this->query($ctx->req), $ctx->req->param('buy_days'));
+        return $this->listPage($ctx, $f, 200, $note);
     }
 
     public function csv(Context $ctx): HtmlResponse
@@ -76,11 +82,11 @@ final class ReorderController
             ['cover_days', 'number'], ['target', 'number'], ['reorder_point', 'number'], ['stock_source', 'text'], ['available', 'number'], ['on_order', 'number'],
             ['in_drafts', 'number'], ['need', 'number'], ['packs', 'number'], ['units_per_pack', 'number'], ['purchase_unit', 'text'], ['units', 'number'],
             ['pack_price', 'number'], ['value', 'number'], ['cover_now_days', 'text'], ['urgent', 'text'], ['flags', 'text'], ['why', 'text']]);
-        $f = ReorderList::filters($this->query($ctx->req));
+        [$f] = $this->buyFor($ctx, $this->query($ctx->req), $ctx->req->param('buy_days'));
         $stored = new ReorderLines($ctx->db);
         $chunks = $f['stock'] === 'cw' ? array_chunk($stored->ids($f), 1000) : array_chunk($list->lines($f), 1000);
         foreach ($chunks as $chunk) {
-            foreach ($list->explain($f['stock'] === 'cw' ? $stored->lines($chunk) : $chunk) as $l) {
+            foreach ($list->explain($f['stock'] === 'cw' ? $stored->lines($chunk, $f['buy_for']) : $chunk) as $l) {
                 $csv->add([$l['code'], $l['name'], $l['brand'], $l['supplier'], $l['supplier_code'], DemandMath::e4(DemandMath::halfUpDiv($l['d_e6'], 100)),
                     DemandMath::e4($l['rate_e4']), DemandMath::e4($l['rate_raw_30_e4']), intdiv($l['factor_e2'], 100) . '.' . str_pad((string) ($l['factor_e2'] % 100), 2, '0', STR_PAD_LEFT),
                     $l['lead'], $l['review'], $l['safety'], $l['cover_days'], $l['target'], $l['rop'], $l['stock_source'], $l['available'], $l['on_order'], $l['in_drafts'],
@@ -96,6 +102,11 @@ final class ReorderController
     {
         $req = $ctx->req;
         $f = ReorderList::filters($this->formFilters($req));
+        // BF6: the days the list was bought for travel with the form; outside the range now: refused, nothing ordered.
+        $range = ReorderSettings::buyFor($ctx->settings());
+        if ($f['buy_for'] === null && trim((string) $req->field('buy_for')) !== '' || $f['buy_for'] !== null && ($f['buy_for'] < $range['min'] || $f['buy_for'] > $range['max'])) {
+            return $this->listPage($ctx, ['buy_for' => null] + $f, 422, Words::REORDER_ENGINE_ERROR['bad_buy_for']);
+        }
         $count = $req->field('row_count');
         if ($count === null || preg_match('/^(0|[1-9][0-9]{0,3})$/D', $count) !== 1) {
             return $ctx->error(400, 'form_truncated', Words::BUY_ERROR['reorder_truncated']);
@@ -124,8 +135,10 @@ final class ReorderController
                 $picks[] = $pick;
             }
             usort($picks, static fn (array $a, array $b): int => $a['sku_id'] <=> $b['sku_id']);
-            $r = FormOnce::run($ctx, 'ui.reorder.draft', ['picks' => $picks, 'stock' => $f['stock']], function (Db $db) use ($ctx, $picks, $f): OpResult {
-                $res = $this->draftPos($ctx)->create($ctx->caller(), $picks, $f['stock'], $ctx->req->field(FormOnce::FIELD));
+            // BF6: N is part of what the form did (the usual list's payload as before).
+            $did = ['picks' => $picks, 'stock' => $f['stock']] + ($f['buy_for'] === null ? [] : ['buy_for' => $f['buy_for']]);
+            $r = FormOnce::run($ctx, 'ui.reorder.draft', $did, function (Db $db) use ($ctx, $picks, $f): OpResult {
+                $res = $this->draftPos($ctx)->create($ctx->caller(), $picks, $f['stock'], $ctx->req->field(FormOnce::FIELD), $f['buy_for']);
                 if ($res['drafts'] === []) {
                     throw new CwException('nothing_ordered', Words::say('BUY_ERROR', 'nothing_ordered', implode('; ', array_map(static fn (array $s): string => "{$s['code']}: {$s['reason']}",
                         array_slice($res['skipped'], 0, 10))) . (count($res['skipped']) > 10 ? '; …' : '')), 422);
@@ -137,7 +150,8 @@ final class ReorderController
                         'skipped_n' => count($res['skipped']) > self::SKIPPED_IN_URL ? (string) count($res['skipped']) : null,
                         // Pack PO (PO11): the lines skipped because what the list showed changed (their reason is not the list's now).
                         'changed' => self::changedIds($res['skipped']),
-                        'brand' => $f['brand'], 'supplier' => $f['supplier'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock']]);
+                        'brand' => $f['brand'], 'supplier' => $f['supplier'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock'],
+                        'buy_for' => $f['buy_for'] === null ? null : (string) $f['buy_for']]);
                 return OpResult::of(303, ['result' => 'drafts', 'drafts' => array_column($res['drafts'], 'document_id'), 'skipped' => array_column($res['skipped'], 'sku_id'),
                     'redirect' => $redirect]);
             });
@@ -168,7 +182,7 @@ final class ReorderController
         $code = $e->errorCode;
         return match (true) {
             in_array($code, ['bad_pick', 'nothing_ordered', 'rebuild_on_server', 'refresh_later'], true) => $e->getMessage(), // made in words here
-            isset(Words::REORDER_ENGINE_ERROR[$code]) => Words::REORDER_ENGINE_ERROR[$code], // pack G
+            isset(Words::REORDER_ENGINE_ERROR[$code]) => Words::REORDER_ENGINE_ERROR[$code], // pack G (and BF6's bad_buy_for)
             $code === 'version_conflict' => Words::BUY_ERROR['version_conflict_settings'],
             isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
             isset(Words::BUY_ERROR[$code]) && $code !== 'other' => Words::BUY_ERROR[$code],
@@ -317,11 +331,18 @@ final class ReorderController
     // Pages
     // ------------------------------------------------------------------------------------------
 
-    /** @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string} $f */
+    /** @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, buy_for?: ?int} $f */
     private function listPage(Context $ctx, array $f, int $status, ?string $error): HtmlResponse
     {
         $list = $this->list($ctx);
         $page = max(1, (int) (UiRequest::id($ctx->req->param('page') ?? $ctx->req->field('page')) ?? 1));
+        $range = ReorderSettings::buyFor($ctx->settings());
+        $days = $f['buy_for'] ?? null;
+        if ($days !== null && ($days < $range['min'] || $days > $range['max'])) {
+            $days = null; // BF5: never a list for days outside the range (callers say so in words)
+        }
+        $f['buy_for'] = $days;
+        $waiting = 0;
         if ($f['stock'] === 'cw') {
             // Pack G (PG3): one page of the stored list; the list is worked out by ReorderRefresh, never here.
             $stored = new ReorderLines($ctx->db);
@@ -334,6 +355,7 @@ final class ReorderController
             $total = $res['total'];
             $lines = $list->explain($res['lines']);
             $brands = $stored->brands();
+            $waiting = $res['waiting']; // BF4: lines of these filters not worked out for N yet
         } else {
             $all = $list->lines($f);
             $total = count($all);
@@ -382,8 +404,68 @@ final class ReorderController
             'error' => $error,
             'created' => $notice === 'drafts' ? $this->created($ctx) : null,
             'query' => ['brand' => $f['brand'], 'supplier' => $f['supplier'], 'q' => $f['q'] === '' ? null : $f['q'], 'urgent' => $f['urgent'] ? '1' : null,
-                'show' => $f['show'] === 'need' ? null : $f['show'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock'], 'below' => $f['below'] ? '1' : null],
+                'show' => $f['show'] === 'need' ? null : $f['show'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock'], 'below' => $f['below'] ? '1' : null,
+                'buy_for' => $days === null ? null : (string) $days],
+            // BF1, BF8: the choice (the usual cycles, the presets, the days chosen when they are not a preset), its range, its words.
+            'buyFor' => ['days' => $days, 'min' => $range['min'], 'max' => $range['max'], 'words' => $days === null ? null : self::daysWords($days),
+                'options' => self::buyForOptions($range['presets'], $days), 'waiting' => $waiting],
         ], $status, ['title' => Words::MENU['reorder'], 'active' => 'reorder', 'notice' => self::NOTICES[$notice ?? ''] ?? null]);
+    }
+
+    /**
+     * "Buy for N days" of a request (BF1, BF5): the list's filters with `buy_for` set from a number typed in $typed (it wins) or the choice,
+     * and the note to show (null: none). A typed number that is not a whole number within the range is refused in words, the choice
+     * standing; a choice outside the range gives the usual list, said in words.
+     *
+     * @param array<string, ?string> $q
+     * @return array{0: array<string, mixed>, 1: ?string}
+     */
+    private function buyFor(Context $ctx, array $q, ?string $typed): array
+    {
+        $range = ReorderSettings::buyFor($ctx->settings());
+        $note = null;
+        $typed = trim((string) $typed);
+        if ($typed !== '') {
+            if (preg_match('/^[1-9][0-9]{0,2}$/D', $typed) === 1 && (int) $typed >= $range['min'] && (int) $typed <= $range['max']) {
+                $q['buy_for'] = $typed;
+            } else {
+                $note = Words::say('REORDER_BUY_FOR', 'bad_typed', $range['min'], $range['max']);
+            }
+        }
+        $f = ReorderList::filters($q);
+        if ($f['buy_for'] === null && trim((string) ($q['buy_for'] ?? '')) !== '' || $f['buy_for'] !== null && ($f['buy_for'] < $range['min'] || $f['buy_for'] > $range['max'])) {
+            $f['buy_for'] = null;
+            $note ??= Words::say('REORDER_BUY_FOR', 'out_of_range', $range['min'], $range['max']);
+        }
+        return [$f, $note];
+    }
+
+    /** A number of days as people read it (BF8): "1 week", "2 weeks" for whole weeks, else "1 day", "10 days". */
+    public static function daysWords(int $days): string
+    {
+        if ($days % 7 === 0) {
+            return $days === 7 ? Words::REORDER_BUY_FOR['week_one'] : Words::say('REORDER_BUY_FOR', 'weeks', intdiv($days, 7));
+        }
+        return $days === 1 ? Words::REORDER_BUY_FOR['day_one'] : Words::say('REORDER_BUY_FOR', 'days', $days);
+    }
+
+    /**
+     * The choices of "Buy for" (BF8): the usual order cycles first, then the presets, then the days chosen when they are not a preset (so the
+     * list drawn for a typed number says so); the one shown is selected.
+     *
+     * @param list<int> $presets
+     * @return list<array{value: string, words: string, selected: bool}>
+     */
+    public static function buyForOptions(array $presets, ?int $days): array
+    {
+        $out = [['value' => '', 'words' => Words::REORDER_BUY_FOR['usual'], 'selected' => $days === null]];
+        foreach ($presets as $p) {
+            $out[] = ['value' => (string) $p, 'words' => self::daysWords($p), 'selected' => $p === $days];
+        }
+        if ($days !== null && !in_array($days, $presets, true)) {
+            $out[] = ['value' => (string) $days, 'words' => self::daysWords($days), 'selected' => true];
+        }
+        return $out;
     }
 
     /**
@@ -657,7 +739,7 @@ final class ReorderController
     private function query(UiRequest $req): array
     {
         $out = [];
-        foreach (['brand', 'supplier', 'q', 'urgent', 'show', 'stock', 'below'] as $k) {
+        foreach (['brand', 'supplier', 'q', 'urgent', 'show', 'stock', 'below', 'buy_for'] as $k) {
             $out[$k] = $req->param($k);
         }
         return $out;
@@ -667,7 +749,7 @@ final class ReorderController
     private function formFilters(UiRequest $req): array
     {
         $out = [];
-        foreach (['brand', 'supplier', 'q', 'urgent', 'show', 'stock', 'below'] as $k) {
+        foreach (['brand', 'supplier', 'q', 'urgent', 'show', 'stock', 'below', 'buy_for'] as $k) {
             $out[$k] = $req->field($k);
         }
         return $out;

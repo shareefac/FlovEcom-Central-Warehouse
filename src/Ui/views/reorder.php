@@ -4,7 +4,8 @@
 // "Create draft orders" made, the figures strip (products to buy, will run out, cost, when the figures were worked out), one search box
 // and the Show row; then the suggestions grouped will run out, to buy, enough for now, each group a coloured heading with its count over a
 // card with its colour on the left edge, and ONE "Create draft orders" in the bar at the bottom of the list (doc.PO.post). The draft form
-// carries what it did (row_count first, FormOnce, the filters).
+// carries what it did (row_count first, FormOnce, the filters). "Buy for" (docs/decisions.md BF8): beside the search, the usual order cycles, the
+// presets and a typed number of days (it wins); the figures strip says the days chosen, and the draft form carries them (BF6).
 $bar = $partial('reorder_bar', ['rows' => $rows, 'query' => $query, 'history' => $history, 'channelNames' => $channelNames, 'canManage' => $canManage,
     'figures' => $figures, 'stockCw' => $filters['stock'] === 'cw']);
 $latest = null;
@@ -47,7 +48,7 @@ foreach ($history['channels'] as $c) {
 <?php endif; ?>
 
 <section class="doc-progress rp-figs rp-keep" aria-label="<?= $word('REORDER', 'figures') ?>">
-  <div class="doc-step"><p class="doc-step-label"><?php if ($filters['show'] === 'need'): ?><?= $word('REORDER', 'fig_to_buy') ?><?php else: ?><?= $word('REORDER', 'fig_listed') ?><?php endif; ?></p><p class="doc-step-big"><?= $n($total) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?php if ($filters['show'] === 'need'): ?><?= $word('REORDER', 'fig_to_buy') ?><?php else: ?><?= $word('REORDER', 'fig_listed') ?><?php endif; ?></p><p class="doc-step-big"><?= $n($total) ?></p><?php if ($buyFor['days'] !== null): ?><p class="step-sub"><?= $say('REORDER_BUY_FOR', 'chosen', $buyFor['words']) ?></p><?php endif; ?></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER', 'fig_urgent') ?></p><p class="doc-step-big"><?= $n($strip['urgent']) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER', 'fig_page') ?></p><?php endif; ?></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER', 'fig_value') ?></p><p class="doc-step-big"><?= $e($strip['value']) ?></p><?php if ($pages > 1): ?><p class="step-sub"><?= $word('REORDER', 'fig_page') ?></p><?php endif; ?></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('REORDER', 'fig_worked') ?></p><p class="doc-step-big"><?php if ($filters['stock'] === 'cw' && $figures['at'] !== null): ?><?= $when($figures['at']) ?><?php elseif ($history['computed_at'] !== null): ?><?= $when($history['computed_at']) ?><?php else: ?><?= $word('REORDER', 'fig_never') ?><?php endif; ?></p><?php if ($latest !== null): ?><p class="step-sub"><?= $say('REORDER', 'fig_sales_to', \CW\Ui\Html::day($latest)) ?></p><?php endif; ?><?php if ($stale): ?><p><?= $chip('needs', \CW\Ui\Words::REORDER['fig_old']) ?></p><?php endif; ?></div>
@@ -56,8 +57,22 @@ foreach ($history['channels'] as $c) {
 <?php if ($history['channels'] === []): ?>
 <p class="note"><?= $word('REORDER', 'no_data') ?> <?= $word('REORDER', 'no_data_text') ?></p>
 <?php endif; ?>
+<?php if ($buyFor['waiting'] > 0): ?>
+<p class="note"><?= $say('REORDER_BUY_FOR', 'waiting', $figures['minutes']) ?></p>
+<?php endif; ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></div>
+  <div class="tb-state tb-buyfor">
+    <label for="tb-buyfor"><?= $word('REORDER_BUY_FOR', 'label') ?></label>
+    <select id="tb-buyfor" name="buy_for">
+<?php foreach ($buyFor['options'] as $o): ?>
+      <option value="<?= $e($o['value']) ?>"<?php if ($o['selected']): ?> selected<?php endif; ?>><?= $e($o['words']) ?></option>
+<?php endforeach; ?>
+    </select>
+    <label class="visually-hidden" for="tb-days"><?= $word('REORDER_BUY_FOR', 'typed') ?></label>
+    <input id="tb-days" class="tb-days" type="number" name="buy_days" value="" min="<?= $e($buyFor['min']) ?>" max="<?= $e($buyFor['max']) ?>" step="1" inputmode="numeric" placeholder="<?= $say('REORDER_BUY_FOR', 'typed_hint', $buyFor['min'], $buyFor['max']) ?>">
+    <button type="submit" class="btn sm"><?= $word('REORDER_BUY_FOR', 'go') ?></button>
+  </div>
   <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('REORDER', 'show') ?></label>
@@ -113,6 +128,7 @@ foreach ($history['channels'] as $c) {
   <input type="hidden" name="show" value="<?= $e($filters['show']) ?>">
   <input type="hidden" name="urgent" value="<?= $e($filters['urgent'] ? '1' : '') ?>">
   <input type="hidden" name="below" value="<?= $e($filters['below'] ? '1' : '') ?>">
+  <input type="hidden" name="buy_for" value="<?= $e($buyFor['days'] ?? '') ?>">
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <?php foreach ($groups as $g): ?>

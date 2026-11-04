@@ -27,6 +27,10 @@ use CW\Settings;
  * cannot undo items()' newer line; review finding 1). The full run's clean-up unlists only what it read the list's ids for, and only
  * items still off the list (review finding 2).
  * Reads stock_balance, the purchase orders and the reorder tables; writes only reorder_line, reorder_line_detail and reorder_job.
+ *
+ * "Buy for N days" (0061; docs/decisions.md BF3, BF4): each written row also gets the compact inputs of its need (ReorderLines::INPUTS), and
+ * a line is "unchanged" only when its sha1 AND its stored inputs are the line's: a row written before 0061 or by older code (inputs NULL or
+ * from an older line) is written again at the next refresh, whatever its sha1.
  */
 final class ReorderRefresh
 {
@@ -140,12 +144,13 @@ final class ReorderRefresh
             $encoded = [];
             foreach ($this->list->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), $ids) as $l) {
                 $json = json_encode($l, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
-                $encoded[(int) $l['sku_id']] = [$l, $json, sha1($json)];
+                $encoded[(int) $l['sku_id']] = [$l, $json, sha1($json), ReorderLines::inputs($l)];
             }
             $have = [];
-            foreach ($db->all('SELECT sku_id, line_hash, listed, read_at FROM reorder_line FORCE INDEX (PRIMARY) WHERE sku_id IN ('
+            foreach ($db->all('SELECT sku_id, line_hash, listed, read_at, ' . implode(', ', ReorderLines::INPUTS) . ' FROM reorder_line FORCE INDEX (PRIMARY) WHERE sku_id IN ('
                 . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY sku_id FOR UPDATE', $ids) as $r) {
-                $have[(int) $r['sku_id']] = ['hash' => (string) $r['line_hash'], 'listed' => (int) $r['listed'] === 1, 'read_at' => (string) $r['read_at']];
+                $have[(int) $r['sku_id']] = ['hash' => (string) $r['line_hash'], 'listed' => (int) $r['listed'] === 1, 'read_at' => (string) $r['read_at'],
+                    'inputs' => array_map(static fn (mixed $v): ?int => $v === null ? null : (int) $v, array_map(static fn (string $c): mixed => $r[$c], ReorderLines::INPUTS))];
             }
             $write = [];
             $seen = [];
@@ -154,7 +159,7 @@ final class ReorderRefresh
                 if ($h !== null && $h['read_at'] > $readAt) {
                     continue; // read later by another refresh: its line stands
                 }
-                if ($h !== null && $h['listed'] && $h['hash'] === $e[2]) {
+                if ($h !== null && $h['listed'] && $h['hash'] === $e[2] && $h['inputs'] === $e[3]) {
                     $seen[] = $id;
                     continue;
                 }
@@ -170,18 +175,18 @@ final class ReorderRefresh
             foreach (array_chunk($write, 200, true) as $part) {
                 $rows = [];
                 $details = [];
-                foreach ($part as $id => [$l, $json, $hash]) {
+                foreach ($part as $id => [$l, $json, $hash, $inputs]) {
                     array_push($rows, $id, 1, (int) $l['packs'] > 0 ? 1 : 0, $l['urgent'] ? 1 : 0, $l['below_safety'] ? 1 : 0, $l['never'] !== null ? 1 : 0,
                         $l['cover_now_e1'] === null ? 1 : 0, $l['cover_now_e1'] ?? 0, $l['value_e4'] ?? 0, $l['brand'], $l['supplier_id'], (int) $l['safety_stock'],
-                        (int) $l['available'], $l['low_stock_level'], $hash, $readAt, $readAt);
+                        (int) $l['available'], $l['low_stock_level'], $hash, $readAt, $readAt, ...$inputs);
                     array_push($details, $id, $json, $readAt);
                 }
                 $newer = static fn (string $c): string => "{$c} = IF(new.read_at >= reorder_line.read_at, new.{$c}, reorder_line.{$c})";
                 $db->exec('INSERT INTO reorder_line (sku_id, listed, need, urgent, below_safety, never_suggested, no_demand, cover_now_e1, value_e4, brand, supplier_id, '
-                    . 'safety_stock, available, low_stock_level, line_hash, read_at, changed_at) VALUES '
-                    . implode(', ', array_fill(0, count($part), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')) . ' AS new ON DUPLICATE KEY UPDATE '
+                    . 'safety_stock, available, low_stock_level, line_hash, read_at, changed_at, ' . implode(', ', ReorderLines::INPUTS) . ') VALUES '
+                    . implode(', ', array_fill(0, count($part), '(' . implode(', ', array_fill(0, 17 + count(ReorderLines::INPUTS), '?')) . ')')) . ' AS new ON DUPLICATE KEY UPDATE '
                     . implode(', ', array_map($newer, ['listed', 'need', 'urgent', 'below_safety', 'never_suggested', 'no_demand', 'cover_now_e1', 'value_e4', 'brand',
-                        'supplier_id', 'safety_stock', 'available', 'low_stock_level', 'line_hash', 'changed_at']))
+                        'supplier_id', 'safety_stock', 'available', 'low_stock_level', 'line_hash', 'changed_at', ...ReorderLines::INPUTS]))
                     . ', read_at = GREATEST(new.read_at, reorder_line.read_at)', $rows); // read_at LAST: the IFs above compare with the stored one
                 $db->exec('INSERT INTO reorder_line_detail (sku_id, line, read_at) VALUES ' . implode(', ', array_fill(0, count($part), '(?, CAST(? AS JSON), ?)'))
                     . ' AS new ON DUPLICATE KEY UPDATE line = IF(new.read_at >= reorder_line_detail.read_at, new.line, reorder_line_detail.line), '

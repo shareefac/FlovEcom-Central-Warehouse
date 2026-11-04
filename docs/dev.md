@@ -1327,3 +1327,19 @@ every other Items and Inventory page. Layout and view data only.
 - Tests: `tests/Integration/Invoices/ErpInvoiceCopyTest.php` (ERPNext answered by `tests/Support/ErpFakeTransport.php`, real relayed stock),
   `ErpCopyJobTest.php`, `Migration0060Test.php`, `tests/Integration/UiKernel/ErpCopyScreensTest.php`, `tests/Unit/ErpApiReaderTest.php`,
   `tests/Unit/ErpCopyUnitTest.php`.
+
+### Reorder › Suggestions "Buy for N days" (`docs/decisions.md` BF1-BF12; branch `reorder-buy-for`; 4 Nov 2026)
+
+| Path | What |
+|---|---|
+| `migrations/0061_reorder_buy_for.sql` | eleven input columns at the end of `reorder_line` (INSTANT, only while none is there), their back-fill from each row's stored line (only rows without them), the settings `reorder.buy_for_presets`, `reorder.buy_for_min_days`, `reorder.buy_for_max_days` and their baselines |
+| `src/Reorder/ReorderList.php` | `filters()`' `buy_for`; `forDays()` (a line bought for N: ReorderMath with N in place of R, `buy_for`, `usual_review`); `lines()` applies it |
+| `src/Reorder/ReorderLines.php` | `INPUTS`, `inputs()`; `page()` / `ids()` bought for N (`buyForSql()`, `PACKS_N`, `HINT_N`, `idsN()`: chosen, counted and ordered in SQL, `waiting`), `lines($ids, $days)` |
+| `src/Reorder/ReorderRefresh.php` | writes the inputs with each line; a row whose stored inputs are not its line's is written again |
+| `src/Reorder/DraftPos.php`, `ReorderSettings.php` (`buyFor()`), `Explain.php`, `src/Ui/ReorderWhy.php` | drafts store N's suggestion (422 `bad_buy_for` outside the range); the range and presets; the maths and the Why say "bought for N days (you chose)" |
+| `src/Ui/Controller/ReorderController.php`, view `reorder`, `public/ui/assets/app.css` (`.tb-buyfor`, `input.tb-days`) | the choice and the typed number (`buy_for`, `buy_days`; `buyFor()`, `daysWords()`, `buyForOptions()`), the figure strip's line, the draft form's `buy_for`, the CSV |
+| `src/Ui/Words.php`, `src/Settings.php` | `REORDER_BUY_FOR`, `WHY cover_buy_for`, `REORDER_ENGINE_ERROR bad_buy_for`, the three settings' words; `Settings::RULES` |
+
+- Tests: `tests/Unit/ReorderBuyForUnitTest.php`, `tests/Integration/Reorder/ReorderBuyForTest.php` (the stored list for N, SQL = ReorderMath on 400
+  random lines, drafts, the refresh's inputs), `tests/Integration/UiKernel/ReorderBuyForScreensTest.php`, `tests/Integration/Migration0061Test.php`.
+  The EXPLAIN on 20,000 lines (BF9) is a scratch tool kept out of the repository: `/root/cw_work/runs/bf_explain_scratch.php`.

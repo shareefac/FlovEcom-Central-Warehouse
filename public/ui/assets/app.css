@@ -3563,3 +3563,9 @@ a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 3
 @media (max-width: 699.98px) {
   body:has(.tabbar) .aj-foot { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
 }
+/* ==== Reorder › Suggestions "Buy for" (docs/decisions.md BF8): the choice beside the search, then a box for a typed number of days, as tall
+   as the toolbar's selects; on a phone the row takes the width, the choice and the box share it, 44 px high ================================== */
+.toolbar .tb-state.tb-buyfor select { min-width: 12rem; }
+.toolbar .tb-state input.tb-days { width: 9rem; min-height: 40px; height: 40px; padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
+@media (max-width: 699.98px), (pointer: coarse) { .toolbar .tb-state input.tb-days { min-height: 44px; height: 44px; } }
+@media (max-width: 639.98px) { .toolbar .tb-state.tb-buyfor select, .toolbar .tb-state input.tb-days { flex: 1 1 8rem; min-width: 0; } }

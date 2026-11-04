@@ -73,13 +73,16 @@ final class Explain
      * The cover, position, need and comparison sentences.
      *
      * @param array<string, mixed> $x lead, review, safety, cover_days, target, target_raw, min_applied, max_applied, min_stock, max_stock,
+     *        buy_for and usual_review (a line bought for N days, ReorderList::forDays()),
      *        stock_source (cw|site), site_date, site_channel, available, on_order, in_drafts, position, need, packs, packs_raw, units, upp,
      *        purchase_unit, moq, moq_applied, mult, mult_applied, rounding, no_supplier, never (?string), urgent, rop, rate_raw_30_e4
      */
     public static function supply(array $x): string
     {
         $out = [];
-        $cover = 'Cover ' . (int) $x['lead'] . ' lead + ' . (int) $x['review'] . ' review + ' . (int) $x['safety'] . ' safety = ' . (int) $x['cover_days']
+        // "Buy for N days" (docs/decisions.md BF7): the days chosen take the order cycle's place, and the maths says so.
+        $cycle = ($x['buy_for'] ?? null) !== null ? ' bought for (you chose, in place of ' . (int) ($x['usual_review'] ?? 0) . ' review) + ' : ' review + ';
+        $cover = 'Cover ' . (int) $x['lead'] . ' lead + ' . (int) $x['review'] . $cycle . (int) $x['safety'] . ' safety = ' . (int) $x['cover_days']
             . ' days → target ' . self::n((int) $x['target']);
         if (!empty($x['min_applied'])) {
             $cover .= ' (the minimum stock; demand alone gives ' . self::n((int) $x['target_raw']) . ')';

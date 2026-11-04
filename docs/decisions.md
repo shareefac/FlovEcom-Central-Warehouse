@@ -16033,3 +16033,110 @@ for it (`original_missing`) instead of stopping the run; `erp_copy.per_run` is t
 by hand, keeps no share); a copy whose attempt was refused is counted with the waiting ones in a run's summary. Kept as decided: the first
 invoice of a run is always taken with what it needs (at most two more reads than the budget), and an invoice read and then left for the
 next run costs that read: both keep every run moving, and the overshoot is bounded.
+
+## Reorder › Suggestions: "Buy for N days" (branch `reorder-buy-for`, 4 Nov 2026; BF1-BF12)
+
+The owner, 4 Nov 2026: "based on previous data sales how many will we need to buy for custom days, weeks etc. low stock threshold and
+all". Before this branch a buyer could not say "buy enough for 2 weeks": the order cycle R came only from the main supplier
+(`supplier.review_days`) or the setting `reorder.default_review_days` (I64), and nothing on Suggestions, its download or "Create draft
+orders" took a number of days (searched: no `buy_for`, cover or horizon option in `src/`, no word for it in `Words`). Low-stock warnings
+already exist (PG7, "Use the safety stock as the warning") and are not rebuilt. Code: `migrations/0061_reorder_buy_for.sql`; changed
+`src/Reorder/{ReorderList,ReorderLines,ReorderRefresh,DraftPos,ReorderSettings,Explain}.php`, `src/Ui/{Controller/ReorderController,ReorderWhy,
+Words}.php`, `src/Settings.php`, view `reorder`, `public/ui/assets/app.css`; tests BF10.
+
+**BF1. What N is.** On Suggestions a buyer chooses "Buy for": "Usual (each supplier's order cycle)" (the default: exactly the list of
+before), 1 week, 2 weeks, 4 weeks (the presets), or types a number of days. With N chosen every line uses N in place of R: target T =
+⌈d·(L+N+S)⌉, then the smallest and largest stock, need = T − (available + on order), packs rounded up (or to the nearest), the smallest
+order, the steps and "never suggested" exactly as `ReorderMath::line()` does. The reorder point ⌈d·(L+S)⌉, "Will run out" and the safety
+stock ⌈d·S⌉ do not depend on R, so they do not change: N says how much to buy, not when. "Products to buy", the count and the cost at the
+top, the groups, the order, the pre-ticked packs, the download, the "Why" and "Create draft orders" all follow N; the other filters
+(brand, main supplier, words, will run out, below the safety stock, CW or website stock) are as before.
+
+**BF2. One maths, never a second copy of the formula for what is shown.** `ReorderList::forDays($line, N)` works a line out again with
+`ReorderMath::line()` from the line's own inputs with N as R, and adds `buy_for` (N) and `usual_review` (the line's own R; `review` is N,
+so cover = lead + review + safety still reads true). A stored line (its JSON) and a line worked out now (the website-stock view, the
+drafts) go through the same function, so the list, its download and the drafts agree (`ReorderBuyForTest`: the stored list bought for N
+equals the list worked out now for N, line by line and in order). The usual line gets no new key: the stored lines, their sha1 and the
+usual list are as they were.
+
+**BF3. Where N is worked out (the performance choice).** About 17,000-20,000 lines are listed on production; the page reads 200. Three
+ways were weighed: (a) decode every stored JSON line and work N out in PHP: 20,000 JSON lines a page view (the whole download does it:
+1.6 s); (b) read the compact rows into PHP and work N out there (measured: 132-186 ms and 20,000 rows sent to PHP on every page view);
+(c) **chosen:** keep the few inputs of a line's need in `reorder_line` (0061: `d_e6` (sales a day × the factor, e6), `lead_days`,
+`safety_days`, `stock_position` (available + on order), `min_stock`, `max_stock`, `units_per_pack`, `moq_packs`, `multiple_packs`,
+`round_nearest`, `pack_price_e4`; `never_suggested` was there) and let SQL choose, count and order the lines for N
+(`ReorderLines::buyForSql()`): no row is sent but the page's 200 ids, never a JSON line beyond those 200, never the ledger or an order
+line. The 200 lines are then read as always and worked out by `forDays()` (BF2), so the figures shown are ReorderMath's own; the SQL only
+decides which lines and in what order. It is the same integer arithmetic (every quantity is whole and never below 0, so `DIV` is PHP's
+`intdiv` and `(a + b − 1) DIV b` its `ceilDiv`); `ReorderBuyForTest::testTheSqlWorksNOutExactlyAsReorderMath` holds it to ReorderMath on
+400 random lines (rates, factors, days, stock below 0, the smallest and largest stock, packs of 1-100, the smallest order, steps, nearest
+rounding, never suggested, no price) for N = 1, 7, 14, 28, 45, 180 and 365: the same lines to buy, in the same order, and the same count.
+
+**BF4. The inputs are written with the line, and a row without them is mended.** `ReorderRefresh` writes the eleven inputs with every line
+it writes (`ReorderLines::inputs()`), and a line counts as unchanged only when its sha1 AND its stored inputs are the line's: a row of
+before 0061, or one written by older code during a deploy (it names its columns and leaves the inputs as they were), is written again at
+the next run whatever its sha1. 0061 fills the rows already there from their own stored line (`reorder_line_detail`), only rows without
+inputs and only lines that have them. A listed row without inputs (`d_e6` NULL) is never "to buy" for N and sorts with no value; its own
+line is still shown bought for N under "Every product"; while any line of the filters has none, the page says "Some products are still
+being worked out for a chosen number of days … within N minutes" (`ReorderLines::page()`'s `waiting`, counted in the same read).
+
+**BF5. Settings (0061, each with its version 1; provisional, owner to confirm; Settings › Rules and numbers › Reorder).**
+
+| Setting | Default | |
+|---|---|---|
+| `reorder.buy_for_presets` | 7,14,28 | the choices offered, in days, in that order (up to 12, each 1-999); 7 shows as "1 week", 14 as "2 weeks" |
+| `reorder.buy_for_min_days` | 1 | 1-365, at most the largest |
+| `reorder.buy_for_max_days` | 180 | 1-365, at least the smallest |
+
+A preset outside the smallest and largest is not offered (never refused: the page stays usable); `ReorderSettings::buyFor()` checks the
+range like `engine()` (500 bad_setting outside it). A choice or a typed number outside the range is refused in words: a typed one keeps
+the choice ("Buy for: type a whole number of days from 1 to 180."), a choice out of range gives the usual list and says so.
+
+**BF6. "Create draft orders" with N.** The draft form carries N (`buy_for`, a hidden field, as the filters are carried); the page's packs
+are the packs for N, so the drafts hold what the buyer saw, and each draft line keeps N's suggestion in `suggested_units`
+(`DraftPos::create(..., $buyFor)`; the audit row `reorder.draft_pos` says `buy_for`). The check of what was shown (PO11: the main supplier
+item and its pack) is unchanged. N outside the range (changed in the form, or the setting changed since): 422 `bad_buy_for`, nothing
+ordered, the usual list drawn with the refusal. FormOnce's payload carries N only when chosen (the usual form's payload is as before, so
+a form sent twice is still one effect). The redirect after the drafts keeps N, so the list shown is still the one bought for N.
+
+**BF7. The words.** The "Why": "Delivery takes 3 days, bought for 14 days (you chose), plus 5 spare days = 22 days." in place of "…and you
+order every 7 days…"; the maths (Explain, the download's `why`): "Cover 3 lead + 14 bought for (you chose, in place of 7 review) + 5 safety
+= 22 days". The download keeps its columns: `review_days` is N, `cover_days`, `target`, `need`, `packs`, `units`, `value` are N's.
+
+**BF8. The screen.** "Buy for" sits beside the search, outside Show (a choice of what to buy, not a filter of which lines): its choice
+(Usual, the presets, and the number chosen when it is not a preset, so the list drawn for a typed number says so), a box for a typed
+number (drawn empty, so a number in it was just typed and wins), and "Work out". No script (the page's own app.js only); the box and the
+choice share the row on a phone, 44 px high (`.tb-buyfor`, `input.tb-days`). The figure strip says "Bought for 2 weeks (you chose)" under
+"Products to buy"; the pager and the download link carry N; "Show the whole list" goes back to the usual list. Every word is in `Words`
+(`REORDER_BUY_FOR`, `WHY cover_buy_for`, `REORDER_ENGINE_ERROR bad_buy_for`, the settings' names and help).
+
+**BF9. EXPLAIN and times on 20,000 lines (`/root/cw_work/runs/bf_explain_scratch.php`, outputs `bf_explain{,2,3,4}.txt`; MySQL 8.4.8 on
+the test machine, each the median of 7 warm runs; a "page" is the ids and the 200 lines).** The first build took 370 ms a page for N (23
+ms the usual one), and two things changed: (1) the read for N names no index of the list's order (`IGNORE INDEX (ix_reorder_line_need,
+_all, _below)`): they start with `listed`, true of nearly every row, so every row read through one was a second look-up by primary key
+(100 ms of a 146 ms count); a brand or a supplier still takes its own index (10 ms, 29 ms); (2) each row's packs before the smallest order
+and steps is worked out once, into a table of its own (`/*+ NO_MERGE(k) NO_DERIVED_CONDITION_PUSHDOWN(k) */`): merged, MySQL wrote the
+formula out again for "to buy", the count and the order. Now: a page for N **150-185 ms** (one pass of 70 ms for the counts, one of 90-100
+ms for the page's ids, then the 200 lines), below the safety stock 113 ms, words 128-137 ms, page 40 178-197 ms, the download's ids
+100 ms (the whole download 1.6 s, as the usual one: it decodes every line); the usual list as before (20-23 ms). PHP over the compact rows
+(BF3 b) measured 132 ms with inline sums and 186 ms with ReorderMath, before the 200 lines: no faster, and it moves every row.
+
+**BF10. Tests.** `tests/Unit/ReorderBuyForUnitTest.php` (N in place of R on worked examples; the smallest and largest stock, packs, the
+smallest order, steps, nearest and never with N; the reorder point, urgent and the safety stock never moved; `forDays()` = ReorderMath with
+N; the inputs; the days in words and the choices; the "Why" and the maths; the settings' ranges and words; 0061 runs again cleanly);
+`tests/Integration/Reorder/ReorderBuyForTest.php` (the stored list bought for N: lines, "to buy", count, order, filters, = the list worked
+out now; the order follows N with a largest stock; SQL = ReorderMath on 400 random lines × 7 N; drafts keep N's suggestion, 422 out of
+range; the refresh writes the inputs and mends missing and old ones; the website-stock view); `tests/Integration/UiKernel/
+ReorderBuyForScreensTest.php` (the choice, the box and their refusals, the list, its cost, its "Why" and download for N, the presets from the
+setting, the website-stock view, "Create draft orders" with N: the packs shown and N's suggestions, the redirect, one effect, N changed in
+the form refused); `tests/Integration/Migration0061Test.php` (the columns, the back-fill of the rows there, the settings, a second run, a run
+stopped after the columns, some of the columns only). Changed: `ReorderListTest` (the filters' defaults), `Migration0011Test` (pack G's and
+these settings are tested by their own migration tests).
+
+**BF11. Left out, and why.** (1) The item's reorder page (`/ui/purchasing/reorder/items/{id}`) still shows the usual line: it is one item's
+settings page, and the list's "Why" shows N. (2) Low-stock warnings: the safety stock does not depend on R. (3) "Work out the list again
+now" goes back to the usual list (its redirect names no filter, as before). (4) One N for the whole list, not one per supplier: a buyer who
+wants different days for two suppliers filters by supplier and chooses again. (5) N never moves the reorder point or "Will run out" (BF1).
+(6) No "What's new" entry: nothing is live; the entry is written at the go-live.
+
+**BF12. The review.** Codex (read-only), `runs/bf_codex_review1.txt`: see the commit that follows the review.

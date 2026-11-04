@@ -47,7 +47,8 @@ final class Migration0011Test extends IntegrationTestCase
     public function testTheSettings(): void
     {
         $rows = array_column(self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting "
-            . "WHERE setting_key LIKE 'reorder.%' AND (decision IS NULL OR decision NOT LIKE 'PG%') ORDER BY setting_key"), null, 'setting_key'); // pack G's: Migration0037Test
+            . "WHERE setting_key LIKE 'reorder.%' AND (decision IS NULL OR (decision NOT LIKE 'PG%' AND decision NOT LIKE 'BF%')) ORDER BY setting_key"), null, 'setting_key');
+        // pack G's: Migration0037Test; Buy for N days (0061): Migration0061Test
         self::assertSame(['reorder.default_lead_days', 'reorder.default_review_days', 'reorder.default_safety_days', 'reorder.long_window_days',
             'reorder.min_valid_days_long', 'reorder.min_valid_days_short', 'reorder.promo_min_units', 'reorder.promo_price_drop', 'reorder.promo_units_uplift',
             'reorder.short_weight', 'reorder.short_window_days', 'reorder.spike_cap_floor', 'reorder.spike_cap_multiple', 'reorder.stale_history_days'], array_keys($rows));

@@ -39,7 +39,9 @@ final class ReorderWhy
                 $out[] = Words::say('WHY', 'factor', $how, $whose, Explain::rate($perDay));
             }
         }
-        $out[] = Words::say('WHY', 'cover', (int) $l['lead'], (int) $l['review'], (int) $l['safety'], (int) $l['cover_days']);
+        $out[] = ($l['buy_for'] ?? null) !== null // docs/decisions.md BF7: the days the buyer chose, in place of the order cycle
+            ? Words::say('WHY', 'cover_buy_for', (int) $l['lead'], (int) $l['buy_for'], (int) $l['safety'], (int) $l['cover_days'])
+            : Words::say('WHY', 'cover', (int) $l['lead'], (int) $l['review'], (int) $l['safety'], (int) $l['cover_days']);
         $target = (int) $l['target'];
         if (!empty($l['min_applied'])) {
             $out[] = Words::say('WHY', 'target_min', (int) ($l['min_stock'] ?? $target), $target);

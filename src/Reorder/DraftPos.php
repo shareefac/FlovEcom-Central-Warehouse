@@ -27,6 +27,9 @@ use CW\Settings;
  * reorder.draft_skip_no_price is on, a supplier item without a price. A line already on a draft is not skipped: the list does not
  * tick it, so a tick is the buyer's own (I79). After the drafts the lines of the picked items are worked out again (ReorderRefresh),
  * so the list shows them on their drafts at once.
+ *
+ * "Buy for N days" (docs/decisions.md BF6): the list shown for N sends N with the form; each line's suggestion stored with the draft
+ * (`suggested_units`) is then the suggestion for N, the quantity the buyer saw. N must be within ReorderSettings::buyFor() (422 bad_buy_for).
  */
 final class DraftPos
 {
@@ -45,13 +48,20 @@ final class DraftPos
      *
      * @param list<array{sku_id: int, packs: int, supplier_item_id?: ?int, units_per_pack?: int}> $picks
      * @param string $stock the list's stock source (cw | site): the suggestion stored with each line is the one the buyer saw
+     * @param int|null $buyFor the days the list was bought for (BF6), or null: each supplier's order cycle
      * @return array{drafts: list<array{document_id: int, supplier_id: int, supplier: string, lines: int, units: int, net: string, below_minimum: bool}>,
      *   skipped: list<array{sku_id: int, code: string, reason: string, why?: string}>, warnings: list<string>}
      */
-    public function create(Caller $caller, array $picks, string $stock = 'cw', ?string $formKey = null): array
+    public function create(Caller $caller, array $picks, string $stock = 'cw', ?string $formKey = null, ?int $buyFor = null): array
     {
         if (count($picks) > self::MAX_PICKS) {
             throw new CwException('too_many_lines', 'at most ' . self::MAX_PICKS . ' items at once', 422);
+        }
+        if ($buyFor !== null) {
+            $range = ReorderSettings::buyFor($this->settings ?? new Settings($this->db));
+            if ($buyFor < $range['min'] || $buyFor > $range['max']) {
+                throw new CwException('bad_buy_for', "buy for a number of days from {$range['min']} to {$range['max']}", 422);
+            }
         }
         $want = [];
         $shown = [];
@@ -78,8 +88,8 @@ final class DraftPos
             throw new CwException('nothing_picked', 'tick at least one line with more than 0 packs', 422);
         }
         $skipNoPrice = ReorderSettings::engine($this->settings ?? new Settings($this->db))['skip_no_price'];
-        return $this->db->transaction(function (Db $db) use ($caller, $want, $shown, $stock, $formKey, $skipNoPrice): array {
-            $f = ReorderList::filters(['show' => 'all', 'stock' => $stock]);
+        return $this->db->transaction(function (Db $db) use ($caller, $want, $shown, $stock, $formKey, $skipNoPrice, $buyFor): array {
+            $f = ['buy_for' => $buyFor] + ReorderList::filters(['show' => 'all', 'stock' => $stock]);
             $lines = [];
             foreach ($this->list->lines($f, array_keys($want)) as $l) {
                 $lines[(int) $l['sku_id']] = $l;
@@ -139,7 +149,7 @@ final class DraftPos
             }
             Audit::write($db, $caller, 'reorder.draft_pos', 'document', $drafts === [] ? null : (string) $drafts[0]['document_id'], null,
                 ['drafts' => array_column($drafts, 'document_id'), 'items' => count($want), 'skipped' => array_column($skipped, 'sku_id'), 'stock' => $stock]
-                + ($formKey === null ? [] : ['form_key' => $formKey]));
+                + ($buyFor === null ? [] : ['buy_for' => $buyFor]) + ($formKey === null ? [] : ['form_key' => $formKey]));
             if ($drafts !== [] && $this->refresh !== null) {
                 $this->refresh->items(array_keys($want)); // in this transaction: the stored lines show the new drafts with the drafts
             }

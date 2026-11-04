@@ -125,6 +125,42 @@ final class ReorderSettings
         ];
     }
 
+    /**
+     * "Buy for N days" on Suggestions (0061; docs/decisions.md BF5): the smallest and largest number of days a person may choose, checked
+     * like engine() (500 bad_setting outside Settings::RULES or with the smallest above the largest), and the numbers of days offered:
+     * reorder.buy_for_presets in order, each once, those outside the smallest and largest left out (never refused: the page stays usable).
+     *
+     * @return array{presets: list<int>, min: int, max: int}
+     */
+    public static function buyFor(Settings $s): array
+    {
+        $int = static function (string $key) use ($s): int {
+            $v = $s->get($key);
+            $rule = Settings::RULES[$key];
+            if (!is_int($v) || $v < (int) $rule['min'] || $v > (int) $rule['max']) {
+                throw new CwException('bad_setting', "the setting {$key} must be a whole number from {$rule['min']} to {$rule['max']}", 500);
+            }
+            return $v;
+        };
+        $min = $int('reorder.buy_for_min_days');
+        $max = $int('reorder.buy_for_max_days');
+        if ($min > $max) {
+            throw new CwException('bad_setting', 'the setting reorder.buy_for_min_days must be at most reorder.buy_for_max_days', 500);
+        }
+        $raw = trim((string) $s->get('reorder.buy_for_presets'));
+        if ($raw !== '' && preg_match((string) Settings::RULES['reorder.buy_for_presets']['pattern'], $raw) !== 1) {
+            throw new CwException('bad_setting', 'the setting reorder.buy_for_presets must be numbers of days separated by commas', 500);
+        }
+        $presets = [];
+        foreach ($raw === '' ? [] : explode(',', $raw) as $d) {
+            $d = (int) $d;
+            if ($d >= $min && $d <= $max && !in_array($d, $presets, true)) {
+                $presets[] = $d;
+            }
+        }
+        return ['presets' => $presets, 'min' => $min, 'max' => $max];
+    }
+
     // ------------------------------------------------------------------------------------------
     // Items
     // ------------------------------------------------------------------------------------------

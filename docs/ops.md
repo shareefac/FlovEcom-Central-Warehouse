@@ -1733,6 +1733,16 @@ OS user); each changed card has its history row and `item_card.change` audit row
   stores when their connectors go live. Until then the list uses the loaded sales history only, as before.
 - **Low-stock warnings (PG7):** every product starts with no figure (each website keeps its own). A buyer sets figures on Purchasing ›
   Reorder › Low-stock warnings (or the product's reorder page); the site writer writes them once a website's stock link is on.
+- **Buy for N days (`docs/decisions.md` BF1-BF12):** on Purchasing › Reorder › Suggestions, "Buy for" beside the search: "Usual (each
+  supplier's order cycle)" is the list as before; 1 week, 2 weeks, 4 weeks, or a number typed in the box (it wins over the choice) buys
+  every line for that many days in place of its order cycle (target = sales a day × (delivery + N + spare days)). The reorder point,
+  "Will run out" and the safety stock do not change; the smallest and largest stock, packs, the smallest order and steps still apply.
+  The list, its counts and cost, its order, the download, the "Why" ("bought for 14 days (you chose)") and "Create draft orders" (each
+  draft line keeps the suggestion for N) follow it. Nothing to do for staff: the usual list is the default. The choices and the range
+  are settings (Settings › Rules and numbers › Reorder: `reorder.buy_for_presets` 7,14,28; `reorder.buy_for_min_days` 1;
+  `reorder.buy_for_max_days` 180). **Deploy:** 0061 adds the line inputs and fills them from the stored lines; a line without them is
+  left out of "to buy" for a chosen number of days (the page says so) until the next scheduled run of the list, or at once with
+  `php bin/reorder_refresh.php --force --db=<db>`. **Undo:** the old code runs on the 0061 schema (it never names the new columns).
 
 ### The check on arrival (`bin/check_arrivals.php`, `docs/decisions.md` M64, M65, U144, U145)
 

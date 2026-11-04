@@ -83,7 +83,7 @@ final class Words
         'NEW_PRODUCTS', 'NEW_PRODUCT_WHY', 'NEW_PRODUCT_DONE',
         'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
         // --- Pack G (the reorder engine)
-        'REORDER_ENGINE', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
+        'REORDER_ENGINE', 'REORDER_BUY_FOR', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
         // --- end of Pack G
         // Pack H (0038): hand-overs, customers and their balances, the duty register.
         'HANDOVER', 'HANDOVER_NOTICE', 'HANDOVER_ERROR', 'HANDOVER_PDF', 'CUSTOMER', 'CUSTOMER_KIND', 'CUSTOMER_FIELD_ERROR', 'CUSTOMER_ERROR',
@@ -2671,6 +2671,10 @@ final class Words
         'reorder.low_stock_bulk_max' => 'Most products in one low-stock click',
         'reorder.draft_skip_no_price' => 'Draft orders leave out products without a price',
         // --- end of Pack G
+        // Buy for N days (0061, BF5)
+        'reorder.buy_for_presets' => 'Buy for: the choices offered (days)',
+        'reorder.buy_for_min_days' => 'Buy for: fewest days',
+        'reorder.buy_for_max_days' => 'Buy for: most days',
         'receiving.unstamped_refusal_from' => 'Unstamped goods refused from',
         'receiving.duty_pence_per_ml' => 'Vaping duty (pence per ml)',
         'receiving.backdate_max_days' => 'Days back a delivery may be dated',
@@ -3942,6 +3946,11 @@ final class Words
         'reorder.low_stock_bulk_max' => 'One click on Low-stock warnings changes at most this many products.',
         'reorder.draft_skip_no_price' => 'When on, "Create draft orders" leaves out a product with no price yet and lists it.',
         // --- end of Pack G
+        // Buy for N days (0061, BF5)
+        'reorder.buy_for_presets' => 'The choices under "Buy for" on Reorder, in days, with commas: 7 shows as 1 week, 14 as 2 weeks. People may also type a number. '
+            . 'A number outside the fewest and most days below is not offered.',
+        'reorder.buy_for_min_days' => 'The fewest days a person may buy for on Reorder.',
+        'reorder.buy_for_max_days' => 'The most days a person may buy for on Reorder.',
         'company.confirmed' => 'Until the owner confirms the company details, every purchase order PDF says DO NOT SEND.',
         'approvals.supplier_activation' => 'A new supplier, a supplier used again, and an overseas supplier\'s duty-stamp arrangement wait for a reviewer\'s OK. '
             . 'Off: a buyer\'s request makes the supplier usable at once, marked "approved alone".',
@@ -6927,6 +6936,7 @@ final class Words
         'factor_item' => 'this product\'s',
         'factor_brand' => 'the brand\'s',
         'cover' => 'Delivery takes %s days and you order every %s days, plus %s spare days = %s days.',
+        'cover_buy_for' => 'Delivery takes %s days, bought for %s days (you chose), plus %s spare days = %s days.', // Buy for N days (BF7)
         'target' => '%s × %s = %s to have.',
         'target_min' => 'The smallest stock you set is %s, so aim for %s.',
         'target_max' => 'The largest stock you set is %s, so aim for %s.',
@@ -7154,6 +7164,25 @@ final class Words
         'skip_no_price' => 'no price yet at its main supplier: record the price first',
     ];
 
+    /**
+     * "Buy for N days" on Suggestions (docs/decisions.md BF1-BF8): the choice, its days in words, the figure strip's line, the refusals.
+     */
+    public const REORDER_BUY_FOR = [
+        'label' => 'Buy for',
+        'usual' => 'Usual (each supplier\'s order cycle)',
+        'day_one' => '1 day',
+        'days' => '%s days',
+        'week_one' => '1 week',
+        'weeks' => '%s weeks',
+        'typed' => 'Or type a number of days',
+        'typed_hint' => 'or days (%s–%s)',
+        'go' => 'Work out',
+        'chosen' => 'Bought for %s (you chose)',
+        'bad_typed' => 'Buy for: type a whole number of days from %s to %s.',
+        'out_of_range' => 'Buy for: choose from %s to %s days. The list shows the usual order cycles.',
+        'waiting' => 'Some products are still being worked out for a chosen number of days, so they are not in this list yet. They show within %s minutes.',
+    ];
+
     /** The pack's refusals in the page's words (ReorderController::plain, by error code). */
     public const REORDER_ENGINE_ERROR = [
         'refresh_running' => 'The list is being worked out right now. Nothing was changed. Try again in a minute.',
@@ -7161,6 +7190,7 @@ final class Words
         'too_many_lines' => 'Too many products are ticked for one click. Nothing was changed. Tick fewer and try again.',
         'bad_action' => 'Choose one of the two buttons. Nothing was changed.',
         'unknown_supplier' => 'That supplier was not found. Nothing was saved.',
+        'bad_buy_for' => 'That number of days to buy for is not allowed. Nothing was ordered. Choose the days again.', // BF6
     ];
 
     /** Notices of the pack's pages (ReorderEngineController::NOTICES). */

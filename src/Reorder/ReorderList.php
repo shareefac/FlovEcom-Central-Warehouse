@@ -65,13 +65,15 @@ final class ReorderList
      * The filters of the screen and the CSV from a query string (unknown values fall back to the defaults).
      *
      * @param array<string, ?string> $q brand, supplier, q, urgent, show, stock, below (pack G: below the safety stock only, whatever
-     *   there is to buy)
-     * @return array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below: bool}
+     *   there is to buy), buy_for ("Buy for N days", docs/decisions.md BF1: a whole number of days 1-999, else the usual order cycles;
+     *   the screens keep it within ReorderSettings::buyFor())
+     * @return array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below: bool, buy_for: ?int}
      */
     public static function filters(array $q): array
     {
         $brand = trim((string) ($q['brand'] ?? ''));
         $supplier = $q['supplier'] ?? null;
+        $days = $q['buy_for'] ?? null;
         return [
             'brand' => $brand === '' ? null : mb_substr($brand, 0, 128),
             'supplier' => is_string($supplier) && preg_match('/^[1-9][0-9]{0,9}$/D', $supplier) === 1 ? (int) $supplier : null,
@@ -80,14 +82,38 @@ final class ReorderList
             'show' => in_array($q['show'] ?? null, self::SHOW, true) ? (string) $q['show'] : 'need',
             'stock' => in_array($q['stock'] ?? null, self::STOCK, true) ? (string) $q['stock'] : 'cw',
             'below' => ($q['below'] ?? null) === '1',
+            'buy_for' => is_string($days) && preg_match('/^[1-9][0-9]{0,2}$/D', $days) === 1 ? (int) $days : null,
         ];
     }
 
     /**
-     * Every line matching the filters, in list order (urgent, cover now, value). $skus limits the list to those items (the
-     * draft-PO form); $withExplain adds `explain` (the "Why" text) to each line.
+     * A line bought for $days days (docs/decisions.md BF1, BF2): the line's figures worked out again by ReorderMath with $days in place of
+     * its order cycle (R), everything else as the line has it (sales a day, delivery and spare days, the smallest and largest stock, stock and
+     * on order, the pack, its smallest order and steps, the rounding, never suggested, the price). The reorder point, "urgent" and the safety
+     * stock do not depend on R, so they stay as they are. Adds `buy_for` (the days) and `usual_review` (the line's own R); `review` is the
+     * days. The same for a line worked out now and a stored line (its JSON): the list, its download and the drafts agree.
      *
-     * @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below?: bool} $f
+     * @param array<string, mixed> $l a line of lines() (usual)
+     * @return array<string, mixed>
+     */
+    public static function forDays(array $l, int $days): array
+    {
+        $m = ReorderMath::line([
+            'rate_e4' => (int) $l['rate_e4'], 'factor_e2' => (int) $l['factor_e2'], 'lead' => (int) $l['lead'], 'review' => $days, 'safety' => (int) $l['safety'],
+            'min_stock' => $l['min_stock'] === null ? null : (int) $l['min_stock'], 'max_stock' => $l['max_stock'] === null ? null : (int) $l['max_stock'],
+            'available' => (int) $l['available'], 'on_order' => (int) $l['on_order'], 'in_drafts' => (int) $l['in_drafts'], 'upp' => (int) $l['upp'],
+            'moq' => (int) $l['moq'], 'mult' => (int) $l['mult'], 'rounding' => (string) $l['rounding'], 'never' => $l['never'] !== null,
+            'pack_price_e4' => $l['pack_price'] === null ? null : PoMath::e4((string) $l['pack_price']),
+        ]);
+        return array_replace($l, $m, ['review' => $days, 'usual_review' => (int) ($l['usual_review'] ?? $l['review']), 'buy_for' => $days]);
+    }
+
+    /**
+     * Every line matching the filters, in list order (urgent, cover now, value). $skus limits the list to those items (the
+     * draft-PO form); $withExplain adds `explain` (the "Why" text) to each line. With `buy_for` (BF1) every line is bought for those
+     * days (forDays()) before "Products to buy" and the order are applied.
+     *
+     * @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below?: bool, buy_for?: ?int} $f
      * @param list<int>|null $skus
      * @return list<array<string, mixed>>
      */
@@ -238,6 +264,9 @@ final class ReorderList
                 'card_blocked' => $card['blocked'], 'card_warnings' => $card['warnings'], 'card_level' => $cardLevel,
                 'computed_at' => $r['computed_at'],
             ];
+            if (($f['buy_for'] ?? null) !== null) {
+                $row = self::forDays($row, (int) $f['buy_for']); // BF2: the same figures as a stored line bought for those days
+            }
             if ($f['urgent'] && !$row['urgent']) {
                 continue;
             }
