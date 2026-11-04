@@ -352,6 +352,31 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(0, $this->copy()->relayRecheck(true), 'nothing new: nothing looked at again');
     }
 
+    /** The Codex re-check of 6102935, NEW 1: a copy whose cancellation was refused is read again on the next run, past the cursor. */
+    public function testARefusedCancellationIsTriedAgainOnTheNextRun(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        $this->erp->invoices['PI-C1'] = $this->pi('PI-C1', [['item' => 'A', 'qty' => 1, 'rate' => 4]]);
+        $this->copy()->run($this->reader(), true);
+        $this->erp->invoices['PI-C1']['docstatus'] = 2;
+        $this->erp->invoices['PI-C1']['modified'] = '2026-10-09 10:00:00.000000';
+        self::$db->exec("UPDATE reason_code SET is_active = 0 WHERE code = 'erp_cancelled'"); // the cancellation is refused (reason_inactive)
+        try {
+            $this->copy()->run($this->reader(), true);
+        } finally {
+            self::$db->exec("UPDATE reason_code SET is_active = 1 WHERE code = 'erp_cancelled'");
+        }
+        $p = $this->erpRow('PI-C1');
+        self::assertSame(['copied', 'refused'], [$p['state'], $p['problem']]);
+        self::assertStringContainsString('reason_inactive', (string) $p['problem_detail']);
+        self::assertSame(['PI-C1'], array_column((new ErpInvoiceCopy(self::$db))->list(), 'name'), 'listed with the waiting ones');
+        $r = $this->copy()->run($this->reader(), true); // ERPNext lists nothing new: it is read again all the same
+        self::assertSame(['reversed' => 1], $r['counts']);
+        self::assertSame(['reversed', null], [$this->erpRow('PI-C1')['state'], $this->erpRow('PI-C1')['problem']]);
+        self::assertSame('reversed', self::$db->value('SELECT status FROM document WHERE id = ?', [(int) $p['document_id']]));
+    }
+
     public function testAnApprovalRuleOnInvoicesNeverStopsACopy(): void
     {
         $this->on();

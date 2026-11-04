@@ -15992,5 +15992,11 @@ now), a refused attempt could keep an older content for a later retry (kept firs
 purchase unit (only when it is the stock unit now), the oldest 2,000 waiting and the newest 500 unbooked copies could starve the others
 (longest-untried first; only copies the relay booked since), a VAT row for the value only made an invoice wait (left out now), a total a
 few pence off was copied with another total (to the penny now), and a dry run's debit note against an invoice it fetched itself counted as
-missing (counted after its invoice now; a dry run stays an estimate for debit notes). Before the switch is turned on, the owner makes the
+missing (counted after its invoice now; a dry run stays an estimate for debit notes). The re-check (runs/ec_codex_review2.txt) confirmed
+eight and found one more, fixed: a copy whose cancellation was refused was never tried again once the cursor was past it (now every copy
+with a problem is read from ERPNext again on the next run). Two of its points are kept as decided: the relay fallback still waits when
+the purchase unit is not the stock unit (the relay counted purchase units, so CW's stock for that row is what is in doubt: a person looks;
+deriving the units from the stock quantity would hide that), and a dry run's debit notes stay an estimate. Its other point, that 0060 was
+changed after the first commit, does not apply: 0060 was never applied outside the test schemas (a migration is never edited once it is).
+Before the switch is turned on, the owner makes the
 ERPNext user (EC1) and the integrator puts its three keys in app.env; then a dry run with `--from=2026-09-01`.

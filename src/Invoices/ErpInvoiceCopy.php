@@ -152,6 +152,14 @@ final class ErpInvoiceCopy
                 $sum['cursor_to'] = $l['modified'];
                 $sum['cursor_name'] = $l['name'];
             }
+            // A copy whose last attempt was refused (its cancellation, say) is read again from ERPNext: past the cursor nothing else would
+            // bring it back (the Codex re-check of 6102935, NEW 1).
+            foreach ($this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . self::RETRY_MAX) as $again) {
+                if (!isset($docs[(string) $again])) {
+                    $docs[(string) $again] = $reader->invoice((string) $again);
+                    $sum['read']++;
+                }
+            }
             // The invoice a debit note returns against and the one an amendment replaces, when this run did not read it and CW never did.
             foreach ($docs as $d) {
                 foreach (['return_against', 'amended_from'] as $k) {

@@ -45,7 +45,8 @@ final class Migration0010Test extends IntegrationTestCase
             array_map(static fn (array $r): array => [(string) $r['code'], (string) $r['applies_to'], (int) $r['needs_note'], (int) $r['system_only']],
                 self::$db->all("SELECT code, applies_to, needs_note, system_only FROM reason_code WHERE code IN ('po_amended', 'supplier_cannot_supply', 'not_needed') "
                     . 'ORDER BY sort_order')));
-        self::assertSame(['entered_in_error', 'po_amended', 'supplier_cannot_supply', 'not_needed', 'duplicate', 'review_rejected', 'other'],
+        // 0060 (CW-917) adds CW's own erp_cancelled and erp_changed (the copy job's cancellations of its copies), never offered on a form.
+        self::assertSame(['entered_in_error', 'po_amended', 'supplier_cannot_supply', 'not_needed', 'duplicate', 'review_rejected', 'erp_cancelled', 'erp_changed', 'other'],
             array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 ORDER BY sort_order")));
         $s = array_column(self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting "
             . "WHERE setting_key LIKE 'po.%' ORDER BY setting_key"), null, 'setting_key');
