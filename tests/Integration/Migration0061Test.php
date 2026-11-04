@@ -53,6 +53,9 @@ final class Migration0061Test extends IntegrationTestCase
                 'rounding' => 'nearest', 'pack_price' => null, 'review' => 14, 'packs' => 1],
             'cents' => ['d_e6' => 0, 'lead' => 2, 'safety' => 5, 'position' => 0, 'min_stock' => 10, 'max_stock' => null, 'upp' => 1, 'moq' => 1, 'mult' => 1,
                 'rounding' => 'up', 'pack_price' => '0.0125', 'review' => 7, 'packs' => 10],
+            // open orders adding up past an INT (the Codex review of 86f7366, MEDIUM): the position is a BIGINT.
+            'big' => ['d_e6' => 0, 'lead' => 2, 'safety' => 5, 'position' => 3_000_000_000, 'min_stock' => 10, 'max_stock' => null, 'upp' => 1, 'moq' => 1,
+                'mult' => 1, 'rounding' => 'up', 'pack_price' => '1.0000', 'review' => 7, 'packs' => 0],
             'no_inputs' => ['code' => 'CW-1'],
             'no_detail' => null,
         ];
@@ -91,12 +94,13 @@ final class Migration0061Test extends IntegrationTestCase
             $cols[(string) $c['COLUMN_NAME']] = [(string) $c['COLUMN_TYPE'], (string) $c['IS_NULLABLE']];
         }
         self::assertSame(ReorderLines::INPUTS, array_slice(array_keys($cols), -11), 'at the end, in this order');
-        self::assertSame([['bigint', 'YES'], ['smallint', 'YES'], ['smallint', 'YES'], ['int', 'YES'], ['int', 'YES'], ['int', 'YES'], ['int', 'YES'], ['int', 'YES'],
+        self::assertSame([['bigint', 'YES'], ['smallint', 'YES'], ['smallint', 'YES'], ['bigint', 'YES'], ['int', 'YES'], ['int', 'YES'], ['int', 'YES'], ['int', 'YES'],
             ['int', 'YES'], ['tinyint(1)', 'YES'], ['bigint', 'YES']], array_values(array_slice($cols, -11)), 'signed, NULL = not stored yet');
 
         self::assertSame([12_000_000, 3, 5, 180, null, null, 24, 2, 1, 0, 450_000], self::inputs($db, $ids['full']));
         self::assertSame([350_000, 0, 14, -7, 3, 90, 6, 1, 4, 1, null], self::inputs($db, $ids['edges']));
         self::assertSame([0, 2, 5, 0, 10, null, 1, 1, 1, 0, 125], self::inputs($db, $ids['cents']), '£0.0125 is 125 e4');
+        self::assertSame([0, 2, 5, 3_000_000_000, 10, null, 1, 1, 1, 0, 10_000], self::inputs($db, $ids['big']), 'stock + on order past an INT');
         self::assertSame(array_fill(0, 11, null), self::inputs($db, $ids['no_inputs']), 'a stored line without the inputs: left for the refresh');
         self::assertSame(array_fill(0, 11, null), self::inputs($db, $ids['no_detail']));
         self::assertSame($before, $db->all('SELECT sku_id, listed, need, urgent, below_safety, never_suggested, no_demand, cover_now_e1, value_e4, safety_stock, available, '

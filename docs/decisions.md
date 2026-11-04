@@ -16139,4 +16139,10 @@ now" goes back to the usual list (its redirect names no filter, as before). (4) 
 wants different days for two suppliers filters by supplier and chooses again. (5) N never moves the reorder point or "Will run out" (BF1).
 (6) No "What's new" entry: nothing is live; the entry is written at the go-live.
 
-**BF12. The review.** Codex (read-only), `runs/bf_codex_review1.txt`: see the commit that follows the review.
+**BF12. The review.** Codex (read-only), `runs/bf_codex_review1.txt` on 86f7366: no HIGH, one MEDIUM, fixed test-first
+(`runs/bf_fix1_red.log`: four tests red on the INT column): `stock_position` was an INT, but stock + on order may add up past
+2,147,483,647 (open orders have no limit in total), and the back-fill or a refresh chunk would then stop (strict mode), the usual list's
+refresh with it. It is a BIGINT now (0061 was never applied outside the test schemas). `Migration0061Test` back-fills a position of
+3,000,000,000; `ReorderBuyForTest` mends one and its random lines hold positions past an INT both ways. Its remarks on the tests, taken: the
+random test's rows now carry their stored lines, so its second page is checked line by line (the ids, and ReorderMath's packs and cost for
+N), not only its count.

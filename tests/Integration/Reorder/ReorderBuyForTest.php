@@ -130,7 +130,9 @@ final class ReorderBuyForTest extends ReorderTestCase
             $factor = mt_rand(0, 9) === 0 ? 0 : mt_rand(50, 150);
             $min = mt_rand(0, 3) === 0 ? mt_rand(0, 500) : null;
             $max = mt_rand(0, 3) === 0 ? max($min ?? 0, mt_rand(0, 4_000)) : null;
-            $r = ['sku_id' => $id, 'rate_e4' => $rate, 'factor_e2' => $factor, 'lead' => mt_rand(0, 30), 'safety' => mt_rand(0, 30), 'available' => mt_rand(-200, 3_000),
+            // 1 in 25: stock + on order past an INT (open orders add up; the Codex review of 86f7366, MEDIUM), above or below 0.
+            $position = mt_rand(0, 24) === 0 ? (mt_rand(0, 1) === 0 ? 1 : -1) * mt_rand(2_147_483_648, 4_000_000_000) : mt_rand(-200, 3_000);
+            $r = ['sku_id' => $id, 'rate_e4' => $rate, 'factor_e2' => $factor, 'lead' => mt_rand(0, 30), 'safety' => mt_rand(0, 30), 'available' => $position,
                 'min_stock' => $min, 'max_stock' => $max, 'upp' => [1, 1, 6, 10, 24, 100][mt_rand(0, 5)], 'moq' => mt_rand(1, 5), 'mult' => mt_rand(1, 4),
                 'rounding' => mt_rand(0, 3) === 0 ? 'nearest' : 'up', 'never' => mt_rand(0, 9) === 0, 'pack_price_e4' => mt_rand(0, 4) === 0 ? null : mt_rand(0, 2_000_000),
                 'urgent' => mt_rand(0, 1) === 1, 'cover_now_e1' => mt_rand(0, 5) === 0 ? null : mt_rand(-50, 2_000), 'ready' => $k < 400];
@@ -144,6 +146,16 @@ final class ReorderBuyForTest extends ReorderTestCase
             . 'safety_stock, available, low_stock_level, line_hash, read_at, changed_at, ' . implode(', ', ReorderLines::INPUTS) . ') VALUES '
             . implode(', ', array_fill(0, count($rows), "(?, 1, 0, ?, 0, ?, ?, ?, ?, NULL, NULL, 0, 0, NULL, '" . sha1('x') . "', '2026-11-04 10:00:00', '2026-11-04 10:00:00', "
                 . '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+        // Each row's stored line (the keys ReorderList::forDays() reads), so a page shows its lines bought for N.
+        $details = [];
+        foreach ($rows as $id => $r) {
+            array_push($details, $id, json_encode(['sku_id' => $id, 'rate_e4' => $r['rate_e4'], 'factor_e2' => $r['factor_e2'], 'lead' => $r['lead'], 'review' => 7,
+                'safety' => $r['safety'], 'min_stock' => $r['min_stock'], 'max_stock' => $r['max_stock'], 'available' => $r['available'], 'on_order' => 0, 'in_drafts' => 0,
+                'upp' => $r['upp'], 'moq' => $r['moq'], 'mult' => $r['mult'], 'rounding' => $r['rounding'], 'never' => $r['never'] ? 'marked "do not reorder"' : null,
+                'pack_price' => $r['pack_price_e4'] === null ? null : sprintf('%d.%04d', intdiv($r['pack_price_e4'], 10_000), $r['pack_price_e4'] % 10_000)], JSON_THROW_ON_ERROR));
+        }
+        self::$db->exec("INSERT INTO reorder_line_detail (sku_id, line, read_at) VALUES " . implode(', ', array_fill(0, count($rows), "(?, CAST(? AS JSON), '2026-11-04 10:00:00')")),
+            $details);
         self::assertSame(10, $this->stored()->page(['buy_for' => 14, 'show' => 'all'], 1, 1)['waiting'], 'the 10 rows without inputs');
         self::assertSame(0, $this->stored()->page(['show' => 'all'], 1, 1)['waiting'], 'the usual list: none');
 
@@ -163,6 +175,11 @@ final class ReorderBuyForTest extends ReorderTestCase
             self::assertSame(array_column($lines, 'sku_id'), $this->stored()->ids(['buy_for' => $n, 'show' => 'all']), "N = {$n}: every product, in order");
             $page = $this->stored()->page(['buy_for' => $n, 'show' => 'need'], 2, 25);
             self::assertSame(count($need), $page['total'], "N = {$n}: the count");
+            // The second page: the lines in order, each shown with ReorderMath's packs and cost for N (the SQL only chose them).
+            $want = array_slice($need, 25, 25);
+            self::assertSame(array_column($want, 'sku_id'), array_column($page['lines'], 'sku_id'), "N = {$n}: page 2");
+            self::assertSame(array_map(static fn (array $l): array => [$l['packs'], $l['value_e4'], $n], $want),
+                array_map(static fn (array $l): array => [$l['packs'], $l['value_e4'], $l['buy_for']], $page['lines']), "N = {$n}: page 2's packs and cost");
         }
     }
 
@@ -213,10 +230,10 @@ final class ReorderBuyForTest extends ReorderTestCase
         self::assertSame(0, $waiting());
 
         self::$db->exec('UPDATE reorder_line SET d_e6 = NULL WHERE sku_id = ?', [$s['b']]); // a row of before 0061
-        self::$db->exec('UPDATE reorder_line SET stock_position = 999 WHERE sku_id = ?', [$s['c']]); // old figures, written by older code
+        self::$db->exec('UPDATE reorder_line SET stock_position = 3000000000 WHERE sku_id = ?', [$s['c']]); // old figures (and past an INT), written by older code
         self::assertSame(1, $waiting());
         self::assertSame(0, $this->stored()->page(ReorderList::filters(['buy_for' => '14', 'brand' => 'Lost Mary']), 1, 200)['waiting'], 'of these filters');
-        self::assertSame([$s['d'], $s['a']], array_keys($this->page(['buy_for' => '14'])), 'B is not worked out for N yet; C has 999 of 115');
+        self::assertSame([$s['d'], $s['a']], array_keys($this->page(['buy_for' => '14'])), 'B is not worked out for N yet; C has 3,000,000,000 of 115');
         self::assertSame(5, $this->page(['buy_for' => '14', 'show' => 'all'])[$s['b']]['packs'], 'its line is shown bought for N all the same');
         $r = $this->refresh()->all();
         self::assertSame(2, $r['changed'], 'both written again, though their lines did not change');

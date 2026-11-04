@@ -38,7 +38,7 @@ SET @cw_0061 = (SELECT CASE WHEN COUNT(*) = 0 THEN CONCAT('ALTER TABLE reorder_l
     'ADD COLUMN d_e6 BIGINT NULL COMMENT ''sales a day x the factor, e6 (ReorderMath d); NULL: the inputs of Buy for N days are not stored yet'', ',
     'ADD COLUMN lead_days SMALLINT NULL COMMENT ''delivery days (L)'', ',
     'ADD COLUMN safety_days SMALLINT NULL COMMENT ''spare days (S)'', ',
-    'ADD COLUMN stock_position INT NULL COMMENT ''available + on order (P)'', ',
+    'ADD COLUMN stock_position BIGINT NULL COMMENT ''available + on order (P; open orders may add up past an INT)'', ',
     'ADD COLUMN min_stock INT NULL COMMENT ''the smallest stock set for the item'', ',
     'ADD COLUMN max_stock INT NULL COMMENT ''the largest stock set for the item'', ',
     'ADD COLUMN units_per_pack INT NULL COMMENT ''units in a pack of the main supplier item (1 without one)'', ',
