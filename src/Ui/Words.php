@@ -72,6 +72,8 @@ final class Words
         // --- Pack C (IM7)
         'INVOICES', 'INVOICE_KIND', 'INVOICE_LINE', 'MATCH_STATE', 'MATCH_LINE', 'MATCH_WHY', 'VALUE_EVENT', 'VALUE_BASIS', 'CREDIT_STATE', 'INVOICE_FILE',
         'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
+        // CW-917 (0060): the copies of ERPNext purchase invoices (docs/decisions.md EC14)
+        'ERP_COPY', 'ERP_COPY_WHY', 'ERP_COPY_STATE',
         // Pack F (PF5-PF10)
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
         'QUEUE_NOTICE', 'QUEUE_ERROR', 'INBOX', 'ALERT',
@@ -324,6 +326,7 @@ final class Words
         'not_invoiced' => 'Delivered, no invoice yet',
         'credit_notes' => 'Credit notes',
         'timed' => 'Timed', // pack J (PJ10)
+        'from_erpnext' => 'From ERPNext', // CW-917 (EC14)
         'arriving' => 'Arriving', // pack J (PJ14)
         // Approvals › From the stores (pack F, PF5)
         'queue_suspense' => 'Lines to place',
@@ -690,6 +693,9 @@ final class Words
         'not_invoiced' => ['Deliveries booked in that wait for their supplier invoice, newest first.', 'Press "Book its invoice", type the totals from the paper, and make it final.'],
         // pack J (PJ10, PJ14)
         'timed' => ['Draft invoices waiting for the time a person set: each becomes final by itself then.', 'Those that could not be made final come first: open one, put it right, set its time again.'],
+        // CW-917 (EC14)
+        'from_erpnext' => ['The purchase invoices CW copies from ERPNext. A copy keeps the supplier and the prices, and never adds stock.',
+            'The ones that wait say why: put the cause right, and the next run copies them.'],
         'arriving' => ['The goods of final supplier invoices that have not arrived yet, oldest first.', 'When a delivery comes, press "Receive" on its invoice, check it, then book it in.'],
         'returns' => ['Goods sent back to suppliers. Each return takes the stock out and is our claim for a credit (a debit note).',
             'Start one from a delivery\'s damaged or unstamped goods, or by hand.'],
@@ -2767,6 +2773,12 @@ final class Words
         'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
         'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
         'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
+        // CW-917 (0060; docs/decisions.md EC2): the copies of ERPNext purchase invoices.
+        'erp_copy.on' => 'Copy ERPNext purchase invoices',
+        'erp_copy.company' => 'ERPNext company copied',
+        'erp_copy.from_date' => 'Copy invoices dated from',
+        'erp_copy.create_suppliers' => 'Make suppliers CW does not know',
+        'erp_copy.update_prices' => 'Copied prices become the last price',
         // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
         'erp_opening.warehouses' => 'ERPNext warehouses the opening stock comes from',
         'erp_opening.companies' => 'ERPNext companies the opening stock comes from',
@@ -3871,6 +3883,7 @@ final class Words
         'handovers' => 'Hand-overs',
         'duty' => 'Vaping duty',
         'rollback' => 'Way back to ERPNext', // Pack RB (0046)
+        'erp_copy' => 'Invoices from ERPNext', // CW-917 (0060, EC2)
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -4069,6 +4082,16 @@ final class Words
         'relay.nightly_confirm' => 'On: CW confirms the ready ones by itself, the same way as Confirm all ready. The doubtful ones (Needs a look) stay in Approvals for a person.',
         'relay.nightly_confirm_at' => 'UK time. Before the 05:10 morning report, after the shop\'s night jobs.',
         'relay.nightly_confirm_max' => 'If more are ready, the rest wait for the next night or for Confirm all ready.',
+        // CW-917 (0060; docs/decisions.md EC2).
+        'erp_copy.on' => 'On: every half hour CW reads the purchase invoices submitted in ERPNext and keeps a copy of each under Supplier invoices. '
+            . 'A copy never adds stock (the shop booked it already) and never changes the cost. The ones that cannot be copied wait under Supplier '
+            . 'invoices › From ERPNext, not in Approvals.',
+        'erp_copy.company' => 'Only this ERPNext company\'s purchase invoices are copied. Write it exactly as ERPNext writes it.',
+        'erp_copy.from_date' => 'Purchase invoices dated on or after this date in ERPNext are copied. An earlier date copies the older ones on the next run.',
+        'erp_copy.create_suppliers' => 'On: a supplier CW does not know is made as a draft with its ERPNext name. Someone completes it before ordering from it. '
+            . 'Off: its invoices wait until the supplier is made by hand.',
+        'erp_copy.update_prices' => 'On: when the product and the pack size are certain, the copied price becomes the supplier\'s last price of that product. '
+            . 'Off: the prices stay on the copies only.',
         // ---- Pack E
         'reports.low_stock_default' => 'In units. Low stock lists a product when the stores can sell this many or fewer. A product with its own '
             . '"least stock to keep" on its reorder page uses that number instead.',
@@ -9834,6 +9857,7 @@ final class Words
     /** audit_log.entity_type => the kind of record (the audit log's filter and rows; another type is made readable). */
     public const AUDIT_RECORD = [
         'app_setting' => 'Setting',
+        'erp_pi' => 'ERPNext purchase invoice', // CW-917 (EC14)
         'barcode_review' => 'Barcode to check',
         'brand' => 'Brand',
         'channel' => 'Website',
@@ -9931,6 +9955,7 @@ final class Words
         // Pack H (0038).
         'handover' => 'Hand-overs',
         'counterparty' => 'Customers of hand-overs',
+        'erp_copy' => 'Invoices from ERPNext', // CW-917 (EC14)
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
@@ -10019,6 +10044,11 @@ final class Words
         'credit_note.header' => 'Supplier credit note\'s details changed',
         'credit_note.post' => 'Supplier credit note made final',
         'credit_note.reverse' => 'Supplier credit note cancelled',
+        // CW-917 (EC14): the copies of ERPNext purchase invoices.
+        'invoice.copy' => 'Copy of an ERPNext purchase invoice made',
+        'credit_note.copy' => 'Copy of an ERPNext debit note made',
+        'erp_copy.copy' => 'ERPNext purchase invoice copied',
+        'erp_copy.reverse' => 'Copy of an ERPNext purchase invoice cancelled',
         'return.create' => 'Return to a supplier started',
         'return.header' => 'Return\'s details changed',
         'return.post' => 'Return to a supplier made final',
@@ -11187,6 +11217,64 @@ final class Words
         'off' => 'Off',
     ];
 
+    /**
+     * CW-917 (0060; docs/decisions.md EC14): the copies of ERPNext purchase invoices: the badge on a copy (the list and its page), Purchases ›
+     * Supplier invoices › From ERPNext, and the job's last run.
+     */
+    public const ERP_COPY = [
+        'badge' => 'From ERPNext: stock already booked',
+        'badge_help' => 'A copy of an ERPNext purchase invoice. CW keeps it for the supplier and the prices. Its stock came through the shop already, '
+            . 'so it adds no stock and does not change the cost. It is changed or cancelled in ERPNext, and CW follows.',
+        'badge_credit' => 'From ERPNext: a copy of a debit note',
+        'erp_name' => 'ERPNext number',
+        'off' => 'Copying from ERPNext is off. Nothing is read from ERPNext until it is switched on in Settings.',
+        'on' => 'Copying from ERPNext is on. CW reads ERPNext every half hour.',
+        'last_run' => 'Last run %s: %s read, %s copied, %s waiting.',
+        'last_failed' => 'The last run, %s, could not finish. The next run tries again from the same point.',
+        'no_run' => 'No run yet.',
+        'group_one' => '1 invoice',
+        'group_many' => '%s invoices',
+        'col_invoice' => 'ERPNext invoice',
+        'col_supplier' => 'Supplier',
+        'col_state' => 'State',
+        'col_date' => 'Date',
+        'col_total' => 'Total',
+        'debit_note' => 'Debit note against %s',
+        'copy' => 'Copy %s',
+        'row' => 'Row %s',
+        'none' => 'Nothing waits.',
+        'none_text' => 'Every ERPNext invoice read so far was copied, or was not for CW.',
+        'none_other' => 'None yet.',
+        'none_other_text' => 'Nothing to show here yet.',
+        'show_waiting' => 'Waiting',
+        'show_copied' => 'Copied',
+        'show_reversed' => 'Cancelled in ERPNext',
+        'show_skipped' => 'Not copied',
+    ];
+
+    /** Why an ERPNext purchase invoice waits (tried again on every run) or was not copied (Invoices\ErpInvoiceCopy::PROBLEMS). */
+    public const ERP_COPY_WHY = [
+        'unknown_supplier' => 'CW does not know its supplier. Make the supplier in CW with its ERPNext name, or switch on making suppliers.',
+        'no_item' => 'A row\'s product is not linked to a CW product. Match the website product, or link the ERPNext item.',
+        'fractional_qty' => 'A row\'s quantity is not a whole number of CW units.',
+        'units_differ' => 'A row\'s units differ from what the shop booked. Check the pack size in ERPNext.',
+        'bad_price' => 'A row has a price below zero.',
+        'taxes_unclear' => 'Its taxes are not clear: the VAT and the charges do not add up to its total.',
+        'duplicate_number' => 'The supplier\'s invoice number is already on another invoice in CW.',
+        'original_waiting' => 'It is a debit note, and the invoice it returns against is not copied yet.',
+        'original_missing' => 'It is a debit note, and CW cannot find the invoice it returns against.',
+        'return_unmatched' => 'It is a debit note, and a row does not match a row of the invoice it returns against.',
+        'return_without_invoice' => 'It is a debit note that names no invoice.',
+        'refused' => 'CW could not save the copy.',
+        'before_start' => 'Dated before the date copying starts.',
+        'other_company' => 'Another company\'s invoice.',
+        'cancelled_before_copy' => 'Cancelled in ERPNext before it was copied.',
+        'original_skipped' => 'It is a debit note against an invoice that is not copied.',
+    ];
+
+    /** erp_pi.state (CW-917, EC14). */
+    public const ERP_COPY_STATE = ['waiting' => 'Waiting', 'copied' => 'Copied', 'reversed' => 'Cancelled in ERPNext', 'skipped' => 'Not copied'];
+
     /** Why a line does not match (InvoiceMath::WHY). */
     public const MATCH_WHY = [
         'no_delivery' => 'No delivery: nothing booked in to bill.',
@@ -11194,6 +11282,8 @@ final class Words
         'qty_over' => 'Bills more units than are there to invoice.',
         'price_over' => 'Dearer than ordered.',
         'price_under' => 'Cheaper than ordered.',
+        // CW-917 (EC9): a row of a copy of an ERPNext invoice the shop has not booked in CW.
+        'not_booked' => 'Not booked in CW yet: the shop has not sent this stock.',
     ];
 
     /** invoice_value_event.kind */
@@ -11262,6 +11352,11 @@ final class Words
     /** A refused change of an invoice or a credit note, by error code (a code without words keeps the service's sentence). */
     public const INVOICE_ERROR = [
         'on_line' => 'Line %s: %s',
+        // CW-917 (EC7, EC8): the copies of ERPNext purchase invoices.
+        'erp_copy' => 'This is a copy of an ERPNext invoice. Change or cancel it in ERPNext, and CW follows. Nothing was saved.',
+        'credits_copy' => 'That invoice is a copy of an ERPNext invoice. Its credits are made in ERPNext, and CW copies them. Nothing was saved.',
+        'copy_moves_stock' => 'A copy of an ERPNext invoice never moves stock. Nothing was saved.',
+        'system_job_only' => 'Only CW itself makes copies of ERPNext invoices. Nothing was saved.',
         'supplier_required' => 'Choose the supplier.',
         // The invoice on one page (docs/decisions.md PV)
         'need_supplier' => 'Choose the supplier first. Nothing was saved.',
@@ -11636,6 +11731,7 @@ final class Words
     public const SETTING_BOOL = [
         'relay.nightly_confirm' => ['On', 'Off'],
         'relay.mode_review' => ['On', 'Off'],
+        'erp_copy.on' => ['On', 'Off'], // CW-917 (EC2)
     ];
 
     /** Approvals › From the stores › Mode changes. */

@@ -7,7 +7,8 @@
 // small pill (its match under it: "2 differences", "Matches"), the due date (red once passed with money owed, how late beside it), the
 // total (what is still owed under it when a credit note took some off). A credit note's groups stay draft and final, its fourth column the
 // invoice it credits. No "overdue" or "paid" group: CW does not know the supplier payments. A credit note is still started from its fold
-// (pack C). The URL's other filters (status, supplier, match) still narrow the list and a search keeps them (hidden fields).
+// (pack C). The URL's other filters (status, supplier, match) still narrow the list and a search keeps them (hidden fields). A copy of an
+// ERPNext invoice carries its soft tag under its number (CW-917, EC14: "From ERPNext: stock already booked").
 ?>
 <?= $head((string) $k['tab'], intro: $kind === 'invoice' ? 'invoices' : 'credit_notes', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
@@ -97,7 +98,7 @@
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a></th>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><?php if ($r['erp'] !== null): ?><span class="o-sub"><span class="tag info"><?= $e($r['erp']) ?></span></span><?php endif; ?></th>
         <td data-label="<?= $word('DOC_LIST', 'supplier') ?>"><?= $e($r['supplier']) ?></td>
 <?php // The status pill says what the invoice's own page says (Needs a look, Draft, Final; the Codex review's rule, PV31); its match under it (RD-B2). ?>
         <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><span class="chip"><?= $e($r['cell_word']) ?></span><?php if ($r['tag'] !== null): ?><span class="o-sub"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>

@@ -25,6 +25,10 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
     meta: ($theirs ? '<span class="muted">' . $e((string) $doc->number) . '</span> ' : '') . ($needsLook ? '<span class="muted">' . $e(\CW\Ui\Words::of('DOC_STATUS', 'posted')) . '</span>'
         : ($storedMatch !== null ? '<span class="tag ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : ''))) ?>
 </div>
+<?php // CW-917 (EC14): a copy of an ERPNext invoice says so first: its stock came through the shop, it is changed in ERPNext only. ?>
+<?php if ($erpCopy !== null): ?>
+<p class="note erp-copy"><span class="tag info"><?= $e($erpCopy['badge']) ?></span> <span><?= $e($erpCopy['help']) ?><?php if ($erpCopy['name'] !== null): ?> <?= $word('ERP_COPY', 'erp_name') ?>: <?= $e($erpCopy['name']) ?>.<?php endif; ?></span></p>
+<?php endif; ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>

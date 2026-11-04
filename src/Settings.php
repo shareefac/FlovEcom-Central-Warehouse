@@ -229,6 +229,9 @@ final class Settings
         // only, so no other number of days can be known (a day count would otherwise be 0 to 120).
         'mapping.hide_unsold_days' => ['in' => [0, 365]],
         // ---- end of HU
+        // ---- CW-917 (0060; docs/decisions.md EC2): the copies of ERPNext purchase invoices. The company is typed as ERPNext writes it (one
+        // that starts like a spreadsheet formula is refused, as the rollback file's); the first posting date copied is any real date.
+        'erp_copy.company' => ['pattern' => '/^[^\x00-\x20\x7F=+\-@][^\x00-\x1F\x7F]{0,139}$/Du', 'pattern_says' => 'an ERPNext company name, like VAPE AND GO'],
     ];
 
     /**

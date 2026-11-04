@@ -2753,6 +2753,38 @@ php bin/import_erp_opening.php ...the same... --apply --sha256=<that hash> --app
 - **Checks:** `bin/invariants.php` runs J1–J4 (incoming against the invoices on their way).
 <!-- ---- end of pack J ---- -->
 
+## Invoices from ERPNext: copies of its purchase invoices (CW-917; `docs/decisions.md` EC1-EC16)
+
+CW reads every purchase invoice submitted in ERPNext (GET only) and keeps a copy as a posted supplier invoice; a debit note becomes a
+credit note on the copy. A copy never adds stock (the shop's relay booked it) and never changes the cost. Off until a person switches it on.
+
+**Before switching it on (the owner, in ERPNext):** make a new user for CW only (for example `cw-reader@...`, not the shop's API user) with
+a role that may only READ: Purchase Invoice (its rows, Purchase Invoice Item, and its taxes, Purchase Taxes and Charges, come with it) and
+Item (the fields `is_stock_item` and `custom_variant_id`), for the company VAPE AND GO. No write, submit, cancel, delete, import or report
+rights; no Stock, Accounts or Settings doctypes; it never calls a method. Generate its API key and secret (User › API Access).
+
+**On the CW server (the integrator):** add to `/etc/cw/app.env` (0640 root:www-data; never print them):
+
+```
+erp_read_url=https://<the ERPNext address>
+erp_read_key=<the key>
+erp_read_secret=<the secret>
+```
+
+Then a dry run (reads ERPNext, writes nothing, prints what it would do and every invoice that would wait):
+
+```bash
+cd /opt/cw-prod && php bin/copy_erp_invoices.php --db=cw_prod            # says "off" while erp_copy.on is off
+# switch erp_copy.on on (Settings › Rules and numbers › Invoices from ERPNext, with a reason), then:
+cd /opt/cw-prod && php bin/copy_erp_invoices.php --db=cw_prod --from=2026-09-01            # dry run of the back-fill
+cd /opt/cw-prod && php bin/copy_erp_invoices.php --db=cw_prod --from=2026-09-01 --apply    # the back-fill (once)
+```
+
+After that the cron line (every 30 minutes, `--apply`) reads from where the last run stopped. Invoices that wait are listed on Purchases ›
+Supplier invoices › From ERPNext with why (a product not linked, a supplier, units that differ from what the relay booked); they are tried
+again on every run. To stop: switch `erp_copy.on` off (the next run does nothing). Log: `/var/log/cw/copy_erp_invoices.log`. A failed run
+(ERPNext unreachable, the user refused) writes `failed` in `erp_copy_run` and the next run reads from the same point.
+
 ## The way back to ERPNext: the rollback file (pack RB; `docs/decisions.md` RB1–RB34)
 
 If the switch is rolled back, ERPNext must be made level with what CW booked since the switch before it sends anything to a store. The

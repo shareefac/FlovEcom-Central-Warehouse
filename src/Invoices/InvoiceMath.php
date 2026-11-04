@@ -31,7 +31,9 @@ final class InvoiceMath
     public const STATES = ['matched', 'within_tolerance', 'needs_review', 'accepted'];
     public const LINE_STATES = ['matched', 'within', 'off'];
     /** Why a line is not matched (Ui\Words::MATCH_WHY). */
-    public const WHY = ['no_delivery', 'delivery_reversed', 'qty_over', 'price_over', 'price_under'];
+    public const WHY = ['no_delivery', 'delivery_reversed', 'qty_over', 'price_over', 'price_under',
+        // CW-917 (EC9): a line of a copy of an ERPNext invoice whose stock the relay has not booked in CW (InvoiceMatch: within, never off).
+        'not_booked'];
 
     /**
      * $typed['check_price']: '1' the price is checked with the two price tolerances, '0' it is not (PC19: the invoice's price is the right

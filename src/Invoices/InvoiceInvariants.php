@@ -22,6 +22,11 @@ use CW\Db;
  *  V6. a posted return's claim is the sum of its lines' amounts; an unposted one has none.
  *  V7. what grn_invoice_left stores for a posted delivery is what it has left to invoice now (the newest MATCH_LIMIT rows), and every
  *      posted delivery a posted or reversed invoice, credit note or return names has its row (PC18).
+ *  V8. (CW-917, docs/decisions.md EC10) a copy of an ERPNext invoice or debit note (supplier_invoice.origin erpnext) books nothing: no
+ *      stock_ledger row, no invoice_value_event row names it or its cancellation, no invoice_arrival row and no goods receipt made from it
+ *      (goods_receipt_invoice) is its, it has no receive_mode and none of its lines names a delivery or an order; it was made by the copy
+ *      job (system:erp_copy, posted by no person); and the job's record agrees: an erp_pi row that is copied names a posted copy, one
+ *      that is reversed names a reversed copy, and every posted copy is named by one erp_pi row.
  */
 final class InvoiceInvariants
 {
@@ -33,7 +38,7 @@ final class InvoiceInvariants
     public static function check(Db $db): array
     {
         return [...self::headers($db), ...self::anchors($db), ...self::keys($db), ...self::matches($db), ...self::events($db), ...self::claims($db),
-            ...self::deliveries($db)];
+            ...self::deliveries($db), ...self::copies($db)];
     }
 
     /** @return list<string> V1 */
@@ -202,6 +207,55 @@ final class InvoiceInvariants
             . 'LEFT JOIN grn_invoice_left gl ON gl.grn_document_id = x.grn_document_id WHERE gl.grn_document_id IS NULL ORDER BY x.grn_document_id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "V7 delivery {$r['grn_document_id']} is named by an invoice, credit note or return but has no stored figures left to invoice";
+        }
+        return $v;
+    }
+
+    /** @return list<string> V8 */
+    private static function copies(Db $db): array
+    {
+        $v = [];
+        foreach ($db->all(
+            "SELECT si.document_id, d.number, d.status, d.created_by, d.created_actor, d.posted_by, d.posted_actor, si.receive_mode, "
+            . '(SELECT COUNT(*) FROM stock_ledger l WHERE l.document_id = si.document_id) '
+            . '+ (SELECT COUNT(*) FROM stock_ledger l JOIN document r ON r.id = l.document_id WHERE r.reverses_id = si.document_id) AS ledger, '
+            . '(SELECT COUNT(*) FROM invoice_value_event e WHERE e.document_id = si.document_id) '
+            . '+ (SELECT COUNT(*) FROM invoice_value_event e JOIN document r ON r.id = e.document_id WHERE r.reverses_id = si.document_id) AS events, '
+            . '(SELECT COUNT(*) FROM invoice_arrival a WHERE a.sinv_document_id = si.document_id) + (SELECT COUNT(*) FROM goods_receipt_invoice g WHERE g.sinv_document_id = si.document_id) AS arrivals, '
+            . '(SELECT COUNT(*) FROM sinv_line sl WHERE sl.document_id = si.document_id AND (sl.grn_document_id IS NOT NULL OR sl.po_document_id IS NOT NULL)) AS links '
+            . "FROM supplier_invoice si JOIN document d ON d.id = si.document_id WHERE si.origin = 'erpnext' ORDER BY si.document_id",
+        ) as $r) {
+            $label = 'copy of an ERPNext invoice ' . ($r['number'] ?? '#' . $r['document_id']);
+            foreach (['ledger' => 'stock booked under it or its cancellation', 'events' => 'value events', 'arrivals' => 'goods on their way or a receipt made from it',
+                'links' => 'lines naming a delivery or an order'] as $k => $what) {
+                if ((int) $r[$k] > 0) {
+                    $v[] = "V8 {$label}: {$r[$k]} {$what}";
+                }
+            }
+            if ($r['receive_mode'] !== null) {
+                $v[] = "V8 {$label}: it has a receive mode ({$r['receive_mode']})";
+            }
+            if ($r['created_by'] !== null || $r['created_actor'] !== 'system:' . ErpInvoiceCopy::JOB
+                || (in_array($r['status'], ['posted', 'reversed'], true) && ($r['posted_by'] !== null || $r['posted_actor'] !== 'system:' . ErpInvoiceCopy::JOB))) {
+                $v[] = "V8 {$label}: not made and posted by the copy job alone";
+            }
+            if (count($v) >= self::MAX_PER_CHECK) {
+                return $v;
+            }
+        }
+        foreach ($db->all(
+            "SELECT p.id, p.name, p.state, d.status, si.origin FROM erp_pi p LEFT JOIN document d ON d.id = p.document_id LEFT JOIN supplier_invoice si ON si.document_id = d.id "
+            . "WHERE p.state IN ('copied', 'reversed') AND NOT (si.origin <=> 'erpnext' AND ((p.state = 'copied' AND d.status = 'posted') OR (p.state = 'reversed' AND d.status = 'reversed'))) "
+            . 'ORDER BY p.id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "V8 ERPNext invoice {$r['name']} is {$r['state']} but its copy is " . ($r['status'] ?? 'missing') . ($r['origin'] === 'erpnext' ? '' : ' (not a copy)');
+        }
+        foreach ($db->all(
+            "SELECT d.id, d.number, COUNT(p.id) AS n FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'posted' "
+            . "LEFT JOIN erp_pi p ON p.document_id = d.id AND p.state = 'copied' WHERE si.origin = 'erpnext' GROUP BY d.id, d.number HAVING COUNT(p.id) <> 1 LIMIT "
+            . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "V8 posted copy {$r['number']} is named by {$r['n']} copied ERPNext invoices, not 1";
         }
         return $v;
     }

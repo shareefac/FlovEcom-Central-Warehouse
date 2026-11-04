@@ -15863,3 +15863,120 @@ the rest) are untouched. `Migration0059Test`.
 
 **MO4. Tests and review.** Codex (runs/mo_codex_review.txt): 1 MEDIUM, fixed: a migration run stopped between the audit row and the close wrote a second audit row when run again; the audit row now waits for none from 0059 before it. Tests: The tests that relay mode changes to see them queued turn the switch on (`IntegrationTestCase::askModeChanges()`); every
 integration test starts with it back at its seeded off. `RelayIntakeTest::testWithTheSwitchOffAModeChangeIsNotedAndAsksNoOne`.
+
+## Copies of ERPNext purchase invoices (branch `erp-invoice-copy`, 4 Nov 2026; EC1-EC16; tracker CW-917)
+
+The owner, 4 Nov 2026, on the research of the day (`/root/cw_work/runs/erp_invoice_copy_design_20261104.md`): "yes", then "917 do it".
+Every Purchase Invoice staff submit in ERPNext is also kept in CW as a posted supplier invoice, so CW holds the suppliers and their prices
+on the switch-over day, WITHOUT ever adding the stock a second time (it reached CW already through the shop's relay as goods_in lines). It
+is the "nightly read-only import of ERPNext purchase invoices" of plan §15.4 (Parallel run), started now and every half hour. The owner's
+six choices were made for him on the brief (each is a setting he can change, but EC5): a CW job reads ERPNext's REST API; back-fill from 1
+Sep; unknown suppliers made; copied prices become last prices; copies never feed the cost; the copies written by a system caller.
+
+**EC1. CW reads ERPNext, GET only, with its own read-only user: a change to PI8.** PI8 ("CW never connects to ERPNext") stays true for the
+opening stock and for every write; this job is the one exception, approved by the owner on 4 Nov. `Invoices\ErpApiReader` makes three reads
+and nothing else: the list of Purchase Invoices (`company` = erp_copy.company, `docstatus` in (1, 2), `posting_date` >= the from date,
+`modified` >= the cursor; fields name and modified; `modified asc, name asc`; pages of 100), one invoice by name (its items and taxes inside),
+and the Items of its rows (`is_stock_item`, `custom_variant_id`). Never ERPNext's stock feed (PI8: it marks invoices Synced), never a method
+call, never a write. The user is CW's OWN (never the shop's write token, `App/api/bulk_with_item.php`): app.env `erp_read_url`,
+`erp_read_key`, `erp_read_secret` (or `CW_ERP_READ_*`), parsed by `CW\Config`, sent only in the Authorization header, never printed (a
+missing key is named, never a value; `__debugInfo` hides it; errors give the HTTP status and ERPNext's exception type). The transport is
+injected (`ErpTransport`; the real one is curl over https only, no redirect, timeouts, a 16 MB cap): the tests use fixtures, no network. An
+item ERPNext does not return stops the run (fail closed: without it the relay's line numbers are not known).
+
+**EC2. Five settings, the switch off.** 0060: `erp_copy.on` (OFF; On / Off), `erp_copy.company` (VAPE AND GO; typed as ERPNext writes it,
+a formula refused), `erp_copy.from_date` (2026-09-01), `erp_copy.create_suppliers` (on), `erp_copy.update_prices` (on); Settings › Rules and
+numbers › "Invoices from ERPNext"; each with its baseline, provisional as every new one. While the switch is off the job reads and writes
+nothing and says so. There is no setting for the cost (EC5).
+
+**EC3. What a copy is.** A posted SINV (a debit note: a posted SCN, EC8) with `supplier_invoice.origin` 'erpnext' (0060, INSTANT, in the
+posting anchor only for a copy so every older record keeps its V2 content), the supplier (EC11), the supplier's number (ERPNext's bill_no,
+else the ERPNext name), the date on the paper (bill_date, else posting_date), the due date when ERPNext has one on or after it, the totals
+(GBP: ERPNext's base_* amounts; net = its rows plus its charges that are not VAT; VAT = its tax rows whose account or description says VAT),
+and its lines: every stock row a goods line, every other row a service, freight (by its words) or other amount, every charge that is not
+VAT and adds to the total a line, and a rounding "other" line so the lines add up to ERPNext's net total to the penny. A goods line is
+packs of the ERPNext purchase unit at ERPNext's base_net_rate when they are whole packs of CW units (units per pack = conversion factor x
+u), else CW units at the row's unit price. The item and units of a stock row, in this order: (1) the relay line already booked for it
+(Vape and Go, goods_in or supplier_return, doc_ref = the ERPNext name, line_index = its place among the invoice's stock rows, as
+`relay.php` numbers them): its item, with u from the item's link (sku_erp_item, else the listing) when that link names the same item, else
+from what the relay booked; (2) the ERPNext item's sku_erp_item x units_per_item; (3) the Vape and Go listing of Item.custom_variant_id (else
+the item code, as the add-on sends it) x units_per_item, linked or quarantined. Units = |stock_qty| x u.
+
+**EC4. Written by a system caller, through a narrow door in the document base.** `Documents::SYSTEM_JOBS` (`erp_copy` => SINV, SCN):
+`postBySystem()` makes and posts in one transaction (created_by and posted_by NULL, the actors system:erp_copy, the handler's checks as for
+a person), `reverseBySystem()` cancels (CW's own reasons allowed). Never an approval, never a review: the job copies a record ERPNext
+already accepted, and the owner wants Approvals to stay clear (MO1). Every other system caller, a store's job and every other document type
+are refused (403 system_job_only); a person still posts as a person. This is the least invasive way: the document base kept its staff rule
+everywhere else and its columns were already nullable.
+
+**EC5. A copy never moves stock and never feeds the cost; no setting for it.** receive_mode NULL (never createDraft's path, never "count on
+arrival" nor "book as received"), no delivery and no order on a line (`createCopy` refuses one, 422 copy_links), so the posting books no
+stock, no goods on their way, no value event. `SupplierInvoiceHandler::post()` refuses a copy, under its locks, posted by anyone but the job,
+or with a receive mode, a delivery or order link, an arrival row or a ledger row (409 copy_moves_stock), and never writes value events for
+one. Average cost reads only ledger rows with a unit cost and the relay's goods_in has none, so the cost is untouched; the opening estimate
+already has ERPNext's valuation, and the switch-over re-bases it. This is a rule, not a choice: a copy feeding the cost would count ERPNext's
+purchases twice.
+
+**EC6. A row CW cannot place: the whole invoice waits.** No item (`no_item`), a quantity that is not whole CW units (`fractional_qty`), units
+other than the relay booked (`units_differ`: the add-on sends the PURCHASE unit, so a box bought as 2 is 2 x u in CW; the copy would say 24),
+a price below zero, unclear taxes (a deducting row, or rows + VAT + charges not ERPNext's total within 5p), an unknown supplier with
+making suppliers off, the supplier's number already on a live CW invoice (`duplicate_number`, UNIQUE supplier + number), a debit note whose
+invoice is not copied or does not match row by row, or the posting refused (`refused`, its code kept): the invoice is not copied at all,
+`erp_pi.state` waiting with the problem, the row, the detail. It is tried again on every run from what CW kept (a link made, a supplier
+made, its invoice copied since). Never half copied: the copy is made inside a savepoint and a refusal rolls back to it.
+
+**EC7. Cancelled, amended or changed in ERPNext: CW follows; nobody else changes a copy.** docstatus 2: the copy is cancelled (reason
+erp_cancelled), the credit notes that credit it first; never copied: skipped. An amendment ("-1", amended_from): the copy of the invoice it
+amends is cancelled first (erp_cancelled; that invoice is cancelled in ERPNext), then the amendment is copied as any invoice (its number is
+free again) and keeps amended_from. The same name read again with another content hash after it was copied (header, rows, charges; not the
+status, the time or the names shown): the copy and its credit notes are cancelled (erp_changed), it is copied again, and its credit notes'
+invoices wait to be copied against the new copy: never two live copies. Read again unchanged: nothing. A person cannot edit, receive, time,
+make final, stop, cancel or credit a copy (409 erp_copy; the page offers none of them): ERPNext is where they are changed.
+
+**EC8. A debit note is a credit note, never a CW debit note.** An ERPNext return (is_return, return_against) becomes a posted SCN crediting
+the copy of the invoice it returns against, each goods line crediting that copy's line for the same ERPNext row (purchase_invoice_item), else
+the first line of the same item with enough left; amounts as positives. A CW debit note (DN) would book stock out a second time: the relay's
+supplier_return did it. A copy is credited only by such a copy, and a copy credits only a copy (`credits_copy`); the credit note of a CW
+return whose invoice is a copy credits no invoice.
+
+**EC9. The match of a copy: matched, or "not booked in CW".** `InvoiceMatch::compute` matches a copy's goods lines against what the relay
+booked for their rows (`erp_pi_line.relay_units`), never against a delivery: booked, the units are "there" (a difference is a real one and
+goes to To match like any other); not booked, the line is within with the reason `not_booked`, never off. So copies do not flood To match.
+The price is not checked (no order). The job keeps relay_units, and works the match out again, in the same transaction (at the copy, and
+when a later run finds the relay booked a row since: `relayRecheck`), so the nightly V4 always agrees.
+
+**EC10. V8.** `InvoiceInvariants` checks every night that a copy and its cancellation have no ledger row, no value event, no arrival row and
+no receipt made from them, no receive mode, no delivery or order on a line, were made and posted by the job alone; and that erp_pi agrees
+(copied: a posted copy; reversed: a reversed copy; every posted copy named by one copied row).
+
+**EC11. An unknown supplier is made as a draft, named from ERPNext.** `Suppliers::createFromErp` (the job only): status draft (never active:
+a person completes it and asks for its activation), name = ERPNext's supplier name, erp_name = the ERPNext name, created_by NULL and
+created_actor system:erp_copy, a note saying it came from an ERPNext invoice. Existing columns only. With erp_copy.create_suppliers off its
+invoices wait (`unknown_supplier`).
+
+**EC12. What is kept.** erp_pi (one row per ERPNext invoice, never deleted: what was read, the hash, the state, the problem, the CW
+supplier, the copy, the last cancellation), erp_pi_line (its rows as read and, copied, the item, units, how it was found, the relay line and
+units, the copy's line; replaced when a re-read brings other content to an invoice not copied), erp_copy_run (one row per real run: the
+company, the from date, the cursor it read from and the one it reached, the summary; written once, finished once). The cursor is the newest
+ERPNext modified time a finished run of the same company and from date read; a failed run keeps the old one.
+
+**EC13. Prices: only where the item and the units are certain.** With erp_copy.update_prices on, a goods line whose item came from the relay
+(in the same units) or from the item's sku_erp_item link, in whole ERPNext purchase units, gives an `invoice` price (supplier_item_price,
+source_ref = the ERPNext name, document_id = the copy) of the supplier item (supplier, item, pack: made when there is none, an alternative
+supply, never preferred: reorder is not changed by a copy) on the paper's date; the last price moves when it is the newest (SupplierItems'
+rule, S4). A line found through the listing only, or in CW units, gives none. A price stays in the history when its copy is cancelled
+(supplier_item_price is append-only, S4 reads it).
+
+**EC14. On the screens.** Purchases › Supplier invoices › From ERPNext (a Show choice, no count): the waiting ones with why in words, the
+copied, the cancelled and the not copied under Show, each copied one linking its copy; the switch and the last run in one line. A copy
+carries the soft tag "From ERPNext: stock already booked" in the list and on its page, with its ERPNext number. Never in Approvals.
+
+**EC15. The job.** `bin/copy_erp_invoices.php`: does nothing while the switch is off (says so, exit 0); a dry run by default (each
+invoice's transaction rolled back: nothing written, not even the run; a debit note whose invoice the dry run would copy is counted as
+copied); `--apply`, `--from=YYYY-MM-DD` (copies from that date, ignoring the cursor: the back-fill), `--limit`; one log line and each invoice
+that waits. The cron line, every 30 minutes with --apply, on both servers (`deploy/*/cw-*.cron`); never run by the installers.
+
+**EC16. Tests and what is left for the owner.** Tests: `ErpInvoiceCopyTest` (switch off, dry run, copy with no stock, waiting, units,
+suppliers, prices, debit note and cancellation, amendment, change, relay later, approval rules, duplicate number, V8, the refusals, a failed
+read), `ErpCopyJobTest`, `ErpCopyScreensTest`, `Migration0060Test`, `ErpApiReaderTest`, `ErpCopyUnitTest`. Before the switch is turned on,
+the owner makes the ERPNext user (EC1) and the integrator puts its three keys in app.env; then a dry run with `--from=2026-09-01`.

@@ -119,6 +119,9 @@ final class Grants
         // its summary, when it finished); what it was run on (doc_ref, as-of, the files and their hashes, who) is frozen; never removed.
         'erp_opening_run' => ['status', 'summary', 'finished_at'],
         // ---- end of pack I ----
+        // CW-917 (0060; docs/decisions.md EC12): a real run of the ERPNext invoice copy job is written once and finished once (its status,
+        // the cursor it reached, its summary, when it finished); what it was run on (company, from date, the cursor it read from, who) is frozen.
+        'erp_copy_run' => ['status', 'cursor_to', 'summary', 'finished_at'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -194,7 +197,11 @@ final class Grants
         // and a supplier's own arrival choices (changed with audit).
         'invoice_arrival', 'supplier_arrival_pref',
         // 0058 (docs/decisions.md SC1): a store's choice at Add product, followed or answered (state, outcome, who, when), never removed.
-        'store_choice'];
+        'store_choice',
+        // CW-917 (0060; docs/decisions.md EC12): an ERPNext purchase invoice the copy job read (its state and copy change; never removed).
+        // erp_pi_line keeps FULL rights: a re-read that brings other content replaces the lines of an invoice not copied (or whose copy
+        // was cancelled in the same transaction).
+        'erp_pi'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

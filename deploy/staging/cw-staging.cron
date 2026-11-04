@@ -69,3 +69,10 @@ MAILTO=""
 # the hour from relay.nightly_confirm_at (UK time, whatever the server's zone), once a night: the ready ERPNext corrections confirmed as
 # "Confirm all ready" does, at most relay.nightly_confirm_max; the doubtful ones wait in Approvals. Never run by the installer (it books).
 */5 * * * *  root  cd /opt/cw-staging && php bin/confirm_corrections_nightly.php --db=cw_staging >> /var/log/cw/confirm_corrections_nightly.log 2>&1
+
+# ---- Invoices from ERPNext (CW-917; docs/decisions.md EC1-EC16) ----
+# Every 30 minutes, and it does something only while the setting erp_copy.on is on (OFF until a person switches it on): the purchase
+# invoices submitted in ERPNext (company erp_copy.company, posted from erp_copy.from_date) read with CW's own read-only ERPNext user
+# (GET only; app.env erp_read_url / erp_read_key / erp_read_secret) and kept as copies; a copy never adds stock and never feeds the cost.
+# Waiting ones are listed on Purchases > Supplier invoices > From ERPNext (never in Approvals). Never run by the installer (it writes).
+*/30 * * * *  root  cd /opt/cw-staging && php bin/copy_erp_invoices.php --db=cw_staging --apply >> /var/log/cw/copy_erp_invoices.log 2>&1

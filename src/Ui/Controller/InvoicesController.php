@@ -9,6 +9,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Invoices\ErpInvoiceCopy;
 use CW\Invoices\InvoiceMath;
 use CW\Invoices\SupplierInvoices;
 use CW\OpResult;
@@ -37,6 +38,8 @@ final class InvoicesController
     public const NOT_INVOICED = '/ui/purchasing/invoices/not-invoiced';
     public const FROM_RECEIPT = '/ui/purchasing/invoices/from-receipt';
     public const FROM_RETURN = '/ui/purchasing/credit-notes/from-return';
+    /** CW-917 (docs/decisions.md EC14): the ERPNext purchase invoices CW copies. */
+    public const FROM_ERPNEXT = '/ui/purchasing/invoices/from-erpnext';
     /** POST actions of one record (both kinds). */
     public const ACTIONS = ['details', 'lines', 'add-delivery', 'add-order', 'add-item', 'add-charge', 'add-credit', 'post', 'cancel', 'reverse', 'withdraw', 'files',
         'receiving', 'schedule']; // pack J: how its goods come in, when it becomes final
@@ -51,6 +54,7 @@ final class InvoicesController
         $r->add('GET', self::TO_MATCH, 'invoices.view', $c->toMatch(...));
         $r->add('POST', self::TO_MATCH . '/recheck', 'doc.SINV.post', $c->recheck(...));
         $r->add('GET', self::NOT_INVOICED, 'invoices.view', $c->notInvoiced(...));
+        $r->add('GET', self::FROM_ERPNEXT, 'invoices.view', $c->fromErpnext(...));
         $r->add('POST', self::FROM_RECEIPT, 'doc.SINV.post', $c->fromReceipt(...));
         $r->add('POST', self::FROM_RETURN, 'doc.SCN.post', $c->fromReturn(...));
         foreach (SupplierInvoices::PATHS as $kind => $base) {
@@ -171,6 +175,48 @@ final class InvoicesController
     }
 
     /** GET not-invoiced: every posted delivery with units still to invoice, and "Book its invoice". */
+    /**
+     * GET from-erpnext (CW-917, docs/decisions.md EC14): the ERPNext purchase invoices CW copies. `show`: waiting (the default: those that
+     * wait, and copies with a problem, oldest first), copied, reversed (cancelled in ERPNext), skipped (not copied); each row says why it
+     * waits and opens its copy when there is one. The switch and the last run in one line on top. Look only: nothing is done here.
+     */
+    public function fromErpnext(Context $ctx): HtmlResponse
+    {
+        $copy = new ErpInvoiceCopy($ctx->db);
+        $show = $ctx->req->param('show');
+        $show = in_array($show, ['waiting', 'copied', 'reversed', 'skipped'], true) ? $show : 'waiting';
+        $tone = ['waiting' => 'needs', 'copied' => 'done', 'reversed' => 'off', 'skipped' => 'off'];
+        $rows = array_map(static function (array $r) use ($tone): array {
+            $state = $r['state'] === 'copied' && $r['problem'] !== null ? 'waiting' : (string) $r['state'];
+            $kind = (int) $r['is_return'] === 1 ? 'credit_note' : 'invoice';
+            return ['name' => (string) $r['name'], 'supplier' => (string) ($r['cw_supplier'] ?? $r['supplier_name'] ?? $r['supplier']),
+                'sub' => (int) $r['is_return'] === 1 ? Words::say('ERP_COPY', 'debit_note', (string) ($r['return_against'] ?? '')) : (string) ($r['bill_no'] ?? ''),
+                'state' => (string) $r['state'], 'tone' => $tone[$state] ?? 'off', 'state_word' => Words::of('ERP_COPY_STATE', (string) $r['state']),
+                'why' => $r['problem'] === null ? null : Words::of('ERP_COPY_WHY', (string) $r['problem']) . ($r['problem_line'] !== null
+                    ? ' ' . Words::say('ERP_COPY', 'row', (int) $r['problem_line']) . '.' : '') . ($r['problem_detail'] !== null ? ' (' . (string) $r['problem_detail'] . ')' : ''),
+                'date' => Html::day((string) ($r['bill_date'] ?? $r['posting_date'])),
+                'total' => (string) $r['grand_total'],
+                'copy' => $r['document_id'] === null || $r['number'] === null ? null : ['text' => Words::say('ERP_COPY', 'copy', (string) $r['number']),
+                    'href' => SupplierInvoices::PATHS[$kind] . '/' . (int) $r['document_id']]];
+        }, $copy->list($show));
+        $last = $copy->lastRun();
+        $sum = $last === null || $last['summary'] === null ? [] : (array) json_decode((string) $last['summary'], true);
+        $runLine = match (true) {
+            $last === null => Words::ERP_COPY['no_run'],
+            $last['status'] === 'failed' => Words::say('ERP_COPY', 'last_failed', Html::when((string) $last['started_at'])),
+            default => Words::say('ERP_COPY', 'last_run', Html::when((string) $last['started_at']), (int) ($sum['read'] ?? 0), (int) ($sum['counts']['copied'] ?? 0),
+                (int) ($sum['counts']['waiting'] ?? 0)),
+        };
+        return $ctx->page('invoices_from_erpnext', [
+            'rows' => $rows,
+            'show' => $show,
+            'counts' => $copy->counts(),
+            'on' => $copy->settings()['on'],
+            'runLine' => $runLine,
+            'limit' => ErpInvoiceCopy::LIST_LIMIT,
+        ], 200, ['title' => Words::SEGMENT['from_erpnext']]);
+    }
+
     public function notInvoiced(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
     {
         $q = mb_substr(trim((string) $ctx->req->param('q')), 0, 100);
@@ -557,10 +603,13 @@ final class InvoicesController
                 }
             }
         }
+        // CW-917 (EC7): a copy of an ERPNext invoice is changed, credited and cancelled in ERPNext: here it is read, its differences accepted
+        // and files added only.
+        $erpCopy = ($rec['origin'] ?? 'cw') === 'erpnext';
         $canAcceptNow = $isInvoice && $doc->status === 'posted' && $original && $rec['match_state'] === 'needs_review' && $me->can('invoices.accept');
-        $canCreditNow = $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN');
+        $canCreditNow = $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN') && !$erpCopy;
         $canWithdrawNow = $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && $original;
-        $canReverseNow = $doc->status === 'posted' && $original && $reversedBy === null && $canPost;
+        $canReverseNow = $doc->status === 'posted' && $original && $reversedBy === null && $canPost && !$erpCopy;
         $has = ['accept' => $canAcceptNow && $match !== null, 'withdraw' => $canWithdrawNow, 'credit' => $canCreditNow, 'file' => $canPost && $doc->status !== 'cancelled',
             'reverse' => $canReverseNow];
         $main = match (true) { $has['accept'] => 'accept', $has['withdraw'] => 'withdraw', $has['credit'] => 'credit', $has['file'] => 'file', default => null };
@@ -574,6 +623,9 @@ final class InvoicesController
                 ? array_map(static fn (array $c): array => $c + ['text' => self::claimText($c)], $ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
             // What the record is: an invoice or a credit note, a draft or final, or the cancellation of one.
             'introKey' => self::introKey($doc->isReversal(), $kind, $doc->status),
+            // CW-917 (EC14): the badge of a copy of an ERPNext invoice (or of its cancellation), and its ERPNext number.
+            'erpCopy' => $erpCopy ? ['badge' => Words::ERP_COPY[$isInvoice ? 'badge' : 'badge_credit'], 'help' => Words::ERP_COPY['badge_help'],
+                'name' => self::erpName($ctx, $doc->isReversal() ? (int) $doc->reversesId : $doc->id)] : null,
             'k' => $k,
             'base' => SupplierInvoices::PATHS[$kind],
             'doc' => $doc,
@@ -611,7 +663,7 @@ final class InvoicesController
             'waiting' => $open !== null,
             'history' => DocumentsController::history($tasks),
             'canWithdraw' => $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && $original,
-            'reverse' => $doc->status === 'posted' && $original && $reversedBy === null && $canPost
+            'reverse' => $doc->status === 'posted' && $original && $reversedBy === null && $canPost && !$erpCopy
                 ? ['reasons' => $ctx->db->all("SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 "
                     . "AND is_active = 1 AND code NOT IN ('po_amended', 'supplier_cannot_supply', 'not_needed') ORDER BY sort_order, code")] : null,
             'reversedBy' => $reversedBy,
@@ -619,7 +671,7 @@ final class InvoicesController
             'arrival' => ArrivalsController::invoiceBox($ctx, $rec, $doc, $editable, $lines), // pack J (PJ6, PJ9, PJ10)
             'clockChoice' => $extra['clock'] ?? null, // pack J, review finding 6: a time typed that comes twice
             'canAccept' => $isInvoice && $doc->status === 'posted' && $original && $rec['match_state'] === 'needs_review' && $me->can('invoices.accept'),
-            'canCredit' => $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN'),
+            'canCredit' => $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN') && !$erpCopy,
             'creditKey' => FormOnce::newKey(),
             'events' => $doc->isPosted() || $doc->isReversal() ? $si->valueEvents($id) : [],
             'files' => array_map(static fn (array $f): array => $f + ['what' => Words::INVOICE_FILE[(string) $f['role']] ?? Words::of('RECEIPT_FILE', (string) $f['role'])],
@@ -641,6 +693,15 @@ final class InvoicesController
             'problemsOfError' => $error !== null && is_array($error->detail['problems'] ?? null) ? array_map(static fn (array $p): string => self::problemText($p),
                 $error->detail['problems']) : [],
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
+    }
+
+    /** The ERPNext name of the invoice a copy was made from (CW-917), or null. */
+    private static function erpName(Context $ctx, int $documentId): ?string
+    {
+        // Its current copy, or the copy of it the job cancelled last (an invoice changed in ERPNext and copied again, EC7).
+        $v = $ctx->db->value("SELECT name FROM erp_pi WHERE document_id = ? OR reversal_document_id = (SELECT r.id FROM document r WHERE r.reverses_id = ? AND r.status = 'posted' "
+            . 'LIMIT 1) ORDER BY document_id = ? DESC LIMIT 1', [$documentId, $documentId, $documentId]);
+        return $v === null ? null : (string) $v;
     }
 
     /** A refusal in words, by its code (INVOICE_ERROR; the stock records' and the document base's), filled in from its detail. */
@@ -817,6 +878,8 @@ final class InvoicesController
         $ref = $refs === null ? null : ($refs['po'] ?? $refs['grn']);
         $due = ($r['due_date'] ?? null) === null || $reversal ? null : (string) $r['due_date'];
         return [
+            // CW-917 (EC14): a copy of an ERPNext invoice says so, and that its stock was booked already.
+            'erp' => ($r['origin'] ?? 'cw') === 'erpnext' ? Words::ERP_COPY[$kind === 'invoice' ? 'badge' : 'badge_credit'] : null,
             'group' => $group,
             'cell_tone' => $look ? 'needs' : ($reversal ? 'off' : Words::tone('DOC_STATUS', $status)),
             'cell_word' => $look ? Words::INVOICES['needs_look'] : ($reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', $status)),

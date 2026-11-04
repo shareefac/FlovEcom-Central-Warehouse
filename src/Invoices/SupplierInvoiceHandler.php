@@ -13,6 +13,7 @@ use CW\Db;
 use CW\Documents\CancelHook;
 use CW\Documents\Document;
 use CW\Documents\DocumentHandler;
+use CW\Documents\Documents;
 use CW\Documents\SizeApproval;
 use CW\Idempotency;
 use CW\Movements;
@@ -44,6 +45,10 @@ use CW\StockOps\CostHints;
  *                   again (InvoiceMatch::refresh).
  *  reverse()        an invoice with a posted credit note is not reversed (409 has_credit_notes: reverse the credit note first); the
  *                   invoice number is free again; the value events negated under the reversal; the matches worked out again.
+ *
+ * CW-917 (docs/decisions.md EC5, EC7): a copy of an ERPNext purchase invoice (supplier_invoice.origin 'erpnext') is posted and reversed by
+ * the copy job only (Documents::SYSTEM_JOBS); its posting refuses anything that would move stock (refuseStockOnCopy()) and records no value
+ * event, no goods on their way and no Incoming; a person's reversal of it is refused (409 erp_copy).
  */
 final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, CancelHook
 {
@@ -143,6 +148,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             ?? throw new CwException('invoice_header_missing', "{$doc->label()} has no supplier invoice header", 422);
         // Again under the locks: a receipt reversed, or another credit note posted, since validate() read them.
         self::refuse(self::problems($db, $doc, $h, $lines, $this->today()));
+        $copy = ($h['origin'] ?? 'cw') === 'erpnext';
+        if ($copy) {
+            self::refuseStockOnCopy($db, $doc, $h, $caller, $this->docType); // CW-917 (EC5)
+        }
         if ($h['receive_mode'] === 'received' && self::notReceived($db, $doc->id) !== []) {
             // Pack J (PJ9): "book as received" books its receipt first (SupplierInvoices::submit); a posting that skips it is refused.
             throw new CwException('receive_first', "{$doc->label()} books its goods as received: make it final with its own button (it books the receipt first)", 409);
@@ -150,7 +159,8 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $now = Clock::db(($this->clock)());
         $content = self::content($db, $doc->id);
         $db->exec('INSERT INTO purchase_doc_posting (document_id, content_hash, content, created_at) VALUES (?, ?, ?, ?)', [$doc->id, hash('sha256', $content), $content, $now]);
-        $events = $this->valueEvents($db, $doc, $h, $lines);
+        // CW-917 (EC6): a copy of an ERPNext invoice never feeds the cost or the value (no value event, ever).
+        $events = $copy ? [] : $this->valueEvents($db, $doc, $h, $lines);
         foreach ($events as $e) {
             self::insertEvent($db, $doc->id, $e, (string) $doc->docDate, $now);
         }
@@ -166,19 +176,46 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $state = $this->docType === 'SINV' ? $db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$doc->id]) : null;
         // Pack J (PJ2, PJ7): "count on arrival": the goods no delivery names are on their way (invoice_arrival), and the timed posting's
         // time is used up. FK rows first, the stock LAST (I21).
-        $incoming = $this->docType === 'SINV' ? ArrivalBooking::invoicePosted($db, $doc, $lines, $now) : [];
+        $incoming = $this->docType === 'SINV' && !$copy ? ArrivalBooking::invoicePosted($db, $doc, $lines, $now) : [];
         $db->exec('UPDATE supplier_invoice SET submit_at = NULL, submit_by = NULL, submit_actor = NULL, submit_failed_at = NULL, submit_error = NULL '
             . 'WHERE document_id = ? AND submit_at IS NOT NULL', [$doc->id]);
         Audit::write($db, $caller, $this->docType === 'SINV' ? 'invoice.post' : 'credit_note.post', 'document', (string) $doc->id, $opKey . ':inv',
             ['number' => $doc->number, 'supplier_invoice' => $doc->externalRef, 'supplier' => (int) $h['supplier_id'], 'net' => $h['net_total'], 'vat' => $h['vat_total'],
-                'gross' => $h['gross_total'], 'lines' => count($lines), 'value_events' => count($events)]
+                'gross' => $h['gross_total'], 'lines' => count($lines), 'value_events' => count($events)] + ($copy ? ['origin' => 'erpnext'] : [])
             + ($state === null ? [] : ['match' => $state]) + ($credited === null ? [] : ['credits' => $credited])
             + ($h['receive_mode'] === null ? [] : ['receive_mode' => $h['receive_mode'], 'incoming_units' => array_sum(array_column($incoming, 'qty'))]));
-        if ($incoming !== []) {
+        if ($incoming !== [] && !$copy) {
             (new Movements($db, null, $this->clock))->bookForDocument($caller, ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number], $opKey,
                 [['type' => 'incoming', 'warehouse' => 'MAIN', 'note' => 'on its way: ' . ($doc->externalRef ?? ''), 'lines' => $incoming]]);
         }
         return $units;
+    }
+
+    /**
+     * CW-917 (docs/decisions.md EC5): the hard refusals of the posting of a copy of an ERPNext invoice, under its locks: only the copy job
+     * posts one (403 system_job_only), and nothing of it may move stock (409 copy_moves_stock): no "count on arrival" nor "book as received"
+     * (receive_mode), no line naming a delivery or an order, no goods on their way for it, no stock booked under it. Its stock came through
+     * the shop's relay already; a copy that would book it again is refused whole, nothing posted.
+     *
+     * @param array<string, mixed> $h the supplier_invoice row
+     */
+    public static function refuseStockOnCopy(Db $db, Document $doc, array $h, Caller $caller, string $type): void
+    {
+        if (!Documents::isSystemJob($caller, $type)) {
+            throw new CwException('system_job_only', "{$doc->label()} is a copy of an ERPNext invoice: only CW's own job posts it", 403);
+        }
+        $why = match (true) {
+            ($h['receive_mode'] ?? null) !== null => 'it would bring its goods in',
+            $db->value('SELECT 1 FROM sinv_line WHERE document_id = ? AND (grn_document_id IS NOT NULL OR po_document_id IS NOT NULL) LIMIT 1', [$doc->id]) !== null
+                => 'a line names a delivery or an order',
+            $db->value('SELECT 1 FROM invoice_arrival WHERE sinv_document_id = ? LIMIT 1', [$doc->id]) !== null => 'goods are on their way for it',
+            $db->value('SELECT 1 FROM stock_ledger WHERE document_id = ? LIMIT 1', [$doc->id]) !== null => 'stock is booked under it',
+            default => null,
+        };
+        if ($why !== null) {
+            throw new CwException('copy_moves_stock', "{$doc->label()} is a copy of an ERPNext invoice: {$why}, and a copy never moves stock (its stock came through the relay)",
+                409);
+        }
     }
 
     /**
@@ -196,6 +233,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
     {
         $h = $db->one('SELECT * FROM supplier_invoice WHERE document_id = ?', [$original->id])
             ?? throw new CwException('invoice_header_missing', "{$original->label()} has no supplier invoice header", 422);
+        if (($h['origin'] ?? 'cw') === 'erpnext' && !Documents::isSystemJob($caller, $this->docType)) {
+            // CW-917 (EC7): a copy is cancelled in ERPNext; the copy job cancels it here when it reads that.
+            throw new CwException('erp_copy', "{$original->label()} is a copy of an ERPNext invoice: it is changed or cancelled in ERPNext, and CW follows", 409);
+        }
         if ($this->docType === 'SINV') {
             $cn = $db->value("SELECT d.number FROM supplier_invoice c JOIN document d ON d.id = c.document_id AND d.status = 'posted' WHERE c.credits_document_id = ? "
                 . "AND c.kind = 'credit_note' ORDER BY d.id LIMIT 1", [$original->id]);
@@ -267,10 +308,16 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $supplier = (int) $h['supplier_id'];
         $credited = $h['credits_document_id'] === null ? null : (int) $h['credits_document_id'];
         if ($credit && $credited !== null) {
-            $inv = $db->one('SELECT d.status, d.doc_type, d.number, si.supplier_id FROM document d LEFT JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ?', [$credited]);
+            $inv = $db->one('SELECT d.status, d.doc_type, d.number, si.supplier_id, si.origin FROM document d LEFT JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ?', [$credited]);
             if ($inv === null || $inv['doc_type'] !== 'SINV' || $inv['status'] !== 'posted' || (int) $inv['supplier_id'] !== $supplier) {
                 $add('credited_invoice_not_posted', 'The invoice this credit note reduces must be a posted invoice of the same supplier.');
+            } elseif (($inv['origin'] === 'erpnext') !== (($h['origin'] ?? 'cw') === 'erpnext')) {
+                // CW-917 (EC8): a copy of an ERPNext invoice is credited by the copy of its ERPNext debit note only.
+                $add('credits_copy', 'The invoice this credit note reduces is a copy of an ERPNext invoice: its credits are made in ERPNext, and CW copies them.');
             }
+        }
+        if (($h['origin'] ?? 'cw') === 'erpnext' && ($h['receive_mode'] ?? null) !== null) {
+            $add('copy_moves_stock', 'A copy of an ERPNext invoice never brings goods in: its stock came through the relay.');
         }
         if ($credit && $h['debit_note_document_id'] !== null) {
             $dn = $db->one('SELECT d.status, d.doc_type, r.supplier_id FROM document d LEFT JOIN supplier_return r ON r.document_id = d.id WHERE d.id = ?',
@@ -586,6 +633,9 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         if (($h['receive_mode'] ?? null) !== null) {
             $head['receive_mode'] = (string) $h['receive_mode']; // pack J: only when set, so a record posted before 0041 keeps its content (V2)
+        }
+        if (($h['origin'] ?? 'cw') !== 'cw') {
+            $head['origin'] = (string) $h['origin']; // CW-917 (0060): only for a copy, so every record of CW's own keeps its content (V2)
         }
         $lines = [];
         foreach ($db->all('SELECT * FROM sinv_line WHERE document_id = ? ORDER BY line_no', [$documentId]) as $r) {

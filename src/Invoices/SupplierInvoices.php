@@ -41,6 +41,10 @@ use CW\StockOps\StockOps;
  * Every write: a staff caller allowed to post the type (doc.SINV.post / doc.SCN.post, never admin; Documents re-reads the roles), ONE
  * transaction (joining an open one), the document row locked and its version checked by Documents, a draft changed only by its
  * creator. accept() needs invoices.accept.
+ *
+ * CW-917 (docs/decisions.md EC3-EC8): createCopy() is the copy job's (system:erp_copy) copy of an ERPNext purchase invoice or debit note,
+ * made and posted at once with origin 'erpnext'; nothing of a copy is changed, received, timed, made final, stopped, cancelled or credited
+ * by a person (409 erp_copy, credits_copy).
  */
 final class SupplierInvoices
 {
@@ -168,12 +172,14 @@ final class SupplierInvoices
     {
         return $this->db->transaction(function (Db $db) use ($caller, $dnId): Document {
             self::mayPost($db, $caller, 'SCN');
-            $r = $db->one('SELECT d.id, d.status, d.doc_type, d.number, r.supplier_id, r.invoice_document_id, i.status AS invoice_status FROM document d '
-                . 'JOIN supplier_return r ON r.document_id = d.id LEFT JOIN document i ON i.id = r.invoice_document_id WHERE d.id = ?', [$dnId]);
+            $r = $db->one('SELECT d.id, d.status, d.doc_type, d.number, r.supplier_id, r.invoice_document_id, i.status AS invoice_status, isi.origin AS invoice_origin FROM document d '
+                . 'JOIN supplier_return r ON r.document_id = d.id LEFT JOIN document i ON i.id = r.invoice_document_id LEFT JOIN supplier_invoice isi ON isi.document_id = i.id '
+                . 'WHERE d.id = ?', [$dnId]);
             if ($r === null || $r['doc_type'] !== 'DN' || $r['status'] !== 'posted') {
                 throw new CwException('return_not_posted', 'only a posted return gets a credit note', 409);
             }
-            $credits = $r['invoice_document_id'] !== null && $r['invoice_status'] === 'posted' ? (int) $r['invoice_document_id'] : null;
+            // CW-917 (EC8): a copy of an ERPNext invoice is credited in ERPNext only: the credit note of such a return credits no invoice.
+            $credits = $r['invoice_document_id'] !== null && $r['invoice_status'] === 'posted' && $r['invoice_origin'] !== 'erpnext' ? (int) $r['invoice_document_id'] : null;
             $doc = $this->createDraft($caller, 'credit_note', (int) $r['supplier_id'], ['credits_id' => $credits, 'debit_note_id' => $dnId]);
             $invLines = [];
             if ($credits !== null) {
@@ -228,6 +234,62 @@ final class SupplierInvoices
             }
             $lines = array_values(array_filter($lines, static fn (array $l): bool => $l['kind'] === 'goods' || InvoiceMath::e2((string) $l['amount']) !== 0));
             return $lines === [] ? $doc : $this->saveLines($caller, $doc->id, $doc->version, $lines);
+        });
+    }
+
+    /**
+     * CW-917 (docs/decisions.md EC3-EC6): the copy of an ERPNext purchase invoice (or, $kind credit_note, of an ERPNext debit note), made
+     * and posted at once by the copy job (Documents::postBySystem: no person, no approval, no review): supplier_invoice.origin 'erpnext',
+     * receive_mode NULL (never "count on arrival" nor "book as received": the stock came through the shop's relay already), no delivery
+     * nor order on any line (422 copy_links), so the posting books no stock, no goods on their way and no value event
+     * (SupplierInvoiceHandler refuses a copy that would). The header as header() checks it (a credit note's invoice must be a copy too);
+     * the lines as saveLines() takes them. 409 duplicate_invoice when the supplier's number is on a live record. Audit invoice.copy /
+     * credit_note.copy (with the ERPNext name).
+     *
+     * @param array<string, mixed> $header invoice_number, invoice_date, net_total, vat_total, due_date (an invoice), credits_id (a credit note), note
+     * @param list<array<string, mixed>> $lines
+     */
+    public function createCopy(Caller $job, string $kind, int $supplierId, array $header, array $lines, string $erpName): Document
+    {
+        $type = self::KINDS[$kind] ?? throw new CwException('unknown_kind', 'there is no such kind of supplier invoice', 400);
+        if (!Documents::isSystemJob($job, $type)) {
+            throw new CwException('system_job_only', 'only CW\'s own job makes a copy of an ERPNext invoice', 403);
+        }
+        return $this->db->transaction(function (Db $db) use ($job, $kind, $type, $supplierId, $header, $lines, $erpName): Document {
+            $s = $db->one('SELECT id, code FROM supplier WHERE id = ? FOR SHARE', [$supplierId])
+                ?? throw new CwException('unknown_supplier', 'there is no such supplier', 404, ['field' => 'supplier_id']);
+            foreach ($lines as $i => $l) {
+                if (is_array($l) && (($l['grn_document_id'] ?? null) !== null || ($l['po_document_id'] ?? null) !== null)) {
+                    throw new CwException('copy_links', 'line ' . ($i + 1) . ': a copy of an ERPNext invoice names no delivery and no order (its stock came through the relay)', 422,
+                        ['line' => $i + 1]);
+                }
+            }
+            $h = $this->header($kind, $supplierId, $header, null, true);
+            $norm = $this->normaliseLines($kind, ['supplier_id' => $supplierId], $lines);
+            return $this->docs->postBySystem($job, $type, ['external_ref' => $h['invoice_number'], 'doc_date' => $h['invoice_date'], 'note' => $h['note']],
+                array_map(static fn (array $n): array => $n['doc'], $norm), function (Db $db, int $id) use ($job, $kind, $supplierId, $h, $norm, $s, $erpName): void {
+                    try {
+                        $db->exec('INSERT INTO supplier_invoice (document_id, kind, supplier_id, invoice_key, net_total, vat_total, gross_total, credits_document_id, '
+                            . "debit_note_document_id, receive_mode, due_date, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'erpnext', ?, ?)",
+                            [$id, $kind, $supplierId, self::key($h['invoice_number']), $h['net_total'], $h['vat_total'], $h['gross_total'], $h['credits_id'], $h['due_date'],
+                                $this->nowDb(), $this->nowDb()]);
+                    } catch (\PDOException $e) {
+                        throw $this->duplicate($e, $kind, $supplierId, (string) self::key($h['invoice_number']), $id);
+                    }
+                    foreach (array_chunk($norm, 300, true) as $chunk) {
+                        $params = [];
+                        foreach ($chunk as $i => $n) {
+                            $e = $n['ext'];
+                            array_push($params, $id, $i + 1, $e['kind'], $e['credit_of_line_no'], $e['supplier_code'], $e['purchase_unit'], $e['units_per_pack'], $e['packs'],
+                                $e['pack_price'], $e['credit_of_line_no'] === null ? 'manual' : 'credit');
+                        }
+                        $db->exec('INSERT INTO sinv_line (document_id, line_no, kind, credit_of_line_no, supplier_code, purchase_unit, units_per_pack, packs, pack_price, entry) VALUES '
+                            . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+                    }
+                    Audit::write($db, $job, $kind === 'invoice' ? 'invoice.copy' : 'credit_note.copy', 'document', (string) $id, null,
+                        ['erpnext' => $erpName, 'supplier' => (string) $s['code'], 'number' => $h['invoice_number'], 'net' => $h['net_total'], 'vat' => $h['vat_total'],
+                            'lines' => count($norm)] + ($h['credits_id'] === null ? [] : ['credits' => $h['credits_id']]));
+                });
         });
     }
 
@@ -695,8 +757,12 @@ final class SupplierInvoices
      */
     public function reverse(Caller $caller, int $id, string $reasonCode, ?string $note): Document
     {
-        return $this->db->transaction(function () use ($caller, $id, $reasonCode, $note): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $reasonCode, $note): Document {
             $this->kindOfDocument($id) ?? throw new CwException('not_an_invoice', 'this is not a supplier invoice or credit note', 404);
+            if ($db->value("SELECT 1 FROM supplier_invoice WHERE document_id = ? AND origin = 'erpnext'", [$id]) !== null) {
+                // CW-917 (EC7): a copy of an ERPNext invoice is cancelled in ERPNext; the job cancels the copy when it reads that.
+                throw new CwException('erp_copy', 'this is a copy of an ERPNext invoice: it is changed or cancelled in ERPNext, and CW follows', 409);
+            }
             return $this->docs->reverse($caller, $id, $reasonCode, $note);
         });
     }
@@ -855,7 +921,7 @@ final class SupplierInvoices
         $r = $this->db->one(
             'SELECT d.*, si.kind, si.supplier_id, si.net_total, si.vat_total, si.gross_total, si.credits_document_id, si.debit_note_document_id, si.match_state, si.due_date, '
             . 'si.match_lines_off, si.match_difference, si.match_checked_at, si.accepted_at, si.accept_note, s.code AS supplier_code, s.name AS supplier_name, '
-            . 'si.receive_mode, si.submit_at, si.submit_by, si.submit_failed_at, si.submit_error, si.submit_receipt_id, tb.display_name AS submit_by_name, '
+            . 'si.receive_mode, si.submit_at, si.submit_by, si.submit_failed_at, si.submit_error, si.submit_receipt_id, si.origin, tb.display_name AS submit_by_name, '
             . 'ci.number AS credits_number, dn.number AS debit_note_number, ab.display_name AS accepted_by_name, '
             . 'cb.display_name AS created_by_name, sb.display_name AS submitted_by_name, pb.display_name AS posted_by_name, xb.display_name AS cancelled_by_name, '
             . 'od.number AS reverses_number, rv.id AS reversed_by_id, rv.number AS reversed_by_number, rv.status AS reversed_by_status '
@@ -956,7 +1022,9 @@ final class SupplierInvoices
      *
      * `show` (the board's Show menu, PV18): open (drafts, waiting and final, no cancelled one), cancelled, all; none: as before.
      *
-     * @param array{q?: string, state?: ?string, supplier?: ?int, match?: ?string, cancelled?: bool, show?: ?string} $f
+     * `origin` (CW-917): 'erpnext' the copies of ERPNext invoices only, 'cw' the records keyed in CW only; none: both.
+     *
+     * @param array{q?: string, state?: ?string, supplier?: ?int, match?: ?string, cancelled?: bool, show?: ?string, origin?: ?string} $f
      * @return list<array<string, mixed>>
      */
     public function list(string $kind, array $f): array
@@ -985,6 +1053,10 @@ final class SupplierInvoices
             $where[] = 'si.match_state = ?';
             $params[] = $f['match'];
         }
+        if (in_array($f['origin'] ?? null, ['cw', 'erpnext'], true)) {
+            $where[] = 'si.origin = ?'; // CW-917: the copies of ERPNext invoices, or the records keyed in CW
+            $params[] = $f['origin'];
+        }
         $q = trim((string) ($f['q'] ?? ''));
         if ($q !== '') {
             $like = '%' . addcslashes($q, '\\%_') . '%';
@@ -993,7 +1065,7 @@ final class SupplierInvoices
         }
         return $this->db->all(
             'SELECT d.id, d.number, d.status, d.doc_date, d.created_at, d.posted_at, d.reverses_id, d.external_ref, si.supplier_id, s.name AS supplier_name, '
-            . 'si.net_total, si.vat_total, si.gross_total, si.match_state, si.match_lines_off, si.match_difference, si.due_date, ci.number AS credits_number, '
+            . 'si.net_total, si.vat_total, si.gross_total, si.match_state, si.match_lines_off, si.match_difference, si.due_date, si.origin, ci.number AS credits_number, '
             . 'cb.display_name AS created_by_name, od.number AS reverses_number, '
             . "(SELECT t.kind FROM review_task t WHERE t.subject_type = 'document' AND t.subject_id = d.id AND t.state = 'open' ORDER BY t.id LIMIT 1) AS open_task "
             . 'FROM document d LEFT JOIN supplier_invoice si ON si.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = si.supplier_id '
@@ -1187,7 +1259,7 @@ final class SupplierInvoices
     {
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'external_ref' => $r['external_ref']], $this->db->all(
             "SELECT d.id, d.number, d.external_ref FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'posted' WHERE si.supplier_id = ? "
-            . "AND si.kind = 'invoice' ORDER BY d.id DESC LIMIT 100", [$supplierId]));
+            . "AND si.kind = 'invoice' AND si.origin = 'cw' ORDER BY d.id DESC LIMIT 100", [$supplierId])); // CW-917 (EC8): a copy is credited in ERPNext
     }
 
     /** Units of line $line of invoice $invoiceId credited by posted credit notes other than $except. */
@@ -1216,9 +1288,13 @@ final class SupplierInvoices
     private function current(int $id): array
     {
         $r = $this->db->one('SELECT d.doc_type, d.status, d.external_ref, d.doc_date, d.note, si.supplier_id, si.net_total, si.vat_total, si.gross_total, '
-            . 'si.credits_document_id, si.debit_note_document_id, si.due_date FROM document d JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ? FOR UPDATE OF d', [$id])
+            . 'si.credits_document_id, si.debit_note_document_id, si.due_date, si.origin FROM document d JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ? FOR UPDATE OF d', [$id])
             ?? throw new CwException('unknown_document', 'there is no such supplier invoice', 404);
         $kind = self::kindOf((string) $r['doc_type']) ?? throw new CwException('not_an_invoice', 'this is not a supplier invoice or credit note', 404);
+        if ($r['origin'] === 'erpnext') {
+            // CW-917 (EC7): nothing of a copy of an ERPNext invoice is changed, received, timed, made final or stopped in CW.
+            throw new CwException('erp_copy', 'this is a copy of an ERPNext invoice: it is changed or cancelled in ERPNext, and CW follows', 409);
+        }
         return [$kind, $r];
     }
 
@@ -1229,7 +1305,7 @@ final class SupplierInvoices
      * @param array<string, mixed>|null $cur
      * @return array{invoice_number: ?string, invoice_date: ?string, net_total: ?string, vat_total: ?string, gross_total: ?string, note: ?string, credits_id: ?int, debit_note_id: ?int, due_date: ?string}
      */
-    private function header(string $kind, int $supplierId, array $in, ?array $cur): array
+    private function header(string $kind, int $supplierId, array $in, ?array $cur, bool $copy = false): array
     {
         foreach (array_keys($in) as $k) {
             if (!in_array($k, self::HEADER_FIELDS, true)) {
@@ -1305,10 +1381,15 @@ final class SupplierInvoices
             }
             $id = (int) $v;
             if ($k === 'credits_id') {
-                $ok = $this->db->value("SELECT 1 FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'posted' WHERE si.document_id = ? "
+                $ok = $this->db->value("SELECT si.origin FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'posted' WHERE si.document_id = ? "
                     . "AND si.kind = 'invoice' AND si.supplier_id = ?", [$id, $supplierId]);
                 if ($ok === null) {
                     throw new CwException('credited_invoice_not_posted', 'the invoice a credit note reduces is a posted invoice of the same supplier', 422, ['field' => $field]);
+                }
+                if (($ok === 'erpnext') !== $copy) {
+                    // CW-917 (EC8): a copy of an ERPNext invoice is credited by the copy of an ERPNext debit note only, and a copy credits only a copy.
+                    throw new CwException('credits_copy', $copy ? 'a copy of an ERPNext debit note credits a copy of an ERPNext invoice'
+                        : 'this is a copy of an ERPNext invoice: its credits are made in ERPNext (a debit note), and CW copies them', 422, ['field' => $field]);
                 }
             } else {
                 $ok = $this->db->value("SELECT 1 FROM supplier_return r JOIN document d ON d.id = r.document_id AND d.status = 'posted' WHERE r.document_id = ? AND r.supplier_id = ?",

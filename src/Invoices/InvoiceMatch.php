@@ -87,7 +87,12 @@ final class InvoiceMatch
     {
         $typed ??= $this->typedRules();
         $rules = InvoiceMath::rules($typed);
-        $inv = $this->db->one('SELECT net_total, receive_mode FROM supplier_invoice WHERE document_id = ?', [$invoiceId]);
+        $inv = $this->db->one('SELECT net_total, receive_mode, origin FROM supplier_invoice WHERE document_id = ?', [$invoiceId]);
+        // CW-917 (docs/decisions.md EC9): a copy of an ERPNext invoice is matched against what the shop's relay booked for each of its
+        // stock rows (erp_pi_line.relay_units, kept by the copy job in the same transaction as this match), never against a delivery: a row
+        // the relay booked is "there" in those units; a row it has not booked is "not booked in CW" (within, never off: a copy does not go
+        // to "To match" for it). The price is not checked (there is no order: the ERPNext price is the price).
+        $relay = ($inv['origin'] ?? 'cw') === 'erpnext' ? $this->relayUnits($invoiceId) : null;
         $lines = $this->db->all(
             'SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, sl.kind, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no, '
             . 'a.state AS arrival_state, a.grn_document_id AS arrival_grn, a.grn_line_no AS arrival_grn_line '
@@ -176,8 +181,16 @@ final class InvoiceMatch
                 $ref = $g['unit_e6'];
                 $refFrom = 'delivery';
             }
-            $m = InvoiceMath::line(['units' => $units, 'amount_e2' => $billed, 'inv_unit_e6' => InvoiceMath::e6((string) $l['unit_cost']),
-                'available' => $available, 'ref_unit_e6' => $ref, 'reversed' => $reversed], $rules);
+            if ($relay !== null) {
+                $available = $relay[$no] ?? null;
+                $m = $available === null
+                    ? ['state' => 'within', 'excess' => 0, 'allowed' => 0, 'price_e2' => 0, 'expected_e2' => $billed, 'diff_e2' => 0, 'why' => ['not_booked'], 'price_note' => null]
+                    : InvoiceMath::line(['units' => $units, 'amount_e2' => $billed, 'inv_unit_e6' => InvoiceMath::e6((string) $l['unit_cost']), 'available' => $available,
+                        'ref_unit_e6' => null, 'reversed' => false], $rules);
+            } else {
+                $m = InvoiceMath::line(['units' => $units, 'amount_e2' => $billed, 'inv_unit_e6' => InvoiceMath::e6((string) $l['unit_cost']),
+                    'available' => $available, 'ref_unit_e6' => $ref, 'reversed' => $reversed], $rules);
+            }
             $states[] = $m['state'];
             if ($m['state'] === 'off') {
                 $off++;
@@ -186,7 +199,8 @@ final class InvoiceMatch
             $out[$no] = ['line_no' => $no, 'kind' => 'goods', 'units' => $units, 'amount_e2' => $billed, 'credited_units' => $credited['units'],
                 'credited_e2' => $credited['amount_e2'], 'available' => $available, 'accepted' => $g['accepted'] ?? null, 'returned' => $g['returned'] ?? null,
                 'invoiced_elsewhere' => $g['invoiced_elsewhere'] ?? null, 'ref_unit_e6' => $ref, 'ref_from' => $refFrom, 'reversed' => $reversed,
-                'arriving' => $key === null && $available !== null && $l['arrival_state'] !== 'received', 'po_key' => $poKey] + $m;
+                'arriving' => $relay === null && $key === null && $available !== null && $l['arrival_state'] !== 'received', 'po_key' => $poKey,
+                'relay' => $relay !== null] + $m;
         }
         $totalDiff = $inv === null || $inv['net_total'] === null ? 0 : $sum - InvoiceMath::e2((string) $inv['net_total']);
         if (!InvoiceMath::totalOk($sum, $sum - $totalDiff, count($lines), $rules['total_per_line_e2'])) {
@@ -480,6 +494,22 @@ final class InvoiceMatch
                     $out[$k]['invoiced_elsewhere'] += (int) $r['units'];
                 }
             }
+        }
+        return $out;
+    }
+
+    /**
+     * CW-917 (EC9): what the relay booked for each line of a copy of an ERPNext invoice: line_no => units (a line the relay has not booked
+     * is left out). Read from the copy job's own rows (erp_pi_line), which it changes only with this match worked out again.
+     *
+     * @return array<int, int>
+     */
+    public function relayUnits(int $invoiceId): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT l.line_no, l.relay_units FROM erp_pi p JOIN erp_pi_line l ON l.erp_pi_id = p.id WHERE p.document_id = ? AND l.line_no IS NOT NULL '
+            . 'AND l.relay_units IS NOT NULL', [$invoiceId]) as $r) {
+            $out[(int) $r['line_no']] = (int) $r['relay_units'];
         }
         return $out;
     }

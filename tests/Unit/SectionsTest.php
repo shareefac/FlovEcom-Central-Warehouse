@@ -390,7 +390,9 @@ final class SectionsTest extends TestCase
         self::assertSame(['To receive*', 'Checking', 'Issues', 'Duty register', 'Arriving'], $show(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving')));
         self::assertSame(['To receive', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['reviewer'], [], '/ui/receiving')['segments'], 'label'),
             'the bench is for the people who receive');
-        self::assertSame(['Invoices', 'To match', 'Delivered, no invoice yet*', 'Timed'], $show(Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/not-invoiced')));
+        self::assertSame(['Invoices', 'To match', 'Delivered, no invoice yet*', 'Timed', 'From ERPNext'], // CW-917 (EC14)
+            $show(Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/not-invoiced')));
+        self::assertSame(['Invoices', 'To match', 'Delivered, no invoice yet', 'Timed', 'From ERPNext*'], $show(Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/from-erpnext')));
         self::assertSame(['Returns to suppliers', 'Credit notes*'], $show(Sections::frame(['reviewer'], [], '/ui/purchasing/credit-notes')));
         self::assertSame(['Suggestions*', 'Brands', 'Anomalies', 'Sales history', 'Suppliers', 'Low-stock warnings'], $show(Sections::frame(['buyer'], [], '/ui/purchasing/reorder')));
         self::assertSame(['Customers*', 'Balances'], $show(Sections::frame(['warehouse'], [], '/ui/stock/handovers/customers')));

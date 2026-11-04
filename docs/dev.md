@@ -1306,3 +1306,24 @@ every other Items and Inventory page. Layout and view data only.
 | `src/Reports/ReportViews.php` | `at($end)` + `sources()` (the balances and report_item as of then, rules A-B, inside today's four reads), `bounded()` (session `max_execution_time`), `firstRecordDay()`, `AS_OF_MAX_MS` (AO7) |
 | `src/Ui/Controller/ReportsController.php`, `src/Ui/Kernel.php` | `asof` (`pastDay()`, `endOfDay()`, `pageOf()`), `pdf()` + `valuePdf()` (`GET /ui/reports/stock-value.pdf`), 3024 -> `tooFar` |
 | views `report_value` (input `asof`, `narrowed`), `report_bar` (`$pdf`) | the day in the line, the rule C note, the two messages; Words `RD_REPORTS as_of_label/as_of_note/too_far/before_records/export_pdf` |
+
+### Copies of ERPNext purchase invoices (`docs/decisions.md` EC1-EC16; tracker CW-917; 4 Nov 2026)
+
+| Path | What |
+|---|---|
+| `src/Invoices/ErpApiReader.php`, `ErpTransport.php`, `ErpHttpTransport.php` | the read-only ERPNext client: `changed()` (the filtered, paged list from the cursor), `invoice()`, `items()`, `fromConfig()` (app.env `erp_read_url` / `erp_read_key` / `erp_read_secret`); GET only, the transport injected |
+| `src/Invoices/ErpInvoiceCopy.php` | the job: `run()` (off / read / one transaction per invoice, a dry run rolled back), `step()`, `plan()`, `resolve()` (relay, then sku_erp_item, then the Vape and Go listing), `reverseCopy()`, `prices()`, `relayRecheck()`, `normalise()` (ERPNext's invoice in CW's terms, its hash), `list()`, `logLines()`; `PROBLEMS` (`WAITS`, `SKIPS`) |
+| `src/Documents/Documents.php` | `SYSTEM_JOBS`, `postBySystem()`, `reverseBySystem()`, `isSystemJob()` (EC4) |
+| `src/Invoices/SupplierInvoices.php` | `createCopy()`; `current()` and `reverse()` refuse a copy (409 erp_copy); `header()`'s `credits_copy`; `list()`'s `origin` |
+| `src/Invoices/SupplierInvoiceHandler.php` | `refuseStockOnCopy()` (409 copy_moves_stock); no value events, arrivals or Incoming for a copy; `content()` keeps `origin` for a copy |
+| `src/Invoices/InvoiceMatch.php`, `InvoiceMath.php` | a copy matched against `erp_pi_line.relay_units` (`relayUnits()`), `not_booked` (EC9) |
+| `src/Invoices/InvoiceInvariants.php` | V8 (EC10) |
+| `src/Suppliers/Suppliers.php` | `createFromErp()` (EC11) |
+| `src/Ui/Controller/InvoicesController.php`, views `invoices_from_erpnext`, `invoices`, `supplier_invoice` | `fromErpnext()` (`GET /ui/purchasing/invoices/from-erpnext`), the badge (`erp` of `listRow()`, `erpCopy` of `page()`), no cancel or credit on a copy |
+| `src/Ui/Words.php` | `ERP_COPY`, `ERP_COPY_WHY`, `ERP_COPY_STATE`, `MATCH_WHY not_booked`, `INVOICE_ERROR erp_copy/credits_copy/copy_moves_stock/system_job_only`, the five settings' words |
+| `bin/copy_erp_invoices.php`, `deploy/{staging,production}/*.cron` | the job (dry run by default; `--apply`, `--from`, `--limit`) and its cron line, every 30 minutes |
+| `migrations/0060_erp_invoice_copy.sql` | `supplier_invoice.origin`, `erp_pi`, `erp_pi_line`, `erp_copy_run`, the reasons `erp_cancelled` / `erp_changed`, the settings `erp_copy.*` and their baselines |
+
+- Tests: `tests/Integration/Invoices/ErpInvoiceCopyTest.php` (ERPNext answered by `tests/Support/ErpFakeTransport.php`, real relayed stock),
+  `ErpCopyJobTest.php`, `Migration0060Test.php`, `tests/Integration/UiKernel/ErpCopyScreensTest.php`, `tests/Unit/ErpApiReaderTest.php`,
+  `tests/Unit/ErpCopyUnitTest.php`.

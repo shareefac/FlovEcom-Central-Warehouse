@@ -151,6 +151,8 @@ final class Sections
                 ['key' => 'not_invoiced', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/not-invoiced', 'match' => ['/ui/purchasing/invoices/not-invoiced*']],
                 ['key' => 'timed', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/timed', 'match' => ['/ui/purchasing/invoices/timed*'],
                     'badge' => 'invoices_timed_failed'],
+                // CW-917 (docs/decisions.md EC14): the ERPNext purchase invoices CW copies; the waiting ones first. No count: Approvals stays clear.
+                ['key' => 'from_erpnext', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/from-erpnext', 'match' => ['/ui/purchasing/invoices/from-erpnext*']],
             ]],
             'returns' => ['pages' => [
                 ['key' => 'returns', 'perm' => 'returns.view', 'path' => '/ui/purchasing/returns', 'match' => ['/ui/purchasing/returns*'],

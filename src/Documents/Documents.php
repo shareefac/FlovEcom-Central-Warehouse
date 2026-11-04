@@ -20,7 +20,9 @@ use CW\Staff\StaffRoles;
  * WO, TRD). What a type DOES when it is posted is its DocumentHandler's (DocumentHandlers; none is live in I-1).
  *
  * Every public write is ONE Db::transaction (deadlock retry), takes a staff Caller (403 staff_required otherwise) and
- * re-reads the caller's roles inside it (StaffRoles::active: an inactive person is refused). Drafting, posting and
+ * re-reads the caller's roles inside it (StaffRoles::active: an inactive person is refused). The one exception is SYSTEM_JOBS
+ * (CW-917, docs/decisions.md EC4): postBySystem() / reverseBySystem() let the named job keep the named types (the copies of ERPNext
+ * purchase invoices, which move no stock) with no person and nothing for Approvals. Drafting, posting and
  * reversing need `doc.<TYPE>.post`; a caller holding admin is refused (403 admin_cannot_post, I12) before anything else.
  * A draft's header and lines are changed only by the person who created it (the review rule names the creator, the
  * submitter and the poster, so nobody else may have written a document's content: I19). Every write locks the
@@ -290,6 +292,102 @@ final class Documents
             $revId = $this->insertReversal($doc, $me['id'], $caller->actor, $reasonCode, $note, $now, false);
             return $this->postReversal($caller, $me['id'], $doc, $revId, $t, $handler, 'not_required', true, null);
         });
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // CW-917: the records a system job keeps (docs/decisions.md EC4)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The system jobs that make and cancel documents without a person, and the types each may (docs/decisions.md EC4): the copy of an
+     * ERPNext purchase invoice (bin/copy_erp_invoices.php, Invoices\ErpInvoiceCopy) keeps supplier invoices and credit notes, which move no
+     * stock. Nobody else: a person posts as a person (staff()), and every other system caller is refused (403 system_job_only).
+     */
+    public const SYSTEM_JOBS = ['erp_copy' => ['SINV', 'SCN']];
+
+    /**
+     * A document a system job makes and posts in one go (EC4): no draft a person sees, never an approval nor a review (the job keeps a copy
+     * of a record another system already accepted: nothing waits in Approvals), created_by and posted_by NULL, created_actor and posted_actor
+     * the job's (system:<job>). $extend writes the type's module rows inside the transaction, before the handler's checks; the handler then
+     * validates and records it as for a person's posting (it refuses what a system posting may not do).
+     *
+     * @param array<string, mixed> $header HEADER_FIELDS
+     * @param list<array<string, mixed>> $lines LINE_FIELDS
+     * @param \Closure(Db, int): void $extend
+     */
+    public function postBySystem(Caller $job, string $type, array $header, array $lines, \Closure $extend): Document
+    {
+        return $this->db->transaction(function (Db $db) use ($job, $type, $header, $lines, $extend): Document {
+            $this->checkSystemJob($job, $type);
+            $t = $this->typeRow($type);
+            $handler = $this->handlerFor($t);
+            $h = $this->header($type, $header, null);
+            $norm = $this->normaliseLines($type, $lines);
+            $now = $this->nowDb();
+            $id = $db->insert(
+                'INSERT INTO document (doc_type, status, version, external_ref, doc_date, warehouse_id, reason_code, note, created_by, created_actor, '
+                . "created_at, updated_at) VALUES (?, 'draft', 1, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+                [$type, $h['external_ref'], $h['doc_date'], $h['warehouse_id'], $h['reason_code'], $h['note'], $job->actor, $now, $now],
+            );
+            foreach (array_chunk($norm, 500) as $chunk) {
+                $params = [];
+                foreach ($chunk as $l) {
+                    array_push($params, $id, $l['line_no'], $l['sku_id'], $l['warehouse_id'], $l['qty'], $l['unit_cost'], $l['amount'], $l['reason_code'], $l['description']);
+                }
+                $db->exec('INSERT INTO document_line (document_id, line_no, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) VALUES '
+                    . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+            }
+            Audit::write($db, $job, 'document.create', 'document', (string) $id, null, ['type' => $type, 'lines' => count($norm)] + $h);
+            $extend($db, $id);
+            $row = $this->lock($id);
+            $doc = Document::fromRow($row);
+            $docLines = $this->lines($id);
+            $this->validateForPosting($doc, $docLines);
+            $handler->validate($db, $doc, $docLines);
+            return $this->postNow($job, null, $doc, $t, $handler, $docLines, null, false);
+        });
+    }
+
+    /**
+     * Cancels a document a system job keeps by its reversal (EC4), as that job: the same reversal as reverse() (a new document of the same
+     * type and series, lines negated, the handler's module rows, the exact stock negation: none for the job's types), with a reason that
+     * applies to reversals (CW's own reasons allowed: the job sets them), never an approval nor a review. Returns the reversal.
+     */
+    public function reverseBySystem(Caller $job, int $id, string $reasonCode, ?string $note): Document
+    {
+        $note = self::optText($note, 'note', 1000);
+        return $this->db->transaction(function (Db $db) use ($job, $id, $reasonCode, $note): Document {
+            $row = $this->lock($id);
+            $this->checkSystemJob($job, (string) $row['doc_type']);
+            $t = $this->typeRow((string) $row['doc_type']);
+            $handler = $this->handlerFor($t);
+            $doc = Document::fromRow($row);
+            if ($doc->status !== 'posted' || $doc->isReversal()) {
+                throw new CwException('not_reversible', "{$doc->label()} is " . str_replace('_', ' ', $doc->status) . ': only a posted document is reversed', 409,
+                    ['status' => $doc->status]);
+            }
+            if ($db->value("SELECT id FROM document WHERE reverses_id = ? AND status = 'awaiting_approval'", [$doc->id]) !== null) {
+                throw new CwException('reversal_pending', "{$doc->label()} already has a reversal waiting for approval", 409);
+            }
+            $this->reason($reasonCode, 'reversal', 'reason_code', false);
+            $revId = $this->insertReversal($doc, null, $job->actor, $reasonCode, $note, $this->nowDb(), false);
+            return $this->postReversal($job, null, $doc, $revId, $t, $handler, 'not_required', false, null);
+        });
+    }
+
+    /** Whether $caller is one of SYSTEM_JOBS for a document of $type (a person, a store or another job is not). */
+    public static function isSystemJob(Caller $caller, string $type): bool
+    {
+        $job = str_starts_with($caller->actor, 'system:') ? substr($caller->actor, 7) : '';
+        return $caller->staffUserId === null && !$caller->isChannel() && $caller->source === $caller->actor
+            && in_array($type, self::SYSTEM_JOBS[$job] ?? [], true);
+    }
+
+    private function checkSystemJob(Caller $caller, string $type): void
+    {
+        if (!self::isSystemJob($caller, $type)) {
+            throw new CwException('system_job_only', "only CW's own job keeps {$type} records without a person", 403, ['type' => $type]);
+        }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -646,7 +744,8 @@ final class Documents
      * @param array<string, mixed> $t document_type row
      * @param list<array<string, mixed>> $lines
      */
-    private function postNow(Caller $poster, int $posterId, Document $doc, array $t, DocumentHandler $handler, array $lines, ?Caller $approver): Document
+    private function postNow(Caller $poster, ?int $posterId, Document $doc, array $t, DocumentHandler $handler, array $lines, ?Caller $approver,
+        bool $reviewed = true): Document
     {
         $number = $this->series->next((string) $t['prefix']);
         $now = $this->nowDb();
@@ -658,7 +757,7 @@ final class Documents
             + ($approver === null ? [] : ['on_behalf_of' => $posterId, 'approved_by' => $approver->staffUserId]));
         $posted = $this->get($doc->id);
         $units = $handler->post($this->db, $posted, $lines, $poster, $opKey);
-        if ($approver === null) {
+        if ($approver === null && $reviewed && $posterId !== null) {
             $this->openReviewIfNeeded($posted, $t, $units, $posterId, $poster->actor, $now);
         }
         return $this->get($doc->id);
@@ -670,7 +769,7 @@ final class Documents
      *
      * @param list<array<string, mixed>> $lines
      */
-    private function markPosted(Document $doc, array $lines, string $number, int $posterId, string $actor, string $now, string $reviewState): string
+    private function markPosted(Document $doc, array $lines, string $number, ?int $posterId, string $actor, string $now, string $reviewState): string
     {
         $content = self::canonical($doc, $lines, $number);
         $hash = hash('sha256', $content);
@@ -737,7 +836,7 @@ final class Documents
      * warehouse, today's date, the reason, and the original's lines copied with qty and amount negated. A draft about to
      * be posted in this transaction, or ($awaiting) a request waiting for its blocking approval (I32). Returns its id.
      */
-    private function insertReversal(Document $orig, int $staffId, string $actor, string $reasonCode, ?string $note, string $now, bool $awaiting): int
+    private function insertReversal(Document $orig, ?int $staffId, string $actor, string $reasonCode, ?string $note, string $now, bool $awaiting): int
     {
         $revId = $this->db->insert(
             'INSERT INTO document (doc_type, status, version, external_ref, doc_date, warehouse_id, reason_code, note, created_by, created_actor, '
@@ -764,7 +863,7 @@ final class Documents
      *
      * @param array<string, mixed> $t
      */
-    private function postReversal(Caller $poster, int $posterId, Document $orig, int $revId, array $t, DocumentHandler $handler, string $reviewState,
+    private function postReversal(Caller $poster, ?int $posterId, Document $orig, int $revId, array $t, DocumentHandler $handler, string $reviewState,
         bool $reviewed, ?Caller $approver): Document
     {
         if ($orig->isReversal() || $orig->status !== 'posted') {
@@ -788,7 +887,7 @@ final class Documents
         $reversal = $this->get($revId);
         $handler->reverse($this->db, $orig, $reversal, $lines, $poster, $opKey);
         $this->moves->reverseDocument($poster, $orig->id, ['document_id' => $revId, 'doc_ref' => $number], $opKey);
-        if ($reviewed) {
+        if ($reviewed && $posterId !== null) {
             $units = (int) $this->db->value("SELECT COALESCE(SUM(ABS(qty_delta)), 0) FROM stock_ledger WHERE document_id = ? AND bucket = 'on_hand'", [$revId]);
             $this->openReviewIfNeeded($reversal, $t, $units, $posterId, $poster->actor, $now);
         }

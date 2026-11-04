@@ -295,6 +295,45 @@ final class Suppliers
         });
     }
 
+    /** CW-917 (docs/decisions.md EC11): the note of a supplier the copy job of ERPNext invoices made. */
+    public const FROM_ERP_NOTE = 'Made by CW from an ERPNext purchase invoice (ERPNext supplier: %s). Fill in its details and ask for its activation before ordering from it.';
+
+    /**
+     * CW-917 (docs/decisions.md EC11): a supplier the copy job of ERPNext purchase invoices meets and CW does not know (no supplier has its
+     * ERPNext name). Made as a DRAFT, never active (a person completes it and asks for its activation, as for any supplier), named from
+     * ERPNext (its supplier name, else its ERPNext name), erp_name = the ERPNext name, made by the job (created_by NULL, created_actor
+     * system:erp_copy: the screens say "From ERPNext"), with a note saying so. Only the copy job (403 system_job_only); 409 duplicate_erp_name
+     * when another supplier has that ERPNext name. Audit supplier.create (from_erpnext). Returns the row.
+     *
+     * @return array<string, mixed>
+     */
+    public function createFromErp(Caller $job, string $erpName, ?string $displayName): array
+    {
+        if (!\CW\Documents\Documents::isSystemJob($job, 'SINV')) {
+            throw new CwException('system_job_only', 'only CW\'s own job makes a supplier from an ERPNext invoice', 403);
+        }
+        return $this->db->transaction(function (Db $db) use ($job, $erpName, $displayName): array {
+            $name = trim((string) ($displayName ?? ''));
+            $name = mb_substr(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $name === '' ? $erpName : $name) ?? $erpName, 0, 128);
+            $v = $this->normalise(['name' => $name, 'erp_name' => $erpName, 'notes' => mb_substr(sprintf(self::FROM_ERP_NOTE, $erpName), 0, 1000)],
+                self::FIELDS + ['erp_name' => self::ERP_NAME]);
+            $v['code'] = $this->codeFor((string) $v['name']);
+            $this->checkUnique($v, null);
+            $now = $this->nowDb();
+            $cols = [...array_keys($v), 'status', 'version', 'created_by', 'created_actor', 'created_at', 'updated_by', 'updated_actor', 'updated_at'];
+            $params = [...array_values($v), 'draft', 1, null, $job->actor, $now, null, $job->actor, $now];
+            try {
+                $id = $db->insert('INSERT INTO supplier (' . implode(', ', array_map(static fn (string $c): string => "`{$c}`", $cols)) . ') VALUES ('
+                    . implode(', ', array_fill(0, count($cols), '?')) . ')', $params);
+            } catch (\PDOException $e) {
+                throw self::duplicate($e) ?? $e;
+            }
+            Audit::write($db, $job, 'supplier.create', 'supplier', (string) $id, null, ['code' => $v['code'], 'name' => $v['name'], 'erp_name' => $erpName,
+                'from_erpnext' => true]);
+            return $this->get($id);
+        });
+    }
+
     /**
      * Changes fields of a draft, active or inactive supplier (suppliers.manage, at $expectedVersion). 409 supplier_pending
      * while an activation request waits ("withdraw it first"). An approval-relevant change sets details_changed_by/at; on
