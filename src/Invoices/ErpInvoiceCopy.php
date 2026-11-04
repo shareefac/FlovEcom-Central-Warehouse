@@ -214,9 +214,12 @@ final class ErpInvoiceCopy
             $missing = array_map('strval', $this->db->column("SELECT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
                 . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL GROUP BY p.return_against "
                 . 'ORDER BY MIN(p.read_at), p.return_against LIMIT ' . $cap));
+            // The kind that goes first changes from one run to the next (the Codex re-check of bcb68d1): with one share and a stuck
+            // refusal, an invoice a debit note waits for still gets its turn.
+            $flip = (int) $this->db->value('SELECT COUNT(*) FROM erp_copy_run') % 2 === 1;
             $candidates = [];
             for ($k = 0; $k < max(count($refused), count($missing)); $k++) {
-                foreach ([$refused[$k] ?? null, $missing[$k] ?? null] as $c) {
+                foreach ($flip ? [$missing[$k] ?? null, $refused[$k] ?? null] : [$refused[$k] ?? null, $missing[$k] ?? null] as $c) {
                     if ($c !== null && !in_array($c, $candidates, true)) {
                         $candidates[] = $c;
                     }
@@ -243,6 +246,7 @@ final class ErpInvoiceCopy
                 }
                 if ($i > 0 && 1 + count($needs) > $budget) {
                     $sum['capped'] = true; // read, not kept: the next run starts with it
+                    $budget--; // that read is spent all the same (the Codex re-check of bcb68d1)
                     break;
                 }
                 $docs[$l['name']] = $d;

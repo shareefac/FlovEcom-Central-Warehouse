@@ -464,15 +464,20 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
             $r = $this->copy()->run($this->reader(), true);
             self::assertSame(['waiting', 'original_missing'], [$this->erpRow('RET-M')['state'], $this->erpRow('RET-M')['problem']]);
             self::assertSame(['waiting' => 2], $r['counts'], 'PI-K (still refused) and RET-M');
-            // PI-M can be read now (changed long ago: behind the cursor). Two a run, one kept for what is read again: PI-K takes it, and
-            // what no fresh change uses reads PI-M; RET-M is then copied against it.
+            // PI-M can be read now (changed long ago: behind the cursor). Two a run, one kept for what is read again, and a fresh change
+            // in every run: the kind that goes first changes from run to run, so PI-M is read in one of two runs, PI-K in the other.
             $this->erp->invoices['PI-M'] = $this->pi('PI-M', [['item' => 'A', 'qty' => 3, 'rate' => 3]], ['modified' => '2026-09-15 10:00:00.000000']);
             $this->setting(ErpInvoiceCopy::PER_RUN, '2');
-            $this->erp->calls = [];
-            $r = $this->copy()->run($this->reader(), true);
-            $read = array_values(array_map(static fn (array $c): string => substr($c['path'], strlen('/api/resource/Purchase Invoice/')),
-                array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/'))));
-            self::assertSame(['PI-K', 'PI-M'], $read);
+            $reads = [];
+            foreach (['PI-N1', 'PI-N2'] as $i => $name) {
+                $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 6]], ['modified' => '2026-10-0' . ($i + 7) . ' 10:00:00.000000']);
+                $this->erp->calls = [];
+                $this->copy()->run($this->reader(), true);
+                $reads[] = array_values(array_map(static fn (array $c): string => substr($c['path'], strlen('/api/resource/Purchase Invoice/')),
+                    array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/'))));
+            }
+            self::assertSame([2, 2, 'PI-N1', 'PI-N2'], [count($reads[0]), count($reads[1]), $reads[0][0], $reads[1][0]], 'two a run, the fresh one first');
+            self::assertEqualsCanonicalizing(['PI-K', 'PI-M'], [$reads[0][1], $reads[1][1]], 'then each kind in turn');
             self::assertSame(['copied', 'copied'], [$this->erpRow('PI-M')['state'], $this->erpRow('RET-M')['state']]);
             self::assertSame(['copied', 'refused'], [$this->erpRow('PI-K')['state'], $this->erpRow('PI-K')['problem']]);
         } finally {
