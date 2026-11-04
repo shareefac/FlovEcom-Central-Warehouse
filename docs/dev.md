@@ -1336,6 +1336,7 @@ every other Items and Inventory page. Layout and view data only.
 | `src/Reorder/ReorderList.php` | `filters()`' `buy_for`; `forDays()` (a line bought for N: ReorderMath with N in place of R, `buy_for`, `usual_review`); `lines()` applies it |
 | `src/Reorder/ReorderLines.php` | `INPUTS`, `inputs()`; `page()` / `ids()` bought for N (`buyForSql()`, `PACKS_N`, `HINT_N`, `idsN()`: chosen, counted and ordered in SQL, `waiting`), `lines($ids, $days)` |
 | `src/Reorder/ReorderRefresh.php` | writes the inputs with each line; a row whose stored inputs are not its line's is written again |
+| `src/Reorder/ReorderMath.php` | `VALUE_MAX_E4`, `value()`: a line's cost exact up to £100 trillion and held there above it (BF13) |
 | `src/Reorder/DraftPos.php`, `ReorderSettings.php` (`buyFor()`), `Explain.php`, `src/Ui/ReorderWhy.php` | drafts store N's suggestion (422 `bad_buy_for` outside the range); the range and presets; the maths and the Why say "bought for N days (you chose)" |
 | `src/Ui/Controller/ReorderController.php`, view `reorder`, `public/ui/assets/app.css` (`.tb-buyfor`, `input.tb-days`) | the choice and the typed number (`buy_for`, `buy_days`; `buyFor()`, `daysWords()`, `buyForOptions()`), the figure strip's line, the draft form's `buy_for`, the CSV |
 | `src/Ui/Words.php`, `src/Settings.php` | `REORDER_BUY_FOR`, `WHY cover_buy_for`, `REORDER_ENGINE_ERROR bad_buy_for`, the three settings' words; `Settings::RULES` |
