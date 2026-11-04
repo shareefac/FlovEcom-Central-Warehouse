@@ -10,8 +10,9 @@
 --    Nothing else changes: no stock rule, no selling mode, no low-stock level, no other queue (count_gate and the other policy_review
 --    sources stay as they are).
 --
--- HOW IT IS APPLIED: the setting row, its baseline, the audit row (only while some are open: written before the close, so it counts
--- them), then the close. Each statement is safe to run again: a second run adds no row and changes none.
+-- HOW IT IS APPLIED: the setting row, its baseline, the audit row (only while some are open and no 0059 audit row exists yet: written
+-- before the close, so it counts them), then the close. Each statement is safe to run again: a second run adds no row and changes none,
+-- and a run stopped between the audit row and the close writes no second audit row when it is run again (the Codex review, MEDIUM 1).
 
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description)
   SELECT 'relay.mode_review', 'bool', 'false', 0, 'MO1',
@@ -27,6 +28,8 @@ INSERT INTO audit_log (actor, action, entity_type, entity_id, detail)
   SELECT 'system:migrate', 'queues.modes.close_all', 'policy_review', 'erp_update_product',
     JSON_OBJECT('closed', COUNT(*), 'oldest', MIN(created_at), 'newest', MAX(created_at), 'migration', '0059_mode_review_off.sql')
   FROM policy_review WHERE source = 'erp_update_product' AND status = 'open'
+    AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.entity_type = 'policy_review' AND a.entity_id = 'erp_update_product'
+      AND a.action = 'queues.modes.close_all' AND a.actor = 'system:migrate')
   HAVING COUNT(*) > 0;
 
 UPDATE policy_review SET status = 'dismissed', resolution = 'review_off', resolved_at = UTC_TIMESTAMP(6),

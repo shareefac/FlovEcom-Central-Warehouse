@@ -15861,5 +15861,5 @@ resolution `review_off`, with a note; one audit row (`queues.modes.close_all`, a
 newest, written before the close and only while some are open, so a second run adds nothing. Other policy_review sources (count_gate and
 the rest) are untouched. `Migration0059Test`.
 
-**MO4. Tests.** The tests that relay mode changes to see them queued turn the switch on (`IntegrationTestCase::askModeChanges()`); every
+**MO4. Tests and review.** Codex (runs/mo_codex_review.txt): 1 MEDIUM, fixed: a migration run stopped between the audit row and the close wrote a second audit row when run again; the audit row now waits for none from 0059 before it. Tests: The tests that relay mode changes to see them queued turn the switch on (`IntegrationTestCase::askModeChanges()`); every
 integration test starts with it back at its seeded off. `RelayIntakeTest::testWithTheSwitchOffAModeChangeIsNotedAndAsksNoOne`.

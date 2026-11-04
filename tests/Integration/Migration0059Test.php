@@ -73,5 +73,14 @@ final class Migration0059Test extends IntegrationTestCase
         }
         self::assertSame($snapshot, [$db->all('SELECT * FROM policy_review ORDER BY id'), $db->all('SELECT * FROM audit_log ORDER BY id'),
             $db->all("SELECT * FROM app_setting WHERE setting_key = 'relay.mode_review'"), $db->all('SELECT * FROM config_change ORDER BY id')]);
+
+        // A run stopped after its audit row and before the close (the Codex review, MEDIUM 1): run again, it closes the rest and writes
+        // no second audit row.
+        $late = $review('erp_update_product', 'open', '2026-11-04 09:00:00.000000');
+        foreach ($statements as $sql) {
+            $db->exec($sql);
+        }
+        self::assertSame('dismissed', (string) $db->value('SELECT CAST(status AS CHAR) FROM policy_review WHERE id = ?', [$late]));
+        self::assertSame(1, (int) $db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'queues.modes.close_all'"));
     }
 }
