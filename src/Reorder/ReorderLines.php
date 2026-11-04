@@ -146,7 +146,8 @@ final class ReorderLines
     private static function idsN(string $sql, bool $need): string
     {
         return 'SELECT ' . self::HINT_N . ' k.sku_id FROM ' . $sql . ($need ? ' WHERE ' . self::PACKS_N . ' > 0' : '')
-            . ' ORDER BY k.urgent DESC, k.no_demand, k.cover_now_e1, COALESCE(' . self::PACKS_N . ' * k.pack_price_e4, 0) DESC, k.sku_id';
+            . ' ORDER BY k.urgent DESC, k.no_demand, k.cover_now_e1, COALESCE(LEAST(CAST(' . self::PACKS_N . ' AS DECIMAL(65, 0)) * k.pack_price_e4, '
+            . ReorderMath::VALUE_MAX_E4 . '), 0) DESC, k.sku_id'; // the cost as ReorderMath::value(): exact, held at its largest (BF13)
     }
 
     /**
@@ -156,7 +157,8 @@ final class ReorderLines
      *   raw = ⌈d·(L + days + S) / 10^6⌉;  target = min(max(raw, min_stock ?? 0), max_stock ?? ∞);  need = max(0, target - P)
      *   packs0 = ⌈need / upp⌉, or ⌊(2·need + upp) / (2·upp)⌋ rounded to the nearest: both are (need·(1+r) + upp - 1 + r) DIV (upp·(1+r))
      *            with r = 1 for nearest, else 0 (packs0 = 0 whenever need = 0)
-     * then PACKS_N (the smallest order, the steps, never suggested) and value = packs × price (0 without one) in the reads (idsN(), page()).
+     * then PACKS_N (the smallest order, the steps, never suggested) and value = packs × price (0 without one; worked out in DECIMAL and held at
+     * ReorderMath::VALUE_MAX_E4 as ReorderMath::value() does, BF13) in the reads (idsN(), page()).
      * A row without inputs (d_e6 NULL, BF4) has no packs (`ready` 0): never "to buy", value 0.
      * Returns the FROM part (a derived table `k`: sku_id, urgent, no_demand, cover_now_e1, never_suggested, moq_packs, multiple_packs,
      * pack_price_e4, ready, packs0), its parameters, and whether only lines with packs are kept ("Products to buy"; every product and below

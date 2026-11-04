@@ -19,6 +19,7 @@ use CW\Reorder\DraftPos;
 use CW\Reorder\ReorderJobs;
 use CW\Reorder\ReorderLines;
 use CW\Reorder\ReorderList;
+use CW\Reorder\ReorderMath;
 use CW\Reorder\ReorderRefresh;
 use CW\Reorder\ReorderSettings;
 use CW\Ui\Context;
@@ -371,7 +372,7 @@ final class ReorderController
         $urgent = 0;
         foreach ($rows as &$r) {
             $r['group'] = $r['urgent'] ? 'urgent' : ((int) $r['packs'] > 0 ? 'buy' : 'enough');
-            $valueE4 += (int) ($r['value_e4'] ?? 0);
+            $valueE4 = self::addCost($valueE4, (int) ($r['value_e4'] ?? 0));
             $urgent += $r['urgent'] ? 1 : 0;
         }
         unset($r);
@@ -438,6 +439,12 @@ final class ReorderController
             $note ??= Words::say('REORDER_BUY_FOR', 'out_of_range', $range['min'], $range['max']);
         }
         return [$f, $note];
+    }
+
+    /** Two costs (e4) added, held at ReorderMath::VALUE_MAX_E4 like each line's (BF13): the page's total never leaves the whole numbers. */
+    public static function addCost(int $a, int $b): int
+    {
+        return $a > ReorderMath::VALUE_MAX_E4 - $b ? ReorderMath::VALUE_MAX_E4 : $a + $b;
     }
 
     /** A number of days as people read it (BF8): "1 week", "2 weeks" for whole weeks, else "1 day", "10 days". */

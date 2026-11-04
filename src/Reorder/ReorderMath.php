@@ -14,7 +14,7 @@ namespace CW\Reorder;
  *   N   = max(0, T - P)                                                                      (need)
  *   k0  = N / upp;  k = ⌈k0⌉, or ⌊k0 + ½⌋ when pack_rounding = 'nearest';  N = 0 or k = 0 -> k = 0, otherwise
  *         k = max(k, moq) and k = ⌈k / mult⌉ · mult                                          (packs)
- *   suggested units = k·upp; value = k·last_pack_price;  urgent ⇔ P < ROP;  cover_now = P / d (∞ when d = 0).
+ *   suggested units = k·upp; value = k·last_pack_price, at most VALUE_MAX_E4;  urgent ⇔ P < ROP;  cover_now = P / d (∞ when d = 0).
  *   SS  = max(⌈d·S⌉, min_stock ?? 0), then min(SS, max_stock) when set                      (safety stock; pack G, PG5)
  *   below_safety ⇔ A < SS (stock available now, orders not counted: ERPNext's "Items Below Safety Stock"), never for an item never
  *   suggested.
@@ -22,6 +22,14 @@ namespace CW\Reorder;
  */
 final class ReorderMath
 {
+    /**
+     * The largest cost of a line (e4: £100,000,000,000,000.00; docs/decisions.md BF13). A line bought for many days at the largest accepted
+     * demand and price can cost more than a whole number holds; its cost is held here instead (never a float), so the list's cost, its total,
+     * its order and its download stay whole numbers that print. Such a line cannot be ordered anyway (an order line takes at most 1,000,000
+     * packs).
+     */
+    public const VALUE_MAX_E4 = 1_000_000_000_000_000_000;
+
     /**
      * @param array{rate_e4: int, factor_e2: int, lead: int, review: int, safety: int, min_stock: ?int, max_stock: ?int, available: int,
      *   on_order: int, in_drafts: int, upp: int, moq: int, mult: int, rounding: string, never: bool, pack_price_e4: ?int} $in
@@ -94,12 +102,21 @@ final class ReorderMath
             'moq_applied' => $moqApplied,
             'mult_applied' => $multApplied,
             'units' => $packs * $upp,
-            'value_e4' => $in['pack_price_e4'] === null ? null : $packs * $in['pack_price_e4'],
+            'value_e4' => $in['pack_price_e4'] === null ? null : self::value($packs, $in['pack_price_e4']),
             'urgent' => $position < $rop,
             'cover_now_e1' => $d === 0 ? null : DemandMath::halfUpDiv($position * 10_000_000, $d),
             'safety_stock' => $safetyStock,
             'below_safety' => !$in['never'] && $in['available'] < $safetyStock,
         ];
+    }
+
+    /** packs × price (e4), held at VALUE_MAX_E4 (BF13): never past it, never a float; exact below it. */
+    public static function value(int $packs, int $priceE4): int
+    {
+        if ($packs > 0 && $priceE4 > intdiv(self::VALUE_MAX_E4, $packs)) {
+            return self::VALUE_MAX_E4;
+        }
+        return $packs * $priceE4;
     }
 
     /**

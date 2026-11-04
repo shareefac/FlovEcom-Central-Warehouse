@@ -94,6 +94,30 @@ final class ReorderBuyForUnitTest extends TestCase
         self::assertNull(self::math(['review' => 14, 'pack_price_e4' => null])['value_e4'], 'no price: no cost');
     }
 
+    /**
+     * A cost past what a whole number holds (the Codex re-check of 9df1a0e, MEDIUM): 1,000,000 a day, 999,999 in stock, £9,999,999.9999 a pack;
+     * bought for 180 days that is 179,000,001 packs, £1.79 × 10^15, past £100 trillion: held at ReorderMath::VALUE_MAX_E4, never a float
+     * (the list's cost, its total, its order and its download stay whole numbers that print). The usual figure is the same as before.
+     */
+    public function testACostPastTheLargestFigureIsHeldThere(): void
+    {
+        self::assertSame(1_000_000_000_000_000_000, ReorderMath::VALUE_MAX_E4, '£100,000,000,000,000.00');
+        $in = ['rate_e4' => 10_000_000_000, 'lead' => 0, 'safety' => 0, 'available' => 999_999, 'on_order' => 0, 'upp' => 1, 'pack_price_e4' => 99_999_999_999];
+        $usual = self::math(['review' => 1] + $in);
+        self::assertSame([1, 99_999_999_999], [$usual['packs'], $usual['value_e4']]);
+        $long = self::math(['review' => 180] + $in);
+        self::assertSame([179_000_001, ReorderMath::VALUE_MAX_E4], [$long['packs'], $long['value_e4']]);
+        self::assertSame(10_000 * 99_999_999_999, self::math(['review' => 1, 'available' => 999_999 - 9_999] + $in)['value_e4'], 'up to the limit: exact');
+        $line = ReorderList::forDays(self::line(['review' => 1, 'available' => 999_999, 'on_order' => 0, 'upp' => 1, 'rate_e4' => 10_000_000_000, 'lead' => 0, 'safety' => 0,
+            'pack_price' => '9999999.9999']), 180);
+        self::assertSame(ReorderMath::VALUE_MAX_E4, $line['value_e4']);
+        self::assertSame('100,000,000,000,000.00', ReorderList::money($line['value_e4']), 'the page prints it');
+        self::assertSame('100000000000000.00', ReorderList::amount($line['value_e4']), 'the download too');
+        self::assertSame(ReorderMath::VALUE_MAX_E4, ReorderController::addCost(ReorderMath::VALUE_MAX_E4, 450_000), 'the page\'s total is held there too');
+        self::assertSame(ReorderMath::VALUE_MAX_E4, ReorderController::addCost(ReorderMath::VALUE_MAX_E4 - 1, ReorderMath::VALUE_MAX_E4));
+        self::assertSame(900_000, ReorderController::addCost(450_000, 450_000));
+    }
+
     /** A stored line bought for N: ReorderMath's own figures with N, `buy_for` and the usual cycle kept; again for another N, the same. */
     public function testALineBoughtForNIsReorderMathWithN(): void
     {

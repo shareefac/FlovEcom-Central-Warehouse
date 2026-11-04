@@ -136,8 +136,17 @@ final class ReorderBuyForTest extends ReorderTestCase
                 'min_stock' => $min, 'max_stock' => $max, 'upp' => [1, 1, 6, 10, 24, 100][mt_rand(0, 5)], 'moq' => mt_rand(1, 5), 'mult' => mt_rand(1, 4),
                 'rounding' => mt_rand(0, 3) === 0 ? 'nearest' : 'up', 'never' => mt_rand(0, 9) === 0, 'pack_price_e4' => mt_rand(0, 4) === 0 ? null : mt_rand(0, 2_000_000),
                 'urgent' => mt_rand(0, 1) === 1, 'cover_now_e1' => mt_rand(0, 5) === 0 ? null : mt_rand(-50, 2_000), 'ready' => $k < 400];
+            if ($k < 3) {
+                // The largest a line can hold (the re-check of 9df1a0e, MEDIUM): 99,999,999.9999 a day × 5.00, 255 + 90 days, £9,999,999,999.9999 a pack:
+                // its cost for N is past what a whole number holds, and is held at ReorderMath::VALUE_MAX_E4 (never an SQL error, never a float).
+                $r = ['rate_e4' => 999_999_999_999, 'factor_e2' => 500, 'lead' => 255, 'safety' => 90, 'min_stock' => null, 'max_stock' => null, 'upp' => 1, 'moq' => 1,
+                    'mult' => 1, 'rounding' => 'up', 'never' => false, 'pack_price_e4' => 99_999_999_999_999, 'available' => $k === 2 ? -4_000_000_000 : 0, 'urgent' => true,
+                    'cover_now_e1' => 0] + $r;
+                $min = null;
+                $max = null;
+            }
             $rows[$id] = $r;
-            $d = $rate * $factor;
+            $d = $r['rate_e4'] * $r['factor_e2'];
             array_push($params, $id, $r['urgent'] ? 1 : 0, $r['never'] ? 1 : 0, $r['cover_now_e1'] === null ? 1 : 0, $r['cover_now_e1'] ?? 0, mt_rand(0, 9_999_999),
                 $r['ready'] ? $d : null, $r['lead'], $r['safety'], $r['available'], $min, $max, $r['upp'], $r['moq'], $r['mult'], $r['rounding'] === 'nearest' ? 1 : 0,
                 $r['pack_price_e4']);

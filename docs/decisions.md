@@ -16034,7 +16034,7 @@ by hand, keeps no share); a copy whose attempt was refused is counted with the w
 invoice of a run is always taken with what it needs (at most two more reads than the budget), and an invoice read and then left for the
 next run costs that read: both keep every run moving, and the overshoot is bounded.
 
-## Reorder › Suggestions: "Buy for N days" (branch `reorder-buy-for`, 4 Nov 2026; BF1-BF12)
+## Reorder › Suggestions: "Buy for N days" (branch `reorder-buy-for`, 4 Nov 2026; BF1-BF13)
 
 The owner, 4 Nov 2026: "based on previous data sales how many will we need to buy for custom days, weeks etc. low stock threshold and
 all". Before this branch a buyer could not say "buy enough for 2 weeks": the order cycle R came only from the main supplier
@@ -16146,3 +16146,15 @@ refresh with it. It is a BIGINT now (0061 was never applied outside the test sch
 3,000,000,000; `ReorderBuyForTest` mends one and its random lines hold positions past an INT both ways. Its remarks on the tests, taken: the
 random test's rows now carry their stored lines, so its second page is checked line by line (the ids, and ReorderMath's packs and cost for
 N), not only its count.
+
+**BF13. The Codex re-check of 9df1a0e (`runs/bf_codex_review2.txt`): the BIGINT fix confirmed; one MEDIUM, fixed test-first
+(`runs/bf_fix2_red.log`: three tests red, `bf_fix2_green.log`).** A line's cost (packs × pack price, e4) can pass what a whole number holds
+at the largest accepted demand and price bought for many days (1,000,000 a day, £9,999,999.9999 a pack, 180 days: 179,000,001 packs), and
+the list for N stopped with an SQL error ("BIGINT value is out of range" in its order), its page with a 500 (a float cost cannot print).
+Now a line's cost is `ReorderMath::value()`: exact up to `ReorderMath::VALUE_MAX_E4` (£100,000,000,000,000.00) and held there above it,
+never a float (the usual list's cost is unchanged below it; above it the usual list's refresh failed the same way before). The SQL works the
+cost out in DECIMAL and holds it at the same figure, so the order is the same as ReorderMath's; the page's total adds with the same hold
+(`ReorderController::addCost()`). Such a line can never be ordered as it stands (an order line takes at most 1,000,000 packs). Tests: the
+example in `ReorderBuyForUnitTest`, three lines at the largest demand and price in the random SQL = ReorderMath test, and the page, its
+total and its download in `ReorderBuyForScreensTest`. The other products were checked against the columns' limits and stay within a
+whole number: d·days at most 5·10^14 × 740 days, a position × 10^7 for the days left.

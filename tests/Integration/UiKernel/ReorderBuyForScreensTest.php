@@ -128,6 +128,17 @@ final class ReorderBuyForScreensTest extends KernelUiTestCase
         $typedCsv = array_column(array_slice(self::csv($web->get('/ui/purchasing/reorder.csv', ['buy_days' => '45'])), 1), null, 0);
         self::assertSame('24', $typedCsv[self::skuCode($s['a'])][$col['packs']], 'a typed number in the download too');
 
+        // A cost past what a whole number holds (the Codex re-check of 9df1a0e, MEDIUM): the page, its total and its download still work.
+        self::$db->exec("UPDATE reorder_line_detail SET line = JSON_SET(line, '$.rate_e4', 10000000000, '$.factor_e2', 100, '$.lead', 0, '$.safety', 0, "
+            . "'$.available', 999999, '$.upp', 1, '$.moq', 1, '$.pack_price', '9999999.9999') WHERE sku_id = ?", [$s['d']]);
+        self::$db->exec('UPDATE reorder_line SET d_e6 = 1000000000000, lead_days = 0, safety_days = 0, stock_position = 999999, units_per_pack = 1, moq_packs = 1, '
+            . 'pack_price_e4 = 99999999999 WHERE sku_id = ?', [$s['d']]);
+        $huge = $web->get('/ui/purchasing/reorder', ['buy_for' => '180']);
+        self::assertSame(200, $huge->status, $huge->describe());
+        self::assertSame('179000001', $huge->form('/ui/purchasing/reorder/draft')['packs_' . $s['d']]);
+        self::assertStringContainsString('£100,000,000,000,000.00', $huge->text(), 'held at the largest cost');
+        self::assertSame(200, $web->get('/ui/purchasing/reorder.csv', ['buy_for' => '180'])->status);
+
         // The choices come from the setting (a number outside 1-180 is not offered).
         $this->setting('reorder.buy_for_presets', '"21,7,200,7"');
         self::assertSame([['', Words::REORDER_BUY_FOR['usual'], true], ['21', '3 weeks', false], ['7', '1 week', false]], self::choices($web->get('/ui/purchasing/reorder')));
