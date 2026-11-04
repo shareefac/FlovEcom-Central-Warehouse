@@ -16012,3 +16012,11 @@ up to its cursor): a `--from` back-fill that reached the cap is gone on with by 
 `erp_changed` must exist, be active and apply to reversals (what `Documents::reverseBySystem()` needs): a reason code made by hand before
 0060 with the same code is kept as it is (never rewritten by a migration), and every run, a dry run too, stops before it reads ERPNext
 while one of them could not cancel a copy (409 erp_copy_reasons, exit 3, naming the reason and Settings › Reasons).
+
+**EC18. The re-check of fac1ea9 (runs/ec_codex_review4.txt), fixed.** (1) The column is added only while it is not there (a prepared
+statement, as 0056), so even a stop after the ALTER and before the migration's own record runs again cleanly; a column of that name
+with another definition stops the migration, naming it. (2) The cap is ONE budget of invoices read a run, the invoices a debit note or an
+amendment needs and the copies read again included: an invoice whose needs no longer fit is left for the next run (the cursor stays on
+the one before it; the first invoice of a run is always taken with what it needs, so every run goes on), and the invoices debit notes
+wait for (`original_missing`) are read within what is left. (3) A back-fill from a date BEFORE the setting's that reached the cap is
+drained by the next runs with its own date (for reading and for copying) until a run of it is not capped; then the setting's date again.

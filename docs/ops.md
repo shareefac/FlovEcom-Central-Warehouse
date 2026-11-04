@@ -2782,8 +2782,9 @@ cd /opt/cw-prod && php bin/copy_erp_invoices.php --db=cw_prod --from=2026-09-01 
 
 A run reads at most `erp_copy.per_run` invoices (200; `--limit=<n>` overrides it): a back-fill bigger than that copies the first 200 and
 stops ("the most a run reads: the next run goes on"); there is no need to run it again by hand: the cron line picks up from where it
-stopped (a `--from` run of the same date as `erp_copy.from_date`, or an earlier one, leaves its place for the cron). Run `--from` once
-only: a second `--from` starts reading from the beginning again (harmless: what is copied is unchanged, but slow).
+stopped (a `--from` run of the same date as `erp_copy.from_date`, or an earlier one, leaves its place for the cron; one of an earlier date
+is gone on with from its own date until it is drained). The 200 count the invoices a debit note needs too. Run `--from` once only: a
+second `--from` starts reading from the beginning again (harmless: what is copied is unchanged, but slow).
 
 The job stops before reading anything (exit 3, "cannot run: the reason erp_cancelled is switched off ...") if one of its two reasons,
 `erp_cancelled` and `erp_changed`, is missing, switched off or not offered for cancelling records: put it right in Settings › Reasons.

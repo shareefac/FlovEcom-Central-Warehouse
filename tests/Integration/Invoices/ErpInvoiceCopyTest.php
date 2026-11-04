@@ -370,6 +370,52 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertNull((new ErpInvoiceCopy(self::$db))->cursor('VAPE AND GO', '2026-07-01'), 'an earlier date than any run: from the start');
     }
 
+    /**
+     * The Codex re-check of fac1ea9: ONE budget of invoices read a run, what a debit note needs included (an invoice whose needs no longer
+     * fit waits for the next run, the cursor before it); and a back-fill from a date before the setting's that reached the cap is drained
+     * with its own date, so nothing it had still to read is skipped.
+     */
+    public function testOneBudgetOfReadsARunAndAnEarlierBackFillIsDrainedWithItsDate(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        $this->setting(ErpInvoiceCopy::PER_RUN, '2');
+        // B is dated before the copies start (not listed); its debit note RET-B comes second in the list.
+        $this->erp->invoices['PI-B'] = $this->pi('PI-B', [['item' => 'A', 'qty' => 2, 'rate' => 1]], ['modified' => '2026-09-01 10:00:00.000000',
+            'posting_date' => '2026-08-01', 'bill_date' => '2026-08-01']);
+        $this->erp->invoices['PI-A'] = $this->pi('PI-A', [['item' => 'A', 'qty' => 1, 'rate' => 1]], ['modified' => '2026-10-01 10:00:00.000000']);
+        $this->erp->invoices['RET-B'] = $this->pi('RET-B', [['item' => 'A', 'qty' => -1, 'rate' => 1]], ['modified' => '2026-10-02 10:00:00.000000', 'is_return' => 1,
+            'return_against' => 'PI-B']);
+        $this->erp->invoices['PI-C'] = $this->pi('PI-C', [['item' => 'A', 'qty' => 3, 'rate' => 1]], ['modified' => '2026-10-03 10:00:00.000000']);
+        $gets = function (): int {
+            $n = count(array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/')));
+            $this->erp->calls = [];
+            return $n;
+        };
+        $r1 = $this->copy()->run($this->reader(), true);
+        self::assertSame([2, ['copied' => 1], true, 'PI-A'], [$gets(), $r1['counts'], $r1['capped'], $r1['cursor_name']],
+            'RET-B is read, but with PI-B it needs it would be 3: it is left for the next run');
+        $r2 = $this->copy()->run($this->reader(), true);
+        self::assertSame([2, 'RET-B', 'original_skipped'], [$gets(), $r2['cursor_name'], $this->erpRow('RET-B')['problem']], 'RET-B first, with what it needs');
+        $r3 = $this->copy()->run($this->reader(), true);
+        self::assertSame([1, ['copied' => 1]], [$gets(), $r3['counts']]);
+        self::assertSame(['PI-A', 'PI-C'], self::$db->column("SELECT name FROM erp_pi WHERE state = 'copied' ORDER BY name"));
+
+        // An August back-fill (the setting says September) of three, two a run: the cron reads the third with August's date.
+        foreach (['PI-G1', 'PI-G2', 'PI-G3'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 5]], ['modified' => '2026-10-2' . ($i + 1) . ' 10:00:00.000000',
+                'posting_date' => '2026-08-20', 'bill_date' => '2026-08-20']);
+        }
+        $this->erp->invoices = array_intersect_key($this->erp->invoices, array_flip(['PI-G1', 'PI-G2', 'PI-G3'])); // only these from here on
+        $b = $this->copy()->run($this->reader(), true, '2026-08-15');
+        self::assertSame([['copied' => 2], true], [$b['counts'], $b['capped']]);
+        $cron = $this->copy()->run($this->reader(), true);
+        self::assertSame(['2026-08-15', ['copied' => 1], false], [$cron['from'], $cron['counts'], $cron['capped']], 'drained with its own date');
+        $next = $this->copy()->run($this->reader(), true);
+        self::assertSame(['2026-09-01', 0], [$next['from'], $next['read']], 'drained: back to the setting\'s date');
+        self::assertSame(3, (int) self::$db->value("SELECT COUNT(*) FROM erp_pi WHERE name LIKE 'PI-G%' AND state = 'copied'"));
+    }
+
     /** The Codex review of d8af941, MEDIUM 3: the job's reasons must be able to cancel a copy, or the run stops before it reads anything. */
     public function testARunStopsBeforeReadingWhenItsReasonsCannotCancelACopy(): void
     {

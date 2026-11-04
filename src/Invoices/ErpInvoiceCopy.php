@@ -179,42 +179,82 @@ final class ErpInvoiceCopy
         $this->assertReasons();
         $cap = $limit ?? $s['per_run'];
         $fromDate = $from ?? $s['from'];
-        $s['from'] = $fromDate; // --from: this run copies from that date (the back-fill)
-        $cursor = $from === null ? $this->cursor($s['company'], $fromDate) : null;
+        $cursor = null;
+        if ($from === null) {
+            $c = $this->continuation($s['company'], $fromDate);
+            if ($c !== null) {
+                $cursor = [$c['cursor_to'], $c['cursor_name']];
+                if ($c['capped'] && $c['from_date'] < $fromDate) {
+                    // A back-fill from an earlier date that reached the cap is drained first, with its own date for reading and copying (the
+                    // Codex re-check of fac1ea9, NEW): the setting's later date would skip what it has still to read.
+                    $fromDate = $c['from_date'];
+                }
+            }
+        }
+        $s['from'] = $fromDate; // --from (or a back-fill gone on with): this run copies from that date
         $runId = $apply ? $this->db->insert('INSERT INTO erp_copy_run (actor, company, from_date, cursor_from) VALUES (?, ?, ?, ?)',
             [self::actor(), $s['company'], $fromDate, $cursor[0] ?? null]) : null;
         $sum = ['state' => 'ran', 'dry_run' => !$apply, 'company' => $s['company'], 'from' => $fromDate, 'cursor_from' => $cursor[0] ?? null,
             'cursor_to' => $cursor[0] ?? null, 'cursor_name' => $cursor[1] ?? null, 'read' => 0, 'outcomes' => [], 'counts' => [], 'problems' => [],
             'suppliers_created' => 0, 'prices' => 0, 'relay_rechecked' => 0, 'retried' => 0, 'stopped' => false, 'capped' => false];
         try {
-            // At most $cap invoices a run (the Codex review of d8af941, MEDIUM 2: a back-fill of thousands at once could run out of memory
-            // before it copied anything, and its cursor would never move): the next run goes on from the last one read.
+            // ONE budget of $cap invoices read from ERPNext a run, the invoices a debit note or an amendment needs included (the Codex
+            // reviews of d8af941 and fac1ea9, MEDIUM 2): a back-fill of thousands at once could run out of memory before it copied anything,
+            // and its cursor would never move. An invoice whose own needs no longer fit is left for the next run (the cursor stays on the
+            // one before it); the first one is always taken with what it needs, so a run always goes on.
+            $budget = $cap;
             $listed = $reader->changed($s['company'], $fromDate, $cursor, $cap);
             $docs = [];
-            foreach ($listed as $l) {
-                $docs[$l['name']] = $reader->invoice($l['name']);
-                $sum['read']++;
-                // The list is in (modified, name) order: its last invoice is where the next run goes on from.
-                $sum['cursor_to'] = $l['modified'];
-                $sum['cursor_name'] = $l['name'];
-            }
-            $sum['capped'] = count($listed) >= $cap;
-            unset($listed);
-            // A copy whose last attempt was refused (its cancellation, say) is read again from ERPNext: past the cursor nothing else would
-            // bring it back (the Codex re-check of 6102935, NEW 1). At most $cap of them a run too, the longest-untried first.
-            foreach ($this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . $cap) as $again) {
-                if (!isset($docs[(string) $again])) {
-                    $docs[(string) $again] = $reader->invoice((string) $again);
-                    $sum['read']++;
+            foreach ($listed as $i => $l) {
+                if ($i > 0 && $budget < 1) {
+                    $sum['capped'] = true;
+                    break;
                 }
-            }
-            // The invoice a debit note returns against and the one an amendment replaces, when this run did not read it and CW never did.
-            foreach ($docs as $d) {
+                $d = $reader->invoice($l['name']);
+                $sum['read']++;
+                $needs = [];
                 foreach (['return_against', 'amended_from'] as $k) {
                     $o = is_string($d[$k] ?? null) && $d[$k] !== '' ? $d[$k] : null;
-                    if ($o !== null && !isset($docs[$o]) && $this->db->value('SELECT 1 FROM erp_pi WHERE name = ?', [$o]) === null) {
-                        $docs[$o] = $reader->invoice($o);
+                    if ($o !== null && $o !== $l['name'] && !isset($docs[$o]) && $this->db->value('SELECT 1 FROM erp_pi WHERE name = ?', [$o]) === null) {
+                        $needs[$o] = true;
+                    }
+                }
+                if ($i > 0 && 1 + count($needs) > $budget) {
+                    $sum['capped'] = true; // read, not kept: the next run starts with it
+                    break;
+                }
+                $docs[$l['name']] = $d;
+                unset($d);
+                $budget--;
+                // The list is in (modified, name) order: the last invoice taken is where the next run goes on from.
+                $sum['cursor_to'] = $l['modified'];
+                $sum['cursor_name'] = $l['name'];
+                foreach (array_keys($needs) as $o) {
+                    $docs[$o] = $reader->invoice($o);
+                    $sum['read']++;
+                    $budget--;
+                }
+            }
+            $sum['capped'] = $sum['capped'] || count($listed) >= $cap;
+            unset($listed);
+            // A copy whose last attempt was refused (its cancellation, say) is read again from ERPNext: past the cursor nothing else would
+            // bring it back (the Codex re-check of 6102935, NEW 1). Then the invoices debit notes waiting from earlier runs return against
+            // (a debit note waits for it as `original_missing`). Within what is left of the budget, the longest-untried first.
+            $again = $budget < 1 ? [] : $this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . $budget);
+            $again = [...$again, ...($budget < 1 ? [] : $this->db->column("SELECT DISTINCT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
+                . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL ORDER BY p.return_against LIMIT " . $budget))];
+            foreach ($again as $name) {
+                if ($budget < 1) {
+                    break;
+                }
+                if (!isset($docs[(string) $name])) {
+                    try {
+                        $docs[(string) $name] = $reader->invoice((string) $name);
+                    } catch (CwException) {
+                        continue; // not readable now: it stays as it is (waiting, or copied with its problem) for a later run
+                    } finally {
                         $sum['read']++;
+                        $budget--;
                     }
                 }
             }
@@ -309,9 +349,22 @@ final class ErpInvoiceCopy
      */
     public function cursor(string $company, string $fromDate): ?array
     {
-        $r = $this->db->one("SELECT cursor_to, cursor_name FROM erp_copy_run WHERE status = 'done' AND company = ? AND from_date <= ? AND cursor_to IS NOT NULL "
-            . 'ORDER BY id DESC LIMIT 1', [$company, $fromDate]);
-        return $r === null ? null : [substr((string) $r['cursor_to'], 0, 26), (string) ($r['cursor_name'] ?? '')];
+        $c = $this->continuation($company, $fromDate);
+        return $c === null ? null : [$c['cursor_to'], $c['cursor_name']];
+    }
+
+    /**
+     * cursor()'s run with its date and whether it reached the per-run cap (a run from an earlier date that did is gone on with from that
+     * date until it is drained: run()).
+     *
+     * @return array{cursor_to: string, cursor_name: string, from_date: string, capped: bool}|null
+     */
+    public function continuation(string $company, string $fromDate): ?array
+    {
+        $r = $this->db->one("SELECT cursor_to, cursor_name, from_date, JSON_EXTRACT(summary, '$.capped') AS capped FROM erp_copy_run WHERE status = 'done' AND company = ? "
+            . 'AND from_date <= ? AND cursor_to IS NOT NULL ORDER BY id DESC LIMIT 1', [$company, $fromDate]);
+        return $r === null ? null : ['cursor_to' => substr((string) $r['cursor_to'], 0, 26), 'cursor_name' => (string) ($r['cursor_name'] ?? ''),
+            'from_date' => (string) $r['from_date'], 'capped' => trim((string) ($r['capped'] ?? '')) === 'true'];
     }
 
     /** @return array<string, mixed>|null the newest run row */

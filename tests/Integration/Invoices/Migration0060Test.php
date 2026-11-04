@@ -28,31 +28,48 @@ final class Migration0060Test extends IntegrationTestCase
         parent::tearDown();
     }
 
-    /** A stop after every statement but the ALTER (the file not recorded), then the migrator again: it applies, nothing twice. */
-    public function testARunStoppedBeforeItsLastStatementRunsAgainCleanly(): void
+    /**
+     * A stop after every statement but the last (the column), and a stop after the last one before the migration's own record: in both the
+     * migrator runs the file again cleanly, nothing twice (the Codex reviews of d8af941 and fac1ea9, MEDIUM 1).
+     */
+    public function testARunStoppedAnywhereRunsAgainCleanly(): void
     {
-        [$db, $this->dir] = MigrationFixture::upTo('m60', '0059_mode_review_off.sql');
         $statements = SqlSplitter::split((string) file_get_contents(self::FILE));
-        $last = array_pop($statements);
-        self::assertMatchesRegularExpression('/^ALTER\s+TABLE\s+supplier_invoice\s+ADD\s+COLUMN\s+origin\b/i', (string) $last, 'the ALTER is the last statement');
-        foreach ($statements as $s) {
-            $db->pdo()->exec($s);
+        $prepared = array_slice($statements, -4);
+        self::assertMatchesRegularExpression('/^SET\s+@cw_0060\s*=.*ALTER TABLE supplier_invoice ADD COLUMN origin/is', $prepared[0], 'the column is the last step');
+        self::assertSame(['PREPARE cw_0060 FROM @cw_0060', 'EXECUTE cw_0060', 'DEALLOCATE PREPARE cw_0060'], array_map('trim', array_slice($prepared, 1)));
+        foreach (['before the column' => array_slice($statements, 0, -4), 'after the column' => $statements] as $where => $done) {
+            [$db, $this->dir] = MigrationFixture::upTo('m60', '0059_mode_review_off.sql');
+            foreach ($done as $s) {
+                $db->pdo()->exec($s);
+            }
+            self::assertNull($db->value("SELECT version FROM schema_migrations WHERE version = '0060_erp_invoice_copy.sql'"), "{$where}: stopped, not recorded");
+            self::assertSame(['0060_erp_invoice_copy.sql'], MigrationFixture::migrateRest($db, $this->dir, '0060_erp_invoice_copy.sql'), $where);
+            self::assertSame([6, 2, 8], [(int) $db->value("SELECT COUNT(*) FROM app_setting WHERE setting_key LIKE 'erp\\_copy.%'"),
+                (int) $db->value("SELECT COUNT(*) FROM reason_code WHERE code IN ('erp_cancelled', 'erp_changed')"),
+                (int) $db->value("SELECT COUNT(*) FROM config_change WHERE (subject_type = 'setting' AND subject_key LIKE 'erp\\_copy.%') "
+                    . "OR (subject_type = 'reason' AND subject_key IN ('erp_cancelled', 'erp_changed'))")], "{$where}: no row twice");
+            self::assertSame("enum('cw','erpnext')", $db->value("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                . "AND TABLE_NAME = 'supplier_invoice' AND COLUMN_NAME = 'origin'"), $where);
+            MigrationFixture::drop('m60', $this->dir);
+            $this->dir = null;
         }
-        self::assertNull($db->value("SELECT version FROM schema_migrations WHERE version = '0060_erp_invoice_copy.sql'"), 'stopped: not recorded');
-        self::assertSame(['0060_erp_invoice_copy.sql'], MigrationFixture::migrateRest($db, $this->dir, '0060_erp_invoice_copy.sql'));
-        self::assertSame([6, 2, 8], [(int) $db->value("SELECT COUNT(*) FROM app_setting WHERE setting_key LIKE 'erp\\_copy.%'"),
-            (int) $db->value("SELECT COUNT(*) FROM reason_code WHERE code IN ('erp_cancelled', 'erp_changed')"),
-            (int) $db->value("SELECT COUNT(*) FROM config_change WHERE (subject_type = 'setting' AND subject_key LIKE 'erp\\_copy.%') "
-                . "OR (subject_type = 'reason' AND subject_key IN ('erp_cancelled', 'erp_changed'))")], 'no row twice');
-        self::assertSame("enum('cw','erpnext')", $db->value("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
-            . "AND TABLE_NAME = 'supplier_invoice' AND COLUMN_NAME = 'origin'"));
+        // A column of that name with another definition: the migration stops, naming it.
+        [$db, $this->dir] = MigrationFixture::upTo('m60', '0059_mode_review_off.sql');
+        $db->pdo()->exec("ALTER TABLE supplier_invoice ADD COLUMN origin VARCHAR(10) NULL");
+        try {
+            MigrationFixture::migrateRest($db, $this->dir, '0060_erp_invoice_copy.sql');
+            self::fail('another definition is refused');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('supplier_invoice.origin has another definition', $e->getMessage());
+        }
     }
 
     public function testTheColumnTablesReasonsAndSettings(): void
     {
         $statements = SqlSplitter::split((string) file_get_contents(self::FILE));
-        self::assertMatchesRegularExpression("/^ALTER\\s+TABLE\\s+supplier_invoice\\s+ADD\\s+COLUMN\\s+origin\\s+ENUM\\('cw','erpnext'\\)\\s+NOT\\s+NULL\\s+DEFAULT\\s+'cw'.*ALGORITHM\\s*=\\s*INSTANT\\s*$/is",
-            (string) end($statements), 'the last statement');
+        self::assertMatchesRegularExpression("/^SET\\s+@cw_0060\\s*=.*'ALTER\\s+TABLE\\s+supplier_invoice\\s+ADD\\s+COLUMN\\s+origin\\s+ENUM\\(''cw'',''erpnext''\\)\\s+NOT\\s+NULL\\s+DEFAULT\\s+''cw''.*ALGORITHM\\s*=\\s*INSTANT'/is",
+            (string) $statements[count($statements) - 4], 'the column, last, only while it is not there');
         foreach ($statements as $s) {
             if (preg_match('/^\s*CREATE\s+TABLE\b/i', $s) === 1) {
                 self::assertMatchesRegularExpression('/^\s*CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b/i', $s, 'a stopped run makes it again cleanly');
