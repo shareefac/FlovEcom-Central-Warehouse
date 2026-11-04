@@ -13,7 +13,8 @@
 --  * erp_pi_line: its lines as read (every row of the ERPNext invoice, stock or not), and for a copied stock row the CW item, its units, how
 --    it was found and what the relay booked for it (the match of the copy reads that). Replaced when a re-read brings other content.
 --  * erp_copy_run: one row per real run of bin/copy_erp_invoices.php (a dry run writes nothing): what it read, from when, the cursor it
---    reached (the next run reads ERPNext from there), what it did. Written once and finished once (UPDATE_COLUMNS), never removed.
+--    reached (the modified time and name of the last invoice read: the next run reads what comes after it), what it did. Written once and
+--    finished once (UPDATE_COLUMNS), never removed.
 --  * reason_code erp_cancelled / erp_changed: why the job cancels a copy (the ERPNext invoice was cancelled or amended / was changed after
 --    it was copied). CW's own (system_only): never offered on a form. Each with its baseline (docs/dev.md rule 5).
 --  * Settings (Settings > Rules and numbers > Invoices from ERPNext), each with its baseline: the main switch erp_copy.on (OFF: the job
@@ -112,7 +113,8 @@ CREATE TABLE erp_copy_run (
   company      VARCHAR(140)    NOT NULL,
   from_date    DATE            NOT NULL COMMENT 'the first posting date read',
   cursor_from  DATETIME(6)     NULL COMMENT 'ERPNext''s modified time it read from (NULL: everything since from_date)',
-  cursor_to    DATETIME(6)     NULL COMMENT 'the newest modified time it read completely: the next run reads from there',
+  cursor_to    DATETIME(6)     NULL COMMENT 'the modified time of the last invoice it read: the next run reads what comes after it',
+  cursor_name  VARCHAR(140)    NULL COMMENT 'and that invoice''s name (ERPNext lists by modified, then name)',
   summary      JSON            NULL,
   started_at   DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   finished_at  DATETIME(6)     NULL,

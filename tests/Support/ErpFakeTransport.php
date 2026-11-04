@@ -8,9 +8,10 @@ use CW\Invoices\ErpTransport;
 
 /**
  * ERPNext as the tests see it (CW-917): the three reads ErpApiReader makes, answered from fixtures (no network in a test). The list of
- * purchase invoices applies the filters the reader sends (company, docstatus in, posting_date >=, modified >=), sorts by modified then name
- * and pages by limit_start / limit_page_length; an invoice is answered by its name (404 otherwise); the items by name. Every call is kept
- * (its address and headers) so a test can see what was asked and how.
+ * purchase invoices applies the filters the reader sends (company, docstatus in, posting_date >=, modified >=) and its or_filters (any one
+ * true: modified >, name >), sorts by modified then name and pages by limit_start / limit_page_length; an invoice is answered by its name
+ * (404 otherwise); the items by name. Every call is kept (its address and headers) so a test can see what was asked and how; $onCall runs
+ * after each call (a test changes ERPNext between two pages).
  */
 final class ErpFakeTransport implements ErpTransport
 {
@@ -22,8 +23,20 @@ final class ErpFakeTransport implements ErpTransport
     public array $calls = [];
     /** A status to answer every call with (an ERPNext refusal), or null. */
     public ?int $status = null;
+    /** @var (\Closure(int, self): void)|null runs after the n-th call (1, 2, ...) */
+    public ?\Closure $onCall = null;
 
     public function get(string $url, array $headers, int $timeoutSec): array
+    {
+        $r = $this->answer($url, $headers);
+        if ($this->onCall !== null) {
+            ($this->onCall)(count($this->calls), $this);
+        }
+        return $r;
+    }
+
+    /** @param list<string> $headers @return array{status: int, body: string} */
+    private function answer(string $url, array $headers): array
     {
         $p = parse_url($url);
         parse_str((string) ($p['query'] ?? ''), $query);
@@ -34,22 +47,35 @@ final class ErpFakeTransport implements ErpTransport
         }
         if ($path === '/api/resource/Purchase Invoice') {
             $filters = json_decode((string) ($query['filters'] ?? '[]'), true);
-            $rows = array_values(array_filter($this->invoices, static function (array $d) use ($filters): bool {
-                foreach ($filters as [$field, $op, $value]) {
-                    $v = $d[$field] ?? null;
-                    $ok = match ($op) {
-                        '=' => $v === $value,
-                        'in' => in_array($v, $value, true),
-                        '>=' => (string) $v >= (string) $value,
-                        default => throw new \LogicException("filter {$op}"),
-                    };
-                    if (!$ok) {
+            $or = json_decode((string) ($query['or_filters'] ?? '[]'), true);
+            $test = static function (array $d, array $f): bool {
+                [$field, $op, $value] = $f;
+                $v = $d[$field] ?? null;
+                return match ($op) {
+                    '=' => $v === $value,
+                    'in' => in_array($v, $value, true),
+                    '>=' => self::pad($field, $v) >= self::pad($field, $value),
+                    '>' => self::pad($field, $v) > self::pad($field, $value),
+                    default => throw new \LogicException("filter {$op}"),
+                };
+            };
+            $rows = array_values(array_filter($this->invoices, static function (array $d) use ($filters, $or, $test): bool {
+                foreach ($filters as $f) {
+                    if (!$test($d, $f)) {
                         return false;
                     }
                 }
-                return true;
+                if ($or === []) {
+                    return true;
+                }
+                foreach ($or as $f) {
+                    if ($test($d, $f)) {
+                        return true;
+                    }
+                }
+                return false;
             }));
-            usort($rows, static fn (array $a, array $b): int => [$a['modified'], $a['name']] <=> [$b['modified'], $b['name']]);
+            usort($rows, static fn (array $a, array $b): int => [self::pad('modified', $a['modified']), $a['name']] <=> [self::pad('modified', $b['modified']), $b['name']]);
             $page = array_slice($rows, (int) ($query['limit_start'] ?? 0), (int) ($query['limit_page_length'] ?? 20));
             return self::ok(array_map(static fn (array $d): array => ['name' => $d['name'], 'modified' => $d['modified']], $page));
         }
@@ -70,6 +96,16 @@ final class ErpFakeTransport implements ErpTransport
             return self::ok($out);
         }
         return ['status' => 404, 'body' => '{}'];
+    }
+
+    /** A modified time as the database compares it (to the microsecond); any other field as it is. */
+    private static function pad(string $field, mixed $v): string
+    {
+        if ($field !== 'modified') {
+            return (string) $v;
+        }
+        $v = (string) $v;
+        return strlen($v) === 19 ? $v . '.000000' : str_pad($v, 26, '0');
     }
 
     /** @param mixed $data */

@@ -25,8 +25,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(200, $reasons->status, $reasons->describe());
         $xp = new \DOMXPath($reasons->dom());
         // The settings shell (docs/decisions.md W13.11): a card of the reasons in use, a row each (it was a table of ten columns).
-        self::assertSame(31, $xp->query('//section[contains(@class, "reasons")]//div[contains(@class, "set-row") and @data-code]')->length,
-            '22 of 0008, the 3 PO reversal reasons of 0010 and the 6 stock reasons of 0022');
+        self::assertSame(33, $xp->query('//section[contains(@class, "reasons")]//div[contains(@class, "set-row") and @data-code]')->length,
+            '22 of 0008, the 3 PO reversal reasons of 0010, the 6 stock reasons of 0022 and the 2 of the ERPNext invoice copies of 0060 (CW-917)');
         self::assertSame(0, $xp->query('//main//table')->length, 'rows, not a table to scroll on a phone');
         self::assertStringContainsString('Free gift (not vaping/nicotine products from 29 Oct 2026)', $reasons->text());
         self::assertStringContainsString('Replaced by an amended order', $reasons->text());
@@ -97,7 +97,7 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertContains('sandbox', $csv->headerValues('content-security-policy'));
         self::assertStringStartsWith("\xEF\xBB\xBF\"code\",\"label\",", $csv->body);
         self::assertSame(1, substr_count($csv->body, "\xEF\xBB\xBF"));
-        self::assertSame(32, substr_count($csv->body, "\r\n"), 'header + 31 codes (0008, 0010, 0022), CRLF');
+        self::assertSame(34, substr_count($csv->body, "\r\n"), 'header + 33 codes (0008, 0010, 0022, 0060), CRLF');
         self::assertStringContainsString("\"damaged\",\"Damaged\",\"adjustment, write_off, return, supplier_return\",\"decrease\",\"no\",\"no\",\"no\",\"yes\",10\r\n", $csv->body);
 
         $people = $web->get('/ui/people');

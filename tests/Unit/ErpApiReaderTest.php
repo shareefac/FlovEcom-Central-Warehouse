@@ -30,14 +30,18 @@ final class ErpApiReaderTest extends TestCase
         $t->invoices['PI-DRAFT'] = ['name' => 'PI-DRAFT', 'company' => 'VAPE AND GO', 'docstatus' => 0, 'posting_date' => '2026-10-01', 'modified' => '2026-10-04 09:00:00', 'items' => []];
         $r = new ErpApiReader($t, 'https://erp.example.test/', 'abc123key', 'secret456', 5, 2);
         self::assertSame([['name' => 'PI-A', 'modified' => '2026-10-01 09:00:00.000000'], ['name' => 'PI-B', 'modified' => '2026-10-02 09:00:00.000000'],
-            ['name' => 'PI-C', 'modified' => '2026-10-03 09:00:00.500000']], $r->changed('VAPE AND GO', '2026-09-01', '2026-10-01 00:00:00.000000'));
+            ['name' => 'PI-C', 'modified' => '2026-10-03 09:00:00.500000']], $r->changed('VAPE AND GO', '2026-09-01', ['2026-10-01 00:00:00.000000', '']));
         self::assertCount(2, $t->calls, 'pages of 2: the second page is short, so it stops');
         $first = $t->calls[0];
         self::assertStringStartsWith('https://erp.example.test/api/resource/Purchase%20Invoice?', $first['url']);
         self::assertSame([['company', '=', 'VAPE AND GO'], ['docstatus', 'in', [1, 2]], ['posting_date', '>=', '2026-09-01'], ['modified', '>=', '2026-10-01 00:00:00.000000']],
             json_decode((string) $first['query']['filters'], true));
+        self::assertSame([['modified', '>', '2026-10-01 00:00:00.000000'], ['name', '>', '']], json_decode((string) $first['query']['or_filters'], true));
         self::assertSame(['["name","modified"]', 'modified asc, name asc', '0', '2'], [$first['query']['fields'], $first['query']['order_by'], $first['query']['limit_start'],
             $first['query']['limit_page_length']]);
+        // The second page asks for what comes after the last one read (a keyset), never for an offset.
+        self::assertSame([['modified', '>', '2026-10-02 09:00:00.000000'], ['name', '>', 'PI-B']], json_decode((string) $t->calls[1]['query']['or_filters'], true));
+        self::assertSame('0', $t->calls[1]['query']['limit_start']);
         self::assertSame(['Authorization: token abc123key:secret456', 'Accept: application/json'], $first['headers']);
         foreach ($t->calls as $c) {
             self::assertStringNotContainsString('secret456', $c['url'], 'the secret travels in the header only');
@@ -50,7 +54,46 @@ final class ErpApiReaderTest extends TestCase
             $r->items(['A', 'FREIGHT', 'A', 'GONE']));
         self::assertSame(['["name","is_stock_item","custom_variant_id"]', [['name', 'in', ['A', 'FREIGHT', 'GONE']]]],
             [end($t->calls)['query']['fields'], json_decode((string) end($t->calls)['query']['filters'], true)]);
+        $t->items['12345'] = ['is_stock_item' => 1, 'custom_variant_id' => null];
+        self::assertSame(['12345' => ['is_stock_item' => true, 'custom_variant_id' => null]], $r->items([12345]), 'a numeric code (an int array key) is a code');
         self::assertFalse(method_exists($t, 'post') || (new \ReflectionClass(\CW\Invoices\ErpTransport::class))->hasMethod('post'), 'the transport has a GET and nothing else');
+    }
+
+    /**
+     * The Codex review of 0ccc04c, MEDIUM 1 and 3: an invoice changed between two pages is read at its new place and none is skipped; a
+     * cursor of several invoices with the same time goes on after the last name read; an ERPNext that ignores the keyset is refused, never
+     * looped.
+     */
+    public function testAnInvoiceChangedBetweenPagesNeverHidesAnotherAndTiesAreGoneThrough(): void
+    {
+        $t = new ErpFakeTransport();
+        foreach (['A' => '2026-10-01 01:00:00', 'B' => '2026-10-01 02:00:00', 'C' => '2026-10-01 03:00:00', 'D' => '2026-10-01 04:00:00'] as $n => $m) {
+            $t->invoices[$n] = ['name' => $n, 'company' => 'VAPE AND GO', 'docstatus' => 1, 'posting_date' => '2026-09-15', 'modified' => $m, 'items' => []];
+        }
+        $t->onCall = static function (int $n, ErpFakeTransport $t): void {
+            if ($n === 1) {
+                $t->invoices['A']['modified'] = '2026-10-01 05:00:00'; // cancelled in ERPNext while the first page was read
+            }
+        };
+        $r = new ErpApiReader($t, 'https://erp.example.test', 'abc123key', 'secret456', 5, 2);
+        self::assertSame(['B', 'C', 'D', 'A'], array_column($r->changed('VAPE AND GO', '2026-09-01', null), 'name'), 'C is read: an offset would have skipped it');
+        $t->onCall = null;
+        $t->calls = [];
+        $t->invoices = [];
+        foreach (['T1', 'T2', 'T3'] as $n) {
+            $t->invoices[$n] = ['name' => $n, 'company' => 'VAPE AND GO', 'docstatus' => 1, 'posting_date' => '2026-09-15', 'modified' => '2026-10-02 10:00:00', 'items' => []];
+        }
+        self::assertSame(['T1'], array_column($r->changed('VAPE AND GO', '2026-09-01', null, 1), 'name'));
+        self::assertSame(['T2'], array_column($r->changed('VAPE AND GO', '2026-09-01', ['2026-10-02 10:00:00.000000', 'T1'], 1), 'name'), 'the same time, the next name');
+        self::assertSame(['T3'], array_column($r->changed('VAPE AND GO', '2026-09-01', ['2026-10-02 10:00:00.000000', 'T2']), 'name'));
+        $deaf = new class () implements \CW\Invoices\ErpTransport {
+            public function get(string $url, array $headers, int $timeoutSec): array
+            {
+                return ['status' => 200, 'body' => json_encode(['data' => [['name' => 'X1', 'modified' => '2026-10-02 10:00:00'], ['name' => 'X2', 'modified' => '2026-10-02 10:00:00']]])];
+            }
+        };
+        $this->expectExceptionObjectLike('erp_read_failed', static fn () => (new ErpApiReader($deaf, 'https://erp.example.test', 'abc123key', 'secret456', 5, 2))
+            ->changed('VAPE AND GO', '2026-09-01', null));
     }
 
     public function testARefusalIsSaidInWordsWithoutTheSecretAndTheSecretIsNeverShown(): void
@@ -104,7 +147,9 @@ final class ErpApiReaderTest extends TestCase
             'taxes' => [['account_head' => 'VAT - VPG', 'description' => 'VAT 20%', 'category' => 'Total', 'add_deduct_tax' => 'Add', 'base_tax_amount_after_discount_amount' => 7.5],
                 ['account_head' => 'Freight and Forwarding Charges - VPG', 'description' => 'Delivery', 'category' => 'Valuation and Total', 'add_deduct_tax' => 'Add',
                     'base_tax_amount_after_discount_amount' => 5],
-                ['account_head' => 'Insurance - VPG', 'description' => 'Insurance', 'category' => 'Valuation', 'add_deduct_tax' => 'Add', 'base_tax_amount_after_discount_amount' => 2]]];
+                ['account_head' => 'Insurance - VPG', 'description' => 'Insurance', 'category' => 'Valuation', 'add_deduct_tax' => 'Add', 'base_tax_amount_after_discount_amount' => 2],
+                ['account_head' => 'VAT on import - VPG', 'description' => 'VAT for the value', 'category' => 'Valuation', 'add_deduct_tax' => 'Add',
+                    'base_tax_amount_after_discount_amount' => 3]]];
         $items = ['A' => ['is_stock_item' => true, 'custom_variant_id' => '501'], 'B' => ['is_stock_item' => true, 'custom_variant_id' => null],
             'FREIGHT' => ['is_stock_item' => false, 'custom_variant_id' => null]];
         $n = ErpInvoiceCopy::normalise($doc, $items);
@@ -114,7 +159,7 @@ final class ErpApiReaderTest extends TestCase
         self::assertSame(['2.000000', '24.000000', '12.000000000', '10.004000', '20.01', 'row-a'], [$n['lines'][0]['qty'], $n['lines'][0]['stock_qty'],
             $n['lines'][0]['conversion_factor'], $n['lines'][0]['net_rate'], $n['lines'][0]['net_amount'], $n['lines'][0]['row_name']]);
         self::assertSame(['B1', '37.50', '7.50', '50.00', [['description' => 'Delivery', 'amount' => '5.00']], null], [$n['bill_no'], $n['net_total'], $n['vat_total'],
-            $n['grand_total'], $n['charges'], $n['taxes_problem']], 'VAT apart; a charge to the total is a line; a charge to the value only is not');
+            $n['grand_total'], $n['charges'], $n['taxes_problem']], 'VAT apart; a charge to the total is a line; a row for the value only (VAT or not) is not');
         $same = ErpInvoiceCopy::normalise(['docstatus' => 2, 'modified' => '2026-11-01 10:00:00', 'supplier_name' => 'Renamed'] + $doc, $items);
         self::assertSame($n['hash'], $same['hash'], 'the status, the time and the names shown are not what a copy is made of');
         self::assertSame(2, $same['docstatus']);
@@ -124,7 +169,7 @@ final class ErpApiReaderTest extends TestCase
         $deduct = $doc;
         $deduct['taxes'][1]['add_deduct_tax'] = 'Deduct';
         self::assertSame('a tax row deducts', ErpInvoiceCopy::normalise($deduct, $items)['taxes_problem']);
-        $off = ['base_grand_total' => 60.0] + $doc;
+        $off = ['base_grand_total' => 50.01] + $doc; // a penny off: never copied with another total than ERPNext's
         self::assertSame('the rows, the VAT and the charges do not add up to its total', ErpInvoiceCopy::normalise($off, $items)['taxes_problem']);
         self::assertSame(['1.01', '-1.01', '0.00', '12.3457', '3.00'], [ErpInvoiceCopy::dec(1.005, 2), ErpInvoiceCopy::dec(-1.005, 2), ErpInvoiceCopy::dec(-0.001, 2),
             ErpInvoiceCopy::dec('12.34565', 4), ErpInvoiceCopy::dec(3, 2)]);
@@ -133,7 +178,7 @@ final class ErpApiReaderTest extends TestCase
     public function testTheLogLinesOfARun(): void
     {
         $r = ['dry_run' => false, 'read' => 3, 'counts' => ['copied' => 1, 'waiting' => 1, 'skipped' => 1], 'problems' => ['no_item' => 1, 'before_start' => 1],
-            'suppliers_created' => 1, 'prices' => 2, 'retried' => 0, 'relay_rechecked' => 0, 'from' => '2026-09-01', 'cursor_from' => null,
+            'suppliers_created' => 1, 'prices' => 2, 'retried' => 0, 'relay_rechecked' => 0, 'from' => '2026-09-01', 'cursor_from' => null, 'cursor_name' => 'PI-3',
             'cursor_to' => '2026-10-02 10:00:00.000000', 'stopped' => false, 'outcomes' => [
                 ['name' => 'PI-1', 'outcome' => 'copied', 'problem' => null],
                 ['name' => 'PI-2', 'outcome' => 'waiting', 'problem' => 'no_item', 'line' => 2, 'detail' => 'X'],

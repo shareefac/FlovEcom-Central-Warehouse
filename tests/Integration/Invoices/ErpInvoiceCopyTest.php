@@ -122,15 +122,18 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(['relay', 'relay'], self::$db->column('SELECT via FROM erp_pi_line WHERE erp_pi_id = ? AND is_stock = 1 ORDER BY idx', [(int) $p['id']]));
         self::assertNotNull(self::$db->value("SELECT 1 FROM audit_log WHERE action = 'invoice.copy' AND actor = 'system:erp_copy' AND entity_id = ?", [(string) $p['document_id']]));
         $run = (array) self::$db->one('SELECT * FROM erp_copy_run ORDER BY id DESC LIMIT 1');
-        self::assertSame(['done', '2026-10-01 10:00:00.000000'], [$run['status'], $run['cursor_to']]);
+        self::assertSame(['done', '2026-10-01 10:00:00.000000', 'PI-1'], [$run['status'], $run['cursor_to'], $run['cursor_name']]);
 
-        // Read again (the cursor reads it once more: same modified time): nothing changes, nothing is copied twice.
+        // The next run reads what comes after the cursor: nothing. Read again from the start (--from): unchanged, never copied twice.
         $docs = $this->docCount();
         $r2 = $this->copy()->run($this->reader(), true);
-        self::assertSame(['unchanged' => 1], $r2['counts']);
-        self::assertSame($docs, $this->docCount());
+        self::assertSame([0, []], [$r2['read'], $r2['counts']]);
         $list = array_values(array_filter($this->erp->calls, static fn (array $c): bool => $c['path'] === '/api/resource/Purchase Invoice'));
-        self::assertStringContainsString('["modified",">=","2026-10-01 10:00:00.000000"]', (string) end($list)['query']['filters'], 'the second run reads from the cursor');
+        self::assertSame([['modified', '>', '2026-10-01 10:00:00.000000'], ['name', '>', 'PI-1']], json_decode((string) end($list)['query']['or_filters'], true),
+            'the second run reads after the cursor');
+        $r3 = $this->copy()->run($this->reader(), true, '2026-09-01');
+        self::assertSame(['unchanged' => 1], $r3['counts']);
+        self::assertSame($docs, $this->docCount());
     }
 
     public function testARowCwCannotPlaceMakesTheWholeInvoiceWaitUntilItCan(): void
@@ -232,7 +235,7 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
             'modified' => '2026-10-05 10:00:00.000000', 'bill_no' => 'CN-7', 'bill_date' => '2026-10-05', 'posting_date' => '2026-10-05']);
         $ledger = $this->ledgerCount();
         $r = $this->copy()->run($this->reader(), true);
-        self::assertSame(['copied' => 1, 'unchanged' => 1], self::sorted($r['counts']));
+        self::assertSame(['copied' => 1], $r['counts']);
         $cn = (int) $this->erpRow('PI-1-RET')['document_id'];
         $h = (array) self::$db->one('SELECT d.doc_type, d.status, d.external_ref, si.kind, si.origin, si.credits_document_id, si.net_total, si.vat_total FROM document d '
             . 'JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ?', [$cn]);
@@ -313,6 +316,40 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(1, $r['relay_rechecked']);
         self::assertSame('matched', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$doc]));
         self::assertSame(3, (int) self::$db->value('SELECT relay_units FROM erp_pi_line WHERE erp_pi_id = ? AND idx = 1', [(int) $this->erpRow('PI-4')['id']]));
+    }
+
+    /** The Codex review of 0ccc04c, MEDIUM 3: --limit goes on from the last invoice read, even through invoices of the same time. */
+    public function testALimitedRunGoesOnFromTheLastInvoiceItRead(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        foreach (['PI-T1', 'PI-T2', 'PI-T3'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => $i + 1, 'rate' => 1]]); // the same modified time
+        }
+        $names = [];
+        for ($k = 0; $k < 4; $k++) {
+            foreach ($this->copy()->run($this->reader(), true, null, 1)['outcomes'] as $o) {
+                $names[] = $o['name'];
+            }
+        }
+        self::assertSame(['PI-T1', 'PI-T2', 'PI-T3'], $names, 'one a run, each once; the fourth run reads nothing');
+        self::assertSame(3, $this->docCount());
+    }
+
+    /** The Codex review of 0ccc04c, MEDIUM 7: a relay booking of an older copy is found whatever number of newer copies still wait for theirs. */
+    public function testTheRelayRecheckTakesOnlyTheCopiesTheRelayBookedSince(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        foreach (['PI-R1', 'PI-R2', 'PI-R3'] as $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 2, 'rate' => 1]]);
+        }
+        $this->copy()->run($this->reader(), true);
+        $this->relay('PI-R1', [['line_index' => 0, 'variant_id' => 'VA', 'qty' => 2]]); // the oldest only
+        self::assertSame(1, $this->copy()->relayRecheck(true));
+        self::assertSame(['matched', 'within_tolerance', 'within_tolerance'], self::$db->column('SELECT si.match_state FROM erp_pi p JOIN supplier_invoice si '
+            . 'ON si.document_id = p.document_id ORDER BY p.name'));
+        self::assertSame(0, $this->copy()->relayRecheck(true), 'nothing new: nothing looked at again');
     }
 
     public function testAnApprovalRuleOnInvoicesNeverStopsACopy(): void

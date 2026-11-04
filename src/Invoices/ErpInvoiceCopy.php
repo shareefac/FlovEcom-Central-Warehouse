@@ -138,18 +138,19 @@ final class ErpInvoiceCopy
         $s['from'] = $fromDate; // --from: this run copies from that date (the back-fill)
         $cursor = $from === null ? $this->cursor($s['company'], $fromDate) : null;
         $runId = $apply ? $this->db->insert('INSERT INTO erp_copy_run (actor, company, from_date, cursor_from) VALUES (?, ?, ?, ?)',
-            [self::actor(), $s['company'], $fromDate, $cursor]) : null;
-        $sum = ['state' => 'ran', 'dry_run' => !$apply, 'company' => $s['company'], 'from' => $fromDate, 'cursor_from' => $cursor, 'cursor_to' => $cursor, 'read' => 0,
-            'outcomes' => [], 'counts' => [], 'problems' => [], 'suppliers_created' => 0, 'prices' => 0, 'relay_rechecked' => 0, 'retried' => 0, 'stopped' => false];
+            [self::actor(), $s['company'], $fromDate, $cursor[0] ?? null]) : null;
+        $sum = ['state' => 'ran', 'dry_run' => !$apply, 'company' => $s['company'], 'from' => $fromDate, 'cursor_from' => $cursor[0] ?? null,
+            'cursor_to' => $cursor[0] ?? null, 'cursor_name' => $cursor[1] ?? null, 'read' => 0, 'outcomes' => [], 'counts' => [], 'problems' => [],
+            'suppliers_created' => 0, 'prices' => 0, 'relay_rechecked' => 0, 'retried' => 0, 'stopped' => false];
         try {
             $listed = $reader->changed($s['company'], $fromDate, $cursor, $limit);
             $docs = [];
             foreach ($listed as $l) {
                 $docs[$l['name']] = $reader->invoice($l['name']);
                 $sum['read']++;
-                if ($l['modified'] > (string) ($sum['cursor_to'] ?? '')) {
-                    $sum['cursor_to'] = $l['modified'];
-                }
+                // The list is in (modified, name) order: its last invoice is where the next run goes on from.
+                $sum['cursor_to'] = $l['modified'];
+                $sum['cursor_name'] = $l['name'];
             }
             // The invoice a debit note returns against and the one an amendment replaces, when this run did not read it and CW never did.
             foreach ($docs as $d) {
@@ -169,8 +170,9 @@ final class ErpInvoiceCopy
                     }
                 }
             }
-            $items = $codes === [] ? [] : $reader->items(array_keys($codes));
-            foreach (array_keys($codes) as $c) {
+            $codes = array_map('strval', array_keys($codes)); // a numeric code became an int key (the Codex review of 0ccc04c, MEDIUM 2)
+            $items = $codes === [] ? [] : $reader->items($codes);
+            foreach ($codes as $c) {
                 if (!isset($items[(string) $c])) {
                     // Fail closed: without it, which rows are stock (and so the relay's line numbers) is not known. ERPNext never deletes an
                     // item a submitted invoice names: the read-only user cannot read it (EC1).
@@ -196,10 +198,14 @@ final class ErpInvoiceCopy
                     $progress($n['name']);
                 }
             }
-            // The invoices still waiting from earlier runs (an item linked since, a supplier made since, their invoice copied since).
+            // The invoices still waiting from earlier runs (an item linked since, a supplier made since, their invoice copied since): the ones
+            // tried longest ago first (each try sets read_at, so none is left out for good: the Codex review of 0ccc04c, MEDIUM 6), then the
+            // invoices before their debit notes and amendments.
             if (!$sum['stopped']) {
-                foreach ($this->db->all("SELECT name FROM erp_pi WHERE state = 'waiting' ORDER BY is_return, amended_from IS NOT NULL, posting_date, id LIMIT "
-                    . self::RETRY_MAX) as $w) {
+                $retry = $this->db->all("SELECT name, is_return, amended_from, posting_date, id FROM erp_pi WHERE state = 'waiting' ORDER BY read_at, id LIMIT " . self::RETRY_MAX);
+                usort($retry, static fn (array $a, array $b): int => [(int) $a['is_return'], $a['amended_from'] !== null, (string) $a['posting_date'], (int) $a['id']]
+                    <=> [(int) $b['is_return'], $b['amended_from'] !== null, (string) $b['posting_date'], (int) $b['id']]);
+                foreach ($retry as $w) {
                     if (isset($seen[(string) $w['name']])) {
                         continue;
                     }
@@ -213,8 +219,10 @@ final class ErpInvoiceCopy
                 $sum['relay_rechecked'] = $this->relayRecheck($apply);
             }
             if ($runId !== null) {
-                $this->db->exec("UPDATE erp_copy_run SET status = 'done', cursor_to = ?, summary = CAST(? AS JSON), finished_at = ? WHERE id = ?",
-                    [$sum['stopped'] ? $cursor : $sum['cursor_to'], Idempotency::json(self::summaryRow($sum)), $this->nowDb(), $runId]);
+                // Stopped (switched off while it ran): the cursor stays, so the next run reads again what this one did not finish.
+                $this->db->exec("UPDATE erp_copy_run SET status = 'done', cursor_to = ?, cursor_name = ?, summary = CAST(? AS JSON), finished_at = ? WHERE id = ?",
+                    [$sum['stopped'] ? ($cursor[0] ?? null) : $sum['cursor_to'], $sum['stopped'] ? ($cursor[1] ?? null) : $sum['cursor_name'],
+                        Idempotency::json(self::summaryRow($sum)), $this->nowDb(), $runId]);
             }
         } catch (\Throwable $e) {
             if ($runId !== null) {
@@ -232,12 +240,17 @@ final class ErpInvoiceCopy
         return $sum;
     }
 
-    /** The ERPNext time the last finished run of this company and from date reached (null: none yet: read everything since the date). */
-    public function cursor(string $company, string $fromDate): ?string
+    /**
+     * Where the last finished run of this company and from date stopped: the modified time and name of the last ERPNext invoice it read
+     * (null: none yet: read everything since the date). The next run reads what comes after it (ErpApiReader::changed()).
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    public function cursor(string $company, string $fromDate): ?array
     {
-        $v = $this->db->value("SELECT cursor_to FROM erp_copy_run WHERE status = 'done' AND company = ? AND from_date = ? AND cursor_to IS NOT NULL ORDER BY id DESC LIMIT 1",
-            [$company, $fromDate]);
-        return $v === null ? null : substr((string) $v, 0, 26);
+        $r = $this->db->one("SELECT cursor_to, cursor_name FROM erp_copy_run WHERE status = 'done' AND company = ? AND from_date = ? AND cursor_to IS NOT NULL "
+            . 'ORDER BY id DESC LIMIT 1', [$company, $fromDate]);
+        return $r === null ? null : [substr((string) $r['cursor_to'], 0, 26), (string) ($r['cursor_name'] ?? '')];
     }
 
     /** @return array<string, mixed>|null the newest run row */
@@ -311,6 +324,11 @@ final class ErpInvoiceCopy
             'return_against' => $n['return_against'], 'new' => $new, 'did' => []];
         $state = (string) $row['state'];
         if ($forced !== null) {
+            // What was read is kept even when the attempt was refused (the Codex review of 0ccc04c, MEDIUM 4): a later retry from what CW kept
+            // must never copy an older content. A live copy keeps its content (and its old hash: the change is tried again on the next read).
+            if (!$new && $changed && $state !== 'copied' && $state !== 'reversed') {
+                $this->keepContent($id, $n);
+            }
             return $this->problem($id, $state, $forced['code'], $forced['line'], $forced['detail'], $out);
         }
         // A copy whose content changed in ERPNext: cancelled first (its credit notes before it), then copied again below.
@@ -318,15 +336,8 @@ final class ErpInvoiceCopy
             $this->reverseCopy($row, 'erp_changed', $out);
             $state = 'waiting';
         }
-        if (!$new && $changed && $state !== 'copied') {
-            $this->db->exec('UPDATE erp_pi SET company = ?, supplier = ?, bill_no = ?, bill_date = ?, posting_date = ?, due_date = ?, is_return = ?, return_against = ?, '
-                . 'amended_from = ?, net_total = ?, vat_total = ?, grand_total = ?, charges = CAST(? AS JSON), content_hash = ? WHERE id = ?',
-                [$n['company'], $n['supplier'], $n['bill_no'], $n['bill_date'], $n['posting_date'], $n['due_date'], $n['is_return'], $n['return_against'],
-                    $n['amended_from'], $n['net_total'], $n['vat_total'], $n['grand_total'], Idempotency::json($n['charges']), $n['hash'], $id]);
-        }
         if (!$new && $state !== 'copied' && $state !== 'reversed') {
-            $this->db->exec('DELETE FROM erp_pi_line WHERE erp_pi_id = ?', [$id]); // what ERPNext's items say now (a stock item, a variant set since)
-            $this->writeLines($id, $n['lines']);
+            $this->keepContent($id, $n); // what ERPNext says now (and what its items say: a stock item, a variant set since)
         }
         if ((int) $n['docstatus'] === 2) {
             if ($state === 'copied') {
@@ -652,9 +663,11 @@ final class ErpInvoiceCopy
                 default => null,
             };
             if ($u === null) {
+                // No link names the relay's item now: its units per ERPNext unit are known only from what the relay booked, and only when the
+                // purchase unit is the stock unit (the relay counts the purchase unit; the Codex review of 0ccc04c, MEDIUM 5).
                 $qty = self::absDec((string) $l['qty']);
                 $per = self::isZero($qty) ? '0' : bcdiv((string) $booked, $qty, 6);
-                if (!self::isWhole($per) || (int) $per < 1) {
+                if (bccomp($qty, $stockQty, 6) !== 0 || !self::isWhole($per) || (int) $per < 1) {
                     return ['problem' => 'units_differ', 'detail' => "relay {$booked}"];
                 }
                 $u = (int) $per;
@@ -779,8 +792,12 @@ final class ErpInvoiceCopy
             return 0;
         }
         $changed = 0;
-        foreach ($this->db->column("SELECT DISTINCT p.id FROM erp_pi p JOIN erp_pi_line l ON l.erp_pi_id = p.id WHERE p.state = 'copied' AND l.line_no IS NOT NULL "
-            . 'AND l.sku_id IS NOT NULL AND l.relay_units IS NULL ORDER BY p.id DESC LIMIT ' . self::RECHECK_MAX) as $pid) {
+        // Only the copies the relay has booked a row of since (the join on relay_line's key): none is left out behind others that wait (the
+        // Codex review of 0ccc04c, MEDIUM 7).
+        foreach ($this->db->column("SELECT DISTINCT p.id FROM erp_pi p JOIN erp_pi_line l ON l.erp_pi_id = p.id JOIN relay_line r ON r.channel_id = ? "
+            . "AND r.kind = IF(p.is_return = 1, 'supplier_return', 'goods_in') AND r.doc_ref = p.name AND r.line_index = l.stock_index AND r.outcome = 'booked' "
+            . "AND r.sku_id = l.sku_id WHERE p.state = 'copied' AND l.line_no IS NOT NULL AND l.relay_units IS NULL ORDER BY p.id LIMIT " . self::RECHECK_MAX,
+            [$this->channel()]) as $pid) {
             $did = $this->db->transaction(function (Db $db) use ($pid, $apply): bool {
                 $p = $db->one("SELECT * FROM erp_pi WHERE id = ? AND state = 'copied' FOR UPDATE", [(int) $pid]);
                 if ($p === null) {
@@ -927,10 +944,13 @@ final class ErpInvoiceCopy
                 $problem ??= 'a tax row deducts';
                 $amountE2 = -$amountE2;
             }
+            if (!in_array((string) ($t['category'] ?? 'Total'), ['Total', 'Valuation and Total'], true)) {
+                continue; // a row for the value only is not in the supplier's total, VAT or not (the Codex review of 0ccc04c, MEDIUM 8)
+            }
             $words = trim((string) ($t['account_head'] ?? '') . ' ' . (string) ($t['description'] ?? ''));
             if (preg_match('/\bVAT\b/i', $words) === 1) {
                 $vatE2 += $amountE2;
-            } elseif (in_array((string) ($t['category'] ?? 'Total'), ['Total', 'Valuation and Total'], true)) {
+            } else {
                 $charges[] = ['description' => mb_substr($str($t['description'] ?? null, 255) ?? $str($t['account_head'] ?? null, 255) ?? 'Charge', 0, 255),
                     'amount' => InvoiceMath::fromE2($amountE2)];
             }
@@ -938,7 +958,8 @@ final class ErpInvoiceCopy
         $net = self::dec($doc['base_net_total'] ?? ($doc['net_total'] ?? 0), 2);
         $grand = self::dec($doc['base_grand_total'] ?? ($doc['grand_total'] ?? 0), 2);
         $chargesE2 = array_sum(array_map(static fn (array $c): int => InvoiceMath::e2($c['amount']), $charges));
-        if (abs(InvoiceMath::e2($net) + $vatE2 + $chargesE2 - InvoiceMath::e2($grand)) > 5) {
+        // To the penny: the copy's total is its net + VAT, and must be ERPNext's (the Codex review of 0ccc04c, LOW 9).
+        if (InvoiceMath::e2($net) + $vatE2 + $chargesE2 !== InvoiceMath::e2($grand)) {
             $problem ??= 'the rows, the VAT and the charges do not add up to its total';
         }
         $n = ['name' => $name, 'company' => $str($doc['company'] ?? null) ?? '', 'supplier' => $str($doc['supplier'] ?? null) ?? '', 'supplier_name' => $str($doc['supplier_name'] ?? null),
@@ -996,6 +1017,17 @@ final class ErpInvoiceCopy
     // Internals
     // ------------------------------------------------------------------------------------------
 
+    /** What was read, over what was kept, for an invoice that is not copied (its header, its hash, its lines). @param array<string, mixed> $n */
+    private function keepContent(int $id, array $n): void
+    {
+        $this->db->exec('UPDATE erp_pi SET company = ?, supplier = ?, bill_no = ?, bill_date = ?, posting_date = ?, due_date = ?, is_return = ?, return_against = ?, '
+            . 'amended_from = ?, net_total = ?, vat_total = ?, grand_total = ?, charges = CAST(? AS JSON), content_hash = ? WHERE id = ?',
+            [$n['company'], $n['supplier'], $n['bill_no'], $n['bill_date'], $n['posting_date'], $n['due_date'], $n['is_return'], $n['return_against'],
+                $n['amended_from'], $n['net_total'], $n['vat_total'], $n['grand_total'], Idempotency::json($n['charges']), $n['hash'], $id]);
+        $this->db->exec('DELETE FROM erp_pi_line WHERE erp_pi_id = ?', [$id]);
+        $this->writeLines($id, $n['lines']);
+    }
+
     /** @param list<array<string, mixed>> $lines */
     private function writeLines(int $erpPiId, array $lines): void
     {
@@ -1022,7 +1054,8 @@ final class ErpInvoiceCopy
             $wouldCopy[(string) $out['name']] = true;
         }
         // A dry run rolls each invoice back: a debit note whose invoice this dry run would copy would be copied right after it.
-        if ($sum['dry_run'] && $o === 'waiting' && ($out['problem'] ?? null) === 'original_waiting' && isset($wouldCopy[(string) ($out['return_against'] ?? '')])) {
+        if ($sum['dry_run'] && $o === 'waiting' && in_array($out['problem'] ?? null, ['original_waiting', 'original_missing'], true)
+            && isset($wouldCopy[(string) ($out['return_against'] ?? '')])) {
             $o = 'copied';
             $out['outcome'] = 'copied';
             $out['problem'] = null;

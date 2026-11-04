@@ -121,7 +121,7 @@ final class Grants
         // ---- end of pack I ----
         // CW-917 (0060; docs/decisions.md EC12): a real run of the ERPNext invoice copy job is written once and finished once (its status,
         // the cursor it reached, its summary, when it finished); what it was run on (company, from date, the cursor it read from, who) is frozen.
-        'erp_copy_run' => ['status', 'cursor_to', 'summary', 'finished_at'],
+        'erp_copy_run' => ['status', 'cursor_to', 'cursor_name', 'summary', 'finished_at'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

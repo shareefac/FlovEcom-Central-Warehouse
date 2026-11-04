@@ -82,7 +82,7 @@ final class ErpCopyUnitTest extends TestCase
     public function testTheTablesThePageAndTheCron(): void
     {
         self::assertContains('erp_pi', Grants::NO_DELETE);
-        self::assertSame(['status', 'cursor_to', 'summary', 'finished_at'], Grants::UPDATE_COLUMNS['erp_copy_run']);
+        self::assertSame(['status', 'cursor_to', 'cursor_name', 'summary', 'finished_at'], Grants::UPDATE_COLUMNS['erp_copy_run']);
         self::assertNotContains('erp_pi_line', [...Grants::NO_DELETE, ...Grants::APPEND_ONLY], 'its lines are replaced when ERPNext changes them');
         $page = null;
         foreach (Sections::MAP['purchases']['tabs']['invoices']['pages'] as $p) {

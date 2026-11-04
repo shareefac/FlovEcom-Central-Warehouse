@@ -15875,8 +15875,10 @@ Sep; unknown suppliers made; copied prices become last prices; copies never feed
 
 **EC1. CW reads ERPNext, GET only, with its own read-only user: a change to PI8.** PI8 ("CW never connects to ERPNext") stays true for the
 opening stock and for every write; this job is the one exception, approved by the owner on 4 Nov. `Invoices\ErpApiReader` makes three reads
-and nothing else: the list of Purchase Invoices (`company` = erp_copy.company, `docstatus` in (1, 2), `posting_date` >= the from date,
-`modified` >= the cursor; fields name and modified; `modified asc, name asc`; pages of 100), one invoice by name (its items and taxes inside),
+and nothing else: the list of Purchase Invoices (`company` = erp_copy.company, `docstatus` in (1, 2), `posting_date` >= the from date, and
+after the cursor; fields name and modified; `modified asc, name asc`; pages of 100 by KEYSET: each page asks for what comes after the last
+(modified, name) read, through `or_filters` (modified > m, name > n), so an invoice changed while the pages are read moves to the end and
+none is skipped, and an ERPNext that ignores the keyset is refused, never looped), one invoice by name (its items and taxes inside),
 and the Items of its rows (`is_stock_item`, `custom_variant_id`). Never ERPNext's stock feed (PI8: it marks invoices Synced), never a method
 call, never a write. The user is CW's OWN (never the shop's write token, `App/api/bulk_with_item.php`): app.env `erp_read_url`,
 `erp_read_key`, `erp_read_secret` (or `CW_ERP_READ_*`), parsed by `CW\Config`, sent only in the Authorization header, never printed (a
@@ -15919,7 +15921,7 @@ purchases twice.
 
 **EC6. A row CW cannot place: the whole invoice waits.** No item (`no_item`), a quantity that is not whole CW units (`fractional_qty`), units
 other than the relay booked (`units_differ`: the add-on sends the PURCHASE unit, so a box bought as 2 is 2 x u in CW; the copy would say 24),
-a price below zero, unclear taxes (a deducting row, or rows + VAT + charges not ERPNext's total within 5p), an unknown supplier with
+a price below zero, unclear taxes (a deducting row, or rows + VAT + charges not ERPNext's total to the penny), an unknown supplier with
 making suppliers off, the supplier's number already on a live CW invoice (`duplicate_number`, UNIQUE supplier + number), a debit note whose
 invoice is not copied or does not match row by row, or the posting refused (`refused`, its code kept): the invoice is not copied at all,
 `erp_pi.state` waiting with the problem, the row, the detail. It is tried again on every run from what CW kept (a link made, a supplier
@@ -15957,8 +15959,10 @@ invoices wait (`unknown_supplier`).
 **EC12. What is kept.** erp_pi (one row per ERPNext invoice, never deleted: what was read, the hash, the state, the problem, the CW
 supplier, the copy, the last cancellation), erp_pi_line (its rows as read and, copied, the item, units, how it was found, the relay line and
 units, the copy's line; replaced when a re-read brings other content to an invoice not copied), erp_copy_run (one row per real run: the
-company, the from date, the cursor it read from and the one it reached, the summary; written once, finished once). The cursor is the newest
-ERPNext modified time a finished run of the same company and from date read; a failed run keeps the old one.
+company, the from date, the cursor it read from and the one it reached, the summary; written once, finished once). The cursor is the
+(modified, name) of the last ERPNext invoice a finished run of the same company and from date read (the list's order): the next run reads
+what comes after it, so a limited run goes on even through invoices of the same time; a failed or stopped run keeps the old one. Waiting
+invoices are tried again the longest-untried first (each try moves `read_at`), so none is left out behind others that stay blocked.
 
 **EC13. Prices: only where the item and the units are certain.** With erp_copy.update_prices on, a goods line whose item came from the relay
 (in the same units) or from the item's sku_erp_item link, in whole ERPNext purchase units, gives an `invoice` price (supplier_item_price,
@@ -15966,6 +15970,8 @@ source_ref = the ERPNext name, document_id = the copy) of the supplier item (sup
 supply, never preferred: reorder is not changed by a copy) on the paper's date; the last price moves when it is the newest (SupplierItems'
 rule, S4). A line found through the listing only, or in CW units, gives none. A price stays in the history when its copy is cancelled
 (supplier_item_price is append-only, S4 reads it).
+A tax row that only feeds the value (category Valuation), VAT or not, is not in the supplier's total and is left out; the rows, the VAT
+and the charges must add up to ERPNext's grand total to the penny, else the invoice waits (`taxes_unclear`).
 
 **EC14. On the screens.** Purchases › Supplier invoices › From ERPNext (a Show choice, no count): the waiting ones with why in words, the
 copied, the cancelled and the not copied under Show, each copied one linking its copy; the switch and the last run in one line. A copy
@@ -15974,9 +15980,17 @@ carries the soft tag "From ERPNext: stock already booked" in the list and on its
 **EC15. The job.** `bin/copy_erp_invoices.php`: does nothing while the switch is off (says so, exit 0); a dry run by default (each
 invoice's transaction rolled back: nothing written, not even the run; a debit note whose invoice the dry run would copy is counted as
 copied); `--apply`, `--from=YYYY-MM-DD` (copies from that date, ignoring the cursor: the back-fill), `--limit`; one log line and each invoice
-that waits. The cron line, every 30 minutes with --apply, on both servers (`deploy/*/cw-*.cron`); never run by the installers.
+that waits. The cron line, every 30 minutes with --apply, on both servers (`deploy/*/cw-*.cron`); never run by the installers. A failed
+read ends the run (`failed`, the cursor kept); a refusal of one invoice is noted on it and the run goes on.
 
 **EC16. Tests and what is left for the owner.** Tests: `ErpInvoiceCopyTest` (switch off, dry run, copy with no stock, waiting, units,
 suppliers, prices, debit note and cancellation, amendment, change, relay later, approval rules, duplicate number, V8, the refusals, a failed
-read), `ErpCopyJobTest`, `ErpCopyScreensTest`, `Migration0060Test`, `ErpApiReaderTest`, `ErpCopyUnitTest`. Before the switch is turned on,
-the owner makes the ERPNext user (EC1) and the integrator puts its three keys in app.env; then a dry run with `--from=2026-09-01`.
+read), `ErpCopyJobTest`, `ErpCopyScreensTest`, `Migration0060Test`, `ErpApiReaderTest`, `ErpCopyUnitTest`. Codex reviewed 0ccc04c
+(runs/ec_codex_review1.txt): 8 MEDIUM and 2 LOW, all fixed with tests where they can fail: offset paging could skip an invoice changed
+between pages (keyset now), a numeric item code stopped the run, an inclusive time cursor never got past a limit or a tie ((modified, name)
+now), a refused attempt could keep an older content for a later retry (kept first now), the relay fallback derived units from the
+purchase unit (only when it is the stock unit now), the oldest 2,000 waiting and the newest 500 unbooked copies could starve the others
+(longest-untried first; only copies the relay booked since), a VAT row for the value only made an invoice wait (left out now), a total a
+few pence off was copied with another total (to the penny now), and a dry run's debit note against an invoice it fetched itself counted as
+missing (counted after its invoice now; a dry run stays an estimate for debit notes). Before the switch is turned on, the owner makes the
+ERPNext user (EC1) and the integrator puts its three keys in app.env; then a dry run with `--from=2026-09-01`.

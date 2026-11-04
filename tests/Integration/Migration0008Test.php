@@ -17,9 +17,11 @@ final class Migration0008Test extends IntegrationTestCase
 
     public function testTheSeeds(): void
     {
-        // 0010 (the pos task, I48) adds the three PO reversal reasons po_amended, supplier_cannot_supply and not_needed, and 0022 (pack A1,
-        // SO4) the six reasons of a stock in, a stock out and a write-off: 0008's 22 are the rest.
-        $po = "('po_amended', 'supplier_cannot_supply', 'not_needed', 'opening_stock', 'trade_return', 'staff_use', 'trade_sale', 'repair_return', 'written_off')";
+        // 0010 (the pos task, I48) adds the three PO reversal reasons po_amended, supplier_cannot_supply and not_needed, 0022 (pack A1,
+        // SO4) the six reasons of a stock in, a stock out and a write-off, and 0060 (CW-917) the copy job's erp_cancelled and erp_changed:
+        // 0008's 22 are the rest.
+        $po = "('po_amended', 'supplier_cannot_supply', 'not_needed', 'opening_stock', 'trade_return', 'staff_use', 'trade_sale', 'repair_return', 'written_off', "
+            . "'erp_cancelled', 'erp_changed')";
         self::assertSame(22, (int) self::$db->value("SELECT COUNT(*) FROM reason_code WHERE code NOT IN {$po}"));
         self::assertSame(['damaged', 'faulty', 'expired', 'lost_theft', 'found', 'wrong_item_booked', 'supplier_error', 'supplier_collection', 'destroyed',
             'free_gift', 'sample', 'unstamped_found', 'count_difference', 'recount', 'data_correction', 'customer_return_resaleable',

@@ -11,8 +11,10 @@ use CW\CwException;
  * The read-only ERPNext client of the invoice copy job (CW-917; docs/decisions.md EC1): ERPNext's REST API with CW's OWN read-only API user
  * (never the shop's token), GET only, three reads and nothing else:
  *
- *   changed()   GET /api/resource/Purchase Invoice?filters=[company, docstatus in (1, 2), posting_date >= from, modified >= since]
- *               &fields=[name, modified]&order_by=modified asc, name asc, page by page (limit_start / limit_page_length)
+ *   changed()   GET /api/resource/Purchase Invoice?filters=[company, docstatus in (1, 2), posting_date >= from, modified >= m]
+ *               &or_filters=[modified > m, name > n]&fields=[name, modified]&order_by=modified asc, name asc, page by page by KEYSET: each page
+ *               asks for what comes after the last (modified, name) read, so an invoice changed while the pages are read moves to the end and
+ *               is read there, and none is skipped (an offset would skip one: the Codex review of 0ccc04c, MEDIUM 1)
  *   invoice()   GET /api/resource/Purchase Invoice/<name>: one invoice with its rows (items) and its taxes
  *   items()     GET /api/resource/Item?filters=[name in (...)]&fields=[name, is_stock_item, custom_variant_id]: which rows are stock (only
  *               those reach the relay) and their Vape and Go variant
@@ -82,33 +84,49 @@ final class ErpApiReader
     }
 
     /**
-     * The purchase invoices of $company submitted or cancelled, posted on or after $fromDate and (when $since is given) changed at or after
-     * $since (ERPNext's modified time, as it gave it), oldest change first, at most $limit.
+     * The purchase invoices of $company submitted or cancelled, posted on or after $fromDate and (when $after is given) changed after it:
+     * after the (modified, name) a run read last (ERPNext's modified time as it gave it, and the name: the order of the list), oldest change
+     * first, at most $limit. One invoice changed while the pages are read comes once, at its newest place.
      *
+     * @param array{0: string, 1: string}|null $after [modified, name]
      * @return list<array{name: string, modified: string}>
      */
-    public function changed(string $company, string $fromDate, ?string $since, ?int $limit = null): array
+    public function changed(string $company, string $fromDate, ?array $after, ?int $limit = null): array
     {
-        $filters = [['company', '=', $company], ['docstatus', 'in', [1, 2]], ['posting_date', '>=', $fromDate]];
-        if ($since !== null) {
-            $filters[] = ['modified', '>=', $since];
-        }
         $max = min($limit ?? self::MAX_LIST, self::MAX_LIST);
         $out = [];
-        for ($start = 0; count($out) < $max; $start += $this->pageSize) {
-            $page = $this->get('/api/resource/' . rawurlencode(self::DOCTYPE), ['filters' => $filters, 'fields' => ['name', 'modified'],
-                'order_by' => 'modified asc, name asc', 'limit_start' => $start, 'limit_page_length' => $this->pageSize]);
+        while (count($out) < $max) {
+            $filters = [['company', '=', $company], ['docstatus', 'in', [1, 2]], ['posting_date', '>=', $fromDate]];
+            $query = ['fields' => ['name', 'modified'], 'order_by' => 'modified asc, name asc', 'limit_start' => 0, 'limit_page_length' => $this->pageSize];
+            if ($after !== null) {
+                $filters[] = ['modified', '>=', $after[0]];
+                $query['or_filters'] = [['modified', '>', $after[0]], ['name', '>', $after[1]]];
+            }
+            $page = $this->get('/api/resource/' . rawurlencode(self::DOCTYPE), ['filters' => $filters] + $query);
             if (!is_array($page) || !array_is_list($page)) {
                 throw new CwException('erp_read_failed', 'ERPNext\'s list of purchase invoices is not a list', 502);
             }
+            $new = 0;
             foreach ($page as $r) {
                 if (!is_array($r) || !is_string($r['name'] ?? null) || $r['name'] === '' || !is_string($r['modified'] ?? null)) {
                     throw new CwException('erp_read_failed', 'ERPNext listed a purchase invoice without its name or time', 502);
                 }
-                $out[] = ['name' => $r['name'], 'modified' => self::modified($r['modified'])];
+                $row = ['name' => $r['name'], 'modified' => self::modified($r['modified'])];
+                if ($after !== null && $row['modified'] < self::modified($after[0])) {
+                    throw new CwException('erp_read_failed', 'ERPNext listed a purchase invoice out of order', 502);
+                }
+                // An invoice changed since an earlier page comes again, at its newest place: kept there only.
+                $new += in_array($row, $out, true) ? 0 : 1;
+                $out = array_values(array_filter($out, static fn (array $o): bool => $o['name'] !== $row['name']));
+                $out[] = $row;
+                $after = [$row['modified'], $row['name']];
                 if (count($out) >= $max) {
                     break;
                 }
+            }
+            if ($page !== [] && $new === 0) {
+                // The same page again: this ERPNext ignores what comes after (or_filters). Never loop: stop and say so.
+                throw new CwException('erp_read_failed', 'ERPNext gave the same page twice (it did not take the filter of what comes after)', 502);
             }
             if (count($page) < $this->pageSize) {
                 break;
@@ -136,7 +154,9 @@ final class ErpApiReader
      */
     public function items(array $codes): array
     {
-        $codes = array_values(array_unique(array_filter($codes, static fn (mixed $c): bool => is_string($c) && $c !== '')));
+        // A numeric item code may come as an int (a PHP array key): it is still a code (the Codex review of 0ccc04c, MEDIUM 2).
+        $codes = array_values(array_unique(array_filter(array_map(static fn (mixed $c): string => is_scalar($c) ? (string) $c : '', $codes),
+            static fn (string $c): bool => $c !== '')));
         $out = [];
         foreach (array_chunk($codes, self::ITEM_CHUNK) as $chunk) {
             $rows = $this->get('/api/resource/' . rawurlencode(self::ITEM_DOCTYPE), ['filters' => [['name', 'in', $chunk]],
@@ -145,11 +165,11 @@ final class ErpApiReader
                 throw new CwException('erp_read_failed', 'ERPNext\'s list of items is not a list', 502);
             }
             foreach ($rows as $r) {
-                if (!is_array($r) || !is_string($r['name'] ?? null)) {
+                if (!is_array($r) || !is_scalar($r['name'] ?? null)) {
                     continue;
                 }
                 $variant = $r['custom_variant_id'] ?? null;
-                $out[$r['name']] = ['is_stock_item' => (int) ($r['is_stock_item'] ?? 0) === 1,
+                $out[(string) $r['name']] = ['is_stock_item' => (int) ($r['is_stock_item'] ?? 0) === 1,
                     'custom_variant_id' => is_scalar($variant) && trim((string) $variant) !== '' ? mb_substr(trim((string) $variant), 0, 64) : null];
             }
         }
