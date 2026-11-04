@@ -19,17 +19,16 @@
 --    it was copied). CW's own (system_only): never offered on a form. Each with its baseline (docs/dev.md rule 5).
 --  * Settings (Settings > Rules and numbers > Invoices from ERPNext), each with its baseline: the main switch erp_copy.on (OFF: the job
 --    does nothing), the ERPNext company it reads (VAPE AND GO), the first posting date it copies (2026-09-01), whether a supplier CW does
---    not know is made (on), whether a copied price becomes the supplier's last price (on). Provisional ("Not agreed yet") as every new one.
+--    not know is made (on), whether a copied price becomes the supplier's last price (on), and the most invoices one run reads from
+--    ERPNext (200: a big back-fill goes on run after run from where the last one stopped). Provisional ("Not agreed yet") as every new one.
 --
--- HOW IT IS APPLIED: one column at the end of supplier_invoice, ALGORITHM = INSTANT (as 0052; no row changed); three new tables; two
--- reasons, five settings and their seven baselines. Nothing existing is rewritten or deleted. Every INSERT is guarded (NOT EXISTS): a run
--- stopped between two statements, or a second run, neither fails nor duplicates a row. The old code runs on this schema (its writes of
--- supplier_invoice name their columns and take the default 'cw').
+-- HOW IT IS APPLIED: three new tables (CREATE TABLE IF NOT EXISTS), two reasons, six settings and their eight baselines (each INSERT
+-- guarded by NOT EXISTS), then LAST one column at the end of supplier_invoice, ALGORITHM = INSTANT (as 0052; no row changed). Nothing
+-- existing is rewritten or deleted. A run stopped anywhere before the ALTER (the file is not recorded yet) runs again cleanly: the
+-- tables are there, the rows are not added twice; once the ALTER succeeds the file is recorded. The old code runs on this schema (its
+-- writes of supplier_invoice name their columns and take the default 'cw').
 
-ALTER TABLE supplier_invoice ADD COLUMN origin ENUM('cw','erpnext') NOT NULL DEFAULT 'cw'
-  COMMENT 'erpnext: a copy of an ERPNext purchase invoice made by the job (CW-917): it never moves stock and never feeds the cost', ALGORITHM = INSTANT;
-
-CREATE TABLE erp_pi (
+CREATE TABLE IF NOT EXISTS erp_pi (
   id                    BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
   name                  VARCHAR(140)      NOT NULL COMMENT 'the ERPNext Purchase Invoice name (ACC-PINV-2026-00123; an amendment ends in -1, -2)',
   company               VARCHAR(140)      NOT NULL,
@@ -77,7 +76,7 @@ CREATE TABLE erp_pi (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='ERPNext purchase invoices read by the copy job (CW-917): what was read, its state and its copy; never deleted';
 
-CREATE TABLE erp_pi_line (
+CREATE TABLE IF NOT EXISTS erp_pi_line (
   erp_pi_id          BIGINT UNSIGNED  NOT NULL,
   idx                INT UNSIGNED     NOT NULL COMMENT 'the ERPNext row number (1, 2, ...)',
   row_name           VARCHAR(140)     NULL COMMENT 'the ERPNext Purchase Invoice Item name',
@@ -106,7 +105,7 @@ CREATE TABLE erp_pi_line (
   CONSTRAINT ck_erp_pi_line_flags CHECK (is_stock IN (0, 1) AND (is_stock = 1 OR stock_index IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='the rows of an ERPNext purchase invoice the copy job read (CW-917)';
 
-CREATE TABLE erp_copy_run (
+CREATE TABLE IF NOT EXISTS erp_copy_run (
   id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   status       ENUM('running','done','failed') NOT NULL DEFAULT 'running',
   actor        VARCHAR(64)     NOT NULL,
@@ -143,9 +142,15 @@ INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decis
     UNION ALL SELECT 'erp_copy.from_date', 'date', '"2026-09-01"', 'ERPNext purchase invoices posted on or after this date are copied'
     UNION ALL SELECT 'erp_copy.create_suppliers', 'bool', 'true', 'On: a supplier CW does not know yet is made (a draft, named from ERPNext); off: its invoices wait'
     UNION ALL SELECT 'erp_copy.update_prices', 'bool', 'true', 'On: a copied price becomes the supplier''s last price of that item and pack'
+    UNION ALL SELECT 'erp_copy.per_run', 'int', '200', 'The most ERPNext purchase invoices one run reads; the next run goes on from where it stopped'
   ) k WHERE NOT EXISTS (SELECT 1 FROM app_setting s WHERE s.setting_key = k.setting_key);
 
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
   SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
-  FROM app_setting s WHERE s.setting_key IN ('erp_copy.on', 'erp_copy.company', 'erp_copy.from_date', 'erp_copy.create_suppliers', 'erp_copy.update_prices')
+  FROM app_setting s WHERE s.setting_key IN ('erp_copy.on', 'erp_copy.company', 'erp_copy.from_date', 'erp_copy.create_suppliers', 'erp_copy.update_prices',
+      'erp_copy.per_run')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);
+
+-- Last (see HOW IT IS APPLIED): once this succeeds, the file is recorded as applied.
+ALTER TABLE supplier_invoice ADD COLUMN origin ENUM('cw','erpnext') NOT NULL DEFAULT 'cw'
+  COMMENT 'erpnext: a copy of an ERPNext purchase invoice made by the job (CW-917): it never moves stock and never feeds the cost', ALGORITHM = INSTANT;

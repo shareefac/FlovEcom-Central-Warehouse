@@ -1312,7 +1312,7 @@ every other Items and Inventory page. Layout and view data only.
 | Path | What |
 |---|---|
 | `src/Invoices/ErpApiReader.php`, `ErpTransport.php`, `ErpHttpTransport.php` | the read-only ERPNext client: `changed()` (the filtered, paged list from the cursor), `invoice()`, `items()`, `fromConfig()` (app.env `erp_read_url` / `erp_read_key` / `erp_read_secret`); GET only, the transport injected |
-| `src/Invoices/ErpInvoiceCopy.php` | the job: `run()` (off / read / one transaction per invoice, a dry run rolled back), `step()`, `plan()`, `resolve()` (relay, then sku_erp_item, then the Vape and Go listing), `reverseCopy()`, `prices()`, `relayRecheck()`, `normalise()` (ERPNext's invoice in CW's terms, its hash), `list()`, `logLines()`; `PROBLEMS` (`WAITS`, `SKIPS`) |
+| `src/Invoices/ErpInvoiceCopy.php` | the job: `run()` (off / the reasons check `assertReasons()` / at most `erp_copy.per_run` read / one transaction per invoice, a dry run rolled back), `cursor()`, `step()`, `plan()`, `resolve()` (relay, then sku_erp_item, then the Vape and Go listing), `reverseCopy()`, `prices()`, `relayRecheck()`, `normalise()` (ERPNext's invoice in CW's terms, its hash), `list()`, `logLines()`; `PROBLEMS` (`WAITS`, `SKIPS`) |
 | `src/Documents/Documents.php` | `SYSTEM_JOBS`, `postBySystem()`, `reverseBySystem()`, `isSystemJob()` (EC4) |
 | `src/Invoices/SupplierInvoices.php` | `createCopy()`; `current()` and `reverse()` refuse a copy (409 erp_copy); `header()`'s `credits_copy`; `list()`'s `origin` |
 | `src/Invoices/SupplierInvoiceHandler.php` | `refuseStockOnCopy()` (409 copy_moves_stock); no value events, arrivals or Incoming for a copy; `content()` keeps `origin` for a copy |

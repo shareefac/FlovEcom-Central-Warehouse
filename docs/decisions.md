@@ -15886,8 +15886,9 @@ missing key is named, never a value; `__debugInfo` hides it; errors give the HTT
 injected (`ErpTransport`; the real one is curl over https only, no redirect, timeouts, a 16 MB cap): the tests use fixtures, no network. An
 item ERPNext does not return stops the run (fail closed: without it the relay's line numbers are not known).
 
-**EC2. Five settings, the switch off.** 0060: `erp_copy.on` (OFF; On / Off), `erp_copy.company` (VAPE AND GO; typed as ERPNext writes it,
-a formula refused), `erp_copy.from_date` (2026-09-01), `erp_copy.create_suppliers` (on), `erp_copy.update_prices` (on); Settings › Rules and
+**EC2. Six settings, the switch off.** 0060: `erp_copy.on` (OFF; On / Off), `erp_copy.company` (VAPE AND GO; typed as ERPNext writes it,
+a formula refused), `erp_copy.from_date` (2026-09-01), `erp_copy.create_suppliers` (on), `erp_copy.update_prices` (on), `erp_copy.per_run`
+(200, 1-5000: the most invoices one run reads, EC17); Settings › Rules and
 numbers › "Invoices from ERPNext"; each with its baseline, provisional as every new one. While the switch is off the job reads and writes
 nothing and says so. There is no setting for the cost (EC5).
 
@@ -16000,3 +16001,14 @@ deriving the units from the stock quantity would hide that), and a dry run's deb
 changed after the first commit, does not apply: 0060 was never applied outside the test schemas (a migration is never edited once it is).
 Before the switch is turned on, the owner makes the
 ERPNext user (EC1) and the integrator puts its three keys in app.env; then a dry run with `--from=2026-09-01`.
+
+**EC17. The final Codex review of d8af941: three MEDIUM, fixed.** (1) 0060 resumes after a stop: its three tables are `CREATE TABLE IF
+NOT EXISTS`, its inserts were already guarded, and the `ALTER TABLE supplier_invoice ADD COLUMN origin` is now its LAST statement, so a
+stop anywhere before it runs again cleanly and the file is recorded once the ALTER succeeds (`Migration0060Test`). (2) A run reads at most
+`erp_copy.per_run` invoices from ERPNext (200; `--limit` overrides it), frees each raw invoice once it is in CW's terms, and keeps its
+cursor, so a big back-fill goes on run after run instead of running out of memory with its cursor never moving. `cursor()` takes the newest
+finished run of the company whose from date is the same OR EARLIER (everything it read, from its date, is everything a later date asks for
+up to its cursor): a `--from` back-fill that reached the cap is gone on with by the cron. (3) The job's reasons `erp_cancelled` and
+`erp_changed` must exist, be active and apply to reversals (what `Documents::reverseBySystem()` needs): a reason code made by hand before
+0060 with the same code is kept as it is (never rewritten by a migration), and every run, a dry run too, stops before it reads ERPNext
+while one of them could not cancel a copy (409 erp_copy_reasons, exit 3, naming the reason and Settings › Reasons).

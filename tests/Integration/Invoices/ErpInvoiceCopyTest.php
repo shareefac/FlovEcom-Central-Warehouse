@@ -336,6 +336,68 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(3, $this->docCount());
     }
 
+    /**
+     * The Codex review of d8af941, MEDIUM 2: a run reads at most erp_copy.per_run invoices and keeps its cursor; the next run goes on from
+     * there, the cron's too after a --from back-fill (an earlier date's included), and nothing is copied twice.
+     */
+    public function testARunReadsAtMostThePerRunSettingAndTheNextGoesOn(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        $this->setting(ErpInvoiceCopy::PER_RUN, '2');
+        foreach (['PI-P1', 'PI-P2', 'PI-P3'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => $i + 1, 'rate' => 1]], ['modified' => '2026-10-0' . ($i + 1) . ' 10:00:00.000000']);
+        }
+        $r1 = $this->copy()->run($this->reader(), true);
+        self::assertSame([2, ['copied' => 2], true], [$r1['read'], $r1['counts'], $r1['capped']]);
+        self::assertStringContainsString('(the most a run reads: the next run goes on)', ErpInvoiceCopy::logLines($r1)[0]);
+        $r2 = $this->copy()->run($this->reader(), true);
+        self::assertSame([1, ['copied' => 1], false], [$r2['read'], $r2['counts'], $r2['capped']]);
+        self::assertSame(3, $this->docCount(), 'each once');
+        // A back-fill from an earlier date reaching the cap: the cron (from the setting's date) goes on from where it stopped.
+        foreach (['PI-Q1', 'PI-Q2', 'PI-Q3'] as $i => $name) {
+            $this->erp->invoices[$name] = $this->pi($name, [['item' => 'A', 'qty' => 1, 'rate' => $i + 2]], ['modified' => '2026-10-1' . ($i + 1) . ' 10:00:00.000000',
+                'bill_date' => '2026-09-20', 'posting_date' => '2026-09-20']);
+        }
+        $this->setting(ErpInvoiceCopy::PER_RUN, '4');
+        $b = $this->copy()->run($this->reader(), true, '2026-08-15', 4); // --limit over the setting: P1-P3 again (unchanged), then Q1
+        self::assertSame([4, ['copied' => 1, 'unchanged' => 3]], [$b['read'], self::sorted($b['counts'])]);
+        self::assertSame(['2026-10-11 10:00:00.000000', 'PI-Q1'], (new ErpInvoiceCopy(self::$db))->cursor('VAPE AND GO', '2026-09-01'),
+            'the cron of 1 Sep picks up the back-fill of 15 Aug');
+        $cron = $this->copy()->run($this->reader(), true);
+        self::assertSame([2, ['copied' => 2]], [$cron['read'], $cron['counts']], 'Q2 and Q3, from where the back-fill stopped');
+        self::assertSame(6, $this->docCount());
+        self::assertNull((new ErpInvoiceCopy(self::$db))->cursor('VAPE AND GO', '2026-07-01'), 'an earlier date than any run: from the start');
+    }
+
+    /** The Codex review of d8af941, MEDIUM 3: the job's reasons must be able to cancel a copy, or the run stops before it reads anything. */
+    public function testARunStopsBeforeReadingWhenItsReasonsCannotCancelACopy(): void
+    {
+        $this->on();
+        $this->erp->invoices['PI-Z'] = $this->pi('PI-Z', [['item' => 'A', 'qty' => 1, 'rate' => 1]]);
+        foreach (["UPDATE reason_code SET is_active = 0 WHERE code = 'erp_changed'" => 'the reason erp_changed is switched off',
+            "UPDATE reason_code SET applies_to = 'adjustment' WHERE code = 'erp_cancelled'" => 'the reason erp_cancelled is not offered for cancelling records'] as $sql => $says) {
+            self::$db->exec($sql);
+            try {
+                foreach ([false, true] as $apply) {
+                    try {
+                        $this->copy()->run($this->reader(), $apply);
+                        self::fail('refused');
+                    } catch (CwException $e) {
+                        self::assertSame('erp_copy_reasons', $e->errorCode);
+                        self::assertStringContainsString($says, $e->getMessage());
+                        self::assertStringContainsString('Settings > Reasons', $e->getMessage());
+                    }
+                }
+            } finally {
+                self::$db->exec("UPDATE reason_code SET is_active = 1, applies_to = 'reversal' WHERE code IN ('erp_cancelled', 'erp_changed')");
+            }
+        }
+        self::assertSame([], $this->erp->calls, 'nothing read');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM erp_copy_run') + (int) self::$db->value('SELECT COUNT(*) FROM erp_pi'), 'nothing written');
+        self::assertSame([], (new ErpInvoiceCopy(self::$db))->reasonProblems());
+    }
+
     /** The Codex review of 0ccc04c, MEDIUM 7: a relay booking of an older copy is found whatever number of newer copies still wait for theirs. */
     public function testTheRelayRecheckTakesOnlyTheCopiesTheRelayBookedSince(): void
     {
@@ -361,15 +423,19 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         $this->copy()->run($this->reader(), true);
         $this->erp->invoices['PI-C1']['docstatus'] = 2;
         $this->erp->invoices['PI-C1']['modified'] = '2026-10-09 10:00:00.000000';
-        self::$db->exec("UPDATE reason_code SET is_active = 0 WHERE code = 'erp_cancelled'"); // the cancellation is refused (reason_inactive)
+        // The cancellation is refused: a cancellation of the copy already waits for an approval (reversal_pending). Made by hand here, and
+        // removed before the next run (the job's reasons are fine: the run starts).
+        $copy = (int) $this->erpRow('PI-C1')['document_id'];
+        $pending = self::$db->insert("INSERT INTO document (doc_type, status, version, external_ref, doc_date, created_actor, created_at, updated_at, reverses_id, submitted_at) "
+            . "VALUES ('SINV', 'awaiting_approval', 1, 'B-PI-C1', '2026-10-09', 'system:test', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), ?, UTC_TIMESTAMP(6))", [$copy]);
         try {
             $this->copy()->run($this->reader(), true);
         } finally {
-            self::$db->exec("UPDATE reason_code SET is_active = 1 WHERE code = 'erp_cancelled'");
+            self::$db->exec('DELETE FROM document WHERE id = ?', [$pending]);
         }
         $p = $this->erpRow('PI-C1');
         self::assertSame(['copied', 'refused'], [$p['state'], $p['problem']]);
-        self::assertStringContainsString('reason_inactive', (string) $p['problem_detail']);
+        self::assertStringContainsString('reversal_pending', (string) $p['problem_detail']);
         self::assertSame(['PI-C1'], array_column((new ErpInvoiceCopy(self::$db))->list(), 'name'), 'listed with the waiting ones');
         $r = $this->copy()->run($this->reader(), true); // ERPNext lists nothing new: it is read again all the same
         self::assertSame(['reversed' => 1], $r['counts']);

@@ -232,6 +232,8 @@ final class Settings
         // ---- CW-917 (0060; docs/decisions.md EC2): the copies of ERPNext purchase invoices. The company is typed as ERPNext writes it (one
         // that starts like a spreadsheet formula is refused, as the rollback file's); the first posting date copied is any real date.
         'erp_copy.company' => ['pattern' => '/^[^\x00-\x20\x7F=+\-@][^\x00-\x1F\x7F]{0,139}$/Du', 'pattern_says' => 'an ERPNext company name, like VAPE AND GO'],
+        // The most invoices one run reads from ERPNext (a big back-fill goes on run after run; the Codex review of d8af941, MEDIUM 2).
+        'erp_copy.per_run' => ['min' => 1, 'max' => 5000],
     ];
 
     /**

@@ -2779,6 +2779,7 @@ final class Words
         'erp_copy.from_date' => 'Copy invoices dated from',
         'erp_copy.create_suppliers' => 'Make suppliers CW does not know',
         'erp_copy.update_prices' => 'Copied prices become the last price',
+        'erp_copy.per_run' => 'Most invoices one run reads',
         // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
         'erp_opening.warehouses' => 'ERPNext warehouses the opening stock comes from',
         'erp_opening.companies' => 'ERPNext companies the opening stock comes from',
@@ -4092,6 +4093,8 @@ final class Words
             . 'Off: its invoices wait until the supplier is made by hand.',
         'erp_copy.update_prices' => 'On: when the product and the pack size are certain, the copied price becomes the supplier\'s last price of that product. '
             . 'Off: the prices stay on the copies only.',
+        'erp_copy.per_run' => 'Each run reads at most this many ERPNext purchase invoices, oldest change first. The next run goes on from where it stopped, '
+            . 'so a big back-fill takes several runs.',
         // ---- Pack E
         'reports.low_stock_default' => 'In units. Low stock lists a product when the stores can sell this many or fewer. A product with its own '
             . '"least stock to keep" on its reorder page uses that number instead.',

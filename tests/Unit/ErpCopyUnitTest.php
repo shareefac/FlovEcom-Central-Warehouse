@@ -52,7 +52,10 @@ final class ErpCopyUnitTest extends TestCase
         $sql = (string) file_get_contents(self::ROOT . '/migrations/0060_erp_invoice_copy.sql');
         preg_match_all("/'(erp_copy\\.[a-z_]+)'/", $sql, $m);
         $keys = array_values(array_unique($m[1]));
-        self::assertSame([ErpInvoiceCopy::SWITCH, ErpInvoiceCopy::COMPANY, ErpInvoiceCopy::FROM, ErpInvoiceCopy::CREATE_SUPPLIERS, ErpInvoiceCopy::UPDATE_PRICES], $keys);
+        self::assertSame([ErpInvoiceCopy::SWITCH, ErpInvoiceCopy::COMPANY, ErpInvoiceCopy::FROM, ErpInvoiceCopy::CREATE_SUPPLIERS, ErpInvoiceCopy::UPDATE_PRICES,
+            ErpInvoiceCopy::PER_RUN], $keys);
+        self::assertSame(['min' => 1, 'max' => 5000], Settings::RULES[ErpInvoiceCopy::PER_RUN]);
+        self::assertStringContainsString("'erp_copy.per_run', 'int', '200'", $sql, 'the most a run reads starts at 200');
         foreach ($keys as $key) {
             self::assertArrayHasKey($key, Words::SETTING, $key);
             self::assertArrayHasKey($key, Words::SETTING_HELP, $key);

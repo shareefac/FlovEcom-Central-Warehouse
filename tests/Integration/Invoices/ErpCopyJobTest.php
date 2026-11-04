@@ -11,7 +11,8 @@ use CW\Tests\Support\TestDb;
 /**
  * bin/copy_erp_invoices.php as cron runs it (CW-917; docs/decisions.md EC15): the main switch off, it says so and reads nothing (exit 0);
  * on without CW's read-only ERPNext user in app.env, it stops naming the missing keys and nothing else (exit 3), and writes no run; a
- * mistyped command line ends with the usage before anything is read (exit 2).
+ * mistyped command line ends with the usage before anything is read (exit 2); a job's reason that cannot cancel a copy stops it before it
+ * reads anything (exit 3, naming the reason and where to put it right).
  */
 final class ErpCopyJobTest extends IntegrationTestCase
 {
@@ -65,6 +66,16 @@ final class ErpCopyJobTest extends IntegrationTestCase
         self::assertSame(3, $r['code'], $r['out'] . $r['err']);
         self::assertStringContainsString('missing in app.env: erp_read_url, erp_read_key, erp_read_secret', $r['err']);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM erp_copy_run'), 'nothing read, no run');
+
+        self::$db->exec("UPDATE reason_code SET is_active = 0 WHERE code = 'erp_cancelled'");
+        try {
+            $r = $this->job(['--apply']);
+        } finally {
+            self::$db->exec("UPDATE reason_code SET is_active = 1 WHERE code = 'erp_cancelled'");
+        }
+        self::assertSame(3, $r['code'], $r['out'] . $r['err']);
+        self::assertStringContainsString('cannot run: the reason erp_cancelled is switched off', $r['err']);
+        self::assertStringNotContainsString('erp_read_unconfigured', $r['err'], 'stopped before the reader is even made');
 
         $r = $this->job(['--from=2026-13-01']);
         self::assertSame(2, $r['code']);

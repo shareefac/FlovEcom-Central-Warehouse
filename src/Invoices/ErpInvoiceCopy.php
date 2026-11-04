@@ -57,6 +57,11 @@ final class ErpInvoiceCopy
     public const FROM = 'erp_copy.from_date';
     public const CREATE_SUPPLIERS = 'erp_copy.create_suppliers';
     public const UPDATE_PRICES = 'erp_copy.update_prices';
+    /** The most invoices one run reads from ERPNext (a setting; --limit overrides it): a big back-fill goes on run after run. */
+    public const PER_RUN = 'erp_copy.per_run';
+    public const PER_RUN_DEFAULT = 200;
+    /** The reasons the job cancels its copies with (0060): they must exist, be active and apply to reversals, or nothing runs. */
+    public const REASONS = ['erp_cancelled', 'erp_changed'];
     /** The relay's store: ERPNext's purchase invoices reach CW through Vape and Go's shop (its variant numbers are on ERPNext's items). */
     public const CHANNEL = ErpSeedImport::VPG_CHANNEL;
     public const STATES = ['waiting', 'copied', 'reversed', 'skipped'];
@@ -99,7 +104,7 @@ final class ErpInvoiceCopy
     /**
      * The settings in force now (read on every call), with their defaults when a row is missing.
      *
-     * @return array{on: bool, company: string, from: string, create_suppliers: bool, update_prices: bool}
+     * @return array{on: bool, company: string, from: string, create_suppliers: bool, update_prices: bool, per_run: int}
      */
     public function settings(): array
     {
@@ -109,7 +114,42 @@ final class ErpInvoiceCopy
         $from = $get(self::FROM, '2026-09-01');
         return ['on' => (bool) $get(self::SWITCH, false), 'company' => $company === '' ? 'VAPE AND GO' : $company,
             'from' => is_string($from) && $from !== '' ? $from : '2026-09-01', 'create_suppliers' => (bool) $get(self::CREATE_SUPPLIERS, true),
-            'update_prices' => (bool) $get(self::UPDATE_PRICES, true)];
+            'update_prices' => (bool) $get(self::UPDATE_PRICES, true), 'per_run' => max(1, (int) ($get(self::PER_RUN, self::PER_RUN_DEFAULT) ?? self::PER_RUN_DEFAULT))];
+    }
+
+    /**
+     * 409 erp_copy_reasons when reasonProblems() finds one (bin/copy_erp_invoices.php calls it before it even makes the ERPNext reader).
+     */
+    public function assertReasons(): void
+    {
+        $bad = $this->reasonProblems();
+        if ($bad !== []) {
+            throw new CwException('erp_copy_reasons', 'cannot run: ' . implode('; ', $bad) . '. Switch it on and offer it for cancelling records in Settings > Reasons '
+                . '(ERPNext\'s cancellations of copied invoices need it). Nothing was read or written', 409, ['reasons' => $bad]);
+        }
+    }
+
+    /**
+     * What stops the job's reasons from cancelling a copy (Documents::reverseBySystem(): the reason must exist, be active and apply to
+     * reversals): one sentence each, [] when both are fine. A reason code made by hand before 0060 with the same code is never rewritten by
+     * the migration (the Codex review of d8af941, MEDIUM 3): run() refuses to start instead, so no cancellation is ever silently refused.
+     *
+     * @return list<string>
+     */
+    public function reasonProblems(): array
+    {
+        $out = [];
+        foreach (self::REASONS as $code) {
+            $r = $this->db->one('SELECT CAST(applies_to AS CHAR) AS applies_to, is_active FROM reason_code WHERE code = ?', [$code]);
+            if ($r === null) {
+                $out[] = "the reason {$code} is missing";
+            } elseif ((int) $r['is_active'] !== 1) {
+                $out[] = "the reason {$code} is switched off";
+            } elseif (!in_array('reversal', explode(',', (string) $r['applies_to']), true)) {
+                $out[] = "the reason {$code} is not offered for cancelling records";
+            }
+        }
+        return $out;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -118,8 +158,10 @@ final class ErpInvoiceCopy
 
     /**
      * One run. $apply false: a dry run (every invoice's transaction rolled back: nothing is written, not even the run row). $from: read
-     * from this posting date, every change since it (not from the cursor). $limit: at most this many invoices read from ERPNext.
-     * Returns what it did: ['state' => 'off'] while the switch is off (nothing read), else the counts and the outcome of each invoice.
+     * from this posting date, every change since it (not from the cursor). $limit: at most this many invoices read from ERPNext (else the
+     * setting erp_copy.per_run); a run that reaches it keeps its cursor, and the next run (the cron's too, after a --from back-fill) goes on
+     * from there. Returns what it did: ['state' => 'off'] while the switch is off (nothing read), else the counts and the outcome of each
+     * invoice. 409 erp_copy_reasons (nothing read, nothing written) while the job's reasons cannot cancel a copy (reasonProblems()).
      *
      * @param (\Closure(string): void)|null $progress
      * @return array<string, mixed>
@@ -134,6 +176,8 @@ final class ErpInvoiceCopy
         if ($from !== null && ($fromAt === false || $fromAt->format('Y-m-d') !== $from)) {
             throw new \InvalidArgumentException('--from must be a date, YYYY-MM-DD');
         }
+        $this->assertReasons();
+        $cap = $limit ?? $s['per_run'];
         $fromDate = $from ?? $s['from'];
         $s['from'] = $fromDate; // --from: this run copies from that date (the back-fill)
         $cursor = $from === null ? $this->cursor($s['company'], $fromDate) : null;
@@ -141,9 +185,11 @@ final class ErpInvoiceCopy
             [self::actor(), $s['company'], $fromDate, $cursor[0] ?? null]) : null;
         $sum = ['state' => 'ran', 'dry_run' => !$apply, 'company' => $s['company'], 'from' => $fromDate, 'cursor_from' => $cursor[0] ?? null,
             'cursor_to' => $cursor[0] ?? null, 'cursor_name' => $cursor[1] ?? null, 'read' => 0, 'outcomes' => [], 'counts' => [], 'problems' => [],
-            'suppliers_created' => 0, 'prices' => 0, 'relay_rechecked' => 0, 'retried' => 0, 'stopped' => false];
+            'suppliers_created' => 0, 'prices' => 0, 'relay_rechecked' => 0, 'retried' => 0, 'stopped' => false, 'capped' => false];
         try {
-            $listed = $reader->changed($s['company'], $fromDate, $cursor, $limit);
+            // At most $cap invoices a run (the Codex review of d8af941, MEDIUM 2: a back-fill of thousands at once could run out of memory
+            // before it copied anything, and its cursor would never move): the next run goes on from the last one read.
+            $listed = $reader->changed($s['company'], $fromDate, $cursor, $cap);
             $docs = [];
             foreach ($listed as $l) {
                 $docs[$l['name']] = $reader->invoice($l['name']);
@@ -152,9 +198,11 @@ final class ErpInvoiceCopy
                 $sum['cursor_to'] = $l['modified'];
                 $sum['cursor_name'] = $l['name'];
             }
+            $sum['capped'] = count($listed) >= $cap;
+            unset($listed);
             // A copy whose last attempt was refused (its cancellation, say) is read again from ERPNext: past the cursor nothing else would
-            // bring it back (the Codex re-check of 6102935, NEW 1).
-            foreach ($this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . self::RETRY_MAX) as $again) {
+            // bring it back (the Codex re-check of 6102935, NEW 1). At most $cap of them a run too, the longest-untried first.
+            foreach ($this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . $cap) as $again) {
                 if (!isset($docs[(string) $again])) {
                     $docs[(string) $again] = $reader->invoice((string) $again);
                     $sum['read']++;
@@ -187,10 +235,13 @@ final class ErpInvoiceCopy
                     throw new CwException('erp_read_failed', "ERPNext did not give the item {$c}: check that the read-only user may read Items", 502);
                 }
             }
+            // Each raw invoice freed once it is in CW's terms (never the two whole lists at once).
             $batch = [];
-            foreach ($docs as $name => $d) {
-                $batch[] = self::normalise($d, $items);
+            foreach (array_keys($docs) as $name) {
+                $batch[] = self::normalise($docs[$name], $items);
+                unset($docs[$name]);
             }
+            unset($docs, $items);
             usort($batch, static fn (array $a, array $b): int => [$a['is_return'], $a['amended_from'] !== null, $a['posting_date'], $a['name']]
                 <=> [$b['is_return'], $b['amended_from'] !== null, $b['posting_date'], $b['name']]);
             $seen = [];
@@ -249,14 +300,16 @@ final class ErpInvoiceCopy
     }
 
     /**
-     * Where the last finished run of this company and from date stopped: the modified time and name of the last ERPNext invoice it read
-     * (null: none yet: read everything since the date). The next run reads what comes after it (ErpApiReader::changed()).
+     * Where the last finished run of this company stopped, among the runs that read from this date or an earlier one (a --from back-fill
+     * included: everything it read, from its date, is everything this date asks for up to its cursor): the modified time and name of the
+     * last ERPNext invoice it read (null: none yet, or only runs from a later date: read everything since the date). The next run reads
+     * what comes after it (ErpApiReader::changed()), so a back-fill that reached the per-run cap is gone on with by the cron.
      *
      * @return array{0: string, 1: string}|null
      */
     public function cursor(string $company, string $fromDate): ?array
     {
-        $r = $this->db->one("SELECT cursor_to, cursor_name FROM erp_copy_run WHERE status = 'done' AND company = ? AND from_date = ? AND cursor_to IS NOT NULL "
+        $r = $this->db->one("SELECT cursor_to, cursor_name FROM erp_copy_run WHERE status = 'done' AND company = ? AND from_date <= ? AND cursor_to IS NOT NULL "
             . 'ORDER BY id DESC LIMIT 1', [$company, $fromDate]);
         return $r === null ? null : [substr((string) $r['cursor_to'], 0, 26), (string) ($r['cursor_name'] ?? '')];
     }
@@ -1005,7 +1058,7 @@ final class ErpInvoiceCopy
             $r['dry_run'] ? 'DRY RUN (nothing written) ' : '', $r['read'], $r['dry_run'] ? 'would_copy' : 'copied', $c['copied'] ?? 0, $c['waiting'] ?? 0,
             $c['reversed'] ?? 0, $c['skipped'] ?? 0, $c['unchanged'] ?? 0, $r['dry_run'] ? 'would_create' : 'created', $r['suppliers_created'], $r['prices'], $r['retried'],
             $r['relay_rechecked'], $r['from'], $r['cursor_from'] ?? 'start', $r['cursor_to'] ?? 'start', $problems === [] ? '' : ' problems=' . implode(',', $problems),
-            $r['stopped'] ? ' STOPPED (switched off while it ran)' : '')];
+            ($r['stopped'] ? ' STOPPED (switched off while it ran)' : '') . (($r['capped'] ?? false) ? ' (the most a run reads: the next run goes on)' : ''))];
         $shown = 0;
         foreach ($r['outcomes'] as $o) {
             if (!in_array($o['outcome'], ['waiting', 'skipped'], true) || ($o['problem'] ?? null) === null) {
@@ -1084,7 +1137,8 @@ final class ErpInvoiceCopy
     private static function summaryRow(array $sum): array
     {
         return ['read' => $sum['read'], 'counts' => $sum['counts'], 'problems' => $sum['problems'], 'suppliers_created' => $sum['suppliers_created'],
-            'prices' => $sum['prices'], 'retried' => $sum['retried'], 'relay_rechecked' => $sum['relay_rechecked'], 'stopped' => $sum['stopped']];
+            'prices' => $sum['prices'], 'retried' => $sum['retried'], 'relay_rechecked' => $sum['relay_rechecked'], 'stopped' => $sum['stopped'],
+            'capped' => $sum['capped'] ?? false];
     }
 
     private function channel(): ?int

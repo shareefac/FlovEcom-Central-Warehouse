@@ -13,11 +13,13 @@ declare(strict_types=1);
  * It does NOTHING while the setting erp_copy.on is off (it says so, reads nothing, exit 0). DRY RUN by default: it reads ERPNext and
  * works every invoice out in a transaction that is rolled back, so nothing is written (not even its run), and prints what a real run would
  * do. --apply writes (one transaction per invoice, one erp_copy_run row). --from reads every invoice posted on or after that date, whatever
- * the last run reached (the back-fill; default: the setting erp_copy.from_date, from where the last run of that date stopped). --limit
- * reads at most that many invoices from ERPNext (the next run goes on from there). The cron runs it with --apply every 30 minutes.
+ * the last run reached (the back-fill; default: the setting erp_copy.from_date, from where the last run of that date, or of an earlier
+ * one, stopped). A run reads at most erp_copy.per_run invoices from ERPNext (--limit overrides it); one that reaches it keeps its cursor and
+ * the next run (the cron's, after a --from back-fill too) goes on from there. The cron runs it with --apply every 30 minutes.
  *
  * Exit codes: 0 done (also: off; invoices that wait are work for people, not errors) · 2 usage · 3 cannot run (ERPNext not set up or not
- * reachable: a real run's row says failed, and the next run reads from the same point).
+ * reachable: a real run's row says failed, and the next run reads from the same point; or the job's reasons erp_cancelled / erp_changed
+ * cannot cancel a copy: switched off, missing, or not offered for cancelling records; nothing read).
  */
 
 use CW\Config;
@@ -44,6 +46,7 @@ exit(Cli::main('copy_erp_invoices', ['apply', 'from:', 'limit:'], 'usage: php bi
             $cli->log('off: the setting ' . ErpInvoiceCopy::SWITCH . ' is off (Settings > Rules and numbers > Invoices from ERPNext): nothing was read or written');
             return Cli::OK;
         }
+        $copy->assertReasons(); // before the reader is made: nothing is read while a copy could not be cancelled (exit 3)
         $r = $copy->run(ErpApiReader::fromConfig(Config::load()), $apply, $from, $limit);
         if (($r['state'] ?? null) === 'off') {
             $cli->log('off: the setting ' . ErpInvoiceCopy::SWITCH . ' is off: nothing was read or written');
@@ -54,4 +57,3 @@ exit(Cli::main('copy_erp_invoices', ['apply', 'from:', 'limit:'], 'usage: php bi
         }
         return Cli::OK;
     }, true, true));
-
