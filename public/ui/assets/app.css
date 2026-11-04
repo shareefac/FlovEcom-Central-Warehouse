@@ -913,6 +913,9 @@ details.more[open] > summary { border-color: var(--accent); background: var(--ac
 /* On a phone the menu is in the flow under its button, the open menu taking its row (the Codex review of 9ce3515, M3; PV26): nothing is
    placed against the page, with or without the script. */
 @media (max-width: 639.98px) { details.more { position: static; } .more-menu { position: static; width: auto; min-width: 0; max-width: none; margin: 6px 0 0; box-shadow: none; } details.more[open] { flex: 1 1 100%; } }
+/* ...and no wider than the screen (4 Nov 2026): the open menu takes the row's width, and a filter's select or field inside it shrinks to
+   the menu instead of pushing it past the edge. */
+@media (max-width: 639.98px) { details.more[open] { width: 100%; } .more-menu { max-width: 100%; } .more-menu :is(select, input, textarea) { max-width: 100%; min-width: 0; } }
 
 /* ---------- 10. Forms: the label above each field, a muted 12 px hint, 40 px fields with a 10 px radius (44 px on a phone or a touch
    screen), the accent focus ring; a date-and-time field is the same field (docs/decisions.md DC11) ---------- */
@@ -1077,6 +1080,14 @@ tr.urgent > :first-child { box-shadow: inset 3px 0 0 var(--st-red); }
   table.stack .c-head, table.rtable .c-head { grid-column: 1; padding: 0 0 6px; font-size: 15px; line-height: 22px; }
   table.stack .c-status, table.rtable .c-status { grid-column: 2; grid-row: 1; padding: 0 0 6px; justify-self: end; height: auto; min-width: 0; }
   table.stack .c-status .chip { min-width: 0; }
+  /* The status pill on a phone (4 Nov 2026): it carries no label beside the title, and it keeps its column (min-content) instead of
+     being pushed past the card; a short one stays on one line, a long one ("To decide: the rules found differences") wraps at about a
+     third of the card, so the title keeps the rest. A pill among the label and value lines wraps too. */
+  table.stack td.c-status, table.rtable td.c-status { min-width: min-content; white-space: normal; text-align: right; }
+  table.stack td.c-status[data-label], table.rtable td.c-status[data-label] { display: block; }
+  table.stack td.c-status[data-label]::before, table.rtable td.c-status[data-label]::before { content: none; }
+  table.stack .c-status .chip, table.rtable .c-status .chip { display: inline-block; width: max-content; max-width: 38cqw; white-space: normal; border-radius: 10px; }
+  table.stack td[data-label] .chip, table.rtable td[data-label] .chip { white-space: normal; max-width: 100%; }
   table.stack .c-wide, table.rtable .c-wide { border-top: 1px solid var(--divider); margin-top: 6px; padding-top: 10px; }
   table.stack .c-next, table.rtable .c-next { border-top: 1px solid var(--divider); margin-top: 8px; padding-top: 12px; }
   table.stack .c-next .btn, table.stack .c-next button { width: 100%; }
@@ -1115,6 +1126,9 @@ details > :last-child:not(summary) { margin-bottom: 16px; }
 }
 .fold[open] > summary::before { transform: rotate(45deg); margin-top: -4px; }
 .tech { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 13px; }
+/* On a phone the technical details stack, each label over its value (4 Nov 2026): side by side the value column had no room left, and
+   a long code (an address, a key) breaks rather than running off the screen. */
+@media (max-width: 639.98px) { .tech { grid-template-columns: minmax(0, 1fr); row-gap: 2px; } .tech > dd { margin: 0 0 8px; } :is(dt, dd, code) { overflow-wrap: anywhere; } }
 
 /* The help is a details too, but looks like a small round "?" button */
 details.help { border: 0; padding: 0; margin: 0; background: none; border-radius: 0; }
