@@ -114,7 +114,8 @@ final class ErpInvoiceCopy
         $from = $get(self::FROM, '2026-09-01');
         return ['on' => (bool) $get(self::SWITCH, false), 'company' => $company === '' ? 'VAPE AND GO' : $company,
             'from' => is_string($from) && $from !== '' ? $from : '2026-09-01', 'create_suppliers' => (bool) $get(self::CREATE_SUPPLIERS, true),
-            'update_prices' => (bool) $get(self::UPDATE_PRICES, true), 'per_run' => max(1, (int) ($get(self::PER_RUN, self::PER_RUN_DEFAULT) ?? self::PER_RUN_DEFAULT))];
+            // At least 2 whatever is stored (Settings::RULES): one fresh change and one read again a run (run()).
+            'update_prices' => (bool) $get(self::UPDATE_PRICES, true), 'per_run' => max(2, (int) ($get(self::PER_RUN, self::PER_RUN_DEFAULT) ?? self::PER_RUN_DEFAULT))];
     }
 
     /**
@@ -204,17 +205,24 @@ final class ErpInvoiceCopy
             // one before it); the first one is always taken with what it needs (at most two more), so a run always goes on.
             //
             // A share of it (a quarter, at least one, never all) is kept first for what must be read again whatever the cursor (the Codex
-            // re-check of ce9e1a0: fresh changes alone could use every run's budget): a copy whose last attempt was refused (its
-            // cancellation, say: past the cursor nothing else would bring it back), and the invoices waiting debit notes return against
-            // (`original_missing`); the longest-untried first.
+            // re-checks of ce9e1a0 and 438dfb1: fresh changes alone could use every run's budget): a copy whose last attempt was refused
+            // (its cancellation, say: past the cursor nothing else would bring it back), and an invoice a waiting debit note returns against
+            // (`original_missing`); the two kinds taken in turn, each the longest-untried first; what the fresh changes leave of the budget
+            // reads more of them. A --limit=1 run keeps no share (the cron's setting is at least 2).
             $quota = $cap >= 2 ? min(max(1, intdiv($cap, 4)), $cap - 1) : 0;
-            $again = $quota < 1 ? [] : array_map('strval', $this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT "
-                . $quota));
-            if (count($again) < $quota) {
-                $again = [...$again, ...array_map('strval', $this->db->column("SELECT DISTINCT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
-                    . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL ORDER BY p.return_against LIMIT "
-                    . ($quota - count($again))))];
+            $refused = array_map('strval', $this->db->column("SELECT name FROM erp_pi WHERE state = 'copied' AND problem IS NOT NULL ORDER BY read_at, id LIMIT " . $cap));
+            $missing = array_map('strval', $this->db->column("SELECT p.return_against FROM erp_pi p LEFT JOIN erp_pi o ON o.name = p.return_against "
+                . "WHERE p.state = 'waiting' AND p.problem = 'original_missing' AND p.return_against IS NOT NULL AND o.id IS NULL GROUP BY p.return_against "
+                . 'ORDER BY MIN(p.read_at), p.return_against LIMIT ' . $cap));
+            $candidates = [];
+            for ($k = 0; $k < max(count($refused), count($missing)); $k++) {
+                foreach ([$refused[$k] ?? null, $missing[$k] ?? null] as $c) {
+                    if ($c !== null && !in_array($c, $candidates, true)) {
+                        $candidates[] = $c;
+                    }
+                }
             }
+            $again = array_slice($candidates, 0, $quota);
             $listLimit = $cap - count($again);
             $budget = $listLimit;
             $listed = $reader->changed($s['company'], $fromDate, $cursor, $listLimit);
@@ -245,13 +253,18 @@ final class ErpInvoiceCopy
                 $sum['cursor_name'] = $l['name'];
                 foreach (array_keys($needs) as $o) {
                     $o = (string) $o; // a numeric name became an int key (the Codex re-check of ce9e1a0)
-                    $docs[$o] = $reader->invoice($o);
+                    try {
+                        $docs[$o] = $reader->invoice($o);
+                    } catch (CwException) {
+                        // not readable now: the debit note waits for it (original_missing) and it is read again on a later run
+                    }
                     $sum['read']++;
                     $budget--;
                 }
             }
             $sum['capped'] = $sum['capped'] || count($listed) >= $listLimit;
             unset($listed);
+            $again = [...$again, ...array_slice($candidates, count($again), max(0, $budget))]; // what the fresh changes left
             foreach ($again as $name) {
                 if (!isset($docs[$name])) {
                     try {
@@ -1180,6 +1193,9 @@ final class ErpInvoiceCopy
         }
         if ($o === 'unchanged' && in_array('reversed', $out['did'] ?? [], true)) {
             $o = 'reversed';
+        }
+        if (in_array($o, ['copied', 'reversed'], true) && ($out['problem'] ?? null) !== null) {
+            $o = 'waiting'; // a copy whose attempt was refused: listed with the waiting ones
         }
         $sum['counts'][$o] = ($sum['counts'][$o] ?? 0) + 1;
         if (($out['problem'] ?? null) !== null) {

@@ -438,6 +438,48 @@ final class ErpInvoiceCopyTest extends InvoicesTestCase
         self::assertSame(4, (int) self::$db->value("SELECT COUNT(*) FROM erp_pi WHERE name LIKE 'PI-H%' AND state = 'copied'"));
     }
 
+    /**
+     * The Codex re-check of 438dfb1: a copy whose cancellation stays refused does not keep out the invoice a waiting debit note needs (the
+     * two kinds in turn; what fresh changes leave of the budget reads more), and a debit note whose invoice cannot be read waits for it
+     * instead of stopping the run.
+     */
+    public function testAStuckRefusalNeverKeepsOutTheInvoiceADebitNoteWaitsFor(): void
+    {
+        $this->on();
+        $this->linked('VA', 'A');
+        $this->erp->invoices['PI-K'] = $this->pi('PI-K', [['item' => 'A', 'qty' => 1, 'rate' => 4]]);
+        $this->copy()->run($this->reader(), true);
+        // ERPNext cancels PI-K; its cancellation here is refused, and stays so (a cancellation of it waits for an approval).
+        $this->erp->invoices['PI-K']['docstatus'] = 2;
+        $this->erp->invoices['PI-K']['modified'] = '2026-10-05 10:00:00.000000';
+        $pending = self::$db->insert("INSERT INTO document (doc_type, status, version, external_ref, doc_date, created_actor, created_at, updated_at, reverses_id, submitted_at) "
+            . "VALUES ('SINV', 'awaiting_approval', 1, 'B-PI-K', '2026-10-05', 'system:test', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), ?, UTC_TIMESTAMP(6))",
+            [(int) $this->erpRow('PI-K')['document_id']]);
+        try {
+            $this->copy()->run($this->reader(), true);
+            self::assertSame(['copied', 'refused'], [$this->erpRow('PI-K')['state'], $this->erpRow('PI-K')['problem']]);
+            // A debit note against PI-M, which ERPNext cannot give now: the run goes on and the debit note waits for it.
+            $this->erp->invoices['RET-M'] = $this->pi('RET-M', [['item' => 'A', 'qty' => -1, 'rate' => 3, 'of' => 'PI-M-row1']], ['modified' => '2026-10-06 10:00:00.000000',
+                'is_return' => 1, 'return_against' => 'PI-M']);
+            $r = $this->copy()->run($this->reader(), true);
+            self::assertSame(['waiting', 'original_missing'], [$this->erpRow('RET-M')['state'], $this->erpRow('RET-M')['problem']]);
+            self::assertSame(['waiting' => 2], $r['counts'], 'PI-K (still refused) and RET-M');
+            // PI-M can be read now (changed long ago: behind the cursor). Two a run, one kept for what is read again: PI-K takes it, and
+            // what no fresh change uses reads PI-M; RET-M is then copied against it.
+            $this->erp->invoices['PI-M'] = $this->pi('PI-M', [['item' => 'A', 'qty' => 3, 'rate' => 3]], ['modified' => '2026-09-15 10:00:00.000000']);
+            $this->setting(ErpInvoiceCopy::PER_RUN, '2');
+            $this->erp->calls = [];
+            $r = $this->copy()->run($this->reader(), true);
+            $read = array_values(array_map(static fn (array $c): string => substr($c['path'], strlen('/api/resource/Purchase Invoice/')),
+                array_filter($this->erp->calls, static fn (array $c): bool => str_starts_with($c['path'], '/api/resource/Purchase Invoice/'))));
+            self::assertSame(['PI-K', 'PI-M'], $read);
+            self::assertSame(['copied', 'copied'], [$this->erpRow('PI-M')['state'], $this->erpRow('RET-M')['state']]);
+            self::assertSame(['copied', 'refused'], [$this->erpRow('PI-K')['state'], $this->erpRow('PI-K')['problem']]);
+        } finally {
+            self::$db->exec('DELETE FROM document WHERE id = ?', [$pending]);
+        }
+    }
+
     /** The Codex review of d8af941, MEDIUM 3: the job's reasons must be able to cancel a copy, or the run stops before it reads anything. */
     public function testARunStopsBeforeReadingWhenItsReasonsCannotCancelACopy(): void
     {
