@@ -25,8 +25,9 @@ abstract class IntegrationTestCase extends TestCase
         TestDb::clean(self::$db);
         // app_setting is a seed table clean() keeps: the one switch tests turn on starts back at its seeded off (MO4).
         self::askModeChanges(false);
-        // The supplier detail switches (0062, SD1) seed OFF; the tests written before them expect every detail needed (SD3).
-        self::supplierNeeds(true);
+        // The supplier detail switches (0062, SD1) start back at their seeded off, as their history says (the Codex review of 770dde7):
+        // the supplier tests switch them on (SupplierTestCase).
+        self::supplierNeeds(false);
     }
 
     /** The four "A supplier needs ..." switches (suppliers.need_*, 0062): on, a supplier is usable only with those details. */

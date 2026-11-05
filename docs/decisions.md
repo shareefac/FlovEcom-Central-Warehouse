@@ -16175,5 +16175,6 @@ empty), so §5.2's completeness could never be met from what the business has ke
   `missing($s)` without `$needs` is the full list (unit callers and the earlier tests unchanged).
 - **SD3. The approval rules are untouched.** "New suppliers" (`approvals.supplier_activation`) still decides whether a request waits for a
   reviewer; a recorded due-diligence check is still shown, and an overdue one still warns on an order (PurchaseOrders, Home). The tests
-  written before 0062 switch the four on in `IntegrationTestCase::setUp` (as MO4 does for mode changes); `testWithTheDetailSwitchesOffANameIsEnough`
+  start with the four back at their seeded off (`IntegrationTestCase::setUp`, as MO4 does for mode changes: the nightly history check
+  sees a value that matches its baseline); the supplier tests written before 0062 switch them on in `SupplierTestCase::setUp`; `testWithTheDetailSwitchesOffANameIsEnough`
   covers them off.

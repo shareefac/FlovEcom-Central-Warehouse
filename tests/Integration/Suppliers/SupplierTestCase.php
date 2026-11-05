@@ -21,6 +21,8 @@ abstract class SupplierTestCase extends MappingTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Written before 0062: every detail needed (SD3); testWithTheDetailSwitchesOffANameIsEnough switches them off.
+        self::supplierNeeds(true);
         $this->sup = new Suppliers(self::$db);
         $this->items = new SupplierItems(self::$db);
     }
