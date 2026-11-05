@@ -135,12 +135,16 @@ final class Grants
     /**
      * Tables the app login reads and may only UPDATE in the listed columns: no INSERT and no DELETE (0019, Y3). A setting's value
      * and whether the owner agreed it (rows come by migration only); a document type's review and approval rules (the types come by
-     * migration). Every change writes its config_change version in the same transaction (Admin\ConfigHistory).
+     * migration). Every change writes its config_change version in the same transaction (Admin\ConfigHistory); an API's key (0063) writes
+     * its audit row instead (Admin\ApiCredentials: never the key or the secret).
      */
     public const UPDATE_ONLY_COLUMNS = [
         'app_setting' => ['value_json', 'provisional', 'updated_actor', 'updated_at'],
         'document_type' => ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action', 'size_approval',
             'size_units', 'size_value'],
+        // 0063 (docs/decisions.md AK3): the keys of the APIs CW calls, one row per API made by the migration; Settings › APIs saves and
+        // empties a row (Admin\ApiCredentials), never adds or deletes one, and never changes its name or who made it.
+        'api_credential' => ['url', 'key_enc', 'key_last4', 'secret_enc', 'version', 'updated_by', 'updated_actor', 'updated_at'],
     ];
     /**
      * vat_code: changed by a migration (I-2). reason_code, document_type and app_setting were read-only until 0019: the screens

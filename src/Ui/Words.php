@@ -74,6 +74,8 @@ final class Words
         'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
         // CW-917 (0060): the copies of ERPNext purchase invoices (docs/decisions.md EC14)
         'ERP_COPY', 'ERP_COPY_WHY', 'ERP_COPY_STATE',
+        // 0063: Settings › APIs, the keys of the APIs CW calls (docs/decisions.md AK9)
+        'APIS', 'APIS_NOTICE', 'APIS_CHECK', 'APIS_ERROR',
         // Pack F (PF5-PF10)
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
         'QUEUE_NOTICE', 'QUEUE_ERROR', 'INBOX', 'ALERT',
@@ -358,6 +360,7 @@ final class Words
         'company' => 'Company',
         'warehouses' => 'Warehouses',
         'sites' => 'Stores',
+        'apis' => 'APIs', // 0063 (AK9)
         'people' => 'Users',
         'access' => 'Roles and permissions',
         'approvals' => 'Approval rules',
@@ -449,7 +452,7 @@ final class Words
         // Pack H (0038).
         'handovers' => 'Stock handed to sister shops, our shop units and trade customers, with prices and an invoice.',
         'customers' => 'The trade customers, their prices, and what each owes us.',
-        'settings' => 'Company, warehouses, stores, users, rules, numbering, checks and the audit log.',
+        'settings' => 'Company, warehouses, stores, APIs, users, rules, numbering, checks and the audit log.',
     ];
 
 
@@ -516,6 +519,7 @@ final class Words
         'reorder_low_stock' => 'Low-stock warnings',
         // --- end of Pack G
         'access' => 'Roles and permissions',
+        'apis' => 'APIs', // 0063 (AK9)
         'enrol' => 'Set up my sign-in',
         'staff_requests' => 'Staff requests',
         'new_code' => 'Your own sign-in code',
@@ -618,6 +622,7 @@ final class Words
             'Open a warehouse to rename it, switch it off, or add the places inside it.'],
         'warehouse' => ['One warehouse: its stock, whose it is, and the places inside it.', 'Change it with the boxes below. Say why each time.'],
         'sites' => ['Each website and how its link with the warehouse is doing.', 'Changes are made on the server by ' . self::ASK . ', with the owner\'s OK.'],
+        'apis' => ['The keys CW uses to read other systems, such as ERPNext.', 'Type the address, the key and the secret, then press Save.'], // 0063 (AK9)
         'integrity' => ['Every night the system checks that its stock figures and records agree with each other.',
             'If a check finds a problem, tell ' . self::ASK . ' the same day.'],
         'audit' => ['Everything that was changed in this system, by whom and when.', 'Search by person, day, record or what was done. Nothing here can be changed.'],
@@ -9899,6 +9904,7 @@ final class Words
     /** audit_log.entity_type => the kind of record (the audit log's filter and rows; another type is made readable). */
     public const AUDIT_RECORD = [
         'app_setting' => 'Setting',
+        'api_credential' => 'API key', // 0063 (AK3)
         'erp_pi' => 'ERPNext purchase invoice', // CW-917 (EC14)
         'barcode_review' => 'Barcode to check',
         'brand' => 'Brand',
@@ -9998,11 +10004,16 @@ final class Words
         'handover' => 'Hand-overs',
         'counterparty' => 'Customers of hand-overs',
         'erp_copy' => 'Invoices from ERPNext', // CW-917 (EC14)
+        'api' => 'API keys', // 0063 (AK3)
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
     public const AUDIT_ACTION = [
         'setting.change' => 'Setting changed',
+        // 0063 (AK3): Settings › APIs (the key and the secret are never in the row)
+        'api.save' => 'API key saved',
+        'api.remove' => 'API key removed',
+        'api.check' => 'API connection checked',
         'permission.change' => 'Changed which jobs can do a task', // Pack E
         'document_type.change' => 'Rule of a kind of record changed',
         'reason.add' => 'Reason added',
@@ -10352,6 +10363,7 @@ final class Words
         'company' => 'Company',
         'warehouses' => 'Warehouses',
         'sites' => 'Stores',
+        'apis' => 'APIs', // 0063 (AK9)
         'people' => 'Users and roles',
         'approvals' => 'Approval rules',
         'reasons' => 'Reasons',
@@ -11351,6 +11363,87 @@ final class Words
 
     /** erp_pi.state (CW-917, EC14). */
     public const ERP_COPY_STATE = ['waiting' => 'Waiting', 'copied' => 'Copied', 'reversed' => 'Cancelled in ERPNext', 'skipped' => 'Not copied'];
+
+    // ---- 0063: Settings › APIs (docs/decisions.md AK1-AK12): the keys of the APIs CW calls. Never the key or the secret on a screen. ----
+
+    /** The page and its ERPNext card. */
+    public const APIS = [
+        'title' => 'APIs',
+        'erp_title' => 'ERPNext (read only)',
+        'erp_what' => 'CW reads the purchase invoices in ERPNext with its own ERPNext user, which may only read. It keeps a copy of each under '
+            . 'Supplier invoices (From ERPNext). Make that user in ERPNext, then type its address, API key and API secret here and press Save.',
+        'in_use' => 'In use',
+        'use_saved' => 'The key saved on this page',
+        'use_env' => 'A key set on the server. No key is saved on this page.',
+        'use_none' => 'None yet. Copying from ERPNext cannot run until a key is saved here.',
+        'address' => 'ERPNext address',
+        'address_hint' => 'https:// and the ERPNext name only, for example https://vpg-erp.floverfy.com',
+        'key' => 'API key',
+        'key_hint_new' => 'In ERPNext: the user\'s page, API Access, Generate Keys.',
+        'key_hint_saved' => 'Leave it empty to keep the saved key.',
+        'secret' => 'API secret',
+        'secret_hint_new' => 'ERPNext shows it once, when the keys are made. CW never shows it.',
+        'secret_hint_saved' => 'Leave it empty to keep the saved secret. CW never shows it.',
+        'saved_by' => 'Saved by %s on %s',
+        'removed_by' => 'Removed by %s on %s',
+        'last_change' => 'Last change',
+        'key_ends' => 'Key ends …%s',
+        'secret_saved' => 'Secret: saved (hidden)',
+        'key_label' => 'Key',
+        'secret_label' => 'Secret',
+        'save' => 'Save',
+        'change_title' => 'Save a key',
+        'check' => 'Check the connection',
+        'check_text' => 'CW asks ERPNext for one purchase invoice with the key in use. Nothing is changed in ERPNext.',
+        'remove' => 'Remove',
+        'remove_title' => 'Remove the saved key',
+        'remove_what' => 'This removes the saved address, key and secret from CW. Copying from ERPNext then uses a key set on the server if there '
+            . 'is one; if not, it stops until a key is saved again. Nothing is changed in ERPNext.',
+        'remove_confirm' => 'Yes, remove the saved key',
+        'remove_button' => 'Remove the key',
+        'copy_label' => 'Copying from ERPNext',
+        'copy_on' => 'On: CW reads ERPNext every half hour.',
+        'copy_off' => 'Off: nothing is read from ERPNext. Saving a key here does not switch it on.',
+        'copy_setting' => 'Switch it on or off',
+        'someone' => 'someone',
+        'retype' => 'Type the API key and the API secret again: they are never kept on a page that was not saved.',
+        'look_only' => 'You can look; Admins and Reviewers change API keys.',
+    ];
+
+    /** What a save or a removal says afterwards (only these: a notice never comes from the URL as text). */
+    public const APIS_NOTICE = [
+        'saved' => 'Saved. Press "Check the connection" to see that ERPNext answers.',
+        'unchanged' => 'Nothing changed: the address is the same and no new key or secret was typed.',
+        'removed' => 'Removed. The saved address, key and secret are gone.',
+    ];
+
+    /** How "Check the connection" ended (Admin\ApiCredentials::OUTCOMES, and `other` without its code); drawn done for ok, blocked otherwise. */
+    public const APIS_CHECK = [
+        'ok' => 'Connected. ERPNext answered, and this user can read purchase invoices.',
+        'wrong_key' => 'ERPNext answered, but the API key or the API secret is wrong. Make new keys in ERPNext and save them here.',
+        'not_allowed' => 'The key works, but this ERPNext user may not read purchase invoices. In ERPNext, let its role read Purchase Invoice.',
+        'unreachable' => 'CW could not reach this address. Check the address, or try again in a few minutes.',
+        'not_public' => 'CW did not call this address: it does not lead to a server on the internet. Type the ERPNext address the shop uses.',
+        'other' => 'The address answered, but not as ERPNext does (code %s). Check the address.',
+        'other_no_code' => 'The address answered, but not as ERPNext does. Check the address.',
+        'nothing' => 'There is no key to check. Save the address, the key and the secret first.',
+        'cannot_open' => 'The saved key cannot be opened on this server any more. Type the key and the secret again, and save.',
+        'bad_setup' => 'The key set on the server is not written correctly. Save the key on this page instead.',
+    ];
+
+    /** Why a save or a removal was refused (Admin\ApiCredentials' codes); each says that nothing was saved. */
+    public const APIS_ERROR = [
+        'api_bad_url' => 'Nothing was saved: the address must be https:// and the ERPNext name only, for example https://vpg-erp.floverfy.com.',
+        'api_bad_key' => 'Nothing was saved: the API key is 6 to 64 letters and digits. Copy it again from ERPNext.',
+        'api_bad_secret' => 'Nothing was saved: the API secret is 6 to 64 letters and digits. Copy it again from ERPNext.',
+        'api_need_key' => 'Nothing was saved: type the API key. No key is saved yet, so the key and the secret are both needed.',
+        'api_need_secret' => 'Nothing was saved: type the API secret. No key is saved yet, so the key and the secret are both needed.',
+        'api_cannot_open' => 'Nothing was saved: the saved key cannot be opened on this server any more. Type the key and the secret again.',
+        'api_changed' => 'Nothing was saved: %s saved or removed this key on %s, after this page was opened. Look at it now, then try again.',
+        'api_confirm' => 'Nothing was removed: tick "Yes, remove the saved key" first.',
+        'saved_twice' => 'This form was sent already. Type the key and the secret again and press Save if you still want to change them.',
+        'bad_version' => 'Nothing was saved: this form is old. Open the page again and try again.',
+    ];
 
     /** Why a line does not match (InvoiceMath::WHY). */
     public const MATCH_WHY = [

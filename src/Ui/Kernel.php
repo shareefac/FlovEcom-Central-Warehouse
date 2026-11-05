@@ -13,6 +13,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Ops\TestRefPurge;
 use CW\Ui\Controller\AccessController;
+use CW\Ui\Controller\ApisController;
 use CW\Ui\Controller\ApprovalsController;
 use CW\Ui\Controller\ArrivalsController;
 use CW\Ui\Controller\AuthController;
@@ -111,6 +112,9 @@ final class Kernel
      *        (default CW\Documents\DocumentHandlers::all: PO since I-2; tests add the fixture ADJ type)
      * @param (\Closure(): bool)|null $testSystem whether this is a test system (app.env environment=staging): every page then
      *        carries the strip "TEST SYSTEM: nothing here is real"
+     * @param \CW\Invoices\ErpTransport|null $erpTransport how Settings › APIs' "Check the connection" reaches ERPNext (null: the real
+     *        transport; the tests give fixtures: no network in a test; docs/decisions.md AK8)
+     * @param (\Closure(): Config)|null $erpConfig where Settings › APIs reads app.env's ERPNext key from (null: Config::loadApp())
      */
     public function __construct(
         private readonly \Closure $connect,
@@ -118,6 +122,8 @@ final class Kernel
         private readonly \Closure $log,
         private readonly ?\Closure $handlers = null,
         private readonly ?\Closure $testSystem = null,
+        private readonly ?\CW\Invoices\ErpTransport $erpTransport = null,
+        private readonly ?\Closure $erpConfig = null,
     ) {
     }
 
@@ -622,6 +628,13 @@ final class Kernel
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));
         $r->add('GET', '/ui/system/audit', 'audit.view', $system->audit(...));
         $r->add('GET', '/ui/system/audit.csv', 'audit.view', $system->auditCsv(...));
+        // Settings › APIs (0063; docs/decisions.md AK1-AK12): who looks after the system looks (as Stores); an Admin or a Reviewer saves,
+        // checks and removes a key (settings.manage, checked again by Admin\ApiCredentials inside its transaction).
+        $apis = new ApisController($this->erpTransport, $this->erpConfig);
+        $r->add('GET', ApisController::PATH, 'system.view', $apis->show(...));
+        $r->add('POST', ApisController::PATH, 'settings.manage', $apis->save(...));
+        $r->add('POST', ApisController::PATH . '/check', 'settings.manage', $apis->check(...));
+        $r->add('POST', ApisController::PATH . '/remove', 'settings.manage', $apis->remove(...));
         // The company details printed on POs (I90-I99): everyone reads; company.edit saves, company.confirm confirms and decides a
         // review of another reviewer's change (reviewer today, never admin; checked again by CW\Company\CompanyDetails).
         $company = new CompanyController();

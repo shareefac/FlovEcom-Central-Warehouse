@@ -3624,3 +3624,17 @@ details.fp-paste > form.record { margin: 4px 0 0; }
   .fp-count { flex: 1 1 100%; margin-left: 0; }
   form.fp p.actions .btn { width: 100%; justify-content: center; }
 }
+
+/* Settings › APIs (0063; docs/decisions.md AK9): the ERPNext card. The facts as every settings card; the form full width under its title
+   (no wider than a long address), the check's answer as a note inside the card, Remove's fold with its tick. On a phone the buttons are
+   full width and nothing is wider than the screen (the address and the key's end wrap). */
+.api-card .api-url, .api-card .api-key-end { overflow-wrap: anywhere; }
+.set-row.api-change > .set-k { flex-basis: 100%; }
+.set-row.api-change form.api-form { margin: 10px 0 0; max-width: 36rem; gap: 8px; }
+.set-row.api-change form.api-form input + label { margin-top: 6px; }
+.set-card > p.note.api-check { margin: 8px 20px 14px; padding: 12px 16px; }
+@media (max-width: 699.98px) {
+  .set-card > p.note.api-check { margin: 8px 16px 12px; }
+  .set-row.api-change form.api-form p.actions .btn, .set-row.api-test form.inline, .set-row.api-test form.inline .btn,
+  .set-row.api-remove details.set-fold[open] form.record p.actions .btn { width: 100%; justify-content: center; }
+}

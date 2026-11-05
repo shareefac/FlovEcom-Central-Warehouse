@@ -2168,6 +2168,7 @@ final class UiTemplatesTest extends TestCase
             'reason' => ['shell', 'rows', 'fold', 'history', 'record'], 'warehouses' => ['shell', 'rows'], 'warehouse' => ['shell', 'rows', 'fold', 'history', 'record'],
             'approvals' => ['shell', 'fold'], 'access' => ['shell', 'rows'], 'access_permission' => ['shell', 'history', 'record'], 'company' => ['shell', 'rows'],
             'integrity' => ['shell', 'rows'], 'people' => ['board', 'search', 'more'], 'person' => ['page'], 'sites' => ['board'],
+            'apis' => ['shell', 'rows', 'fold'], // Settings › APIs (0063, AK9)
         ];
         foreach ($pages as $name => $patterns) {
             $src = $t[$name . '.php'] ?? '';

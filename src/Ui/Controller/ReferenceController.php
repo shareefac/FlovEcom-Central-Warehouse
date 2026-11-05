@@ -79,7 +79,8 @@ final class ReferenceController
      */
     public const SETTINGS_SECTIONS = [
         'company' => ['/ui/reference/company', 'reference.view'], 'warehouses' => ['/ui/reference/warehouses', 'reference.view'],
-        'sites' => ['/ui/system/sites', 'system.view'], 'people' => ['/ui/people', 'staff.view'], 'approvals' => ['/ui/reference/approvals', 'reference.view'],
+        'sites' => ['/ui/system/sites', 'system.view'], 'apis' => ['/ui/system/apis', 'system.view'] /* 0063, AK9 */,
+        'people' => ['/ui/people', 'staff.view'], 'approvals' => ['/ui/reference/approvals', 'reference.view'],
         'reasons' => ['/ui/reference/reasons', 'reference.view'], 'settings' => ['/ui/reference/settings', 'reference.view'],
         'series' => ['/ui/reference/series', 'reference.view'], 'integrity' => ['/ui/system/checks', 'system.view'], 'audit' => ['/ui/system/audit', 'audit.view'],
     ];

@@ -220,6 +220,8 @@ final class Sections
                 ['key' => 'warehouses', 'perm' => 'reference.view', 'path' => '/ui/reference/warehouses', 'match' => ['/ui/reference/warehouses*'],
                     'new' => ['perm' => 'settings.manage', 'href' => '/ui/reference/warehouses#new', 'label' => 'warehouses']],
                 ['key' => 'sites', 'perm' => 'system.view', 'path' => '/ui/system/sites', 'match' => ['/ui/system/sites*']],
+                // 0063 (docs/decisions.md AK9): the keys of the APIs CW calls; looked at as Stores is, changed by settings.manage.
+                ['key' => 'apis', 'perm' => 'system.view', 'path' => '/ui/system/apis', 'match' => ['/ui/system/apis*']],
                 ['key' => 'people', 'perm' => 'staff.view', 'path' => '/ui/people', 'match' => ['/ui/people*'],
                     'new' => ['perm' => 'staff.manage', 'href' => '/ui/people#new', 'label' => 'people']],
                 ['key' => 'access', 'perm' => 'reference.view', 'path' => '/ui/reference/access', 'match' => ['/ui/reference/access']],

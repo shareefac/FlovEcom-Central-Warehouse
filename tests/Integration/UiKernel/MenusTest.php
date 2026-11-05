@@ -67,7 +67,7 @@ final class MenusTest extends KernelUiTestCase
         // see the people) for all who read settings: its section list (RD-C14, the Show of Settings since the integration, RD-I2).
         self::assertSame(['Company', 'Warehouses', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering'],
             array_column(self::segments($buyer->get('/ui/reference/company')), 'label'));
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering', 'System checks',
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering', 'System checks',
             'Audit log'],
             array_column(self::segments($reviewer->get('/ui/reference/company')), 'label'));
         // Items: the items for everyone; the barcodes to check only for catalogue.edit (I109); item groups and multipacks for everyone.

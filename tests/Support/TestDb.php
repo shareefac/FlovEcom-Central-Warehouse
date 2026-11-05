@@ -80,7 +80,8 @@ final class TestDb
     /**
      * Empties every table except schema_migrations, the seeded warehouses and the seeded reference lists
      * (SEED_TABLES); the number series (one seeded row per prefix) are set back to 0 (pad 6) instead of deleted; config_change
-     * keeps the versions the migrations wrote (0019's baselines and the reasons' version 2: the history of the seeded rows).
+     * keeps the versions the migrations wrote (0019's baselines and the reasons' version 2: the history of the seeded rows); api_credential
+     * keeps its rows (0063: one per API), emptied.
      */
     public static function clean(Db $db): void
     {
@@ -103,6 +104,13 @@ final class TestDb
                 }
                 if ($t === 'number_series') {
                     $db->exec('UPDATE number_series SET last_no = 0, pad = 6');
+                    continue;
+                }
+                if ($t === 'api_credential') {
+                    // 0063's rows (one per API, the app login never adds one) stay, emptied as the migration made them: a key a test saved
+                    // goes with the test (docs/decisions.md AK3).
+                    $db->exec("UPDATE api_credential SET url = NULL, key_enc = NULL, key_last4 = NULL, secret_enc = NULL, version = 0, updated_by = NULL, "
+                        . "updated_actor = 'system:migrate', updated_at = created_at");
                     continue;
                 }
                 if ($t === 'warehouse') {

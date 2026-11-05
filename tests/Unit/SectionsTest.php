@@ -218,6 +218,8 @@ final class SectionsTest extends TestCase
             ['/ui/reference/company/edit', [], 'settings', 'settings', 'company'],
             ['/ui/reference/warehouses/12', [], 'settings', 'settings', 'warehouses'],
             ['/ui/system/sites', [], 'settings', 'settings', 'sites'],
+            ['/ui/system/apis', ['checked' => 'ok'], 'settings', 'settings', 'apis'],
+            ['/ui/system/apis/check', [], 'settings', 'settings', 'apis'],
             ['/ui/people/12', [], 'settings', 'settings', 'people'],
             ['/ui/reference/access', [], 'settings', 'settings', 'access'],
             ['/ui/reference/approvals', [], 'settings', 'settings', 'approvals'],
@@ -401,8 +403,10 @@ final class SectionsTest extends TestCase
         self::assertSame(['History*', 'Lines to place', 'ERPNext corrections', 'Mode changes', 'Oversold', 'Website bugs', 'New products'],
             $show(Sections::frame(['buyer'], [], '/ui/documents')));
         self::assertSame(['Waiting for you', 'New products*'], $show(Sections::frame(['mapper'], [], '/ui/queues/new-products')), 'a Matcher: the inbox and the new products (SC9)');
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering',
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering',
             'System checks', 'Audit log*'], $show(Sections::frame(['admin'], [], '/ui/system/audit')));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs*', 'Users', 'Roles and permissions', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering',
+            'System checks', 'Audit log'], $show(Sections::frame(['admin'], [], '/ui/system/apis')), 'Settings › APIs (0063, AK9)');
         $counted = Sections::frame(['stock_controller'], ['counts_open' => 3], '/ui/stock/counts')['segments'];
         self::assertSame([0, 0, 3], array_column($counted, 'count'));
         self::assertSame(Words::BADGE['counts_open'], $counted[2]['countWords']);

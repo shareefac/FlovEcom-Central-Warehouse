@@ -1328,6 +1328,21 @@ every other Items and Inventory page. Layout and view data only.
   `ErpCopyJobTest.php`, `Migration0060Test.php`, `tests/Integration/UiKernel/ErpCopyScreensTest.php`, `tests/Unit/ErpApiReaderTest.php`,
   `tests/Unit/ErpCopyUnitTest.php`.
 
+### Settings › APIs: the ERPNext key on a page (`docs/decisions.md` AK1-AK11; branch `settings-apis`; 5 Nov 2026)
+
+| Path | What |
+|---|---|
+| `migrations/0063_api_credentials.sql` | `api_credential` (one row per API, made here: `erp_read`), its CHECKs |
+| `src/Admin/ApiCredentials.php` | `shown()` (never the key or the secret), `open()` (unseals, for the reader only), `save()`, `remove()`, `recordCheck()`, `url()`; settings.manage re-checked, version, audit without the key |
+| `src/Invoices/ErpApiReader.php` | `fromConfig($config, $transport, $db, $box)`: the saved key first, else app.env; `check()` (ONE GET, a fixed word); `source()`, `base()`, `keyLast4()` |
+| `src/Invoices/ErpHttpTransport.php`, `ErpAddressRefused.php` | the public-only mode for a saved address (look-up, global addresses only, pinned with `CURLOPT_RESOLVE`, no proxy) |
+| `src/Ui/Controller/ApisController.php`, view `apis` | `GET /ui/system/apis` (system.view), `POST /ui/system/apis`, `/check`, `/remove` (settings.manage) |
+| `src/Ui/{Kernel,Sections,Words}.php`, `ReferenceController::SETTINGS_SECTIONS` | the routes (the kernel takes a transport and an app.env for the tests), the Settings entry, `Words::APIS*` |
+| `src/Schema/Grants.php`, `tests/Support/TestDb.php` | `api_credential` UPDATE-only columns; the test clean-up empties its row |
+
+- Tests: `tests/Unit/ApiCredentialsUnitTest.php`, `tests/Integration/Admin/ApiCredentialsTest.php`, `tests/Integration/UiKernel/ApisScreensTest.php`,
+  `tests/Integration/Migration0063Test.php`, `tests/Integration/Invoices/ErpCopyJobTest.php`.
+
 ### Reorder › Suggestions "Buy for N days" (`docs/decisions.md` BF1-BF12; branch `reorder-buy-for`; 4 Nov 2026)
 
 | Path | What |

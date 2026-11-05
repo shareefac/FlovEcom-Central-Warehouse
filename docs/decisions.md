@@ -16274,3 +16274,98 @@ a minimal DOM (`runs/fp_js_harness/`, outside the repo, on cw-test: 37 checks, `
   change on leaving it marked the picker as holding something with nothing ticked, so a link or another form asked first for nothing. The
   picker redraws on that change too (FP7: something to keep only while something is ticked). Shown red in the harness first
   (`runs/fp_js_red_change.log`).
+
+## Settings › APIs: the ERPNext key entered on a page (branch `settings-apis`, 5 Nov 2026; AK1-AK12; 0063)
+
+The owner, 5 Nov 2026, on CW-917's read-only ERPNext user (EC1), whose address, key and secret could only be put in `/etc/cw/app.env` by
+the integrator: "on cw give me a section called apis and add a section there to add the key i will add there and hit submit". Built from
+main `80de927` in `/root/cw-apis`. Code: `migrations/0063_api_credentials.sql`, `src/Admin/ApiCredentials.php` (new),
+`src/Invoices/{ErpApiReader,ErpHttpTransport,ErpAddressRefused}.php`, `src/Ui/Controller/ApisController.php` (new), view `apis` (new),
+`src/Ui/{Kernel,Sections,Words}.php`, `ReferenceController::SETTINGS_SECTIONS`, `src/Schema/Grants.php`, `bin/copy_erp_invoices.php`,
+`public/ui/assets/app.css`.
+
+**AK1. Where, and who.** Settings › APIs (`/ui/system/apis`), in Settings' section list after Stores, one card per API CW calls: today
+"ERPNext (read only)". Who LOOKS: `system.view` (Admin, Reviewer, Auditor, Manager), as Stores: narrower than the other settings pages'
+`reference.view` (every job), because the page is about another system's access, even though it shows no secret. Who SAVES, CHECKS and
+REMOVES: `settings.manage` (Admin and Reviewer: the owner and Fazil, Y1), the level the settings pages use for "a setting that matters"
+(no narrower owner-only level exists; `settings.manage` is LOCKED, so the roles screen cannot widen it). The routes check it, and
+`Admin\ApiCredentials` checks it again inside its transaction (`ConfigHistory::authorise`). No new permission.
+
+**AK2. The key and the secret are never shown, logged, audited or echoed.** The page shows the address, "Key ends …ABCD" (the key's
+last 4 characters), "Secret: saved (hidden)", and who saved it and when; its fields for the key and the secret are always empty. A refused
+form comes back with the address as typed and never the key or the secret ("Type the API key and the API secret again"). The secret's
+field is `type=password` with `autocomplete="new-password"` (the request said `autocomplete=off`: browsers ignore `off` on a password
+field, and Chrome would fill the person's own CW sign-in password into it, a later Save then sealing that password as the API secret;
+`new-password` tells the browser not to fill one in); the key's field and the form are `autocomplete="off"`. What FormOnce keeps of a save
+(its request hash) holds a keyed fingerprint of the key and the secret (`Csrf::forForm`, HMAC under the server's key), never them; its
+stored answer is the redirect. Errors name a code and a sentence only. `ErpApiReader`'s key and secret are `#[\SensitiveParameter]`
+(the key newly so), and `__debugInfo` hides them as before.
+
+**AK3. Where they are kept: `api_credential` (0063).** One row per API, made by the migration (`erp_read`, empty, version 0); the app login
+may only UPDATE a row's save columns (`Grants::UPDATE_ONLY_COLUMNS`: the address, the sealed key, its last 4, the sealed secret, the
+version, who/when; no INSERT, no DELETE, never the name or who made it). The key and the secret are sealed apart with `Staff\SecretBox`
+(app.env `ui_secret_key`, the key of the 2-step codes: XSalsa20-Poly1305, a random nonce each: the stored bytes are nonce || box); CHECKs
+keep a row whole or empty, the address `https://<name>` in lower case, the last 4 letters and digits, a sealed value longer than a nonce
+and a tag, the actors not empty. Every save, removal and check writes one audit row (`api.save`, `api.remove`, `api.check`; words
+"API key saved", "API key removed", "API connection checked") naming the API, the address (and the one before), "key ends" and whether
+the key and the secret were new or kept: never the key or the secret. The test clean-up empties the row instead of deleting it.
+
+**AK4. The address is a name.** `ApiCredentials::url()`: `https://` and a host name of letters, digits, hyphens and dots with a last
+part of letters, in lower case; a trailing "/" and the line end of a paste are dropped; an IP address, a port, a path, a user, a query, a
+fragment, a backslash or a control character is refused (422 `api_bad_url`). While nothing is saved the field starts with
+`https://vpg-erp.floverfy.com` (the shop's ERPNext; it resolved to a public DigitalOcean address on 5 Nov 2026).
+
+**AK5. No request forgery through the address.** A saved address is only ever called through `ErpHttpTransport`'s public-only mode: its
+name is looked up once per transport (the system's resolver, IPv4) and every address it gives must be a global internet address (not
+private, loopback, link-local such as the cloud's metadata service, shared, documentation, reserved, broadcast or multicast), else
+`ErpAddressRefused` and nothing is sent; the connection then goes to that looked-up address only (`CURLOPT_RESOLVE`: a name that changes
+its answer between the look-up and the call cannot lead elsewhere), on port 443, without a proxy, following no redirect (as before), the
+certificate still checked for the name. "Check the connection" answers in one fixed word and never shows what came back, so the page
+cannot read anything from another server. app.env's address (the integrator's) is called as before.
+
+**AK6. A save.** The first save needs the address, the key and the secret (422 `api_need_key` / `api_need_secret`); a key or a secret is
+6 to 64 letters and digits (ERPNext's, as `ErpApiReader` checks; spaces round it dropped; 422 `api_bad_key` / `api_bad_secret`). Later an
+empty key or secret keeps the saved one and a typed one replaces it; the same address with nothing typed changes nothing (no version, no
+audit row: "Nothing changed"). A kept key or secret must still open with this server's key (the key of the 2-step codes changed since:
+422 `api_cannot_open`, "type the key and the secret again"), so a save never leaves a row the job cannot use. The form carries the version
+it was drawn with: a save or removal by someone else since is 409 `api_changed` naming who and when, nothing written; and a FormOnce key:
+the same form sent twice is one save, sent again with another key or address (the back button) is 409 with a fresh form.
+
+**AK7. Which key the job uses.** `ErpApiReader::fromConfig($config, $transport, $db, $box)`: the key saved on Settings › APIs when there is
+one (called through the public-only transport unless one is given), else app.env's `erp_read_*` exactly as before (the integrator's way
+keeps working); before 0063 (no table) app.env's. A saved key this server cannot open (no usable `ui_secret_key`, or another one) stops
+with 503 `api_cannot_open`: never a silent fall back to app.env's, since the person typed a key and must know it is not the one used. The
+missing-key message names both places. `bin/copy_erp_invoices.php` gives it its database (the cron line is unchanged). The page never
+changes `erp_copy.on`: it says whether copying is on ("Saving a key here does not switch it on") and links Admins and Reviewers to the
+setting.
+
+**AK8. "Check the connection".** For Admins and Reviewers, while a key is in use (saved, or app.env's): ONE read with that key,
+`GET /api/resource/Purchase Invoice?fields=["name"]&limit_page_length=1` (`ErpApiReader::check()`), at most 10 seconds, outside any
+transaction. Its answer is one of: connected (ERPNext gave a list), wrong key or secret (401, or ERPNext's AuthenticationError), the user
+may not read purchase invoices (403), cannot reach the address, the address does not lead to the internet (AK5), or another answer (its
+HTTP code); before anything is sent: no key at all, a saved key this server cannot open, app.env's key not written as the reader takes it.
+The page goes back to itself with the word (`?checked=`; only the listed words are drawn, a code only as three digits) and draws the
+sentence in the ERPNext card, green for connected. Each check is audited (`api.check`: which key, the word, the code, the address, "key
+ends"). It is a POST with the CSRF token but not FormOnce: it creates nothing, a read twice is harmless, and a network call is kept out of
+the idempotency transaction.
+
+**AK9. The page.** The settings shell (`apis.php`): the card's facts a row each (in use, address, key, secret, last change, whether
+copying is on), the check's sentence, then for Admins and Reviewers the form (address, key, secret; Save, the one main button), the
+check's row and Remove (a fold whose form needs its tick, "Yes, remove the saved key": the confirm step is in the page, no script; the
+server refuses it without the tick, 422 `api_confirm`). Words in `Words::APIS`, `APIS_NOTICE`, `APIS_CHECK`, `APIS_ERROR` (plain, every
+refusal says nothing was saved), `SEGMENT`/`RD_SETTINGS`/`PAGE_TITLE`/`PAGE_INTRO` `apis`, the audit words. No inline script or style; on a
+phone the buttons take the row and the address and the key's end wrap (`app.css`, "Settings › APIs").
+
+**AK10. Remove.** Empties the row (the address, the sealed key, its last 4 and the sealed secret; the version goes up and who removed it
+and when are kept: "Removed by … on …"), audited. The job then uses app.env's key if there is one, else stops (`erp_read_unconfigured`)
+until a key is saved again. Nothing is changed in ERPNext.
+
+**AK11. Tests.** `tests/Unit/ApiCredentialsUnitTest.php` (the address, the public-only transport with a given look-up: no network, the
+check's answers with fake transports: ONE GET, its address and header, no secret in what it returns, the words), `tests/Integration/Admin/
+ApiCredentialsTest.php` (sealed bytes, last 4, kept and replaced values, version, permissions, every refusal writes nothing, removal, the
+reader's order and its fail-closed, the audit rows without the key), `tests/Integration/UiKernel/ApisScreensTest.php` (as the app login:
+the page and its fields, a save, a double click, the back button, CSRF, an auditor and a buyer, a form drawn before another save, the four
+answers of a check through a fake ERPNext and the env key's check, Remove's tick; never a key or a secret in a page or the audit log),
+`tests/Integration/Migration0063Test.php` (the table, its row, its CHECKs, a second run, the grants), `ErpCopyJobTest` (the job with a
+saved key it cannot open, and with one it can: its address called through the public-only transport). Pinned lists updated:
+`SectionsTest`, `RedesignCTemplatesTest`, `MenusTest`, `UiTemplatesTest`.

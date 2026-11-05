@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace CW\Invoices;
 
+use CW\Admin\ApiCredentials;
 use CW\Config;
+use CW\ConfigException;
 use CW\CwException;
+use CW\Db;
+use CW\Staff\SecretBox;
 
 /**
  * The read-only ERPNext client of the invoice copy job (CW-917; docs/decisions.md EC1): ERPNext's REST API with CW's OWN read-only API user
@@ -19,9 +23,11 @@ use CW\CwException;
  *   items()     GET /api/resource/Item?filters=[name in (...)]&fields=[name, is_stock_item, custom_variant_id]: which rows are stock (only
  *               those reach the relay) and their Vape and Go variant
  *
- * Never ERPNext's stock feed, never a method call, never a write. The address, the key and the secret come from /etc/cw/app.env
- * (erp_read_url, erp_read_key, erp_read_secret; or CW_ERP_READ_URL ...), parsed by CW\Config, never printed: an error names what failed
- * (the HTTP status, ERPNext's exception type), never the key, the secret or a header. The transport is injected (tests: fixtures).
+ * Never ERPNext's stock feed, never a method call, never a write. The address, the key and the secret are the ones saved on Settings ›
+ * APIs (Admin\ApiCredentials, sealed in the database; docs/decisions.md AK7) when there are any, else /etc/cw/app.env's (erp_read_url,
+ * erp_read_key, erp_read_secret; or CW_ERP_READ_URL ...), parsed by CW\Config; never printed: an error names what failed (the HTTP status,
+ * ERPNext's exception type), never the key, the secret or a header. The transport is injected (tests: fixtures). check() is the one read
+ * of Settings › APIs' "Check the connection".
  */
 final class ErpApiReader
 {
@@ -35,10 +41,17 @@ final class ErpApiReader
     /** The most invoices one listing reads (a run's --limit is lower). */
     public const MAX_LIST = 20_000;
 
+    /** What a check (check()) may end with; the page's words are Ui\Words::APIS 'check_<outcome>'. */
+    public const CHECKS = ['ok', 'wrong_key', 'not_allowed', 'unreachable', 'not_public', 'other'];
+
     private readonly string $base;
     private readonly string $auth;
+    /** Where the key came from: 'saved' (Settings › APIs), 'app_env', or 'given' (made directly: the tests). */
+    private string $source = 'given';
+    /** The key's last 4 characters (what a screen or an audit row may name). */
+    private readonly string $keyLast4;
 
-    public function __construct(private readonly ErpTransport $transport, string $baseUrl, string $key, #[\SensitiveParameter] string $secret,
+    public function __construct(private readonly ErpTransport $transport, string $baseUrl, #[\SensitiveParameter] string $key, #[\SensitiveParameter] string $secret,
         private readonly int $timeout = self::TIMEOUT, private readonly int $pageSize = self::PAGE)
     {
         $baseUrl = rtrim(trim($baseUrl), '/');
@@ -55,6 +68,7 @@ final class ErpApiReader
         }
         $this->base = $baseUrl;
         $this->auth = 'Authorization: token ' . $key . ':' . $secret;
+        $this->keyLast4 = substr($key, -4);
     }
 
     /** Never show the secret (var_dump, print_r, a stack trace's arguments). @return array<string, string> */
@@ -63,11 +77,49 @@ final class ErpApiReader
         return ['base' => $this->base, 'auth' => '(hidden)'];
     }
 
-    /**
-     * The reader app.env describes. 503 erp_read_unconfigured (naming the missing KEYS, never a value) when one of the three is missing.
-     */
-    public static function fromConfig(Config $config, ?ErpTransport $transport = null): self
+    /** Where the key came from: 'saved' (Settings › APIs), 'app_env' or 'given'. */
+    public function source(): string
     {
+        return $this->source;
+    }
+
+    /** The address read (never with the key: it travels in a header). */
+    public function base(): string
+    {
+        return $this->base;
+    }
+
+    /** The key's last 4 characters: all a screen or an audit row names of it. */
+    public function keyLast4(): string
+    {
+        return $this->keyLast4;
+    }
+
+    /**
+     * The reader of CW's read-only user: the key saved on Settings › APIs when there is one ($db given; docs/decisions.md AK7), called
+     * through a public-only transport (ErpHttpTransport, AK5) unless one is given; else the one app.env describes, as before. 503
+     * erp_read_unconfigured (naming the missing KEYS, never a value) when neither has it; 503 api_cannot_open when the saved key cannot
+     * be opened with this server's ui_secret_key (never a silent fall back to app.env: the person typed a key, it must be the one used).
+     * $box: the box that seals it (the screens give theirs; default: app.env ui_secret_key).
+     */
+    public static function fromConfig(Config $config, ?ErpTransport $transport = null, ?Db $db = null, ?SecretBox $box = null, int $timeout = self::TIMEOUT): self
+    {
+        if ($db !== null && self::hasSaved($db)) {
+            if ($box === null) {
+                try {
+                    $box = SecretBox::fromBase64((string) ($config->get(SecretBox::KEY_NAME) ?? ''));
+                } catch (ConfigException) {
+                    throw new CwException('api_cannot_open', 'the key saved on Settings > APIs cannot be opened: this server has no usable ' . SecretBox::KEY_NAME
+                        . ' in app.env', 503);
+                }
+            }
+            $saved = ApiCredentials::open($db, ApiCredentials::ERP_READ, $box);
+            if ($saved !== null) {
+                $r = new self($transport ?? new ErpHttpTransport(true), $saved['url'], $saved['key'], $saved['secret'], $timeout);
+                $r->source = 'saved';
+                return $r;
+            }
+        }
         $v = [];
         $missing = [];
         foreach (self::CONFIG as $k => $name) {
@@ -77,10 +129,56 @@ final class ErpApiReader
             }
         }
         if ($missing !== []) {
-            throw new CwException('erp_read_unconfigured', 'the ERPNext read-only user is not set up on this server (missing in app.env: ' . implode(', ', $missing) . ')', 503,
+            throw new CwException('erp_read_unconfigured', 'the ERPNext read-only user is not set up: save its key on Settings > APIs, or put it in app.env (missing in app.env: '
+                . implode(', ', $missing) . ')', 503,
                 ['missing' => $missing]);
         }
-        return new self($transport ?? new ErpHttpTransport(), $v['url'], $v['key'], $v['secret']);
+        $r = new self($transport ?? new ErpHttpTransport(), $v['url'], $v['key'], $v['secret'], $timeout);
+        $r->source = 'app_env';
+        return $r;
+    }
+
+    /** Whether a key is saved on Settings › APIs (false before 0063: no table). */
+    public static function hasSaved(Db $db): bool
+    {
+        try {
+            return $db->value('SELECT 1 FROM api_credential WHERE name = ? AND key_enc IS NOT NULL', [ApiCredentials::ERP_READ]) !== null;
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) === 1146) {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Settings › APIs' "Check the connection" (docs/decisions.md AK8): ONE GET, the first purchase invoice's name (limit 1), and how it
+     * ended, in a word of CHECKS: ok (ERPNext gave a list: this user may read purchase invoices), wrong_key (401, or ERPNext's
+     * AuthenticationError), not_allowed (403), unreachable (no answer), not_public (the address was refused, nothing sent), other (any
+     * other answer: its HTTP status is given). Never what ERPNext answered, never the key or the secret.
+     *
+     * @return array{outcome: string, status: ?int}
+     */
+    public function check(): array
+    {
+        $url = $this->base . '/api/resource/' . rawurlencode(self::DOCTYPE) . '?' . http_build_query(['fields' => '["name"]', 'limit_page_length' => '1'], '', '&',
+            PHP_QUERY_RFC3986);
+        try {
+            $r = $this->transport->get($url, [$this->auth, 'Accept: application/json'], $this->timeout);
+        } catch (ErpAddressRefused) {
+            return ['outcome' => 'not_public', 'status' => null];
+        } catch (\RuntimeException) {
+            return ['outcome' => 'unreachable', 'status' => null];
+        }
+        $status = (int) $r['status'];
+        $body = json_decode((string) $r['body'], true, 64);
+        $type = is_array($body) && is_string($body['exc_type'] ?? null) ? $body['exc_type'] : '';
+        return match (true) {
+            $status === 200 && is_array($body) && is_array($body['data'] ?? null) && array_is_list($body['data']) => ['outcome' => 'ok', 'status' => null],
+            $status === 401, $type === 'AuthenticationError' => ['outcome' => 'wrong_key', 'status' => null],
+            $status === 403 => ['outcome' => 'not_allowed', 'status' => null],
+            default => ['outcome' => 'other', 'status' => $status >= 100 && $status <= 599 ? $status : null],
+        };
     }
 
     /**
