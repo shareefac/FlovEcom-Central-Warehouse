@@ -25,6 +25,15 @@ abstract class IntegrationTestCase extends TestCase
         TestDb::clean(self::$db);
         // app_setting is a seed table clean() keeps: the one switch tests turn on starts back at its seeded off (MO4).
         self::askModeChanges(false);
+        // The supplier detail switches (0062, SD1) seed OFF; the tests written before them expect every detail needed (SD3).
+        self::supplierNeeds(true);
+    }
+
+    /** The four "A supplier needs ..." switches (suppliers.need_*, 0062): on, a supplier is usable only with those details. */
+    protected static function supplierNeeds(bool $on): void
+    {
+        self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key IN ('suppliers.need_address', 'suppliers.need_contact', "
+            . "'suppliers.need_payment_terms', 'suppliers.need_due_diligence')", [$on ? 'true' : 'false']);
     }
 
     /** "Ask about ERPNext mode changes" (relay.mode_review, 0059): on, a mode change that changes something waits in Approvals. */

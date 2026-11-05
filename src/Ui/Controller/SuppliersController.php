@@ -403,7 +403,7 @@ final class SuppliersController
         $items = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(is_active), 0) AS active, COALESCE(SUM(is_preferred = 1 AND is_active = 1), 0) AS preferred, '
             . 'COALESCE(SUM(last_pack_price IS NULL AND is_active = 1), 0) AS no_price FROM supplier_item WHERE supplier_id = ?', [$id]) ?? [];
         $canManage = $me->can('suppliers.manage');
-        $missing = Suppliers::missing($s);
+        $missing = Suppliers::missing($s, Suppliers::needs($db));
         $canPost = \CW\Documents\Documents::mayPost($me->roles, 'PO');
         // The supplier's last 10 purchase orders (the pos task, I53): cancellations are shown on their order.
         $recentPos = $me->can('purchasing.view') ? array_map(static fn (array $p): array => PurchaseOrdersController::screenRow($p + ['reverses_id' => null,

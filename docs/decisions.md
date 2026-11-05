@@ -16158,3 +16158,22 @@ cost out in DECIMAL and holds it at the same figure, so the order is the same as
 example in `ReorderBuyForUnitTest`, three lines at the largest demand and price in the random SQL = ReorderMath test, and the page, its
 total and its download in `ReorderBuyForScreensTest`. The other products were checked against the columns' limits and stay within a
 whole number: d·days at most 5·10^14 × 740 days, a position × 10^7 for the days left.
+
+## A supplier's details are not needed unless switched on (branch `supplier-details-optional`, 5 Nov 2026; SD1-SD3)
+
+The owner, 5 Nov 2026, after the 48 suppliers copied from ERPNext (4 Nov) could not be made usable: "then why we are keeping all those
+mandatory same as erp dont make it mandatory. change it and finish the job". ERPNext's 48 suppliers hold a name only (read 5 Nov:
+no address, contact, e-mail, phone, VAT number or payment terms on any of them; no Address or Contact linked; the shop's vendor tables
+empty), so §5.2's completeness could never be met from what the business has kept.
+
+- **SD1. Four switches, OFF (0062).** `suppliers.need_address` (address line 1, postcode, country), `suppliers.need_contact` (e-mail or
+  phone), `suppliers.need_payment_terms`, `suppliers.need_due_diligence` (checked on, by, next review); Settings › Rules and numbers ›
+  Suppliers, agreed (provisional 0: the owner asked). `Suppliers::missing($s, Suppliers::needs($db))` leaves out the groups switched off;
+  the name is always needed, and an overseas supplier's import route as before (no switch: it is about the duty stamps, not a detail
+  ERPNext lacked). The three callers read the switches: the activation request, the supplier page, the ERPNext seed import.
+- **SD2. A missing switch row counts as ON** (`Settings::flag(..., true)`): code running on a schema before 0062 behaves as before, and
+  `missing($s)` without `$needs` is the full list (unit callers and the earlier tests unchanged).
+- **SD3. The approval rules are untouched.** "New suppliers" (`approvals.supplier_activation`) still decides whether a request waits for a
+  reviewer; a recorded due-diligence check is still shown, and an overdue one still warns on an order (PurchaseOrders, Home). The tests
+  written before 0062 switch the four on in `IntegrationTestCase::setUp` (as MO4 does for mode changes); `testWithTheDetailSwitchesOffANameIsEnough`
+  covers them off.

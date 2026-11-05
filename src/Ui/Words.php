@@ -2643,6 +2643,10 @@ final class Words
         'costs.site_writeback' => 'Copy CW costs to the websites',
         'suppliers.approval_due_days' => 'Days a reviewer has to approve a supplier',
         'suppliers.change_review' => 'A reviewer checks changed suppliers',
+        'suppliers.need_address' => 'A supplier needs an address', // 0062 (SD1)
+        'suppliers.need_contact' => 'A supplier needs an e-mail or phone',
+        'suppliers.need_payment_terms' => 'A supplier needs payment terms',
+        'suppliers.need_due_diligence' => 'A supplier needs a due-diligence check',
         'po.terms' => 'Terms printed on orders',
         'po.default_vat_code' => 'VAT code for new order lines',
         'po.over_delivery_tolerance_pct' => 'Extra delivered we still accept (%)',
@@ -3921,6 +3925,11 @@ final class Words
         'costs.site_writeback' => 'Write the warehouse average cost into the websites\' cost field (not available yet).',
         'suppliers.approval_due_days' => 'A reviewer should decide a new supplier, or a change of its duty-stamp arrangement, within this many days.',
         'suppliers.change_review' => 'When the details of a supplier we order from change, a reviewer checks them afterwards. Orders are not stopped.',
+        // 0062 (SD1): the owner, 5 Nov 2026: ERPNext never kept these, so none is needed unless switched on.
+        'suppliers.need_address' => 'On: a supplier is usable only once its address line 1, postcode and country are filled in. Off: not needed.',
+        'suppliers.need_contact' => 'On: a supplier is usable only once it has an e-mail or a phone number. Off: not needed.',
+        'suppliers.need_payment_terms' => 'On: a supplier is usable only once its payment terms are filled in. Off: not needed.',
+        'suppliers.need_due_diligence' => 'On: a supplier is usable only once someone has recorded its due-diligence check (when, who, next review). Off: not needed; a check recorded is still shown, and an overdue one still warns on orders.',
         'reorder.default_lead_days' => 'Days from order to delivery, when neither the product, the supplier\'s product nor the supplier says.',
         'reorder.default_review_days' => 'Days until the next order to the same supplier, when the supplier does not say.',
         'reorder.default_safety_days' => 'Extra days of stock to keep (5, the same as now).',
@@ -11765,6 +11774,10 @@ final class Words
         'relay.nightly_confirm' => ['On', 'Off'],
         'relay.mode_review' => ['On', 'Off'],
         'erp_copy.on' => ['On', 'Off'], // CW-917 (EC2)
+        'suppliers.need_address' => ['On', 'Off'], // 0062 (SD1)
+        'suppliers.need_contact' => ['On', 'Off'],
+        'suppliers.need_payment_terms' => ['On', 'Off'],
+        'suppliers.need_due_diligence' => ['On', 'Off'],
     ];
 
     /** Approvals › From the stores › Mode changes. */

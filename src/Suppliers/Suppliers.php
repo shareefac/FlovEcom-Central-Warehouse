@@ -139,27 +139,51 @@ final class Suppliers
     }
 
     /**
+     * The switches that say which details a supplier needs before it is usable (0062, docs/decisions.md SD1): the owner, 5 Nov 2026,
+     * "dont make it mandatory" (ERPNext never kept a supplier's address, contact, terms or check). Off: not needed; the name always is.
+     */
+    public const NEEDS = ['address' => 'suppliers.need_address', 'contact' => 'suppliers.need_contact',
+        'payment_terms' => 'suppliers.need_payment_terms', 'due_diligence' => 'suppliers.need_due_diligence'];
+
+    /**
+     * Which of NEEDS are on now (SD2): a switch with no row counts as on, as before 0062.
+     *
+     * @return array<string, bool>
+     */
+    public static function needs(Db $db): array
+    {
+        $out = [];
+        foreach (self::NEEDS as $k => $key) {
+            $out[$k] = Settings::flag($db, $key, true);
+        }
+        return $out;
+    }
+
+    /**
      * What an activation request still needs (§5.2 completeness), as field names ([] = complete): name; address line 1,
      * postcode and country; e-mail or phone; payment terms; the due-diligence check (on, by, next review); for an
-     * overseas supplier the import route.
+     * overseas supplier the import route. $needs (needs()) leaves out the groups switched off (SD1); null: every group, as before 0062.
      *
      * @param array<string, mixed> $s a supplier row
+     * @param array<string, bool>|null $needs
      * @return list<string>
      */
-    public static function missing(array $s): array
+    public static function missing(array $s, ?array $needs = null): array
     {
         $out = [];
         $blank = static fn (string $k): bool => !isset($s[$k]) || $s[$k] === null || (is_string($s[$k]) && trim($s[$k]) === '');
+        $need = static fn (string $group): bool => $needs === null || ($needs[$group] ?? true);
         foreach (['name', 'address_line1', 'postcode', 'country'] as $k) {
-            if ($blank($k)) {
+            if ($blank($k) && ($k === 'name' || $need('address'))) {
                 $out[] = $k;
             }
         }
-        if ($blank('email') && $blank('phone')) {
+        if ($need('contact') && $blank('email') && $blank('phone')) {
             $out[] = 'email_or_phone';
         }
-        foreach (['payment_terms', 'dd_checked_on', 'dd_checked_by', 'dd_next_review_on'] as $k) {
-            if ($blank($k)) {
+        foreach (['payment_terms' => 'payment_terms', 'dd_checked_on' => 'due_diligence', 'dd_checked_by' => 'due_diligence',
+            'dd_next_review_on' => 'due_diligence'] as $k => $group) {
+            if ($blank($k) && $need($group)) {
                 $out[] = $k;
             }
         }
@@ -388,7 +412,7 @@ final class Suppliers
                 throw new CwException('already_active', "{$s['code']} is active already", 409);
             }
             $this->checkVersion($s, $expectedVersion);
-            $missing = self::missing($s);
+            $missing = self::missing($s, self::needs($db));
             if ($missing !== []) {
                 throw new CwException('supplier_incomplete', 'complete these before asking for activation: ' . self::labels($missing), 422,
                     ['missing' => $missing]);

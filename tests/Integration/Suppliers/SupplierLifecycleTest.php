@@ -6,6 +6,7 @@ namespace CW\Tests\Integration\Suppliers;
 
 use CW\Caller;
 use CW\Clock;
+use CW\Suppliers\Suppliers;
 
 /**
  * The supplier state machine (spec §5.2-§5.3, I40-I42): draft -> pending_approval -> active -> inactive -> (reactivation)
@@ -56,6 +57,31 @@ final class SupplierLifecycleTest extends SupplierTestCase
         self::assertStringContainsString('withdraw the activation request first', $e->getMessage());
         self::refused(409, 'supplier_pending', fn () => $this->sup->requestActivation($buyer, (int) $s['id'], 4));
         self::assertSame(['supplier.create', 'supplier.update', 'supplier.update', 'supplier.request_activation'], $this->supplierAudits((int) $s['id']));
+    }
+
+    public function testWithTheDetailSwitchesOffANameIsEnough(): void
+    {
+        // The owner, 5 Nov 2026 (SD1): ERPNext kept no supplier details, so none is needed unless its switch is on.
+        self::supplierNeeds(false);
+        $buyer = $this->staffUser('buyer');
+        $s = $this->sup->create($buyer, ['name' => 'OV']);
+        self::assertSame([], Suppliers::missing($s, Suppliers::needs(self::$db)));
+        $p = $this->sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        self::assertSame('pending_approval', $p['status'], 'asked for with a name only (the second-person rule still applies as it is set)');
+
+        // One switch on asks for its details only.
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('true' AS JSON) WHERE setting_key = 'suppliers.need_contact'");
+        $t = $this->sup->create($buyer, ['name' => 'MYV']);
+        $e = self::refused(422, 'supplier_incomplete', fn () => $this->sup->requestActivation($buyer, (int) $t['id'], (int) $t['version']));
+        self::assertSame(['email_or_phone'], $e->detail['missing']);
+        $t = $this->sup->update($buyer, (int) $t['id'], (int) $t['version'], ['phone' => '0161 000 0000']);
+        self::assertSame('pending_approval', $this->sup->requestActivation($buyer, (int) $t['id'], (int) $t['version'])['status']);
+
+        // An overseas supplier still needs its import route (no switch).
+        self::supplierNeeds(false);
+        $o = $this->sup->create($buyer, ['name' => 'Shenzhen Vape Co', 'is_overseas' => '1']);
+        $e = self::refused(422, 'supplier_incomplete', fn () => $this->sup->requestActivation($buyer, (int) $o['id'], (int) $o['version']));
+        self::assertSame(['import_route'], $e->detail['missing']);
     }
 
     public function testOnlyTheRequesterWithdrawsAndTheSupplierIsADraftAgain(): void

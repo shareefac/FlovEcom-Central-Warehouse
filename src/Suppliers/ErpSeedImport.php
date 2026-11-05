@@ -307,7 +307,7 @@ final class ErpSeedImport
         if (!$requested || !in_array($s['status'], ['draft', 'inactive'], true)) {
             return '';
         }
-        $missing = Suppliers::missing($s);
+        $missing = Suppliers::missing($s, Suppliers::needs($this->db));
         if ($missing !== []) {
             return '; not complete for activation (missing: ' . Suppliers::labels($missing) . ')';
         }
