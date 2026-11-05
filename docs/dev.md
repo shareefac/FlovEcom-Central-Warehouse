@@ -1328,7 +1328,7 @@ every other Items and Inventory page. Layout and view data only.
   `ErpCopyJobTest.php`, `Migration0060Test.php`, `tests/Integration/UiKernel/ErpCopyScreensTest.php`, `tests/Unit/ErpApiReaderTest.php`,
   `tests/Unit/ErpCopyUnitTest.php`.
 
-### Settings › APIs: the ERPNext key on a page (`docs/decisions.md` AK1-AK11; branch `settings-apis`; 5 Nov 2026)
+### Settings › APIs: the ERPNext key on a page (`docs/decisions.md` AK1-AK12; branch `settings-apis`; 5 Nov 2026)
 
 | Path | What |
 |---|---|

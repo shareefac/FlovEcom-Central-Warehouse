@@ -11429,6 +11429,7 @@ final class Words
         'nothing' => 'There is no key to check. Save the address, the key and the secret first.',
         'cannot_open' => 'The saved key cannot be opened on this server any more. Type the key and the secret again, and save.',
         'bad_setup' => 'The key set on the server is not written correctly. Save the key on this page instead.',
+        'host_not_allowed' => 'CW did not call the saved address: it is not the ERPNext address CW trusts. Save the key again with the shop\'s ERPNext address.',
     ];
 
     /** Why a save or a removal was refused (Admin\ApiCredentials' codes); each says that nothing was saved. */
@@ -11439,6 +11440,10 @@ final class Words
         'api_need_key' => 'Nothing was saved: type the API key. No key is saved yet, so the key and the secret are both needed.',
         'api_need_secret' => 'Nothing was saved: type the API secret. No key is saved yet, so the key and the secret are both needed.',
         'api_cannot_open' => 'Nothing was saved: the saved key cannot be opened on this server any more. Type the key and the secret again.',
+        'api_host_not_allowed' => 'Nothing was saved: CW only calls the shop\'s ERPNext address (https://vpg-erp.floverfy.com). Another address is added '
+            . 'on the server by ' . self::ASK . '.',
+        'api_new_address' => 'Nothing was saved: the address changed, so type the API key and the API secret again. A saved key is never sent to '
+            . 'another address.',
         'api_changed' => 'Nothing was saved: %s saved or removed this key on %s, after this page was opened. Look at it now, then try again.',
         'api_confirm' => 'Nothing was removed: tick "Yes, remove the saved key" first.',
         'saved_twice' => 'This form was sent already. Type the key and the secret again and press Save if you still want to change them.',

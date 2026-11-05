@@ -65,8 +65,9 @@ final class ApisController
         $request = ['name' => ApiCredentials::ERP_READ, 'url' => trim($url), 'version' => (string) $version,
             'credential' => $ctx->csrf->forForm('api.' . ApiCredentials::ERP_READ, trim($key) . "\n" . trim($secret))];
         try {
-            $r = FormOnce::run($ctx, 'ui.apis.save', $request, static function (Db $db) use ($ctx, $version, $url, $key, $secret): OpResult {
-                $s = (new ApiCredentials($db))->save($ctx->caller(), ApiCredentials::ERP_READ, $version, $url, $key, $secret, $ctx->secretBox());
+            $config = $this->config();
+            $r = FormOnce::run($ctx, 'ui.apis.save', $request, static function (Db $db) use ($ctx, $version, $url, $key, $secret, $config): OpResult {
+                $s = (new ApiCredentials($db))->save($ctx->caller(), ApiCredentials::ERP_READ, $version, $url, $key, $secret, $ctx->secretBox(), $config);
                 return OpResult::of(303, ['result' => $s['result'], 'version' => $s['version'], 'redirect' => Html::url(self::PATH, ['notice' => $s['result']])]);
             });
         } catch (CwException $e) {
@@ -119,6 +120,7 @@ final class ApisController
             [$outcome, $source] = match ($e->errorCode) {
                 'erp_read_unconfigured' => ['nothing', 'none'],
                 'api_cannot_open' => ['cannot_open', 'saved'],
+                'api_host_not_allowed' => ['host_not_allowed', 'saved'],
                 'erp_read_bad_url', 'erp_read_bad_key' => ['bad_setup', 'app_env'],
                 default => throw $e,
             };

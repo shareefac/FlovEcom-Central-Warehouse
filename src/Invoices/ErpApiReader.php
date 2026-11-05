@@ -41,8 +41,15 @@ final class ErpApiReader
     /** The most invoices one listing reads (a run's --limit is lower). */
     public const MAX_LIST = 20_000;
 
-    /** What a check (check()) may end with; the page's words are Ui\Words::APIS 'check_<outcome>'. */
+    /** What a check (check()) may end with; the page's words are Ui\Words::APIS_CHECK. */
     public const CHECKS = ['ok', 'wrong_key', 'not_allowed', 'unreachable', 'not_public', 'other'];
+    /**
+     * The exception types of ERPNext (Frappe) an error may name: anything else ERPNext's answer says is left out (AK12, the Codex review of
+     * 9ddf7a0, MEDIUM: an answer's text never reaches a log or a run's summary, whatever the server put in it).
+     */
+    public const EXC_TYPES = ['AuthenticationError', 'PermissionError', 'DoesNotExistError', 'ValidationError', 'LinkValidationError', 'MandatoryError',
+        'DataError', 'TimestampMismatchError', 'CSRFTokenError', 'SessionExpired', 'SessionStopped', 'TooManyRequestsError', 'RateLimitExceededError',
+        'QueryTimeoutError', 'QueryDeadlockError', 'OperationalError', 'ProgrammingError', 'InternalError', 'InvalidSignatureError', 'PageDoesNotExistError'];
 
     private readonly string $base;
     private readonly string $auth;
@@ -99,7 +106,8 @@ final class ErpApiReader
      * The reader of CW's read-only user: the key saved on Settings › APIs when there is one ($db given; docs/decisions.md AK7), called
      * through a public-only transport (ErpHttpTransport, AK5) unless one is given; else the one app.env describes, as before. 503
      * erp_read_unconfigured (naming the missing KEYS, never a value) when neither has it; 503 api_cannot_open when the saved key cannot
-     * be opened with this server's ui_secret_key (never a silent fall back to app.env: the person typed a key, it must be the one used).
+     * be opened with this server's ui_secret_key (never a silent fall back to app.env: the person typed a key, it must be the one used);
+     * 503 api_host_not_allowed when the saved address is not a name ApiCredentials::allowedHosts() trusts.
      * $box: the box that seals it (the screens give theirs; default: app.env ui_secret_key).
      */
     public static function fromConfig(Config $config, ?ErpTransport $transport = null, ?Db $db = null, ?SecretBox $box = null, int $timeout = self::TIMEOUT): self
@@ -115,6 +123,8 @@ final class ErpApiReader
             }
             $saved = ApiCredentials::open($db, ApiCredentials::ERP_READ, $box);
             if ($saved !== null) {
+                // Only a trusted ERPNext name is ever called, even for a row written around the page (AK12; 503: the job stops).
+                ApiCredentials::trusted(ApiCredentials::ERP_READ, $saved['url'], $config, 'api_host_not_allowed', 503);
                 $r = new self($transport ?? new ErpHttpTransport(true), $saved['url'], $saved['key'], $saved['secret'], $timeout);
                 $r->source = 'saved';
                 return $r;
@@ -284,8 +294,8 @@ final class ErpApiReader
     }
 
     /**
-     * One GET; returns ERPNext's `data`. 502 erp_read_failed naming the status and ERPNext's exception type (never the address's secret
-     * parts: there are none in it, the key travels in a header).
+     * One GET; returns ERPNext's `data`. 502 erp_read_failed naming the status and ERPNext's exception type when it is a known one
+     * (EXC_TYPES; never other text of the answer, AK12), never the key (it travels in a header).
      *
      * @param array<string, mixed> $query
      */
@@ -303,7 +313,8 @@ final class ErpApiReader
         }
         $body = json_decode($r['body'], true, 64);
         if ($r['status'] !== 200 || !is_array($body) || !array_key_exists('data', $body)) {
-            $type = is_array($body) && is_string($body['exc_type'] ?? null) ? ' (' . mb_substr($body['exc_type'], 0, 60) . ')' : '';
+            // ERPNext's exception type when it is one of EXC_TYPES; never other text of the answer (AK12).
+            $type = is_array($body) && is_string($body['exc_type'] ?? null) && in_array($body['exc_type'], self::EXC_TYPES, true) ? ' (' . $body['exc_type'] . ')' : '';
             throw new CwException('erp_read_failed', "ERPNext answered HTTP {$r['status']}{$type}" . ($r['status'] === 403 || $r['status'] === 401
                 ? ': check the read-only user and its rights' : ''), 502, ['status' => $r['status']]);
         }

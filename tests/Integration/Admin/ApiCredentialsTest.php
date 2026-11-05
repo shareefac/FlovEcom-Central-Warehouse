@@ -155,21 +155,31 @@ final class ApiCredentialsTest extends IntegrationTestCase
         self::assertSame([$two['secret_enc'], 'WXYZ', 3], [$three['secret_enc'], $three['key_last4'], (int) $three['version']]);
         self::assertSame('fakeKeyNEW0WXYZ', self::$box->decrypt((string) $three['key_enc']));
 
-        // The address only.
-        $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', '', '', self::$box);
+        // Another address: only a name the server trusts (AK12), and never with a saved key or secret (the Codex review of 9ddf7a0, HIGH):
+        // both are typed again, so a saved key is never sent anywhere it was not typed for.
+        $e = self::refused(422, 'api_host_not_allowed', fn () => $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', 'fakeKeyEVIL0000', 'fakeSecretEVIL00', self::$box));
+        self::assertSame('erp2.example.test', $e->detail['host']);
+        self::refused(422, 'api_host_not_allowed', fn () => $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', '', '', self::$box, Config::fromArrays([], self::ENV)));
+        $trusted = Config::fromArrays([], ['erp_read_hosts' => 'erp2.example.test, nope_not_a_name'] + self::ENV);
+        foreach ([['', ''], ['fakeKeyNEW0WXYZ', ''], ['', 'fakeSecretNEW333']] as [$k, $sec]) {
+            self::refused(422, 'api_new_address', fn () => $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', $k, $sec, self::$box, $trusted));
+        }
+        self::assertSame($three, self::row(), 'nothing written');
+        $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', 'fakeKeyERP20000', 'fakeSecretERP200', self::$box, $trusted);
         $four = self::row();
-        self::assertSame([$three['key_enc'], $three['secret_enc'], 'https://erp2.example.test', 4], [$four['key_enc'], $four['secret_enc'], $four['url'], (int) $four['version']]);
+        self::assertSame(['https://erp2.example.test', '0000', 4], [$four['url'], $four['key_last4'], (int) $four['version']]);
+        self::assertSame(['fakeKeyERP20000', 'fakeSecretERP200'], [self::$box->decrypt((string) $four['key_enc']), self::$box->decrypt((string) $four['secret_enc'])]);
         [$rows, $all] = self::audit();
-        self::assertSame(['api.save', 'api.save', 'api.save', 'api.save'], array_column($rows, 'action'), 'the unchanged save wrote nothing');
+        self::assertSame(['api.save', 'api.save', 'api.save', 'api.save'], array_column($rows, 'action'), 'the unchanged save and the refusals wrote nothing');
         self::assertSame(['key' => 'kept', 'secret' => 'new'], array_intersect_key(self::detail($rows[1]), ['key' => 1, 'secret' => 1]));
-        self::assertSame(self::sorted(['name' => 'erp_read', 'url_before' => 'https://vpg-erp.floverfy.com', 'url' => 'https://erp2.example.test', 'key_ends' => 'WXYZ',
-            'key' => 'kept', 'secret' => 'kept', 'version' => 4]), self::detail($rows[3]));
-        foreach ([self::KEY, self::SECRET, 'fakeSecretNEW222', 'fakeKeyNEW0WXYZ'] as $plain) {
+        self::assertSame(self::sorted(['name' => 'erp_read', 'url_before' => 'https://vpg-erp.floverfy.com', 'url' => 'https://erp2.example.test', 'key_ends' => '0000',
+            'key' => 'new', 'secret' => 'new', 'version' => 4]), self::detail($rows[3]));
+        foreach ([self::KEY, self::SECRET, 'fakeSecretNEW222', 'fakeKeyNEW0WXYZ', 'fakeKeyERP20000', 'fakeSecretERP200'] as $plain) {
             self::assertStringNotContainsString($plain, $all, 'never a key or a secret in the audit log');
         }
 
         // A form drawn before the last save: refused, naming who saved it; nothing written.
-        $e = self::refused(409, 'api_changed', fn () => $c->save($admin, 'erp_read', 3, 'https://erp3.example.test', '', '', self::$box));
+        $e = self::refused(409, 'api_changed', fn () => $c->save($admin, 'erp_read', 3, 'https://erp2.example.test', '', 'fakeSecretNEW333', self::$box, $trusted));
         self::assertSame('Admin 1', $e->detail['by']);
         self::refused(409, 'api_changed', fn () => $c->remove($admin, 'erp_read', 1));
         self::assertSame($four, self::row());
@@ -198,7 +208,7 @@ final class ApiCredentialsTest extends IntegrationTestCase
         $c->save($rev, 'erp_read', 0, 'https://vpg-erp.floverfy.com', self::KEY, self::SECRET, self::$box);
         $saved = self::row();
         $other = SecretBox::fromBase64(SecretBox::newKeyBase64());
-        self::refused(422, 'api_cannot_open', fn () => $c->save($rev, 'erp_read', 1, 'https://erp2.example.test', '', '', $other));
+        self::refused(422, 'api_cannot_open', fn () => $c->save($rev, 'erp_read', 1, 'https://vpg-erp.floverfy.com', '', 'fakeSecretNEW222', $other));
         self::refused(422, 'api_cannot_open', fn () => $c->save($rev, 'erp_read', 1, 'https://vpg-erp.floverfy.com', 'fakeKeyNEW0WXYZ', '', $other));
         self::assertSame($saved, self::row());
         $c->save($rev, 'erp_read', 1, 'https://vpg-erp.floverfy.com', 'fakeKeyNEW0WXYZ', 'fakeSecretNEW222', $other);
@@ -223,6 +233,16 @@ final class ApiCredentialsTest extends IntegrationTestCase
             new ErpFakeTransport(), self::$db));
         $cron = ErpApiReader::fromConfig(Config::fromArrays([], ['ui_secret_key' => self::$boxKey] + self::ENV), new ErpFakeTransport(), self::$db);
         self::assertSame('saved', $cron->source(), 'app.env\'s ui_secret_key opens it');
+
+        // A row written around the page with a name CW does not trust: never called (AK12); trusted by app.env, it is.
+        $sealed = self::row();
+        self::$db->exec("UPDATE api_credential SET url = 'https://evil.example.com' WHERE name = 'erp_read'");
+        $erp = new ErpFakeTransport();
+        self::refused(503, 'api_host_not_allowed', fn () => ErpApiReader::fromConfig(Config::fromArrays([], self::ENV), $erp, self::$db, self::$box));
+        self::assertSame([], $erp->calls, 'nothing sent');
+        self::assertSame('https://evil.example.com', ErpApiReader::fromConfig(Config::fromArrays([], ['erp_read_hosts' => 'evil.example.com'] + self::ENV), $erp, self::$db,
+            self::$box)->base());
+        self::$db->exec("UPDATE api_credential SET url = ? WHERE name = 'erp_read'", [$sealed['url']]);
 
         self::assertSame(['result' => 'removed', 'version' => 2], $c->remove($rev, 'erp_read', 1));
         $row = self::row();

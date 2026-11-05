@@ -208,11 +208,23 @@ final class ApisScreensTest extends KernelUiTestCase
         $old = $web->get(self::PATH)->form(self::PATH);
         $admin = $this->signIn($this->uiUser('admin'));
         self::assertSame(303, $this->save($admin, self::KEY, self::SECRET)->status, 'an Admin may save too (settings.manage)');
-        $r = $web->post(self::PATH, ['url' => 'https://erp2.example.test', 'api_key' => 'fakeKeyNEW0WXYZ', 'api_secret' => 'fakeSecretNEW222'] + $old);
+        $r = $web->post(self::PATH, ['url' => 'https://vpg-erp.floverfy.com', 'api_key' => 'fakeKeyNEW0WXYZ', 'api_secret' => 'fakeSecretNEW222'] + $old);
         self::assertSame([409, 'api_changed'], [$r->status, $r->errorCode()], $r->describe());
         self::assertStringContainsString('Nothing was saved: Admin 2 saved or removed this key on ', $r->text());
         self::noSecrets($r, 'changed meanwhile');
         self::assertSame(['https://vpg-erp.floverfy.com', 'ABCD', 1], [self::row()['url'], self::row()['key_last4'], (int) self::row()['version']]);
+
+        // Another address (AK12, the Codex review of 9ddf7a0, HIGH): a name the server does not trust is refused; a trusted one needs the key
+        // and the secret typed again (a saved key is never sent to another address).
+        $r = $this->save($web, '', '', 'https://evil.example.com');
+        self::assertSame([422, 'api_host_not_allowed'], [$r->status, $r->errorCode()], $r->describe());
+        self::assertStringContainsString(Words::APIS_ERROR['api_host_not_allowed'], $r->text());
+        $this->env = Config::fromArrays([], ['erp_read_hosts' => 'erp2.example.test']);
+        $r = $this->save($web, '', '', 'https://erp2.example.test');
+        self::assertSame([422, 'api_new_address'], [$r->status, $r->errorCode()], $r->describe());
+        self::assertSame('true', self::xp($r)->evaluate('string(//input[@name="api_secret"]/@aria-invalid)'));
+        self::assertSame(['https://vpg-erp.floverfy.com', 1], [self::row()['url'], (int) self::row()['version']], 'nothing saved');
+        $this->env = Config::fromArrays([], []);
 
         // Who may only look (system.view, not settings.manage): the facts, never a form, and every POST refused.
         $auditor = $this->signIn($this->uiUser('auditor'));

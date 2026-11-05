@@ -94,6 +94,11 @@ final class ErpCopyJobTest extends IntegrationTestCase
             $box = \CW\Staff\SecretBox::fromBase64($key);
             file_put_contents($this->env, "# the key of the 2-step codes, which seals the saved key\nui_secret_key={$key}\n");
             self::$db->exec("UPDATE api_credential SET key_enc = ?, secret_enc = ? WHERE name = 'erp_read'", [$box->encrypt('fakeKey0000ABCD'), $box->encrypt('fakeSecret000099')]);
+            // A name the server does not trust (AK12): never called.
+            $r = $this->job([]);
+            self::assertSame(3, $r['code'], $r['out'] . $r['err']);
+            self::assertStringContainsString('CW only calls the ERPNext names it trusts', $r['err']);
+            file_put_contents($this->env, "ui_secret_key={$key}\nerp_read_hosts=erp.example.test\n");
             $r = $this->job([]);
             self::assertSame(3, $r['code'], $r['out'] . $r['err']);
             self::assertStringContainsString('ERPNext could not be reached', $r['err']);

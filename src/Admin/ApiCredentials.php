@@ -6,6 +6,7 @@ namespace CW\Admin;
 
 use CW\Audit;
 use CW\Caller;
+use CW\Config;
 use CW\CwException;
 use CW\Db;
 use CW\Staff\SecretBox;
@@ -18,7 +19,9 @@ use CW\Staff\SecretBox;
  * The key and the secret are sealed with Staff\SecretBox (app.env ui_secret_key, the key of the 2-step codes) and are NEVER shown,
  * logged or audited: shown() gives the address, the key's last 4 characters, whether a secret is saved, who saved it and when; open()
  * alone unseals them, for the reader. A save (save()) needs the address and, the first time, the key and the secret; later an empty key
- * or secret keeps the saved one (proved still openable with this server's key: AK6). A removal (remove()) empties the row. Both re-check
+ * or secret keeps the saved one (proved still openable with this server's key: AK6), but never for another address: a saved key is never
+ * sent anywhere it was not typed for (AK12). The address is one of the trusted ERPNext names (allowedHosts(): the shop's, and those the
+ * server's app.env names; AK12). A removal (remove()) empties the row. Both re-check
  * the person (settings.manage, Admin\ConfigHistory::authorise) and the version the form was drawn with inside their transaction, and
  * write one audit row naming the address and "key ends ABCD" only. A connection check (Ui\Controller\ApisController::check) is audited
  * by recordCheck() the same way.
@@ -30,6 +33,13 @@ final class ApiCredentials
     public const NAMES = [self::ERP_READ];
     /** The address a form starts with while nothing is saved. */
     public const DEFAULT_URL = [self::ERP_READ => 'https://vpg-erp.floverfy.com'];
+    /**
+     * The names an API's address may have (AK12, the Codex review of 9ddf7a0, HIGH): the shop's ERPNext; more are trusted only by the
+     * server's app.env (ENV_HOSTS, and the name of app.env's own erp_read_url), never by the page.
+     */
+    public const HOSTS = [self::ERP_READ => ['vpg-erp.floverfy.com']];
+    /** The app.env key that adds trusted names (comma- or space-separated), e.g. erp_read_hosts=erp2.example.com. */
+    public const ENV_HOSTS = [self::ERP_READ => 'erp_read_hosts'];
     /** The longest address (the column is 200; the name part at most 180, ck_api_credential_url). */
     public const URL_MAX = 180;
     /** What ERPNext makes a key and a secret of: letters and digits (Invoices\ErpApiReader checks the same). */
@@ -38,7 +48,7 @@ final class ApiCredentials
      * What a connection check may end with: Invoices\ErpApiReader::CHECKS, and the three that stop before anything is sent (no key at all;
      * a saved key this server cannot open; app.env's key or address not written as ErpApiReader takes them).
      */
-    public const OUTCOMES = ['ok', 'wrong_key', 'not_allowed', 'unreachable', 'not_public', 'other', 'nothing', 'cannot_open', 'bad_setup'];
+    public const OUTCOMES = ['ok', 'wrong_key', 'not_allowed', 'unreachable', 'not_public', 'other', 'nothing', 'cannot_open', 'bad_setup', 'host_not_allowed'];
 
     public function __construct(private readonly Db $db)
     {
@@ -91,18 +101,20 @@ final class ApiCredentials
     }
 
     /**
-     * Saves an API's address, key and secret. The first save needs all three; later an empty key or secret keeps the saved one. 409
-     * api_changed when the row is no longer at $version (someone saved or removed meanwhile: nothing written); 422 api_bad_url,
-     * api_bad_key, api_bad_secret, api_need_key, api_need_secret, api_cannot_open (a kept key or secret this server cannot open: type both
-     * again); 403 for a person who may not change settings.
+     * Saves an API's address, key and secret. The first save needs all three; later an empty key or secret keeps the saved one, for the
+     * same address only. 409 api_changed when the row is no longer at $version (someone saved or removed meanwhile: nothing written); 422
+     * api_bad_url, api_host_not_allowed (a name allowedHosts() does not trust), api_bad_key, api_bad_secret, api_need_key, api_need_secret,
+     * api_new_address (another address with a key or secret left empty: both typed again), api_cannot_open (a kept key or secret this server
+     * cannot open: type both again); 403 for a person who may not change settings. $config: the server's app.env (its trusted names).
      *
      * @return array{result: 'saved'|'unchanged', version: int, key_last4: string}
      */
     public function save(Caller $caller, string $name, int $version, string $url, #[\SensitiveParameter] string $key, #[\SensitiveParameter] string $secret,
-        SecretBox $box): array
+        SecretBox $box, ?Config $config = null): array
     {
         self::known($name);
         $url = self::url($url);
+        self::trusted($name, $url, $config, 'api_host_not_allowed', 422);
         $key = trim($key);
         $secret = trim($secret);
         if ($key !== '' && preg_match(self::TOKEN, $key) !== 1) {
@@ -123,6 +135,11 @@ final class ApiCredentials
             }
             if ($saved && $key === '' && $secret === '' && $url === $row['url']) {
                 return ['result' => 'unchanged', 'version' => $version, 'key_last4' => (string) $row['key_last4']];
+            }
+            // A saved key and secret go to the address they were typed for only (the Codex review of 9ddf7a0, HIGH): another address needs
+            // both typed again, so a person who changes it can send nothing but what they typed.
+            if ($saved && $url !== $row['url'] && ($key === '' || $secret === '')) {
+                throw new CwException('api_new_address', 'the address changed: type the API key and the API secret again (a saved key is never sent to another address)', 422);
             }
             // A kept key or secret must still open with this server's key: a save never leaves a row the reader cannot use (AK6).
             foreach (['key_enc' => $key, 'secret_enc' => $secret] as $col => $typed) {
@@ -203,6 +220,43 @@ final class ApiCredentials
             throw $bad;
         }
         return 'https://' . $host;
+    }
+
+    /**
+     * The names an API's address may have (AK12): HOSTS, the names app.env lists under ENV_HOSTS, and the name of app.env's own address
+     * (erp_read_url); a listed name that is not a name is left out.
+     *
+     * @return list<string>
+     */
+    public static function allowedHosts(string $name, ?Config $config): array
+    {
+        self::known($name);
+        $out = self::HOSTS[$name];
+        if ($config !== null) {
+            $listed = preg_split('/[\s,]+/', trim((string) ($config->get(self::ENV_HOSTS[$name]) ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $own = (string) ($config->get(\CW\Invoices\ErpApiReader::CONFIG['url']) ?? '');
+            foreach ([...array_map(static fn (string $h): string => 'https://' . $h, $listed), $own] as $u) {
+                try {
+                    $out[] = (string) parse_url(self::url($u), PHP_URL_HOST);
+                } catch (CwException) {
+                    // not a name: never trusted
+                }
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Refuses an address whose name allowedHosts() does not trust (the code $code, with $status). The reader checks a saved address again
+     * before it is called (Invoices\ErpApiReader::fromConfig), so a row written around the page is never called either.
+     */
+    public static function trusted(string $name, string $url, ?Config $config, string $code, int $status): void
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if (!in_array($host, self::allowedHosts($name, $config), true)) {
+            throw new CwException($code, 'CW only calls the ERPNext names it trusts (' . implode(', ', self::allowedHosts($name, $config))
+                . '); another is added on the server, in app.env ' . self::ENV_HOSTS[$name], $status, ['host' => mb_substr($host, 0, 180)]);
+        }
     }
 
     /** @throws \InvalidArgumentException for an API with no row (a programming error) */

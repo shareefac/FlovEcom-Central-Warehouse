@@ -51,6 +51,47 @@ final class ApiCredentialsUnitTest extends TestCase
         }
     }
 
+    /** AK12 (the Codex review of 9ddf7a0, HIGH): only the shop's ERPNext name, and those the server's app.env names, are ever trusted. */
+    public function testOnlyTheNamesTheServerTrustsMayBeSaved(): void
+    {
+        self::assertSame(['vpg-erp.floverfy.com'], ApiCredentials::allowedHosts('erp_read', null));
+        self::assertSame(['vpg-erp.floverfy.com'], ApiCredentials::allowedHosts('erp_read', Config::fromArrays([], [])));
+        self::assertSame(['vpg-erp.floverfy.com', 'erp2.example.com', 'erp3.example.com', 'env-erp.example.test'], ApiCredentials::allowedHosts('erp_read',
+            Config::fromArrays([], ['erp_read_hosts' => ' ERP2.example.com,erp3.example.com  10.0.0.1 bad_name vpg-erp.floverfy.com https://x',
+                'erp_read_url' => 'https://env-erp.example.test'])), 'a listed IP address or a name that is not one is never trusted');
+        ApiCredentials::trusted('erp_read', 'https://vpg-erp.floverfy.com', null, 'api_host_not_allowed', 422);
+        try {
+            ApiCredentials::trusted('erp_read', 'https://evil.example.com', null, 'api_host_not_allowed', 422);
+            self::fail('not trusted');
+        } catch (CwException $e) {
+            self::assertSame(['api_host_not_allowed', 422, 'evil.example.com'], [$e->errorCode, $e->httpStatus, $e->detail['host']]);
+        }
+    }
+
+    /** AK12 (the Codex review of 9ddf7a0, MEDIUM): an error names ERPNext's exception type only when it is a known one; no other answer text. */
+    public function testAnErrorNeverCarriesTheAnswersOwnText(): void
+    {
+        foreach ([self::KEY . ':' . self::SECRET => '', 'token ' . self::SECRET => '', 'PermissionError' => ' (PermissionError)', 'ValidationError' => ' (ValidationError)'] as $type => $shown) {
+            $t = new class ($type) implements ErpTransport {
+                public function __construct(private readonly string $type)
+                {
+                }
+
+                public function get(string $url, array $headers, int $timeoutSec): array
+                {
+                    return ['status' => 500, 'body' => (string) json_encode(['exc_type' => $this->type, 'exception' => $this->type, 'exc' => $this->type])];
+                }
+            };
+            try {
+                (new ErpApiReader($t, 'https://erp.example.test', self::KEY, self::SECRET))->invoice('PI-1');
+                self::fail('refused');
+            } catch (CwException $e) {
+                self::assertSame(['erp_read_failed', 'ERPNext answered HTTP 500' . $shown], [$e->errorCode, $e->getMessage()], $type);
+                self::assertStringNotContainsString(self::SECRET, $e->getMessage() . json_encode($e->detail));
+            }
+        }
+    }
+
     public function testOnlyAPublicInternetAddressIsCalledForASavedAddress(): void
     {
         foreach (['138.68.117.234' => true, '8.8.8.8' => true, '127.0.0.1' => false, '10.1.2.3' => false, '172.16.0.1' => false, '192.168.1.1' => false,

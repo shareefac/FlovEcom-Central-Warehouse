@@ -2773,13 +2773,15 @@ a role that may only READ: Purchase Invoice (its rows, Purchase Invoice Item, an
 Item (the fields `is_stock_item` and `custom_variant_id`), for the company VAPE AND GO. No write, submit, cancel, delete, import or report
 rights; no Stock, Accounts or Settings doctypes; it never calls a method. Generate its API key and secret (User › API Access).
 
-**In CW (the owner, since 0063; `docs/decisions.md` AK1-AK11):** Settings › APIs › ERPNext (read only): type the ERPNext address
+**In CW (the owner, since 0063; `docs/decisions.md` AK1-AK12):** Settings › APIs › ERPNext (read only): type the ERPNext address
 (`https://vpg-erp.floverfy.com` is filled in), the API key and the API secret, press **Save**, then **Check the connection** (one
 read-only GET of one purchase invoice; it says "Connected", "wrong key or secret", "may not read purchase invoices" or "cannot reach").
 Only an Admin or a Reviewer can save, check or remove it; the page shows the key's last 4 characters and never the secret. The key and
 the secret are sealed in the database (`api_credential`) with app.env's `ui_secret_key` (the 2-step codes' key): if that key is ever
 changed, the saved key cannot be opened (the job stops, "cannot be opened") and is typed again on the page. Saving a key does NOT switch
-the copy on. The address must be a name that leads to a public internet address (CW refuses a private or local one).
+the copy on. The address must be `vpg-erp.floverfy.com`, or a name the server trusts: add it to `/etc/cw/app.env` as
+`erp_read_hosts=<name>[,<name>]` (the integrator; AK12); it must lead to a public internet address (CW refuses a private or local one). A
+changed address needs the key and the secret typed again.
 
 **Or on the CW server (the integrator; used only while nothing is saved on Settings › APIs):** add to `/etc/cw/app.env` (0640
 root:www-data; never print them):

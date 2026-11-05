@@ -621,13 +621,13 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
     public function testTheReviewersMenuHasEveryNewPage(): void
     {
         $web = $this->signIn($this->uiUser('reviewer'));
-        self::assertSame([null, '/ui/reference/warehouses', '/ui/system/sites', '/ui/reference/access', '/ui/reference/approvals',
+        self::assertSame([null, '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/apis', '/ui/reference/access', '/ui/reference/approvals',
             '/ui/reference/reasons', '/ui/reference/settings', '/ui/reference/series', '/ui/system/checks', '/ui/system/audit'],
             array_column(self::segments($web->get('/ui/reference/company')), 'href'), 'Settings\' one Show (RD7; the one shown: no link, CV13)');
         self::assertSame([['Audit log', null, true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
             self::segments($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[0] === 'Audit log')), 'Settings › Audit log (RD7)');
-        foreach (['/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/checks', '/ui/system/audit', '/ui/reference/access',
-            '/ui/reference/reasons'] as $path) {
+        foreach (['/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/apis', '/ui/system/checks', '/ui/system/audit',
+            '/ui/reference/access', '/ui/reference/reasons'] as $path) {
             $r = $web->get($path);
             self::assertSame(200, $r->status, $path . ' ' . $r->describe());
             self::assertNotSame('', self::h1($r), $path);

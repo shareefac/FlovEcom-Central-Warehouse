@@ -38,11 +38,11 @@
         <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
         <input type="hidden" name="version" value="<?= $e($version) ?>">
         <label for="f-api-url"><?= $word('APIS', 'address') ?> <span class="hint"><?= $word('APIS', 'address_hint') ?></span></label>
-        <input id="f-api-url" type="text" name="url" value="<?= $e($url) ?>" maxlength="200" required inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"<?php if ($errorCode === 'api_bad_url'): ?> aria-invalid="true"<?php endif; ?>>
+        <input id="f-api-url" type="text" name="url" value="<?= $e($url) ?>" maxlength="200" required inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"<?php if (in_array($errorCode, ['api_bad_url', 'api_host_not_allowed'], true)): ?> aria-invalid="true"<?php endif; ?>>
         <label for="f-api-key"><?= $word('APIS', 'key') ?> <span class="hint"><?php if ($saved): ?><?= $word('APIS', 'key_hint_saved') ?><?php else: ?><?= $word('APIS', 'key_hint_new') ?><?php endif; ?></span></label>
-        <input id="f-api-key" type="text" name="api_key" value="" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false"<?php if (!$saved): ?> required<?php endif; ?><?php if (in_array($errorCode, ['api_bad_key', 'api_need_key'], true)): ?> aria-invalid="true"<?php endif; ?>>
+        <input id="f-api-key" type="text" name="api_key" value="" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false"<?php if (!$saved): ?> required<?php endif; ?><?php if (in_array($errorCode, ['api_bad_key', 'api_need_key', 'api_new_address'], true)): ?> aria-invalid="true"<?php endif; ?>>
         <label for="f-api-secret"><?= $word('APIS', 'secret') ?> <span class="hint"><?php if ($saved): ?><?= $word('APIS', 'secret_hint_saved') ?><?php else: ?><?= $word('APIS', 'secret_hint_new') ?><?php endif; ?></span></label>
-        <input id="f-api-secret" type="password" name="api_secret" value="" maxlength="64" autocomplete="new-password" autocapitalize="off" spellcheck="false"<?php if (!$saved): ?> required<?php endif; ?><?php if (in_array($errorCode, ['api_bad_secret', 'api_need_secret'], true)): ?> aria-invalid="true"<?php endif; ?>>
+        <input id="f-api-secret" type="password" name="api_secret" value="" maxlength="64" autocomplete="new-password" autocapitalize="off" spellcheck="false"<?php if (!$saved): ?> required<?php endif; ?><?php if (in_array($errorCode, ['api_bad_secret', 'api_need_secret', 'api_new_address'], true)): ?> aria-invalid="true"<?php endif; ?>>
         <p class="actions"><button type="submit" class="btn primary"><?= $word('APIS', 'save') ?></button></p>
       </form>
     </div>
@@ -51,7 +51,7 @@
   <div class="set-row api-test">
     <div class="set-k"><p class="set-kt"><?= $word('APIS', 'check') ?></p><p class="set-kd"><?= $word('APIS', 'check_text') ?></p></div>
     <div class="set-v">
-      <form class="inline" method="post" action="/ui/system/apis/check">
+      <form class="inline" method="post" action="/ui/system/apis/check" data-leaves="1">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <button type="submit" class="btn"><?= $word('APIS', 'check') ?></button>
       </form>
@@ -63,7 +63,7 @@
     <div class="set-k"><p class="set-kt"><?= $word('APIS', 'remove_title') ?></p></div>
     <details class="set-fold"<?php if ($errorCode === 'api_confirm'): ?> open<?php endif; ?>>
       <summary class="btn"><?= $word('APIS', 'remove') ?></summary>
-      <form class="record" method="post" action="/ui/system/apis/remove">
+      <form class="record" method="post" action="/ui/system/apis/remove" data-leaves="1">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="form_key" value="<?= $e($removeKey) ?>">
         <input type="hidden" name="version" value="<?= $e($version) ?>">

@@ -16313,7 +16313,8 @@ the key and the secret were new or kept: never the key or the secret. The test c
 **AK4. The address is a name.** `ApiCredentials::url()`: `https://` and a host name of letters, digits, hyphens and dots with a last
 part of letters, in lower case; a trailing "/" and the line end of a paste are dropped; an IP address, a port, a path, a user, a query, a
 fragment, a backslash or a control character is refused (422 `api_bad_url`). While nothing is saved the field starts with
-`https://vpg-erp.floverfy.com` (the shop's ERPNext; it resolved to a public DigitalOcean address on 5 Nov 2026).
+`https://vpg-erp.floverfy.com` (the shop's ERPNext; it resolved to a public DigitalOcean address on 5 Nov 2026). The name must also be one
+CW trusts (AK12).
 
 **AK5. No request forgery through the address.** A saved address is only ever called through `ErpHttpTransport`'s public-only mode: its
 name is looked up once per transport (the system's resolver, IPv4) and every address it gives must be a global internet address (not
@@ -16325,7 +16326,7 @@ cannot read anything from another server. app.env's address (the integrator's) i
 
 **AK6. A save.** The first save needs the address, the key and the secret (422 `api_need_key` / `api_need_secret`); a key or a secret is
 6 to 64 letters and digits (ERPNext's, as `ErpApiReader` checks; spaces round it dropped; 422 `api_bad_key` / `api_bad_secret`). Later an
-empty key or secret keeps the saved one and a typed one replaces it; the same address with nothing typed changes nothing (no version, no
+empty key or secret keeps the saved one (for the same address only: AK12) and a typed one replaces it; the same address with nothing typed changes nothing (no version, no
 audit row: "Nothing changed"). A kept key or secret must still open with this server's key (the key of the 2-step codes changed since:
 422 `api_cannot_open`, "type the key and the secret again"), so a save never leaves a row the job cannot use. The form carries the version
 it was drawn with: a save or removal by someone else since is 409 `api_changed` naming who and when, nothing written; and a FormOnce key:
@@ -16368,4 +16369,21 @@ the page and its fields, a save, a double click, the back button, CSRF, an audit
 answers of a check through a fake ERPNext and the env key's check, Remove's tick; never a key or a secret in a page or the audit log),
 `tests/Integration/Migration0063Test.php` (the table, its row, its CHECKs, a second run, the grants), `ErpCopyJobTest` (the job with a
 saved key it cannot open, and with one it can: its address called through the public-only transport). Pinned lists updated:
-`SectionsTest`, `RedesignCTemplatesTest`, `MenusTest`, `UiTemplatesTest`.
+`SectionsTest`, `RedesignCTemplatesTest`, `MenusTest`, `UiTemplatesTest`, `SetItYourselfScreensTest`.
+
+**AK12. The Codex review of 9ddf7a0 (`runs/ap_codex.txt`): one HIGH and one MEDIUM, both fixed with tests.**
+- **HIGH: a changed address could send the saved key elsewhere.** A person with `settings.manage` could change only the address to a
+  public server of their own, leave the key and the secret empty (kept), and "Check the connection" or the next cron run would send the
+  saved key and secret there. Now (a) a saved key and secret go only to the address they were saved for: another address needs both typed
+  again (422 `api_new_address`, nothing saved), so nobody can send anything but what they typed; and (b) the address must be a name CW
+  trusts (`ApiCredentials::allowedHosts()`): the shop's ERPNext, `vpg-erp.floverfy.com` (in the code), plus any name the SERVER's app.env
+  lists (`erp_read_hosts=`, comma- or space-separated) and the name of app.env's own `erp_read_url`; never one the page adds (422
+  `api_host_not_allowed`). The reader checks a saved address again before calling it (503 `api_host_not_allowed`: a row written around the
+  page is never called either; the check says "CW did not call the saved address"). This also keeps a person from pointing the copy job at
+  a server of their own that would feed it invoices. Tests: `testOnlyTheNamesTheServerTrustsMayBeSaved`, the "another address" part of
+  `testALaterSaveKeepsWhatIsLeftEmptyAndReplacesWhatIsTyped`, the row written around the page in
+  `testARemovalEmptiesTheRowAndTheReaderGoesBackToAppEnv`, the screens' and the job's (a name not trusted: never called).
+- **MEDIUM: an answer's own text could reach the logs.** `ErpApiReader::get()` copied ERPNext's `exc_type` (any text, up to 60
+  characters) into its error, which the job logs and keeps in `erp_copy_run.summary`: a server that echoed the token there put it in both.
+  Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
+  nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
