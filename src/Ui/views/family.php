@@ -3,7 +3,7 @@
 // its status block and its bar at the head's right (family_bar: Add items, More: rename, switch off), what a list put in or took out (with what
 // was left out and why), the figures strip (its items, added, last changed), then the paper card: the family and its note beside the facts,
 // and its items as the card's lines (each opens its item; whoever keeps the families ticks items and takes them out: the form is theirs).
-$bar = $partial('family_bar', ['f' => $f, 'canManage' => $canManage, 'addKey' => $addKey, 'typed' => $typed, 'errorCode' => $errorCode]);
+$bar = $partial('family_bar', ['f' => $f, 'canManage' => $canManage, 'addKey' => $addKey, 'pick' => $pick, 'typed' => $typed, 'errorCode' => $errorCode]);
 ?>
 <div class="doc-head">
 <?= $head((string) $f['name'], intro: 'family', look: $lookOnly, chips: $f['active'] ? $chip('done', \CW\Ui\Words::FAMILY['on']) : $chip('off', \CW\Ui\Words::FAMILY['off']), side: $bar, back: ['/ui/items/families', \CW\Ui\Words::MENU['families']]) ?>

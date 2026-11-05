@@ -412,6 +412,12 @@ final class UiUnitTest extends TestCase
         // the step's routes are gone.
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/new']);
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/products']);
+        // A family's picker (docs/decisions.md FP3, FP4): its choices are read by everyone who reads the family, read only; the ticked items are
+        // put in by whoever keeps the families, as the pasted list is.
+        self::assertSame('catalogue.view', $byPath['GET /ui/items/families/{id}/find']);
+        self::assertArrayNotHasKey('POST /ui/items/families/{id}/find', $byPath);
+        self::assertSame('families.manage', $byPath['POST /ui/items/families/{id}/pick']);
+        self::assertSame('families.manage', $byPath['POST /ui/items/families/{id}/add']);
         // Lines to place as a board (docs/decisions.md LQ5): the item box's choices are for those who place lines, read only.
         self::assertSame('queues.suspense', $byPath['GET /ui/queues/suspense/items']);
         self::assertArrayNotHasKey('POST /ui/queues/suspense/items', $byPath);
@@ -1581,7 +1587,8 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
-            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?' };", $js,
+            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', "
+            . "'[data-fp-fragment]': '/ui/items/families/' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');

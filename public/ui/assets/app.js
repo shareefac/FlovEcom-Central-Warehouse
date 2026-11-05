@@ -296,12 +296,12 @@
 
   // The one read of the network: a read-only fragment of this site's own matching routes, By Item's quick match (/ui/review/products/…),
   // the lists' Check & match fold (/ui/review/listing/…/check), Simple matching's choices of a cell (/ui/match/options?…), the order's product
-  // box (/ui/purchasing/orders/products?…) and Lines to place's item box (/ui/queues/suspense/items?…, docs/decisions.md LQ5), each named
-  // by its marker. Fetched with the session's cookie for
+  // box (/ui/purchasing/orders/products?…), Lines to place's item box (/ui/queues/suspense/items?…, docs/decisions.md LQ5) and a family's
+  // picker (/ui/items/families/<id>/find?…, docs/decisions.md FP3), each named by its marker. Fetched with the session's cookie for
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?' };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker) {
@@ -2474,6 +2474,251 @@
     if (!form.hasAttribute('data-dirty') && !document.querySelector('.error[role="alert"]:not([hidden])')) {
       rows[rows.length - 1].p.focus(); // ready to type
     }
+  });
+
+  // A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10).
+  // The picker is ONE POST form of the family's /pick route, drawn hidden: shown here (without the script, or without fetch, the pasted list
+  // under it is the way, open as drawn; here it is folded unless it holds a refused list). Typing (2 letters or more, 300 ms after the last
+  // key; at once with Enter, which never sends the form: a scanner's Enter) asks the family's find route (the read-only fragment at
+  // data-options) for the items the words name; its list replaces the one shown when it comes, and an answer asked for before newer words is
+  // never drawn. A tick copies the item into the form's ticked list as its hidden field (pick_<id> = 1): the ticks stay while the words
+  // change, and only the ticked list is sent (a tick in the list has no name). Untick there or in the list. "Tick all shown" ticks every item
+  // shown that may be ticked; "Untick all" unticks every one. At most data-max (Families::bulkMax) are ticked: a tick past it, or a "Tick all
+  // shown" that would pass it, is refused with the page's words (data-too-many). The count and the button say how many; the button is off at
+  // none. The form holds something to keep (data-dirty: the page's guard asks before another form or a link leaves) while, and only while,
+  // something is ticked. Every word comes from the page.
+  each(document.querySelectorAll('form[data-fp]'), function (form) {
+    var base = form.getAttribute('data-options') || '';
+    var input = form.querySelector('input[data-fp-q]');
+    var says = form.querySelector('[data-fp-says]');
+    var out = form.querySelector('[data-fp-results]');
+    var list = form.querySelector('ul[data-fp-ticked]');
+    var empty = form.querySelector('[data-fp-empty]');
+    var count = form.querySelector('[data-fp-count]');
+    var warn = form.querySelector('[data-fp-warn]');
+    var all = form.querySelector('button[data-fp-all]');
+    var none = form.querySelector('button[data-fp-none]');
+    var go = form.querySelector('button[data-fp-go]');
+    if (base.indexOf('/ui/items/families/') !== 0 || base.indexOf('/find?') < 0 || !input || !says || !out || !list || !empty || !count || !warn || !all
+      || !none || !go || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var max = parseInt(form.getAttribute('data-max') || '', 10) || 1;
+    var word = function (name) { return form.getAttribute('data-' + name) || ''; };
+    var fill = function (text, v) { return text.replace('%s', String(v)); };
+    var ticked = {}; // an item's id => its <li> in the ticked list
+    var has = function (id) { return Object.prototype.hasOwnProperty.call(ticked, id); };
+    var n = 0;
+    var timer = 0;
+    var turn = 0;
+    var alarm = function (text) {
+      warn.textContent = text;
+      warn.hidden = text === '';
+    };
+    var boxes = function () { return out.querySelectorAll('input[type="checkbox"][data-fp-box]'); };
+    var clear = function () {
+      while (out.firstChild) {
+        out.removeChild(out.firstChild);
+      }
+      out.removeAttribute('aria-busy');
+    };
+    // Everything shown follows the ticked list: the count, the button, the empty line, the ticks in the list shown, Tick all shown, and
+    // whether the form holds something to keep.
+    var redraw = function () {
+      count.textContent = fill(word('ticked-text'), n);
+      go.textContent = fill(word('go-text'), n);
+      go.disabled = n === 0;
+      empty.hidden = n > 0;
+      if (n > 0) {
+        form.setAttribute('data-dirty', '1');
+      } else {
+        form.removeAttribute('data-dirty');
+      }
+      var free = 0;
+      each(boxes(), function (b) {
+        b.checked = has(b.value);
+        free += !b.disabled && !b.checked ? 1 : 0;
+      });
+      all.disabled = free === 0;
+    };
+    var add = function (id, code, name) {
+      if (has(id) || !/^[1-9][0-9]{0,17}$/.test(id)) {
+        return;
+      }
+      var li = document.createElement('li');
+      li.setAttribute('data-sku', id);
+      var field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'pick_' + id;
+      field.value = '1';
+      var part = function (cls, text) {
+        var s = document.createElement('span');
+        s.className = cls;
+        s.textContent = text;
+        return s;
+      };
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'btn sm ghost';
+      x.setAttribute('data-fp-untick', '');
+      x.setAttribute('aria-label', fill(word('untick-label'), code));
+      x.textContent = word('untick-text');
+      li.appendChild(field);
+      li.appendChild(part('fp-t-name', name));
+      li.appendChild(document.createTextNode(' '));
+      li.appendChild(part('fp-t-code', code));
+      li.appendChild(document.createTextNode(' '));
+      li.appendChild(x);
+      list.appendChild(li);
+      ticked[id] = li;
+      n++;
+    };
+    var drop = function (id) {
+      if (!has(id)) {
+        return;
+      }
+      var li = ticked[id];
+      if (li.parentNode) {
+        li.parentNode.removeChild(li);
+      }
+      delete ticked[id];
+      n--;
+    };
+    // The ticked items the page drew (a refused picker brings them back).
+    each(list.querySelectorAll('li[data-sku]'), function (li) {
+      var id = li.getAttribute('data-sku') || '';
+      if (has(id)) {
+        li.parentNode.removeChild(li);
+        return;
+      }
+      ticked[id] = li;
+      n++;
+    });
+    var load = function (q) {
+      var mine = ++turn;
+      out.setAttribute('aria-busy', 'true');
+      says.textContent = word('loading');
+      fragment(base + 'q=' + encodeURIComponent(q), '[data-fp-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          var found = node.querySelector('ul[data-fp-choices]');
+          var line = node.querySelector('[data-fp-says]');
+          clear();
+          if (found) {
+            out.appendChild(found);
+          }
+          says.textContent = line ? line.textContent.trim() : '';
+          redraw();
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          clear();
+          says.textContent = word('failed');
+          redraw();
+        });
+    };
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      turn++; // the words changed: no answer asked for before them is drawn
+      var v = input.value.trim();
+      if (v.length < 2) {
+        clear();
+        says.textContent = v === '' ? '' : word('short');
+      } else {
+        timer = window.setTimeout(function () { load(v); }, 300);
+      }
+      redraw(); // words typed are no tick: the form holds something to keep only while something is ticked
+    });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter') {
+        return;
+      }
+      ev.preventDefault(); // Enter in the search never sends the form: it looks the words up now
+      window.clearTimeout(timer);
+      var v = input.value.trim();
+      if (v.length >= 2) {
+        load(v);
+      }
+    });
+    out.addEventListener('change', function (ev) {
+      var b = ev.target;
+      if (!b || !b.hasAttribute || !b.hasAttribute('data-fp-box') || b.disabled) {
+        return;
+      }
+      alarm('');
+      if (b.checked && !has(b.value)) {
+        if (n >= max) {
+          alarm(word('too-many'));
+        } else {
+          add(b.value, b.getAttribute('data-cw') || '', b.getAttribute('data-name') || '');
+        }
+      } else if (!b.checked) {
+        drop(b.value);
+      }
+      redraw();
+    });
+    all.addEventListener('click', function () {
+      var free = [];
+      each(boxes(), function (b) {
+        if (!b.disabled && !has(b.value)) {
+          free.push(b);
+        }
+      });
+      alarm('');
+      if (n + free.length > max) {
+        alarm(word('too-many'));
+        return;
+      }
+      each(free, function (b) { add(b.value, b.getAttribute('data-cw') || '', b.getAttribute('data-name') || ''); });
+      redraw();
+    });
+    none.addEventListener('click', function () {
+      each(Object.keys(ticked), drop);
+      alarm('');
+      redraw();
+    });
+    list.addEventListener('click', function (ev) {
+      var b = ev.target && ev.target.closest ? ev.target.closest('button[data-fp-untick]') : null;
+      var li = b ? b.closest('li[data-sku]') : null;
+      if (!li) {
+        return;
+      }
+      // The focus goes to the next untick in the list (else the one before, else the search), never lost with the row.
+      var near = li.nextElementSibling || li.previousElementSibling;
+      var next = near ? near.querySelector('button[data-fp-untick]') : null;
+      drop(li.getAttribute('data-sku') || '');
+      alarm('');
+      redraw();
+      (next || input).focus();
+    });
+    form.addEventListener('submit', function (ev) {
+      if (n === 0 || n > max) {
+        ev.preventDefault();
+        alarm(n === 0 ? '' : word('too-many'));
+      }
+    });
+    form.hidden = false;
+    var paste = form.parentNode ? form.parentNode.querySelector('details.fp-paste[data-fold]') : null;
+    if (paste) {
+      paste.open = false; // the second way, folded (without the script it is the way, open)
+    }
+    // Opening "Add items" puts the cursor in the search box.
+    var fold = form.closest('details');
+    var head = fold ? fold.querySelector('summary') : null;
+    if (head) {
+      head.addEventListener('click', function () {
+        window.setTimeout(function () {
+          if (fold.open) {
+            input.focus();
+          }
+        }, 0);
+      });
+    }
+    redraw();
   });
 
   // A short page (a new purchase order with a line or two) left the bottom bar half way up the screen (seen 2 Nov 2026): the free space

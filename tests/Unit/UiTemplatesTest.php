@@ -2027,7 +2027,7 @@ final class UiTemplatesTest extends TestCase
         }
         self::assertSame(['supplier' => 5, 'supplier_form' => 1, 'supplier_returns' => 2, 'supplier_return' => 6, 'invoices' => 1, 'incidents' => 1, 'reorder' => 1,
             'reorder_low_stock' => 1, 'reorder_brands' => 1, 'reorder_anomalies' => 1, 'reorder_suppliers' => 1,
-            'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 3, 'packs' => 1, 'barcode_reviews' => 1,
+            'item_new' => 1, 'items_by_hand' => 1, 'families' => 1, 'family' => 4, 'packs' => 1, 'barcode_reviews' => 1,
             'settings' => 1, 'setting' => 1, 'reasons' => 1, 'reason' => 4, 'warehouses' => 1, 'warehouse' => 7, 'approvals' => 1, 'access_permission' => 1,
             'company' => 2, 'company_form' => 1, 'people' => 1, 'person' => 5,
             'listing' => 4, 'queue' => 1, 'store_products' => 1, 'by_product' => 1, 'new_variants' => 1, 'duplicate_group' => 2, 'simple_match' => 1, 'staff_requests' => 1],

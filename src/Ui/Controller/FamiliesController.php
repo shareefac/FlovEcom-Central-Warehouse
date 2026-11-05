@@ -12,6 +12,7 @@ use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Queries;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
@@ -21,10 +22,19 @@ use CW\Ui\Words;
  * with stock, a pasted list put in at once and ticked items taken out, each with the skipped ones listed and why), and the item page's
  * family box (put in, move, take out). Every change goes through CW\Items\Families, which checks the person again (families.manage,
  * never admin). Everyone with catalogue.view reads.
+ *
+ * The family page's picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10):
+ * "Add items" finds items by words, CW number or barcode (find(): a fragment app.js draws, read only), ticks them across searches and
+ * puts the ticked ones in at once (pick(): their CW numbers as Families::bulkAssign's list, as the pasted list is). The pasted list
+ * stays, folded under it.
  */
 final class FamiliesController
 {
     public const PATH = '/ui/items/families';
+    /** The most items one search of the picker shows (a display number, as the lists' page sizes are: PB16, FP2). */
+    public const FIND_LIMIT = 100;
+    /** The most ticked items a refused picker draws again: the most items.family_bulk_max_rows allows (1 to 1,000, PB5). */
+    private const PICKED_MAX = 1000;
 
     public function index(Context $ctx, int $status = 200, ?CwException $error = null, array $typed = []): HtmlResponse
     {
@@ -123,6 +133,65 @@ final class FamiliesController
         return $this->page($ctx, $id, 200, null, null, [], ['added' => $r->body['added'] ?? [], 'removed' => [], 'skipped' => $r->body['skipped'] ?? []]);
     }
 
+    /**
+     * The picker's choices for the words typed (docs/decisions.md FP2): a fragment (`family_find`, data-fp-fragment) that app.js draws in
+     * the picker, never a page. Read only, for everyone who reads the family (catalogue.view). Each item with its CW number, brand, stock
+     * and the family it is in now: one in a family (this one or another) cannot be ticked, since the list would skip it
+     * (Families::bulkAssign's `already_here`, `in_other_family`). At most FIND_LIMIT, saying when there are more; fewer than 2
+     * characters: nothing.
+     */
+    public function find(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        if ((new Families($ctx->db))->get($id) === null) {
+            return $ctx->error(404, 'unknown_family', Words::ITEMS_ERROR['unknown_family'], [self::PATH, Words::MENU['families']]);
+        }
+        $q = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
+        $asked = mb_strlen($q) >= 2;
+        $found = $asked ? (new Queries($ctx->db))->familyPicks($q, self::FIND_LIMIT) : ['rows' => [], 'more' => false];
+        $rows = array_map(static function (array $r) use ($id): array {
+            $fam = $r['family'];
+            $where = $fam === null ? null : ($fam['id'] === $id ? Words::FAMILY_PICK['here']
+                : Words::say('FAMILY_PICK', $fam['active'] ? 'other' : 'other_off', $fam['name']));
+            $meta = [$r['code'], (string) ($r['brand'] ?? ''), Words::say('FAMILY_PICK', 'stock', $r['on_hand'])];
+            return ['id' => $r['id'], 'code' => $r['code'], 'name' => $r['name'], 'meta' => implode(' · ', array_filter($meta, static fn (string $v): bool => trim($v) !== '')),
+                'can' => $fam === null, 'where' => $where, 'here' => $fam !== null && $fam['id'] === $id, 'discontinued' => $r['discontinued']];
+        }, $found['rows']);
+        $n = count($rows);
+        $says = match (true) {
+            !$asked => '',
+            $n === 0 => Words::say('FAMILY_PICK', 'none', $q),
+            $found['more'] => Words::say('FAMILY_PICK', 'more', self::FIND_LIMIT),
+            $n === 1 => Words::FAMILY_PICK['found_one'],
+            default => Words::say('FAMILY_PICK', 'found_many', $n),
+        };
+        return $ctx->fragment('family_find', ['rows' => $rows, 'says' => $says]);
+    }
+
+    /**
+     * The picker's ticked items put in the family (docs/decisions.md FP4): their CW numbers are the list of Families::bulkAssign, as a
+     * pasted list's are (one transaction, audited, at most bulkMax(), a doubtful one skipped and listed with its reason), under the
+     * picker's own form key (sent twice: done once). Nothing ticked: 422 nothing_ticked, before anything is read. The page again with
+     * what was put in and what was left out; a refusal draws the ticked items back in the picker, open.
+     */
+    public function pick(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $ids = self::ticked($ctx);
+        try {
+            if ($ids === []) {
+                throw new CwException('nothing_ticked', 'tick at least one item to put in the family', 422);
+            }
+            $list = implode("\n", array_map(static fn (int $i): string => sprintf('CW-%06d', $i), $ids));
+            $r = FormOnce::run($ctx, 'ui.family.pick', ['family' => (string) $id, 'items' => implode(',', $ids)], static function (Db $db) use ($ctx, $id, $list): OpResult {
+                return OpResult::of(200, (new Families($db))->bulkAssign($ctx->caller(), $id, $list));
+            });
+        } catch (CwException $e) {
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, [], null, $ids);
+        }
+        return $this->page($ctx, $id, 200, null, null, [], ['added' => $r->body['added'] ?? [], 'removed' => [], 'skipped' => $r->body['skipped'] ?? []]);
+    }
+
     /** The ticked items taken out: the page again, with what was taken out and what was left (and why). */
     public function remove(Context $ctx): HtmlResponse
     {
@@ -166,8 +235,10 @@ final class FamiliesController
      *
      * @param array<string, string> $typed
      * @param array{added: list<array<string, mixed>>, removed: list<array<string, mixed>>, skipped: list<array<string, mixed>>}|null $result
+     * @param list<int>|null $picked the items the picker sent, when it was refused (drawn ticked again)
      */
-    private function page(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice = null, array $typed = [], ?array $result = null): HtmlResponse
+    private function page(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice = null, array $typed = [], ?array $result = null,
+        ?array $picked = null): HtmlResponse
     {
         $svc = new Families($ctx->db);
         $f = $svc->get($id);
@@ -205,6 +276,13 @@ final class FamiliesController
             'next_link' => $members['page'] < $members['pages'] ? Html::url(self::PATH . '/' . $id, ['page' => $members['page'] + 1]) : null,
             'canManage' => $can,
             'addKey' => $can ? FormOnce::newKey() : null,
+            // The picker (docs/decisions.md FP1-FP10): for whoever may add, while the family is in use. Its words for app.js are the page's.
+            'pick' => $can && $active ? [
+                'key' => FormOnce::newKey(),
+                'max' => Families::bulkMax($ctx->db),
+                'find' => self::PATH . '/' . $id . '/find?',
+                'ticked' => $picked === null ? [] : self::tickedRows($ctx, $picked),
+            ] : null,
             'typed' => ['name' => $typed['name'] ?? (string) $f['name'], 'list' => $typed['list'] ?? ''],
             'result' => $result === null ? null : [
                 'added' => $result['added'], 'removed' => $result['removed'],
@@ -212,9 +290,47 @@ final class FamiliesController
                     ? Words::say('FAMILY_SKIP', 'in_other_family', (string) ($s['other'] ?? '')) : Words::of('FAMILY_SKIP', (string) $s['reason'])], $result['skipped']),
             ],
             'lookOnly' => $can ? null : Words::whoCan('families.manage'),
-            'error' => $error === null ? null : self::plain($error),
+            // The picker's own words for its too long list (untick, not split); every other refusal as the pasted list's.
+            'error' => $error === null ? null : ($picked !== null && $error->errorCode === 'too_many_rows'
+                ? Words::say('FAMILY_PICK', 'too_many_sent', (int) ($error->detail['max'] ?? 0)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => (string) $f['name'], 'notice' => $notice]);
+    }
+
+    /**
+     * The items the picker sent (`pick_<id>` = 1, the hidden fields of its ticked list), each once, in the order they were ticked.
+     *
+     * @return list<int>
+     */
+    private static function ticked(Context $ctx): array
+    {
+        $ids = [];
+        foreach ($ctx->req->fieldsMatching('/^pick_[1-9][0-9]{0,9}$/D') as $name => $v) {
+            if ($v === '1') {
+                $ids[(int) substr($name, 5)] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
+    /**
+     * The ticked items a refused picker draws again: each item's CW number and name, in the order sent (an id that names no item is left
+     * out), at most PICKED_MAX of them (the most the bulk setting allows).
+     *
+     * @param list<int> $ids
+     * @return list<array{id: int, code: string, name: string}>
+     */
+    private static function tickedRows(Context $ctx, array $ids): array
+    {
+        $ids = array_slice($ids, 0, self::PICKED_MAX);
+        $rows = (new Queries($ctx->db))->skus($ids);
+        $out = [];
+        foreach ($ids as $i) {
+            if (isset($rows[$i])) {
+                $out[] = ['id' => $i, 'code' => (string) $rows[$i]['code'], 'name' => (string) $rows[$i]['name']];
+            }
+        }
+        return $out;
     }
 
     /** A refusal of the pages of pack B in words, by its code; a code without words keeps the service's message, saying nothing was saved. */

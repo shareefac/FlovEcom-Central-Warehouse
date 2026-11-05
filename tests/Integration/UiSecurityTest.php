@@ -33,6 +33,7 @@ final class UiSecurityTest extends UiTestCase
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock',
         // --- end of Pack G
         '/ui/purchasing/orders/new', '/ui/purchasing/orders/products?q=pod', // PO on one page (docs/decisions.md PX1, PX8)
+        '/ui/items/families/1/find?q=pod', // a family's picker (docs/decisions.md FP3)
         ];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
@@ -53,6 +54,7 @@ final class UiSecurityTest extends UiTestCase
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock', '/ui/purchasing/reorder/refresh',
         // --- end of Pack G
         '/ui/purchasing/orders', '/ui/purchasing/orders/1/lines', // PO on one page (docs/decisions.md PX2)
+        '/ui/items/families/1/pick', // a family's picker (docs/decisions.md FP4)
         ];
 
     public function testEveryScreenNeedsASignIn(): void

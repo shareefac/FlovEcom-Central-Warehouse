@@ -1882,6 +1882,33 @@ final class Queries
     }
 
     /**
+     * A family's "Add items" picker (docs/decisions.md FP2): the items a typed search finds, found as searchSkus() finds them (a CW
+     * number however it is written, a barcode, or every word in the name, brand, line and flavour; joined items left out; the CW number
+     * and the barcode first, then by name), at most $limit, each with the family it is in now and its stock on hand in our own
+     * warehouses. `more`: there are more than $limit (one more is read to know it). Two reads after the search, each by primary key or
+     * index: Families::ofItems, Families::onHand. Fewer than 2 characters: nothing.
+     *
+     * @return array{rows: list<array{id: int, code: string, name: string, brand: ?string, discontinued: bool, on_hand: int, family: ?array{id: int, name: string, active: bool}}>, more: bool}
+     */
+    public function familyPicks(string $q, int $limit): array
+    {
+        $limit = max(1, $limit);
+        $found = $this->searchSkus($q, $limit + 1);
+        $more = count($found) > $limit;
+        $found = array_slice($found, 0, $limit);
+        $ids = array_map(static fn (array $r): int => (int) $r['id'], $found);
+        $families = \CW\Items\Families::ofItems($this->db, $ids);
+        $stock = \CW\Items\Families::onHand($this->db, $ids);
+        $rows = [];
+        foreach ($found as $r) {
+            $id = (int) $r['id'];
+            $rows[] = ['id' => $id, 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'] === null ? null : (string) $r['brand'],
+                'discontinued' => (int) $r['discontinued'] === 1, 'on_hand' => $stock[$id] ?? 0, 'family' => $families[$id] ?? null];
+        }
+        return ['rows' => $rows, 'more' => $more];
+    }
+
+    /**
      * Listings matching a typed search: site variant id, barcode, or every word in the titles / brand.
      *
      * @return list<array<string, mixed>>

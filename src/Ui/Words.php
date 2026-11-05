@@ -68,7 +68,7 @@ final class Words
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_GROUP', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
         // Pack B
-        'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION',
+        'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'FAMILY_PICK', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION',
         // --- Pack C (IM7)
         'INVOICES', 'INVOICE_KIND', 'INVOICE_LINE', 'MATCH_STATE', 'MATCH_LINE', 'MATCH_WHY', 'VALUE_EVENT', 'VALUE_BASIS', 'CREDIT_STATE', 'INVOICE_FILE',
         'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
@@ -10767,6 +10767,7 @@ final class Words
         'family_off' => 'Nothing was saved: this family is switched off. Switch it on first, or choose another.',
         'unknown_family' => 'Nothing was saved: no family in use has that name. Check the spelling, or add the family first on Products › Families.',
         'empty_list' => 'Nothing was saved: type or paste at least one CW number or barcode.',
+        'nothing_ticked' => 'Nothing was saved: tick at least one item first.',
         'too_many_rows' => 'Nothing was saved: one change takes at most %s items. Split the list.',
         'merged_item' => 'Nothing was saved: this item was joined into another one. Use that one.',
         'unknown_item' => 'Nothing was saved: no item has that CW number or barcode.',
@@ -10889,6 +10890,40 @@ final class Words
         'already_here' => 'Already in this family.',
         'in_other_family' => 'In another family: %s. Move it on its own page if you mean to.',
         'not_in_family' => 'No longer in this family.',
+    ];
+
+    /**
+     * A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10):
+     * the search, its items each with a tick, the ticked items and the one button, the pasted list folded under it. `%s` in ticked, button and
+     * untick_label is filled by app.js as the ticks change.
+     */
+    public const FAMILY_PICK = [
+        'find' => 'Find items',
+        'find_hint' => 'Name, brand, CW number or barcode',
+        'short' => 'Type 2 letters or more.',
+        'loading' => 'Looking…',
+        'failed' => 'The search did not answer. Try again, or paste the CW numbers below.',
+        'results' => 'Items found',
+        'found_one' => '1 item found.',
+        'found_many' => '%s items found.',
+        'more' => 'Showing the first %s. Type more words to narrow it.',
+        'none' => 'Nothing found for "%s". Check the spelling, or try fewer words.',
+        'stock' => 'In stock: %s',
+        'here' => 'In this family',
+        'other' => 'In another family: %s',
+        'other_off' => 'In another family: %s (switched off)',
+        'not_sold' => 'Not sold any more',
+        'tick_all' => 'Tick all shown',
+        'untick_all' => 'Untick all',
+        'ticked' => '%s ticked',
+        'ticked_list' => 'Ticked items',
+        'ticked_none' => 'Nothing ticked yet.',
+        'untick' => 'Untick',
+        'untick_label' => 'Untick %s',
+        'button' => 'Put %s in this family',
+        'too_many' => 'At most %s items at a time. Put the ticked ones in first, then tick more.',
+        'too_many_sent' => 'Nothing was saved: one change takes at most %s items. Untick some and put those in, then tick the rest.',
+        'paste' => 'Paste CW numbers or barcodes',
     ];
 
     /** Products › Multipacks: the pack items, the pack links, the item page's pack box. */

@@ -782,6 +782,10 @@ final class Kernel
         $r->add('POST', FamiliesController::PATH . '/{id}/rename', 'families.manage', $families->rename(...));
         $r->add('POST', FamiliesController::PATH . '/{id}/switch', 'families.manage', $families->switch(...));
         $r->add('POST', FamiliesController::PATH . '/{id}/add', 'families.manage', $families->add(...));
+        // The family page's picker (docs/decisions.md FP1-FP10): its choices are read by everyone who reads the family, read only; the ticked
+        // items are put in by whoever keeps the families, as the pasted list is.
+        $r->add('GET', FamiliesController::PATH . '/{id}/find', 'catalogue.view', $families->find(...));
+        $r->add('POST', FamiliesController::PATH . '/{id}/pick', 'families.manage', $families->pick(...));
         $r->add('POST', FamiliesController::PATH . '/{id}/remove', 'families.manage', $families->remove(...));
         $r->add('POST', '/ui/items/{id}/family', 'families.manage', $families->itemFamily(...));
         $packs = new PacksController();

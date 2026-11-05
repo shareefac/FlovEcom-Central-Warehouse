@@ -16178,3 +16178,86 @@ empty), so §5.2's completeness could never be met from what the business has ke
   start with the four back at their seeded off (`IntegrationTestCase::setUp`, as MO4 does for mode changes: the nightly history check
   sees a value that matches its baseline); the supplier tests written before 0062 switch them on in `SupplierTestCase::setUp`; `testWithTheDetailSwitchesOffANameIsEnough`
   covers them off.
+
+## A family's "Add items" is a picker with a search and ticks (branch `family-picker`, 5 Nov 2026; FP1-FP10)
+
+The owner, 5 Nov 2026, on a family's page (Items › Item groups › a family): "why does it look like this and no search bar. finding and
+adding product like this is going to take ages. i need a drop down with search and multicheck option". Until now "Add items" was only a
+box for pasted CW numbers or barcodes (PB5). Built from main `ddbbb0f` in `/root/cw-famsearch`. No migration, no new permission, no new
+setting, no service rule changed: the ticked items are put in by `Families::bulkAssign`, exactly as a pasted list is. Code:
+`src/Ui/Controller/FamiliesController.php` (`find`, `pick`, the picker's data in `page()`), `src/Ui/Queries.php` (`familyPicks`), views
+`family_bar` (the picker and the folded pasted list), `family_find` (new, the fragment), `family` (passes `pick`), `src/Ui/{Kernel,Words}.php`,
+`public/ui/assets/app.{js,css}`.
+
+**FP1. One picker, in "Add items".** For whoever may add (`families.manage`, the bar's people) while the family is in use, "Add items"
+(the bar's main action, PB5/W11.5, unchanged) opens: "Find items" (one search box), the line that says what was found, "Tick all shown",
+"Untick all" and "N ticked", the items found as a list in its own scrolling box, each with a tick, then "Ticked items" (each with Untick)
+and ONE button, "Put N in this family". Under it, folded, "Paste CW numbers or barcodes": the pasted list of PB5, unchanged (same route,
+form key, words and result). A "drop down" read as a panel that stays open while ticking: a list that shut on every tick would make ticking
+many items slow, the thing the owner asked to end.
+
+**FP2. What the search finds.** `GET /ui/items/families/{id}/find?q=` (`FamiliesController::find`): fewer than 2 characters, nothing.
+Otherwise `Queries::familyPicks` = `Queries::searchSkus` (the item search of the order's product box and the matching pages, SearchText's
+rules: every word, in any order, in the name, brand, line and flavour, case and accents ignored, "20 mg" = "20mg"; a CW number however
+it is written, "CW-000123", "cw 123", "000123", "123"; a barcode by `sku_barcode`'s key; joined items left out, also by their CW number),
+the CW number and the barcode first, then by name, at most `FamiliesController::FIND_LIMIT` = 100 (a display number, as the lists' page
+sizes, PB16; one more is read to know there are more: "Showing the first 100. Type more words to narrow it."). Each item: its name; its
+CW number, brand and stock on hand in our own warehouses (`Families::onHand`); the family it is in now (`Families::ofItems`); "Not sold
+any more" when its card says so (shown, tickable: a family may hold an old item). Cost: the word search is the established one (a scan of
+`sku` in name order on `ix_sku_name` that stops at 101 matches), then three reads by primary key or index for at most 101 items
+(`skus()`, `ofItems`, `onHand`); typing asks at most once per 300 ms. No item list is loaded whole.
+
+**FP3. Not tickable: an item already in a family.** An item in this family says "In this family"; one in another family says "In another
+family: <name>" (with "(switched off)" when that family is off), and its tick is off: `bulkAssign` would skip it (`already_here`,
+`in_other_family`), and moving an item out of another family stays a person's choice on the item's page (PB5). The fragment is
+`family_find` (root `data-fp-fragment`, no layout); a tick there has no `name` (it sends nothing); app.js's one `fetch` (`fragment()`)
+asks it, a path of `/ui/items/families/` with the family's own `/find?` (checked before asking), parsed inert and taken only with its
+marker (`FRAGMENTS`, as By Item's quick match). Who searches: everyone who reads the family (`catalogue.view`, the page's own permission);
+the picker is drawn only for `families.manage`.
+
+**FP4. Putting the ticked items in.** `POST /ui/items/families/{id}/pick` (`families.manage`, CSRF, the picker's own form key: sent twice,
+one change; `FamiliesController::pick`): the ticked items are the form's `pick_<id>` = 1 fields, each once, in the order ticked; their CW
+numbers (`CW-%06d`) are the list given to `Families::bulkAssign`: ONE transaction, audited (`family.bulk_assign`), the person checked
+again, at most `items.family_bulk_max_rows` (PB5, 200), a doubtful item skipped and listed with its reason (an item joined or put in a
+family since the search). The page comes back as after a pasted list: "Put in the family (N)", "Left out (N), with the reason". Nothing
+ticked: 422 `nothing_ticked` ("Nothing was saved: tick at least one item first.") before anything is read; more than the setting: 422
+`too_many_rows` in the picker's own words ("… Untick some and put those in, then tick the rest."), nothing saved; a family switched off
+meanwhile: 422 `family_off`. A refusal opens "Add items" with the ticked items drawn again (`tickedRows()`: their CW numbers and names, at
+most 1,000, the setting's top) and the form guarded as typed (W11.13). Nothing about the paste route changed.
+
+**FP5. Ticks are kept while the words change.** A tick copies the item into the form's ticked list as its hidden field; the list shown is
+replaced by each answer, the ticked list is not, and an item already ticked shows ticked when it is found again. So "ske 10mg", tick,
+"ske 20mg", tick more, then one button. "Untick all" unticks every item (shown or not); "Tick all shown" ticks every item shown that may
+be ticked. An answer asked for before newer words is never drawn; a failed one says so ("The search did not answer. Try again, or paste
+the CW numbers below.") and keeps the ticks. Enter in the search looks the words up at once and never sends the form (a scanner's Enter).
+
+**FP6. The limit in the page.** The form carries `data-max` (`Families::bulkMax`, the setting read when the page is drawn). A tick past it
+is undone and "At most N items at a time. Put the ticked ones in first, then tick more." is said under the tools; "Tick all shown" that
+would pass it ticks nothing and says the same; the button is off at none. The server checks again (FP4).
+
+**FP7. Without the script.** The picker is drawn `hidden` and only app.js shows it (it needs the search); the pasted list is drawn open,
+so without the script (or without `fetch`) "Add items" is the pasted list, as before. With the script the pasted list is folded, unless
+it holds a refused list (`$pasted`: a list brought back, or `empty_list`), and opening "Add items" puts the cursor in the search. The
+unsaved-edits guard (W9.15, W11.10): the picker's form carries `data-unsaved` and `data-leaves` (its search is a field to type); it holds
+something to keep while, and only while, something is ticked (app.js sets and clears `data-dirty` from the ticked list; words typed in
+the search alone are no edit).
+
+**FP8. On a phone (390 px, as every page since 4 Nov).** Shared pieces only (the panel, `.btn`, `.tag`, the label and search field, 44 px
+targets on a phone or touch screen): a row of the list is its whole tap target (at least 44 px, the tick 22 px), names and facts wrap
+anywhere, the list scrolls in its own box (at most 26rem or 55% of the screen), the ticked list in its own (16rem); under 700 px the panel's
+padding is 12 px, the count takes its own line and the button the row's width. Checked by reading the rules, not yet in a real browser at
+390 px (the coordinator's check on staging).
+
+**FP9. Words** (`Words::FAMILY_PICK`, new; `ITEMS_ERROR nothing_ticked`), plain and provisional as PB16's: "Find items", "Tick all shown",
+"Untick all", "N ticked", "Ticked items", "Put N in this family", "In this family", "In another family: …", "Paste CW numbers or barcodes".
+app.js fills the `%s` of the count, the button and Untick's label from the page's own words (`data-ticked-text`, `data-go-text`,
+`data-untick-label`).
+
+**FP10. Tests.** `tests/Integration/UiKernel/FamilyPickerScreensTest.php` (new): the search (every word, a CW number with and without
+"CW", a barcode, the brand, the joined item left out also by its CW number, one letter, nothing found, an unknown family 404, the
+100-item limit said, items in this and in a switched-off other family shown untickable with the name, a viewer may search and has no
+picker, signed out the sign-in page) and the putting in (the hidden form and its words, added and skipped with the reason in the order
+ticked, sent twice done once, nothing ticked, over the setting with the ticks drawn again and nothing saved, viewer, mapper, admin and
+goods in refused, no CSRF token, a switched-off family). `UiUnitTest` (the routes' levels, `FRAGMENTS`), `UiTemplatesTest` (the family's
+guarded forms: 4), `UiSecurityTest` (the two routes need a session, slot ui). The script was run in node on a minimal DOM
+(`runs/fp_js_harness/`, outside the repo, on cw-test: 36 checks, `runs/fp_js.log`).
