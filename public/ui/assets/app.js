@@ -2476,13 +2476,14 @@
     }
   });
 
-  // A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10).
+  // A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP11).
   // The picker is ONE POST form of the family's /pick route, drawn hidden: shown here (without the script, or without fetch, the pasted list
   // under it is the way, open as drawn; here it is folded unless it holds a refused list). Typing (2 letters or more, 300 ms after the last
   // key; at once with Enter, which never sends the form: a scanner's Enter) asks the family's find route (the read-only fragment at
   // data-options) for the items the words name; its list replaces the one shown when it comes, and an answer asked for before newer words is
-  // never drawn. A tick copies the item into the form's ticked list as its hidden field (pick_<id> = 1): the ticks stay while the words
-  // change, and only the ticked list is sent (a tick in the list has no name). Untick there or in the list. "Tick all shown" ticks every item
+  // never drawn. A tick copies the item into the form's ticked list, and the form's ONE field `items` holds the ticked ids in that list's
+  // order (one field however many are ticked: a field each could pass PHP's max_input_vars, FP11): the ticks stay while the words change,
+  // and only `items` is sent (a tick in the list has no name). Untick there or in the list. "Tick all shown" ticks every item
   // shown that may be ticked; "Untick all" unticks every one. At most data-max (Families::bulkMax) are ticked: a tick past it, or a "Tick all
   // shown" that would pass it, is refused with the page's words (data-too-many). The count and the button say how many; the button is off at
   // none. The form holds something to keep (data-dirty: the page's guard asks before another form or a link leaves) while, and only while,
@@ -2499,8 +2500,9 @@
     var all = form.querySelector('button[data-fp-all]');
     var none = form.querySelector('button[data-fp-none]');
     var go = form.querySelector('button[data-fp-go]');
+    var items = form.querySelector('input[type="hidden"][data-fp-items]');
     if (base.indexOf('/ui/items/families/') !== 0 || base.indexOf('/find?') < 0 || !input || !says || !out || !list || !empty || !count || !warn || !all
-      || !none || !go || !window.fetch || !window.DOMParser) {
+      || !none || !go || !items || !window.fetch || !window.DOMParser) {
       return;
     }
     var max = parseInt(form.getAttribute('data-max') || '', 10) || 1;
@@ -2522,9 +2524,12 @@
       }
       out.removeAttribute('aria-busy');
     };
-    // Everything shown follows the ticked list: the count, the button, the empty line, the ticks in the list shown, Tick all shown, and
-    // whether the form holds something to keep.
+    // Everything follows the ticked list: what the form sends, the count, the button, the empty line, the ticks in the list shown, Tick
+    // all shown, and whether the form holds something to keep.
     var redraw = function () {
+      var ids = [];
+      each(list.querySelectorAll('li[data-sku]'), function (li) { ids.push(li.getAttribute('data-sku')); });
+      items.value = ids.join(',');
       count.textContent = fill(word('ticked-text'), n);
       go.textContent = fill(word('go-text'), n);
       go.disabled = n === 0;
@@ -2547,10 +2552,6 @@
       }
       var li = document.createElement('li');
       li.setAttribute('data-sku', id);
-      var field = document.createElement('input');
-      field.type = 'hidden';
-      field.name = 'pick_' + id;
-      field.value = '1';
       var part = function (cls, text) {
         var s = document.createElement('span');
         s.className = cls;
@@ -2563,7 +2564,6 @@
       x.setAttribute('data-fp-untick', '');
       x.setAttribute('aria-label', fill(word('untick-label'), code));
       x.textContent = word('untick-text');
-      li.appendChild(field);
       li.appendChild(part('fp-t-name', name));
       li.appendChild(document.createTextNode(' '));
       li.appendChild(part('fp-t-code', code));
@@ -2633,6 +2633,7 @@
       }
       redraw(); // words typed are no tick: the form holds something to keep only while something is ticked
     });
+    input.addEventListener('change', redraw); // nor when the box is left (the page's marker counts a change as an edit)
     input.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter') {
         return;

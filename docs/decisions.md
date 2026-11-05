@@ -16179,7 +16179,7 @@ empty), so §5.2's completeness could never be met from what the business has ke
   sees a value that matches its baseline); the supplier tests written before 0062 switch them on in `SupplierTestCase::setUp`; `testWithTheDetailSwitchesOffANameIsEnough`
   covers them off.
 
-## A family's "Add items" is a picker with a search and ticks (branch `family-picker`, 5 Nov 2026; FP1-FP10)
+## A family's "Add items" is a picker with a search and ticks (branch `family-picker`, 5 Nov 2026; FP1-FP11)
 
 The owner, 5 Nov 2026, on a family's page (Items › Item groups › a family): "why does it look like this and no search bar. finding and
 adding product like this is going to take ages. i need a drop down with search and multicheck option". Until now "Add items" was only a
@@ -16216,7 +16216,8 @@ marker (`FRAGMENTS`, as By Item's quick match). Who searches: everyone who reads
 the picker is drawn only for `families.manage`.
 
 **FP4. Putting the ticked items in.** `POST /ui/items/families/{id}/pick` (`families.manage`, CSRF, the picker's own form key: sent twice,
-one change; `FamiliesController::pick`): the ticked items are the form's `pick_<id>` = 1 fields, each once, in the order ticked; their CW
+one change; `FamiliesController::pick`): the ticked items are the form's ONE field `items` (their ids, separated by commas, in the order
+ticked; each once; anything else in it left out: FP11); their CW
 numbers (`CW-%06d`) are the list given to `Families::bulkAssign`: ONE transaction, audited (`family.bulk_assign`), the person checked
 again, at most `items.family_bulk_max_rows` (PB5, 200), a doubtful item skipped and listed with its reason (an item joined or put in a
 family since the search). The page comes back as after a pasted list: "Put in the family (N)", "Left out (N), with the reason". Nothing
@@ -16225,7 +16226,7 @@ ticked: 422 `nothing_ticked` ("Nothing was saved: tick at least one item first."
 meanwhile: 422 `family_off`. A refusal opens "Add items" with the ticked items drawn again (`tickedRows()`: their CW numbers and names, at
 most 1,000, the setting's top) and the form guarded as typed (W11.13). Nothing about the paste route changed.
 
-**FP5. Ticks are kept while the words change.** A tick copies the item into the form's ticked list as its hidden field; the list shown is
+**FP5. Ticks are kept while the words change.** A tick copies the item into the form's ticked list (and its id into `items`); the list shown is
 replaced by each answer, the ticked list is not, and an item already ticked shows ticked when it is found again. So "ske 10mg", tick,
 "ske 20mg", tick more, then one button. "Untick all" unticks every item (shown or not); "Tick all shown" ticks every item shown that may
 be ticked. An answer asked for before newer words is never drawn; a failed one says so ("The search did not answer. Try again, or paste
@@ -16258,6 +16259,18 @@ app.js fills the `%s` of the count, the button and Untick's label from the page'
 100-item limit said, items in this and in a switched-off other family shown untickable with the name, a viewer may search and has no
 picker, signed out the sign-in page) and the putting in (the hidden form and its words, added and skipped with the reason in the order
 ticked, sent twice done once, nothing ticked, over the setting with the ticks drawn again and nothing saved, viewer, mapper, admin and
-goods in refused, no CSRF token, a switched-off family). `UiUnitTest` (the routes' levels, `FRAGMENTS`), `UiTemplatesTest` (the family's
-guarded forms: 4), `UiSecurityTest` (the two routes need a session, slot ui). The script was run in node on a minimal DOM
-(`runs/fp_js_harness/`, outside the repo, on cw-test: 36 checks, `runs/fp_js.log`).
+goods in refused, no CSRF token, a switched-off family; 998 ticks in one field, FP11). `UiUnitTest` (the routes' levels, `FRAGMENTS`),
+`UiTemplatesTest` (the family's guarded forms: 4), `UiSecurityTest` (the two routes need a session, slot ui). The script was run in node on
+a minimal DOM (`runs/fp_js_harness/`, outside the repo, on cw-test: 37 checks, `runs/fp_js.log`, `runs/fp_js_fix1.log`).
+
+**FP11. The Codex review of 3047cb7 (`runs/fp_codex.txt`): one MEDIUM, fixed test-first; one more found in the harness.**
+- **MEDIUM: the ticks could pass PHP's field limit.** Each tick was a field of its own (`pick_<id>`); with the bulk setting at its top
+  (1,000), 998 ticks + the token + the key made 1,000 fields, and Kernel refuses such a form whole (400 `form_truncated`, I73: PHP drops
+  the fields past `max_input_vars` without a word) before the ticks could be drawn again. The ticks are now ONE hidden field, `items`
+  (app.js writes it from the ticked list on every change; a refused picker draws it again), so the form has three fields however many are
+  ticked. `testAThousandTicksArriveAsOneField` (the old way's 1,000 fields refused, 998 ticks in one field read whole); the harness's
+  checks of what the form sends (red on 3047cb7: `runs/fp_js_fix1.log`).
+- **The search's `change` left the form "unsaved".** The page's marker (W12.17) counts a field's `change` as an edit; the search box's
+  change on leaving it marked the picker as holding something with nothing ticked, so a link or another form asked first for nothing. The
+  picker redraws on that change too (FP7: something to keep only while something is ticked). Shown red in the harness first
+  (`runs/fp_js_red_change.log`).

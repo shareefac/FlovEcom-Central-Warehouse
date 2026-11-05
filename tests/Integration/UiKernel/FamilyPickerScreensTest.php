@@ -14,7 +14,7 @@ use CW\Ui\Words;
 
 /**
  * A family's "Add items" picker through the real /ui kernel as cw_app (the owner, 5 Nov 2026: "i need a drop down with search and multicheck
- * option"; docs/decisions.md FP1-FP10): the search's choices (a fragment: every word, a CW number however it is written, a barcode; an item
+ * option"; docs/decisions.md FP1-FP11): the search's choices (a fragment: every word, a CW number however it is written, a barcode; an item
  * in a family shown but not tickable, with the family's name; a joined item left out; at most FamiliesController::FIND_LIMIT, said; who may
  * search), and the ticked items put in the family through Families::bulkAssign (added, skipped with the reason, sent twice done once,
  * nothing ticked or more than the bulk setting refused with nothing saved and the ticks drawn again, who may add, the CSRF token, a family
@@ -141,6 +141,38 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
         self::assertStringStartsWith('/ui/login', (string) $nobody->location());
     }
 
+    /**
+     * The Codex review of 3047cb7, MEDIUM (FP11): with the bulk setting at its top (1,000), a field per tick passed PHP's max_input_vars
+     * (998 ticks + the token + the key = 1,000 fields) and Kernel refused the whole form (400 form_truncated) before the ticks could come
+     * back. The ticks are now ONE field: 998 ticks arrive whole and are put through the bulk list (here as items that do not exist, each
+     * left out with its reason), and anything in the field that is not an id is left out.
+     */
+    public function testAThousandTicksArriveAsOneField(): void
+    {
+        $here = (new Families(self::$db))->create($this->staffUser('buyer'), 'Big family')['id'];
+        $path = FamiliesController::PATH . '/' . $here;
+        $web = $this->signIn($this->uiUser('buyer'));
+        $before = self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'items.family_bulk_max_rows'");
+        self::$db->exec("UPDATE app_setting SET value_json = '1000' WHERE setting_key = 'items.family_bulk_max_rows'");
+        try {
+            $form = $this->pickForm($web, $path);
+            $many = range(900001, 900998);
+            $fields = ['csrf' => $form['csrf'], 'form_key' => $form['form_key']];
+            foreach ($many as $id) {
+                $fields['pick_' . $id] = '1';
+            }
+            self::assertSame(1000, count($fields), 'the token, the key and 998 fields: the way of 3047cb7');
+            $old = $web->post($path . '/pick', $fields);
+            self::assertSame([400, 'form_truncated'], [$old->status, $old->errorCode()], 'a field a tick: the whole form refused (Kernel, I73)');
+            $r = $web->post($path . '/pick', ['items' => implode(',', $many) . ',x,0,-3, 900001'] + $form);
+            self::assertSame(200, $r->status, ($r->errorCode() ?? '') . ' ' . $r->describe());
+            self::assertStringContainsString(sprintf(Words::FAMILY['result_skipped'], number_format(998)), $r->text(), 'every one read, each once; the rest left out');
+            self::assertStringContainsString(Words::FAMILY_SKIP['not_found'], $r->text());
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = ? WHERE setting_key = 'items.family_bulk_max_rows'", [$before]);
+        }
+    }
+
     public function testTheTickedItemsArePutInTheFamilyThroughTheBulkListAndTheRefusalsKeepTheTicks(): void
     {
         $fam = new Families(self::$db);
@@ -161,6 +193,7 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
             . ' and @data-unsaved="1" and @data-leaves="1" and not(@data-dirty)]';
         self::assertSame(1, $xp->query($picker)->length, 'the picker: one POST form, hidden until the script shows it');
         self::assertSame(1, $xp->query($picker . '//input[@type="search" and @data-fp-q and not(@name)]')->length, 'its search sends nothing');
+        self::assertSame(1, $xp->query($picker . '//input[@type="hidden" and @name="items" and @value="" and @data-fp-items]')->length, 'the ticks\' one field');
         self::assertSame([sprintf(Words::FAMILY_PICK['button'], 0)], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array($xp->query($picker . '//button[@type="submit" and @disabled and contains(@class, "primary")]'))), 'its one button, off at none ticked');
         self::assertSame(1, $xp->query('//details[contains(@class, "family-add")]//details[contains(@class, "fp-paste") and @open and @data-fold]'
@@ -168,7 +201,9 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
 
         // Three ticked: two put in, the one in another family left out with its name; ONE bulk change, audited.
         $form = $this->pickForm($web, $path);
-        $sent = $form + ['pick_' . $a => '1', 'pick_' . $c => '1', 'pick_' . $b => '1'];
+        self::assertSame(['csrf', 'form_key', 'items'], array_keys($form), 'its fields: the token, its key and ONE field of the ticks (FP11)');
+        self::assertSame('', $form['items'], 'nothing ticked yet');
+        $sent = ['items' => "{$a},{$c},{$b}"] + $form;
         $r = $web->post($path . '/pick', $sent);
         self::assertSame(200, $r->status, ($r->errorCode() ?? '') . ' ' . $r->describe());
         self::assertStringContainsString(sprintf(Words::FAMILY['result_added'], 2), $r->text());
@@ -202,7 +237,7 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
             $page = $web->get($path);
             self::assertSame(1, self::xp($page)->query('//form[@action="' . $path . '/pick" and @data-max="2" and @data-too-many="' . sprintf(Words::FAMILY_PICK['too_many'], 2) . '"]')->length,
                 'the limit the script refuses more than, and its words');
-            $r = $web->post($path . '/pick', $page->form($path . '/pick') + ['pick_' . $x => '1', 'pick_' . $y => '1', 'pick_' . $z => '1']);
+            $r = $web->post($path . '/pick', ['items' => "{$x},{$y},{$z}"] + $page->form($path . '/pick'));
             self::assertSame(422, $r->status, $r->describe());
             self::assertSame('too_many_rows', $r->errorCode());
             self::assertStringContainsString(sprintf(Words::FAMILY_PICK['too_many_sent'], 2), $r->text());
@@ -211,9 +246,9 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
             $back = '//details[contains(@class, "family-add") and @open]//form[@action="' . $path . '/pick" and @data-dirty="1"]';
             self::assertSame([(string) $x, (string) $y, (string) $z], array_map(static fn (\DOMElement $li): string => $li->getAttribute('data-sku'),
                 iterator_to_array($rx->query($back . '//ul[@data-fp-ticked]/li'))), 'the ticks drawn again, in the order sent');
-            self::assertSame(['pick_' . $x => '1', 'pick_' . $y => '1', 'pick_' . $z => '1'],
-                array_filter($r->form($path . '/pick'), static fn (string $k): bool => str_starts_with($k, 'pick_'), ARRAY_FILTER_USE_KEY), 'as the form\'s fields');
+            self::assertSame("{$x},{$y},{$z}", $r->form($path . '/pick')['items'] ?? null, 'as the form\'s one field');
             self::assertSame('Legend X', trim((string) $rx->evaluate('string(' . $back . '//ul[@data-fp-ticked]/li[1]/span[@class="fp-t-name"])')));
+            self::assertSame(0, $rx->query($back . '//ul[@data-fp-ticked]//input')->length, 'a ticked row has no field of its own');
             self::assertSame(sprintf(Words::FAMILY_PICK['button'], 3), trim((string) $rx->evaluate('string(' . $back . '//button[@type="submit"])')));
             self::assertSame(1, $rx->query('//form[@data-dirty]')->length, 'that form alone');
             self::assertSame(1, $rx->query('//details[contains(@class, "fp-paste") and @data-fold]')->length, 'the pasted list stays folded');
@@ -226,11 +261,11 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
         $form = $this->pickForm($web, $path);
         foreach (['viewer', 'mapper', 'admin', 'goods_in'] as $role) {
             $them = $this->signIn($this->uiUser($role));
-            $no = $them->post($path . '/pick', ['csrf' => $this->token($them), 'form_key' => str_repeat('a', 32), 'pick_' . $x => '1']);
+            $no = $them->post($path . '/pick', ['csrf' => $this->token($them), 'form_key' => str_repeat('a', 32), 'items' => (string) $x]);
             self::assertSame(403, $no->status, "{$role} POST pick");
             self::assertFalse($them->get($path)->hasForm($path . '/pick'), "{$role}: no picker");
         }
-        $noToken = $web->post($path . '/pick', ['form_key' => $form['form_key'], 'pick_' . $x => '1']);
+        $noToken = $web->post($path . '/pick', ['form_key' => $form['form_key'], 'items' => (string) $x]);
         self::assertSame(403, $noToken->status);
         self::assertSame('csrf', $noToken->errorCode());
         self::assertSame([], Families::ofItems(self::$db, [$x]), 'nothing saved by a refused POST');
@@ -238,7 +273,7 @@ final class FamilyPickerScreensTest extends KernelUiTestCase
         // A family switched off takes no new items: no picker, and a picker sent from an older page is refused.
         $fam->setActive($buyer, $here, 1, false);
         self::assertFalse($web->get($path)->hasForm($path . '/pick'));
-        $off = $web->post($path . '/pick', $form + ['pick_' . $x => '1']);
+        $off = $web->post($path . '/pick', ['items' => (string) $x] + $form);
         self::assertSame(422, $off->status, $off->describe());
         self::assertSame('family_off', $off->errorCode());
         self::assertSame([], Families::ofItems(self::$db, [$x]));

@@ -3,8 +3,9 @@
 // In use, the main one is "Add items" (its form opens under the bar, open at first while the family is empty or after a refused list); under
 // More, rename it and switch it off. Switched off, switching it on again is the main one and renaming is under More. Every form posts where it
 // did before. A refused rename opens More and Rename again, a refused list Add items, with what was typed, guarded as typed (W11.13).
-// "Add items" is the picker (the owner, 5 Nov 2026; docs/decisions.md FP1-FP10): a search, its items each with a tick, the ticked ones and
-// "Put N in this family", ONE form (/pick) that app.js shows and drives (without the script it stays hidden); the pasted list is the fold
+// "Add items" is the picker (the owner, 5 Nov 2026; docs/decisions.md FP1-FP11): a search, its items each with a tick, the ticked ones and
+// "Put N in this family", ONE form (/pick) that app.js shows and drives (without the script it stays hidden), its ticks ONE field (`items`,
+// the ids in the order ticked: a field per tick could pass PHP's max_input_vars, FP11); the pasted list is the fold
 // under it, open without the script (app.js folds it when it shows the picker, unless it holds a refused list). A refused picker opens Add
 // items with its ticked items drawn again.
 $renamed = $typed['name'] !== $f['name'];
@@ -48,6 +49,7 @@ $pasted = $listed || $errorCode === 'empty_list';
       <form class="fp" method="post" action="<?= $u('/ui/items/families/' . $f['id'] . '/pick') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1"<?php if ($ticked !== []): ?> data-dirty="1"<?php endif; ?> hidden data-fp data-options="<?= $e($pick['find']) ?>" data-max="<?= $e($pick['max']) ?>" data-ticked-text="<?= $word('FAMILY_PICK', 'ticked') ?>" data-go-text="<?= $word('FAMILY_PICK', 'button') ?>" data-too-many="<?= $say('FAMILY_PICK', 'too_many', $pick['max']) ?>" data-short="<?= $word('FAMILY_PICK', 'short') ?>" data-loading="<?= $word('FAMILY_PICK', 'loading') ?>" data-failed="<?= $word('FAMILY_PICK', 'failed') ?>" data-untick-text="<?= $word('FAMILY_PICK', 'untick') ?>" data-untick-label="<?= $word('FAMILY_PICK', 'untick_label') ?>">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="form_key" value="<?= $e($pick['key']) ?>">
+        <input type="hidden" name="items" value="<?= $e($pick['items']) ?>" data-fp-items>
         <label for="fp-q"><?= $word('FAMILY_PICK', 'find') ?></label>
         <input id="fp-q" type="search" maxlength="100" autocomplete="off" spellcheck="false" enterkeyhint="search" placeholder="<?= $word('FAMILY_PICK', 'find_hint') ?>" aria-describedby="fp-says" data-fp-q>
         <p class="fp-says muted" id="fp-says" aria-live="polite" data-fp-says></p>
@@ -61,7 +63,7 @@ $pasted = $listed || $errorCode === 'empty_list';
         <p class="doc-label fp-h"><?= $word('FAMILY_PICK', 'ticked_list') ?></p>
         <ul class="plain fp-ticked" data-fp-ticked>
 <?php foreach ($ticked as $t): ?>
-          <li data-sku="<?= $e($t['id']) ?>"><input type="hidden" name="pick_<?= $e($t['id']) ?>" value="1"><span class="fp-t-name"><?= $e($t['name']) ?></span> <span class="fp-t-code"><?= $e($t['code']) ?></span> <button type="button" class="btn sm ghost" aria-label="<?= $say('FAMILY_PICK', 'untick_label', $t['code']) ?>" data-fp-untick><?= $word('FAMILY_PICK', 'untick') ?></button></li>
+          <li data-sku="<?= $e($t['id']) ?>"><span class="fp-t-name"><?= $e($t['name']) ?></span> <span class="fp-t-code"><?= $e($t['code']) ?></span> <button type="button" class="btn sm ghost" aria-label="<?= $say('FAMILY_PICK', 'untick_label', $t['code']) ?>" data-fp-untick><?= $word('FAMILY_PICK', 'untick') ?></button></li>
 <?php endforeach; ?>
         </ul>
         <p class="fp-none muted" data-fp-empty<?php if ($ticked !== []): ?> hidden<?php endif; ?>><?= $word('FAMILY_PICK', 'ticked_none') ?></p>

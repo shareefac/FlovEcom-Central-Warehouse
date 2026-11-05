@@ -23,7 +23,7 @@ use CW\Ui\Words;
  * family box (put in, move, take out). Every change goes through CW\Items\Families, which checks the person again (families.manage,
  * never admin). Everyone with catalogue.view reads.
  *
- * The family page's picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10):
+ * The family page's picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP11):
  * "Add items" finds items by words, CW number or barcode (find(): a fragment app.js draws, read only), ticks them across searches and
  * puts the ticked ones in at once (pick(): their CW numbers as Families::bulkAssign's list, as the pasted list is). The pasted list
  * stays, folded under it.
@@ -169,10 +169,10 @@ final class FamiliesController
     }
 
     /**
-     * The picker's ticked items put in the family (docs/decisions.md FP4): their CW numbers are the list of Families::bulkAssign, as a
-     * pasted list's are (one transaction, audited, at most bulkMax(), a doubtful one skipped and listed with its reason), under the
-     * picker's own form key (sent twice: done once). Nothing ticked: 422 nothing_ticked, before anything is read. The page again with
-     * what was put in and what was left out; a refusal draws the ticked items back in the picker, open.
+     * The picker's ticked items (its `items` field, ticked()) put in the family (docs/decisions.md FP4): their CW numbers are the list of
+     * Families::bulkAssign, as a pasted list's are (one transaction, audited, at most bulkMax(), a doubtful one skipped and listed with
+     * its reason), under the picker's own form key (sent twice: done once). Nothing ticked: 422 nothing_ticked, before anything is read.
+     * The page again with what was put in and what was left out; a refusal draws the ticked items back in the picker, open.
      */
     public function pick(Context $ctx): HtmlResponse
     {
@@ -250,6 +250,7 @@ final class FamiliesController
         $can = $ctx->me()->can('families.manage');
         $changed = (string) $f['updated_at'] !== (string) $f['created_at'];
         $active = (int) $f['is_active'] === 1;
+        $ticked = $can && $active && $picked !== null ? self::tickedRows($ctx, $picked) : [];
         return $ctx->page('family', [
             // The record page (wave w11, docs/decisions.md W11.5): the paper card's party (the family and its note) and facts, the figures strip.
             'party' => ['label' => Words::FAMILY['party'], 'name' => (string) $f['name'], 'href' => null, 'lines' => $f['note'] === null ? [] : [(string) $f['note']]],
@@ -276,12 +277,13 @@ final class FamiliesController
             'next_link' => $members['page'] < $members['pages'] ? Html::url(self::PATH . '/' . $id, ['page' => $members['page'] + 1]) : null,
             'canManage' => $can,
             'addKey' => $can ? FormOnce::newKey() : null,
-            // The picker (docs/decisions.md FP1-FP10): for whoever may add, while the family is in use. Its words for app.js are the page's.
+            // The picker (docs/decisions.md FP1-FP11): for whoever may add, while the family is in use. Its words for app.js are the page's.
             'pick' => $can && $active ? [
                 'key' => FormOnce::newKey(),
                 'max' => Families::bulkMax($ctx->db),
                 'find' => self::PATH . '/' . $id . '/find?',
-                'ticked' => $picked === null ? [] : self::tickedRows($ctx, $picked),
+                'ticked' => $ticked,
+                'items' => implode(',', array_column($ticked, 'id')),
             ] : null,
             'typed' => ['name' => $typed['name'] ?? (string) $f['name'], 'list' => $typed['list'] ?? ''],
             'result' => $result === null ? null : [
@@ -298,16 +300,20 @@ final class FamiliesController
     }
 
     /**
-     * The items the picker sent (`pick_<id>` = 1, the hidden fields of its ticked list), each once, in the order they were ticked.
+     * The items the picker sent: its ONE field `items`, their ids separated by commas in the order they were ticked (app.js keeps it with
+     * the ticked list), each once. One field whatever the number ticked: a field per item could pass PHP's max_input_vars, and Kernel
+     * refuses such a form whole (400 form_truncated) before the ticks could be drawn again (the Codex review of 3047cb7, FP11). Anything
+     * that is not an id is left out.
      *
      * @return list<int>
      */
     private static function ticked(Context $ctx): array
     {
         $ids = [];
-        foreach ($ctx->req->fieldsMatching('/^pick_[1-9][0-9]{0,9}$/D') as $name => $v) {
-            if ($v === '1') {
-                $ids[(int) substr($name, 5)] = true;
+        foreach (explode(',', $ctx->req->field('items') ?? '') as $part) {
+            $part = trim($part);
+            if (preg_match('/^[1-9][0-9]{0,9}$/D', $part) === 1) {
+                $ids[(int) $part] = true;
             }
         }
         return array_keys($ids);

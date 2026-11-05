@@ -10893,7 +10893,7 @@ final class Words
     ];
 
     /**
-     * A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP10):
+     * A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP11):
      * the search, its items each with a tick, the ticked items and the one button, the pasted list folded under it. `%s` in ticked, button and
      * untick_label is filled by app.js as the ticks change.
      */

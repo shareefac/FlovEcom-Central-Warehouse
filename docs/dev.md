@@ -1019,7 +1019,7 @@ on main's shared parts and W8's / W9's (`Html::groups`, `td.c-next`, `form.doc-d
 | `/ui/items/new` | `item_new` (+ `doc_bar`) | 3 one-page form: what it is (name, brand, barcode first), the folds `details#new-legal` and `#new-buying` (`legalOpen`, `buyingOpen`), the bar |
 | `/ui/items/new?show=all`, `?show=waiting` | `items_by_hand` | 1 board by check state (`HandMadeController::listPage()`); the check in `td.c-next`; a refused check comes back here |
 | `/ui/items/families` | `families` | 1 board (In use, Switched off: Show = `off`); the new family's drawer in two columns |
-| a family `/ui/items/families/{id}` | `family` (+ `family_bar`; the picker's fragment `family_find`) | 2 record page: status block, bar (Add items: the picker of `docs/decisions.md` FP1-FP10, `GET {id}/find` and `POST {id}/pick`, with the pasted list folded under it; More: Rename, Switch off), strip, the paper card with its items as the lines |
+| a family `/ui/items/families/{id}` | `family` (+ `family_bar`; the picker's fragment `family_find`) | 2 record page: status block, bar (Add items: the picker of `docs/decisions.md` FP1-FP11, `GET {id}/find` and `POST {id}/pick`, with the pasted list folded under it; More: Rename, Switch off), strip, the paper card with its items as the lines |
 | `/ui/items/packs` | `packs` | 1 board (In use, Switched off); a row opens the pack item; the single, what to check and the actions in `td.c-next` |
 | `/ui/items/packs/links` | `pack_links` | 1 board (To check, Nothing to check); a row opens the variant |
 | `/ui/items/barcodes` | `barcode_reviews` | 4 inbox on the `.ap-*` classes of Approvals: groups by reason, `?open=<id>`, one decision (`form#ap-answer`, the button names it) |
