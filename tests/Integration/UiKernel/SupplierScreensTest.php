@@ -54,6 +54,7 @@ final class SupplierScreensTest extends KernelUiTestCase
 
     public function testABuyerCreatesAndAsksAndASecondPersonApproves(): void
     {
+        self::supplierNeeds(true); // written before 0062: every detail needed (SD3)
         $buyerUser = $this->uiUser('buyer');
         $buyer = $this->signIn($buyerUser);
         $list = $buyer->get('/ui/purchasing/suppliers');
