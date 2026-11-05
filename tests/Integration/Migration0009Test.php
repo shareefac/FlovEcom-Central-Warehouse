@@ -48,10 +48,10 @@ final class Migration0009Test extends IntegrationTestCase
 
     public function testTheSeeds(): void
     {
-        // The 12 keys 0009 seeds (later migrations add po.* (0010) and reorder.* (0011)); 0013 moves the nine company.* keys to
-        // company_profile (Migration0013Test checks them on a schema migrated up to 0012, before the move).
+        // The 12 keys 0009 seeds (later migrations add po.* (0010), reorder.* (0011) and suppliers.need_* (0062)); 0013 moves the nine
+        // company.* keys to company_profile (Migration0013Test checks them on a schema migrated up to 0012, before the move).
         $settings = self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting "
-            . "WHERE SUBSTRING_INDEX(setting_key, '.', 1) IN ('company', 'costs', 'suppliers') ORDER BY setting_key");
+            . "WHERE SUBSTRING_INDEX(setting_key, '.', 1) IN ('company', 'costs', 'suppliers') AND setting_key NOT LIKE 'suppliers.need\\_%' ORDER BY setting_key");
         self::assertCount(3, $settings);
         $by = array_column($settings, null, 'setting_key');
         self::assertSame(['costs.site_writeback', 'suppliers.approval_due_days', 'suppliers.change_review'], array_keys($by));
