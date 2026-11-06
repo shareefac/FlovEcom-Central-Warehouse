@@ -216,8 +216,8 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('ARRIVALS', 'clock_bst', '01:30'), $r->text(), 'the first 01:30 shown');
         self::assertStringContainsString(Words::say('ARRIVALS', 'clock_gmt', '01:30'), $r->text(), 'the second 01:30 shown');
         // The box is a field of the editor's own form since KG32 (its main button saves and times in one request): the time typed is kept there.
-        $again = $r->form($path . '/lines', true);
-        self::assertSame($typed, $again['submit_at'], 'the time typed is kept');
+        $again = $r->form($path . '/lines', true); // its date and its time, each a field since KG33
+        self::assertSame($typed, ($again['submit_date'] ?? '') . 'T' . ($again['submit_time'] ?? ''), 'the time typed is kept');
         foreach (['BST' => '00:30', 'GMT' => '01:30'] as $clock => $utc) {
             $f = $desk->get($path)->form($path . '/schedule');
             $f['submit_at'] = $typed;

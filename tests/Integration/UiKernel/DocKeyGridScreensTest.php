@@ -654,9 +654,11 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
     }
 
     /**
-     * The supplier invoice's posting time (KG27, KG32; the Codex review of 04421ad, findings 1 and 2): a field of the editor's own form. The
-     * main button with a time typed saves the draft and sets the time in ONE request (pack J's rules); a time gone is refused under the field
-     * and nothing is saved or made final; "Make final now" is post_now (the time left aside). A new invoice has it too (S3, finding 9).
+     * The supplier invoice's posting time (KG27, KG32, KG33; the Codex reviews of 04421ad and 48dc75b): its date and its time, two fields of
+     * the editor's own form. The main button with both saves the draft and sets the time in ONE request (pack J's rules); a time gone, half a
+     * time (the date cleared, the time left) or one that is not one is refused under them, checked before anything is applied, and nothing
+     * is saved or made final; only both empty make it final now; "Make final now" is post_now. Kept through a version conflict and "+ Add new
+     * supplier". A new invoice has them too.
      */
     public function testThePostingTimeIsTheTimedRoute(): void
     {
@@ -670,47 +672,77 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $path = "/ui/purchasing/invoices/{$doc->id}";
         $page = $web->get($path);
         self::assertSame(200, $page->status, self::why($page));
-        self::assertSame(1, self::nodes($page, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")]//input[@name="submit_at"][not(@form)][@data-kg-posting]'
-            . '[@data-date-words="' . Words::DOC_GRID['posting_date'] . '"][@data-time-words="' . Words::DOC_GRID['posting_time'] . '"]'), 'a field of the editor\'s own form');
+        self::assertSame(1, self::nodes($page, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")]//input[@type="date"][@name="submit_date"][not(@form)]'
+            . '[@aria-label="' . Words::DOC_GRID['posting_date'] . '"]/following-sibling::input[@type="time"][@name="submit_time"][@aria-label="' . Words::DOC_GRID['posting_time'] . '"]'),
+            'two fields of the editor\'s own form');
         self::assertSame(1, self::nodes($page, '//div[contains(@class, "kg-head-bar")]/button[@value="post"][@data-kg-final][contains(@class, "primary")]'), 'make final: the main button');
         $status = static fn (): string => (string) self::$db->value('SELECT status FROM document WHERE id = ?', [$doc->id]);
-        // A time gone, with the main button: refused under the field, the time kept, nothing saved, never made final.
+        $nothing = function (string $what) use ($status, $doc): void {
+            self::assertSame(['draft', null, null], [$status(), self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]),
+                self::$db->value('SELECT note FROM document WHERE id = ?', [$doc->id])], $what . ': nothing saved, nothing final');
+        };
+        $london = new \DateTimeZone('Europe/London');
+        $tomorrow = (new \DateTimeImmutable('tomorrow', $london))->format('Y-m-d');
+        // A time gone, with the main button: refused under the fields, what was typed kept.
         $form = $page->form($path . '/lines', true);
-        $form['submit_at'] = (new \DateTimeImmutable('yesterday 10:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
-        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'typed with it'] + $form);
+        $yesterday = (new \DateTimeImmutable('yesterday', $london))->format('Y-m-d');
+        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'typed with it', 'submit_date' => $yesterday, 'submit_time' => '10:00'] + $form);
         self::assertSame(422, $r->status, self::why($r));
         self::assertSame([Words::ARRIVAL_ERROR['bad_submit_at']], self::texts($r, '//fieldset[contains(@class, "kg-posting")]//p[@id="kg-posting-error"]'));
-        self::assertSame(1, self::nodes($r, '//input[@name="submit_at"][@aria-invalid="true"][@aria-describedby="kg-posting-error"][@value="' . $form['submit_at'] . '"]'));
-        self::assertSame(['draft', null, null], [$status(), self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]),
-            self::$db->value('SELECT note FROM document WHERE id = ?', [$doc->id])], 'nothing saved, nothing final');
+        self::assertSame(1, self::nodes($r, '//input[@name="submit_date"][@aria-invalid="true"][@aria-describedby="kg-posting-error"][@value="' . $yesterday . '"]'));
+        self::assertSame(1, self::nodes($r, '//input[@name="submit_time"][@value="10:00"]'));
+        $nothing('a time gone');
+        // Half a time (the date cleared, the time left), or a date that is not one: refused, never made final now (finding 1).
+        foreach ([['', '18:00', 'partial_submit_at'], [$tomorrow, '', 'partial_submit_at'], ['2026-02-30', '18:00', 'bad_submit_at'], [$tomorrow, '25:00', 'bad_submit_at']] as [$d, $t, $code]) {
+            $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'typed with it', 'submit_date' => $d, 'submit_time' => $t] + $form);
+            self::assertSame(422, $r->status, "{$d} {$t}: " . self::why($r));
+            self::assertSame([Words::ARRIVAL_ERROR[$code]], self::texts($r, '//p[@id="kg-posting-error"]'), "{$d} {$t}");
+            $nothing("{$d} {$t}");
+        }
+        // Checked before anything is applied (finding 5: no file stored for a refused time): a time gone is said before a line's refusal.
+        $r = $web->post($path . '/lines', ['action' => 'post', 'p_1' => 'two', 'submit_date' => $yesterday, 'submit_time' => '10:00'] + $form);
+        self::assertSame([Words::ARRIVAL_ERROR['bad_submit_at']], self::texts($r, '//p[@id="kg-posting-error"]'), 'the time first');
+        // A version conflict keeps the date, the time and the clock typed (finding 2): the retry is never "make final now".
+        $si->saveHeader(Caller::staff($desk['id']), $doc->id, (int) $form['version'], ['note' => 'changed in another tab']);
+        $r = $web->post($path . '/lines', ['action' => 'post', 'submit_date' => $tomorrow, 'submit_time' => '18:00', 'submit_clock' => 'GMT'] + $form);
+        self::assertSame(409, $r->status, self::why($r));
+        self::assertSame([$tomorrow, '18:00'], [$r->form($path . '/lines', true)['submit_date'] ?? null, $r->form($path . '/lines', true)['submit_time'] ?? null]);
+        self::assertSame('draft', $status());
         // A time still to come, with the main button: saved and timed in one request; the head says when its stock goes to the websites.
         $form = $web->get($path)->form($path . '/lines', true);
-        $form['submit_at'] = (new \DateTimeImmutable('tomorrow 18:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
-        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'saved with the time'] + $form);
+        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'saved with the time', 'submit_date' => $tomorrow, 'submit_time' => '18:00'] + $form);
         self::assertSame($path . '?notice=timed#lines', $r->location(), self::why($r));
         self::assertSame(['draft', 'saved with the time'], [$status(), self::$db->value('SELECT note FROM document WHERE id = ?', [$doc->id])]);
         self::assertNotNull(self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]));
         $page = $web->follow($r);
+        self::assertSame([$tomorrow, '18:00'], [$page->form($path . '/lines', true)['submit_date'], $page->form($path . '/lines', true)['submit_time']], 'its time shown');
         self::assertStringStartsWith((string) strstr(Words::DOC_GRID['goes_live'], '%s', true), implode(' ', self::texts($page, '//header[contains(@class, "page-head")]//span[contains(@class, "chip")]')));
         self::assertSame([Words::DOC_GRID['final_now'], Words::DOC_GRID['take_off']], self::texts($page, '//div[contains(@class, "kg-head-bar")]//details[contains(@class, "kg-head-more")]//button'));
         self::assertSame(['post_now'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
             iterator_to_array((new \DOMXPath($page->dom()))->query('//details[contains(@class, "kg-head-more")]//button[@form="pi-form"]'))), '"Make final now": the time left aside');
         // The timed route itself still works (pack J).
         $form = $page->form($path . '/schedule');
-        $form['submit_at'] = (new \DateTimeImmutable('tomorrow 19:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
+        $form['submit_at'] = $tomorrow . 'T19:00';
         self::assertSame(303, $web->post($path . '/schedule', $form)->status);
 
-        // A new invoice: the posting fields from the start; Save and make final with a time: the draft made and timed, never final.
+        // A new invoice: the posting fields from the start; Save and make final with both: the draft made and timed, never final.
         $new = $web->get('/ui/purchasing/invoices/new', ['supplier' => (string) $s['id']]);
-        self::assertSame(1, self::nodes($new, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")][not(@hidden)]//input[@name="submit_at"]'));
+        self::assertSame(1, self::nodes($new, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")][not(@hidden)]//input[@name="submit_date"]'));
         $form = $new->form('/ui/purchasing/invoices', true);
-        $form['submit_at'] = (new \DateTimeImmutable('tomorrow 20:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
-        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'POST-NEW', 'action' => 'post',
-            DocGrid::FIELD => self::grid([['sku' => $sku, 'q' => '2', 'p' => '1.00']])] + $form);
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'POST-NEW', 'action' => 'post', 'submit_date' => $tomorrow,
+            'submit_time' => '20:00', DocGrid::FIELD => self::grid([['sku' => $sku, 'q' => '2', 'p' => '1.00']])] + $form);
         $id = self::idOf($r->location(), '/ui/purchasing/invoices');
         self::assertStringContainsString('notice=timed', (string) $r->location(), self::why($r));
         self::assertSame(['draft', 1], [(string) self::$db->value('SELECT status FROM document WHERE id = ?', [$id]),
             (int) self::$db->value('SELECT COUNT(*) FROM supplier_invoice WHERE document_id = ? AND submit_at IS NOT NULL', [$id])]);
+        // "+ Add new supplier" on a new invoice carries the posting time back (finding 3).
+        $manager = $this->signIn($this->uiUser('purchasing_manager'));
+        $form = $manager->get('/ui/purchasing/invoices/new')->form('/ui/purchasing/invoices', true);
+        $r = $manager->post('/ui/purchasing/invoices', ['action' => 'new_supplier', 'new_supplier_name' => 'Posting Carry Ltd', 'submit_date' => $tomorrow, 'submit_time' => '21:00']
+            + $form);
+        self::assertSame(303, $r->status, self::why($r));
+        $back = $manager->follow($r);
+        self::assertSame([$tomorrow, '21:00'], [$back->form('/ui/purchasing/invoices', true)['submit_date'] ?? null, $back->form('/ui/purchasing/invoices', true)['submit_time'] ?? null]);
     }
 
     /** The site's keys (KG13-KG20): the panel on every page; Ctrl+B's new document where the person may make one; the lists' rows; the PDF. */

@@ -13038,6 +13038,7 @@ final class Words
     public const ARRIVAL_ERROR = [
         'bad_submit_at' => 'Choose a date and time still to come, or make it final now.',
         'ambiguous_submit_at' => 'That time comes twice that night: the clocks go back an hour. Choose which one below.',
+        'partial_submit_at' => 'Type both the posting date and the time (UK), or clear both to make it final now.', // KG33
         'bad_mode' => 'Choose how its goods come in.',
         'bad_stamp' => 'Choose the stamp from the list.',
         'stamp_answer_required' => 'Say which duty stamp is on the pack: booked as received, nobody checks it when it arrives.',

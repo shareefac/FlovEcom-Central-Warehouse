@@ -454,14 +454,16 @@ final class InvoicesController
      * chooses (`submit_clock` BST or GMT; 422 ambiguous_submit_at until then); a time that does not happen is refused.
      */
     /**
-     * The posting time typed in the invoice editor's own form (docs/decisions.md KG32: its main button with a time saves the draft and sets
-     * the time in one request, as this route sets it): null when none is typed; else the moment, as this route reads it (a time that comes
-     * twice needs `submit_clock`: 422 ambiguous_submit_at; one that does not happen: 422 bad_submit_at). The service refuses a time gone.
+     * The posting time typed in the invoice editor's own form (docs/decisions.md KG32, KG33: its main button with a time saves the draft and
+     * sets the time in one request, as this route sets it): its date and its time, each its own field (`submit_date`, `submit_time`; an
+     * older form's one `submit_at` is read when neither is sent). Null only when BOTH are empty (made final now); one without the other is
+     * refused (422 partial_submit_at), as is a date or time that is not one, or a moment that does not happen (422 bad_submit_at); a time
+     * that comes twice needs `submit_clock` (422 ambiguous_submit_at). The service refuses a time gone, as the caller does first.
      */
     public static function postingMoment(UiRequest $req): ?\DateTimeImmutable
     {
-        $typed = trim((string) ($req->field('submit_at') ?? ''));
-        if ($typed === '') {
+        $typed = self::postingTyped($req);
+        if ($typed === null) {
             return null;
         }
         $moments = UkTime::moments($typed);
@@ -473,6 +475,30 @@ final class InvoicesController
             throw new CwException('ambiguous_submit_at', Words::ARRIVAL_ERROR['ambiguous_submit_at'], 422, ['field' => 'submit_clock']);
         }
         return count($moments) > 1 ? $moments[$clock] : reset($moments);
+    }
+
+    /** The posting date and time sent, as one UK `Y-m-d\TH:i` (null: none, both empty); 422 partial / bad as postingMoment() says. */
+    public static function postingTyped(UiRequest $req): ?string
+    {
+        $date = $req->field('submit_date');
+        $time = $req->field('submit_time');
+        if ($date === null && $time === null) {
+            $at = trim((string) ($req->field('submit_at') ?? ''));
+            return $at === '' ? null : $at;
+        }
+        $date = trim((string) $date);
+        $time = trim((string) $time);
+        if ($date === '' && $time === '') {
+            return null;
+        }
+        if ($date === '' || $time === '') {
+            throw new CwException('partial_submit_at', Words::ARRIVAL_ERROR['partial_submit_at'], 422, ['field' => 'submit_date']);
+        }
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $d) !== 1 || !checkdate((int) $d[2], (int) $d[3], (int) $d[1])
+            || preg_match('/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/D', $time) !== 1) {
+            throw new CwException('bad_submit_at', Words::ARRIVAL_ERROR['bad_submit_at'], 422, ['field' => 'submit_date']);
+        }
+        return $date . 'T' . substr($time, 0, 5);
     }
 
     public function schedule(Context $ctx, string $kind): HtmlResponse

@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG32)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG33)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16678,6 +16678,27 @@ Tests: `DocKeyGridScreensTest` (the posting time in one request, past and future
 removal without its boxes; the conflict mark; prices with £), the node harness (the Schedule label after an in-place save, the form's own
 post, the hold, the conflict's plain post, the hidden fields, a removal's boxes off and on, Enter / Alt+C in a line's item box, the warning
 after Undo, the supplier's name while asked).
+
+**KG33. The posting time's edge cases (the Codex re-check of `48dc75b`: 10 of 11 fixed, 5 new, all about the posting time).**
+- *Its date and its time are two fields* (finding 1, HIGH: a date cleared with the time left, or a date the browser does not take, was
+  sent as no time = "make final now"). `submit_date` and `submit_time` (UK) are fields of the editor's form, drawn by the server (no
+  script needed); `InvoicesController::postingTyped` reads them: BOTH empty is the only "make final now"; one without the other is refused
+  (422 `partial_submit_at`, "Type both the posting date and the time, or clear both to make it final now."), a date or time that is not one
+  too (`bad_submit_at`), under the fields, nothing saved or made final. An older form's one `submit_at` is still read when neither is sent;
+  the timed route `/schedule` is unchanged (pack J).
+- *Kept through a version conflict* (finding 2, HIGH): the conflict's page keeps the date, the time and the clock chosen with the new
+  lines, so a retry (and the plain post after a conflict met by a save without reload) is never "make final now" for want of the time; the
+  clock choice drawn again, ticked, while the time still comes twice.
+- *Kept through "+ Add new supplier"* (finding 3): `submit_date`, `submit_time`, `submit_clock` are CARRIED back to the new invoice.
+- *The whole page waits for a save on its way* (finding 4): boxes read-only, and lists, files and ticks switched off (after the form's data
+  was taken); fill down, a choice in any dropdown (the supplier's too: `kb.busy`), "+ New item", "Add multiple", removals and Undo do
+  nothing until the answer is in place.
+- *A time gone is refused before anything is applied* (finding 5: a file sent with it was stored, then the refusal rolled the rows back and
+  left its bytes): the editor checks the time is still to come before the save, its file or its lines; the service checks it again when
+  it sets it.
+Tests: `DocKeyGridScreensTest::testThePostingTimeIsTheTimedRoute` (half a time, a date that is not one, the time before a line's refusal,
+a conflict keeping the time, "+ Add new supplier" carrying it), `ArrivalScreensTest` (the time kept is the two fields), the node harness
+(the label for half a time, Ctrl+D, the supplier and the lists during a save).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,

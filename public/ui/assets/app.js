@@ -893,7 +893,7 @@
   // Option makes other characters); on a Mac Cmd or Ctrl is the Ctrl of a key and Option its Alt, and the page shows Cmd and Option
   // (kbd[data-mac]). No key a browser keeps is taken (Ctrl+N, T, W, Tab; Ctrl+Shift+N, T, Delete; Alt+D, E, F; the F keys), nor a key the
   // dropdown or a box took first (ev.defaultPrevented). Each key's words are the panel's (Words::KEYS); docs/dev.md has the table.
-  var kb = { grid: null, boxes: [], row: -1 };
+  var kb = { grid: null, boxes: [], row: -1, busy: false };
   var kbNav = window.navigator || {};
   var kbMac = /mac|iphone|ipad/i.test((kbNav.userAgentData && kbNav.userAgentData.platform) || kbNav.platform || '');
   if (kbMac) {
@@ -1206,6 +1206,10 @@
         return at;
       },
       choose: function (li) {
+        if (kb.busy) {
+          input.value = shown();
+          return; // a save is on its way: the supplier stays as it was sent (the Codex re-check of 48dc75b, finding 4)
+        }
         if (li.getAttribute('data-add') === '1') {
           var typed = input.value === shown() ? '' : input.value.trim();
           input.value = shown();
@@ -2216,6 +2220,9 @@
       }
       send.addEventListener('click', function (ev) {
         ev.preventDefault();
+        if (sending) {
+          return; // a save is on its way (hold): the item is made after it
+        }
         var data = new window.FormData();
         var csrf = form.querySelector('input[name="csrf"]');
         data.append('csrf', csrf ? csrf.value : '');
@@ -2377,6 +2384,9 @@
           }
         });
         sgo.addEventListener('click', function () {
+          if (sending) {
+            return; // a save is on its way (hold): the ticks stay for after it
+          }
           var first = null;
           each(picked, function (it) {
             var tr = addLine(it, '1', it.price, true);
@@ -2579,10 +2589,23 @@
     // While a save is on its way the page's boxes are read-only (and no line is added or removed): what the answer puts in place is what
     // was sent, never a later edit lost under it (the Codex review of 04421ad, finding 5).
     var held = [];
+    // Boxes are made read-only (the cursor stays); what read-only does not stop (a list, a file, a tick, a choice) is switched off, after
+    // the form's data was taken (the Codex re-check of 48dc75b, finding 4). Every change by the script (a choice, fill down, a new item, add
+    // several, a removal, Undo, the supplier) waits for the answer too (sending, kb.busy).
+    var disabledHere = [];
     var hold = function (on) {
+      kb.busy = on;
       if (on) {
-        each(form.querySelectorAll('input, textarea'), function (el) {
-          if (el.type !== 'hidden' && !el.readOnly) {
+        each(form.querySelectorAll('input, textarea, select'), function (el) {
+          if (el.type === 'hidden') {
+            return;
+          }
+          if (el.tagName === 'SELECT' || /^(file|checkbox|radio)$/.test(el.type || '')) {
+            if (!el.disabled) {
+              el.disabled = true;
+              disabledHere.push(el);
+            }
+          } else if (!el.readOnly) {
             el.readOnly = true;
             held.push(el);
           }
@@ -2591,7 +2614,9 @@
         return;
       }
       each(held, function (el) { el.readOnly = false; });
+      each(disabledHere, function (el) { el.disabled = false; });
       held = [];
+      disabledHere = [];
       form.removeAttribute('aria-busy');
     };
     var ajaxSave = function (by, then) {
@@ -2703,6 +2728,9 @@
       // Ctrl+D (the "fill down" of a spreadsheet): the line above copied into this one: in the empty line a new line, in a line its item and
       // figures (a saved line's item: replaced in its place, as a change of its item box); the cursor in its Qty box.
       fillDown: function (from) {
+        if (sending) {
+          return; // a save is on its way (hold)
+        }
         var tr = from.closest('tr');
         var all = lines();
         var at = tr === empty ? all.length : all.indexOf(tr);
@@ -3130,41 +3158,19 @@
     }
   });
 
-  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27, KG32; pack J's "make it final later"): the one UK
-  // date-and-time box of the editor's form (submit_at) shown as the date and the time side by side (Words from the page). The SERVER
-  // decides what the main button does: with a time typed it saves the draft and sets the time (a time gone is refused under the field),
-  // never "make final now"; so the script only says it: the button reads "Schedule" while a time is typed, and the line under the grid
-  // says when the stock goes to the websites. The button is found each time (a save without reload draws the head again, "kg-swapped").
-  each(document.querySelectorAll('input[data-kg-posting]'), function (at) {
-    var label = at.closest('label');
-    var finalButton = function () { return document.querySelector('button[data-kg-final]'); };
-    if (!label) {
+  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27, KG32, KG33; pack J's "make it final later"): two
+  // fields of the editor's form (submit_date, submit_time, UK). The SERVER decides what the main button does: both typed, it saves the draft
+  // and sets the time (a time gone refused under them), never "make final now"; one without the other is refused too; only both empty make
+  // it final now. So the script only says it: the button reads "Schedule" while either is typed, and the line under them says when the
+  // stock goes to the websites. The button is found each time (a save without reload draws the head again, "kg-swapped").
+  each(document.querySelectorAll('input[data-kg-posting-date]'), function (date) {
+    var set = date.closest('fieldset');
+    var time = set ? set.querySelector('input[data-kg-posting-time]') : null;
+    if (!time) {
       return;
     }
-    // One field of the details' grid, as the demo the owner approved draws it (KG31): its words above, the date and the time side by side.
-    var field = document.createElement('div');
-    field.className = 'kg-pair-field';
-    var words = document.createElement('span');
-    words.className = 'kg-label';
-    words.textContent = at.getAttribute('data-pair-words') || '';
-    var pair = document.createElement('div');
-    pair.className = 'kg-pair';
-    field.appendChild(words);
-    field.appendChild(pair);
-    label.parentNode.insertBefore(field, label);
-    var part = function (type, name, value) {
-      var i = document.createElement('input');
-      i.type = type;
-      i.value = value;
-      i.setAttribute('aria-label', name);
-      pair.appendChild(i);
-      return i;
-    };
-    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(at.value);
-    var date = part('date', at.getAttribute('data-date-words') || '', m ? m[1] : '');
-    var time = part('time', at.getAttribute('data-time-words') || '', m ? m[2] : '');
-    label.hidden = true;
-    var sched = label.parentNode.querySelector('[data-kg-sched]');
+    var sched = set.querySelector('[data-kg-sched]');
+    var finalButton = function () { return document.querySelector('button[data-kg-final]'); };
     var london = function () {
       try {
         var p = new window.Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
@@ -3176,19 +3182,18 @@
         return '';
       }
     };
-    var grid = document.querySelector('table[data-kg-grid]');
-    var later = function () { return at.value !== '' && at.value > london(); };
+    var typed = function () { return date.value !== '' && time.value !== '' ? date.value + 'T' + time.value.slice(0, 5) : ''; };
+    var later = function () { var t = typed(); return t !== '' && t > london(); };
     var show = function () {
-      at.value = date.value !== '' && time.value !== '' ? date.value + 'T' + time.value : '';
       var b = finalButton();
       if (b) {
-        b.textContent = at.value !== '' ? (grid ? grid.getAttribute('data-kg-schedule') || '' : '') : b.getAttribute('data-kg-final-words') || b.textContent;
+        b.textContent = date.value !== '' || time.value !== '' ? (sched ? sched.getAttribute('data-schedule') || '' : '') : b.getAttribute('data-kg-final-words') || b.textContent;
       }
       if (sched) {
         // "Stock goes to the websites: 07 Nov 2026, 18:00 (UK). Until then it stays a draft." while the time is still to come.
         var shown = '';
         try {
-          shown = new Date(date.value + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) + ', ' + time.value;
+          shown = new Date(date.value + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) + ', ' + time.value.slice(0, 5);
         } catch (e) {
           shown = date.value + ' ' + time.value;
         }

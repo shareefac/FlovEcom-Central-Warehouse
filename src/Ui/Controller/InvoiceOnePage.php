@@ -48,7 +48,8 @@ final class InvoiceOnePage
     public const HEADER = ['invoice_number', 'invoice_date', 'due_date', 'note', 'net_total', 'vat_total'];
     /** What "+ Add new supplier" carries back to the new page (what was typed before it), besides the supplier itself. */
     public const CARRIED = ['invoice_number', 'invoice_date', 'due_date', 'note', 'net_total', 'vat_total', 'from', 'q', 'packs', 'price', 'item_name', 'item_brand',
-        'item_barcode', 'item_code', 'item_upp', 'item_price', 'charge_amount', 'charge_description', 'charge_kind']; // the charge: the Codex review of e1db3a4, M3 (PV23)
+        'item_barcode', 'item_code', 'item_upp', 'item_price', 'charge_amount', 'charge_description', 'charge_kind', // the charge: the Codex review of e1db3a4, M3 (PV23)
+        'submit_date', 'submit_time', 'submit_clock']; // the posting time (the Codex re-check of 48dc75b, finding 3; KG33)
     /** The fields an Add that found several items or none did not save: they come back as typed on the draft's page. */
     public const UNSAVED = ['item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp', 'item_price', 'item_anyway'];
     /** The one form's actions (the default, Enter, is Add: the form's first button). */
@@ -264,7 +265,9 @@ final class InvoiceOnePage
                 // The draft changed meanwhile (docs/decisions.md KG6): its lines as they are now, the new lines typed kept (they name their
                 // item); the edits of the saved lines are not, as those lines may have changed under them.
                 return self::draftPage($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409),
-                    ['typed' => array_intersect_key($typed, [DocGrid::FIELD => 1])]);
+                    // The posting date, time and clock typed are kept too (the Codex re-check of 48dc75b, finding 2): a retry never
+                    // finalises now for want of the time.
+                    ['typed' => array_intersect_key($typed, [DocGrid::FIELD => 1, 'submit_date' => 1, 'submit_time' => 1, 'submit_clock' => 1, 'submit_at' => 1])]);
             }
             return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys),
                 'gridBadText' => InvoicesController::plain($e)]);
@@ -333,7 +336,54 @@ final class InvoiceOnePage
      */
     private static function timed(UiRequest $req, array $ask): ?\DateTimeImmutable
     {
-        return $ask['action'] === 'post' && $req->field('action') !== 'post_now' ? InvoicesController::postingMoment($req) : null;
+        if ($ask['action'] !== 'post' || $req->field('action') === 'post_now') {
+            return null;
+        }
+        $at = InvoicesController::postingMoment($req);
+        if ($at !== null && $at <= new \DateTimeImmutable('now')) {
+            // Before anything is applied or a file stored (the Codex re-check of 48dc75b, finding 5); the service checks it again when it sets it.
+            throw new CwException('bad_submit_at', Words::ARRIVAL_ERROR['bad_submit_at'], 422, ['field' => 'submit_date']);
+        }
+        return $at;
+    }
+
+    /**
+     * The posting date, time and clock choice as the form sent them (null: none sent): [date, time, clock], an older form's `submit_at`
+     * read as its date and time.
+     *
+     * @param array<string, mixed> $typed
+     * @return array{date: string, time: string, clock: string}|null
+     */
+    private static function postingKept(array $typed): ?array
+    {
+        $str = static fn (string $k): ?string => is_string($typed[$k] ?? null) ? mb_substr(trim((string) $typed[$k]), 0, 16) : null;
+        $date = $str('submit_date');
+        $time = $str('submit_time');
+        if ($date === null && $time === null && ($at = $str('submit_at')) !== null && $at !== '') {
+            [$date, $time] = array_pad(explode('T', $at, 2), 2, '');
+        }
+        return $date === null && $time === null ? null : ['date' => (string) $date, 'time' => (string) $time, 'clock' => (string) ($str('submit_clock') ?? '')];
+    }
+
+    /**
+     * The choice of the hour the clocks go back: the one a refusal asks for, else the one the person made (kept through a conflict or a new
+     * supplier, KG33) while the time typed still comes twice; `chosen` the choice made.
+     *
+     * @param array{typed: string, time: string}|null $asked
+     * @param array{date: string, time: string, clock: string}|null $kept
+     * @return array{typed: string, time: string, chosen: string}|null
+     */
+    private static function clockKept(?array $asked, ?array $kept): ?array
+    {
+        $chosen = $kept['clock'] ?? '';
+        if ($asked !== null) {
+            return $asked + ['chosen' => $chosen];
+        }
+        if ($kept === null || $chosen === '' || $kept['date'] === '' || $kept['time'] === '') {
+            return null;
+        }
+        $typed = $kept['date'] . 'T' . $kept['time'];
+        return count(\CW\Arrivals\UkTime::moments($typed)) > 1 ? ['typed' => $typed, 'time' => $kept['time'], 'chosen' => $chosen] : null;
     }
 
     /** The save part of what was asked: "Save and make final" saves first, as "Save as draft" does (makeFinal() posts after). @param array<string, mixed> $ask @return array<string, mixed> */
@@ -711,7 +761,11 @@ final class InvoiceOnePage
     private function refused(Context $ctx, ?int $id, CwException $e, array $ask, array $extra): HtmlResponse
     {
         $extra += ['q' => $ask['q'], 'packs' => (string) ($ctx->req->field('packs') ?? '1'), 'price' => (string) ($ctx->req->field('price') ?? '')];
-        $typedAt = trim((string) ($ctx->req->field('submit_at') ?? ''));
+        try {
+            $typedAt = (string) (InvoicesController::postingTyped($ctx->req) ?? '');
+        } catch (CwException) {
+            $typedAt = '';
+        }
         if ($e->errorCode === 'ambiguous_submit_at' && $typedAt !== '') {
             $extra += ['clock' => ['typed' => $typedAt, 'time' => substr($typedAt, 11, 5)]]; // the hour the clocks go back: both shown (KG32)
         }
@@ -884,8 +938,9 @@ final class InvoiceOnePage
             'problemsOfError' => $error !== null && is_array($error->detail['problems'] ?? null) ? array_map(static fn (array $p): string => InvoicesController::problemText($p),
                 $error->detail['problems']) : [],
             'arrival' => $rec === null || $doc === null ? null : ArrivalsController::invoiceBox($ctx, $rec, $doc, $editable, $lines), // pack J (PJ6, PJ9, PJ10)
-            'clockChoice' => $extra['clock'] ?? null,
-            'postingTyped' => is_string($typed['submit_at'] ?? null) ? mb_substr((string) $typed['submit_at'], 0, 16) : null, // kept after a refusal (KG32)
+            'clockChoice' => self::clockKept($extra['clock'] ?? null, self::postingKept($typed)),
+            // The posting date, time and clock as typed: kept after a refusal, a version conflict and "+ Add new supplier" (KG32, KG33).
+            'postingTyped' => self::postingKept($typed),
             'ruleWaits' => $doc !== null && self::ruleWaits($ctx),
             'typedStop' => (string) ($extra['stop'] ?? ''),
             'k' => Words::INVOICE_KIND['invoice'],
