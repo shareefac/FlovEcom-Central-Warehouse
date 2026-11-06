@@ -100,7 +100,7 @@ final class PurchaseOrderFixesScreensTest extends KernelUiTestCase
         self::assertSame(200, $ed->status, $ed->describe());
         self::assertTrue($ed->hasForm('/lines'), 'the editor');
         // PO on one page (PX9): no limit note on the page any more; the Confirm button says what it does.
-        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[@value="approve"][normalize-space(.)="'
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('(//form[contains(@action, "/lines")]//button | //button[@form="po-form"])[@value="approve"][normalize-space(.)="'
             . Words::PO_ONE['confirm'] . '"]')->length);
         self::assertStringNotContainsString('Over  (before VAT)', $ed->text());
     }

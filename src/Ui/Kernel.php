@@ -679,6 +679,8 @@ final class Kernel
         $r->add('GET', '/ui/purchasing/orders/new', 'doc.PO.post', $orders->newPage(...));
         $r->add('GET', '/ui/purchasing/orders/products', 'doc.PO.post', $orders->products(...));
         $r->add('POST', '/ui/purchasing/orders', 'doc.PO.post', $orders->create(...));
+        // The lines' grid's "+ Add new item" by the script (docs/decisions.md KG21): the item and its pack, never the order; items.create inside.
+        $r->add('POST', \CW\Ui\Controller\PoAddNew::NEW_ITEM['po'], 'doc.PO.post', static fn (Context $ctx): HtmlResponse => \CW\Ui\Controller\PoAddNew::newItemLine($ctx, 'po'));
         $r->add('GET', '/ui/purchasing/orders/{id}', 'purchasing.view', $orders->show(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines', 'doc.PO.post', $orders->lines(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines/import', 'doc.PO.post', $orders->import(...));

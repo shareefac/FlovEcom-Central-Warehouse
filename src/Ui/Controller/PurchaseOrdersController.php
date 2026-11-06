@@ -19,6 +19,7 @@ use CW\PurchaseOrders\PurchaseOrderPdf;
 use CW\PurchaseOrders\PurchaseOrders;
 use CW\Suppliers\Suppliers;
 use CW\Ui\Context;
+use CW\Ui\DocGrid;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -294,6 +295,7 @@ final class PurchaseOrdersController
                 });
                 return FormOnce::redirect($r);
             }
+            $new = DocGrid::read($req->field(DocGrid::FIELD), PurchaseOrders::MAX_LINES);
             if ($sid === null) {
                 throw new CwException('need_supplier', Words::PO_ONE['need_supplier'], 422, ['field' => 'supplier_id']);
             }
@@ -301,12 +303,18 @@ final class PurchaseOrdersController
                 throw new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $ask['q']), 422);
             }
             if ($ask['action'] === 'add' && $ask['si'] === null && $ask['sku'] === null && $ask['q'] === '') {
-                throw new CwException('need_product', Words::PO_ONE['need_product'], 422, ['field' => 'q']);
+                if ($new === []) {
+                    throw new CwException('need_product', Words::PO_ONE['need_product'], 422, ['field' => 'q']);
+                }
+                $ask['action'] = 'save'; // Enter in a field of the page with lines in the grid: they are kept (KG4)
             }
             $header = self::header($req, false);
-            $lines = self::withCharge($req, []);
+            // The grid's new lines (docs/decisions.md KG4), then the delivery charge: saved with the draft in its one transaction.
+            [$lines, $keys] = self::gridLines($ctx->db, [], [], $new, []);
+            $lines = self::withCharge($req, $lines);
             $r = FormOnce::run($ctx, 'ui.po.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $lines, $ask): OpResult {
                 $svc = $this->service($ctx);
+                $lines = $svc->moveLines(0, $sid, $lines); // a line picked before the supplier box changed: the chosen supplier's (KG30)
                 $d = $svc->createDraft($ctx->caller(), $sid, []);
                 $res = $this->apply($ctx, $svc, $d->id, $d->version, $header, $lines, $ask);
                 if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
@@ -317,7 +325,8 @@ final class PurchaseOrdersController
                 return OpResult::of(303, ['result' => $status, 'document_id' => $d->id, 'redirect' => self::after($d->id, $status)]);
             });
         } catch (CwException $e) {
-            $extra = ['typed' => $req->post, 'q' => $ask['q'], 'packs' => $req->field('packs') ?? '1', 'formKey' => PoAddNew::keyAgain($ctx, $e)];
+            $extra = ['typed' => $req->post, 'q' => $ask['q'], 'packs' => $req->field('packs') ?? '1', 'formKey' => PoAddNew::keyAgain($ctx, $e),
+                'gridBad' => DocGrid::rowOf($e, $keys ?? []), 'gridBadText' => self::plain($e)];
             return match (true) {
                 $e->errorCode === 'one_page_choices' => $this->newOrderPage($ctx, 200, null, null, ['choices' => $e->detail['choices'] ?? []] + $extra),
                 $e->errorCode === 'one_page_not_found' => $this->newOrderPage($ctx, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $ask['q']), 422), null,
@@ -355,16 +364,18 @@ final class PurchaseOrdersController
         $si = $r['supplier_item'] ?? null;
         return ['sku_id' => (int) $r['sku_id'], 'sku_code' => (string) ($s['code'] ?? ''), 'name' => (string) ($s['name'] ?? ''), 'brand' => $s['brand'] ?? null,
             'supplier_item_id' => $si === null ? null : (int) $si['id'], 'units_per_pack' => (int) $r['units_per_pack'], 'supplier_code' => $si['supplier_code'] ?? null,
-            'purchase_unit' => (string) $r['purchase_unit']];
+            'purchase_unit' => (string) $r['purchase_unit'], 'last_pack_price' => $si['last_pack_price'] ?? null];
     }
 
     /**
      * One choice of the product box: the box's words for it (its name, its CW number, its pack when it is set up: what app.js compares), its
      * two lines (the name;
-     * the CW number, the brand and how this supplier sells it) and what Add sends (its supplier item, else the item).
+     * the CW number, the brand and how this supplier sells it) and what Add sends (its supplier item, else the item). For the lines' grid
+     * (docs/decisions.md KG2), what fills a line in place: the item's name and CW number, the pack and its items, their code and the
+     * supplier's last price for that pack (none: ''); the server stays the authority on the save.
      *
      * @param array<string, mixed> $c a resolve() choice
-     * @return array{label: string, name: string, meta: string, si: string, sku: string}
+     * @return array{label: string, name: string, meta: string, si: string, sku: string, code: string, pack: string, upp: string, their: string, price: string}
      */
     public static function productChoice(array $c): array
     {
@@ -375,9 +386,13 @@ final class PurchaseOrdersController
         // The box's words: the name and the CW number, and for one of this supplier's supplies its pack, so that two packs of one product
         // never share their words (the Codex review of bd26fc3, finding 1; one supply a pack: uq_supplier_item_pack).
         $label = $name . ' · ' . $c['sku_code'] . ($si === null ? '' : ' · ' . self::pack((string) $c['purchase_unit'], (int) $c['units_per_pack']));
+        $upp = max(1, (int) ($c['units_per_pack'] ?? 1)); // an item not set up: 1, or the units a case's barcode stands for (resolve()'s pack_of)
+        $last = $c['last_pack_price'] ?? null;
         return ['label' => $label, 'name' => $name,
             'meta' => implode(' · ', array_filter([(string) $c['sku_code'], (string) ($c['brand'] ?? ''), $supply], static fn (string $v): bool => $v !== '')),
-            'si' => $si === null ? '' : (string) $si, 'sku' => $si === null ? (string) $c['sku_id'] : ''];
+            'si' => $si === null ? '' : (string) $si, 'sku' => $si === null ? (string) $c['sku_id'] : '', 'code' => (string) $c['sku_code'],
+            'pack' => self::pack($si === null ? ($upp > 1 ? 'case' : 'each') : (string) $c['purchase_unit'], $upp), 'upp' => (string) $upp,
+            'their' => $si === null ? '' : (string) ($c['supplier_code'] ?? ''), 'price' => $si === null || $last === null ? '' : PoMath::price((string) $last)];
     }
 
     /** The fields "+ Add new supplier" carries back to the new page (what was typed before it), besides the supplier itself. */
@@ -531,7 +546,7 @@ final class PurchaseOrdersController
      * @param array<string, mixed> $header
      * @param list<array<string, mixed>> $lines
      * @param array{action: string, q: string, packs: int, si: ?int, sku: ?int} $ask
-     * @return array{status: string, document: Document, choices?: list<array<string, mixed>>}
+     * @return array{status: string, document: Document, choices?: list<array<string, mixed>>, unpriced?: int}
      */
     private function apply(Context $ctx, PurchaseOrders $svc, int $id, int $version, array $header, array $lines, array $ask): array
     {
@@ -546,7 +561,13 @@ final class PurchaseOrdersController
                 array_diff_key($header, ['supplier_id' => 1]), $lines);
             return ['status' => 'supplier_added', 'document' => $r['document']];
         }
+        $from = (int) $ctx->db->value('SELECT supplier_id FROM purchase_order WHERE document_id = ?', [$id]);
         $doc = $svc->saveDraft($caller, $id, $version, $header, $lines);
+        // Another supplier (docs/decisions.md KG30): a save says so, and once how many lines it does not sell (lines of an item alone).
+        $saved = UiRequest::id((string) ($header['supplier_id'] ?? '')) !== null && (int) $header['supplier_id'] !== $from
+            ? ['status' => 'supplier_changed', 'document' => $doc, 'unpriced' => (int) $ctx->db->value("SELECT COUNT(*) FROM po_line WHERE document_id = ? AND kind = 'item' "
+                . 'AND supplier_item_id IS NULL', [$id])]
+            : ['status' => 'saved', 'document' => $doc];
         switch ($ask['action']) {
             case 'approve':
                 // Confirm sits in the one form, so what is approved is what the buyer sees, typed edits included; a refused approval saves nothing.
@@ -564,16 +585,17 @@ final class PurchaseOrdersController
                     $code = $ask['sku'] !== null ? (string) ($ctx->db->value('SELECT code FROM sku WHERE id = ?', [$ask['sku']]) ?? '') : $ask['q'];
                     return $svc->addLine($caller, $id, $doc->version, $code, $ask['packs']);
                 }
-                return ['status' => 'saved', 'document' => $doc]; // Enter with nothing to add saves the table, as before
+                return $saved; // Enter with nothing to add saves the table, as before
             default:
-                return ['status' => 'saved', 'document' => $doc];
+                return $saved;
         }
     }
 
     /** Where a done form leads: the draft's page with its notice (at the scan box, after anything but a confirmation or a new supplier). */
-    private static function after(int $id, string $status): string
+    private static function after(int $id, string $status, ?int $unpriced = null): string
     {
-        return Html::url('/ui/purchasing/orders/' . $id, ['notice' => $status]) . (in_array($status, ['approved', 'submitted', 'supplier_added'], true) ? '' : '#scan');
+        return Html::url('/ui/purchasing/orders/' . $id, ['notice' => $status] + ($status === 'supplier_changed' ? ['unpriced' => (int) $unpriced] : []))
+            . (in_array($status, ['approved', 'submitted', 'supplier_added'], true) ? '' : '#scan');
     }
 
     /**
@@ -642,7 +664,9 @@ final class PurchaseOrdersController
         $me = $ctx->me();
         $typed = $extra['typed'] ?? [];
         $text = static fn (string $k, string $default = ''): string => is_string($typed[$k] ?? null) ? trim((string) $typed[$k]) : $default;
-        $fixed = $lineCount > 0;
+        // The supplier box on a new order and on a draft alike (the owner, 6 Nov 2026: "also in draft and new easily supplier change
+        // option"; docs/decisions.md KG30): another supplier moves the lines in the same save (PurchaseOrders::saveDraft).
+        $fixed = false;
         $same = is_array($extra['itemSame'] ?? null) ? array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'code' => (string) $s['code'], 'name' => (string) $s['name']],
             $extra['itemSame']) : null;
         $other = isset($extra['itemOther']) ? $ctx->db->one('SELECT id, code, name FROM sku WHERE id = ?', [(int) $extra['itemOther']]) : null;
@@ -657,7 +681,8 @@ final class PurchaseOrdersController
             'formKey' => (string) ($extra['formKey'] ?? FormOnce::newKey()),
             'supplierFixed' => $fixed,
             'supplierId' => $supplierId,
-            'supplierChoices' => $fixed ? [] : self::supplierChoices($ctx->db),
+            'supplierChoices' => $fixed ? [] : self::supplierChoices($ctx->db, $supplierId),
+            'unpriced' => $doc === null ? null : self::unpriced($ctx, $supplierId),
             'canAddSupplier' => !$fixed && $me->can('suppliers.manage'),
             'askSupplier' => Words::askToAdd('suppliers.manage'),
             'supplierError' => $supplierError,
@@ -676,7 +701,30 @@ final class PurchaseOrdersController
             'choices' => $extra['choices'] ?? null,
             'q' => (string) ($extra['q'] ?? ''),
             'packs' => (string) ($extra['packs'] ?? '1'),
+            // The lines' grid (docs/decisions.md KG): the new lines typed and the lines removed (drawn again after a refusal), the row a
+            // refusal is about, the order's limit; the VAT the script works the totals out with (each code's rate and words; a new line's
+            // code: the supplier's, else the setting, as the service sets it), the server's figures win on the save.
+            'grid' => DocGrid::view($ctx->db, $typed, PurchaseOrders::MAX_LINES, 'line_%d_remove', $extra['gridBad'] ?? null, $extra['gridBadText'] ?? null),
+            'gridVat' => self::gridVat($ctx, $supplierId),
         ];
+    }
+
+    /**
+     * The VAT the grid's totals are worked out with in the page (docs/decisions.md KG3): every code's rate and words, and the code a new line
+     * and the delivery charge take: the supplier's own when it is in use, else the setting po.default_vat_code (PurchaseOrders' rule).
+     *
+     * @return array{rates: array<string, array{rate: string, label: string}>, code: string}
+     */
+    private static function gridVat(Context $ctx, ?int $supplierId): array
+    {
+        $rates = [];
+        $active = [];
+        foreach ($ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code') as $v) {
+            $rates[(string) $v['code']] = ['rate' => (string) $v['rate_percent'], 'label' => (string) $v['label']];
+            $active[(string) $v['code']] = (int) $v['is_active'] === 1;
+        }
+        $own = $supplierId === null ? '' : (string) ($ctx->db->value('SELECT default_vat_code FROM supplier WHERE id = ?', [$supplierId]) ?? '');
+        return ['rates' => $rates, 'code' => ($active[$own] ?? false) ? $own : (string) $ctx->settings()->get('po.default_vat_code')];
     }
 
     /**
@@ -725,9 +773,9 @@ final class PurchaseOrdersController
      * The suppliers an order may be for (not stopped), as the supplier's box offers them: the name, and for one not usable yet its state
      * ("Elux (not approved yet)" in the plain select; the script's list shows the state on the choice's second line).
      *
-     * @return list<array{id: int, name: string, label: string, meta: string}>
+     * @return list<array{id: int, name: string, label: string, meta: string, vat: string}> (vat: the supplier's own VAT code, for the grid's totals)
      */
-    public static function supplierChoices(Db $db): array
+    public static function supplierChoices(Db $db, ?int $keep = null): array
     {
         return array_map(static function (array $s): array {
             $state = match ((string) $s['status']) {
@@ -736,8 +784,22 @@ final class PurchaseOrdersController
                 default => '',
             };
             return ['id' => (int) $s['id'], 'name' => (string) $s['name'], 'label' => $state === '' ? (string) $s['name'] : Words::say('PO_ONE', 'supplier_option', (string) $s['name'], $state),
-                'meta' => $state === '' ? '' : mb_strtoupper(mb_substr($state, 0, 1)) . mb_substr($state, 1)];
-        }, $db->all("SELECT id, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id"));
+                'meta' => $state === '' ? '' : mb_strtoupper(mb_substr($state, 0, 1)) . mb_substr($state, 1), 'vat' => (string) ($s['default_vat_code'] ?? '')];
+        }, $db->all("SELECT id, name, status, default_vat_code FROM supplier WHERE status <> 'inactive' OR id = ? ORDER BY name, id", [$keep ?? 0])); // a draft's own, always
+    }
+
+    /**
+     * Right after the supplier of a draft changed (notice supplier_changed, docs/decisions.md KG30), once: "N lines have no price from X
+     * yet" (the lines the new supplier does not sell, counted by the save: `unpriced` of the address); null otherwise or for none.
+     */
+    public static function unpriced(Context $ctx, ?int $supplierId): ?string
+    {
+        $n = $ctx->req->param('notice') === 'supplier_changed' ? UiRequest::id($ctx->req->param('unpriced')) : null;
+        if ($n === null || $supplierId === null) {
+            return null;
+        }
+        $name = (string) ($ctx->db->value('SELECT name FROM supplier WHERE id = ?', [$supplierId]) ?? '');
+        return $n === 1 ? Words::say('DOC_GRID', 'unpriced_one', $name) : Words::say('DOC_GRID', 'unpriced_many', number_format(min($n, 99999)), $name);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -853,13 +915,24 @@ final class PurchaseOrdersController
         $q = $ask['q'];
         $kept = ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1'];
         $remove = UiRequest::id($req->field('remove_line'));
+        $keys = []; // each line's row on the page, in the order the lines go to the service (DocGrid::rowOf)
+        $new = [];
         // The draft's lines as the form edited them, read and checked when the work is done: for a "+ Add new" inside FormOnce, so the same
-        // form sent again is answered by its first answer, never refused by the line it added (the Codex review of bd26fc3, finding 3).
-        $edited = function () use ($svc, $id, $req, $editable, $count, $remove): array {
+        // form sent again is answered by its first answer, never refused by the line it added (the Codex review of bd26fc3, finding 3). The
+        // grid's new lines follow the saved ones, then the delivery charge (docs/decisions.md KG4): one list, one save.
+        $edited = function () use ($svc, $id, $req, $editable, $count, $remove, &$keys, &$new, $ctx): array {
             $current = $svc->lines($id);
-            return self::withCharge($req, $editable ? self::editedLines($req, $current, $count, $remove) : $current);
+            if ($editable) {
+                $lines = self::editedLines($req, $current, $count, $remove, $keys);
+            } else {
+                $lines = $current;
+                $keys = array_map(static fn (int $i): string => 'line:' . ($i + 1), array_keys($current));
+            }
+            [$lines, $keys] = self::gridLines($ctx->db, $lines, $keys, $new, $editable ? DocGrid::removedLines($req->post, 'line_%d_remove') : []);
+            return self::withCharge($req, $lines);
         };
         try {
+            $new = DocGrid::read($req->field(DocGrid::FIELD), PurchaseOrders::MAX_LINES);
             $header = self::header($req, true);
             if ($ask['action'] === 'approve' && $q !== '') {
                 return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $q), 422), null, $kept);
@@ -873,16 +946,41 @@ final class PurchaseOrdersController
                 });
                 return FormOnce::redirect($r);
             }
+            if ($new !== []) {
+                // New lines from the grid (docs/decisions.md KG5): the save adds them, so it runs through FormOnce as well as the version: the
+                // same form sent again (a double click, the back button) is answered by its first answer and adds nothing twice. An Add that
+                // finds several products or none leaves nothing saved (the page shows them with every line kept), as on the new page.
+                $r = FormOnce::run($ctx, 'ui.po.grid', ['id' => $id] + self::request($req), function (Db $db) use ($ctx, $svc, $id, $version, $header, $edited, $ask, $remove): OpResult {
+                    $res = $this->apply($ctx, $svc, $id, $version, $header, $edited(), $ask);
+                    if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
+                        throw new CwException('one_page_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? []]);
+                    }
+                    return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id,
+                        'redirect' => self::after($id, $res['status'] === 'saved' && $remove !== null ? 'removed' : $res['status'], $res['unpriced'] ?? null)]);
+                });
+                return FormOnce::redirect($r);
+            }
             $lines = $edited();
             $result = $ctx->db->transaction(fn (): array => $this->apply($ctx, $svc, $id, $version, $header, $lines, $ask));
         } catch (CwException $e) {
+            $grid = ['gridBad' => DocGrid::rowOf($e, $keys), 'gridBadText' => self::plain($e)];
             if ($e->errorCode === 'version_conflict') {
-                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409));
+                // The draft changed meanwhile (docs/decisions.md KG6): its lines as they are now, and the new lines typed kept (they name their
+                // product); the edits of the saved lines are not, as those lines may have changed under them.
+                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409), null,
+                    ['typed' => array_intersect_key($typed, [DocGrid::FIELD => 1])]);
+            }
+            if ($e->errorCode === 'one_page_choices') {
+                return $this->page($ctx, $id, 200, null, null, ['choices' => $e->detail['choices'] ?? []] + $kept + ['formKey' => PoAddNew::keyAgain($ctx, $e)]);
+            }
+            if ($e->errorCode === 'one_page_not_found') {
+                // Nothing was saved with it (FormOnce rolled the save back): the words say only what was not found.
+                return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('STOCK_ERROR', 'not_found', $q), 422), null, $kept + ['formKey' => PoAddNew::keyAgain($ctx, $e)]);
             }
             // Review finding 5 (pack PO, PO7): nothing was saved, so what was still to add comes back too: the scan text, its packs, the
-            // charge and a "+ Add new" form (said in that form), as well as the table's edits.
+            // charge and a "+ Add new" form (said in that form), as well as the table's edits and the grid's new lines (KG4).
             $panel = self::panelError($ask['action'], $e);
-            return $this->page($ctx, $id, $e->httpStatus, $panel === [] ? $e : null, null, $kept + $panel + ['formKey' => PoAddNew::keyAgain($ctx, $e)]);
+            return $this->page($ctx, $id, $e->httpStatus, $panel === [] ? $e : null, null, $kept + $panel + ['formKey' => PoAddNew::keyAgain($ctx, $e)] + $grid);
         }
         // The table and the charge were saved with an Add that found several products or none; the "+ Add new" forms were not: they come back
         // as typed, and nothing that was saved is typed again (the charge would be added twice: the Codex review of 0917562, finding 2).
@@ -894,7 +992,7 @@ final class PurchaseOrdersController
             return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $q), 422), null, ['q' => $q,
                 'packs' => $req->field('packs') ?? '1'] + $unsaved);
         }
-        return HtmlResponse::redirect(self::after($id, $result['status'] === 'saved' && $remove !== null ? 'removed' : $result['status']));
+        return HtmlResponse::redirect(self::after($id, $result['status'] === 'saved' && $remove !== null ? 'removed' : $result['status'], $result['unpriced'] ?? null));
     }
 
     /** The lines file import (multipart `file`, `mode` append | replace, `version`): all or nothing. */
@@ -1115,8 +1213,8 @@ final class PurchaseOrdersController
             'units' => $units,
             'totals' => ['net' => PoMath::money($netE2), 'vat' => PoMath::money(PoMath::e2((string) ($po['vat_total'] ?? '0'))),
                 'gross' => PoMath::money(PoMath::e2((string) ($po['gross_total'] ?? '0'))),
-                'by_code' => array_map(static fn (array $v): array => ['rate' => rtrim(rtrim(PoMath::fromE2($v['rate_e2']), '0'), '.'), 'vat' => PoMath::money($v['vat_e2'])],
-                    $totals['by_code'])],
+                'by_code' => array_map(static fn (array $v): array => ['rate' => rtrim(rtrim(PoMath::fromE2($v['rate_e2']), '0'), '.'), 'vat' => PoMath::money($v['vat_e2']),
+                    'net' => PoMath::money($v['net_e2']), 'total' => PoMath::money($v['net_e2'] + $v['vat_e2'])], $totals['by_code'])],
             'vatLabels' => $vatLabels,
             'state' => $state,
             'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true)
@@ -1652,33 +1750,35 @@ final class PurchaseOrdersController
 
     /**
      * The editor's lines with the table's edits applied (rows 1..$count): packs (0 removes the line), pack price, VAT code,
-     * note; for a line without a supplier item also units per pack and "save as supplier item"; a charge's "remove" box; $remove: the row
-     * whose remove was pressed (PO on one page, PX4). A field the page does not draw keeps the line's value.
+     * note; for a line without a supplier item also units per pack and "save as supplier item"; a line's "remove" (`line_N_remove`: a
+     * charge's box, PO7; any line the grid removed, docs/decisions.md KG4); $remove: the row whose remove was pressed (PO on one page, PX4).
+     * A field the page does not draw keeps the line's value. $keys: each line kept, its row on the page ('line:N'), in order.
      *
      * @param list<array<string, mixed>> $current
+     * @param list<string> $keys
      * @return list<array<string, mixed>>
      */
-    private static function editedLines(UiRequest $req, array $current, int $count, ?int $remove = null): array
+    private static function editedLines(UiRequest $req, array $current, int $count, ?int $remove = null, array &$keys = []): array
     {
         if ($count !== count($current)) {
             throw new CwException('version_conflict', 'the lines changed since this page was drawn', 409);
         }
         $out = [];
+        $keys = [];
         foreach ($current as $i => $l) {
             $n = $i + 1;
-            if ($n === $remove) {
-                continue; // the row's remove (PO on one page, PX4): not read (the Codex review of a90d22d, finding 3)
+            if ($n === $remove || $req->field("line_{$n}_remove") === '1') {
+                // The row's remove (PO on one page, PX4), a charge's box (review finding 8, pack PO, PO7) or a line the grid removed (KG4):
+                // not read (the Codex review of a90d22d, finding 3).
+                continue;
             }
             $packs = trim($req->field("line_{$n}_packs") ?? '');
             $p = PoLinesFile::wholeNumber($packs);
             if ($p === null) {
-                throw new CwException('bad_line', "line {$n}, packs: a whole number (0 removes the line)", 422, ['line' => $n]);
+                throw new CwException('bad_line', "line {$n}, packs: a whole number (0 removes the line)", 422, ['line' => $n, 'row' => "line:{$n}"]);
             }
             if ($p === 0) {
                 continue;
-            }
-            if ($l['kind'] === 'charge' && $req->field("line_{$n}_remove") === '1') {
-                continue; // review finding 8 (pack PO, PO7): a charge's own "remove" box
             }
             $l['packs'] = $p;
             $note = $req->field("line_{$n}_note");
@@ -1704,7 +1804,7 @@ final class PurchaseOrdersController
                     if ($upp !== null && trim($upp) !== '') {
                         $u = PoLinesFile::wholeNumber($upp);
                         if ($u === null || $u < 1) {
-                            throw new CwException('bad_line', "line {$n}, units per pack: a whole number of at least 1", 422, ['line' => $n]);
+                            throw new CwException('bad_line', "line {$n}, units per pack: a whole number of at least 1", 422, ['line' => $n, 'row' => "line:{$n}"]);
                         }
                         $l['units_per_pack'] = $u;
                     }
@@ -1714,8 +1814,60 @@ final class PurchaseOrdersController
                 }
             }
             $out[] = $l;
+            $keys[] = "line:{$n}";
         }
         return $out;
+    }
+
+    /**
+     * The lines saved: the saved lines kept ($kept, their rows $keptKeys) and the grid's new lines (docs/decisions.md KG4) as the service's
+     * lines, in DocGrid::order (a new line that replaces a saved line removed in the same post takes its place, KG22; the others follow).
+     * A new line is one of the supplier's packs (`si`: PurchaseOrders checks it is this supplier's and switched on, as Add does) or an item
+     * (`sku`, with its items per pack when a case's barcode named it: an item in CW and not joined into another, as the box's search finds
+     * them), the packs as typed (a whole number; 0 leaves the line out, as on a saved line) and the price as typed (empty: the pack's last
+     * price, as Add). Refused in words on its line (its place in the list saved, and its row).
+     *
+     * @param list<array<string, mixed>> $kept
+     * @param list<string> $keptKeys
+     * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new
+     * @param array<int, true> $removed
+     * @return array{0: list<array<string, mixed>>, 1: list<string>} the lines and each one's row ('line:N', 'new:J')
+     */
+    private static function gridLines(Db $db, array $kept, array $keptKeys, array $new, array $removed): array
+    {
+        $skus = array_values(array_unique(array_filter(array_column($new, 'sku'))));
+        $live = [];
+        foreach (array_chunk($skus, 1000) as $chunk) {
+            foreach ($db->column('SELECT id FROM sku WHERE merged_into_sku_id IS NULL AND id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $id) {
+                $live[(int) $id] = true;
+            }
+        }
+        $lines = [];
+        $keys = [];
+        foreach (DocGrid::order($keptKeys, $new, $removed) as [$kind, $i]) {
+            if ($kind === 'kept') {
+                $lines[] = $kept[$i];
+                $keys[] = $keptKeys[$i];
+                continue;
+            }
+            $l = $new[$i];
+            $row = 'new:' . ($i + 1);
+            $at = count($lines) + 1;
+            $packs = DocGrid::packs($l['q']);
+            if ($packs === null) {
+                throw new CwException('bad_line', "line {$at}, packs: a whole number (0 removes the line)", 422, ['line' => $at, 'field' => 'packs', 'row' => $row]);
+            }
+            if ($packs === 0) {
+                continue;
+            }
+            if ($l['sku'] !== null && !isset($live[$l['sku']])) {
+                throw new CwException('bad_line', "line {$at}, item: there is no such item, or it was joined into another", 422, ['line' => $at, 'field' => 'item', 'row' => $row]);
+            }
+            $lines[] = ['kind' => 'item'] + ($l['si'] !== null ? ['supplier_item_id' => $l['si']] : ['sku_id' => $l['sku']] + ($l['u'] !== null ? ['units_per_pack' => $l['u']] : []))
+                + ['packs' => $packs, 'pack_price' => trim($l['p']) === '' ? null : $l['p']];
+            $keys[] = $row;
+        }
+        return [$lines, $keys];
     }
 
     private function service(Context $ctx): PurchaseOrders

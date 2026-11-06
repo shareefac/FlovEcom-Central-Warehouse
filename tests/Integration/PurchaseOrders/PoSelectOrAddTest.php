@@ -48,7 +48,7 @@ final class PoSelectOrAddTest extends PurchaseOrderTestCase
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'PO'"));
     }
 
-    public function testANewSupplierIsPutOnADraftWithoutProductsOnly(): void
+    public function testANewSupplierIsPutOnADraftAndItsProductsStay(): void
     {
         $buyer = $this->staffUser('buyer');
         $old = $this->activeSupplier($buyer, ['name' => 'Old Supplier Ltd']);
@@ -57,12 +57,14 @@ final class PoSelectOrAddTest extends PurchaseOrderTestCase
         self::assertSame([(int) $r['supplier']['id'], 'draft'], [(int) $this->poRow($d->id)['supplier_id'], $r['supplier']['status']]);
         self::refused(409, 'version_conflict', fn () => $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $d->version, ['name' => 'Stale Ltd']));
         self::refused(403, 'not_creator', fn () => $this->pos->setNewSupplier($this->staffUser('buyer'), $this->sup, $d->id, $r['document']->version, ['name' => 'Other Ltd']));
-        // With products: the supplier is fixed, and no supplier is left behind.
-        $sku = self::makeSku('Fixed supplier pod');
-        $doc = $this->pos->saveDraft($buyer, $d->id, $r['document']->version, [], [['sku_id' => $sku, 'packs' => 1]]);
-        $before = (int) self::$db->value('SELECT COUNT(*) FROM supplier');
-        self::refused(409, 'supplier_has_lines', fn () => $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $doc->version, ['name' => 'Too Late Ltd']));
-        self::assertSame($before, (int) self::$db->value('SELECT COUNT(*) FROM supplier'));
+        // With products (the owner, 6 Nov 2026: "also in draft and new easily supplier change option"; docs/decisions.md KG30; before it,
+        // this test said the supplier was fixed): the new supplier goes on it and its products stay, each a line of its item and price.
+        $sku = self::makeSku('Kept supplier pod');
+        $doc = $this->pos->saveDraft($buyer, $d->id, $r['document']->version, [], [['sku_id' => $sku, 'packs' => 3, 'pack_price' => '2.50']]);
+        $r = $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $doc->version, ['name' => 'Later Choice Ltd']);
+        self::assertSame((int) $r['supplier']['id'], (int) $this->poRow($d->id)['supplier_id']);
+        self::assertSame([[null, $sku, 3, '2.5000']], array_map(static fn (array $l): array => [$l['supplier_item_id'], (int) $l['sku_id'], (int) $l['packs'], (string) $l['pack_price']],
+            $this->pos->lines($d->id)));
     }
 
     /**

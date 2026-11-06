@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\CwException;
+use CW\Db;
+use CW\Items\HandMade;
+use CW\OpResult;
 use CW\PurchaseOrders\PoLinesFile;
+use CW\PurchaseOrders\PurchaseOrders;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
+use CW\Ui\HtmlResponse;
+use CW\Ui\Kernel;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
@@ -95,6 +101,77 @@ final class PoAddNew
     {
         $key = $ctx->req->field(FormOnce::FIELD) ?? '';
         return in_array($e?->errorCode, ['bad_form_key', 'idempotency_key_reused'], true) || preg_match('/^[0-9a-f]{32}$/D', $key) !== 1 ? FormOnce::newKey() : $key;
+    }
+
+    /** The lines' grid's "+ Add new item" by the script (docs/decisions.md KG21): the order's and the invoice's route. */
+    public const NEW_ITEM = ['po' => '/ui/purchasing/orders/new-item', 'pi' => '/ui/purchasing/invoices/new-item'];
+
+    /**
+     * POST /ui/purchasing/orders/new-item and /ui/purchasing/invoices/new-item (docs/decisions.md KG21; the owner, 6 Nov 2026: "add new item add
+     * option add"): the lines' grid's "+ Add new item", sent by the script with no page reload. It makes the item and the supplier's pack of
+     * it as the form's "+ Add new item" makes them (PurchaseOrders::makeItem: Pack B's item, a barcode on another item 409, the same name 409
+     * with the items there, the pack when a code, a pack or a price is typed) and NEVER the document: the lines typed on the page are not
+     * saved, nor needed. Who may: the page's route (doc.PO.post / doc.SINV.post) and items.create (403 before anything is read, as the form's
+     * action); the CSRF token (the kernel); FormOnce with the panel's own key (sent twice: one item, the same answer); the supplier chosen on
+     * the page (an order's: not switched off, as an order's supplier; an invoice's: any). Answers a fragment (po_new_item, data-ni-fragment):
+     * the item as one choice of the product box (the grid takes it as a line: qty 1, the price typed), or the refusal in words with the items
+     * to use instead ("Use this one": the item that has the barcode, the items of the same name, as this supplier's choices) and, for the
+     * same name, the words of "it is a different item".
+     */
+    public static function newItemLine(Context $ctx, string $page): HtmlResponse
+    {
+        if (!$ctx->me()->can('items.create')) {
+            return $ctx->error(403, 'role_not_allowed', Kernel::refusal('items.create', $ctx->me(), 'POST'));
+        }
+        $req = $ctx->req;
+        $sid = UiRequest::id($req->field('supplier_id'));
+        $pos = new PurchaseOrders($ctx->db, $ctx->documents(), $ctx->settings());
+        $fragment = static fn (array $vars): HtmlResponse => $ctx->fragment('po_new_item', $vars + ['choice' => null, 'error' => null, 'others' => [], 'anyway' => '',
+            'nextKey' => FormOnce::newKey()]);
+        try {
+            $status = $sid === null ? null : $ctx->db->value('SELECT status FROM supplier WHERE id = ?', [$sid]);
+            if ($status === null || ($page === 'po' && $status === 'inactive')) {
+                throw new CwException('need_supplier', $page === 'po' ? Words::PO_ONE['need_supplier'] : Words::INVOICE_ERROR['need_supplier'], 422, ['field' => 'supplier_id']);
+            }
+            [$item, $supply] = self::itemInput(self::itemTyped($req));
+            $r = FormOnce::run($ctx, 'ui.' . $page . '.new_item_line', array_diff_key($req->post, ['csrf' => 1, FormOnce::FIELD => 1]),
+                function (Db $db) use ($ctx, $pos, $sid, $item, $supply): OpResult {
+                    $x = $pos->makeItem($ctx->caller(), (int) $sid, new HandMade($ctx->db, $ctx->decisions()), $item, $supply);
+                    return OpResult::of(200, ['sku_id' => (int) $x['made']['sku_id'], 'supplier_item_id' => $x['supplier_item'] === null ? null : (int) $x['supplier_item']['id']]);
+                });
+            $made = (int) $r->body['sku_id'];
+            $si = isset($r->body['supplier_item_id']) ? (int) $r->body['supplier_item_id'] : null;
+            return $fragment(['choice' => self::choiceOf($ctx, (int) $sid, $made, $si)]);
+        } catch (CwException $e) {
+            $others = [];
+            if ($e->errorCode === 'same_item_exists' && is_array($e->detail['items'] ?? null)) {
+                foreach ($e->detail['items'] as $o) {
+                    $others[] = self::choiceOf($ctx, (int) $sid, (int) $o['id'], null);
+                }
+            } elseif ($e->errorCode === 'barcode_on_other_item' && isset($e->detail['sku_id'])) {
+                $others[] = self::choiceOf($ctx, (int) $sid, (int) $e->detail['sku_id'], null);
+            }
+            return $fragment(['error' => $e->errorCode === 'same_item_exists' ? Words::PO_ADD['same_title'] . ' ' . Words::PO_ADD['same_text'] : self::plainItem($e),
+                'others' => $others, 'anyway' => $e->errorCode === 'same_item_exists' ? Words::PO_ADD['same_anyway'] : '', 'nextKey' => self::keyAgain($ctx, $e)]);
+        }
+    }
+
+    /**
+     * An item as the product box's choice for this supplier (PurchaseOrdersController::productChoice): its supplier item when $si names one,
+     * else this supplier's preferred pack of it when there is one, else the item alone.
+     *
+     * @return array<string, string>
+     */
+    private static function choiceOf(Context $ctx, int $supplierId, int $sku, ?int $si): array
+    {
+        $row = $ctx->db->one('SELECT * FROM supplier_item WHERE ' . ($si !== null ? 'id = ?' : 'supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY is_preferred DESC, id LIMIT 1'),
+            $si !== null ? [$si] : [$supplierId, $sku]);
+        $item = PurchaseOrdersController::itemChoiceRow($ctx, $sku);
+        if ($row !== null) {
+            $item = ['supplier_item_id' => (int) $row['id'], 'units_per_pack' => (int) $row['units_per_pack'], 'supplier_code' => $row['supplier_code'],
+                'purchase_unit' => (string) $row['purchase_unit'], 'last_pack_price' => $row['last_pack_price']] + $item;
+        }
+        return PurchaseOrdersController::productChoice($item);
     }
 
     /** "3" -> 3 ('' is 1); anything but a whole number of at least 1: 422 bad_number in words. */

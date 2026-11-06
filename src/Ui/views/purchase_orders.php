@@ -16,7 +16,7 @@ $moreItems = $draftsHidden || ($draftsChoice && $filters['drafts']) || $rows !==
 ?>
 <?= $head(\CW\Ui\Words::MENU['orders'], intro: 'orders', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('ORDERS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('ORDERS', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('ORDERS', 'search') ?></label><input id="tb-q" type="search" name="q" aria-keyshortcuts="Control+G /" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('ORDERS', 'search') ?>"></div>
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
     <select id="tb-show" name="show">
@@ -69,7 +69,7 @@ $moreItems = $draftsHidden || ($draftsChoice && $filters['drafts']) || $rows !==
 <div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('ORDERS', 'group_one') ?><?php else: ?><?= $say('ORDERS', 'group_many', count($g['rows'])) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
-  <table class="stack list board doc-list orders">
+  <table class="stack list board doc-list orders" data-kb-rows>
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('DOC_LIST', 'order') ?></th>

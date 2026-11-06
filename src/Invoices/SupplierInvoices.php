@@ -500,33 +500,206 @@ final class SupplierInvoices
                 throw new CwException('bad_line', 'items per pack: a whole number from 1', 422, ['field' => 'units_per_pack']);
             }
             $per = 1;
-            $chosen = null;
-            if ($supplierItemId !== null) {
-                $chosen = $db->one('SELECT si.sku_id, si.supplier_code, si.purchase_unit, si.units_per_pack, si.last_pack_price FROM supplier_item si JOIN sku s ON s.id = si.sku_id '
-                    . 'WHERE si.id = ? AND si.supplier_id = ? AND si.is_active = 1 AND s.merged_into_sku_id IS NULL', [$supplierItemId, (int) $cur['supplier_id']])
-                    ?? throw new CwException('unknown_supplier_item', 'that pack is not one of this supplier\'s', 422, ['field' => 'pick_si']);
-                $skuId = (int) $chosen['sku_id'];
-            } elseif ($skuId === null) {
+            if ($supplierItemId === null && $skuId === null) {
                 $r = (new StockOps($db, $this->docs))->resolve($q);
                 if ($r['status'] !== 'found') {
                     return ['status' => $r['status'], 'document' => $this->docs->get($id), 'choices' => $r['choices'] ?? []];
                 }
                 $skuId = (int) $r['sku_id'];
                 $per = (int) $r['units'];
-            } elseif ($db->value('SELECT 1 FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [$skuId]) === null) {
-                throw new CwException('unknown_sku', 'there is no such item', 422);
             }
-            $si = $chosen ?? ($unitsPerPack !== null ? null : $db->one('SELECT supplier_code, purchase_unit, units_per_pack, last_pack_price FROM supplier_item '
-                . 'WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY is_preferred DESC, id LIMIT 1', [(int) $cur['supplier_id'], $skuId]));
-            $upp = $unitsPerPack ?? ($per > 1 || $si === null ? $per : (int) $si['units_per_pack']);
-            $price = $packPrice !== null && trim($packPrice) !== '' ? self::packPrice($packPrice, 'pack_price')
-                : ($si !== null && $si['last_pack_price'] !== null && $upp === (int) $si['units_per_pack'] ? (string) $si['last_pack_price'] : '0.0000');
             $lines = $this->lineRows($id);
-            $lines[] = ['kind' => 'goods', 'sku_id' => $skuId, 'packs' => $packs, 'units_per_pack' => $upp, 'pack_price' => $price,
-                'supplier_code' => $si['supplier_code'] ?? null, 'purchase_unit' => $si !== null && $upp === (int) $si['units_per_pack'] ? (string) $si['purchase_unit'] : 'each',
-                'entry' => 'manual', 'description' => null];
+            $lines[] = $this->goodsLine((int) $cur['supplier_id'], $packs, $packPrice, $skuId, $supplierItemId, $per, $unitsPerPack);
             $doc = $this->saveLines($caller, $id, $version, $lines);
             return ['status' => 'added', 'document' => $doc, 'line_no' => count($lines)];
+        });
+    }
+
+    /**
+     * A goods line typed by hand, in saveLines()'s shape (addItem's rule, shared with the lines' grid: docs/decisions.md KG4): one of THIS
+     * supplier's active packs of an item not joined into another ($supplierItemId: its item and pack; else 422 unknown_supplier_item), or an
+     * item not joined into another ($skuId; else 422 unknown_sku) with this supplier's preferred pack of it, or $per units a pack (a case's
+     * barcode), or $unitsPerPack typed; at the price typed (a pack's, 4 decimals at most), else the pack's last price, else £0. Not linked to
+     * a delivery or an order (the match flags it). Reads only.
+     *
+     * @return array<string, mixed>
+     */
+    public function goodsLine(int $supplierId, int $packs, ?string $packPrice, ?int $skuId, ?int $supplierItemId = null, int $per = 1, ?int $unitsPerPack = null): array
+    {
+        if ($packs < 1 || $packs > PoMath::MAX_PACKS) {
+            throw new CwException('bad_line', 'packs: a whole number from 1 to ' . number_format(PoMath::MAX_PACKS), 422, ['field' => 'packs']);
+        }
+        if ($unitsPerPack !== null && ($unitsPerPack < 1 || $unitsPerPack > 1_000_000)) {
+            throw new CwException('bad_line', 'items per pack: a whole number from 1', 422, ['field' => 'units_per_pack']);
+        }
+        $chosen = null;
+        if ($supplierItemId !== null) {
+            $chosen = $this->db->one('SELECT si.sku_id, si.supplier_code, si.purchase_unit, si.units_per_pack, si.last_pack_price FROM supplier_item si JOIN sku s ON s.id = si.sku_id '
+                . 'WHERE si.id = ? AND si.supplier_id = ? AND si.is_active = 1 AND s.merged_into_sku_id IS NULL', [$supplierItemId, $supplierId])
+                ?? throw new CwException('unknown_supplier_item', 'that pack is not one of this supplier\'s', 422, ['field' => 'pick_si']);
+            $skuId = (int) $chosen['sku_id'];
+        } elseif ($skuId === null || $this->db->value('SELECT 1 FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [$skuId]) === null) {
+            throw new CwException('unknown_sku', 'there is no such item', 422);
+        }
+        $si = $chosen ?? ($unitsPerPack !== null ? null : $this->db->one('SELECT supplier_code, purchase_unit, units_per_pack, last_pack_price FROM supplier_item '
+            . 'WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY is_preferred DESC, id LIMIT 1', [$supplierId, $skuId]));
+        $upp = $unitsPerPack ?? ($per > 1 || $si === null ? $per : (int) $si['units_per_pack']);
+        $price = $packPrice !== null && trim($packPrice) !== '' ? self::packPrice($packPrice, 'pack_price')
+            : ($si !== null && $si['last_pack_price'] !== null && $upp === (int) $si['units_per_pack'] ? (string) $si['last_pack_price'] : '0.0000');
+        return ['kind' => 'goods', 'sku_id' => $skuId, 'packs' => $packs, 'units_per_pack' => $upp, 'pack_price' => $price,
+            'supplier_code' => $si['supplier_code'] ?? null, 'purchase_unit' => $si !== null && $upp === (int) $si['units_per_pack'] ? (string) $si['purchase_unit'] : 'each',
+            'entry' => 'manual', 'description' => null];
+    }
+
+    /**
+     * A draft invoice moved to another supplier, in the caller's save (the owner, 6 Nov 2026: "also in draft and new easily supplier change
+     * option"; docs/decisions.md KG30). Creator only, at $version (Documents::updateDraft, first); an invoice only (a credit note's supplier
+     * is its invoice's or its return's: 409 supplier_fixed); any supplier there is, as a new invoice takes it (createDraft). Its number is
+     * checked against the new supplier's invoices (409 duplicate_invoice). The due date and the way its goods come in follow the new
+     * supplier only while they are still the old one's own (the date on the paper plus the old terms; the old supplier's way): one the
+     * person set stays. $header (saveHeader's, as the form sent it) is saved with it, its due date read the same way. The lines given
+     * ($lines in the old supplier's terms, null: the draft's own; then $append, goodsLine()'s of the old supplier) are saved moved
+     * (repointLines): never one dropped; `unmatched` counts
+     * those the new supplier does not sell. Version + 2 (+ 1 with a header).
+     *
+     * @param list<array<string, mixed>>|null $lines
+     * @param array<string, mixed> $header
+     * @param list<array<string, mixed>> $append
+     * @return array{document: Document, unmatched: int}
+     */
+    public function changeSupplier(Caller $caller, int $id, int $version, int $supplierId, ?array $lines, array $header = [], array $append = []): array
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $supplierId, $lines, $header, $append): array {
+            [$kind, $cur] = $this->current($id);
+            self::mayPost($db, $caller, self::KINDS[$kind]);
+            if ($kind !== 'invoice') {
+                throw new CwException('supplier_fixed', 'a credit note\'s supplier is the supplier of the invoice or the return it answers', 409, ['field' => 'supplier_id']);
+            }
+            $from = (int) $cur['supplier_id'];
+            $to = $db->one('SELECT id, code, payment_terms_days FROM supplier WHERE id = ? FOR SHARE', [$supplierId])
+                ?? throw new CwException('unknown_supplier', 'there is no such supplier', 422, ['field' => 'supplier_id']);
+            $doc = $this->docs->updateDraft($caller, $id, $version, []);
+            if ($supplierId === $from) {
+                return ['document' => $header === [] ? $doc : $this->saveHeader($caller, $id, $doc->version, $header), 'unmatched' => 0];
+            }
+            $old = $db->one('SELECT code, payment_terms_days FROM supplier WHERE id = ?', [$from]) ?? [];
+            $byTerms = static function (mixed $date, mixed $days): ?string {
+                return is_string($date) && $days !== null && ($d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date)) !== false && $d->format('Y-m-d') === $date
+                    ? $d->modify('+' . (int) $days . ' days')->format('Y-m-d') : null;
+            };
+            $follow = static fn (mixed $date, mixed $due): bool => $due !== null && $due !== '' && $to['payment_terms_days'] !== null
+                && $due === $byTerms($date, $old['payment_terms_days'] ?? null);
+            $due = $cur['due_date'];
+            if ($follow($cur['doc_date'], $due)) {
+                $due = $byTerms($cur['doc_date'], $to['payment_terms_days']);
+            }
+            if (array_key_exists('due_date', $header) && $follow($header['invoice_date'] ?? $cur['doc_date'], $header['due_date'])) {
+                $header['due_date'] = $byTerms($header['invoice_date'] ?? $cur['doc_date'], $to['payment_terms_days']);
+            }
+            $arrivals = new \CW\Arrivals\Arrivals($db);
+            $mode = $db->value('SELECT receive_mode FROM supplier_invoice WHERE document_id = ?', [$id]);
+            if ($mode !== null && (string) $mode === $arrivals->prefsOf($from)['mode']) {
+                $mode = $arrivals->prefsOf($supplierId)['mode'];
+            }
+            // The number checked against the new supplier's as it will be (the one typed with the change, else its own).
+            $key = self::key($this->header($kind, $supplierId, array_intersect_key($header, ['invoice_number' => 1]), $cur)['invoice_number']);
+            try {
+                $db->exec('UPDATE supplier_invoice SET supplier_id = ?, invoice_key = ?, due_date = ?, receive_mode = ?, updated_at = ? WHERE document_id = ?',
+                    [$supplierId, $key, $due, $mode, $this->nowDb(), $id]);
+            } catch (\PDOException $e) {
+                throw $this->duplicate($e, $kind, $supplierId, (string) $key, $id);
+            }
+            [$moved, $unmatched] = $this->repointLines($from, $supplierId, array_merge($lines ?? $this->lineRows($id), $append));
+            $doc = $this->saveLines($caller, $id, $doc->version, $moved);
+            if ($header !== []) {
+                $doc = $this->saveHeader($caller, $id, $doc->version, $header);
+            }
+            Audit::write($db, $caller, 'invoice.supplier', 'document', (string) $id, null, ['version' => $doc->version, 'from' => (string) ($old['code'] ?? ''),
+                'supplier' => (string) $to['code'], 'unmatched' => $unmatched]);
+            return ['document' => $doc, 'unmatched' => $unmatched];
+        });
+    }
+
+    /**
+     * A goods line typed under another supplier (the lines' grid: a line picked before the supplier box changed, docs/decisions.md KG30)
+     * moved to $to as changeSupplier moves a draft's lines: goodsLine() with the supplier of the pack it names, then repointLines. Reads only.
+     *
+     * @return array<string, mixed>
+     */
+    public function goodsLineFor(int $to, int $packs, ?string $packPrice, int $supplierItemId): array
+    {
+        $own = (int) ($this->db->value('SELECT supplier_id FROM supplier_item WHERE id = ?', [$supplierItemId]) ?? $to);
+        $line = $this->goodsLine($own, $packs, $packPrice, null, $supplierItemId);
+        return $own === $to ? $line : $this->repointLines($own, $to, [$line])[0][0];
+    }
+
+    /**
+     * The lines of a draft invoice moved to its new supplier (changeSupplier, docs/decisions.md KG30): a goods line takes the new
+     * supplier's pack of its item when it has one (the same items per pack first, then its preferred, then the smallest), with its code
+     * and unit; the packs keep the units when the new pack holds them whole, else the next whole pack up; its price is the new pack's last
+     * price unless the person typed one (a price other than the old supplier's last price for that pack, or £0 when it had none) or the
+     * new pack has none: then the line's own, per unit (scaled to the new pack). An item the new supplier does not sell stays as it is,
+     * the old supplier's code gone (counted). Every goods line loses its link to the old supplier's order or delivery line (the old
+     * supplier's "From": saveLines would refuse it). Other lines, and lines saveLines will refuse in words, go through unchanged.
+     *
+     * @param list<mixed> $lines
+     * @return array{0: list<mixed>, 1: int} the lines and how many the new supplier does not sell
+     */
+    private function repointLines(int $from, int $to, array $lines): array
+    {
+        $out = [];
+        $unmatched = 0;
+        foreach ($lines as $l) {
+            if (!is_array($l) || ($l['kind'] ?? 'goods') !== 'goods') {
+                $out[] = $l;
+                continue;
+            }
+            $l = array_merge($l, ['grn_document_id' => null, 'grn_line_no' => null, 'po_document_id' => null, 'po_line_no' => null],
+                in_array($l['entry'] ?? 'manual', ['receipt', 'order'], true) ? ['entry' => 'manual'] : []);
+            $sku = $l['sku_id'] ?? null;
+            $packs = $l['packs'] ?? null;
+            $upp = $l['units_per_pack'] ?? 1;
+            $price = is_string($l['pack_price'] ?? null) ? trim($l['pack_price']) : '';
+            if (!is_int($sku) || !is_int($packs) || $packs < 1 || !is_int($upp) || $upp < 1) {
+                $out[] = $l;
+                continue;
+            }
+            try {
+                $priceE4 = $price === '' ? null : PoMath::e4($price);
+            } catch (\RangeException | \InvalidArgumentException) {
+                $out[] = $l; // saveLines says what is wrong with it
+                continue;
+            }
+            $was = $this->db->value('SELECT last_pack_price FROM supplier_item WHERE supplier_id = ? AND sku_id = ? AND units_per_pack = ? AND is_active = 1 '
+                . 'ORDER BY is_preferred DESC, id LIMIT 1', [$from, $sku, $upp]);
+            $typed = $priceE4 !== null && $priceE4 !== ($was === null ? 0 : PoMath::e4((string) $was));
+            $si = $this->db->one('SELECT supplier_code, purchase_unit, units_per_pack, last_pack_price FROM supplier_item WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 '
+                . 'ORDER BY units_per_pack = ? DESC, is_preferred DESC, units_per_pack, id LIMIT 1', [$to, $sku, $upp]);
+            if ($si === null) {
+                $unmatched++;
+                $out[] = ['supplier_code' => null] + $l;
+                continue;
+            }
+            $k = (int) $si['units_per_pack'];
+            $scaled = $priceE4 === null ? null : ($k === $upp ? $price : PoMath::fromE4(intdiv($priceE4 * $k * 2 + $upp, 2 * $upp)));
+            $out[] = ['packs' => $k === $upp ? $packs : max(1, intdiv($packs * $upp + $k - 1, $k)), 'units_per_pack' => $k,
+                'pack_price' => !$typed && $si['last_pack_price'] !== null ? (string) $si['last_pack_price'] : ($scaled ?? '0.0000'),
+                'supplier_code' => $si['supplier_code'], 'purchase_unit' => (string) $si['purchase_unit']] + $l;
+        }
+        return [$out, $unmatched];
+    }
+
+    /**
+     * Adds lines after a draft's own (the lines' grid's new lines, docs/decisions.md KG4: goodsLine()'s, each checked again by saveLines):
+     * one save, its version + 1. Creator only (saveLines).
+     *
+     * @param list<array<string, mixed>> $lines
+     */
+    public function appendLines(Caller $caller, int $id, int $version, array $lines): Document
+    {
+        return $this->db->transaction(function () use ($caller, $id, $version, $lines): Document {
+            $this->current($id);
+            return $this->saveLines($caller, $id, $version, array_merge($this->lineRows($id), $lines));
         });
     }
 

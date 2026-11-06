@@ -131,9 +131,11 @@ final class PurchaseOrders
     }
 
     /**
-     * Saves a draft: the header (expected_date, external_ref, note, doc_date; supplier_id only while the draft has no lines)
-     * and EVERY line (the list replaces the draft's lines; [] clears them). Creator only. Version + 2 (Documents::updateDraft,
-     * then Documents::setLines, whose cascade removes the old po_line rows), then the po_line rows and the totals.
+     * Saves a draft: the header (expected_date, external_ref, note, doc_date, supplier_id) and EVERY line (the list replaces the draft's
+     * lines; [] clears them). Creator only. Version + 2 (Documents::updateDraft, then Documents::setLines, whose cascade removes the old
+     * po_line rows), then the po_line rows and the totals. A new supplier (the owner, 6 Nov 2026: "also in draft and new easily supplier
+     * change option"; docs/decisions.md KG30) is checked as a new order's (never an inactive one) and the lines given, in the old supplier's
+     * terms, are moved to it in the same save (repoint()): never one dropped.
      *
      * A line: {kind: item|charge, sku_id?, supplier_item_id?, supplier_code?, purchase_unit?, units_per_pack?, packs,
      * pack_price?, vat_code?, description?, suggested_units?, save_item?}. An item line with a supplier item takes its pack,
@@ -154,10 +156,8 @@ final class PurchaseOrders
             $current = $this->poRow($id);
             $supplierId = (int) $current['supplier_id'];
             $changed = isset($h['supplier_id']) && $h['supplier_id'] !== $supplierId;
+            $from = $supplierId;
             if ($changed) {
-                if ((int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0) {
-                    throw new CwException('supplier_has_lines', 'the supplier of a draft changes only while it has no lines: remove them first, or start a new order', 409);
-                }
                 $supplierId = (int) $h['supplier_id'];
             }
             $supplier = $db->one('SELECT * FROM supplier WHERE id = ? FOR SHARE', [$supplierId])
@@ -166,6 +166,9 @@ final class PurchaseOrders
                 throw new CwException('supplier_inactive', "supplier {$supplier['code']} is inactive: it gets no new purchase orders", 422);
             }
             $db->one('SELECT document_id FROM purchase_order WHERE document_id = ? FOR UPDATE', [$id]);
+            if ($changed) {
+                $lines = $this->repoint($from, $supplierId, $lines);
+            }
             $norm = $this->normaliseLines($caller, $supplier, $lines);
             $doc = $this->docs->updateDraft($caller, $id, $version, array_intersect_key($h, array_flip(['external_ref', 'note', 'doc_date'])));
             $doc = $this->docs->setLines($caller, $id, $doc->version, array_map(static fn (array $n): array => $n['doc'], $norm));
@@ -189,9 +192,92 @@ final class PurchaseOrders
             $params[] = $id;
             $db->exec("UPDATE purchase_order SET {$set} WHERE document_id = ?", $params);
             Audit::write($db, $caller, 'po.save', 'document', (string) $id, null, ['version' => $doc->version, 'lines' => count($norm),
-                'net' => PoMath::fromE2($t['net_e2'])] + ($changed ? ['supplier' => (string) $supplier['code']] : []));
+                'net' => PoMath::fromE2($t['net_e2'])] + ($changed ? ['supplier' => (string) $supplier['code'], 'from_supplier' => $from,
+                    'unpriced' => count(array_filter($norm, static fn (array $n): bool => $n['po']['kind'] === 'item' && $n['po']['supplier_item_id'] === null))] : []));
             return $doc;
         });
+    }
+
+    /**
+     * A draft's lines moved to its new supplier (docs/decisions.md KG30), before they are checked: an item line of another supplier's pack
+     * (or of an item alone) takes the new supplier's pack of the same item when it has one (the same items per pack first, then its
+     * preferred, then the smallest), with its code, unit and pack; the packs keep the units when the new pack holds them whole, else the
+     * next whole pack up. Its price is the new supplier's (normaliseLines: the pack's last price) unless the person typed one: a price
+     * other than the old pack's last price (or 0 when it had none) stays, per unit (scaled to the new pack). An item the new supplier does
+     * not sell stays as a line of the item alone, its items per pack and price kept, the old supplier's code gone (the page says how many:
+     * "N lines have no price from X yet"). Charge lines, lines of the new supplier's own packs and lines normaliseLines will refuse in words
+     * (no item, a pack of no supplier, packs not a whole number) go through unchanged. Public for a new order's page: a line picked
+     * before its supplier box changed is moved so ($from 0: no old supplier, a price typed is any but £0). Reads only.
+     *
+     * @param list<mixed> $lines
+     * @return list<mixed>
+     */
+    public function moveLines(int $from, int $to, array $lines): array
+    {
+        return $this->repoint($from, $to, $lines);
+    }
+
+    /**
+     * @param list<mixed> $lines
+     * @return list<mixed>
+     */
+    private function repoint(int $from, int $to, array $lines): array
+    {
+        $out = [];
+        foreach ($lines as $l) {
+            if (!is_array($l) || ($l['kind'] ?? 'item') !== 'item') {
+                $out[] = $l;
+                continue;
+            }
+            $old = null;
+            if (is_int($l['supplier_item_id'] ?? null)) {
+                $old = $this->db->one('SELECT * FROM supplier_item WHERE id = ?', [$l['supplier_item_id']]);
+                if ($old === null || (int) $old['supplier_id'] === $to) {
+                    $out[] = $l;
+                    continue;
+                }
+            } elseif (($l['supplier_item_id'] ?? null) !== null || $from === 0) {
+                $out[] = $l; // no old supplier (a new order's page): a line of an item alone is the chosen supplier's already
+                continue;
+            }
+            $sku = $old !== null ? (int) $old['sku_id'] : (is_int($l['sku_id'] ?? null) ? $l['sku_id'] : null);
+            $packs = $l['packs'] ?? null;
+            $upp = $old !== null ? (int) $old['units_per_pack'] : ($l['units_per_pack'] ?? 1);
+            if ($sku === null || !is_int($packs) || $packs < 1 || !is_int($upp) || $upp < 1) {
+                $out[] = $l;
+                continue;
+            }
+            if ($old === null) {
+                $old = $this->db->one('SELECT * FROM supplier_item WHERE supplier_id = ? AND sku_id = ? AND units_per_pack = ? AND is_active = 1 ORDER BY id LIMIT 1',
+                    [$from, $sku, $upp]);
+            }
+            $price = $l['pack_price'] ?? null;
+            $price = is_string($price) && trim($price) !== '' ? trim($price) : null;
+            $typed = false;
+            $priceE4 = null;
+            if ($price !== null) {
+                try {
+                    $priceE4 = PoMath::e4($price);
+                    $typed = $priceE4 !== ($old !== null && $old['last_pack_price'] !== null ? PoMath::e4((string) $old['last_pack_price']) : 0);
+                } catch (\RangeException | \InvalidArgumentException) {
+                    $out[] = $l; // normaliseLines says what is wrong with it
+                    continue;
+                }
+            }
+            $si = $this->db->one('SELECT * FROM supplier_item WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY units_per_pack = ? DESC, is_preferred DESC, '
+                . 'units_per_pack, id LIMIT 1', [$to, $sku, $upp]);
+            $keep = array_diff_key($l, array_flip(['supplier_item_id', 'sku_id', 'units_per_pack', 'supplier_code', 'purchase_unit', 'save_item', 'pack_price', 'packs']));
+            if ($si === null) {
+                $out[] = ['sku_id' => $sku, 'units_per_pack' => $upp, 'packs' => $packs, 'purchase_unit' => $old !== null ? (string) $old['purchase_unit'] : ($l['purchase_unit'] ?? null),
+                    'pack_price' => $price ?? ($old !== null && $old['last_pack_price'] !== null ? (string) $old['last_pack_price'] : null)] + $keep;
+                continue;
+            }
+            $k = (int) $si['units_per_pack'];
+            $units = $packs * $upp;
+            $out[] = ['supplier_item_id' => (int) $si['id'], 'packs' => $k === $upp ? $packs : max(1, intdiv($units + $k - 1, $k)),
+                'pack_price' => !$typed || $priceE4 === null ? null : ($k === $upp ? $price : PoMath::fromE4(intdiv($priceE4 * $k * 2 + $upp, 2 * $upp)))] + $keep;
+        }
+        return $out;
     }
 
     /**
@@ -328,27 +414,55 @@ final class PurchaseOrders
     }
 
     /**
-     * "Add a new supplier" on a draft that has no lines yet (its supplier can change only then): the supplier is made as the supplier
-     * screens make one (a DRAFT supplier) and put on this draft at once, in ONE transaction. Creator only, at $version (the draft's row
-     * is locked first, then the supplier is written: the order of saveDraft). 409 supplier_has_lines. The draft is saved with $header and
-     * $lines as typed on the page with it (PO on one page, PX3: its details and a charge; never an item line, which would fix the supplier).
+     * "Add a new supplier" on a draft: the supplier is made as the supplier screens make one (a DRAFT supplier) and put on this draft at
+     * once, in ONE transaction. Creator only, at $version (the draft's row is locked first, then the supplier is written: the order of
+     * saveDraft). The draft is saved with $header and $lines as typed on the page with it (PO on one page, PX3); its lines move to the new
+     * supplier as any change of supplier moves them (saveDraft, docs/decisions.md KG30: a new supplier sells none of them yet, so each
+     * stays a line of its item, its price kept).
      *
      * @param array<string, mixed> $fields Suppliers::FIELDS (name required)
      * @param array<string, mixed> $header saveDraft's header (its supplier_id is the new supplier's)
-     * @param list<array<string, mixed>> $lines saveDraft's lines
+     * @param list<array<string, mixed>>|null $lines saveDraft's lines (null: the draft's own)
      * @return array{supplier: array<string, mixed>, document: Document}
      */
-    public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields, array $header = [], array $lines = []): array
+    public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields, array $header = [], ?array $lines = null): array
     {
         return $this->db->transaction(function (Db $db) use ($caller, $suppliers, $id, $version, $fields, $header, $lines): array {
             $me = $this->poster($caller);
             $this->lockDraft($id, $version, $me);
-            $items = array_filter($lines, static fn (array $l): bool => ($l['kind'] ?? 'item') !== 'charge');
-            if ($items !== [] || (int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0) {
-                throw new CwException('supplier_has_lines', 'the supplier of a draft changes only while it has no lines: remove them first, or start a new order', 409);
-            }
             $s = $suppliers->create($caller, $fields);
-            return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']] + $header, $lines)];
+            return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']] + $header, $lines ?? $this->lines($id))];
+        });
+    }
+
+    /**
+     * "+ Add new item"'s item and supply, without a line (addNewItem's first half, shared with the lines' grid's "+ Add new item" by the
+     * script, docs/decisions.md KG21): Pack B's item (HandMade::create: items.create, a barcode on another item 409, the same name 409 with
+     * the items there), then $supplierId's pack of it when a code, a pack or a price is typed (SupplierItems::create, preferred when the
+     * item has none). One transaction (the caller's when there is one). The caller checks who may (its route's permission).
+     *
+     * @param array<string, mixed> $item HandMade::create's input
+     * @param array<string, mixed> $supply supplier_code, units_per_pack, pack_price, purchase_unit
+     * @return array{made: array<string, mixed>, supplier_item: ?array<string, mixed>}
+     */
+    public function makeItem(Caller $caller, int $supplierId, HandMade $hand, array $item, array $supply): array
+    {
+        return $this->db->transaction(function () use ($caller, $supplierId, $hand, $item, $supply): array {
+            $made = $hand->create($caller, $item);
+            $sku = (int) $made['sku_id'];
+            $code = $supply['supplier_code'] ?? null;
+            $code = $code === null || trim($code) === '' ? null : trim($code);
+            $upp = (int) ($supply['units_per_pack'] ?? 1);
+            $price = $supply['pack_price'] ?? null;
+            $price = $price === null || trim($price) === '' ? null : trim($price);
+            $si = null;
+            if ($code !== null || $price !== null || $upp > 1) {
+                $unit = $supply['purchase_unit'] ?? null;
+                $si = $this->supplierItems->create($caller, $supplierId, $sku, ['supplier_code' => $code, 'units_per_pack' => (string) $upp,
+                    'purchase_unit' => $unit === null || trim($unit) === '' ? ($upp > 1 ? 'case' : 'each') : trim($unit), 'is_preferred' => SupplierItems::PREFERRED_AUTO],
+                    $price === null ? null : ['pack_price' => $price]);
+            }
+            return ['made' => $made, 'supplier_item' => $si];
         });
     }
 
@@ -373,20 +487,10 @@ final class PurchaseOrders
             $me = $this->poster($caller);
             $this->lockDraft($id, $version, $me);
             $supplierId = (int) $this->poRow($id)['supplier_id'];
-            $made = $hand->create($caller, $item);
+            $x = $this->makeItem($caller, $supplierId, $hand, $item, $supply);
+            $made = $x['made'];
             $sku = (int) $made['sku_id'];
-            $code = $supply['supplier_code'] ?? null;
-            $code = $code === null || trim($code) === '' ? null : trim($code);
-            $upp = (int) ($supply['units_per_pack'] ?? 1);
-            $price = $supply['pack_price'] ?? null;
-            $price = $price === null || trim($price) === '' ? null : trim($price);
-            $si = null;
-            if ($code !== null || $price !== null || $upp > 1) {
-                $unit = $supply['purchase_unit'] ?? null;
-                $si = $this->supplierItems->create($caller, $supplierId, $sku, ['supplier_code' => $code, 'units_per_pack' => (string) $upp,
-                    'purchase_unit' => $unit === null || trim($unit) === '' ? ($upp > 1 ? 'case' : 'each') : trim($unit), 'is_preferred' => SupplierItems::PREFERRED_AUTO],
-                    $price === null ? null : ['pack_price' => $price]);
-            }
+            $si = $x['supplier_item'];
             $r = $si !== null ? self::found($sku, $si) : ['status' => 'found', 'sku_id' => $sku, 'supplier_item' => null, 'units_per_pack' => 1, 'purchase_unit' => 'each'];
             $res = $this->addResolved($caller, $id, $version, $r, $packs);
             Audit::write($db, $caller, 'po.new_item', 'document', (string) $id, null, ['sku_id' => $sku, 'code' => $made['code'],
@@ -1027,7 +1131,8 @@ final class PurchaseOrders
 
     /**
      * Resolves what was scanned or typed to an item of this supplier (addLine's order): `found` (sku_id, supplier_item or
-     * null, units_per_pack, purchase_unit), `choices` (several candidates) or `not_found`.
+     * null, units_per_pack, purchase_unit), `choices` (several candidates, each with its supply's last pack price: the lines' grid fills a
+     * line with it, docs/decisions.md KG2) or `not_found`.
      *
      * @return array<string, mixed>
      */
@@ -1077,7 +1182,7 @@ final class PurchaseOrders
             $si = $sis[(int) $s['id']] ?? null;
             $choices[] = ['sku_id' => (int) $s['id'], 'sku_code' => (string) $s['code'], 'name' => (string) $s['name'], 'brand' => $s['brand'],
                 'supplier_item_id' => $si === null ? null : (int) $si['id'], 'units_per_pack' => $si === null ? null : (int) $si['units_per_pack'],
-                'supplier_code' => $si['supplier_code'] ?? null, 'purchase_unit' => $si['purchase_unit'] ?? null];
+                'supplier_code' => $si['supplier_code'] ?? null, 'purchase_unit' => $si['purchase_unit'] ?? null, 'last_pack_price' => $si['last_pack_price'] ?? null];
         }
         // The order (the Chrome check of 8f6fbb7, docs/decisions.md PV31): the name the words are, then names beginning with them, then the
         // rest; in each, this supplier's items before those not set up with it yet; then as found (by name).
@@ -1157,7 +1262,7 @@ final class PurchaseOrders
             $s = $this->db->one('SELECT code, name, brand FROM sku WHERE id = ?', [$sku]) ?? [];
             return ['status' => 'choices', 'choices' => array_map(static fn (array $si): array => ['sku_id' => $sku, 'sku_code' => (string) ($s['code'] ?? ''),
                 'name' => (string) ($s['name'] ?? ''), 'brand' => $s['brand'] ?? null, 'supplier_item_id' => (int) $si['id'], 'units_per_pack' => (int) $si['units_per_pack'],
-                'supplier_code' => $si['supplier_code'], 'purchase_unit' => (string) $si['purchase_unit']], $sis)];
+                'supplier_code' => $si['supplier_code'], 'purchase_unit' => (string) $si['purchase_unit'], 'last_pack_price' => $si['last_pack_price']], $sis)];
         }
         return ['status' => 'found', 'sku_id' => $sku, 'supplier_item' => null, 'units_per_pack' => $packOf, 'purchase_unit' => $packOf > 1 ? 'case' : 'each'];
     }

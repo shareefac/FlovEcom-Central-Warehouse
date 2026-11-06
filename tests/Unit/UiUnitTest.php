@@ -985,7 +985,7 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
-        self::assertSame(5, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4) and a quick adjustment\'s line (AG4)');
+        self::assertSame(6, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4), a quick adjustment\'s line (AG4) and a grid line\'s item box (KG22)');
         foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
             'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
             self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
@@ -1101,7 +1101,7 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         // No new dropdown for the invoice: its supplier and item boxes are the order page's. The fourth combo() call is Lines to place's item
         // box (docs/decisions.md LQ4) and the fifth a quick adjustment's line (AG4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
-        self::assertSame(5, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
+        self::assertSame(6, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s (and a grid line\'s item box, KG22)');
         self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
         self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
@@ -1590,7 +1590,13 @@ final class UiUnitTest extends TestCase
             . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', "
             . "'[data-fp-fragment]': '/ui/items/families/' };", $js,
             'each marker with the path of its own route, nothing else');
-        self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
+        self::assertStringContainsString("if ((!sent && (!path || url.indexOf(path) !== 0 || body !== undefined)) || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
+        // Two kinds are SENT (docs/decisions.md KG21, KG24): the lines' grid's "+ Add new item" and the editor's Save, each only to its own
+        // routes (a whole-address pattern), with the form's body (its CSRF token and FormOnce key); everything else is the GET of a fragment.
+        self::assertStringContainsString("var SENT = { '[data-ni-fragment]': /^\\/ui\\/purchasing\\/(orders|invoices)\\/new-item$/, "
+            . "'[data-kg-editor]': /^\\/ui\\/purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?$/ };", $js, 'what is sent, and only where');
+        self::assertStringContainsString("var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);", $js);
+        self::assertStringContainsString("credentials: 'same-origin', method: 'POST'", $js);
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');
         self::assertStringContainsString("base.indexOf('/ui/review/products/') !== 0", $js, 'a path of this site\'s own route, nothing else');
         self::assertStringContainsString("fragment(base + key, '[data-qp-fragment]')", $js);
@@ -1599,7 +1605,9 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("fragment(url, '[data-lc-fragment]')", $js);
         self::assertStringContainsString("{ credentials: 'same-origin', method: 'GET'", $js);
         self::assertStringContainsString("new window.DOMParser().parseFromString(html, 'text/html')", $js);
-        self::assertStringContainsString("var part = doc.querySelector(marker);", $js, 'shown only when it is the fragment asked for');
+        self::assertStringContainsString("var part = doc.querySelector(editor ? 'form[data-kg-editor]' : marker);", $js, 'shown only when it is the fragment asked for');
+        self::assertStringContainsString("if (!nf || kind(mark) !== kind(editor) || (editor.split(':')[1] !== 'new' && mark !== editor)) {", $js,
+            'the editor\'s answer only when it is this page\'s editor (the same document; a new one: its first save)');
         // Codex's review: a box the person emptied is their search (every waiting variant, as the picker's `q=`), not the opening.
         self::assertStringContainsString('return touched ? input.value.trim() : null;', $js);
     }
@@ -1640,5 +1648,92 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('flex: 1 1 280px;', $rule('form.bi-find > input[type="search"]'));
         self::assertStringContainsString('flex: none;', $rule('form.bi-find > .bi-filters'));
         self::assertSame(0, preg_match('/form\.bi-find \{[^}]*flex-direction: column/', $css), 'not stacked');
+    }
+
+    /**
+     * The lines as a standard grid on the order's and the supplier invoice's page (the owner, 6 Nov 2026: "need to standard feel, need also
+     * key shortcut: item new and delete, field switching"; docs/decisions.md KG1-KG11): ONE engine for both pages, built on the product box's
+     * combo() (no second dropdown); the keys of the brief and none the browser keeps; the new lines in one field; the hints on a computer
+     * only; the rows one line high on a computer and the phone's cards as before.
+     */
+    public function testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, substr_count($js, 'var docGrid = function (table, box) {'), 'one engine');
+        self::assertSame(1, substr_count($js, 'docGrid(grid, '), 'started by the product box, with its own combo');
+        self::assertSame(6, substr_count($js, ' = combo('), 'no second dropdown engine: the grid line\'s item box is one more use of combo() (KG22)');
+        $from = (int) strpos($js, 'var docGrid = function (table, box) {');
+        $grid = substr($js, $from, (int) strpos($js, '// (the lines\' grid ends here)') - $from);
+        self::assertGreaterThan(2000, strlen($grid), 'the engine, to its end marker');
+        // The site's keys (KG13-KG20): ONE layer, one table of keys (KEYS) and one keydown listener for them; the drawer's focus trap and the
+        // menus' Escape are those widgets' own (as before). Letters by ev.code (any keyboard layout); a Mac's Cmd for Ctrl; never a key the
+        // browser keeps (Ctrl+N, T, W, Tab; Ctrl+Shift+N, T, Delete; Alt+D, E, F; the F keys; a letter by ev.key).
+        self::assertSame(1, substr_count($js, 'var KEYS = ['), 'one table of keys');
+        self::assertSame(3, substr_count($js, "document.addEventListener('keydown'"), 'the layer\'s, the drawer\'s focus trap, the menus\' Escape: no other');
+        $from = (int) strpos($js, 'var kb = { grid: null');
+        $layer = substr($js, $from, (int) strpos($js, "document.addEventListener('keydown'", $from) + 600 - $from);
+        foreach (["ev.key === 'Tab'", "ev.key === 'Enter'", "ev.key === 'ArrowUp'", "ev.key === 'ArrowDown'", "ev.key === 'Insert'", "ev.key === 'Delete'",
+            "ev.key === 'Backspace'", "ev.key === 'Escape'", "ev.code === 'KeyN' && kbIs(ev, false, true, false)", "ev.code === 'KeyR' && kbIs(ev, false, true, false)",
+            "ev.code === 'KeyU' && kbIs(ev, false, true, false)", "ev.code === 'KeyZ' && kbIs(ev, true, false, false) && !kbTyping(t)", "ev.code === 'KeyD' && kbIs(ev, true, false, false)",
+            "ev.code === 'KeyC' && kbIs(ev, false, true, false)", "ev.code === 'KeyS' && kbIs(ev, true, false, false)", "ev.code === 'KeyB' && kbIs(ev, true, false, false)",
+            "ev.code === 'KeyG' && kbIs(ev, true, false, false)", "ev.code === 'KeyP' && kbIs(ev, true, false, false)", "ev.code === 'Slash' && kbIs(ev, true, false, false)",
+            "ev.key === '?'", "ev.key === '/'", '(ev.ctrlKey || (kbMac && ev.metaKey)) === ctrl', 'navigator', 'userAgentData', "kbNav.platform"] as $key) {
+            self::assertStringContainsString($key, $layer, $key);
+        }
+        self::assertSame(0, preg_match("/ev\\.key === '[A-Za-z]'/", $layer . $grid), 'a letter by its place (ev.code), never by ev.key');
+        foreach (["'KeyT'", "'KeyW'", "'KeyE'", "'KeyF'", "ev.key === 'F", "'KeyN' && kbIs(ev, true", "'KeyD' && kbIs(ev, false, true", "kbIs(ev, true, false, true)", "kbIs(ev, true, true"] as $never) {
+            self::assertStringNotContainsString($never, $layer . $grid, 'a browser key is never taken: ' . $never);
+        }
+        self::assertStringContainsString('button[name="action"][value="save"]', $grid, 'Ctrl+S is the page\'s Save, never Confirm or make final');
+        self::assertStringContainsString("form.querySelector('input[data-kg-field]')", $grid, 'the new lines in one field');
+        self::assertStringContainsString('JSON.stringify(', $grid);
+        // The hints: a computer only; the rows: one line high on a computer, the phone's cards as before.
+        self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*\.kg-keys \{ display: none; \}/s', $css), 'no hints on a phone');
+        self::assertSame(1, preg_match('/^\.kg-keys kbd \{/m', $css), 'kbd chips');
+        self::assertSame(1, preg_match('/@container \(min-width: 641px\) \{[^@]*table\.kg-grid input\[data-kg-cell\] \{[^}]*min-height: 32px/s', $css), 'compact rows on a computer');
+        self::assertSame(1, preg_match('/^table\.kg-grid tr\.kg-bad /m', $css), 'the line a refusal is about');
+        self::assertSame(1, preg_match('/table\.stack\.doc-lines (?:tr > )?td\.c-no \{ display: none; \}/', $css), 'no number column in a phone\'s card');
+    }
+
+    /**
+     * The owner, 6 Nov 2026, on the invoice screens: "this all shape more oval shape dont need this" (docs/decisions.md KG12): every corner of
+     * every page small and square-ish. The radius tokens are small, and no rule keeps an oval of its own; a true circle (50%) stays.
+     */
+    public function testEveryCornerIsSmallAndNoneIsOval(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertStringContainsString('--r-8: 4px; --r-10: 4px; --r-12: 6px; --r-14: 6px; --r-16: 8px; --r-pill: 4px;', $css);
+        preg_match_all('/border(?:-[a-z]+)*-radius: ([^;]+);/', $css, $m);
+        foreach ($m[1] as $v) {
+            foreach (preg_split('/\s+/', trim($v)) ?: [] as $part) {
+                if (str_starts_with($part, 'var(--r-') || str_starts_with($part, 'var(--radius') || $part === '50%' || $part === '0') {
+                    continue;
+                }
+                self::assertMatchesRegularExpression('/^[0-4]px$/', $part, 'a corner of its own is at most 4px: ' . $v);
+            }
+        }
+        // Every form field (the owner, 6 Nov 2026: "dont make all field like oval shape, i need this make standard"): the one field rule has a
+        // 1 px edge and the 4 px token; no rule of a field (a box, a select, a text area, the dropdown and its list, the find boxes, the grid's
+        // cells) has a corner above 4 px (--r-8 and --r-10 are 4 px; none, or a true circle).
+        self::assertStringContainsString('--r-8: 4px; --r-10: 4px;', $css);
+        self::assertSame(1, preg_match('/^input\[type="text"\], input\[type="email"\][^{]*select, textarea \{[^}]*border: 1px solid var\(--field\); border-radius: var\(--r-10\);/m', $css),
+            'the field rule: a 1 px edge and the 4 px token');
+        $plain = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/', $plain, $rules, PREG_SET_ORDER);
+        $fields = 0;
+        foreach ($rules as [, $selector, $body]) {
+            if (preg_match('/\b(input|select|textarea)\b|side-find|tb-search|sm-list|po-box|aj-cell|show-select/', $selector) !== 1
+                || preg_match_all('/border(?:-[a-z]+)*-radius: ([^;]+);/', $body, $r) === 0) {
+                continue;
+            }
+            foreach ($r[1] as $v) {
+                $fields++;
+                foreach (preg_split('/\s+/', trim($v)) ?: [] as $part) {
+                    self::assertContains($part, ['0', '50%', 'var(--r-8)', 'var(--r-10)', 'var(--r-pill)'], 'a field\'s corner at most 4 px: ' . trim($selector) . ' ' . $v);
+                }
+            }
+        }
+        self::assertGreaterThan(10, $fields, 'the field rules were found');
     }
 }

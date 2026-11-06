@@ -433,9 +433,10 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
   <p class="muted"><?= $word('INVOICES', 'no_lines') ?></p>
 <?php else: ?>
   <div class="table-wrap">
-  <table class="stack lines doc-lines">
+  <table class="stack lines doc-lines kg-view">
     <thead>
       <tr>
+        <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
         <th scope="col"><?= $word('PI_ONE', 'item') ?></th>
         <th scope="col" class="num"><?= $word('PI_ONE', 'qty') ?></th>
         <th scope="col" class="num"><?= $word('PI_ONE', 'price') ?></th>
@@ -449,13 +450,14 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
     <tbody>
 <?php foreach ($lines as $l): ?>
       <tr>
-        <th scope="row" class="c-head"><?php if ($l['kind'] === 'goods'): ?><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name'] ?? '') ?></a><span class="o-sub"><?= $e($l['code'] ?? '') ?><?php if ($l['supplier_code'] !== null): ?> · <?= $e($l['supplier_code']) ?><?php endif; ?></span><?php else: ?><?= $e($l['description'] ?? '') ?><span class="o-sub"><?= $e($l['kind_word']) ?></span><?php endif; ?></th>
+        <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"><?= $e($l['line_no']) ?></td>
+        <th scope="row" class="c-head"><?php if ($l['kind'] === 'goods'): ?><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name'] ?? '') ?></a> <span class="kg-code"><?= $e($l['code'] ?? '') ?></span><?php if ($l['supplier_code'] !== null): ?><span class="o-sub"><?= $e($l['supplier_code']) ?></span><?php endif; ?><?php else: ?><?= $e($l['description'] ?? '') ?><span class="o-sub"><?= $e($l['kind_word']) ?></span><?php endif; ?></th>
         <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"><?php if ($l['packs'] !== null && $l['kind'] === 'goods'): ?><?= $n($l['packs']) ?><span class="o-sub"><?= $e($l['packs_text'] ?? '') ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"><?php if ($l['pack_price'] !== null && $l['kind'] === 'goods'): ?><?= $money($l['pack_price']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('PI_ONE', 'amount') ?>"><?= $money($l['amount']) ?></td>
         <td data-label="<?= $word('INVOICES', 'for') ?>"><?php if ($l['grn_number'] !== null): ?><a href="<?= $u('/ui/receiving/' . $l['grn_document_id']) ?>"><?= $say('INVOICES', 'for_delivery', (string) $l['grn_number'], (int) $l['grn_line_no']) ?></a><?php endif; ?><?php if ($l['po_number'] !== null): ?><span class="o-sub"><?= $say('INVOICES', 'for_order', (string) $l['po_number'], (int) $l['po_line_no']) ?></span><?php endif; ?><?php if ($l['credit_of_line_no'] !== null): ?><span class="o-sub"><?= $say('INVOICES', 'credits_line', (int) $l['credit_of_line_no']) ?></span><?php endif; ?></td>
 <?php if ($match !== null): ?>
-        <td class="c-status"><?php if (isset($match['lines'][$l['line_no']])): ?><?php $ml = $match['lines'][$l['line_no']]; ?><?= $chip($ml['tone'], $ml['state_word']) ?><span class="o-sub"><?= $e($ml['billed']) ?> · <?= $e($ml['there']) ?> · <?= $e($ml['ref']) ?></span><?php if ($ml['why'] !== ''): ?><span class="o-sub"><?= $e($ml['why']) ?><?php if ($ml['diff'] !== ''): ?> (<?= $e($ml['diff']) ?>)<?php endif; ?></span><?php endif; ?><?php if (($ml['info'] ?? null) !== null): ?><span class="o-sub"><?= $e($ml['info']) ?></span><?php endif; ?><?php if ($ml['credited'] !== null): ?><span class="o-sub"><?= $e($ml['credited']) ?></span><?php endif; ?><?php endif; ?></td>
+        <td class="c-status"><?php if (isset($match['lines'][$l['line_no']])): ?><?php $ml = $match['lines'][$l['line_no']]; ?><?= $chip($ml['tone'], $ml['state_word']) ?><?php if ($ml['state'] !== 'matched'): ?><span class="o-sub"><?= $e($ml['billed']) ?> · <?= $e($ml['there']) ?> · <?= $e($ml['ref']) ?></span><?php if ($ml['why'] !== ''): ?><span class="o-sub"><?= $e($ml['why']) ?><?php if ($ml['diff'] !== ''): ?> (<?= $e($ml['diff']) ?>)<?php endif; ?></span><?php endif; ?><?php endif; ?><?php if (($ml['info'] ?? null) !== null): ?><span class="o-sub"><?= $e($ml['info']) ?></span><?php endif; ?><?php if ($ml['credited'] !== null): ?><span class="o-sub"><?= $e($ml['credited']) ?></span><?php endif; ?><?php endif; ?></td>
 <?php endif; ?>
       </tr>
 <?php endforeach; ?>

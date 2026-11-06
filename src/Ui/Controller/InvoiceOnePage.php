@@ -18,6 +18,7 @@ use CW\PurchaseOrders\PurchaseOrders;
 use CW\Suppliers\SupplierItems;
 use CW\Suppliers\Suppliers;
 use CW\Ui\Context;
+use CW\Ui\DocGrid;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -118,6 +119,7 @@ final class InvoiceOnePage
     {
         $req = $ctx->req;
         $ask = self::asked($req);
+        $keys = []; // each line's row on the page, in the order the lines go to the service (DocGrid::rowOf)
         $denied = self::denied($ctx, $ask['action']);
         if ($denied !== null) {
             return $denied;
@@ -134,8 +136,12 @@ final class InvoiceOnePage
                 });
                 return FormOnce::redirect($r);
             }
+            $new = DocGrid::read($req->field(DocGrid::FIELD), SupplierInvoices::MAX_LINES);
             if ($sid === null) {
                 throw new CwException('need_supplier', Words::INVOICE_ERROR['need_supplier'], 422, ['field' => 'supplier_id']);
+            }
+            if ($new !== [] && $ask['action'] === 'add' && $ask['si'] === null && $ask['sku'] === null && $ask['q'] === '' && $ask['source'] === null) {
+                $ask['action'] = 'save'; // Enter in a field of the page with lines in the grid: they are kept (docs/decisions.md KG4)
             }
             self::check($ask, true);
             $header = self::header($req);
@@ -145,7 +151,7 @@ final class InvoiceOnePage
             }
             $file = self::file($ctx);
             $save = self::saveOnly($ask);
-            $r = FormOnce::run($ctx, 'ui.invoice.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $save, $file, $cleared): OpResult {
+            $r = FormOnce::run($ctx, 'ui.invoice.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $save, $file, $cleared, $new, &$keys): OpResult {
                 $ask = $save;
                 $si = $ctx->supplierInvoices();
                 $caller = $ctx->caller();
@@ -168,11 +174,11 @@ final class InvoiceOnePage
                             $typed['due_date'] = (new \DateTimeImmutable($typed['invoice_date']))->modify('+' . (int) $days . ' days')->format('Y-m-d');
                         }
                     }
-                    $res = $this->apply($ctx, $doc->id, $doc->version, $typed === [] ? null : $typed, null, ['source' => null] + $ask, $file);
+                    $res = $this->apply($ctx, $doc->id, $doc->version, $typed === [] ? null : $typed, null, ['source' => null] + $ask, $file, $new, $keys);
                     $res['status'] = $res['status'] === 'saved' ? ($taken === null ? 'from_receipt' : 'number_taken') : $res['status'];
                 } else {
                     $doc = $si->createDraft($caller, 'invoice', $sid, $header);
-                    $res = $this->apply($ctx, $doc->id, $doc->version, null, null, $ask, $file);
+                    $res = $this->apply($ctx, $doc->id, $doc->version, null, null, $ask, $file, $new, $keys);
                     $res['status'] = $res['status'] === 'saved' ? 'created' : $res['status'];
                 }
                 if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
@@ -184,7 +190,7 @@ final class InvoiceOnePage
                     'redirect' => self::after($doc->id, $res, $taken)]);
             });
         } catch (CwException $e) {
-            $extra = ['typed' => $req->post, 'formKey' => PoAddNew::keyAgain($ctx, $e)];
+            $extra = ['typed' => $req->post, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys), 'gridBadText' => InvoicesController::plain($e)];
             return $this->refused($ctx, null, $e, $ask, $extra);
         }
         return $ask['action'] === 'post' ? self::makeFinal($ctx, (int) $r->body['document_id'], isset($r->body['version']) ? (int) $r->body['version'] : null)
@@ -214,28 +220,45 @@ final class InvoiceOnePage
             return $denied;
         }
         $typed = $req->post;
+        $keys = []; // each line's row on the page, in the order the lines go to the service (DocGrid::rowOf)
         try {
+            $new = DocGrid::read($req->field(DocGrid::FIELD), SupplierInvoices::MAX_LINES);
             self::check($ask, false);
             $header = self::header($req, true);
             $file = self::file($ctx);
             $save = self::saveOnly($ask);
-            $work = function () use ($ctx, $id, $version, $header, $save, $file): array {
-                $lines = self::editedLines($ctx, $id, $save['remove']);
-                return $this->apply($ctx, $id, $version, $header === [] ? null : $header, $lines, $save, $file) + ['saved' => $ctx->documents()->get($id)->version];
+            $to = UiRequest::id($req->field('supplier_id')); // the supplier box of a draft (docs/decisions.md KG30): another one moves the draft
+            $work = function () use ($ctx, $id, $version, $header, $save, $file, $new, &$keys, $to): array {
+                $lines = self::editedLines($ctx, $id, $save['remove'], $keys);
+                return $this->apply($ctx, $id, $version, $header === [] ? null : $header, $lines, $save, $file, $new, $keys, $to) + ['saved' => $ctx->documents()->get($id)->version];
             };
-            if ($ask['action'] === 'new_item') {
-                $r = FormOnce::run($ctx, 'ui.invoice.new_item', ['id' => $id] + self::request($req), function (Db $db) use ($id, $work): OpResult {
-                    $res = $work();
-                    return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'redirect' => self::after($id, $res, null)]);
-                });
+            if ($ask['action'] === 'new_item' || $new !== []) {
+                // "+ Add new item" makes an item; the grid's new lines (docs/decisions.md KG5) add lines: the same form sent again is answered
+                // by its first answer (FormOnce, with the version), never done twice. An Add that finds several items or none then leaves
+                // nothing saved (the page shows them with every line kept), as on the new page.
+                $r = FormOnce::run($ctx, $ask['action'] === 'new_item' ? 'ui.invoice.new_item' : 'ui.invoice.grid', ['id' => $id] + self::request($req),
+                    function (Db $db) use ($id, $work): OpResult {
+                        $res = $work();
+                        if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
+                            throw new CwException('one_page_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? []]);
+                        }
+                        return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'version' => $res['saved'], 'redirect' => self::after($id, $res, null)]);
+                    });
+                if ($ask['action'] === 'post') {
+                    return self::makeFinal($ctx, $id, isset($r->body['version']) ? (int) $r->body['version'] : null);
+                }
                 return FormOnce::redirect($r);
             }
             $res = $ctx->db->transaction(static fn (): array => $work());
         } catch (CwException $e) {
             if ($e->errorCode === 'version_conflict') {
-                return self::draftPage($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409), []);
+                // The draft changed meanwhile (docs/decisions.md KG6): its lines as they are now, the new lines typed kept (they name their
+                // item); the edits of the saved lines are not, as those lines may have changed under them.
+                return self::draftPage($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409),
+                    ['typed' => array_intersect_key($typed, [DocGrid::FIELD => 1])]);
             }
-            return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formKey' => PoAddNew::keyAgain($ctx, $e)]);
+            return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys),
+                'gridBadText' => InvoicesController::plain($e)]);
         }
         // An Add that found several items or none saved the rest of the form; the "+ Add new" form was not saved: it comes back as typed.
         $unsaved = ['typed' => array_intersect_key($typed, array_flip(self::UNSAVED))];
@@ -331,24 +354,64 @@ final class InvoiceOnePage
      * a price is typed, its line), then the file. Never the posting: "make final" is makeFinal(), after this is committed.
      * The statuses are the notices' (Add's `choices` and `not_found` are not: the caller shows them).
      *
+     * The grid's new lines ($new, docs/decisions.md KG4) follow the lines as edited, in the same save (or after the draft's own when the form
+     * drew no lines table: a new invoice, one "From" a delivery, a big one), before "From", the charge and the action. $keys: each line's
+     * row on the page, in that order (DocGrid::rowOf).
+     *
      * @param array<string, string>|null $header
      * @param list<array<string, mixed>>|null $lines
      * @param array<string, mixed> $ask asked()
      * @param array{name: string, path: string, role: string}|null $file
+     * @param list<array{si: ?int, sku: ?int, u: ?int, q: string, p: string}> $new
+     * @param list<string> $keys
      * @return array{status: string, document: Document, choices?: list<array<string, mixed>>}
      */
-    private function apply(Context $ctx, int $id, int $version, ?array $header, ?array $lines, array $ask, ?array $file): array
+    private function apply(Context $ctx, int $id, int $version, ?array $header, ?array $lines, array $ask, ?array $file, array $new = [], array &$keys = [], ?int $to = null): array
     {
         $si = $ctx->supplierInvoices();
         $caller = $ctx->caller();
         $doc = $ctx->documents()->get($id);
         $v = $version;
         $status = $ask['action'] === 'remove' ? 'removed' : 'saved';
+        $from = (int) $si->record($id)['supplier_id'];
+        $unpriced = null;
+        if ($to !== null && $to !== $from) {
+            // Another supplier chosen on the draft (docs/decisions.md KG30): the lines as edited (the old supplier's) and the grid's new lines
+            // (the new supplier's), moved to the new supplier with the header in the same save (SupplierInvoices::changeSupplier).
+            $all = $lines;
+            $more = [];
+            if ($new !== [] && $lines !== null) {
+                [$all, $keys] = self::gridLines($ctx, $to, $lines, $keys, $new, DocGrid::removedLines($ctx->req->post, 'x_%d'), 0);
+            } elseif ($new !== []) {
+                $keys = array_map(static fn (mixed $n): string => 'line:' . (int) $n, $ctx->db->column('SELECT line_no FROM document_line WHERE document_id = ? ORDER BY line_no', [$id]));
+                [$more, $moreKeys] = self::gridLines($ctx, $to, [], [], $new, [], count($keys));
+                $keys = array_merge($keys, $moreKeys);
+            }
+            $r = $si->changeSupplier($caller, $id, $v, $to, $all, $header ?? [], $more);
+            $doc = $r['document'];
+            $v = $doc->version;
+            $unpriced = $r['unmatched'];
+            $header = null;
+            $lines = null;
+            $new = [];
+        }
         if ($header !== null) {
             $doc = $si->saveHeader($caller, $id, $v, $header);
             $v = $doc->version;
         }
-        if ($lines !== null) {
+        if ($new !== [] && $lines !== null) {
+            // The lines as edited and the grid's new lines, in DocGrid::order (a new line that replaces a removed saved line takes its place).
+            [$all, $keys] = self::gridLines($ctx, (int) $si->record($id)['supplier_id'], $lines, $keys, $new, DocGrid::removedLines($ctx->req->post, 'x_%d'), 0);
+            $doc = $si->saveLines($caller, $id, $v, $all);
+            $v = $doc->version;
+        } elseif ($new !== []) {
+            // No lines table (a new invoice, one "From" a delivery, a big one): the new lines after the draft's own.
+            $keys = array_map(static fn (mixed $n): string => 'line:' . (int) $n, $ctx->db->column('SELECT line_no FROM document_line WHERE document_id = ? ORDER BY line_no', [$id]));
+            [$more, $moreKeys] = self::gridLines($ctx, (int) $si->record($id)['supplier_id'], [], [], $new, [], count($keys));
+            $keys = array_merge($keys, $moreKeys);
+            $doc = $si->appendLines($caller, $id, $v, $more);
+            $v = $doc->version;
+        } elseif ($lines !== null) {
             $doc = $si->saveLines($caller, $id, $v, $lines);
             $v = $doc->version;
         }
@@ -401,6 +464,9 @@ final class InvoiceOnePage
             // 6418b15, finding 2). Only a commit that fails after the file is stored leaves bytes without a row: FileStore::verify counts
             // those orphans, as for every attachment.
             $si->attach($caller, $id, $file['path'], $file['name'], $file['role']);
+        }
+        if ($unpriced !== null && $status === 'saved') {
+            return ['status' => 'supplier_changed', 'document' => $doc, 'unpriced' => $unpriced];
         }
         return ['status' => $status, 'document' => $doc];
     }
@@ -536,14 +602,66 @@ final class InvoiceOnePage
      * The lines of a draft with the table's edits applied (InvoicesController's naming: p_<n> packs, pp_<n> pack price, a_<n> amount, d_<n>
      * words, x_<n> remove) and the row $remove left out (not read). The table must hold the stored lines (`line_count`).
      *
+     * $keys: each line kept, its row on the page ('line:N'), in order (DocGrid::rowOf; none when the form drew no lines table).
+     *
+     * @param list<string> $keys
      * @return list<array<string, mixed>>|null null: the form drew no lines table
      */
-    private static function editedLines(Context $ctx, int $id, ?int $remove): ?array
+    private static function editedLines(Context $ctx, int $id, ?int $remove, array &$keys = []): ?array
     {
+        $keys = [];
         if ($ctx->req->field('line_count') === null) {
             return null;
         }
-        return InvoicesController::editedLines($ctx, $id, $remove);
+        $nos = [];
+        $lines = InvoicesController::editedLines($ctx, $id, $remove, $nos);
+        $keys = array_map(static fn (int $n): string => 'line:' . $n, $nos);
+        return $lines;
+    }
+
+    /**
+     * The lines saved: the draft's lines as edited ($kept, their rows $keptKeys) and the grid's new lines (docs/decisions.md KG4) as the
+     * service's goods lines, in DocGrid::order (a new line that replaces a saved line removed in the same post takes its place, KG22): one
+     * of the supplier's packs (`si`) or an item (`sku`, with its items per pack when a case's barcode named it), the qty as typed (a whole
+     * number of 1 or more, as a saved line's) and the price as typed (empty: the pack's last price, as Add) by SupplierInvoices::goodsLine
+     * (Add's rule: this supplier's pack, switched on, an item not joined into another). A refusal names its line (its place, after $offset
+     * lines not sent) and its row.
+     *
+     * @param list<array<string, mixed>> $kept
+     * @param list<string> $keptKeys
+     * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new
+     * @param array<int, true> $removed
+     * @return array{0: list<array<string, mixed>>, 1: list<string>} the lines and each one's row
+     */
+    private static function gridLines(Context $ctx, int $supplierId, array $kept, array $keptKeys, array $new, array $removed, int $offset): array
+    {
+        $si = $ctx->supplierInvoices();
+        $out = [];
+        $keys = [];
+        foreach (DocGrid::order($keptKeys, $new, $removed) as [$kind, $i]) {
+            if ($kind === 'kept') {
+                $out[] = $kept[$i];
+                $keys[] = $keptKeys[$i];
+                continue;
+            }
+            $l = $new[$i];
+            $row = 'new:' . ($i + 1);
+            $at = $offset + count($out) + 1;
+            $packs = DocGrid::packs($l['q']);
+            if ($packs === null || $packs < 1) {
+                throw new CwException('bad_line', Words::INVOICE_ERROR['bad_packs'], 422, ['line' => $at, 'row' => $row, 'field' => 'packs']);
+            }
+            try {
+                // An item's items per pack (u) are a case's barcode's, as Add takes a scanned case: this supplier's pack of that size, else a case.
+                // A pack picked before the supplier box changed: moved to this supplier as a draft's lines are (KG30).
+                $out[] = $l['si'] !== null ? $si->goodsLineFor($supplierId, $packs, $l['p'] === '' ? null : $l['p'], $l['si'])
+                    : $si->goodsLine($supplierId, $packs, $l['p'] === '' ? null : $l['p'], $l['sku'], null, $l['u'] ?? 1);
+            } catch (CwException $e) {
+                throw new CwException($e->errorCode, $e->getMessage(), $e->httpStatus, ['line' => $at, 'row' => $row] + $e->detail);
+            }
+            $keys[] = $row;
+        }
+        return [$out, $keys];
     }
 
     /** Where a done form leads: the draft's page at its lines, or the invoice once final, with its notice. @param array{status: string, document: Document} $res */
@@ -555,6 +673,8 @@ final class InvoiceOnePage
             $query['number'] = $res['document']->number;
         } elseif ($s === 'number_taken') {
             $query['other'] = $taken;
+        } elseif ($s === 'supplier_changed') {
+            $query['unpriced'] = (int) ($res['unpriced'] ?? 0); // the lines the new supplier does not sell, said once (KG30)
         }
         return Html::url(self::BASE . '/' . $id, $query) . (in_array($s, ['posted', 'submitted'], true) ? '' : '#lines');
     }
@@ -617,7 +737,8 @@ final class InvoiceOnePage
         $text = static fn (string $k, string $default = ''): string => is_string($typed[$k] ?? null) ? (string) $typed[$k] : $default;
         $rec = $id === null ? null : $si->record($id);
         $doc = $rec === null ? null : Document::fromRow($rec);
-        $supplierId = $rec !== null ? (int) $rec['supplier_id'] : UiRequest::id($text('supplier_id') === '' ? null : $text('supplier_id'));
+        // A draft's supplier as typed when its form comes back refused (the box is a draft's too: docs/decisions.md KG30), else its own.
+        $supplierId = UiRequest::id($text('supplier_id') === '' ? null : $text('supplier_id')) ?? ($rec !== null ? (int) $rec['supplier_id'] : null);
         $supplier = $supplierId === null ? null : $db->one('SELECT id, name, code, status, payment_terms_days FROM supplier WHERE id = ?', [$supplierId]);
         $lines = $id === null ? [] : $si->lines($id);
         $sum = 0;
@@ -646,11 +767,17 @@ final class InvoiceOnePage
         if ($doc === null && !$clearedHere && $form['due_date'] === '' && $terms !== null && self::realDate($form['invoice_date'])) {
             $form['due_date'] = (new \DateTimeImmutable($form['invoice_date']))->modify('+' . $terms . ' days')->format('Y-m-d');
             $dueAuto = true;
+        } elseif ($doc !== null && $terms !== null && self::realDate($form['invoice_date']) && $form['due_date'] !== ''
+            && $form['due_date'] === (new \DateTimeImmutable($form['invoice_date']))->modify('+' . $terms . ' days')->format('Y-m-d')) {
+            $dueAuto = true; // a draft's due date still its supplier's terms: it follows another supplier's (KG30), as the server's save does
         }
         $net = self::moneyE2($form['net_total']);
         $vat = self::moneyE2($form['vat_total']);
         $total = ($net ?? $sum) + ($vat ?? 0);
-        $fixed = $doc !== null;
+        // The supplier box on a new invoice and on a draft alike (the owner, 6 Nov 2026: "also in draft and new easily supplier change option";
+        // docs/decisions.md KG30): another supplier moves the lines in the same save (SupplierInvoices::changeSupplier). "+ Add new supplier"
+        // stays the new page's.
+        $fixed = $doc !== null && $doc->status !== 'draft';
         $same = is_array($extra['itemSame'] ?? null) ? array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'code' => (string) $s['code'], 'name' => (string) $s['name']],
             $extra['itemSame']) : null;
         $other = isset($extra['itemOther']) ? $db->one('SELECT id, code, name FROM sku WHERE id = ?', [(int) $extra['itemOther']]) : null;
@@ -672,7 +799,8 @@ final class InvoiceOnePage
             'supplierName' => (string) ($supplier['name'] ?? ''),
             'supplierChoices' => $fixed ? [] : self::supplierChoices($db),
             'terms' => $terms,
-            'canAddSupplier' => !$fixed && $me->can('suppliers.manage'),
+            'canAddSupplier' => $doc === null && $me->can('suppliers.manage'),
+            'unpriced' => $doc === null ? null : PurchaseOrdersController::unpriced($ctx, $supplierId),
             'askSupplier' => Words::askToAdd('suppliers.manage'),
             'supplierError' => $extra['supplierError'] ?? null,
             'newSupplier' => ['name' => $text('new_supplier_name'), 'email' => $text('new_supplier_email'), 'phone' => $text('new_supplier_phone')],
@@ -692,7 +820,7 @@ final class InvoiceOnePage
             'choices' => $extra['choices'] ?? null,
             // While the supplier can still change (the new page), every supplier's open deliveries and orders, each naming its own: the script
             // keeps the chosen one's (the Codex review of 6418b15, finding 5); a draft's supplier is fixed.
-            'sources' => self::sources($ctx, $fixed ? $supplierId : null, $doc?->id),
+            'sources' => self::sources($ctx, $doc !== null ? $supplierId : null, $doc?->id), // a draft: its supplier's (the box chosen there, KG30)
             'dueAuto' => $dueAuto,
             // What the box showed when the page was drawn: a due date the person cleared keeps its marker through a refused button (the
             // Codex review of e1db3a4, M2, PV22), so the save after it does not fill the terms' date again.
@@ -704,12 +832,18 @@ final class InvoiceOnePage
             'chargeKinds' => array_intersect_key(Words::INVOICE_LINE, array_flip(SupplierInvoices::CHARGE_KINDS)),
             'lines' => $lines,
             'typedLines' => $typed,
+            // The lines' grid (docs/decisions.md KG): the new lines typed and the lines removed (drawn again after a refusal), the row a
+            // refusal is about, the invoice's limit.
+            'grid' => DocGrid::view($db, $typed, SupplierInvoices::MAX_LINES, 'x_%d', $extra['gridBad'] ?? null, $extra['gridBadText'] ?? null),
             'form' => $form,
+            // The demo the owner approved (KG31): Total quantity (the goods' items) and Total (the lines) as grey boxes over the paper's figures.
+            'units' => array_sum(array_map(static fn (array $l): int => $l['kind'] === 'goods' ? (int) $l['packs'] * (int) $l['units_per_pack'] : 0, $lines)),
+            'linesSum' => Html::money(InvoiceMath::fromE2($sum)),
             'totals' => [
-                ['label' => Words::DOC['sub_total'], 'value' => Html::money(InvoiceMath::fromE2($sum))],
+                ['label' => Words::DOC['sub_total'], 'value' => Html::money(InvoiceMath::fromE2($sum)), 'key' => 'sum'],
                 ['label' => Words::PI_ONE['paper_net'], 'input' => ['name' => 'net_total', 'id' => 'pi-net', 'value' => $form['net_total']]],
                 ['label' => Words::PI_ONE['paper_vat'], 'input' => ['name' => 'vat_total', 'id' => 'pi-vat', 'value' => $form['vat_total']]],
-                ['label' => Words::DOC['total'], 'value' => Html::money(InvoiceMath::fromE2($total)), 'grand' => true],
+                ['label' => Words::DOC['total'], 'value' => Html::money(InvoiceMath::fromE2($total)), 'grand' => true, 'key' => 'total'],
             ],
             'fileRoles' => array_intersect_key(Words::INVOICE_FILE, SupplierInvoices::FILE_ROLES),
             'files' => $id === null ? [] : array_map(static fn (array $f): array => $f + ['what' => Words::INVOICE_FILE[(string) $f['role']] ?? Words::of('RECEIPT_FILE', (string) $f['role'])],

@@ -1083,4 +1083,37 @@ final class WordsTest extends TestCase
             self::assertDoesNotMatchRegularExpression('/units_365d|created_at|discontinued|merged_into|item_card|channel_listing|\bSKU\b|\bUTC\b/i', $text, 'no code on a screen (rule 2)');
         }
     }
+
+    /** The lines' grid (docs/decisions.md KG): its words on the page, its keys named as on the keyboard, Cmd for a Mac. */
+    public function testTheLinesGridNamesItsKeysInWords(): void
+    {
+        foreach (['no', 'removed', 'undo', 'keys', 'k_tab', 'k_updown', 'k_new', 'k_del', 'k_undo', 'k_copy', 'k_save', 'kbd_tab', 'kbd_updown', 'kbd_new', 'kbd_del',
+            'kbd_undo', 'kbd_copy', 'kbd_save', 'kbd_new_mac', 'kbd_del_mac', 'kbd_undo_mac', 'kbd_copy_mac', 'kbd_save_mac', 'too_many', 'all_keys', 'keys_button'] as $k) {
+            self::assertArrayHasKey($k, Words::DOC_GRID, $k);
+            self::assertNotSame('', trim(Words::DOC_GRID[$k]), $k);
+        }
+        self::assertSame(1, substr_count(Words::DOC_GRID['removed'], '%s'), 'Line 3 removed.');
+        // The hint line as the demo the owner approved (KG31): Ctrl keys Cmd on a Mac, Alt keys Option.
+        foreach (['kbd_new', 'kbd_copy', 'kbd_save'] as $k) {
+            self::assertStringStartsWith('Ctrl', Words::DOC_GRID[$k], $k);
+            self::assertStringStartsWith('Cmd', Words::DOC_GRID[$k . '_mac'], $k);
+        }
+        foreach (['kbd_del', 'kbd_undo'] as $k) {
+            self::assertStringStartsWith('Alt', Words::DOC_GRID[$k], $k);
+            self::assertStringStartsWith('Option', Words::DOC_GRID[$k . '_mac'], $k);
+        }
+        self::assertNotSame(Words::PO_ONE['confirm'], Words::DOC_GRID['k_save'], 'Ctrl+S saves, never confirms');
+        // The panel of every key (KG13-KG20): each entry its words and its keys, a computer's and a Mac's (Cmd for Ctrl, Option for Alt).
+        foreach (Words::KEYS_KBD as $id => $keys) {
+            self::assertArrayHasKey($id, Words::KEYS, $id);
+            foreach ($keys as [$pc, $mac]) {
+                self::assertNotSame('', $pc, $id);
+                self::assertStringNotContainsString('Ctrl', $mac, "{$id}: a Mac says Cmd");
+                self::assertStringNotContainsString('Alt', $mac, "{$id}: a Mac says Option");
+            }
+        }
+        foreach (['title', 'lines', 'page', 'close'] as $k) {
+            self::assertArrayHasKey($k, Words::KEYS, $k);
+        }
+    }
 }

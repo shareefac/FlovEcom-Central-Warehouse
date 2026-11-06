@@ -85,8 +85,10 @@ final class PurchaseOrderLifecycleTest extends PurchaseOrderTestCase
             array_intersect_key($this->pos->lines($d->id)[4], ['kind' => 1, 'description' => 1, 'pack_price' => 1]));
         self::assertSame([null, null, '7.500000'], array_values((array) self::$db->one('SELECT sku_id, qty, amount FROM document_line WHERE document_id = ? AND line_no = 5', [$d->id])));
         self::refused(409, 'version_conflict', fn () => $this->pos->saveDraft($buyer, $d->id, $doc->version - 1, [], []));
-        self::refused(409, 'supplier_has_lines', fn () => $this->pos->saveDraft($buyer, $d->id, $doc->version, ['supplier_id' => (string) $this->activeSupplier($buyer,
-            ['name' => 'Other Supplier'])['id']], $this->pos->lines($d->id)));
+        // Another supplier changes a draft with lines too (docs/decisions.md KG30; before it, supplier_has_lines): never an inactive one.
+        $gone = $this->activeSupplier($buyer, ['name' => 'Other Supplier']);
+        self::$db->exec("UPDATE supplier SET status = 'inactive', deactivated_at = UTC_TIMESTAMP() WHERE id = ?", [(int) $gone['id']]);
+        self::refused(422, 'supplier_inactive', fn () => $this->pos->saveDraft($buyer, $d->id, $doc->version, ['supplier_id' => (string) $gone['id']], $this->pos->lines($d->id)));
         self::refused(422, 'bad_line', fn () => $this->pos->saveDraft($buyer, $d->id, $doc->version, [], [['supplier_item_id' => (int) $pack6['id'], 'packs' => 1,
             'units_per_pack' => 12]]));
         self::refused(422, 'bad_line', fn () => $this->pos->saveDraft($buyer, $d->id, $doc->version, [], [['kind' => 'charge', 'description' => 'x', 'pack_price' => '1.005']]));

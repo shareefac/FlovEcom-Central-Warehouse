@@ -301,32 +301,42 @@
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
+  // Sent (POST, with the form's CSRF token and a FormOnce key in its body; docs/decisions.md KG21, KG24), only two kinds: the lines' grid's
+  // "+ Add new item" (its route answers a fragment, data-ni-fragment) and the editor's Save (its own address answers the editor's page,
+  // data-kg-editor: what it gives back is the part of the page around the form, to put in place; a refusal's 409 / 422 is its answer too).
+  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?$/ };
   var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
-  var fragment = function (url, marker) {
+  var fragment = function (url, marker, body) {
     var path = FRAGMENTS[marker];
     if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {
       path = ALSO[marker];
     }
-    if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {
+    var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);
+    if ((!sent && (!path || url.indexOf(path) !== 0 || body !== undefined)) || !window.fetch || !window.DOMParser) {
       return Promise.reject(new Error('not a fragment of this site'));
     }
-    return window.fetch(url, { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
+    var editor = marker === '[data-kg-editor]';
+    return window.fetch(url, sent ? { credentials: 'same-origin', method: 'POST', headers: { Accept: 'text/html' }, body: body, redirect: 'follow' }
+      : { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
       .then(function (r) {
-        if (!r.ok || r.redirected) {
+        // The editor's Save lands on the editor's page (303, followed) or answers a refusal (409, 422) with it; nothing else is an answer.
+        if (editor ? (r.status !== 200 && r.status !== 409 && r.status !== 422) : (!r.ok || r.redirected)) {
           throw new Error('not the fragment');
         }
         return r.text();
       })
       .then(function (html) {
         var doc = new window.DOMParser().parseFromString(html, 'text/html');
-        var part = doc.querySelector(marker);
-        if (!part) {
+        var part = doc.querySelector(editor ? 'form[data-kg-editor]' : marker);
+        if (!part || (editor && !part.parentNode)) {
           throw new Error('not the fragment');
         }
-        var node = document.importNode(part, true);
-        each(node.querySelectorAll('form[method="post"]'), sendOnce);
+        var node = document.importNode(editor ? part.parentNode : part, true);
+        if (!editor) {
+          each(node.querySelectorAll('form[method="post"]'), sendOnce);
+        }
         return node;
       });
   };
@@ -876,6 +886,184 @@
     }, true);
   }
 
+  // The site's keys (docs/decisions.md KG13-KG20; the owner, 6 Nov 2026: "i need add item multiple short key option in keyboard, i need
+  // standard short key option like Tally, ERPNext"): ONE listener on the document and ONE table of keys (KEYS, below), shared by every page:
+  // the lines' grid (docGrid registers itself in kb.grid, a box with "+ Add new" in kb.boxes), the lists of orders and invoices
+  // (table[data-kb-rows]), the panel "Keyboard shortcuts" (keys_panel). A letter is read by its place on the keyboard (ev.code: a Mac's
+  // Option makes other characters); on a Mac Cmd or Ctrl is the Ctrl of a key and Option its Alt, and the page shows Cmd and Option
+  // (kbd[data-mac]). No key a browser keeps is taken (Ctrl+N, T, W, Tab; Ctrl+Shift+N, T, Delete; Alt+D, E, F; the F keys), nor a key the
+  // dropdown or a box took first (ev.defaultPrevented). Each key's words are the panel's (Words::KEYS); docs/dev.md has the table.
+  var kb = { grid: null, boxes: [], row: -1 };
+  var kbNav = window.navigator || {};
+  var kbMac = /mac|iphone|ipad/i.test((kbNav.userAgentData && kbNav.userAgentData.platform) || kbNav.platform || '');
+  if (kbMac) {
+    each(document.querySelectorAll('kbd[data-mac]'), function (k) {
+      if (k.getAttribute('data-mac') === '') {
+        k.hidden = true; // a key a Mac has not (Insert)
+      } else {
+        k.textContent = k.getAttribute('data-mac');
+      }
+    });
+  }
+  // Exactly these modifiers: Ctrl (on a Mac Cmd or Ctrl), Alt (Option), Shift; a Windows key never counts as Ctrl.
+  var kbIs = function (ev, ctrl, alt, shift) {
+    return (ev.ctrlKey || (kbMac && ev.metaKey)) === ctrl && ev.altKey === alt && ev.shiftKey === shift && (kbMac || !ev.metaKey);
+  };
+  // Typing in a box (where /, ?, Ctrl+Z and Up / Down are the box's own).
+  var kbTyping = function (t) {
+    if (!t || !t.tagName) {
+      return false;
+    }
+    if (t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') {
+      return true;
+    }
+    return t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|hidden|file|image)$/.test(t.type || 'text');
+  };
+  var kbInGrid = function (t) { return !!(kb.grid && t && t.nodeType === 1 && kb.grid.table.contains(t)); };
+  var kbCell = function (t) { return kbInGrid(t) && t.hasAttribute('data-kg-cell'); };
+  var kbBox = function (t) {
+    var found = null;
+    each(kb.boxes, function (b) { if (b.input === t) { found = b; } });
+    return found;
+  };
+  // The panel "Keyboard shortcuts": only the keys this page has (data-kb-when: grid, list, new, pdf), a group with none left out; Esc,
+  // Close or a press outside its box shuts it, and the cursor goes back where it was.
+  var kbPanel = document.querySelector('[data-kb-panel]');
+  var kbBack = null;
+  var kbRows = function () {
+    return Array.prototype.filter.call(document.querySelectorAll('table[data-kb-rows] a.row-link'), function (a) { return !a.closest('[hidden]'); });
+  };
+  var kbShut = function () {
+    if (!kbPanel || kbPanel.hidden) {
+      return;
+    }
+    kbPanel.hidden = true;
+    if (kbBack && kbBack.focus) {
+      kbBack.focus();
+    }
+    kbBack = null;
+  };
+  var kbOpen = function () {
+    if (!kbPanel) {
+      return;
+    }
+    var has = { grid: !!kb.grid, list: kbRows().length > 0, 'new': !!kbPanel.querySelector('a[data-key-new]'), pdf: !!document.querySelector('a[data-key-print]') };
+    each(kbPanel.querySelectorAll('[data-kb-when]'), function (r) { r.hidden = !has[r.getAttribute('data-kb-when')]; });
+    each(kbPanel.querySelectorAll('[data-kb-group]'), function (g) { g.hidden = g.querySelector('.kb-row:not([hidden])') === null; });
+    kbBack = document.activeElement;
+    kbPanel.hidden = false;
+    var close = kbPanel.querySelector('[data-kb-close]');
+    if (close) {
+      close.focus();
+    }
+  };
+  if (kbPanel) {
+    each(kbPanel.querySelectorAll('[data-kb-close]'), function (b) { b.addEventListener('click', kbShut); });
+    kbPanel.addEventListener('click', function (ev) {
+      if (ev.target === kbPanel) {
+        kbShut(); // a press on the backdrop
+      }
+    });
+    each(document.querySelectorAll('[data-kb-open]'), function (b) { b.addEventListener('click', kbOpen); });
+  }
+  // A list's rows (the orders, the invoices): Up / Down mark one (in sight), Enter opens it (its link: the unsaved-changes guard asks first).
+  var kbMark = function (by) {
+    var rows = kbRows();
+    each(document.querySelectorAll('tr.kb-on'), function (tr) { tr.classList.remove('kb-on'); });
+    kb.row = Math.max(0, Math.min(rows.length - 1, kb.row < 0 ? (by > 0 ? 0 : rows.length - 1) : kb.row + by));
+    var tr = rows[kb.row].closest('tr');
+    if (tr) {
+      tr.classList.add('kb-on');
+      if (tr.scrollIntoView) {
+        tr.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  };
+  var kbClick = function (sel) {
+    var a = document.querySelector(sel);
+    if (a) {
+      a.click(); // a link pressed: the page's guard of unsaved changes asks first, as for a press with the mouse
+    }
+    return !!a;
+  };
+  var kbSearch = function () {
+    var box = document.querySelector('main input[data-page-search]') || document.querySelector('main form.toolbar input[type="search"]') || document.getElementById('side-find');
+    var fold = box && box.closest ? box.closest('details') : null;
+    if (fold && !fold.open) {
+      fold.open = true; // SX5: a folded search is opened first
+    }
+    if (box) {
+      box.focus();
+      if (box.select) {
+        box.select();
+      }
+    }
+    return !!box;
+  };
+  // The table of keys: the first whose test holds runs (its default action stopped), unless it answers false (not for it after all).
+  var KEYS = [
+    // Lines (the order's and the invoice's grid): only inside the lines, but Save, the undo and "+ Add new".
+    { id: 'take', test: function (ev, t) { return kbBox(t) !== null && kbInGrid(t) && ev.key === 'Tab' && kbIs(ev, false, false, false) && kb.grid.marked() !== null; },
+      run: function () { kb.grid.takeMarked(); } },
+    { id: 'next', test: function (ev, t) { return kbCell(t) && ev.key === 'Enter' && kbIs(ev, false, false, false); }, run: function (ev, t) { kb.grid.step(t, 1); } },
+    { id: 'updown', test: function (ev, t) { return kbCell(t) && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && kbIs(ev, false, false, false); },
+      run: function (ev, t) { kb.grid.vertical(t, ev.key === 'ArrowDown' ? 1 : -1); } },
+    { id: 'new_line', test: function (ev, t) {
+      return kbInGrid(t) && ((ev.key === 'Enter' && kbIs(ev, true, false, false)) || (ev.code === 'KeyN' && kbIs(ev, false, true, false))
+        || (ev.key === 'Insert' && kbIs(ev, false, false, false)));
+    }, run: function () { kb.grid.toEmpty(); } },
+    { id: 'delete_line', test: function (ev, t) {
+      return kbInGrid(t) && ((ev.key === 'Delete' && kbIs(ev, true, false, false)) || (kbMac && ev.key === 'Backspace' && kbIs(ev, true, false, false))
+        || (ev.code === 'KeyR' && kbIs(ev, false, true, false)));
+    }, run: function (ev, t) { return kb.grid.removeAt(t); } },
+    { id: 'undo_line', test: function (ev, t) {
+      return !!kb.grid && kb.grid.canUndo() && ((ev.code === 'KeyU' && kbIs(ev, false, true, false)) || (ev.code === 'KeyZ' && kbIs(ev, true, false, false) && !kbTyping(t)));
+    }, run: function () { kb.grid.undo(); } },
+    { id: 'fill_down', test: function (ev, t) { return kbInGrid(t) && ev.code === 'KeyD' && kbIs(ev, true, false, false); }, run: function (ev, t) { kb.grid.fillDown(t); } },
+    { id: 'add_new', test: function (ev, t) { return kbBox(t) !== null && ev.code === 'KeyC' && kbIs(ev, false, true, false); }, run: function (ev, t) { return kbBox(t).addNew(); } },
+    { id: 'save', test: function (ev) { return !!kb.grid && ev.code === 'KeyS' && kbIs(ev, true, false, false); }, run: function () { kb.grid.save(); } },
+    { id: 'esc', test: function (ev, t) { return ev.key === 'Escape' && (kbCell(t) || kbBox(t) !== null); }, run: function (ev, t) { t.blur(); } },
+    // Page: every page.
+    { id: 'new_doc', test: function (ev) { return ev.code === 'KeyB' && kbIs(ev, true, false, false); }, run: function () { return kbClick('a[data-key-new]'); } },
+    { id: 'search', test: function (ev, t) { return (ev.code === 'KeyG' && kbIs(ev, true, false, false)) || (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !kbTyping(t)); },
+      run: function () { return kbSearch(); } },
+    { id: 'pdf', test: function (ev) { return ev.code === 'KeyP' && kbIs(ev, true, false, false); }, run: function () { return kbClick('a[data-key-print]'); } }, // else the browser prints
+    { id: 'help', test: function (ev, t) {
+      return !!kbPanel && ((ev.key === '?' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !kbTyping(t)) || (ev.code === 'Slash' && kbIs(ev, true, false, false)));
+    }, run: function () { kbOpen(); } },
+    { id: 'rows', test: function (ev, t) { return (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && kbIs(ev, false, false, false) && !kbTyping(t) && kbRows().length > 0; },
+      run: function (ev) { kbMark(ev.key === 'ArrowDown' ? 1 : -1); } },
+    { id: 'open_row', test: function (ev, t) {
+      return ev.key === 'Enter' && kbIs(ev, false, false, false) && kb.row >= 0 && !(t && t.closest && t.closest('a, button, input, select, textarea, summary'));
+    }, run: function () {
+      var rows = kbRows();
+      if (!rows[kb.row]) {
+        return false;
+      }
+      rows[kb.row].click();
+      return true;
+    } },
+  ];
+  document.addEventListener('keydown', function (ev) {
+    if (ev.defaultPrevented || ev.isComposing) {
+      return; // the dropdown, or a box, took the key
+    }
+    var t = ev.target;
+    if (kbPanel && !kbPanel.hidden) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        kbShut();
+      }
+      return; // nothing else while the panel is open
+    }
+    for (var i = 0; i < KEYS.length; i++) {
+      if (KEYS[i].test(ev, t) && KEYS[i].run(ev, t) !== false) {
+        ev.preventDefault();
+        return;
+      }
+    }
+  });
+
   // The order's two "+ Add new …" forms (PO on one page, docs/decisions.md PX5): each is a fold of the order's one form; without the script
   // its own header opens it. Here the header is hidden and the dropdown's last line opens it (openPanel), the first field focused, filled
   // with what the box held when it is empty; Enter in it presses its own button (never Add, the form's first button).
@@ -1018,12 +1206,13 @@
           });
           return;
         }
-        select.value = li.getAttribute('data-value') || '';
-        input.value = shown();
-        if (panel) {
-          panel.open = false;
+        var value = li.getAttribute('data-value') || '';
+        if (value !== select.value && select.value !== '' && hasLines() && select.getAttribute('data-change-ask')) {
+          input.value = shown();
+          askChange(value);
+          return;
         }
-        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        set(value);
       },
       enter: function (ev, open) {
         ev.preventDefault(); // Enter in the supplier's box never sends the order
@@ -1039,8 +1228,87 @@
         }
       },
     };
+    var set = function (value) {
+      select.value = value;
+      input.value = shown();
+      if (panel) {
+        panel.open = false;
+      }
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    };
+    // Another supplier with lines on the page (docs/decisions.md KG30; the owner, 6 Nov 2026: "also in draft and new easily supplier
+    // change option"): asked in the page, never a browser dialog, "Change supplier to X? Lines stay; prices come from X where it has them."
+    // [Change] [Keep Y] (the words from the page). Change sets the box (the save moves the lines: the server's rule); Keep, Esc or a
+    // press elsewhere leaves the supplier as it was.
+    var asking = null;
+    var shutAsk = function () {
+      if (asking && asking.parentNode) {
+        asking.parentNode.removeChild(asking);
+      }
+      asking = null;
+    };
+    var hasLines = function () {
+      var f = select.form;
+      return !!f && Array.prototype.some.call(f.querySelectorAll('tr[data-kg-row]:not([data-kg-charge])'), function (tr) { return !tr.hidden; });
+    };
+    var askChange = function (value) {
+      shutAsk();
+      var o = Array.prototype.filter.call(select.options, function (x) { return x.value === value; })[0];
+      var name = o ? nameOf(o) : '';
+      var box = document.createElement('div');
+      box.className = 'kg-confirm';
+      box.setAttribute('role', 'group');
+      box.setAttribute('data-kg-confirm', '');
+      var p = document.createElement('p');
+      p.setAttribute('aria-live', 'polite');
+      p.textContent = (select.getAttribute('data-change-ask') || '').replace('%s', name).replace('%s', name);
+      var yes = document.createElement('button');
+      yes.type = 'button';
+      yes.className = 'btn sm primary';
+      yes.setAttribute('data-kg-change', '');
+      yes.textContent = select.getAttribute('data-change-yes') || '';
+      var keep = document.createElement('button');
+      keep.type = 'button';
+      keep.className = 'btn ghost sm';
+      keep.setAttribute('data-kg-keep', '');
+      keep.textContent = (select.getAttribute('data-change-keep') || '').replace('%s', shown());
+      yes.addEventListener('click', function () {
+        shutAsk();
+        set(value);
+        input.focus();
+      });
+      keep.addEventListener('click', function () {
+        shutAsk();
+        input.value = shown();
+        input.focus();
+      });
+      box.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          keep.click();
+        }
+      });
+      box.appendChild(p);
+      box.appendChild(yes);
+      box.appendChild(keep);
+      select.parentNode.insertBefore(box, select);
+      asking = box;
+      yes.focus();
+    };
     var c = combo(input, list, cfg);
     draw();
+    // Alt+C in the box (Tally's "create on the fly"): "+ Add new supplier" with what was typed, for who may add one.
+    if (select.getAttribute('data-add')) {
+      input.setAttribute('aria-keyshortcuts', 'Alt+C');
+    }
+    kb.boxes.push({ input: input, addNew: function () {
+      var add = list.querySelector('li[data-add="1"]');
+      if (!add) {
+        return false;
+      }
+      c.choose(add);
+      return true;
+    } });
     input.addEventListener('focus', function () {
       draw();
       c.open();
@@ -1058,6 +1326,1384 @@
       }, 200);
     });
   });
+
+  // The lines of a document as a standard grid (docs/decisions.md KG1-KG26; the owner, 6 Nov 2026: "purchase invoice and sales invoice,
+  // purchase order view style need to standard feel, need also key shortcut ...", "make ajax", "save all in ajax; row wise delete option and
+  // proper validation", "each row within same place edit option", "keep style erpnext"): the order's and the supplier invoice's page, later
+  // the sales invoice's, one engine for all (what each page has is in its data-kg-* attributes). It is started by the product box of the
+  // grid's empty last line (box: that box and what it does; its dropdown is the site's one, combo()). With the script nothing of the lines
+  // is ever posted until Save, and Save itself is sent without leaving the page:
+  //  - a choice in the empty line (or a scan with Enter that the products route answers with one item) is a new line, filled in place from
+  //    the page's row template (the item's name and CW number, its pack, 1, the supplier's price), with a short soft highlight; a scan keeps
+  //    the cursor in the box for the next one (the same item scanned again: one pack more, as Add does), a choice puts it in the line's Qty;
+  //  - every box of every line is edited in place, the item too: a line's item box is the site's one dropdown (its own list), and a saved
+  //    line whose item is changed is sent as a new line that takes its place (`line`: its number; its remove field sent);
+  //  - a line's x, its keys, or the lines ticked and "Delete" remove lines at once (they fade out; "Line 3 removed." with Undo); "+ Add row"
+  //    goes to the empty line; "Add several" ticks items of one search and adds them as lines; "+ Add new item" makes the item by the
+  //    new-item route (PoAddNew::newItemLine: never the document) and adds it as a line;
+  //  - each line's amount and the totals follow the boxes; the boxes are checked as the person leaves them and on Save (the server's own
+  //    rules, said in the page's words; a rule the server does not have only warns, never stops);
+  //  - Save (Ctrl+S) sends the form by the one fetch and puts the server's answer in place (the lines, the totals, the version, the
+  //    messages; a new document's address); a refusal comes back the same way with every line kept and its words on its line; anything
+  //    else changes nothing and says so, and the next Save is a plain post. Confirm and "make final" stay plain posts.
+  // The site's keys (kb, KEYS) call into kb.grid. Every word comes from the page (data-kg-*, data-words, the template's labels).
+  var docGrid = function (table, box) {
+    var form = box.input.form;
+    var body = table.tBodies[0];
+    var empty = body ? body.querySelector('tr[data-kg-empty]') : null;
+    var section = table.closest('section') || form;
+    var tpl = section ? section.querySelector('template[data-kg-row]') : null;
+    var field = form ? form.querySelector('input[data-kg-field]') : null;
+    var undoLine = section ? section.querySelector('[data-kg-undo-line]') : null;
+    var undoText = undoLine ? undoLine.querySelector('[data-kg-undo-text]') : null;
+    var undoButton = undoLine ? undoLine.querySelector('button[data-kg-undo]') : null;
+    if (!form || !body || !empty || !tpl || !tpl.content || !tpl.content.firstElementChild || !field || !undoLine || !undoText || !undoButton) {
+      return null;
+    }
+    var word = function (name) { return table.getAttribute('data-kg-' + name) || ''; };
+    var max = parseInt(word('max'), 10) || 0;
+    var maxQty = parseInt(word('max-qty'), 10) || 1000000;
+    var minQty = parseInt(word('min-qty'), 10) || 0;
+    var removeName = word('remove');
+    var rates = {};
+    try {
+      rates = JSON.parse(word('rates') || '{}') || {};
+    } catch (e) {
+      rates = {};
+    }
+    // The page's other parts, read when needed (a save puts the server's answer in their place).
+    var q = function (sel) { return form.querySelector(sel) || document.querySelector(sel); };
+    var supplier = function () { return document.getElementById('po-supplier'); };
+    var motion = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // The lines on show, in order (a saved line removed is hidden until it is sent; a line fading out is gone already; not the empty line).
+    var lines = function () {
+      return Array.prototype.filter.call(body.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden && !tr.hasAttribute('data-kg-gone'); });
+    };
+    var boxesOf = function (tr) { return tr.querySelectorAll('input[data-kg-cell]'); };
+    var cellIn = function (tr, cell) { return tr.querySelector('input[data-kg-cell="' + cell + '"]'); };
+    var goTo = function (el) {
+      if (!el) {
+        return;
+      }
+      el.focus();
+      if (el.select) {
+        el.select();
+      }
+    };
+    var dirty = function () {
+      if (form.hasAttribute('data-unsaved')) {
+        form.setAttribute('data-dirty', '1');
+      }
+    };
+    // Figures as the services read them: a whole number of packs (PoLinesFile::wholeNumber), a pack's price in pounds with 4 decimals at
+    // most (SupplierItems::packPrice, as 1/10000 of a pound), an amount in pounds and pence (signed where the page allows it).
+    var whole = function (v) {
+      var m = /^([0-9]{1,12})(?:\.0+)?$/.exec(String(v).replace(/,/g, '').trim());
+      return m ? parseInt(m[1], 10) : null;
+    };
+    var e4 = function (v) {
+      var m = /^([0-9]{0,10})(?:\.([0-9]{1,4}))?$/.exec(String(v).replace(/[,£\s ]/g, ''));
+      if (!m || (m[1] === '' && m[2] === undefined)) {
+        return null;
+      }
+      return parseInt(m[1] || '0', 10) * 10000 + parseInt(((m[2] || '') + '0000').slice(0, 4), 10);
+    };
+    var e2 = function (v, signed) {
+      var m = /^(-?)([0-9]{1,10})(?:\.([0-9]{1,2}))?$/.exec(String(v).replace(/[,£\s ]/g, ''));
+      if (!m || (m[1] === '-' && !signed)) {
+        return null;
+      }
+      var n = parseInt(m[2], 10) * 100 + parseInt(((m[3] || '') + '00').slice(0, 2), 10);
+      return m[1] === '-' ? -n : n;
+    };
+    var money = function (n) {
+      var a = Math.abs(n);
+      return (n < 0 ? '-' : '') + '£' + Math.floor(a / 100).toLocaleString('en-GB') + '.' + ('0' + (a % 100)).slice(-2);
+    };
+    // A line's amount in pence (packs x a pack's price, half-up to the penny: PoMath::lineAmountE2), or null while a box is not a figure;
+    // a charge with a price only is one pack of it; a charge typed as an amount is that amount; a line without boxes, its saved amount.
+    var amountOf = function (tr) {
+      if (!tr.querySelector('input[data-kg-cell="qty"], input[data-kg-cell="price"], input[data-kg-cell="amount"]')) {
+        var stored = tr.getAttribute('data-kg-e2') || ''; // a line shown as it is saved (too many for the form): the server's amount
+        return /^-?[0-9]{1,15}$/.test(stored) ? parseInt(stored, 10) : null;
+      }
+      var amount = cellIn(tr, 'amount');
+      if (amount) {
+        return e2(amount.value, true);
+      }
+      var qty = cellIn(tr, 'qty');
+      var price = cellIn(tr, 'price');
+      var packs = qty ? whole(qty.value) : (price ? 1 : null);
+      var p = price ? e4(price.value) : null;
+      if (packs === null || p === null || packs > maxQty) {
+        return null;
+      }
+      return Math.floor((packs * p + 50) / 100);
+    };
+    var isNew = function (tr) { return tr.hasAttribute('data-kg-new') || tr.hasAttribute('data-kg-swap'); };
+    // The VAT a new line and the delivery charge take: the supplier's own (its option, on a new order), else the page's.
+    var newVat = function () {
+      var s = supplier();
+      var o = s && s.selectedIndex >= 0 ? s.options[s.selectedIndex] : null;
+      var own = o ? o.getAttribute('data-vat') || '' : '';
+      return own !== '' && rates[own] ? own : word('vat');
+    };
+    var rateOf = function (code) { return rates[code] ? e2(rates[code].rate, false) : null; };
+    var totals = function () {
+      var sum = 0;
+      var count = 0;
+      var units = 0;
+      var groups = [];
+      var vat = function (code, rate, amount) {
+        if (rate === null || code === '') {
+          return;
+        }
+        var g = null;
+        each(groups, function (x) { if (x.code === code && x.rate === rate) { g = x; } });
+        if (!g) {
+          g = { code: code, rate: rate, net: 0, vat: 0 };
+          groups.push(g);
+        }
+        g.net += amount;
+        g.vat += Math.floor((amount * rate + 5000) / 10000); // PoMath::lineVatE2, a line at a time
+      };
+      each(lines(), function (tr) {
+        var a = amountOf(tr);
+        var shown = tr.querySelector('[data-kg-amount]');
+        if (shown && tr.querySelector('input[data-kg-cell]')) {
+          shown.textContent = a === null ? '' : money(a);
+        }
+        count += 1;
+        var qty = cellIn(tr, 'qty');
+        var packs = qty ? whole(qty.value) : null;
+        if (packs !== null && !tr.hasAttribute('data-kg-charge')) {
+          units += packs * (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
+        }
+        if (a !== null) {
+          sum += a;
+          var code = isNew(tr) ? newVat() : tr.getAttribute('data-kg-vat') || '';
+          vat(code, isNew(tr) ? rateOf(code) : e2(tr.getAttribute('data-kg-rate') || '', false), a);
+        }
+      });
+      // The delivery typed: its own row of the taxes table (the demo the owner approved, KG31), at the supplier's VAT; in the grand total.
+      var delivery = q('input[data-kg-delivery]');
+      var charge = delivery ? e2(delivery.value, false) : null;
+      var chargeVat = 0;
+      if (delivery) {
+        var dRate = rateOf(newVat());
+        var dRow = delivery.closest('tr');
+        var cellOf = function (k) { return dRow ? dRow.querySelector('[data-kg-delivery-' + k + ']') : null; };
+        chargeVat = charge !== null && charge > 0 ? Math.floor((charge * dRate + 5000) / 10000) : 0;
+        if (cellOf('rate')) {
+          cellOf('rate').textContent = (dRate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%';
+        }
+        if (cellOf('vat')) {
+          cellOf('vat').textContent = charge !== null && charge > 0 ? money(chargeVat) : '';
+        }
+        if (cellOf('total')) {
+          cellOf('total').textContent = charge !== null && charge > 0 ? money(charge + chargeVat) : '';
+        }
+        if (dRow) {
+          var dNo = dRow.querySelector('td.c-no');
+          if (dNo) {
+            dNo.textContent = String(groups.length + 1);
+          }
+        }
+      }
+      if (charge === null || charge <= 0) {
+        charge = 0;
+      }
+      var put = function (key, text) {
+        each(document.querySelectorAll('[data-kg-total="' + key + '"]'), function (el) {
+          if (el.tagName === 'INPUT') {
+            el.value = text;
+          } else {
+            el.textContent = text;
+          }
+        });
+      };
+      var countEl = document.querySelector('[data-kg-total="count"]');
+      if (countEl) {
+        countEl.textContent = (countEl.getAttribute(count === 1 ? 'data-one' : 'data-many') || '').replace('%s', count.toLocaleString('en-GB'))
+          .replace('%s', units.toLocaleString('en-GB'));
+      }
+      put('units', units.toLocaleString('en-GB'));
+      put('net', money(sum));
+      put('sum', money(sum));
+      var tax = 0;
+      var rows = document.querySelector('[data-kg-vat-rows]');
+      var seen = {};
+      each(groups, function (g) { tax += g.vat; });
+      if (rows) {
+        // The taxes and charges table (ERPNext's): a row a VAT code (No., the code and its words, the rate, the net, the VAT, the total),
+        // each cell named by its column's heading (a card on a phone).
+        var heads = [];
+        each(rows.parentNode.querySelectorAll('thead th'), function (th) { heads.push(th.textContent); });
+        while (rows.firstChild) {
+          rows.removeChild(rows.firstChild);
+        }
+        each(groups, function (g, i) {
+          var key = seen[g.code] ? g.code + ' ' + (g.rate / 100).toFixed(2) + '%' : g.code;
+          seen[g.code] = true;
+          var label = key === g.code && rates[g.code] && rates[g.code].label ? rates[g.code].label
+            : (g.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%';
+          var tr = document.createElement('tr');
+          each([String(i + 1), (rows.getAttribute('data-words') || '').replace('%s', key).replace('%s', label),
+            (g.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%', money(g.net), money(g.vat), money(g.net + g.vat)], function (text, j) {
+            var td = document.createElement(j === 1 ? 'th' : 'td');
+            td.textContent = text;
+            if (j !== 1) {
+              td.className = j === 0 ? 'c-no' : 'num';
+              td.setAttribute('data-label', heads[j] || '');
+            }
+            tr.appendChild(td);
+          });
+          rows.appendChild(tr);
+        });
+      }
+      put('vat', money(tax + chargeVat));
+      put('gross', money(sum + tax + charge + chargeVat));
+      var paperNet = q('input[name="net_total"]');
+      var paperVat = q('input[name="vat_total"]');
+      if (paperNet || paperVat) { // the invoice: the paper's figures when typed, else the lines (InvoiceOnePage::editPage)
+        var net = paperNet ? e2(paperNet.value, false) : null;
+        var pv = paperVat ? e2(paperVat.value, false) : null;
+        put('total', money((net === null ? sum : net) + (pv === null ? 0 : pv)));
+      }
+    };
+    var renumber = function () {
+      var all = lines();
+      each(all, function (tr, i) {
+        var no = tr.querySelector('[data-kg-no]');
+        if (no) {
+          var t = no.querySelector('input[data-kg-tick]');
+          no.textContent = String(i + 1); // the number; the line's tick (in the same cell) put back before it, as it was
+          if (t) {
+            no.insertBefore(t, no.firstChild);
+          }
+        }
+      });
+      var last = empty.querySelector('[data-kg-no]');
+      if (last) {
+        last.textContent = String(all.length + 1);
+      }
+    };
+    // The lines removed last (one removal, or the lines ticked), until the next removal or a save: Undo puts them back where they were.
+    var undo = null;
+    var hideUndo = function () {
+      undoLine.hidden = true;
+      undoText.textContent = '';
+    };
+    var removable = function (tr) {
+      return !!tr && tr !== empty && tr.hasAttribute('data-kg-row') && !tr.hidden && (tr.hasAttribute('data-kg-new') || tr.querySelector('[data-kg-x]') !== null);
+    };
+    // A line out of the lines at once (the numbers, the totals), faded out, then gone: a new line from the page, a saved one hidden with its
+    // remove field sent with the form (the server leaves it out without reading it).
+    var takeOut = function (tr) {
+      var u = { tr: tr, before: tr.nextSibling, flag: null, timer: 0 };
+      tr.setAttribute('data-kg-gone', '1');
+      if (!tr.hasAttribute('data-kg-new')) {
+        var no = tr.getAttribute('data-kg-line') || '';
+        var flag = tr.querySelector('input[data-kg-flag]');
+        if (!flag && removeName !== '' && /^[1-9][0-9]*$/.test(no)) {
+          flag = document.createElement('input');
+          flag.type = 'hidden';
+          flag.name = removeName.replace('%d', no);
+          flag.value = '1';
+          flag.setAttribute('data-kg-flag', '1');
+          tr.appendChild(flag);
+          u.flag = flag;
+        }
+      }
+      var end = function () {
+        u.timer = 0;
+        tr.removeAttribute('data-kg-gone');
+        if (tr.hasAttribute('data-kg-new')) {
+          if (tr.parentNode) {
+            tr.parentNode.removeChild(tr);
+          }
+        } else {
+          tr.hidden = true;
+        }
+        tr.classList.remove('kg-fade');
+      };
+      if (motion) {
+        tr.classList.add('kg-fade');
+        u.timer = window.setTimeout(end, 180);
+      } else {
+        end();
+      }
+      return u;
+    };
+    var putBack = function (u) {
+      if (u.timer) {
+        window.clearTimeout(u.timer);
+      }
+      u.tr.removeAttribute('data-kg-gone');
+      u.tr.classList.remove('kg-fade');
+      if (u.flag && u.flag.parentNode) {
+        u.flag.parentNode.removeChild(u.flag);
+      }
+      if (!u.tr.parentNode) {
+        body.insertBefore(u.tr, u.before && u.before.parentNode === body ? u.before : empty);
+      }
+      u.tr.hidden = false;
+    };
+    var removeLines = function (trs, cell) {
+      var all = lines();
+      var gone = trs.filter(removable);
+      if (gone.length === 0) {
+        return;
+      }
+      var at = all.indexOf(gone[0]);
+      var next = null;
+      for (var i = all.indexOf(gone[gone.length - 1]) + 1; i < all.length && next === null; i++) {
+        next = gone.indexOf(all[i]) < 0 ? all[i] : null;
+      }
+      if (undo) {
+        each(undo.items, function (u) { if (u.timer) { window.clearTimeout(u.timer); } }); // the earlier removal stays done
+      }
+      undo = { items: gone.map(takeOut) };
+      undoText.textContent = gone.length === 1 ? word('removed').replace('%s', String(at + 1)) : word('removed-many').replace('%s', String(gone.length));
+      undoLine.hidden = false;
+      dirty();
+      renumber();
+      totals();
+      tick();
+      goTo(next ? (cellIn(next, cell) || boxesOf(next)[0] || box.input) : box.input);
+    };
+    undoButton.addEventListener('click', function () {
+      if (!undo) {
+        return;
+      }
+      var u = undo;
+      undo = null;
+      each(u.items, putBack);
+      hideUndo();
+      renumber();
+      totals();
+      goTo(boxesOf(u.items[0].tr)[0] || box.input);
+    });
+    // The lines ticked (ERPNext's way of taking out several at once): the head's box ticks every line, "Delete" shows while any is ticked.
+    var tickAll = table.querySelector('input[data-kg-tick-all]');
+    var tickDelete = section.querySelector('button[data-kg-delete]');
+    var ticked = function () { return lines().filter(function (tr) { var t = tr.querySelector('input[data-kg-tick]'); return !!t && t.checked; }); };
+    var tick = function () {
+      var n = ticked().length;
+      if (tickDelete) {
+        tickDelete.hidden = n === 0;
+        tickDelete.textContent = (n === 1 ? word('delete-one') : word('delete-many')).replace('%s', String(n));
+      }
+      if (tickAll) {
+        tickAll.checked = n > 0 && n === lines().filter(removable).length;
+      }
+    };
+    if (tickAll) {
+      tickAll.addEventListener('change', function () {
+        each(lines(), function (tr) {
+          var t = tr.querySelector('input[data-kg-tick]');
+          if (t && removable(tr)) {
+            t.checked = tickAll.checked;
+          }
+        });
+        tick();
+      });
+    }
+    if (tickDelete) {
+      tickDelete.addEventListener('click', function () { removeLines(ticked(), 'qty'); });
+    }
+    // A line as the page knows it, to copy (Ctrl+D) or to compare (the same item twice): its item (data-si / data-sku / data-u and its
+    // words, data-name...) and its figures.
+    var itemOf = function (tr) {
+      if (!tr || tr.getAttribute('data-name') === null || tr.hasAttribute('data-kg-charge')) {
+        return null;
+      }
+      var qty = cellIn(tr, 'qty');
+      var price = cellIn(tr, 'price');
+      return { si: tr.getAttribute('data-si') || '', sku: tr.getAttribute('data-sku') || '', u: tr.getAttribute('data-u') || '',
+        upp: tr.getAttribute('data-kg-upp') || '1', name: tr.getAttribute('data-name') || '', code: tr.getAttribute('data-code') || '',
+        pack: tr.getAttribute('data-pack') || '', their: tr.getAttribute('data-their') || '', q: qty ? qty.value : '1', p: price ? price.value : '' };
+    };
+    var sameItem = function (a, b) { return !!a && !!b && (a.si !== '' ? a.si === b.si : (b.si === '' && a.sku === b.sku && (a.u || '1') === (b.u || '1'))); };
+    // A line's item, put in its row: its attributes (what the server is sent) and its words (what the person sees: the item box, the CW code,
+    // their code, the pack).
+    var fill = function (tr, it) {
+      tr.setAttribute('data-si', it.si);
+      tr.setAttribute('data-sku', it.si !== '' ? '' : it.sku);
+      tr.setAttribute('data-u', it.si !== '' ? '' : it.u);
+      tr.setAttribute('data-kg-upp', it.upp || '1');
+      each(['name', 'code', 'pack', 'their'], function (k) { tr.setAttribute('data-' + k, it[k]); });
+      var item = cellIn(tr, 'item');
+      if (item) {
+        item.value = it.name;
+      }
+      var put = function (sel, text) {
+        var el = tr.querySelector(sel);
+        if (el) {
+          el.textContent = text;
+        }
+        return el;
+      };
+      put('[data-kg-name]', it.name);
+      put('[data-kg-code]', it.code);
+      var their = put('[data-kg-their]', it.their);
+      put('[data-kg-pack]', it.pack + (!their && it.their !== '' ? ' · ' + it.their : ''));
+    };
+    // A line's item box (every box of every line is edited in place, KG22): the item's name in the site's one dropdown, its own list asked
+    // of the products route as the empty line's is; a choice is the line's item (a saved line: replaced by a new line in its place, sent
+    // with its remove field); "+ Add new item" opens that form for this line. Made when the box is first used.
+    var made = 0;
+    var itemBox = function (tr, input) {
+      var list = document.createElement('ul');
+      list.className = 'sm-list';
+      list.id = 'kg-item-list-' + (++made);
+      list.setAttribute('role', 'listbox');
+      list.setAttribute('aria-label', box.list.getAttribute('aria-label') || '');
+      list.hidden = true;
+      var timer = 0;
+      var turn = 0;
+      var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+      var c = null;
+      var draw = function (from) {
+        while (list.firstChild) {
+          list.removeChild(list.firstChild);
+        }
+        var n = 0;
+        each(from, function (o) {
+          var li = document.createElement('li');
+          li.id = list.id + '-' + n++;
+          li.setAttribute('role', 'option');
+          li.setAttribute('aria-selected', 'false');
+          each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price'], function (name) {
+            li.setAttribute(name, o.getAttribute(name) || '');
+          });
+          var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+          twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+          list.appendChild(li);
+        });
+        lastLine(box.input, list, n);
+        c.mark(-1);
+      };
+      c = combo(input, list, {
+        options: options,
+        choose: function (li) {
+          if (li.getAttribute('data-add') === '1') {
+            newItem.open(input.value.trim(), tr);
+            return;
+          }
+          swap(tr, li);
+        },
+        enter: function (ev) {
+          ev.preventDefault(); // Enter in a line's item box never sends the form
+        },
+      });
+      input.addEventListener('input', function () {
+        window.clearTimeout(timer);
+        turn++;
+        c.unshut();
+        draw([]);
+        var v = input.value.trim();
+        if (v.length < 2) {
+          return;
+        }
+        timer = window.setTimeout(function () {
+          var mine = ++turn;
+          fragment(box.base + box.keyFor(v), '[data-po-fragment]')
+            .then(function (node) {
+              if (mine === turn) {
+                draw(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
+                c.open();
+              }
+            })
+            .catch(function () {
+              if (mine === turn) {
+                draw([]);
+              }
+            });
+        }, 300);
+      });
+    };
+    // A line's item changed in place: a new line's is replaced; a saved line is sent as a new line with its number (it takes its place).
+    var swap = function (tr, li) {
+      var a = function (name) { return li.getAttribute(name) || ''; };
+      fill(tr, { si: a('data-si'), sku: a('data-sku'), u: a('data-upp'), upp: a('data-upp') || '1', name: a('data-name') || a('data-label'), code: a('data-code'),
+        pack: a('data-pack'), their: a('data-their') });
+      if (!tr.hasAttribute('data-kg-new')) {
+        tr.setAttribute('data-kg-swap', '1');
+        var no = tr.getAttribute('data-kg-line') || '';
+        if (!tr.querySelector('input[data-kg-flag]') && removeName !== '' && /^[1-9][0-9]*$/.test(no)) {
+          var flag = document.createElement('input');
+          flag.type = 'hidden';
+          flag.name = removeName.replace('%d', no);
+          flag.value = '1';
+          flag.setAttribute('data-kg-flag', '1');
+          tr.appendChild(flag);
+        }
+      }
+      var price = cellIn(tr, 'price');
+      if (price && a('data-price') !== '') {
+        price.value = a('data-price');
+      }
+      flash(tr);
+      dirty();
+      totals();
+      check(tr);
+      goTo(cellIn(tr, 'qty') || price);
+    };
+    var flash = function (tr) {
+      tr.classList.remove('kg-flash');
+      if (motion) {
+        tr.classList.add('kg-flash'); // a short soft highlight (app.css)
+      }
+    };
+    // A line's own parts: its x removes it in place (without the script it is a submit: a save without that line), its tick box, its item box.
+    var wire = function (tr) {
+      if (tr.hasAttribute('data-kg-wired')) {
+        return;
+      }
+      tr.setAttribute('data-kg-wired', '1');
+      var x = tr.querySelector('[data-kg-x]');
+      if (x) {
+        x.tabIndex = -1; // Tab goes box to box; the x is a click (or Ctrl+Delete)
+        x.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          removeLines([tr], 'qty');
+        });
+      }
+      var noCell = tr.querySelector('td.c-no');
+      if (noCell && removable(tr) && !tr.querySelector('input[data-kg-tick]')) {
+        var t = document.createElement('input');
+        t.type = 'checkbox';
+        t.className = 'kg-tick';
+        t.tabIndex = -1;
+        t.setAttribute('data-kg-tick', '1');
+        t.setAttribute('aria-label', word('tick').replace('%s', noCell.textContent));
+        t.addEventListener('change', tick);
+        noCell.insertBefore(t, noCell.firstChild);
+      }
+      // The item, edited in place: the name becomes the item box; the item's page stays a link on its CW code.
+      var name = tr.querySelector('.kg-name');
+      if (name && removable(tr) && !tr.hasAttribute('data-kg-charge') && !cellIn(tr, 'item')) {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'kg-item';
+        input.value = tr.getAttribute('data-name') || name.textContent;
+        input.setAttribute('autocomplete', 'off');
+        input.setAttribute('data-kg-cell', 'item');
+        input.setAttribute('aria-label', word('item-label'));
+        input.setAttribute('aria-keyshortcuts', 'Control+D Alt+C');
+        var href = name.getAttribute('href');
+        var code = tr.querySelector('.kg-code');
+        if (href && code && code.tagName !== 'A') {
+          var a = document.createElement('a');
+          a.className = 'kg-code';
+          a.href = href;
+          a.tabIndex = -1;
+          a.title = word('open');
+          a.setAttribute('data-kg-code', '');
+          a.textContent = code.textContent;
+          code.parentNode.replaceChild(a, code);
+        }
+        name.parentNode.replaceChild(input, name);
+        input.addEventListener('focus', function made1() {
+          input.removeEventListener('focus', made1);
+          itemBox(tr, input);
+        });
+      }
+    };
+    each(body.querySelectorAll('tr[data-kg-row]'), wire);
+    table.addEventListener('input', function (ev) {
+      if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-kg-cell')) {
+        totals();
+      }
+    });
+    form.addEventListener('input', function (ev) {
+      var t = ev.target;
+      if (t && (t.hasAttribute('data-kg-delivery') || t.name === 'net_total' || t.name === 'vat_total')) {
+        totals();
+      }
+    });
+    document.addEventListener('change', function (ev) {
+      if (ev.target === supplier()) {
+        totals();
+      }
+    });
+    // Checks in the page (KG25): each box as it is left and every box on Save, by the server's own rules said in the page's words; the
+    // server checks again and has the last word. `warn`: a rule the server does not have here only says so, it never stops a save.
+    var say = function (el, text, warn) {
+      var id = el.id || (el.id = 'kg-box-' + (++made));
+      var msg = document.getElementById(id + '-msg');
+      if (text === '') {
+        el.removeAttribute('aria-invalid');
+        el.classList.remove('kg-warned');
+        if (msg) {
+          msg.parentNode.removeChild(msg);
+        }
+        var d = (el.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x !== '' && x !== id + '-msg'; }).join(' ');
+        if (d === '') {
+          el.removeAttribute('aria-describedby');
+        } else {
+          el.setAttribute('aria-describedby', d);
+        }
+        return;
+      }
+      if (!msg) {
+        msg = document.createElement('span');
+        msg.id = id + '-msg';
+        el.parentNode.insertBefore(msg, el.nextSibling);
+        el.setAttribute('aria-describedby', ((el.getAttribute('aria-describedby') || '') + ' ' + msg.id).trim());
+      }
+      msg.className = warn ? 'kg-msg warn' : 'kg-msg';
+      msg.textContent = text;
+      if (warn) {
+        el.removeAttribute('aria-invalid');
+        el.classList.add('kg-warned');
+      } else {
+        el.setAttribute('aria-invalid', 'true');
+        el.classList.remove('kg-warned');
+      }
+    };
+    var problem = function (el) {
+      var msg = document.getElementById((el.id || '') + '-msg');
+      return msg && msg.className.indexOf('warn') < 0 ? msg.textContent : '';
+    };
+    var check = function (tr) {
+      var out = [];
+      var keep = function (el, text, warn) {
+        if (!el) {
+          return;
+        }
+        say(el, text, warn);
+        if (text !== '' && !warn) {
+          out.push(el);
+        }
+      };
+      var item = cellIn(tr, 'item');
+      keep(item, item && item.value.trim() !== (tr.getAttribute('data-name') || '') ? word('v-item') : '', false);
+      var qty = cellIn(tr, 'qty');
+      if (qty) {
+        var n = whole(qty.value);
+        keep(qty, n === null || n < minQty || n > maxQty ? (minQty === 0 ? word('v-qty0') : word('v-qty').replace('%s', maxQty.toLocaleString('en-GB'))) : '', false);
+      }
+      var price = cellIn(tr, 'price');
+      if (price) {
+        var charge = tr.hasAttribute('data-kg-charge');
+        keep(price, price.value.trim() !== '' && (charge ? e2(price.value, false) === null : e4(price.value) === null) ? word(charge ? 'v-money' : 'v-price') : '', false);
+      }
+      var amount = cellIn(tr, 'amount');
+      keep(amount, amount && e2(amount.value, true) === null ? word('v-money') : '', false);
+      return out;
+    };
+    // The same item on two lines: said on both (a warning; the server takes both).
+    var twice = function () {
+      var all = lines();
+      each(all, function (tr, i) {
+        var it = itemOf(tr);
+        var other = -1;
+        each(all, function (o, j) {
+          if (j !== i && other < 0 && sameItem(it, itemOf(o))) {
+            other = j;
+          }
+        });
+        var el = cellIn(tr, 'item') || cellIn(tr, 'qty');
+        if (el && problem(el) === '') {
+          say(el, other >= 0 ? word('v-twice').replace('%s', String(other + 1)) : '', true);
+        }
+      });
+    };
+    table.addEventListener('focusout', function (ev) {
+      var tr = ev.target && ev.target.closest ? ev.target.closest('tr[data-kg-row]') : null;
+      if (tr && ev.target.hasAttribute('data-kg-cell')) {
+        check(tr);
+        twice();
+      }
+    });
+    // The details: the supplier (needed: need_supplier), a real date (bad_date), the due date not before the invoice's (due_before_date);
+    // the invoice's number is needed only to make it final: a warning here.
+    var head = function () {
+      var out = [];
+      var s = supplier();
+      var sbox = document.getElementById('po-supplier-box') || s;
+      if (s && sbox && form.querySelector('select[name="supplier_id"]') === s) {
+        say(sbox, s.value === '' ? word('v-supplier') : '', false);
+        if (s.value === '') {
+          out.push(sbox);
+        }
+      }
+      var number = form.querySelector('input[name="invoice_number"]');
+      if (number) {
+        say(number, number.value.trim() === '' ? word('v-number') : '', true);
+      }
+      var date = form.querySelector('input[name="invoice_date"]');
+      var due = form.querySelector('input[name="due_date"]');
+      var real = function (v) { return v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v); };
+      each([date, due], function (d) {
+        if (d) {
+          say(d, real(d.value) ? '' : word('v-date'), false);
+          if (!real(d.value)) {
+            out.push(d);
+          }
+        }
+      });
+      if (date && due && due.value !== '' && date.value !== '' && real(due.value) && real(date.value) && due.value < date.value) {
+        say(due, word('v-due'), false);
+        out.push(due);
+      }
+      return out;
+    };
+    var look = form.querySelector('[data-kg-look]');
+    // The page's checks before a save: the list at the top of the form ("2 things need a look", each a link to its box), the cursor on the first.
+    var validate = function () {
+      var bad = head();
+      each(lines(), function (tr) { bad = bad.concat(check(tr)); });
+      twice();
+      // Words left in the empty line's box are not saved (a Save is not an Add): said, as a warning only (the server takes the Save).
+      say(box.input, box.input.value.trim() !== '' ? word('v-item') : '', true);
+      if (look) {
+        while (look.firstChild) {
+          look.removeChild(look.firstChild);
+        }
+        look.hidden = bad.length === 0;
+        if (bad.length > 0) {
+          var p = document.createElement('p');
+          p.textContent = bad.length === 1 ? word('look-one') : word('look-many').replace('%s', String(bad.length));
+          look.appendChild(p);
+          var ul = document.createElement('ul');
+          each(bad, function (el) {
+            var tr = el.closest('tr[data-kg-row], tr[data-kg-empty]');
+            var no = tr ? tr.querySelector('[data-kg-no]') : null;
+            var li = document.createElement('li');
+            var a = document.createElement('a');
+            a.href = '#' + el.id;
+            a.textContent = (no ? word('look-line').replace('%s', no.textContent.replace(/\D/g, '')) : word('look-top')) + ': ' + problem(el);
+            a.addEventListener('click', function (ev) {
+              ev.preventDefault();
+              goTo(el);
+            });
+            li.appendChild(a);
+            ul.appendChild(li);
+          });
+          look.appendChild(ul);
+        }
+      }
+      if (bad.length > 0) {
+        goTo(bad[0]);
+      }
+      return bad.length === 0;
+    };
+    // The next box after (or before) one, in the page's order: every line's boxes, then the empty line's Item box.
+    var step = function (from, by) {
+      var all = [];
+      each(lines(), function (tr) { each(boxesOf(tr), function (b) { all.push(b); }); });
+      all.push(box.input);
+      var i = all.indexOf(from);
+      return i < 0 ? null : all[Math.max(0, Math.min(all.length - 1, i + by))];
+    };
+    // A new line under the others, its item and figures given; the cursor in its Qty box (a scan: the Item box stays, for the next one).
+    var addLine = function (it, qv, pv, stay) {
+      if (max > 0 && lines().length >= max) {
+        box.say(word('too-many'));
+        return null;
+      }
+      var tr = tpl.content.firstElementChild.cloneNode(true);
+      body.insertBefore(tr, empty);
+      wire(tr);
+      fill(tr, it);
+      var qty = cellIn(tr, 'qty');
+      var price = cellIn(tr, 'price');
+      if (qty) {
+        qty.value = qv;
+      }
+      if (price) {
+        price.value = pv;
+      }
+      flash(tr);
+      dirty();
+      renumber();
+      totals();
+      twice();
+      if (!stay) {
+        goTo(qty || price || box.input);
+      }
+      return tr;
+    };
+    var fromLi = function (li) {
+      var a = function (name) { return li.getAttribute(name) || ''; };
+      return { si: a('data-si'), sku: a('data-sku'), u: a('data-upp'), upp: a('data-upp') || '1', name: a('data-name') || a('data-label'), code: a('data-code'),
+        pack: a('data-pack'), their: a('data-their'), price: a('data-price') };
+    };
+    // "+ Add new item" (KG21): the form's fields, sent by the one fetch to the page's new-item route (the item and its pack, never the
+    // document; its own FormOnce key), and the item made added as a line (or, opened from a line's item box, put in that line); a refusal
+    // said in the form with the items to use instead and, for the same name, "it is a different item".
+    var newItem = (function () {
+      var panel = form.querySelector('details[data-ni-url]');
+      var target = null;
+      var url = panel ? panel.getAttribute('data-ni-url') || '' : '';
+      var send = panel ? panel.querySelector('button[name="action"][value="new_item"]') : null;
+      var key = panel ? panel.querySelector('input[data-ni-key]') : null;
+      var area = null;
+      var clear = function () {
+        if (area && area.parentNode) {
+          area.parentNode.removeChild(area);
+        }
+        area = null;
+      };
+      var api = {
+        open: function (typed, tr) {
+          if (!panel) {
+            return false;
+          }
+          target = tr || null;
+          openPanel(panel, function (p) {
+            var digits = /^[0-9 ]{6,64}$/.test(typed || '');
+            var to = p.querySelector('input[name="' + (digits ? 'item_barcode' : 'item_name') + '"]');
+            if (to && to.value === '' && typed) {
+              to.value = digits ? typed.replace(/ /g, '') : typed;
+            }
+          });
+          return true;
+        },
+      };
+      if (!panel || !send || !key || url === '' || !window.FormData) {
+        return api;
+      }
+      send.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        var data = new window.FormData();
+        var csrf = form.querySelector('input[name="csrf"]');
+        data.append('csrf', csrf ? csrf.value : '');
+        data.append('form_key', key.value);
+        var s = supplier();
+        data.append('supplier_id', s ? s.value : (panel.getAttribute('data-supplier') || ''));
+        each(panel.querySelectorAll('input[name^="item_"]'), function (i) {
+          if (i.type !== 'checkbox' || i.checked) {
+            data.append(i.name, i.value);
+          }
+        });
+        send.disabled = true;
+        fragment(url, '[data-ni-fragment]', data)
+          .then(function (node) {
+            send.disabled = false;
+            clear();
+            key.value = node.getAttribute('data-next-key') || key.value;
+            var li = node.querySelector('ul[data-po-choices] > li[data-label]');
+            if (li) {
+              each(panel.querySelectorAll('input[name^="item_"]'), function (i) {
+                if (i.type === 'checkbox') {
+                  if (i.parentNode && i.hasAttribute('data-ni-made')) {
+                    i.parentNode.parentNode.removeChild(i.parentNode);
+                  }
+                } else {
+                  i.value = i.name === 'item_upp' ? '1' : '';
+                }
+              });
+              panel.open = false;
+              if (target && target.parentNode) {
+                swap(target, li);
+              } else {
+                var it = fromLi(li);
+                addLine(it, '1', it.price);
+              }
+              return;
+            }
+            // Refused: the words, the items to use instead, and the "it is a different item" box.
+            area = document.createElement('div');
+            area.className = 'kg-ni-says';
+            var err = node.querySelector('[data-ni-error]');
+            var p = document.createElement('p');
+            p.className = 'error';
+            p.setAttribute('role', 'alert');
+            p.textContent = err ? err.textContent.trim() : '';
+            area.appendChild(p);
+            each(node.querySelectorAll('ul[data-ni-others] > li[data-label]'), function (o) {
+              var b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'btn sm';
+              b.textContent = (err ? err.getAttribute('data-use') || '' : '') + ': ' + (o.getAttribute('data-label') || '');
+              b.addEventListener('click', function () {
+                clear();
+                panel.open = false;
+                if (target && target.parentNode) {
+                  swap(target, o);
+                } else {
+                  var it = fromLi(o);
+                  addLine(it, '1', it.price);
+                }
+              });
+              area.appendChild(b);
+            });
+            var anyway = node.querySelector('[data-ni-anyway]');
+            if (anyway && !panel.querySelector('input[name="item_anyway"]')) {
+              var label = document.createElement('label');
+              label.className = 'choice';
+              var box2 = document.createElement('input');
+              box2.type = 'checkbox';
+              box2.name = 'item_anyway';
+              box2.value = '1';
+              box2.setAttribute('data-ni-made', '1');
+              label.appendChild(box2);
+              label.appendChild(document.createTextNode(' ' + anyway.textContent.trim()));
+              area.appendChild(label);
+            }
+            panel.insertBefore(area, send);
+          })
+          .catch(function () {
+            send.disabled = false;
+            clear();
+            area = document.createElement('div');
+            area.className = 'kg-ni-says';
+            var p = document.createElement('p');
+            p.className = 'error';
+            p.setAttribute('role', 'alert');
+            p.textContent = word('item-failed');
+            area.appendChild(p);
+            panel.insertBefore(area, send);
+          });
+      });
+      return api;
+    })();
+    // "Add several" (ERPNext's "Add multiple"): one search of the supplier's items (the products route), a tick each; "Add N lines" adds
+    // the items ticked as lines (1 pack, the supplier's price), the ticks kept while the words change.
+    var several = section.querySelector('[data-kg-several]');
+    if (several) {
+      var sq = several.querySelector('input[data-kg-several-q]');
+      var sout = several.querySelector('ul[data-kg-several-list]');
+      var sgo = several.querySelector('button[data-kg-several-add]');
+      var picked = [];
+      var sturn = 0;
+      var stimer = 0;
+      var count = function () {
+        sgo.disabled = picked.length === 0;
+        sgo.textContent = (picked.length === 1 ? sgo.getAttribute('data-one') : sgo.getAttribute('data-many') || '').replace('%s', String(picked.length));
+      };
+      var drawSeveral = function (from) {
+        while (sout.firstChild) {
+          sout.removeChild(sout.firstChild);
+        }
+        each(from, function (o) {
+          var it = fromLi(o);
+          var li = document.createElement('li');
+          var label = document.createElement('label');
+          label.className = 'choice';
+          var t = document.createElement('input');
+          t.type = 'checkbox';
+          t.checked = picked.some(function (p) { return sameItem(p, it); });
+          t.addEventListener('change', function () {
+            picked = picked.filter(function (p) { return !sameItem(p, it); });
+            if (t.checked) {
+              picked.push(it);
+            }
+            count();
+          });
+          label.appendChild(t);
+          label.appendChild(document.createTextNode(' ' + (o.getAttribute('data-label') || '')));
+          li.appendChild(label);
+          sout.appendChild(li);
+        });
+      };
+      if (sq && sout && sgo) {
+        sq.addEventListener('input', function () {
+          window.clearTimeout(stimer);
+          var v = sq.value.trim();
+          var mine = ++sturn;
+          if (v.length < 2) {
+            drawSeveral([]);
+            return;
+          }
+          stimer = window.setTimeout(function () {
+            fragment(box.base + box.keyFor(v), '[data-po-fragment]')
+              .then(function (node) {
+                if (mine === sturn) {
+                  drawSeveral(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
+                }
+              })
+              .catch(function () {
+                if (mine === sturn) {
+                  drawSeveral([]);
+                }
+              });
+          }, 300);
+        });
+        sq.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter') {
+            ev.preventDefault(); // the search's Enter never sends the form
+          }
+        });
+        sgo.addEventListener('click', function () {
+          var first = null;
+          each(picked, function (it) {
+            var tr = addLine(it, '1', it.price, true);
+            first = first || tr;
+          });
+          picked = [];
+          count();
+          sq.value = '';
+          drawSeveral([]);
+          several.hidden = true;
+          goTo(first ? cellIn(first, 'qty') : box.input);
+        });
+        each(section.querySelectorAll('button[data-kg-several-open]'), function (b) {
+          b.addEventListener('click', function () {
+            several.hidden = !several.hidden;
+            if (!several.hidden) {
+              sq.focus();
+            }
+          });
+        });
+        each(several.querySelectorAll('button[data-kg-several-close]'), function (b) {
+          b.addEventListener('click', function () {
+            several.hidden = true;
+            box.input.focus();
+          });
+        });
+        count();
+      }
+    }
+    each(section.querySelectorAll('button[data-kg-add-row]'), function (b) { b.addEventListener('click', function () { goTo(box.input); }); });
+    each(section.querySelectorAll('button[data-kg-new-item]'), function (b) { b.addEventListener('click', function () { newItem.open(box.input.value.trim(), null); }); });
+    // The buttons that only work with the script (the page draws them hidden).
+    each(section.querySelectorAll('[data-kg-js]'), function (el) { el.hidden = false; });
+    // Every new line in the one field, in order (a saved line whose item changed: a new line with its number).
+    var serialise = function () {
+      var out = [];
+      each(body.querySelectorAll('tr[data-kg-new], tr[data-kg-swap]'), function (tr) {
+        if (tr.hasAttribute('data-kg-gone') || (tr.hidden && tr.hasAttribute('data-kg-new'))) {
+          return;
+        }
+        var si = tr.getAttribute('data-si') || '';
+        var o = si !== '' ? { si: parseInt(si, 10) } : { sku: parseInt(tr.getAttribute('data-sku') || '0', 10) };
+        var u = tr.getAttribute('data-u') || '';
+        if (si === '' && /^[1-9][0-9]*$/.test(u) && u !== '1') {
+          o.u = parseInt(u, 10);
+        }
+        if (tr.hasAttribute('data-kg-swap') && !tr.hidden) {
+          o.line = parseInt(tr.getAttribute('data-kg-line') || '0', 10);
+        } else if (tr.hasAttribute('data-kg-swap')) {
+          return; // a saved line changed, then removed: its remove field says it all
+        }
+        var qty = cellIn(tr, 'qty');
+        var price = cellIn(tr, 'price');
+        o.q = qty ? qty.value.trim() : '';
+        o.p = price ? price.value.trim() : '';
+        out.push(o);
+      });
+      field.value = out.length > 0 ? JSON.stringify(out) : '';
+    };
+    // Save without leaving the page (KG24): the form sent by the one fetch, a POST to its own address (its CSRF token, FormOnce key, version);
+    // the answer is accepted only when it is this page's editor (data-kg-editor: the same kind, the same document or a new one's first
+    // save); then the parts it changes are put in place (the messages and the forms around the editor, the head, its hidden fields, the
+    // lines, the totals) and the grid starts again on them, the cursor back on the same line and box; a new document's address is the
+    // draft's. Anything else (no network, the sign-in page, another page) changes nothing, says so, and the next Save is a plain post.
+    var plain = false;
+    var sending = false;
+    var editor = form.getAttribute('data-kg-editor') || '';
+    var swapIn = function (part) {
+      var nf = part.querySelector('form[data-kg-editor]');
+      var mark = nf ? nf.getAttribute('data-kg-editor') || '' : '';
+      var kind = function (m) { return m.split(':')[0]; };
+      if (!nf || kind(mark) !== kind(editor) || (editor.split(':')[1] !== 'new' && mark !== editor)) {
+        return false;
+      }
+      var active = document.activeElement;
+      var at = -1;
+      var cell = null;
+      if (active && active.closest) {
+        var atr = active.closest('tr[data-kg-row]');
+        at = atr ? lines().indexOf(atr) : -1;
+        cell = active.getAttribute('data-kg-cell');
+      }
+      // Around the editor: what comes before it (the head, the messages) and after it (the draft's other forms), as the server drew them.
+      var parent = form.parentNode;
+      var theirs = nf.parentNode;
+      var swapSide = function (before) {
+        var mine = [];
+        var them = [];
+        for (var el = before ? parent.firstChild : form.nextSibling; el && el !== (before ? form : null); el = el.nextSibling) {
+          mine.push(el);
+        }
+        for (var el2 = before ? theirs.firstChild : nf.nextSibling; el2 && el2 !== (before ? nf : null); el2 = el2.nextSibling) {
+          them.push(el2);
+        }
+        each(mine, function (el) { parent.removeChild(el); });
+        each(them, function (el) {
+          var copy = document.importNode(el, true);
+          if (before) {
+            parent.insertBefore(copy, form);
+          } else {
+            parent.appendChild(copy);
+          }
+          if (copy.querySelectorAll) {
+            each(copy.querySelectorAll('form[method="post"]'), sendOnce);
+            if (copy.tagName === 'FORM' && copy.getAttribute('method') === 'post') {
+              sendOnce(copy);
+            }
+          }
+        });
+      };
+      swapSide(true);
+      swapSide(false);
+      // In the editor: its address and marker, its hidden fields, the parts the server draws again.
+      form.setAttribute('action', nf.getAttribute('action') || form.getAttribute('action'));
+      form.setAttribute('data-kg-editor', mark);
+      editor = mark;
+      var hiddenOf = function (f) { return Array.prototype.filter.call(f.querySelectorAll('input[type="hidden"][name]'), function (i) { return i.parentNode === f; }); };
+      var mineHidden = {};
+      each(hiddenOf(form), function (i) { mineHidden[i.name] = i; });
+      var anchor = form.querySelector('button.po-default');
+      each(hiddenOf(nf), function (i) {
+        if (mineHidden[i.name]) {
+          mineHidden[i.name].value = i.value;
+        } else {
+          form.insertBefore(document.importNode(i, true), anchor || form.firstChild);
+        }
+      });
+      each(nf.querySelectorAll('[data-kg-swap-part]'), function (theirsPart) {
+        var name = theirsPart.getAttribute('data-kg-swap-part');
+        var minePart = form.querySelector('[data-kg-swap-part="' + name + '"]');
+        if (minePart && (name !== 'header' || theirsPart.querySelector('select[data-po-supplier]') === null)) {
+          minePart.parentNode.replaceChild(document.importNode(theirsPart, true), minePart);
+        }
+      });
+      // A head kept as it is (its supplier box) still takes the invoice's "From" list the server drew for the supplier now (KG30).
+      var theirFrom = nf.querySelector('select[data-pi-from]');
+      var myFrom = form.querySelector('select[data-pi-from]');
+      if (theirFrom && myFrom) {
+        while (myFrom.firstChild) {
+          myFrom.removeChild(myFrom.firstChild);
+        }
+        each(theirFrom.children, function (o) { myFrom.appendChild(document.importNode(o, true)); });
+      }
+      // The lines: the server's (saved, and any new line it kept), before the empty line.
+      each(body.querySelectorAll('tr[data-kg-row]'), function (tr) { body.removeChild(tr); });
+      var theirsBody = nf.querySelector('table[data-kg-grid] > tbody');
+      if (theirsBody) {
+        each(theirsBody.querySelectorAll('tr[data-kg-row]'), function (tr) { body.insertBefore(document.importNode(tr, true), empty); });
+      }
+      var theirsTable = nf.querySelector('table[data-kg-grid]');
+      if (theirsTable) {
+        each(['data-kg-max', 'data-kg-vat'], function (a) {
+          if (theirsTable.getAttribute(a) !== null) {
+            table.setAttribute(a, theirsTable.getAttribute(a));
+          }
+        });
+      }
+      undo = null;
+      hideUndo();
+      each(body.querySelectorAll('tr[data-kg-row]'), wire);
+      renumber();
+      tick();
+      if (look) {
+        look.hidden = true;
+      }
+      var all = lines();
+      var back = at >= 0 && all[Math.min(at, all.length - 1)] ? all[Math.min(at, all.length - 1)] : null;
+      goTo(back ? (cellIn(back, cell || '') || boxesOf(back)[0]) : box.input);
+      var address = nf.getAttribute('data-kg-address') || '';
+      if (address !== '' && window.history && window.history.replaceState && address.charAt(0) === '/') {
+        window.history.replaceState(null, '', address);
+      }
+      return true;
+    };
+    var toast = function (text, bad) {
+      var t = document.querySelector('p.toast[data-kg-toast]');
+      if (!t) {
+        t = document.createElement('p');
+        t.setAttribute('data-kg-toast', '1');
+        document.body.appendChild(t);
+      }
+      t.className = bad ? 'toast error' : 'notice toast';
+      t.setAttribute('role', bad ? 'alert' : 'status');
+      t.textContent = text;
+    };
+    var canSend = function () { return !plain && !!window.FormData && !!window.fetch && !!window.DOMParser && !sending; };
+    // The save itself: then(ok) after the answer is in place (ok: saved, no refusal).
+    var ajaxSave = function (by, then) {
+      serialise();
+      var data = new window.FormData(form);
+      data.set('action', 'save');
+      sending = true;
+      if (by) {
+        by.disabled = true;
+      }
+      toast(word('saving'), false);
+      fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
+        .then(function (part) {
+          sending = false;
+          if (by) {
+            by.disabled = false;
+          }
+          if (!swapIn(part)) {
+            throw new Error('not this page');
+          }
+          var error = form.parentNode.querySelector('p.error[role="alert"]');
+          if (error) {
+            toast(error.textContent.trim(), true);
+          } else {
+            toast(word('saved'), false);
+            form.removeAttribute('data-dirty');
+          }
+          if (then) {
+            then(!error);
+          }
+        })
+        .catch(function () {
+          sending = false;
+          if (by) {
+            by.disabled = false;
+          }
+          plain = true;
+          toast(word('save-failed'), true);
+        });
+    };
+    form.addEventListener('submit', function (ev) {
+      serialise();
+      var by = ev.submitter;
+      var isSave = !!by && by.getAttribute('name') === 'action' && by.getAttribute('value') === 'save';
+      if (isSave && !validate()) {
+        ev.preventDefault(); // the page's checks first: nothing is sent
+        return;
+      }
+      undo = null;
+      hideUndo();
+      if (!isSave || !canSend()) {
+        return; // Confirm, "make final" and the others are plain posts; after a failed Save, so is the next one
+      }
+      ev.preventDefault();
+      ajaxSave(by, null);
+    }, true);
+    renumber();
+    tick();
+    // What the site's keys do in the lines (kb, KEYS): docGrid is their one place.
+    kb.grid = {
+      table: table,
+      marked: function () { return box.marked(); },
+      takeMarked: function () { box.choose(box.marked()); },
+      step: function (from, by) { goTo(step(from, by)); }, // Enter in a box: the next box; never the form sent
+      // Up / Down: the same box of the line above or below (a line without it is passed; past the last: the Item box).
+      vertical: function (from, by) {
+        var tr = from.closest('tr');
+        var cell = from.getAttribute('data-kg-cell');
+        var all = lines();
+        var i = all.indexOf(tr) + by;
+        while (i >= 0 && i < all.length && !cellIn(all[i], cell)) {
+          i += by;
+        }
+        if (i >= 0 && i < all.length) {
+          goTo(cellIn(all[i], cell));
+        } else if (by > 0) {
+          goTo(box.input);
+        }
+      },
+      toEmpty: function () { goTo(box.input); }, // a new line: the empty line's Item box
+      removeAt: function (from) { // the line the cursor is on (not the empty line, nor a line shown as saved)
+        var tr = from.closest('tr');
+        if (!removable(tr)) {
+          return false;
+        }
+        removeLines([tr], from.getAttribute('data-kg-cell') || 'qty');
+        return true;
+      },
+      canUndo: function () { return undo !== null; },
+      undo: function () { undoButton.click(); },
+      // Ctrl+D (the "fill down" of a spreadsheet): the line above copied into this one: in the empty line a new line, in a line its item and
+      // figures (a saved line's item: replaced in its place, as a change of its item box); the cursor in its Qty box.
+      fillDown: function (from) {
+        var tr = from.closest('tr');
+        var all = lines();
+        var at = tr === empty ? all.length : all.indexOf(tr);
+        var src = at > 0 ? itemOf(all[at - 1]) : null;
+        if (!src) {
+          return;
+        }
+        if (tr === empty) {
+          box.clear();
+          addLine(src, src.q, src.p);
+          return;
+        }
+        if (tr.hasAttribute('data-kg-new') || cellIn(tr, 'item')) {
+          var li = document.createElement('li');
+          each(['si', 'sku', 'name', 'code', 'pack', 'their'], function (k) { li.setAttribute('data-' + k, src[k]); });
+          li.setAttribute('data-upp', src.u || src.upp);
+          if (!sameItem(itemOf(tr), src)) {
+            swap(tr, li);
+          }
+        }
+        var qty = cellIn(tr, 'qty');
+        var price = cellIn(tr, 'price');
+        if (qty) {
+          qty.value = src.q;
+        }
+        if (price) {
+          price.value = src.p;
+        }
+        dirty();
+        totals();
+        goTo(qty || price || from);
+      },
+      // The draft saved first when it holds anything not saved (or is not made yet), then $fn (the timed route of the posting time, KG27).
+      saveThen: function (fn) {
+        if (!form.hasAttribute('data-dirty') && (form.getAttribute('data-kg-editor') || '').indexOf(':new') < 0) {
+          fn();
+          return;
+        }
+        if (!validate() || !canSend()) {
+          return;
+        }
+        ajaxSave(null, function (ok) {
+          if (ok) {
+            fn();
+          }
+        });
+      },
+      save: function () { // Ctrl+S: the page's Save (a draft is kept), never Confirm or make final
+        var save = form.querySelector('button[name="action"][value="save"]') || document.querySelector('button[form="' + form.id + '"][name="action"][value="save"]');
+        if (save && !save.disabled) {
+          save.click();
+        }
+      },
+    };
+    return {
+      // A choice of the empty line's box (its fragment's data-* copied to the list's line): a new line, filled in place, under the others.
+      // A scan with Enter ($scan): the same new item scanned again is one pack more on its line; the cursor stays in the box, for the next.
+      take: function (li, scan) {
+        var it = fromLi(li);
+        var same = null;
+        if (scan) {
+          each(lines(), function (tr) {
+            if (same === null && tr.hasAttribute('data-kg-new') && sameItem(itemOf(tr), it)) {
+              same = tr;
+            }
+          });
+        }
+        if (same) {
+          var qty = cellIn(same, 'qty');
+          var n = qty ? whole(qty.value) : null;
+          if (qty && n !== null) {
+            qty.value = String(n + 1);
+          }
+          flash(same);
+          dirty();
+          totals();
+          box.clear();
+          box.input.focus();
+          return;
+        }
+        var tr = addLine(it, '1', it.price, scan);
+        if (tr) {
+          box.clear();
+          if (scan) {
+            box.input.focus();
+          } else {
+            goTo(cellIn(tr, 'qty') || cellIn(tr, 'price') || box.input);
+          }
+        }
+      },
+      // "+ Add new item" from the empty line's list or Alt+C: the form opened with what was typed.
+      addNew: function (typed) { return newItem.open(typed, null); },
+      offline: function () { table.classList.add('kg-offline'); }, // the products route failed: Add and its boxes are back, as without the script
+    };
+  };
+  // (the lines' grid ends here)
 
   // The order's product box (PO on one page, docs/decisions.md PX6): the scan box with the site's one dropdown. A scan, or a CW number,
   // their code or words of the name with Enter, adds as without the script (Add, the form's first button: Enter with nothing marked in the
@@ -1086,12 +2732,18 @@
     }
     var timer = 0;
     var asked = null;
+    var answered = null; // the words the choices on show answer (the lines' grid: Enter takes the one item they name)
+    var waiting = false; // the lines' grid: Enter came before the answer (a scanner): the one item is taken when it comes
+    var offline = false; // the products route failed: Enter is Add again, as without the script
     var turn = 0;
     var say = function (text) {
       note.textContent = text;
       note.hidden = text === '';
     };
     var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+    var items = function () { return list.querySelectorAll('li[role="option"][data-label]'); }; // the choices, not the last line
+    var keyFor = function (q) { return (supplier ? '&supplier=' + encodeURIComponent(supplier.value) : '') + '&q=' + encodeURIComponent(q); };
+    var g = null; // the lines' grid whose empty line this box is (docs/decisions.md KG): a choice fills a new line in place
     // The choices, built from the fragment's <li>: the box's words for it and what Add sends, copied attribute by attribute, and its two
     // lines as text (nothing of the fragment's markup is kept); then the last line.
     var draw = function (from) {
@@ -1104,7 +2756,7 @@
         li.id = list.id + '-' + n++;
         li.setAttribute('role', 'option');
         li.setAttribute('aria-selected', 'false');
-        each(['data-label', 'data-si', 'data-sku'], function (name) {
+        each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price'], function (name) {
           li.setAttribute(name, o.getAttribute(name) || '');
         });
         var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
@@ -1146,11 +2798,43 @@
           });
           return;
         }
+        if (g) {
+          g.take(li); // the lines' grid: a new line, filled in place
+          return;
+        }
         chosen = li;
         input.value = li.getAttribute('data-label') || '';
         input.dispatchEvent(new window.Event('input', { bubbles: true }));
       },
       enter: function (ev, open) {
+        if (g && !offline) {
+          // The lines' grid: Enter never sends the form; a scan (or words) with Enter takes the one item the products route answers with,
+          // asked at once (the scanner's Enter comes before the 300 ms); several: the list; none: said under the box.
+          if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) {
+            return;
+          }
+          ev.preventDefault();
+          var v = input.value.trim();
+          if (v.length < 2) {
+            c.close();
+            return;
+          }
+          if (answered === keyFor(v)) {
+            var all = items();
+            if (all.length === 1) {
+              c.close();
+              g.take(all[0], true); // a scan: its line, the cursor kept in the box for the next one
+            } else {
+              c.unshut();
+              c.open();
+            }
+            return;
+          }
+          waiting = true;
+          window.clearTimeout(timer);
+          load(v);
+          return;
+        }
         if (open) {
           c.close(); // nothing marked in the open list: Enter adds what the box says, as without the script
         }
@@ -1158,8 +2842,47 @@
     });
     draw(list.querySelectorAll('li[data-label]')); // the choice the page drew (kept after a refusal) is drawn as any other
     pick();
+    var grid = input.closest ? input.closest('table[data-kg-grid]') : null;
+    if (grid) {
+      g = docGrid(grid, {
+        input: input,
+        list: list,
+        base: base,
+        keyFor: keyFor,
+        say: say,
+        marked: function () { return c.isOpen() ? list.querySelector('li.is-active[role="option"]:not([aria-disabled="true"])') : null; },
+        choose: function (li) { c.choose(li); },
+        clear: function () { // the line is filled: the box is empty again, ready for the next item
+          window.clearTimeout(timer);
+          turn++;
+          asked = null;
+          answered = null;
+          waiting = false;
+          input.value = '';
+          chosen = null;
+          si.value = '';
+          sku.value = '';
+          draw([]);
+          say('');
+          c.close();
+        },
+      });
+    }
+    // Alt+C in the box (Tally's "create on the fly"): "+ Add new item" with what was typed, for who may add one.
+    kb.boxes.push({ input: input, addNew: function () {
+      var add = list.querySelector('li[data-add="1"]');
+      if (!add) {
+        draw([]);
+        add = list.querySelector('li[data-add="1"]');
+      }
+      if (!add) {
+        return false;
+      }
+      c.choose(add);
+      return true;
+    } });
     var load = function (q) {
-      var key = (supplier ? '&supplier=' + encodeURIComponent(supplier.value) : '') + '&q=' + encodeURIComponent(q);
+      var key = keyFor(q);
       if (key === asked) {
         return;
       }
@@ -1172,8 +2895,19 @@
             return;
           }
           draw(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
+          answered = key;
           var says = node.querySelector('[data-po-says]');
           say(says ? says.textContent.trim() : '');
+          if (waiting && g) {
+            waiting = false;
+            var all = items();
+            if (all.length === 1) {
+              c.close();
+              g.take(all[0], true); // a scan with Enter: the one item, in a new line; the cursor kept in the box for the next one
+              return;
+            }
+            c.unshut();
+          }
           c.open(); // (only while the box has the focus)
         })
         .catch(function () {
@@ -1181,14 +2915,21 @@
             return;
           }
           asked = null; // the next key asks again
+          waiting = false;
           draw([]);
           say(input.getAttribute('data-failed') || '');
+          if (g) {
+            offline = true; // Add is back (its words say "press Add"), as without the script
+            g.offline();
+          }
         });
     };
     input.addEventListener('input', function () {
       window.clearTimeout(timer);
       turn++; // the words changed: no answer asked for before them is drawn
       asked = null;
+      answered = null;
+      waiting = false;
       c.unshut();
       if (pick()) {
         say('');
@@ -1292,6 +3033,94 @@
       supplier.addEventListener('change', fill);
       supplier.addEventListener('change', say);
     }
+  });
+
+  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27; pack J's "make it final later"): the one UK date-and-
+  // time box (submit_at, its own form pi-schedule) shown as the date and the time side by side (Words from the page); while they hold a
+  // time still to come, the head's main button says "Schedule" and sends the timed form (the draft saved first when it holds anything not
+  // saved); empty or now: it makes the invoice final as before. The server checks the time again (a time still to come, the clocks).
+  each(document.querySelectorAll('input[data-kg-posting]'), function (at) {
+    var label = at.closest('label');
+    var finalButton = document.querySelector('button[data-kg-final]');
+    if (!label || !finalButton) {
+      return;
+    }
+    // One field of the details' grid, as the demo the owner approved draws it (KG31): its words above, the date and the time side by side.
+    var field = document.createElement('div');
+    field.className = 'kg-pair-field';
+    var words = document.createElement('span');
+    words.className = 'kg-label';
+    words.textContent = at.getAttribute('data-pair-words') || '';
+    var pair = document.createElement('div');
+    pair.className = 'kg-pair';
+    field.appendChild(words);
+    field.appendChild(pair);
+    label.parentNode.insertBefore(field, label);
+    var part = function (type, name, value) {
+      var i = document.createElement('input');
+      i.type = type;
+      i.value = value;
+      i.setAttribute('aria-label', name);
+      pair.appendChild(i);
+      return i;
+    };
+    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(at.value);
+    var date = part('date', at.getAttribute('data-date-words') || '', m ? m[1] : '');
+    var time = part('time', at.getAttribute('data-time-words') || '', m ? m[2] : '');
+    label.hidden = true;
+    var sched = label.parentNode.querySelector('[data-kg-sched]');
+    var london = function () {
+      try {
+        var p = new window.Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+          minute: '2-digit', hour12: false }).formatToParts(new Date());
+        var v = {};
+        each(p, function (x) { v[x.type] = x.value; });
+        return v.year + '-' + v.month + '-' + v.day + 'T' + v.hour + ':' + v.minute;
+      } catch (e) {
+        return '';
+      }
+    };
+    var grid = document.querySelector('table[data-kg-grid]');
+    var later = function () { return at.value !== '' && at.value > london(); };
+    var show = function () {
+      at.value = date.value !== '' && time.value !== '' ? date.value + 'T' + time.value : '';
+      finalButton.textContent = later() ? (grid ? grid.getAttribute('data-kg-schedule') || '' : '') : finalButton.getAttribute('data-kg-final-words') || finalButton.textContent;
+      if (sched) {
+        // "Stock goes to the websites: 07 Nov 2026, 18:00 (UK). Until then it stays a draft." while the time is still to come.
+        var shown = '';
+        try {
+          shown = new Date(date.value + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) + ', ' + time.value;
+        } catch (e) {
+          shown = date.value + ' ' + time.value;
+        }
+        sched.textContent = (sched.getAttribute('data-words') || '').replace('%s', shown);
+        sched.hidden = !later();
+      }
+    };
+    date.addEventListener('input', show);
+    time.addEventListener('input', show);
+    show();
+    finalButton.addEventListener('click', function (ev) {
+      if (!later()) {
+        return; // made final now, as before
+      }
+      ev.preventDefault();
+      var go = function () {
+        var f = document.getElementById('pi-schedule');
+        if (f) {
+          if (f.requestSubmit) {
+            f.requestSubmit();
+          } else {
+            f.submit();
+          }
+        }
+      };
+      if (kb.grid) {
+        kb.grid.saveThen(go);
+      } else {
+        go();
+      }
+    });
   });
 
   // Lines to place (Approvals › From the stores, docs/decisions.md LQ4): a row's "Item in CW" is the order page's dropdown. Without the script
@@ -1993,31 +3822,9 @@
   });
 
   // ==== search-match-ux (docs/decisions.md SX5, SX7): the page's search from the keyboard, and the next Check & match ==============
-  // "/" puts the cursor in the page's own search box (the one marked data-page-search; a folded one, the variant page's "Pick a
-  // different product", is opened first), unless the person is typing in a field or holds Ctrl, Cmd or Alt. The box says so to a
-  // screen reader (aria-keyshortcuts="/").
-  document.addEventListener('keydown', function (ev) {
-    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) {
-      return;
-    }
-    var t = ev.target;
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) {
-      return;
-    }
-    var box = document.querySelector('main input[data-page-search]');
-    if (!box) {
-      return;
-    }
-    var fold = box.closest ? box.closest('details') : null;
-    if (fold && !fold.open) {
-      fold.open = true;
-    }
-    ev.preventDefault();
-    box.focus();
-    if (typeof box.select === 'function') {
-      box.select();
-    }
-  });
+  // "/" puts the cursor in the page's own search box: the keys' layer's `search` (docs/decisions.md KG17, one listener for the site's keys),
+  // which takes the box marked data-page-search first (a folded one, the variant page's "Pick a different product", opened first), unless
+  // the person is typing in a field or holds Ctrl, Cmd or Alt. The box says so to a screen reader (aria-keyshortcuts="/").
 
   // After an answer from a list's Check & match, CW comes back to the list at the next row (#l-<id>, with the "Done" notice: the
   // address carries notice= and prev=). That row's fold is opened by itself, so the next check is one press away; the toast says so

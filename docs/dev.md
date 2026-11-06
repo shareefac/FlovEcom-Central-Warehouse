@@ -1359,3 +1359,65 @@ every other Items and Inventory page. Layout and view data only.
 - Tests: `tests/Unit/ReorderBuyForUnitTest.php`, `tests/Integration/Reorder/ReorderBuyForTest.php` (the stored list for N, SQL = ReorderMath on 400
   random lines, drafts, the refresh's inputs), `tests/Integration/UiKernel/ReorderBuyForScreensTest.php`, `tests/Integration/Migration0061Test.php`.
   The EXPLAIN on 20,000 lines (BF9) is a scratch tool kept out of the repository: `/root/cw_work/runs/bf_explain_scratch.php`.
+
+### The lines of a document as a standard grid, the site's keys, and square-ish corners (`docs/decisions.md` KG1-KG31; branch `doc-key-grid`; 6 Nov 2026)
+
+The order's and the supplier invoice's page (and, later, the sales invoice's) share ONE grid: a No. column, rows one line high on a
+computer, the empty line last (its Item box the product box, `combo()`), every box of every line edited in place, lines added and removed
+with no reload, Save sent without leaving the page, ERPNext's layout, and every POST of the page sending all lines at once. The site has
+ONE layer of keys (one table, one listener) and a panel of them on every page.
+
+| Path | What |
+|---|---|
+| `src/Ui/DocGrid.php` | the server's half, shared: `FIELD` (`new_lines`: JSON `[{si \| sku (+u), line?, q, p}]`, one field however many lines; `line`: the saved line it takes the place of), `read()` (strict on a save: 400 `bad_form`; lenient to draw a page again), `rows()`, `view()`, `order()` (where each line goes: a replacement in its line's place), `rowOf()` (a refusal's row), `amount()` |
+| `src/Ui/Controller/PurchaseOrdersController.php` | `create` / `lines`: `gridLines()` (kept + new in `DocGrid::order`), FormOnce `ui.po.grid`; the supplier box on a draft (`supplier_changed`, `unpriced()`); `editedLines()`; `gridVat()`; `productChoice()` |
+| `src/Ui/Controller/InvoiceOnePage.php`, `InvoicesController::editedLines` (`$nos`) | the same for the invoice (`gridLines()` by `goodsLine()` / `goodsLineFor()`, FormOnce `ui.invoice.grid`); `apply(..., $to)`: another supplier by `changeSupplier()` |
+| `src/Ui/Controller/PoAddNew.php` | `NEW_ITEM`, `newItemLine()`: "+ Add new item" by the script (KG21), the item and the supplier's pack, never the document; answers the `po_new_item` fragment |
+| `src/PurchaseOrders/PurchaseOrders.php` | `resolve()`'s choices carry `last_pack_price`; `makeItem()` (shared by `addNewItem()` and KG21); `saveDraft()` moves the lines to another supplier (`repoint()`, `moveLines()`, KG30) |
+| `src/Invoices/SupplierInvoices.php` | `goodsLine()`, `goodsLineFor()`, `appendLines()`, `changeSupplier()` + `repointLines()` (KG30) |
+| `src/Ui/Context.php` | `newDoc()`: Ctrl+B's new document of the page (who may make one) |
+| views `purchase_order_edit`, `invoice_edit` (the form `form.kg-doc[data-kg-editor]`, its sections, the grid `table.kg-grid[data-kg-grid]`), `doc_head_bar` (the actions in the head; `po_head_more`, `pi_head_more` its "..." rows), `po_grid_line`, `pi_grid_line`, `doc_grid_words` (the grid's words as `data-kg-*`), `doc_grid_tools` (Add row, Add several, + Add new item, Delete, Download / Upload), `doc_grid_keys` (Undo, the short hint, "All keys (?)"), `pi_posting` (the posting date and time), `po_new_item` (KG21's fragment), `layout` (the panel "Keyboard shortcuts"), `purchase_order`, `supplier_invoice` (`table.kg-view`) | |
+| `public/ui/assets/app.js` | the keys' layer (`var kb`, `KEYS`, the one listener), `fragment()` (`SENT`: the only two things ever posted by fetch), the supplier box (the question on a change, KG30), `docGrid(table, box)` (to "(the lines' grid ends here)"), the posting time's block |
+| `public/ui/assets/app.css` | block "kg" (to "end kg"): the grid, the head bar, the sections and fields, the strict grid (KG28), the panel, the radius tokens (KG12, KG29) |
+| `src/Ui/Words.php` | `DOC_GRID`, `KEYS` (each key's words), `KEYS_KBD` (each key as printed: a computer's, a Mac's) |
+
+**Every key** (`KEYS` in `app.js`; Mac: Cmd for Ctrl, Option for Alt; letters by `ev.code`):
+
+| Key | Where | Does |
+|---|---|---|
+| Tab / Shift+Tab | the lines | the next / last box (in the item box with a choice marked: takes it) |
+| Enter | a line's box | the next box; the last box of the last line: the empty line's item box |
+| Up / Down | a line's box | the same box of the line above / below |
+| Ctrl+Enter, Alt+N, Insert (no Mac key) | the lines | a new line: the empty line's item box |
+| Ctrl+Delete, Cmd+Backspace (Mac), Alt+R | the lines | remove the line ("Line 3 removed." Undo) |
+| Alt+U; Ctrl+Z when not in a box | a lines page | Undo the last removal |
+| Ctrl+D | a line's box | fill down from the line above |
+| Alt+C | the item box, the supplier box | "+ Add new item" / "+ Add new supplier" with what was typed (who may) |
+| Ctrl+S | a lines page | Save / Save as draft, without leaving the page; never Confirm or make final |
+| Esc | a box | shut the dropdown, then leave the box; the panel: shut it |
+| Ctrl+B | orders, invoices | a new order / invoice (its link: the unsaved guard asks) |
+| Ctrl+G; / when not typing | every page | the page's search box, else the sidebar's find |
+| Ctrl+P | a saved order | its PDF (elsewhere the browser prints) |
+| ? when not typing; Ctrl+/ | every page | the panel "Keyboard shortcuts" |
+| Up / Down, then Enter | the orders' and invoices' lists | mark a row, open it |
+
+Never taken: Ctrl+N / T / W / Tab, Ctrl+Shift+N / T / Delete, Alt+D / E / F, the F keys, Delete or Backspace alone.
+
+**The grid's contract** (what a new page, such as the sales invoice's, gives to reuse it): a `form[data-kg-editor="<kind>:<id|new>"]`
+(`data-kg-address`: a new document's draft address after its first save) holding a `table[data-kg-grid]` with `data-kg-max`,
+`data-kg-max-qty`, `data-kg-min-qty`, `data-kg-remove` (a saved line's remove field, `%d` its number) and the words (`doc_grid_words`);
+each line a `tr[data-kg-row]` (saved: `data-kg-line`, `data-kg-upp`, `data-si`/`data-sku`/`data-u`/`data-name`/`data-code`/`data-pack`/
+`data-their`, VAT `data-kg-vat` + `data-kg-rate`, `data-kg-e2`; new: `data-kg-new`), its number `[data-kg-no]`, its boxes
+`input[data-kg-cell]` (`item`, `qty`, `price`, `amount`, `upp`, `words`), its amount `[data-kg-amount]`, its x `[data-kg-x]`, its tick; the
+empty line `tr[data-kg-empty]` holding the product box (`input[data-po-pick]`); a `<template data-kg-row>`; the form's
+`input[data-kg-field]`; `[data-kg-swap-part]` parts the ajax save puts in place; the totals' `[data-kg-total]`, `[data-kg-vat-rows]`,
+`input[data-kg-delivery]`; the partials `doc_grid_tools`, `doc_grid_keys`, `doc_head_bar`. On the server: `DocGrid::read()` / `view()` /
+`order()` / `rowOf()`, and the page's own `gridLines()`.
+
+- Tests: `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (lines in one post, FormOnce, conflicts, the limit, refusals on their row,
+  without the script, the head bar, "+ Add new item"'s route, a saved line's item changed in place, the posting time, the keys' pages, the
+  supplier changed on a draft order and invoice), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown` (one engine, one
+  layer, no browser key), `testEveryCornerIsSmallAndNoneIsOval`, `testTheAssetsNeedNothingFromOutsideAndNoEval` (`SENT`),
+  `WordsTest::testTheLinesGridNamesItsKeysInWords`. The script was driven in node with a minimal DOM (`/root/cw_work/runs/kg_js_harness/`,
+  outside the repo: copy it into the worktree as `tools/kg_js/` for a run through the slot runner, `/root/poone_js/node` on cw-test, and
+  remove it).

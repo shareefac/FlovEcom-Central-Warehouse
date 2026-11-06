@@ -217,9 +217,10 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // PO on one page (PX10): the company note is not on the page that makes the order; the confirmed order's page says it (below).
         self::assertSame(0, (new \DOMXPath($ed->dom()))->query('//main//p[contains(@class, "company-note")]')->length);
         // Correction f: under the approval limit the editor's main button confirms the order (it gets a PO number); the page's one primary button.
-        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[@value="approve"][normalize-space(.)="'
+        // In the head since ERPNext's layout (docs/decisions.md KG26): the buttons name the form.
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('(//form[contains(@action, "/lines")]//button | //button[@form="po-form"])[@value="approve"][normalize-space(.)="'
             . Words::PO_ONE['confirm'] . '"]')->length);
-        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[contains(concat(" ", @class, " "), " primary ")]')->length);
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('(//form[contains(@action, "/lines")]//button | //button[@form="po-form"])[contains(concat(" ", @class, " "), " primary ")]')->length);
         self::assertFalse($ed->hasForm("/ui/purchasing/orders/{$id}/approve"), 'the editor approves through its own form (review finding)');
         // Review finding: packs typed and not saved are what is approved (Approve is a button of the editor form).
         $f = $ed->form('/lines');
@@ -318,7 +319,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $ed = $buyer->get("/ui/purchasing/orders/{$id}");
         // Correction f (7 Oct): over the approval limit the button does not say "Confirm order": the order goes to a reviewer first.
         $button = static fn (\CW\Tests\Support\UiResponse $p): string => trim((string) (new \DOMXPath($p->dom()))->evaluate(
-            'string(//form[contains(@action, "/lines")]//button[@value="approve"])'));
+            'string((//form[contains(@action, "/lines")]//button | //button[@form="po-form"])[@value="approve"])'));
         self::assertSame(Words::PO['confirm_over_limit'], $button($ed), 'the button says it, no note under it (PX10)');
         $ap = $buyer->post("/ui/purchasing/orders/{$id}/lines", ['action' => 'approve'] + $ed->form('/lines'));
         self::assertSame("/ui/purchasing/orders/{$id}?notice=submitted", $ap->location(), $ap->describe());

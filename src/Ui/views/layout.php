@@ -116,6 +116,37 @@ foreach ($nav as $navItem) {
 <?php if ($notice !== null): ?>
 <p class="notice toast" role="status"><?= $e($notice) ?></p>
 <?php endif; ?>
+<?php
+// The panel "Keyboard shortcuts" of every signed-in page (docs/decisions.md KG13-KG20; the owner, 6 Nov 2026: "i need standard short key
+// option like Tally, ERPNext"): ? or Ctrl+/ opens it (app.js's one table of keys), Esc or Close shuts it. Two groups: Lines (a page with a
+// lines grid) and Page; app.js shows only the keys the page has (data-kb-when: grid, list, new, pdf) and a Mac's keys (data-mac; '' none).
+// $newDoc: Ctrl+B's new document of the page's kind (Context::newDoc), its link the key presses (so the unsaved-changes guard asks first).
+$kbGroups = [
+    'lines' => [['next', 'grid'], ['back', 'grid'], ['updown', 'grid'], ['new_line', 'grid'], ['delete_line', 'grid'], ['undo_line', 'grid'], ['fill_down', 'grid'],
+        ['add_new', 'grid'], ['save', 'grid'], ['esc', 'grid']],
+    'page' => [['new_doc', 'new'], ['search', ''], ['pdf', 'pdf'], ['help', ''], ['rows', 'list'], ['open_row', 'list']],
+];
+?>
+<div class="kb-panel" id="kb-panel" role="dialog" aria-modal="true" aria-labelledby="kb-title" data-kb-panel hidden>
+  <div class="kb-box">
+    <div class="kb-head"><h2 id="kb-title"><?= $word('KEYS', 'title') ?></h2> <button type="button" class="btn ghost sm" data-kb-close><?= $word('KEYS', 'close') ?></button></div>
+    <p class="kb-note"><?= $word('KEYS', 'mac_note') ?></p>
+<?php foreach ($kbGroups as $kbGroup => $kbRows): ?>
+    <section class="kb-group" data-kb-group="<?= $e($kbGroup) ?>" aria-labelledby="kb-<?= $e($kbGroup) ?>">
+      <h3 id="kb-<?= $e($kbGroup) ?>"><?= $word('KEYS', $kbGroup) ?></h3>
+      <dl>
+<?php foreach ($kbRows as [$kbId, $kbWhen]): ?>
+<?php if ($kbId === 'new_doc' && ($newDoc ?? null) === null) { continue; } ?>
+        <div class="kb-row"<?php if ($kbWhen !== ''): ?> data-kb-when="<?= $e($kbWhen) ?>"<?php endif; ?>>
+          <dt><?php foreach (\CW\Ui\Words::KEYS_KBD[$kbId] as [$kbPc, $kbMac]): ?><kbd<?php if ($kbMac !== $kbPc): ?> data-mac="<?= $e($kbMac) ?>"<?php endif; ?>><?= $e($kbPc) ?></kbd> <?php endforeach; ?></dt>
+          <dd><?php if ($kbId === 'new_doc'): ?><a href="<?= $u($newDoc['href']) ?>" data-key-new aria-keyshortcuts="Control+B"><?= $e($newDoc['label']) ?></a><?php else: ?><?= $word('KEYS', $kbId) ?><?php endif; ?></dd>
+        </div>
+<?php endforeach; ?>
+      </dl>
+    </section>
+<?php endforeach; ?>
+  </div>
+</div>
 <?php else: ?>
 <main id="main" class="main bare" tabindex="-1">
   <div class="page">

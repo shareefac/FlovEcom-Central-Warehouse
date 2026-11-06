@@ -101,7 +101,7 @@ final class PoOnePageScreensTest extends KernelUiTestCase
 
         $page = $web->get('/ui/purchasing/orders/new');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(Words::PO_ONE['title'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(Words::PO_ONE['title'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1/span[@class="stmt"])')), 'its status beside it (KG28)');
         $form = self::newForm($page);
         self::assertSame(['csrf', 'form_key'], array_slice(array_keys($form), 0, 2));
         foreach (['supplier_id', 'new_supplier_name', 'new_supplier_email', 'new_supplier_phone', 'expected_date', 'external_ref', 'note', 'q', 'pick_si',
@@ -114,9 +114,10 @@ final class PoOnePageScreensTest extends KernelUiTestCase
             self::assertArrayNotHasKey($gone, $form, $gone);
         }
         self::assertSame('', $form['supplier_id'], 'no supplier chosen for the person');
-        // Enter anywhere is "Add": the form's first button; Save and Confirm on the same page.
+        // Enter anywhere is "Add": the form's first button; Save and Confirm on the same page (in the head, naming the form: KG26, the head
+        // bar's unseen Add first).
         $buttons = array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//form[@action="/ui/purchasing/orders"]//button[@type="submit"]')));
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//form[@action="/ui/purchasing/orders"]//button[@type="submit"] | //button[@type="submit"][@form="po-form"]')));
         self::assertSame('add', $buttons[0] ?? null);
         foreach (['new_supplier', 'add', 'save', 'approve'] as $b) {
             self::assertContains($b, $buttons, $b);
@@ -333,16 +334,16 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::PO_ONE['need_product'], $r->text());
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM supplier WHERE name = 'Left Behind Ltd'"));
 
-        // With a product on it the supplier is fixed: no box, no "+ Add new supplier".
+        // With a product on it the supplier still changes in its box (the owner, 6 Nov 2026: "also in draft and new easily supplier change
+        // option"; docs/decisions.md KG30, where this test said "fixed" before): the box with the draft's supplier chosen, "+ Add new supplier".
         $this->pos()->saveDraft(Caller::staff($buyerUser['id']), $d->id, (int) self::$db->value('SELECT version FROM document WHERE id = ?', [$d->id]), [],
             [['sku_id' => self::makeSku('Fixed supplier pod'), 'packs' => 1]]);
         $ed = $web->get("/ui/purchasing/orders/{$d->id}");
         $f = $ed->form('/lines');
-        self::assertArrayNotHasKey('supplier_id', $f);
-        self::assertArrayNotHasKey('new_supplier_name', $f);
         $third = (int) self::$db->value("SELECT id FROM supplier WHERE name = 'Third Choice Ltd'");
-        self::assertSame('Third Choice Ltd', trim((string) (new \DOMXPath($ed->dom()))->evaluate('string(//form[contains(@action, "/lines")]//p[@class="po-fixed"]/a[@href="/ui/purchasing/suppliers/'
-            . $third . '"])')), 'the supplier named, with its page');
+        self::assertSame((string) $third, $f['supplier_id'] ?? null, 'the box, the draft\'s supplier chosen');
+        self::assertArrayHasKey('new_supplier_name', $f);
+        self::assertSame(0, (new \DOMXPath($ed->dom()))->query('//p[contains(@class, "po-fixed")]')->length);
     }
 
     public function testANewItemFromTheDropdownFollowsPackBsRules(): void
@@ -776,11 +777,12 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         // Save and the one primary button, Confirm order; no other fold, no lines file, no cancel form, no help under the fields.
         self::assertSame(1, self::nodes($page, $one . '//table[contains(@class, "board")]//tr[contains(@class, "grp-add")][last()]//input[@name="q"][@placeholder="'
             . Words::PO_ONE['add_product'] . '"]'));
-        self::assertSame(2, self::nodes($page, '//main//details'), 'the two "+ Add new" forms only');
+        // ERPNext's layout (docs/decisions.md KG26, KG31): "More info" folded too; Confirm order the one main button (in the head).
+        self::assertSame(2, self::nodes($page, '//main//details[not(contains(@class, "kg-more"))]'), 'the two "+ Add new" forms only');
         self::assertSame(['approve'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-            iterator_to_array((new \DOMXPath($page->dom()))->query($one . '//button[contains(concat(" ", @class, " "), " primary ")]'))));
+            iterator_to_array((new \DOMXPath($page->dom()))->query('(' . $one . '//button | //button[@form="po-form"])[contains(concat(" ", @class, " "), " primary ")]'))));
         self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], array_map(static fn (\DOMElement $b): string => trim($b->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query($one . '//section[contains(@class, "po-summary")]//button'))));
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//div[contains(@class, "kg-head-bar")]/button[@form="po-form"][not(contains(@class, "po-default"))][not(@data-kg-jsonly)]'))), 'in the head (KG26)');
         self::assertSame(0, self::nodes($page, '//main//p[contains(@class, "hint") and not(contains(@class, "po-ask"))]'), 'no help under the fields');
         self::assertFalse($page->hasForm('/lines/import'));
         self::assertFalse($page->hasForm('/cancel'));

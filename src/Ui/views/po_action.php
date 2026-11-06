@@ -49,7 +49,7 @@
   </details>
 <?php endif; ?>
 <?php if ($a === 'pdf'): ?>
-  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
+  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>" data-key-print aria-keyshortcuts="Control+P"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
 <?php endif; ?>
 <?php if ($a === 'receive'): ?>
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/receiving/new', ['po' => $doc->id]) ?>"><?= $word('ORDER', 'receive') ?></a>

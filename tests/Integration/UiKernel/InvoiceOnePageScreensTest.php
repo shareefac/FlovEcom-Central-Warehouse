@@ -197,7 +197,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
 
         $page = $web->get('/ui/purchasing/invoices/new');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(Words::PI_ONE['title'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(Words::PI_ONE['title'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1/span[@class="stmt"])')), 'its status beside it (KG28)');
         self::assertSame(['Purchases', 'Purchase invoices'], [self::currentSection($page), self::currentTab($page)]);
         $form = self::newForm($page);
         self::assertSame(['csrf', 'form_key'], array_slice(array_keys($form), 0, 2));
@@ -207,23 +207,26 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         }
         self::assertSame('', $form['supplier_id'], 'no supplier chosen for the person');
         self::assertSame(1, self::nodes($page, '//form[@action="/ui/purchasing/invoices"][@enctype="multipart/form-data"]//input[@type="file"][@name="file"]'));
-        // Enter anywhere is "Add" (the form's first button); the rest are buttons of the same form.
+        // Enter anywhere is "Add" (the form's first button); the rest are buttons of the same form (those in the head name it: KG26, the
+        // head bar's unseen Add first).
         $buttons = array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//form[@action="/ui/purchasing/invoices"]//button[@type="submit"]')));
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//form[@action="/ui/purchasing/invoices"]//button[@type="submit"] | //button[@type="submit"][@form="pi-form"]')));
         self::assertSame('add', $buttons[0] ?? null);
         foreach (['from', 'add', 'add_charge', 'save', 'post'] as $b) {
             self::assertContains($b, $buttons, $b);
         }
         // Zoho's "New Bill" as the layout: the header in a grid, the lines table with its headings, the totals, the bar at the bottom.
         self::assertSame(1, self::nodes($page, '//form[@action="/ui/purchasing/invoices"]//fieldset[contains(@class, "doc-grid")]'));
-        self::assertSame([Words::PI_ONE['item'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
-            array_slice(self::texts($page, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 0, 4));
+        // The No. column first (the standard grid, docs/decisions.md KG1; was Item first).
+        self::assertSame([Words::DOC_GRID['no'], Words::PI_ONE['item'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
+            array_slice(self::texts($page, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 0, 5));
         self::assertSame(1, self::nodes($page, '//table[contains(@class, "doc-lines")]//tr[contains(@class, "grp-add")]//input[@name="q"][@placeholder="' . Words::PI_ONE['add_line'] . '"]'));
         self::assertSame(1, self::nodes($page, '//section[contains(@class, "doc-totals")]//input[@name="net_total"]'));
         self::assertSame(1, self::nodes($page, '//section[contains(@class, "doc-totals")]//input[@name="vat_total"]'));
-        self::assertSame([Words::PI_ONE['draft'], Words::PI_ONE['final']], self::texts($page, '//div[contains(@class, "doc-bar")]//button'));
+        // In the head (KG26, KG31): the form's own buttons there (not its unseen Add, nor what needs the script).
+        self::assertSame([Words::PI_ONE['draft'], Words::PI_ONE['final']], self::texts($page, '//div[contains(@class, "doc-bar")]/button[@form="pi-form"][not(contains(@class, "po-default"))][not(@data-kg-jsonly)]'));
         self::assertSame(['post'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//form[@action="/ui/purchasing/invoices"]//button[contains(concat(" ", @class, " "), " primary ")]'))),
+            iterator_to_array((new \DOMXPath($page->dom()))->query('(//form[@action="/ui/purchasing/invoices"]//button | //button[@form="pi-form"])[contains(concat(" ", @class, " "), " primary ")]'))),
             'one main action');
         self::assertContains('/ui/purchasing/invoices', self::hrefsIn($page, '//div[contains(@class, "doc-bar")]//a'), 'leave without saving');
         self::assertSame(0, self::nodes($page, '//main//p[contains(@class, "hint") and not(contains(@class, "po-ask"))]'), 'no help under the fields');
@@ -298,7 +301,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $f = self::draftForm($ed, $id);
         self::assertSame(['csrf', 'version', 'line_count', 'form_key'], array_slice(array_keys($f), 0, 4));
         self::assertSame(['1', '3', '2.50'], [$f['line_count'], $f['p_1'], $f['pp_1']]);
-        self::assertArrayNotHasKey('supplier_id', $f, 'a saved invoice keeps its supplier');
+        self::assertSame((string) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$id]), $f['supplier_id'] ?? null,
+            'a draft\'s supplier box, its supplier chosen (KG30: it changes there; before, fixed)');
         self::assertStringContainsString('One Draft Invoices Ltd', $ed->text());
         // A charge, then an edit and the row's remove, all through the one form.
         $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['charge_kind' => 'freight', 'charge_amount' => '7.50', 'charge_description' => 'Courier', 'action' => 'add_charge'] + $f);
@@ -1138,12 +1142,14 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame(['po-box-field|supplier_id', '|invoice_number', 'doc-field doc-wide|from', '|invoice_date', '|due_date'],
             array_map(static fn (string $c): string => (string) preg_replace('/^[^|]*?\b(po-box-field|doc-field doc-wide)\b[^|]*\|/', '$1|', $c), $cells), 'the grid\'s cells in order');
         self::assertSame(0, self::nodes($page, $head . '/div[contains(@class, "po-box-field")][contains(@class, "doc-wide")]'), 'the supplier half the row');
+        // The add row in its columns, after the No. cell of the standard grid (docs/decisions.md KG1; was four cells).
         $row = '//table[contains(@class, "pi-lines")]//tr[contains(@class, "grp-add")]/td';
-        self::assertSame(4, self::nodes($page, $row));
-        self::assertSame(1, self::nodes($page, '(' . $row . ')[1]//input[@name="q"]'));
-        self::assertSame(1, self::nodes($page, '(' . $row . ')[2][@data-label="' . Words::PI_ONE['qty'] . '"]//input[@name="packs"]'));
-        self::assertSame(1, self::nodes($page, '(' . $row . ')[3][@data-label="' . Words::PI_ONE['price'] . '"]//input[@name="price"]'));
-        self::assertSame(1, self::nodes($page, '(' . $row . ')[4]//button[@value="add"]'));
+        self::assertSame(5, self::nodes($page, $row));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[1][contains(@class, "c-no")]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[2]//input[@name="q"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[3][@data-label="' . Words::PI_ONE['qty'] . '"]//input[@name="packs"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[4][@data-label="' . Words::PI_ONE['price'] . '"]//input[@name="price"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[5]//button[@value="add"]'));
     }
 
     /**
@@ -1264,8 +1270,9 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame(1, self::nodes($page, $one . '//fieldset[contains(@class, "po-header")][contains(@class, "doc-grid")]'));
         self::assertSame(1, self::nodes($page, $one . '//table[contains(@class, "po-lines")][contains(@class, "doc-lines")]'));
         self::assertSame(1, self::nodes($page, $one . '//section[contains(@class, "po-summary")]//*[contains(@class, "doc-totals")]'));
-        self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], self::texts($page, $one . '//section[contains(@class, "po-summary")]//div[contains(@class, "doc-bar")]//button'));
-        self::assertContains('/ui/purchasing/orders', self::hrefsIn($page, $one . '//div[contains(@class, "doc-bar")]//a'));
+        // ERPNext's head (docs/decisions.md KG26; the summary card's bar before it): Save and Confirm on the head's right, its link back.
+        self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], self::texts($page, '//div[contains(@class, "kg-head-bar")]/button[not(contains(@class, "po-default"))][not(@data-kg-jsonly)][@form="po-form"]'));
+        self::assertContains('/ui/purchasing/orders', self::hrefsIn($page, '//div[contains(@class, "kg-head-bar")]//a'));
 
         $o = $this->order((int) $s['id'], 3);
         $old = $this->order((int) $s['id'], 1);
@@ -1330,8 +1337,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame([Words::DOC['party'], Words::ORDER['deliver_to']], self::texts($view, '//div[@class="po-paper-head"]/section/p[@class="doc-label"]'));
         self::assertSame([Words::ORDER['order_date'], Words::ORDER['expected_short'], Words::ORDER['terms'], Words::ORDER['their_ref']],
             self::texts($view, '//div[@class="po-paper-head"]/dl[contains(@class, "po-dates")]/dt'));
-        self::assertSame([Words::ORDER['col_item'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'], Words::ORDER['col_line_total']],
-            self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'));
+        self::assertSame([Words::DOC_GRID['no'], Words::ORDER['col_item'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'],
+            Words::ORDER['col_line_total']], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 'the No. column first (KG10)');
         self::assertSame(1, self::nodes($view, '//section[contains(@class, "doc-totals")]'));
         self::assertSame([Words::ORDER['rel_received'], Words::ORDER['rel_invoices']], self::texts($view, '//section[contains(@class, "po-related")]//span[@class="po-rel-text"]'));
         // Related links only to what the person may open (the fix round, docs/decisions.md RD-F2): a buyer reads invoices, not deliveries.

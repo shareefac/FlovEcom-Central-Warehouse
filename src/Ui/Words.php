@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'DOC_GRID', 'KEYS', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -6519,6 +6519,7 @@ final class Words
         'supplier_added' => 'New supplier added. Add the products now; the order can be confirmed once the supplier is approved.',
         'item_added' => 'The new item was made and added to the order.',
         'removed' => 'Removed from the order.', // PO on one page (PX4): a row's remove
+        'supplier_changed' => 'Saved: the supplier is changed. The lines stayed; their prices are the new supplier\'s where it has them.', // KG30
         'approved_review' => 'Saved: you said OK.',
         'approved_posted' => 'Done: the order has its PO number now, in the buyer\'s name.',
         'rejected_recorded' => 'Saved: you said not OK. The buyer will cancel or correct the order.',
@@ -6539,6 +6540,7 @@ final class Words
         'description' => 'say what the charge is for (delivery, for example), in fewer words if it is long.',
         'supplier_item_id' => 'this product is not set up with this supplier, or is switched off there. Remove the line, or set it up again.',
         'sku_id' => 'this product is not the one set up with this supplier. Remove the line and add it again.',
+        'item' => 'this product is not in CW any more (it was joined into another). Remove the line and add it again.', // a grid's new line (KG4)
     ];
 
     public const BUY_ERROR = [
@@ -6805,6 +6807,164 @@ final class Words
         // The order's strip never says "X of Y" with X over Y (the Chrome check of 8f6fbb7, PV28)
         'more_than_ordered' => '%s (%s more than ordered)',
         'more_than_received' => '%s (%s more than received)',
+    ];
+
+    /**
+     * The lines of a document as a standard grid (the owner, 6 Nov 2026: "need to standard feel, need also key shortcut: item new and delete,
+     * field switching"; docs/decisions.md KG): the order's and the supplier invoice's page, later the sales invoice's. The number column, the
+     * line removed and its Undo, the hint line of the keys (kbd_*: as printed on the keyboard; *_mac: a Mac's, which app.js shows there).
+     */
+    public const DOC_GRID = [
+        'no' => 'No.',
+        'removed' => 'Line %s removed.',
+        'undo' => 'Undo',
+        'keys' => 'Keys',
+        // The hint line under the lines, as the demo the owner approved on 6 Nov draws it (KG31): Tab next, ↑↓ line, Ctrl+Enter new line,
+        // Alt+R delete, Alt+U undo, Ctrl+D copy above, Ctrl+S save, then "All keys (?)".
+        'k_tab' => 'next',
+        'k_updown' => 'line',
+        'k_new' => 'new line',
+        'k_del' => 'delete',
+        'k_undo' => 'undo',
+        'k_copy' => 'copy above',
+        'k_save' => 'save',
+        'kbd_tab' => 'Tab',
+        'kbd_updown' => '↑↓',
+        'kbd_new' => 'Ctrl+Enter',
+        'kbd_del' => 'Alt+R',
+        'kbd_undo' => 'Alt+U',
+        'kbd_copy' => 'Ctrl+D',
+        'kbd_save' => 'Ctrl+S',
+        'kbd_new_mac' => 'Cmd+Enter',
+        'kbd_del_mac' => 'Option+R',
+        'kbd_undo_mac' => 'Option+U',
+        'kbd_copy_mac' => 'Cmd+D',
+        'kbd_save_mac' => 'Cmd+S',
+        // What app.js says when the page holds as many lines as a document may have (the service's limit; the server refuses more anyway).
+        'too_many' => 'This page holds the most lines it can. Save it, then add the rest to another one.',
+        'all_keys' => 'All keys (?)', // the hint line's button: the panel of every key (KEYS)
+        // The buttons under the lines (KG23): a new row, several items at once ("Add Multiple" of ERPNext), "+ Add new item" (PO_ADD new_item)
+        'add_row' => 'Add row',
+        'add_several' => 'Add multiple',
+        'new_item' => '+ New item', // the button under the lines (the dropdown's last line stays "+ Add new item")
+        'keys_button' => 'Keys (?)', // the head's button: the panel of every key
+        'several_title' => 'Add multiple',
+        'several_search' => 'Search this supplier\'s items',
+        'several_add' => 'Add %s lines',
+        'several_add_one' => 'Add 1 line',
+        'several_close' => 'Close',
+        'open_item' => 'Open the item',
+        // Saving without a page reload (KG24): what the page says
+        'saving' => 'Saving…',
+        'saved' => 'Saved.',
+        'save_failed' => 'Not saved: the page could not reach CW, or you were signed out. Your lines are kept: press Save again.',
+        'item_failed' => 'The new item was not saved: the page could not reach CW, or you were signed out. Try again.',
+        // Checks in the page before a save (KG25): the server checks again and has the last word
+        'look_one' => '1 thing needs a look',
+        'look_many' => '%s things need a look',
+        'look_line' => 'Line %s',
+        'look_top' => 'The details',
+        'v_item' => 'Choose an item from the list, or clear the box.',
+        'v_qty' => 'A whole number from 1 to %s.',
+        'v_qty0' => 'A whole number (0 takes the line out).',
+        'v_price' => 'An amount in £ like 12.50, at most 4 decimals.',
+        'v_money' => 'An amount in £ like 12.50.',
+        'v_twice' => 'The same item is on line %s too.',
+        'v_supplier' => 'Choose the supplier.',
+        'v_number' => 'Type the supplier\'s invoice number: it is needed to make it final.',
+        'v_date' => 'Type a real date.',
+        'v_due' => 'The due date is before the invoice date.',
+        'removed_many' => '%s lines removed.',
+        'tick' => 'Tick line %s',
+        'tick_all' => 'Tick every line',
+        'delete_one' => 'Delete 1 line',
+        'delete_many' => 'Delete %s lines',
+        'item_label' => 'Item',
+        // ERPNext's layout (KG26): the sections, the totals, the taxes, the details shown read-only
+        'details' => 'Details',
+        'not_saved' => 'Not saved',
+        'more_info' => 'More info',
+        'download' => 'Download',
+        'upload' => 'Upload',
+        'total_qty' => 'Total quantity',
+        'total_net' => 'Total (net)',
+        'taxes' => 'Taxes and charges',
+        'tax_type' => 'Type',
+        'tax_rate' => 'Rate',
+        'tax_net' => 'Net',
+        'tax_vat' => 'VAT',
+        'tax_total' => 'Total',
+        'tax_none' => 'No VAT yet.',
+        'grand' => 'Grand total',
+        'our_number' => 'Our number',
+        'number_later' => 'Given when it is confirmed',
+        'number_final' => 'Given when it is made final',
+        'status' => 'Status',
+        'made' => 'Made',
+        // The supplier invoice's posting time (KG27): pack J's "make it final later", in the head
+        'posting_date' => 'Posting date',
+        'posting_time' => 'Posting time',
+        'posting_pair' => 'Posting date and time (UK): stock reaches the websites then',
+        'sched_line' => 'Stock goes to the websites: %s (UK). Until then it stays a draft.',
+        'schedule' => 'Schedule',
+        'goes_live' => 'Stock goes to the websites: %s',
+        'take_off' => 'Take the time off',
+        'final_now' => 'Make final now',
+        // The supplier changed on a draft (the owner, 6 Nov 2026: "also in draft and new easily supplier change option"; KG30)
+        'change_ask' => 'Change supplier to %s? Lines stay; prices come from %s where it has them.',
+        'change_yes' => 'Change',
+        'change_keep' => 'Keep %s',
+        'unpriced_one' => '1 line has no price from %s yet.',
+        'unpriced_many' => '%s lines have no price from %s yet.',
+    ];
+
+    /**
+     * The site's keys (the owner, 6 Nov 2026: "i need add item multiple short key option in keyboard, i need standard short key option like
+     * Tally, ERPNext"; docs/decisions.md KG13-KG20): the panel "Keyboard shortcuts" (? or Ctrl+/), in two groups, Lines and Page; each key's
+     * words (what it does), and its keys as printed on a keyboard (KEYS_KBD: a computer's, then a Mac's; '' none on a Mac).
+     */
+    public const KEYS = [
+        'title' => 'Keyboard shortcuts',
+        'mac_note' => 'On a Mac use Cmd for Ctrl and Option for Alt. Esc closes this.',
+        'lines' => 'Lines',
+        'page' => 'Page',
+        'close' => 'Close',
+        'next' => 'Next box',
+        'back' => 'Back a box',
+        'updown' => 'The same box on the line above or below',
+        'new_line' => 'New line',
+        'delete_line' => 'Delete the line',
+        'undo_line' => 'Undo the delete',
+        'fill_down' => 'Copy the line above into this line',
+        'add_new' => 'Make a new item or supplier from what is typed',
+        'save' => 'Save (never makes it final)',
+        'esc' => 'Shut the list; again: leave the box',
+        'new_doc' => 'Start a new one',
+        'search' => 'Search',
+        'pdf' => 'Print (a saved order: its PDF)',
+        'help' => 'This list of keys',
+        'rows' => 'Move between the rows of the list',
+        'open_row' => 'Open the row',
+    ];
+
+    /** The keys of each KEYS entry: [as on a computer, as on a Mac ('' when a Mac has none)]. */
+    public const KEYS_KBD = [
+        'next' => [['Tab', 'Tab'], ['Enter', 'Enter']],
+        'back' => [['Shift+Tab', 'Shift+Tab']],
+        'updown' => [['↑ ↓', '↑ ↓']],
+        'new_line' => [['Ctrl+Enter', 'Cmd+Enter'], ['Alt+N', 'Option+N'], ['Insert', '']],
+        'delete_line' => [['Ctrl+Del', 'Cmd+⌫'], ['Alt+R', 'Option+R']],
+        'undo_line' => [['Alt+U', 'Option+U'], ['Ctrl+Z', 'Cmd+Z']],
+        'fill_down' => [['Ctrl+D', 'Cmd+D']],
+        'add_new' => [['Alt+C', 'Option+C']],
+        'save' => [['Ctrl+S', 'Cmd+S']],
+        'esc' => [['Esc', 'Esc']],
+        'new_doc' => [['Ctrl+B', 'Cmd+B']],
+        'search' => [['Ctrl+G', 'Cmd+G'], ['/', '/']],
+        'pdf' => [['Ctrl+P', 'Cmd+P']],
+        'help' => [['?', '?'], ['Ctrl+/', 'Cmd+/']],
+        'rows' => [['↑ ↓', '↑ ↓']],
+        'open_row' => [['Enter', 'Enter']],
     ];
 
     /** The columns and the filter of a list of documents (orders, supplier invoices; later sales invoices; docs/decisions.md PV). */
@@ -11522,6 +11682,7 @@ final class Words
         'saved' => 'Saved as a draft.',
         'removed' => 'Line removed.',
         'supplier_added' => 'Supplier added and chosen. It is a draft supplier until a reviewer approves it.',
+        'supplier_changed' => 'Saved: the supplier is changed. The lines stayed; their prices are the new supplier\'s where it has them.', // KG30
     ];
 
     /** A refused change of an invoice or a credit note, by error code (a code without words keeps the service's sentence). */

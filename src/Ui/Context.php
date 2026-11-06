@@ -303,7 +303,25 @@ final class Context
             'tabs' => $f['phone'],
             'testSystem' => $this->testSystem,
             'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),
+            'newDoc' => self::newDoc($roles, $this->req->path),
         ];
+    }
+
+    /**
+     * Ctrl+B's new document of the page's kind (ERPNext's "new"; docs/decisions.md KG16): on the purchase orders' pages a new purchase order,
+     * on the purchase invoices' a new supplier invoice, for who may make one (the page's own permission); none elsewhere.
+     *
+     * @param list<string> $roles
+     * @return array{href: string, label: string}|null
+     */
+    public static function newDoc(array $roles, string $path): ?array
+    {
+        foreach (['/ui/purchasing/orders' => ['PO', Words::PO_ONE['title']], '/ui/purchasing/invoices' => ['SINV', Words::PI_ONE['title']]] as $base => [$type, $label]) {
+            if (($path === $base || str_starts_with($path, $base . '/')) && $roles !== [] && Documents::mayPost($roles, $type)) {
+                return ['href' => $base . '/new', 'label' => $label];
+            }
+        }
+        return null;
     }
 
     /**

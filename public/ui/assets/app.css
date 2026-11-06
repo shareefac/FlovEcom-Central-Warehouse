@@ -79,8 +79,9 @@
   --signin-panel: #2a0a24;    /* the sign-in page's brand half (owner, 19 Oct 2026) */
   --font: Poppins, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* Radius: 8 small, 10 buttons and fields, 12 list cards, 14 tables and panels, 16 KPI tiles and drawers, 999 pills */
-  --r-8: 8px; --r-10: 10px; --r-12: 12px; --r-14: 14px; --r-16: 16px; --r-pill: 999px;
+  /* Radius: small, square-ish corners on every page (the owner, 6 Nov 2026: "this all shape more oval shape dont need this"; docs/decisions.md
+     KG12): 4 small, buttons, fields and pills, 6 list cards, tables and panels, 8 KPI tiles and drawers. A true circle stays 50%. */
+  --r-8: 4px; --r-10: 4px; --r-12: 6px; --r-14: 6px; --r-16: 8px; --r-pill: 4px;
   /* Spacing scale: 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40 */
   --sp-4: 4px; --sp-6: 6px; --sp-8: 8px; --sp-10: 10px; --sp-12: 12px; --sp-14: 14px; --sp-16: 16px; --sp-18: 18px; --sp-20: 20px;
   --sp-24: 24px; --sp-32: 32px; --sp-40: 40px;
@@ -401,7 +402,7 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
     padding: 0 16px; background: var(--card); border-bottom: 1px solid var(--hairline);
   }
   .appbar-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; margin-left: -6px; text-decoration: none; }
-  .appbar .brand-tile { width: 32px; height: 32px; border-radius: 9px; font-size: 13px; }
+  .appbar .brand-tile { width: 32px; height: 32px; border-radius: var(--r-10); font-size: 13px; }
   .appbar-title { flex: 1 1 auto; min-width: 0; color: var(--ink); font: 600 16px/22px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .appbar .icon-btn { width: 44px; height: 44px; color: var(--ink-body); }
   .work { padding: 20px var(--gutter) 40px; }
@@ -758,10 +759,10 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
    colour, the same everywhere: grey `waiting` (a draft, not started), blue `info` (sent, new), purple `review` (waiting for someone, being
    checked), amber `needs` (needs a look), green `done`, red `blocked` (late, refused), navy `off` (closed, switched off). Ui\Html::chip
    and Words::TONE are the one status-to-colour mapping. The parts:
-     .chip       the status pill (the redesign, RD8): the tone's tint and its darker words, 12 px semi-bold, fully rounded; beside a
+     .chip       the status pill (the redesign, RD8): the tone's tint and its darker words, 12 px semi-bold, small corners (KG12); beside a
                  record's title a little wider (Item.dc.html)
      td.doc-st   a board's status cell: it carries the tone for the .chip it holds (section pi-design)
-     .tag        a small fact: the tone's tint and its words, fully rounded; with no tone, grey ---------- */
+     .tag        a small fact: the tone's tint and its words, small corners (KG12); with no tone, grey ---------- */
 /* Tones. --t-fill = the solid colour (pills, group headings, KPI squares); --t-soft = its tint; --t-ink = text on the tint. */
 .needs   { --t-fill: var(--st-amber);  --t-soft: var(--sf-amber);  --t-ink: var(--sf-amber-ink);  --t-bg: var(--needs-bg); --t-line: var(--needs-line); --t-icon: var(--needs-icon); }
 .done    { --t-fill: var(--st-green);  --t-soft: var(--sf-green);  --t-ink: var(--sf-green-ink);  --t-bg: var(--done-bg);  --t-line: var(--done-line);  --t-icon: var(--done-icon); }
@@ -780,7 +781,7 @@ table.board .o-sub { display: block; color: var(--ink-muted); font: 400 12px/16p
 .chip.lg, .ph-title h1 .chip, .ph-meta .chip { padding: 4px 12px; font-size: 12px; }
 td .chip + .chip, p .chip + .chip { margin-left: 4px; }
 
-/* The soft tag: the tint and its words, 12 px semi-bold, fully rounded. Grey unless the tag itself names a tone (a tone class on a row
+/* The soft tag: the tint and its words, 12 px semi-bold, small corners (KG12). Grey unless the tag itself names a tone (a tone class on a row
    around it is never inherited: the custom properties would pass down). */
 .tag {
   display: inline-flex; align-items: center; gap: 6px; vertical-align: middle;
@@ -917,7 +918,8 @@ details.more[open] > summary { border-color: var(--accent); background: var(--ac
    the menu instead of pushing it past the edge. */
 @media (max-width: 639.98px) { details.more[open] { width: 100%; } .more-menu { max-width: 100%; } .more-menu :is(select, input, textarea) { max-width: 100%; min-width: 0; } }
 
-/* ---------- 10. Forms: the label above each field, a muted 12 px hint, 40 px fields with a 10 px radius (44 px on a phone or a touch
+/* ---------- 10. Forms: the label above each field, a muted 12 px hint, 40 px fields with a 1 px edge and 4 px corners (--r-10; the owner,
+   6 Nov 2026: "dont make all field like oval shape, i need this make standard", docs/decisions.md KG12) (44 px on a phone or a touch
    screen), the accent focus ring; a date-and-time field is the same field (docs/decisions.md DC11) ---------- */
 label { display: grid; gap: 6px; color: var(--ink); font: 500 13px/20px var(--font); }
 label .hint, label .muted { font-weight: 400; font-size: 12px; line-height: 18px; }
@@ -1086,7 +1088,7 @@ tr.urgent > :first-child { box-shadow: inset 3px 0 0 var(--st-red); }
   table.stack td.c-status, table.rtable td.c-status { min-width: min-content; white-space: normal; text-align: right; }
   table.stack td.c-status[data-label], table.rtable td.c-status[data-label] { display: block; }
   table.stack td.c-status[data-label]::before, table.rtable td.c-status[data-label]::before { content: none; }
-  table.stack .c-status .chip, table.rtable .c-status .chip { display: inline-block; width: max-content; max-width: 38cqw; white-space: normal; border-radius: 10px; }
+  table.stack .c-status .chip, table.rtable .c-status .chip { display: inline-block; width: max-content; max-width: 38cqw; white-space: normal; border-radius: var(--r-pill); }
   table.stack td[data-label]:not(.c-status) .chip, table.rtable td[data-label]:not(.c-status) .chip { white-space: normal; max-width: 100%; }
   table.stack .c-wide, table.rtable .c-wide { border-top: 1px solid var(--divider); margin-top: 6px; padding-top: 10px; }
   table.stack .c-next, table.rtable .c-next { border-top: 1px solid var(--divider); margin-top: 8px; padding-top: 12px; }
@@ -1187,7 +1189,7 @@ details.help > :last-child:not(summary) { margin-bottom: 0; }
 }
 @keyframes drawer-in { from { transform: translateX(32px); opacity: .4; } to { transform: none; opacity: 1; } }
 
-/* ---------- 13. Progress: 8 px, fully rounded, a hairline track; the figure beside it ("18 / 25") ---------- */
+/* ---------- 13. Progress: 8 px, small corners (KG12), a hairline track; the figure beside it ("18 / 25") ---------- */
 progress, meter {
   -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 8px;
   border: 0; border-radius: var(--r-pill); background: var(--hairline); overflow: hidden; color: var(--accent);
@@ -2086,12 +2088,12 @@ body:has(.strip.test-system) .signin { min-height: calc(100vh / var(--zoom) - 28
   background: radial-gradient(circle, rgba(255, 255, 255, .22) 1.2px, transparent 1.8px) 0 0 / 18px 18px;
 }
 .signin-brand::after {
-  content: ""; position: absolute; right: -120px; bottom: -120px; width: 420px; height: 420px; border-radius: 96px; pointer-events: none;
+  content: ""; position: absolute; right: -120px; bottom: -120px; width: 420px; height: 420px; border-radius: var(--r-16); pointer-events: none;
   background: var(--brand-gradient); opacity: .16; transform: rotate(18deg);
 }
 .sb-shape { position: absolute; pointer-events: none; opacity: .16; }
 .sb-shape.one { left: -90px; top: 38%; width: 240px; height: 240px; border-radius: 50%; border: 36px solid #ff6a8e; }
-.sb-shape.two { right: 22%; top: -70px; width: 150px; height: 150px; border-radius: 40px; background: #ff14e0; transform: rotate(-14deg); }
+.sb-shape.two { right: 22%; top: -70px; width: 150px; height: 150px; border-radius: var(--r-16); background: #ff14e0; transform: rotate(-14deg); }
 .sb-body { position: relative; z-index: 1; max-width: 520px; }
 .sb-logo {
   display: grid; place-items: center; width: 64px; height: 64px; margin: 0 0 28px; border-radius: var(--r-16); background: var(--on-fill);
@@ -2272,7 +2274,7 @@ table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
 .sm-list {
   position: fixed; z-index: 35; top: 0; left: 0; width: min(36rem, calc(100vw - 32px)); max-height: 24rem; margin: 0; padding: 4px;
   overflow-y: auto; overscroll-behavior: contain; list-style: none; text-align: left;
-  background: var(--card); color: var(--ink-body); border: 1px solid var(--hairline); border-radius: var(--r-12); box-shadow: var(--shadow-float);
+  background: var(--card); color: var(--ink-body); border: 1px solid var(--hairline); border-radius: var(--r-10); box-shadow: var(--shadow-float);
 }
 .sm-list > li { display: grid; gap: 2px; min-height: 44px; margin: 0; padding: 8px 12px; border-radius: var(--r-8); cursor: pointer; }
 .sm-list > li:hover { background: var(--row-open); }
@@ -2303,7 +2305,7 @@ table.simple-match a.sm-title:hover { color: var(--accent-hover); text-decoratio
    whom to ask (not a choice); the board of products with a remove on each row and "+ Add product" (the scan box) as its last row; the two
    small "+ Add new" forms; one summary card. The form's first button (Add: what Enter presses) is in the form but not on the screen.
    Layout only: no new colours or type. 44 px to tap, 16 px in a box. */
-form.po-editor > button.po-default, form.count-lines > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+form.po-editor > button.po-default, form.count-lines > button.po-default, .kg-head-bar > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 form.po-editor .po-box-field { display: grid; gap: 4px; flex: 1 1 18rem; min-width: 0; }
 form.po-editor .po-box-field select, form.po-editor .po-box-field input[type="search"], form.po-editor input.po-box { width: 100%; min-height: 44px; font-size: 16px; }
 .sm-list > li.sm-add { color: var(--accent-hover); font-weight: 600; }
@@ -2859,11 +2861,11 @@ form.doc-details > details.fold > fieldset.doc-grid { margin: 0; padding: 0 0 4p
    holds the section's pages (DC28), each page a column of cards, a card a heading over rows, a row what it is at the left and its value or
    its own small form at the right, each saved on its own. Here only what they add. */
 /* A share of the whole on a report's board (TP_Report's bar): 8 px, rounded, the board's blue on the divider's grey; its percent beside it */
-meter.rp-share { width: 120px; max-width: 40vw; height: 8px; vertical-align: middle; border: 0; border-radius: 999px; background: var(--divider); }
-meter.rp-share::-webkit-meter-bar { height: 8px; border: 0; border-radius: 999px; background: var(--divider); }
+meter.rp-share { width: 120px; max-width: 40vw; height: 8px; vertical-align: middle; border: 0; border-radius: var(--r-pill); background: var(--divider); }
+meter.rp-share::-webkit-meter-bar { height: 8px; border: 0; border-radius: var(--r-pill); background: var(--divider); }
 meter.rp-share::-webkit-meter-optimum-value, meter.rp-share::-webkit-meter-suboptimum-value,
-meter.rp-share::-webkit-meter-even-less-good-value { border-radius: 999px; background: var(--st-blue); }
-meter.rp-share::-moz-meter-bar { border-radius: 999px; background: var(--st-blue); }
+meter.rp-share::-webkit-meter-even-less-good-value { border-radius: var(--r-pill); background: var(--st-blue); }
+meter.rp-share::-moz-meter-bar { border-radius: var(--r-pill); background: var(--st-blue); }
 table.doc-list .c-share { white-space: nowrap; }
 /* Settings (TP_Settings): the column of cards, 16 px apart */
 .set-list { display: flex; flex-direction: column; gap: 16px; margin: 0 0 24px; }
@@ -2945,7 +2947,7 @@ a.set-kt:hover { color: var(--accent-hover); text-decoration: underline; }
 .mt-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; }
 .mt-facts dt { margin: 0; color: var(--ink-muted); }
 .mt-facts dd { margin: 0; color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
-.mt-mark { padding: 0 6px; border-radius: 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mt-mark { padding: 0 6px; border-radius: var(--r-8); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .mt-mark.same { background: var(--sf-green); }
 .mt-mark.diff { background: var(--sf-amber); color: var(--sf-amber-ink); font-weight: 700; }
 .mt-find { margin: 0; }
@@ -3334,7 +3336,7 @@ section.hm-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr
 .hm-job { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 11px 20px; color: var(--ink-body); text-decoration: none; }
 .hm-job:hover { background: var(--row-open); color: var(--ink-body); text-decoration: none; }
 .hm-job:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 0; }
-.hm-box { flex: none; box-sizing: border-box; width: 18px; height: 18px; border: 2px solid #c8bcd3; border-radius: 6px; background: #ffffff; }
+.hm-box { flex: none; box-sizing: border-box; width: 18px; height: 18px; border: 2px solid #c8bcd3; border-radius: var(--r-8); background: #ffffff; }
 .hm-box.urgent { border-color: var(--st-red); }
 .hm-job-text { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 .hm-job-t { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: var(--ink); font: 600 14px/20px var(--font); overflow-wrap: anywhere; }
@@ -3638,3 +3640,263 @@ details.fp-paste > form.record { margin: 4px 0 0; }
   .set-row.api-change form.api-form p.actions .btn, .set-row.api-test form.inline, .set-row.api-test form.inline .btn,
   .set-row.api-remove details.set-fold[open] form.record p.actions .btn { width: 100%; justify-content: center; }
 }
+
+/* ==== kg: the lines of a document as a standard grid (branch doc-key-grid, docs/decisions.md KG1-KG11) ============================
+   The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut".
+   The order's and the supplier invoice's page (table.kg-grid; later the sales invoice's) and the saved documents' lines (table.kg-view):
+   a No. column; on a computer the rows one line high (the CW code small beside the name, the boxes 32 px high, the sub line beside them);
+   the empty line last, its box the product box (with the script its packs, price and Add go: the line is filled in place); the line a
+   refusal is about in red; the line removed and its Undo; the hints of the keys on a computer only (the keys need the script). On a phone
+   the cards as before, without the number column (44 px to tap). CW's tokens only, light and dark from them. */
+table.kg-grid th.c-no, table.kg-grid td.c-no, table.kg-view th.c-no, table.kg-view td.c-no { width: 3rem; color: var(--ink-muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.kg-grid .kg-code, table.kg-view .kg-code { color: var(--ink-muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
+table.kg-grid span.kg-name { color: var(--ink); font-weight: 600; }
+table.kg-grid td[data-kg-amount] { font-weight: 600; font-variant-numeric: tabular-nums; }
+table.kg-grid tr.kg-bad > th, table.kg-grid tr.kg-bad > td { background: var(--sf-red); }
+table.kg-grid tr.kg-bad input[data-kg-cell] { border-color: var(--st-red); }
+table.kg-grid .kg-error { color: var(--sf-red-ink); font-weight: 600; }
+html.js table.kg-grid:not(.kg-offline) tr.po-add-row > td.kg-nojs { display: none; }
+.kg-vat-rows, .kg-vat-row { display: contents; }
+.kg-undo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--ink); font-size: 14px; }
+.kg-keys { margin: 8px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 22px; }
+.kg-keys kbd { display: inline-block; min-width: 22px; padding: 0 6px; border: 1px solid var(--hairline); border-bottom-width: 2px; border-radius: var(--r-8); background: var(--card); color: var(--ink); font: 600 11px/18px var(--font); text-align: center; }
+html:not(.js) .kg-keys { display: none; }
+@container (min-width: 641px) {
+  table.kg-grid th, table.kg-grid td { padding: 4px 8px; vertical-align: middle; }
+  table.kg-grid input[data-kg-cell] { height: 32px; min-height: 32px; padding: 2px 8px; font-size: 14px; }
+  table.kg-grid .o-sub, table.kg-view .o-sub { display: inline; margin-left: 6px; }
+  table.kg-grid .po-x { min-width: 32px; min-height: 32px; padding: 0 8px; font-size: 18px; }
+  table.kg-grid tr.po-add-row > td { padding: 4px 8px; vertical-align: middle; }
+  form.po-editor table.kg-grid .po-box-field input[type="search"] { height: 34px; min-height: 34px; font-size: 14px; }
+}
+@container (max-width: 640px) {
+  table.stack.doc-lines td.c-no { display: none; }
+}
+@media (max-width: 700px) {
+  .kg-keys { display: none; }
+}
+/* The order's and the supplier invoice's page in ERPNext's layout (the owner, 6 Nov 2026: "keep style erpnext, layout all details";
+   docs/decisions.md KG26): the actions in the head (a dark main button, plain grey ones, "..." for the rest) in place of the bar at the
+   bottom; a plain white form in sections split by thin full-width lines, each with a small bold title; the fields in three columns with
+   their label above in small grey words and a light grey box (no edge until it has the cursor, 4 px corners); the lines' grid with a grey
+   head row, thin cell lines and 44 px rows, the tick column, the small grey buttons under it; the totals as grey boxes; the taxes as a
+   small table; the grand total on the right; the rare details folded ("More info"). Tokens only (light and dark from them). */
+.doc-bar.kg-head-bar { position: static; z-index: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 0;
+  padding: 0; border: 0; background: none; box-shadow: none; }
+.kg-head-bar .btn { min-height: 34px; padding: 6px 14px; font-size: 13px; line-height: 20px; background: var(--ui-bg); border-color: transparent; color: var(--ink); }
+.kg-head-bar .btn.ghost { background: none; color: var(--ink-muted); }
+.kg-head-bar .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.kg-head-bar .btn.primary:hover { background: var(--ink-body); border-color: var(--ink-body); color: var(--card); }
+.kg-head-bar details.more > summary.btn { min-width: 34px; padding: 6px 10px; }
+.kg-head-bar .more-menu { right: 0; left: auto; }
+form.kg-doc { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12); padding: 0 24px; }
+form.kg-doc .kg-sec { margin: 0; padding: 18px 0; border-top: 1px solid var(--hairline); }
+form.kg-doc .kg-sec:first-of-type { border-top: 0; }
+form.kg-doc .kg-sec-title { margin: 0 0 12px; color: var(--ink); font: 600 14px/20px var(--font); }
+form.kg-doc .board-head { margin: 0; padding: 0; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 24px; margin: 0; padding: 0; border: 0; background: none;
+  align-items: start; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) > .doc-wide { grid-column: 1 / -1; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) label, form.kg-doc .kg-field > .kg-label, form.kg-doc .kg-read dt { color: var(--ink-muted); font: 400 13px/18px var(--font); }
+form.kg-doc input[type="text"], form.kg-doc input[type="email"], form.kg-doc input[type="tel"], form.kg-doc input[type="search"], form.kg-doc input[type="number"],
+form.kg-doc input[type="date"], form.kg-doc input[type="time"], form.kg-doc input[type="datetime-local"], form.kg-doc select, form.kg-doc textarea {
+  min-height: 34px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--r-10); background-color: var(--ui-bg); color: var(--ink); font-size: 14px; line-height: 20px; }
+form.kg-doc input:hover, form.kg-doc select:hover, form.kg-doc textarea:hover { border-color: var(--hairline); }
+form.kg-doc input:focus, form.kg-doc select:focus, form.kg-doc textarea:focus { border-color: var(--accent); background-color: var(--card); }
+form.kg-doc .kg-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 24px; margin: 0 0 14px; }
+form.kg-doc .kg-field { display: grid; gap: 6px; min-width: 0; }
+form.kg-doc .kg-value, form.kg-doc .kg-read dd { display: block; min-height: 34px; margin: 0; padding: 7px 10px; border-radius: var(--r-10); background: var(--ui-bg);
+  color: var(--ink); font: 400 14px/20px var(--font); font-variant-numeric: tabular-nums; }
+form.kg-doc .kg-read .kg-field { margin: 0; }
+form.kg-doc details.kg-more > summary { list-style: none; cursor: pointer; margin: 0; }
+form.kg-doc details.kg-more > summary::-webkit-details-marker { display: none; }
+form.kg-doc details.kg-more > summary::after { content: "\203A"; content: "\203A" / ""; display: inline-block; margin-left: 8px; color: var(--ink-muted); transition: transform .15s; }
+form.kg-doc details.kg-more[open] > summary::after { transform: rotate(90deg); }
+form.kg-doc details.kg-more[open] > summary { margin-bottom: 12px; }
+form.kg-doc .po-summary.kg-sec, form.kg-doc .doc-foot.kg-sec { display: block; }
+form.kg-doc .kg-totals { margin: 0; max-width: none; padding: 0; border: 0; background: none; box-shadow: none; }
+form.kg-doc .kg-grand { display: grid; gap: 6px; width: min(100%, 22rem); margin: 14px 0 0 auto; }
+form.kg-doc .kg-grand .kg-value { font-weight: 700; font-size: 16px; }
+table.kg-taxes { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.kg-taxes th, table.kg-taxes td { padding: 8px 10px; border: 1px solid var(--hairline); text-align: left; font-weight: 400; }
+table.kg-taxes thead th { background: var(--page-alt); color: var(--ink-muted); }
+table.kg-taxes tbody th { color: var(--ink); font-weight: 600; }
+table.kg-taxes .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.kg-taxes .c-no { width: 3rem; color: var(--ink-muted); text-align: right; }
+.kg-taxes-wrap { margin: 0 0 8px; border: 0; border-radius: var(--r-12); }
+/* The lines' grid as ERPNext's: the grey head row, thin cell lines, 44 px rows, the tick column, the boxes filled grey. */
+table.kg-grid { border-collapse: collapse; }
+table.kg-grid > thead th { background: var(--page-alt); color: var(--ink-muted); font: 400 13px/18px var(--font); border: 1px solid var(--hairline); }
+table.kg-grid > tbody > tr > th, table.kg-grid > tbody > tr > td { border: 1px solid var(--hairline); }
+table.kg-grid input.kg-tick { width: 15px; height: 15px; margin: 0 6px 0 0; vertical-align: -2px; }
+table.kg-grid input.kg-item { width: 100%; min-width: 10rem; }
+table.kg-grid .kg-item-cell { display: flex; align-items: center; gap: 8px; }
+table.kg-grid a.kg-code { color: var(--ink-muted); text-decoration: underline; text-decoration-color: var(--hairline); }
+table.kg-grid tr.kg-flash > * { animation: kg-flash 1.2s ease-out 1; }
+table.kg-grid tr.kg-fade { opacity: 0; transition: opacity .18s ease-out; }
+@keyframes kg-flash { from { background-color: var(--sf-amber); } to { background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { table.kg-grid tr.kg-flash > * { animation: none; } table.kg-grid tr.kg-fade { transition: none; } }
+@media (hover: hover) and (min-width: 701px) {
+  table.kg-grid tr .po-x { opacity: .35; }
+  table.kg-grid tr:hover .po-x, table.kg-grid tr:focus-within .po-x, table.kg-grid .po-x:focus-visible { opacity: 1; }
+}
+.kg-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin: 10px 0 0; }
+.kg-tools-left, .kg-tools-right { display: flex; flex-wrap: wrap; gap: 8px; }
+.kg-tools .btn.sm { background: var(--ui-bg); border-color: transparent; color: var(--ink); }
+.kg-tools .btn.sm.risky { background: var(--sf-red); color: var(--sf-red-ink); }
+.kg-several { margin: 10px 0 0; padding: 12px 14px; }
+.kg-several-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px; }
+.kg-several-list { max-height: 18rem; overflow-y: auto; margin: 8px 0; }
+.kg-several-list label.choice { min-height: 36px; padding: 6px 10px; }
+/* The checks before a save (KG25): the box in red (a warning amber) with its words under it; the list of what needs a look at the top. */
+.kg-msg { display: block; margin: 2px 0 0; color: var(--sf-red-ink); font: 400 12px/16px var(--font); text-align: left; }
+.kg-msg.warn { color: var(--needs-ink); }
+input.kg-warned { border-color: var(--needs-icon) !important; }
+.kg-look { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--st-red); border-left-width: 4px; border-radius: var(--r-10); background: var(--sf-red); color: var(--sf-red-ink); }
+.kg-look p { margin: 0 0 4px; font-weight: 600; }
+.kg-look ul { margin: 0; padding-left: 18px; }
+.kg-look a { color: var(--sf-red-ink); }
+.kg-ni-says { display: grid; gap: 6px; margin: 0 0 8px; }
+html.js [data-kg-nojs] { display: none; }
+/* The panel "Keyboard shortcuts" (KG13-KG20): over the page, Esc shuts it; a list's row marked by Up / Down. */
+.kb-panel { position: fixed; inset: 0; z-index: 60; display: grid; place-items: start center; padding: 8vh 16px 16px; background: var(--backdrop); overflow-y: auto; }
+.kb-panel[hidden] { display: none; }
+.kb-box { width: min(100%, 40rem); padding: 20px 24px; border-radius: var(--r-14); background: var(--card); box-shadow: var(--shadow-float); }
+.kb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 8px; }
+.kb-head h2 { margin: 0; font: 600 18px/24px var(--font); }
+.kb-group h3 { margin: 14px 0 6px; color: var(--ink-muted); font: 600 12px/16px var(--font); text-transform: uppercase; letter-spacing: .04em; }
+.kb-group dl { display: grid; gap: 6px; margin: 0; }
+.kb-row { display: grid; grid-template-columns: minmax(10rem, 40%) 1fr; gap: 12px; align-items: center; }
+.kb-row dt { margin: 0; }
+.kb-row dd { margin: 0; color: var(--ink-body); }
+.kb-row kbd { display: inline-block; min-width: 22px; margin: 0 2px 2px 0; padding: 0 6px; border: 1px solid var(--hairline); border-bottom-width: 2px;
+  border-radius: var(--r-8); background: var(--card); color: var(--ink); font: 600 11px/18px var(--font); text-align: center; }
+tr.kb-on > * { background: var(--accent-soft); }
+tr.kb-on > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* The saved order and invoice read like ERPNext's form read only: the facts as grey boxes with their words above. */
+.doc-view .doc-facts dd { margin: 0 0 8px; padding: 6px 10px; border-radius: var(--r-10); background: var(--ui-bg); color: var(--ink); }
+table.kg-view > thead th { background: var(--page-alt); color: var(--ink-muted); }
+table.kg-view > tbody > tr > th, table.kg-view > tbody > tr > td { border-bottom: 1px solid var(--hairline); }
+@container (max-width: 640px) {
+  form.kg-doc { padding: 0 14px; }
+  form.kg-doc fieldset:is(.doc-grid, .kg-posting), form.kg-doc .kg-fields { grid-template-columns: minmax(0, 1fr); }
+  .kb-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  table.kg-grid input.kg-tick { display: none; }
+}
+@media (max-width: 700px) {
+  .doc-bar.kg-head-bar { justify-content: flex-start; }
+}
+/* One strict grid for the head and the details (the owner, 6 Nov 2026: "for the head side also need proper alignment"; docs/decisions.md
+   KG28), the editor's and the saved order's and invoice's alike, on the spacing scale 4 / 8 / 16 / 24: the list's link alone on the first
+   row; the title with its status pill on the second, the actions on its right, centred on it (34 px buttons, 8 px apart); then the fields
+   in three equal columns (two on a tablet, one on a phone), one gap, each label above its box and the box the column's width; the pairs
+   side by side (the dates of the paper, the posting date and time), a row starting at the first column; the notes and "From ERPNext"
+   across; the section titles on the grid's left edge; the totals' words and figures at its right edge. */
+.page-head:has(.kg-head-bar), .doc-head:has(~ .doc-view table.kg-view) > .page-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; row-gap: 4px; align-items: center; margin: 0 0 24px; }
+.page-head:has(.kg-head-bar) > .ph-text, .doc-head:has(~ .doc-view table.kg-view) > .page-head > .ph-text { display: contents; }
+.page-head:has(.kg-head-bar) .ph-back, .doc-head:has(~ .doc-view table.kg-view) > .page-head .ph-back { grid-column: 1 / -1; grid-row: 1; }
+.page-head:has(.kg-head-bar) .ph-title, .doc-head:has(~ .doc-view table.kg-view) > .page-head .ph-title { grid-column: 1; grid-row: 2; min-height: 36px; align-items: center; }
+.page-head:has(.kg-head-bar) .ph-title h1 .chip, .doc-head:has(~ .doc-view table.kg-view) > .page-head .ph-title h1 .chip { margin-left: 8px; vertical-align: middle; }
+.page-head:has(.kg-head-bar) > .ph-actions, .doc-head:has(~ .doc-view table.kg-view) > .page-head > .ph-actions { grid-column: 2; grid-row: 2; align-self: center; gap: 8px; }
+.page-head:has(.kg-head-bar) .ph-meta, .page-head:has(.kg-head-bar) .lede, .page-head:has(.kg-head-bar) .ph-more,
+.doc-head:has(~ .doc-view table.kg-view) > .page-head .ph-meta, .doc-head:has(~ .doc-view table.kg-view) > .page-head .lede { grid-column: 1 / -1; }
+form.kg-doc { padding: 0 24px; }
+form.kg-doc .kg-sec { padding: 16px 0 24px; }
+form.kg-doc .kg-sec-title { margin: 0 0 16px; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting), form.kg-doc .kg-fields { gap: 16px 24px; margin: 0 0 16px; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting):last-child, form.kg-doc .kg-fields:last-child { margin-bottom: 0; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) > label, form.kg-doc fieldset:is(.doc-grid, .kg-posting) > .doc-field, form.kg-doc fieldset:is(.doc-grid, .kg-posting) > .po-box-field, form.kg-doc .kg-fields > label {
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; min-width: 0; margin: 0; align-self: start; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) > label > input, form.kg-doc fieldset:is(.doc-grid, .kg-posting) > label > select, form.kg-doc fieldset:is(.doc-grid, .kg-posting) .po-box-field input.po-box,
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) .doc-pair > select, form.kg-doc .kg-fields > label > input { width: 100%; max-width: none; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) .doc-pair { display: flex; gap: 8px; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) .doc-pair > select { flex: 1 1 auto; min-width: 0; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) > label:has(> input[name="invoice_date"]) { grid-column-start: 1; } /* the paper's dates start a row */
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) > .kg-wide, form.kg-doc fieldset:is(.doc-grid, .kg-posting) > p, form.kg-doc fieldset:is(.doc-grid, .kg-posting) > fieldset { grid-column: 1 / -1; }
+form.kg-doc fieldset.kg-posting { margin-top: 16px; }
+form.kg-doc .kg-totals .kg-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+form.kg-doc .kg-grand { width: calc((100% - 48px) / 3); }
+form.kg-doc .kg-grand .kg-label, form.kg-doc .kg-grand .kg-value { text-align: right; }
+form.kg-doc :is(.kg-totals, .kg-sums) output.kg-value { text-align: right; }
+@container (min-width: 961px) {
+  form.kg-doc fieldset:is(.doc-grid, .kg-posting) > .kg-from { grid-column: auto; }
+}
+@container (min-width: 641px) and (max-width: 960px) {
+  form.kg-doc fieldset:is(.doc-grid, .kg-posting), form.kg-doc .kg-fields, form.kg-doc .kg-totals .kg-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  form.kg-doc .kg-grand { width: calc((100% - 24px) / 2); }
+}
+@container (max-width: 640px) {
+  .page-head:has(.kg-head-bar), .doc-head:has(~ .doc-view table.kg-view) > .page-head { grid-template-columns: minmax(0, 1fr); }
+  .page-head:has(.kg-head-bar) > .ph-actions, .doc-head:has(~ .doc-view table.kg-view) > .page-head > .ph-actions { grid-column: 1; grid-row: 3; width: 100%; }
+  form.kg-doc { padding: 0 16px; }
+  form.kg-doc .kg-totals .kg-fields { grid-template-columns: minmax(0, 1fr); }
+  form.kg-doc .kg-grand { width: 100%; }
+}
+/* The saved order's and invoice's facts on the same grid, as read-only boxes (the party blocks first, each fact's words above its grey box). */
+.doc-view .po-paper-head, main:has(table.kg-view) .doc-view > .doc-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 24px; grid-auto-flow: row dense;
+  margin: 0 0 24px; padding: 0; border: 0; }
+.doc-view .po-paper-head > .doc-party, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party { grid-row: span 2; margin: 0 0 16px; }
+.doc-view .po-paper-head > .doc-party > .doc-label, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party > .doc-label { margin: 0 0 4px; }
+.doc-view .po-paper-head > .doc-party > :not(.doc-label), main:has(table.kg-view) .doc-view > .doc-meta > .doc-party > :not(.doc-label) { margin: 0; padding: 0 8px; background: var(--ui-bg); }
+.doc-view .po-paper-head > .doc-party > .doc-party-name, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party > .doc-party-name { padding-top: 8px; border-radius: var(--r-10) var(--r-10) 0 0; }
+.doc-view .po-paper-head > .doc-party > :last-child, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party > :last-child { padding-bottom: 8px; border-radius: 0 0 var(--r-10) var(--r-10); }
+.doc-view .po-paper-head > .doc-party > .doc-party-name:last-child, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party > .doc-party-name:last-child { border-radius: var(--r-10); }
+.doc-view .po-paper-head > dl.doc-facts, main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts { display: contents; }
+.doc-view .po-paper-head > dl.doc-facts > dt, main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > dt { margin: 0 0 4px; color: var(--ink-muted); font: 400 13px/18px var(--font); }
+.doc-view .po-paper-head > dl.doc-facts > dd, main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > dd { margin: 0 0 16px; padding: 8px; border-radius: var(--r-10); background: var(--ui-bg); color: var(--ink);
+  min-height: 36px; overflow-wrap: anywhere; }
+main:has(table.kg-view) .doc-view > .doc-meta > .doc-big { grid-column: 1 / -1; margin: 0 0 16px; }
+@container (min-width: 961px) {
+  .doc-view .po-paper-head > dl.doc-facts > :is(dt, dd):nth-of-type(3n+1) { grid-column: 3; }
+  .doc-view .po-paper-head > dl.doc-facts > :is(dt, dd):nth-of-type(3n+2) { grid-column: 1; }
+  .doc-view .po-paper-head > dl.doc-facts > :is(dt, dd):nth-of-type(3n+3) { grid-column: 2; }
+  main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > :is(dt, dd):nth-of-type(3n+1) { grid-column: 2; }
+  main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > :is(dt, dd):nth-of-type(3n+2) { grid-column: 3; }
+  main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > :is(dt, dd):nth-of-type(3n+3) { grid-column: 1; }
+}
+@container (min-width: 641px) and (max-width: 960px) {
+  .doc-view .po-paper-head, main:has(table.kg-view) .doc-view > .doc-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doc-view .po-paper-head > dl.doc-facts > :is(dt, dd):nth-of-type(odd), main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > :is(dt, dd):nth-of-type(even) { grid-column: 1; }
+  .doc-view .po-paper-head > dl.doc-facts > :is(dt, dd):nth-of-type(even), main:has(table.kg-view) .doc-view > .doc-meta > dl.doc-facts > :is(dt, dd):nth-of-type(odd) { grid-column: 2; }
+}
+@container (max-width: 640px) {
+  .doc-view .po-paper-head, main:has(table.kg-view) .doc-view > .doc-meta { grid-template-columns: minmax(0, 1fr); }
+  .doc-view .po-paper-head > .doc-party, main:has(table.kg-view) .doc-view > .doc-meta > .doc-party { grid-row: auto; }
+}
+/* The question when the supplier changes with lines on the page (KG30): in the page, under the supplier's box. */
+.kg-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; padding: 8px 16px; border: 1px solid var(--hairline);
+  border-left: 4px solid var(--needs-icon); border-radius: var(--r-10); background: var(--card); }
+.kg-confirm p { flex: 1 1 100%; margin: 0; color: var(--ink); font: 400 13px/18px var(--font); }
+.kg-unpriced { margin: 0 0 8px; }
+/* The demo the owner approved on 6 Nov ("THIS IS NICE"; docs/decisions.md KG31): its sizes. The head: a 20 px title, 32 px buttons; the
+   details as ONE grid of three columns (the fieldsets give their fields to it), the posting date and time a pair in one cell and the line
+   under the grid saying when the stock goes to the websites; the lines' boxes clear until they have the cursor; a new line's soft yellow;
+   the problems at the top of the form; what needs the script hidden without it. */
+.page-head:has(.kg-head-bar) .ph-title h1, .doc-head:has(~ .doc-view table.kg-view) > .page-head .ph-title h1 { font: 600 20px/1.3 var(--font); }
+.kg-head-bar .btn { min-height: 32px; height: 32px; padding: 0 12px; font: 500 13px/32px var(--font); }
+html:not(.js) [data-kg-jsonly] { display: none; }
+form.kg-doc section.kg-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 24px; align-items: start; }
+form.kg-doc section.kg-details > .kg-sec-title, form.kg-doc section.kg-details > p, form.kg-doc section.kg-details > .kg-sched-line { grid-column: 1 / -1; margin: 0; }
+form.kg-doc section.kg-details > fieldset:is(.doc-grid, .kg-posting) { display: contents; }
+form.kg-doc section.kg-details > fieldset:is(.doc-grid, .kg-posting) > :is(p, fieldset, .kg-sched-line) { grid-column: 1 / -1; margin: 0; }
+form.kg-doc .kg-pair-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+form.kg-doc .kg-pair-field > .kg-label { color: var(--ink-muted); font: 400 12px/18px var(--font); }
+form.kg-doc .kg-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+form.kg-doc .kg-pair > input { width: 100%; }
+.kg-sched-line { color: var(--accent); font: 500 12px/18px var(--font); }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) label, form.kg-doc .kg-field > .kg-label, form.kg-doc .kg-read dt { font-size: 12px; }
+form.kg-doc :is(input, select):not([type="checkbox"]):not([type="radio"]) { font-size: 13px; }
+table.kg-grid input[data-kg-cell] { background-color: transparent; }
+table.kg-grid input[data-kg-cell]:focus { background-color: var(--card); }
+table.kg-grid > thead th { font: 500 12px/18px var(--font); }
+form.kg-doc > .kg-look { margin: 16px 0 0; }
+.kg-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11px; }
+.kb-note { margin: 0 0 8px; color: var(--ink-muted); font-size: 12px; }
+@container (min-width: 641px) and (max-width: 960px) {
+  form.kg-doc section.kg-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 640px) {
+  form.kg-doc section.kg-details { grid-template-columns: minmax(0, 1fr); }
+}
+/* ==== end kg ====================================================================================================================== */

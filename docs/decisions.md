@@ -16387,3 +16387,265 @@ saved key it cannot open, and with one it can: its address called through the pu
   characters) into its error, which the job logs and keeps in `erp_copy_run.summary`: a server that echoed the token there put it in both.
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
+
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG31)
+
+The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
+new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
+screen (ERPNext, Zoho, Tally): a numbered lines table filled from the keyboard, with no page reload per line. Sales invoices do not exist in
+CW yet (they come with accounting): not built; the grid is a shared piece they reuse (`docs/dev.md`, the grid's contract). Later the same
+day, on the invoice screens: "this all shape more oval shape dont need this" (KG12); then the keys of a standard screen on every page
+(KG13-KG20), no reload per line and Save without leaving the page (KG21-KG25), ERPNext's layout (KG26), the posting time (KG27), the head's
+alignment (KG28), fields' corners (KG29), the supplier changed on a draft (KG30), and the demo the owner approved as the picture (KG31). Built from main `9190115` in `/root/cw-keygrid`. No
+migration, no new permission. One service rule changed, on the owner's word: a draft's supplier changes with its lines (KG30).
+
+**KG1. The standard look.** Both pages' lines are one table (`table.kg-grid`): a No. column (1, 2, 3...; the empty line has the next
+number), Item (the name, its CW number small beside it), the page's own columns (the order: their code, pack, packs, £ per pack, £ total;
+the invoice: qty, price, amount; the pack and their code on the invoice's sub line), the x. On a computer a row is one line high (32 px
+boxes, the sub line beside the name); on a phone the cards as before, without the No. column. The last line is ALWAYS the empty line whose
+Item box is the product box (the site's one dropdown, `combo()`: the supplier's products first, "+ Add new item" last).
+
+**KG2. A line filled in place.** With the script, a choice in the empty line's list (or a scan with Enter that the products route answers
+with exactly one item; asked at once, so a scanner's Enter does not wait for the 300 ms) is a new line: the item's name and CW number, its
+pack, 1 pack, the supplier's last price for that pack (`resolve()`'s choices now carry `last_pack_price`; the fragment's `data-name`,
+`data-code`, `data-pack`, `data-upp`, `data-their`, `data-price`), its amount; the empty line stays last and the cursor is in the new line's
+Packs (Qty) box. Words naming several items open the list; none: said under the box; the route failing brings Add back (Enter is Add, as
+without the script). The amounts and the totals (the order: products and items, net, delivery, VAT by code, total; the invoice: sub total,
+total from the paper's figures when typed) follow the boxes as they are typed, worked out as PoMath does (half-up to the penny, VAT a line
+at a time, a new line's VAT the supplier's code, else the setting); on a save the server works everything out again and the page shows
+its figures.
+
+**KG3. The keys** (inside the lines, Ctrl+S anywhere; a Mac: Cmd). Tab / Shift+Tab: box to box (Item, Qty, Price, the next line's; the x
+and an item's link are out of the Tab order); Tab in the Item box with a choice marked takes it. Enter in a box: the next box (Enter never
+sends the form from the grid); in the last box of the last line: the empty line's Item. Up / Down in a box: the same box of the line above
+/ below (a line without that box is passed; in the Item box they stay the dropdown's; a number box's own step is not taken). Ctrl+Enter or
+Insert: the empty line's Item box. Ctrl+Delete (Cmd+Backspace), or the x: the line goes at once, the numbers close up, the totals follow, the
+cursor goes to the same box of the next line (or the empty line); "Line 3 removed." with Undo under the table, until the next removal or a
+save. The empty line cannot be removed. Ctrl+S: the page's Save / Save as draft, never Confirm or make final. Esc shuts the dropdown. Never
+taken: Alt+D, Ctrl+N/T/W, Ctrl+Shift+Delete, Delete or Backspace alone (Ctrl+Backspace stays the text's). One line of hints under the table
+on a computer (hidden under 700 px and without the script), each key a kbd chip, "Cmd" on a Mac (`navigator.userAgentData`, else
+`navigator.platform`); the boxes carry `aria-keyshortcuts`.
+
+**KG4. Every line in one post, in the save's transaction (against the brief's field names, a decision).** Every POST of the page (Save,
+Confirm, Save and make final, Fill the lines, "+ Add new item", "+ Add new supplier", a charge, Add) sends the saved lines as before
+(`line_N_*`, `p_N`/`pp_N`), the saved lines removed (the order: `line_N_remove=1`, now read on any line, before its boxes; the invoice: its
+`x_N=1`) and the NEW lines in ONE field, `new_lines`: JSON, `[{si: one of the supplier's packs | sku: an item (+ u, the items a case's
+barcode stood for), q: the packs or qty as typed, p: the price as typed}]`, not one field per box (`new_N_si`...): one field however many
+lines, so PHP's max_input_vars cannot cut lines off (the quick adjustment's `lines`, AG3; OV4). The server trusts none of it (`DocGrid::read`:
+anything but that shape is 400 `bad_form`, nothing read). Each new line becomes its service's line after the saved ones (the order: before
+its delivery charge) and is saved in the SAME transaction, version check and FormOnce, BEFORE the action: the order's
+`supplier_item_id` (PurchaseOrders refuses another supplier's or a switched-off pack, as Add) or `sku_id` (an item in CW, not joined into
+another); the invoice's goods line by `SupplierInvoices::goodsLine()`, Add's own rule taken out of `addItem()` and shared (this supplier's
+pack, switched on; an item not joined; the price typed, else the pack's last). Packs: a whole number; on the order 0 leaves a new line out (as
+it removes a saved line), on the invoice 1 or more (as a saved line). Prices are read as each page reads them (4 decimals at most, exact).
+A new document is made by its first Save / Confirm with all its lines, under its one FormOnce key; choosing an item makes nothing. Add with
+nothing in the box but lines in the grid saves them (Enter in a field of the page) instead of "Scan or choose a product first".
+
+**KG5. FormOnce on a draft's save that adds lines.** A draft's Save, Confirm or Add that carries new lines runs through FormOnce (the
+form_key every draft page already draws: `ui.po.grid`, `ui.invoice.grid`) as well as the version: sent again (a double click, the back
+button, a browser retry) it is answered by its first answer and adds nothing twice; without new lines a draft's save is as before (the
+version only). With new lines, an Add that finds several items or none leaves nothing saved (the page shows the choices with every line
+kept), as on the new page; without them it saves the table first, as before.
+
+**KG6. A refused save keeps every typed line.** Any refusal (a pack of another supplier, a switched-off one, a price that is not one, the
+limit, a duplicate number...) shows the page again with every line as typed, the new ones drawn again (`DocGrid::rows()`, their field
+too) and the lines removed still removed; the refusal is said at the top and on the line it concerns (`tr.kg-bad`, its words under the
+name): the row the page's own check names (`detail.row`), else the service's line number mapped back to its row (`DocGrid::rowOf`). A
+version conflict (the draft changed in another tab) keeps the NEW lines (they name their product), not the edits of the saved lines: those
+lines may have changed under them, so the page shows them as they are now, as before.
+
+**KG7. The limit.** A document's limit is its service's (`PurchaseOrders::MAX_LINES`, `SupplierInvoices::MAX_LINES`: constants every way in
+already keeps; there is no setting for it, and none is added). The page gives it to the script (`data-kg-max`), which adds no line past it
+and says so (`DOC_GRID too_many`); the server refuses more (422, the service's words) with every typed line kept; a field with more than
+twice the limit is a bad form. The order's editor limit is unchanged: an order past what its one form can carry shows its saved lines
+read-only (I73), and new lines are still added from the grid.
+
+**KG8. Without the script, as before.** The new fields are only ever made by the script (the new lines' boxes have no name; the field stays
+empty); the empty line keeps its Packs (Qty, Price) and Add, the x is a submit (a save without that row), Enter is Add. With the script
+those boxes and Add go (`html.js … .kg-nojs`), and come back when the products route fails (`.kg-offline`). The hint line is hidden.
+
+**KG9. One engine, on the one dropdown.** `docGrid(table, box)` in `app.js`, started by the product box of a grid's empty line (the box's
+own `combo()`; no second dropdown engine: six `combo(` calls, the sixth a line's item box, KG22); what each page has is in its `data-kg-*` attributes (the contract in
+`docs/dev.md`), so the sales invoice reuses it with its own columns. The quick adjustment grid's keys (AG5: `move`, `nextLine`, `goTo`) are
+NOT shared: they are closures over its own row model with its own rules (After sets Units, Why skipped by Tab, Left/Right between cells);
+sharing them would change that page's behaviour. The shared parts are `combo()` and `twoLines()`.
+
+**KG10. The saved documents' lines** (`purchase_order`, `supplier_invoice`; `table.kg-view`): a No. column (the line's number), the CW
+code small beside the name, the sub line beside it on a computer, numbers right-aligned, the totals block bottom-right as before. The
+order's "Line N" in the sub line went (the No. column says it). On the invoice the Match column shows the pill alone when the line is
+Matched; the detail line (billed · there · reference, why, the difference) stays only for a line that is not Matched. Two short notes stay
+on a Matched line when they are there: the price that differs while the price check is off (PC19's information, the owner's rule) and
+what was credited. Layout only: every action and link kept. Tests changed for it: `UiTemplatesTest` (the order's lines: the No. column and five,
+was five), `InvoiceOnePageScreensTest` (the No. column first on the new invoice and the saved order; the add row's five cells, was four).
+
+**KG11. Kept.** Every server rule: the creator's drafts, `doc.PO.post` / `doc.SINV.post`, `suppliers.manage` / `items.create`, versions,
+FormOnce, CSRF, the supplier-item rules, VAT as stated, the unique supplier and invoice number, the 3-way match, timed invoices (PJ*),
+"make final" after the save (PV16). Known limits: a new order's supplier changed after lines of the other supplier's packs were typed: the
+save moves them to the new supplier (KG30, which replaced this limit); "+ Add new supplier" on a NEW page comes back with the new
+supplier chosen and the grid empty (its lines were not saved; the address carries only what CARRIED lists; on a draft its lines stay, KG30);
+Undo is one removal deep; after a refusal the lines
+removed stay removed (no Undo for them; Leave without saving starts again); a new line's item name is not a link until it is saved.
+
+**KG12. Square-ish corners on every page** (the owner: "this all shape more oval shape dont need this"). The radius tokens are small:
+`--r-8` and `--r-10` 4 px, `--r-12` and `--r-14` 6 px, `--r-16` 8 px, `--r-pill` 4 px; the corners written by hand (999 px, 96 px, 40 px,
+10 px, 9 px, 6 px) are tokens now, so buttons, boxes, dropdowns, status pills and tags, count bubbles, cards, the bar at the bottom and the
+sign-in page's shapes are small-radius rectangles; a true circle (50%: a dot, an avatar, the tick) stays. One set of tokens for light and
+dark. No test pinned a radius value (they pin the tokens); `UiUnitTest::testEveryCornerIsSmallAndNoneIsOval` pins it now.
+
+**KG13. One layer of keys for the whole site** (the owner: "i need add item multiple short key option in keyboard, i need standard short
+key option like Tally, ERPNext"). `app.js` has ONE table of keys (`KEYS`: each an id, a test and what it does) and ONE `keydown` listener
+on the document for them; the first key whose test holds runs and its default is stopped (unless it answers that it was not for it). A
+letter is read by its place on the keyboard (`ev.code`: `KeyN`, not `ev.key === 'n'`), so Alt / Option's special characters on a Mac and
+other layouts work. Ctrl is Cmd on a Mac (`navigator.userAgentData.platform`, else `navigator.platform`); a Windows key is never Ctrl. Never
+taken: Ctrl+N / T / W / Tab, Ctrl+Shift+N / T / Delete, Alt+D / E / F, the F keys, Delete or Backspace alone. Two listeners stay their
+widget's own, as before: the drawer's Tab trap and the menus' Escape. The "/" of Search and match (SX5) is now the layer's `search` (its
+own listener went; the page's `data-page-search` box first, opened when folded, as before).
+
+**KG14. The lines' keys** (the order's and the invoice's grid). Tab / Shift+Tab box to box; Enter the next box; Up / Down the same box of
+the line above / below; a new line: Ctrl+Enter, Alt+N or Insert (Insert has no Mac key: hidden there); remove the line: Ctrl+Delete,
+Cmd+Backspace on a Mac, or Alt+R; Undo: Alt+U, or Ctrl+Z when the cursor is not in a box (in a box Ctrl+Z is the box's own); Ctrl+D fills
+the box down from the line above (in the grid only: elsewhere it is the browser's bookmark); Alt+C in the item or supplier box: "+ Add new
+item" / "+ Add new supplier" with what was typed, for who may (Tally's "create on the fly"); Esc shuts the dropdown, then leaves the box.
+
+**KG15. Ctrl+S saves; it never makes final.** Ctrl+S is the page's Save / Save as draft (sent without leaving the page, KG24), never
+Confirm or "Save and make final". Confirming an order sends it towards the supplier and fixes it; making an invoice final books its
+goods and stock on the websites (now or at its posting time): a key pressed by habit every few seconds must never do that. ERPNext does the
+same (Ctrl+S saves; Submit is a click). Confirm and make final stay one deliberate press of their button.
+
+**KG16. The page's keys, on every page.** Ctrl+B: a new order or invoice from their lists and pages (Ctrl+N is the browser's): the
+panel's link to it is pressed, so the unsaved-changes guard asks first; only for a person who may make one (`Context::newDoc`, the
+document type's posting roles). Ctrl+G, or "/" when not typing: the page's search box, else the sidebar's find. Ctrl+P on a saved order: its
+PDF (elsewhere the browser prints). "?" (not typing) or Ctrl+/: the panel of keys.
+
+**KG17. Lists by the keyboard.** On the orders' and invoices' lists (`data-kb-rows`) Up / Down mark a row (scrolled into sight, `tr.kb-on`)
+and Enter opens it (its link pressed: the guard asks first).
+
+**KG18. The panel "Keyboard shortcuts".** In the layout of every signed-in page (not a partial: the template tests copy the layout alone),
+two groups, Lines and Page; the script shows only the keys the page has (`data-kb-when`: grid, list, new, pdf) and a Mac's keys; Esc, Close
+or a press on the backdrop shuts it and the cursor goes back where it was. Each key's words in `Words::KEYS`, its keys as printed on a
+keyboard in `Words::KEYS_KBD` (a computer's, then a Mac's: Cmd, Option; '' none).
+
+**KG19. The hint line is short.** Under the grid on a computer: Tab, Ctrl+Enter, Ctrl+Del, Ctrl+S (Cmd on a Mac) with their words, then
+"All keys (?)", which opens the panel. The full table is in `docs/dev.md`. The keys are named to screen readers (`aria-keyshortcuts` on
+the Save button, the search box, the PDF link, the new-document link, the item and supplier boxes).
+
+**KG20. Nothing of the keys without the script**: the panel and the hints are hidden; every page works as before.
+
+**KG21. "+ Add new item" without a reload** (the owner: "add new item add option add"). The product box's last line "+ Add new item", the
+button under the grid and Alt+C open the item's panel (filled with what was typed: digits a barcode, else the name). Its button sends the
+panel by the one fetch to a route of its own, `POST /ui/purchasing/orders/new-item` and `/ui/purchasing/invoices/new-item`
+(`PoAddNew::newItemLine`): who may add items first (403 for anyone else, before anything is read), the supplier chosen, CSRF, its own
+FormOnce key (the same form sent twice makes one item), then Pack B's item (barcode on another item, the same name: refused in words with
+the item(s) to use instead, "Use this one") and this supplier's pack of it when a code, pack or price is typed (`PurchaseOrders::makeItem`,
+taken out of `addNewItem`, which still uses it). It never touches the document: the answer is a fragment (`data-ni-fragment`) with the new
+item as one choice of the product box, which the grid takes as a line (qty 1, the price typed), the cursor in its Qty; every other line
+stays. A separate route, not the editor's own post, so making an item can never save half a document. Without the script the panel posts
+the editor's form as before.
+
+**KG22. Every box of every line edited in place, the item too** (the owner: "each row within same place edit option"). A saved line's item
+name is a box (one more use of `combo()`, with its own list); its page is the CW code's link. Choosing another item for a saved line sends
+that line as removed and a new line with `line: N`, which the server puts in N's place (`DocGrid::order`): a line's item is part of what the
+line is (its supplier's pack, its VAT, its links to deliveries and orders), so changing it is honestly "line N removed, a new line N".
+The order's items per pack stays editable on a line without the supplier's pack. Only an editable draft's lines.
+
+**KG23. Many lines quickly.** "+ Add row" goes to the empty line; "Add several" is a search with ticks ("Add 3 lines": each a line, 1 pack,
+the supplier's price); scanning keeps adding (the cursor stays in the box; the same item scanned again is one pack more on its line, as Add
+does on the server). Ticking lines shows "Delete N lines" (one Undo for the lot).
+
+**KG24. Save without leaving the page** (the owner: "save all in ajax"). With the script, Save / Save as draft / Ctrl+S send the form by
+the one fetch, a POST to its own address with its CSRF token, FormOnce key and version (`fragment()`'s second kind: `SENT` names the only
+two things ever sent, this and KG21, each by a whole-address pattern). The answer counts only when it is THIS page's editor
+(`form[data-kg-editor]`: the same kind and document; a new document's first save may name its draft); then its parts are put in place (the
+messages around the form, the hidden fields, the lines, the totals, the notes; the head's fields only when the page has no supplier box, so
+an open dropdown is never redrawn), the grid starts again on them with the cursor on the same line and box, "Saved" is said, and a new
+document's address becomes its draft's (`history.replaceState`). A refusal (409, 422) is put in place the same way, every line kept with
+its words on its row. Anything else (no network, the sign-in page, another page, a 500) changes nothing, says so, and the next Save is a
+plain post. Confirm and make final stay plain posts (KG15).
+
+**KG25. Checks before a save; the server decides.** As the person leaves a box and on Save: an item chosen, the qty a whole number in the
+service's limits, the price money (4 decimals at most), the supplier, the invoice number, real dates, the due date not before the invoice
+date: red edge and words under the box (`aria-invalid`, `aria-describedby`), and on Save nothing is sent and the top says "2 lines need a
+look" with links. These are the server's own rules, so they block only what the server would refuse. A rule the server does not have
+(the same item on two lines) only warns (amber, both lines). Confirm and make final are never stopped by the browser: the server checks
+them and says so on the rows (`DocGrid::rowOf`).
+
+**KG26. ERPNext's layout** (the owner: "keep style erpnext, layout all details"; `runs/kg_erpnext_ref/`). The order's and the invoice's
+editor: the actions in the head (`doc_head_bar`: "Leave without saving", the "..." menu of the page's other steps, Save, Confirm / Save and
+make final; one dark main button: Confirm / make final, KG31; buttons in the head belong to the form by its id, and an unseen Add is the
+first of them so Enter stays Add, PX7), in place of the bar at the bottom; a white form in sections (thin lines, small bold titles); labels above grey boxes; the lines' grid
+with a grey head row, tick column, No., Item, the page's columns, Amount, thin cell lines; under it "+ Add row", "Add several", "+ Add new
+item" on the left, "Download" / "Upload" on the right (the order's existing `lines.xlsx` and import, which PX10 had left to the "..."); the
+totals as grey boxes (total qty, total net); the order's "Taxes and charges" table (No., VAT code, rate, net, VAT, total) and the grand total
+on the right; the rare details folded under "More info" (our number, the date, status, made). The invoice's VAT stays the paper's figures
+(PV). This supersedes PX10's single summary card. Every field, action and rule kept. Tests changed for it, on purpose: `UiTemplatesTest`
+(the two editors' head bar in place of `doc_bar`), `InvoiceOnePageScreensTest`, `PoOnePageScreensTest`, `PurchaseOrderScreensTest`,
+`PurchaseOrderFixesScreensTest` (the buttons found by the form they name; the title's words in its own span; "More info" not counted
+as a "+ Add new" fold), `DocKeyGridScreensTest`. "Add N lines" is a plain button (a form has one main button: the kernel's test browser checks it).
+
+**KG27. The supplier invoice's posting date and time** (the owner: "in purchase invoice need posting date; for pushing to the site, only at
+the scheduled time this stock should take effect on the site"). They are pack J's timed route (PJ10), not a new rule: the details' "Posting
+date" and "Posting time" (UK) are the timed form's one box (`submit_at`, form `pi-schedule`), shown by the script as a date and a time.
+A time still to come turns the main button into "Schedule", which saves the draft (KG24) then sends the timed form; Ctrl+S still only saves;
+a time gone is refused under the field (`bad_submit_at`), the hour the clocks go back is asked. A timed draft says so beside its title
+("Stock goes to the websites: Fri 7 Nov 18:00"); its "..." holds "Make final now" and "Take the time off". Without the script the box and
+"Set the time" post the timed form as before. A final invoice shows when it was posted, read-only, as before. The server is unchanged (its
+`submit_at`; a draft's own date and time split was tried and dropped: the clocks-go-back case needs the one box).
+
+**KG28. The head and the details on one strict grid** (the owner: "for the head side also need proper alignment"). CSS only, on the
+markup the tests pin: the list's link alone on the first row; the title with its status pill on one line (the editors' status moved from
+the line under the title into the title, `chips:`), the actions on its right, centred on it; the fields in three equal columns (two between
+641 and 960 px of page, one below), one gap, each label above its box and the box the column's width; the pairs side by side (the paper's
+date and due date; the posting date and time), a row starting at the first column; notes and "From" across; section titles on the grid's
+left edge; the totals' words and figures right-aligned at its right edge; spacing 4 / 8 / 16 / 24. The saved order's and invoice's facts
+on the same grid as read-only grey boxes (the party blocks first), by CSS over the shared `doc_party` (its markup unchanged: other pages and
+tests use it). Scoped with `:has()` (Chrome, Edge, Safari, Firefox current). No browser on this server for screenshots: checked by the
+rules, described in the report.
+
+**KG29. Every form field square-ish too** (the owner: "dont make all field like oval shape, i need this make standard"). Boxes, selects,
+search boxes and dropdown lists use the 4 px token (`--r-8` / `--r-10`), a 1 px edge, one height (34 px in the editors); no field rule keeps
+a radius over 8 px. `UiUnitTest::testEveryCornerIsSmallAndNoneIsOval` pins it.
+
+**KG30. The supplier changed on a draft** (the owner: "also in draft and new easily supplier change option"; the one service rule changed).
+The supplier box is the same on a new document and on its creator's draft (it was a fixed link once a line was there, PX3). Choosing
+another supplier with lines on the page asks in the page, never a browser dialog: "Change supplier to X? Lines stay; prices come from X
+where it has them." [Change] [Keep Y]; the products search then uses X. The change is part of the same Save (by the script or not): the
+same transaction, version, FormOnce and permission; the server moves the lines (`PurchaseOrders::saveDraft`'s `repoint`,
+`SupplierInvoices::changeSupplier`): each goods line takes X's pack of the same CW item (the same items per pack first, then X's preferred,
+then the smallest; the packs keep the units, rounded up to a whole pack), with X's code and unit and X's last price, unless the person typed
+a price (one other than the old supplier's last price for that pack): that price stays, per unit. An item X does not sell stays as a line
+of the item (the order: items per pack editable; its price kept; the old supplier's code gone), and the page says once "3 lines have no
+price from X yet" (`unpriced` in the address after the save). Never a line dropped. The invoice also: its lines lose their links to the
+old supplier's orders and deliveries (the old supplier's "From"; the box narrows to X's as before, and after a Save by the script it is
+the server's list for X; a draft's page lists its own supplier's only, so the list works without the script), its number is checked against X's
+invoices (409, nothing changed), its due date and the way its goods come in follow X only while they are still the old supplier's own (the
+paper's date plus the old terms; the old supplier's way). A new page's lines picked before the box changed move the same way. Who may: the
+draft's creator with the document's posting role, as every draft save. Never an inactive supplier on an order (as a new order). A credit
+note's supplier stays its invoice's or return's (409 `supplier_fixed`). "+ Add new supplier" stays on the order's draft (its lines move:
+a new supplier sells none of them yet) and on the new invoice only. Confirmed and final documents: unchanged (Amend). Tests changed, on
+purpose: `PurchaseOrderLifecycleTest` (`supplier_has_lines` → `supplier_inactive`), `PoSelectOrAddTest` (the new supplier with products:
+put on, products kept), `PoOnePageScreensTest` (the box on a draft with products).
+
+**KG31. The demo the owner approved is the picture** (6 Nov 2026: the coordinator's clickable invoice editor, "THIS IS NICE"; for KG1-KG30).
+The editors follow its order of parts and sizes, with CW's real data, words in `Words.php`, the strict CSP (its inline styles are rules
+in `app.css`) and every server rule: the list's link above; the title (20 px) with its status beside it (outside the heading, so the
+title is its words alone); on the right "Fill the lines" (the invoice; with the script: without it the From field's own button),
+"Keys (?)", "...", Save / Save as draft and the dark main button Confirm order / Save and make final (also on a new document: the demo's;
+KG26 had Save there); 32 px buttons. The details ONE grid of three columns (the fieldsets give their fields to it): Supplier, the
+invoice number, From; the paper's date, the due date, and the posting date and time as ONE field of two boxes ("Posting date and time
+(UK): stock reaches the websites then"), with the line under the grid "Stock goes to the websites: 07 Nov 2026, 18:00 (UK). Until then it
+stays a draft." while the time is still to come. The problems at the top of the form ("2 things need a look", each a link); words left in
+the empty line's box warn only (a Save is not an Add). The grid's boxes clear until they have the cursor, a new line's soft amber. Under
+the grid "Add row", "Add multiple", "+ New item", "Delete N lines"; Download / Upload on the order. The hint line: Tab next, ↑↓ line,
+Ctrl+Enter new line, Alt+R delete, Alt+U undo, Ctrl+D copy above, Ctrl+S save, "All keys (?)" (Cmd / Option on a Mac). Total quantity and
+Total as grey boxes on both pages; the order's "Taxes and charges" with the delivery as its own row (typed in the row, its VAT the
+supplier's, in the grand total); "More info" folded on both. The keys' panel says "On a Mac use Cmd for Ctrl and Option for Alt". The
+supplier's question: [Change] the main button of it, [Keep Y]. Kept as CW has them, not as the demo: the tick shares the No. cell (the
+table's columns without the script stay as the tests pin them); the invoice's VAT and total are the paper's figures (PV), so it has no
+taxes table; the invoice has no lines file, so no Download / Upload; "History" is the saved invoice's and order's (not repeated on the
+editor); a box's message stays under that box; no "*" on the labels (the words unchanged); "Leave without saving" stays in the head.
+
+Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
+`tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,
+`UiUnitTest::testEveryCornerIsSmallAndNoneIsOval`, `WordsTest::testTheLinesGridNamesItsKeysInWords`. The script driven in node on a minimal
+DOM (`runs/kg_js_harness/`, 43 checks: fill in place, the totals, every key, Undo, a saved line's remove field, Ctrl+S, a scan with Enter,
+Tab, the route failing, the limit, a Mac, the invoice; `runs/kg_js1.log`); not yet in a real browser.

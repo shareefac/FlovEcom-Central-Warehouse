@@ -1936,7 +1936,8 @@ final class UiTemplatesTest extends TestCase
             'meta: ', "\$e(\$factLine)"] as $part) {
             self::assertStringContainsString($part, $order, "the order's page: {$part}");
         }
-        self::assertSame(5, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'five line columns');
+        // Five line columns after the No. column of the standard grid (docs/decisions.md KG10; was five without it).
+        self::assertSame(6, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines kg-view">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'the No. column and five line columns');
         self::assertStringNotContainsString('doc-progress', $order, 'the steps, not the figures strip');
         foreach (['lines.xlsx', 'lines.csv', "'/ui/documents/' . \$doc->id"] as $link) {
             self::assertStringContainsString($link, $t['po_bar.php'], "under More: {$link}");
@@ -2044,7 +2045,14 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<button type="submit"<?php if (isset($b[\'value\'])): ?> name="<?= $e($b[\'name\'] ?? \'action\') ?>" value="<?= $e($b[\'value\']) ?>"<?php endif; ?> class="btn',
             $t['doc_bar.php']);
         $calls = 0;
-        foreach (['purchase_order_edit', 'invoice_edit', 'receipt_edit', 'supplier_form', 'item_new'] as $name) {
+        // The order's and the invoice's page have their buttons in the head (doc_head_bar, docs/decisions.md KG26; were doc_bar): each still
+        // sends its `action`, for the editor form (form=).
+        foreach (['purchase_order_edit' => 'po-form', 'invoice_edit' => 'pi-form'] as $name => $form) {
+            self::assertSame(1, preg_match("/\\\$partial\\('doc_head_bar', \\['form' => '{$form}'(.*?)\\]\\]\\);/s", $t[$name . '.php'], $m), "{$name}: its head bar");
+            self::assertSame(substr_count($m[1], "'label' =>"), substr_count($m[1], "'value' =>"), "{$name}: each button sends its action");
+        }
+        self::assertStringContainsString('<button type="submit" form="<?= $e($b[\'form\'] ?? $form) ?>"', $t['doc_head_bar.php']);
+        foreach (['receipt_edit', 'supplier_form', 'item_new'] as $name) {
             self::assertSame(1, preg_match("/\\\$partial\\('doc_bar', \\[(.*?)\\]\\) \\?>/s", $t[$name . '.php'], $m), "{$name}: its bar");
             // Its buttons: in the call, or built before it ($buttons, the delivery's page).
             $src = $m[1] . (preg_match_all('/^\s*\$buttons(?:\[\])? = .*$/m', $t[$name . '.php'], $built) > 0 ? implode("\n", $built[0]) : '');

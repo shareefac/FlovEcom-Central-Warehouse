@@ -12,7 +12,7 @@
 ?>
 <?= $head((string) $k['tab'], intro: $kind === 'invoice' ? 'invoices' : 'credit_notes', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>" data-leaves="1">
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('INVOICES', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" aria-keyshortcuts="Control+G /" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('INVOICES', 'search') ?>"></div>
   <?= $showStart() ?>
   <div class="tb-state">
     <label for="tb-show"><?= $word('ORDERS', 'show') ?></label>
@@ -81,7 +81,7 @@
 <div class="grp-block doc-group <?= $e($g['tone']) ?>">
   <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $e($g['name']) ?></button> <span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $e($k['group_one']) ?><?php else: ?><?= $e(sprintf($k['group_many'], count($g['rows']))) ?><?php endif; ?></span></h3>
   <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
-  <table class="stack list board doc-list">
+  <table class="stack list board doc-list" data-kb-rows>
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $e($k['col']) ?></th>

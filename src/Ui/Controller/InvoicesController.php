@@ -51,6 +51,8 @@ final class InvoicesController
         $one = new InvoiceOnePage(); // the supplier invoice on one page (docs/decisions.md PV)
         $r->add('GET', InvoiceOnePage::NEW, 'doc.SINV.post', $one->newPage(...));
         $r->add('GET', InvoiceOnePage::PRODUCTS, 'doc.SINV.post', $one->products(...));
+        // The lines' grid's "+ Add new item" by the script (docs/decisions.md KG21): the item and its pack, never the invoice; items.create inside.
+        $r->add('POST', PoAddNew::NEW_ITEM['pi'], 'doc.SINV.post', static fn (Context $ctx): HtmlResponse => PoAddNew::newItemLine($ctx, 'pi'));
         $r->add('GET', self::TO_MATCH, 'invoices.view', $c->toMatch(...));
         $r->add('POST', self::TO_MATCH . '/recheck', 'doc.SINV.post', $c->recheck(...));
         $r->add('GET', self::NOT_INVOICED, 'invoices.view', $c->notInvoiced(...));
@@ -1170,12 +1172,15 @@ final class InvoicesController
     /**
      * The lines of a draft with the table's edits applied: per stored line `p_<n>` (packs), `pp_<n>` (pack price), `a_<n>` (amount),
      * `d_<n>` (words) and `x_<n>` (remove), without the row $remove (the one page's remove button, PV). The table must hold the stored lines
-     * (`line_count`): a draft changed meanwhile is refused.
+     * (`line_count`): a draft changed meanwhile is refused. $nos: the number of each stored line kept, in order (the lines' grid points a
+     * refusal at its row, docs/decisions.md KG4).
      *
+     * @param list<int> $nos
      * @return list<array<string, mixed>>
      */
-    public static function editedLines(Context $ctx, int $id, ?int $remove = null): array
+    public static function editedLines(Context $ctx, int $id, ?int $remove = null, array &$nos = []): array
     {
+        $nos = [];
         $req = $ctx->req;
         $current = $ctx->db->all('SELECT dl.line_no, dl.sku_id, dl.amount, dl.description, sl.* FROM document_line dl JOIN sinv_line sl ON sl.document_id = dl.document_id '
             . 'AND sl.line_no = dl.line_no WHERE dl.document_id = ? ORDER BY dl.line_no', [$id]);
@@ -1192,7 +1197,7 @@ final class InvoicesController
             if ($l['kind'] === 'goods') {
                 $packs = trim((string) ($req->field('p_' . $n) ?? (string) $l['packs']));
                 if (preg_match('/^[0-9]{1,7}$/D', $packs) !== 1 || (int) $packs < 1) {
-                    throw new CwException('bad_line', Words::INVOICE_ERROR['bad_packs'], 422, ['line' => $n]);
+                    throw new CwException('bad_line', Words::INVOICE_ERROR['bad_packs'], 422, ['line' => $n, 'row' => 'line:' . $n]);
                 }
                 $out[] = ['kind' => 'goods', 'sku_id' => (int) $l['sku_id'], 'packs' => (int) $packs, 'units_per_pack' => (int) $l['units_per_pack'],
                     'pack_price' => trim((string) ($req->field('pp_' . $n) ?? (string) $l['pack_price'])), 'description' => $l['description'],
@@ -1203,6 +1208,7 @@ final class InvoicesController
                 $out[] = ['kind' => (string) $l['kind'], 'amount' => trim((string) ($req->field('a_' . $n) ?? InvoiceMath::fromE2(InvoiceMath::e2((string) $l['amount'])))),
                     'description' => $req->field('d_' . $n) ?? $l['description'], 'entry' => $l['entry']];
             }
+            $nos[] = $n;
         }
         return $out;
     }
