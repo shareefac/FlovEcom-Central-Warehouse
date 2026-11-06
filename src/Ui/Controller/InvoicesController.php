@@ -877,9 +877,13 @@ final class InvoicesController
         };
         $ref = $refs === null ? null : ($refs['po'] ?? $refs['grn']);
         $due = ($r['due_date'] ?? null) === null || $reversal ? null : (string) $r['due_date'];
+        $erpCopy = ($r['origin'] ?? 'cw') === 'erpnext';
+        // A due date passed with money owed: red, and how late. Never on a copy of an ERPNext invoice (CW-918, owner 6 Nov 2026): suppliers
+        // are paid outside ERPNext and outside CW for now, so ERPNext's due date says nothing about what is still to pay.
+        $late = !$erpCopy && $due !== null && $today !== '' && $due < $today && $owedE2 !== null && $owedE2 > 0;
         return [
             // CW-917 (EC14): a copy of an ERPNext invoice says so, and that its stock was booked already.
-            'erp' => ($r['origin'] ?? 'cw') === 'erpnext' ? Words::ERP_COPY[$kind === 'invoice' ? 'badge' : 'badge_credit'] : null,
+            'erp' => $erpCopy ? Words::ERP_COPY[$kind === 'invoice' ? 'badge' : 'badge_credit'] : null,
             'group' => $group,
             'cell_tone' => $look ? 'needs' : ($reversal ? 'off' : Words::tone('DOC_STATUS', $status)),
             'cell_word' => $look ? Words::INVOICES['needs_look'] : ($reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', $status)),
@@ -887,9 +891,9 @@ final class InvoicesController
             'title' => $r['external_ref'] !== null && $r['external_ref'] !== '' ? (string) $r['external_ref'] : ($r['number'] ?? Words::INVOICES['no_number_yet']),
             'refs' => implode(' · ', array_values(array_filter([$ref, $r['external_ref'] !== null && $r['external_ref'] !== '' ? $r['number'] : null,
                 $reversal ? Words::say('STOCK_OPS', 'cancels', (string) ($r['reverses_number'] ?? '')) : null], static fn (?string $v): bool => $v !== null && $v !== ''))),
-            'late' => $due !== null && $today !== '' && $due < $today && $owedE2 !== null && $owedE2 > 0,
+            'late' => $late,
             // How late, as PI_List says it beside the due date (DC21): whole days from the due date to today (UK).
-            'late_line' => $due === null || $today === '' || $due >= $today || $owedE2 === null || $owedE2 <= 0 ? null
+            'late_line' => !$late || $due === null ? null
                 : self::daysLate((int) round((strtotime(substr($today, 0, 10) . ' 00:00:00 UTC') - strtotime(substr($due, 0, 10) . ' 00:00:00 UTC')) / 86400)),
             'href' => SupplierInvoices::PATHS[$kind] . '/' . (int) $r['id'],
             'number' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],

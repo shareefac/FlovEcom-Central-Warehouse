@@ -44,7 +44,7 @@ final class ErpCopyScreensTest extends KernelUiTestCase
         $erp->items = ['A' => ['is_stock_item' => 1, 'custom_variant_id' => 'VA'], 'C' => ['is_stock_item' => 1, 'custom_variant_id' => 'VC']];
         foreach (['PI-S1' => 'A', 'PI-S2' => 'C'] as $name => $item) {
             $erp->invoices[$name] = ['name' => $name, 'company' => 'VAPE AND GO', 'supplier' => 'Screen Supplies', 'supplier_name' => 'Screen Supplies', 'bill_no' => 'SB-' . $name,
-                'bill_date' => '2026-10-01', 'posting_date' => '2026-10-01', 'docstatus' => 1, 'is_return' => 0, 'modified' => '2026-10-01 10:00:00', 'base_net_total' => 6,
+                'bill_date' => '2026-10-01', 'posting_date' => '2026-10-01', 'due_date' => '2026-10-15', 'docstatus' => 1, 'is_return' => 0, 'modified' => '2026-10-01 10:00:00', 'base_net_total' => 6,
                 'base_grand_total' => 7.2, 'items' => [['idx' => 1, 'item_code' => $item, 'qty' => 2, 'stock_qty' => 2, 'conversion_factor' => 1, 'base_net_rate' => 3,
                     'base_net_amount' => 6]], 'taxes' => [['account_head' => 'VAT - VPG', 'category' => 'Total', 'base_tax_amount_after_discount_amount' => 1.2]]];
         }
@@ -87,5 +87,31 @@ final class ErpCopyScreensTest extends KernelUiTestCase
         self::assertSame(0, self::xp($one)->query('//form[contains(@action, "/reverse")]')->length, 'cancelled in ERPNext only');
         self::assertSame(0, self::xp($one)->query('//form[contains(@action, "/credit-notes")]')->length, 'credited in ERPNext only');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM review_task WHERE subject_type = 'document'"), 'nothing in Approvals');
+    }
+
+    /**
+     * CW-918 (owner, 6 Nov 2026: suppliers are paid outside ERPNext): a copy whose ERPNext due date has passed shows that date plain, never
+     * red and never "days late", on the invoices list and on its supplier's Invoices tab. (A record keyed in CW still does:
+     * InvoiceOnePageScreensTest.)
+     */
+    public function testACopyPastItsDueDateIsNeverLate(): void
+    {
+        $copy = $this->copies();
+        self::assertSame('2026-10-15', (string) self::$db->value('SELECT due_date FROM supplier_invoice WHERE document_id = ?', [$copy]), 'ERPNext\'s due date is kept');
+        $web = $this->signIn($this->uiUser('purchasing_desk'));
+        $href = '/ui/purchasing/invoices/' . $copy;
+        $list = $web->get('/ui/purchasing/invoices');
+        self::assertSame(200, $list->status, $list->describe());
+        $row = '//tr[.//a[@href="' . $href . '"]]';
+        self::assertSame(1, self::xp($list)->query($row)->length, 'the copy is listed');
+        self::assertSame(0, self::xp($list)->query($row . '//td[contains(@class, "late")]')->length, 'its due date is not red');
+        $rowText = (string) preg_replace('/\s+/u', ' ', (string) self::xp($list)->query($row)->item(0)?->textContent);
+        self::assertStringContainsString(\CW\Ui\Html::day('2026-10-15'), $rowText, 'the due date is still shown');
+        self::assertStringNotContainsString(explode('%s', Words::INVOICES['late_many'])[1] ?? 'days late', $rowText, 'no "days late"');
+        $supplier = (int) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$copy]);
+        $tab = $web->get('/ui/purchasing/suppliers/' . $supplier, ['tab' => 'invoices']);
+        self::assertSame(200, $tab->status, $tab->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(1, self::xp($tab)->query($row)->length, 'the copy is on its supplier\'s Invoices tab');
+        self::assertSame(0, self::xp($tab)->query($row . '//td[contains(@class, "late")]')->length, 'not red there either');
     }
 }
