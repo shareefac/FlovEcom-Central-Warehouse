@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG31)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG32)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16643,6 +16643,41 @@ supplier's question: [Change] the main button of it, [Keep Y]. Kept as CW has th
 table's columns without the script stay as the tests pin them); the invoice's VAT and total are the paper's figures (PV), so it has no
 taxes table; the invoice has no lines file, so no Download / Upload; "History" is the saved invoice's and order's (not repeated on the
 editor); a box's message stays under that box; no "*" on the labels (the words unchanged); "Leave without saving" stays in the head.
+
+**KG32. The fix round: the Codex review of `04421ad` (11 findings) and the coordinator's look at it on staging (S1-S6).**
+- *The posting time is part of the editor's form; the server decides* (Codex 1 and 2, HIGH: stock could reach the websites before the
+  chosen time; S3; Codex 9). The posting box (`submit_at`, and the clock choice) is a field of the invoice editor's own form, on a new
+  invoice and on a draft. "Save and make final" with a time typed saves the draft and sets the time in ONE request, under one FormOnce key
+  (`ui.invoice.timed`, or the new page's `ui.invoice.create`), by the timed route's own rules (`InvoicesController::postingMoment`, then
+  `SupplierInvoices::schedule` in the same transaction): a time gone, or one that does not happen, is refused under the field with the time
+  kept and NOTHING saved or made final; the hour the clocks go back is asked. Only an empty box makes it final now, and "Make final now"
+  in a timed draft's "..." (`post_now`) leaves the time aside on purpose. The script no longer catches the main button (nothing to lose when a
+  save without reload draws the head again): it only says "Schedule" while a time is typed and the line when the stock goes to the
+  websites, the button found afresh after each in-place save. The timed route `/schedule` and "Take the time off" are kept (pack J); its
+  separate "Set the time" button went (the main button does it, with the save). Tests changed: `ArrivalScreensTest` (the time typed is kept
+  in the editor's form now), `DocKeyGridScreensTest::testThePostingTimeIsTheTimedRoute`.
+- *A changed saved line refused comes back in its place* (Codex 3, 4): drawn as its new item right after the hidden saved line
+  (`data-kg-replace`, sent again as `line: N`); every new line drawn again carries its name, code, pack and supplier code, so the checks
+  before a save pass.
+- *A save on its way holds the page* (Codex 5): the boxes are read-only and no line is added, removed, changed or put back until the answer
+  is in place; nothing typed meanwhile is lost under it.
+- *Changed in another tab* (Codex 6): the editor drawn for a version conflict says so (`data-kg-conflict`); the script then posts the same
+  form plainly, so the whole page (the head and its supplier too) is drawn as the server has it, the new lines kept, nothing saved.
+- *The page's hidden fields are the server's* (Codex 7): those the answer no longer draws are removed.
+- *Prices as people type them* (Codex 8): moving lines to another supplier reads a price as the save reads it (`£`, spaces, commas).
+- *A removed saved line sends its remove field alone* (Codex 10): its boxes are switched off (on again with Undo; also the lines drawn removed
+  after a refusal), so removing many lines of a long document stays inside PHP's max_input_vars; the order's check that the form was not
+  cut short counts a line sent with its remove field alone.
+- *A line's item box and the keys* (Codex 11): Enter with no choice marked goes on to Qty, Tab takes its marked choice, Alt+C is "+ Add new
+  item" with its words, for who may add one.
+- *Staging*: S1 a label in the supplier's and "From"'s own column keeps its height (the boxes sat ~190 px under their words); S2 the keys'
+  panel lists a key a row (not the site's two-column `dl`); S3 the posting fields on a new invoice (above); S4 the same-item warning said
+  again after Undo; S5 a line one row high on a computer (the CW code small beside the item box); S6 while the supplier question is open,
+  the box names the supplier asked about (Keep puts the chosen one back).
+Tests: `DocKeyGridScreensTest` (the posting time in one request, past and future, a new invoice; a refused replacement in its place; a
+removal without its boxes; the conflict mark; prices with £), the node harness (the Schedule label after an in-place save, the form's own
+post, the hold, the conflict's plain post, the hidden fields, a removal's boxes off and on, Enter / Alt+C in a line's item box, the warning
+after Undo, the supplier's name while asked).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,

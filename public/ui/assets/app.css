@@ -3765,7 +3765,7 @@ html.js [data-kg-nojs] { display: none; }
 .kb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 8px; }
 .kb-head h2 { margin: 0; font: 600 18px/24px var(--font); }
 .kb-group h3 { margin: 14px 0 6px; color: var(--ink-muted); font: 600 12px/16px var(--font); text-transform: uppercase; letter-spacing: .04em; }
-.kb-group dl { display: grid; gap: 6px; margin: 0; }
+.kb-group dl { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0; } /* one row a key (S2: not the site's two-column dl) */
 .kb-row { display: grid; grid-template-columns: minmax(10rem, 40%) 1fr; gap: 12px; align-items: center; }
 .kb-row dt { margin: 0; }
 .kb-row dd { margin: 0; color: var(--ink-body); }
@@ -3898,5 +3898,16 @@ form.kg-doc > .kg-look { margin: 16px 0 0; }
 }
 @container (max-width: 640px) {
   form.kg-doc section.kg-details { grid-template-columns: minmax(0, 1fr); }
+}
+/* The fix round after the staging look and the Codex review (docs/decisions.md KG32). S1: a label in a box's own column (the supplier's,
+   "From") keeps its height; the editor's old rule let it grow in the column (the box ~190 px under its words). S5: a line one row high on a
+   computer, the CW code small beside the item box. */
+form.kg-doc :is(.po-box-field, .doc-field) > label { flex: 0 0 auto; }
+form.kg-doc fieldset:is(.doc-grid, .kg-posting) label { flex: 0 0 auto; }
+@container (min-width: 641px) {
+  table.kg-grid th.c-item { white-space: nowrap; }
+  table.kg-grid th.c-item > input.kg-item { display: inline-block; width: calc(100% - 6.5rem); min-width: 8rem; vertical-align: middle; }
+  table.kg-grid th.c-item > .kg-code { display: inline-block; max-width: 6rem; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+  table.kg-grid th.c-item > .o-sub { white-space: normal; }
 }
 /* ==== end kg ====================================================================================================================== */

@@ -257,9 +257,11 @@ final class PurchaseOrders
             $priceE4 = null;
             if ($price !== null) {
                 try {
+                    // As normaliseLines reads it (£, spaces, commas; the Codex review of 04421ad, finding 8), so a price typed so is moved too.
+                    $price = SupplierItems::packPrice($price);
                     $priceE4 = PoMath::e4($price);
                     $typed = $priceE4 !== ($old !== null && $old['last_pack_price'] !== null ? PoMath::e4((string) $old['last_pack_price']) : 0);
-                } catch (\RangeException | \InvalidArgumentException) {
+                } catch (\RangeException | \InvalidArgumentException | CwException) {
                     $out[] = $l; // normaliseLines says what is wrong with it
                     continue;
                 }

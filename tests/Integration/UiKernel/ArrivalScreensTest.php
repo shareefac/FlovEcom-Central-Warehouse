@@ -215,7 +215,8 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::ARRIVAL_ERROR['ambiguous_submit_at'], $r->text());
         self::assertStringContainsString(Words::say('ARRIVALS', 'clock_bst', '01:30'), $r->text(), 'the first 01:30 shown');
         self::assertStringContainsString(Words::say('ARRIVALS', 'clock_gmt', '01:30'), $r->text(), 'the second 01:30 shown');
-        $again = $r->form($path . '/schedule');
+        // The box is a field of the editor's own form since KG32 (its main button saves and times in one request): the time typed is kept there.
+        $again = $r->form($path . '/lines', true);
         self::assertSame($typed, $again['submit_at'], 'the time typed is kept');
         foreach (['BST' => '00:30', 'GMT' => '01:30'] as $clock => $utc) {
             $f = $desk->get($path)->form($path . '/schedule');

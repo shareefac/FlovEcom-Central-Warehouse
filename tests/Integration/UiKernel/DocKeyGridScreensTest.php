@@ -322,6 +322,7 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['action' => 'save', DocGrid::FIELD => self::grid([['sku' => $cherry, 'q' => '2', 'p' => '4.00']])] + $f);
         self::assertSame(409, $r->status, self::why($r));
         self::assertStringContainsString(Words::BUY_ERROR['version_conflict'], $r->text());
+        self::assertSame(1, self::nodes($r, '//form[@id="po-form"][@data-kg-conflict]'), 'the script posts it plainly, the head drawn again (KG32, Codex finding 6)');
         self::assertSame([['', (string) $cherry, '2', '4.00']], self::keptNew($r));
         self::assertSame([[(int) $siPod['id'], 3, '12.5000']], self::poLines($d->id));
         $now = $r->form('/lines');
@@ -616,11 +617,29 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $d = $this->pos()->saveDraft(Caller::staff($buyer['id']), $d->id, $d->version, [], [['supplier_item_id' => (int) $siA['id'], 'packs' => 1],
             ['supplier_item_id' => (int) $siB['id'], 'packs' => 2]]);
         $web = $this->signIn($buyer);
+        // Refused (another new line names a switched-off pack): the changed line is drawn again in its place, as the new item with every
+        // detail the script checks (KG32; the Codex review of 04421ad, findings 3 and 4); the saved line 1 hidden with its remove field.
+        $off = $this->pack($buyer['id'], (int) $s['id'], self::makeSku('Swap off'), 1, 'SW-OFF', '1.00');
+        self::$db->exec('UPDATE supplier_item SET is_active = 0 WHERE id = ?', [(int) $off['id']]);
+        $f = $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines');
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['line_1_remove' => '1', 'action' => 'save', DocGrid::FIELD => self::grid([
+            ['si' => (int) $siC['id'], 'line' => 1, 'q' => '4', 'p' => '3.00'], ['si' => (int) $off['id'], 'q' => '1', 'p' => '1.00']])] + $f);
+        self::assertSame(422, $r->status, self::why($r));
+        self::assertSame(1, self::nodes($r, '//table[@data-kg-grid]/tbody/tr[@data-kg-line="1"][@hidden]/following-sibling::tr[1][@data-kg-new][@data-kg-replace="1"]'
+            . '[@data-si="' . $siC['id'] . '"][@data-name="Swap third"][@data-code][@data-pack][@data-their="SW-C"]'), self::why($r));
+        self::assertSame(1, self::nodes($r, '//table[@data-kg-grid]/tbody/tr[@data-kg-new][not(@data-kg-replace)][@data-si="' . $off['id'] . '"][@data-name="Swap off"]'));
+        self::assertSame([[$a, 1, 1, '1.0000'], [$b, 2, 1, '2.0000']], self::poItems($d->id), 'nothing saved');
         $f = $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines');
         $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['line_1_remove' => '1', 'action' => 'save',
             DocGrid::FIELD => self::grid([['si' => (int) $siC['id'], 'line' => 1, 'q' => '4', 'p' => '3.00']])] + $f);
         self::assertSame("/ui/purchasing/orders/{$d->id}?notice=saved#scan", $r->location(), self::why($r));
         self::assertSame([[$c, 4, 1, '3.0000'], [$b, 2, 1, '2.0000']], self::poItems($d->id), 'the new item on line 1, where the old one was');
+        // A removed line sent with its remove field alone (the script switches its boxes off: PHP's max_input_vars, Codex finding 10).
+        $f = $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines');
+        unset($f['line_2_packs'], $f['line_2_price']);
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['line_2_remove' => '1', 'action' => 'save'] + $f);
+        self::assertSame("/ui/purchasing/orders/{$d->id}?notice=saved#scan", $r->location(), self::why($r));
+        self::assertSame([[$c, 4, 1, '3.0000']], self::poItems($d->id));
         // The invoice: the same.
         $desk = $this->uiUser('purchasing_desk');
         $si = $this->invoicesService();
@@ -634,7 +653,11 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         self::assertSame([[$a, 1, 1, '1.0000', 'SW-A'], [$c, 5, 1, '3.0000', 'SW-C']], self::invoiceLines($doc->id));
     }
 
-    /** The supplier invoice's posting time (KG27): the head's fields are pack J's timed route; a time gone is refused under the field. */
+    /**
+     * The supplier invoice's posting time (KG27, KG32; the Codex review of 04421ad, findings 1 and 2): a field of the editor's own form. The
+     * main button with a time typed saves the draft and sets the time in ONE request (pack J's rules); a time gone is refused under the field
+     * and nothing is saved or made final; "Make final now" is post_now (the time left aside). A new invoice has it too (S3, finding 9).
+     */
     public function testThePostingTimeIsTheTimedRoute(): void
     {
         $desk = $this->uiUser('purchasing_desk');
@@ -647,28 +670,47 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $path = "/ui/purchasing/invoices/{$doc->id}";
         $page = $web->get($path);
         self::assertSame(200, $page->status, self::why($page));
-        self::assertSame(1, self::nodes($page, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")]//input[@name="submit_at"][@form="pi-schedule"][@data-kg-posting]'
-            . '[@data-date-words="' . Words::DOC_GRID['posting_date'] . '"][@data-time-words="' . Words::DOC_GRID['posting_time'] . '"]'));
+        self::assertSame(1, self::nodes($page, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")]//input[@name="submit_at"][not(@form)][@data-kg-posting]'
+            . '[@data-date-words="' . Words::DOC_GRID['posting_date'] . '"][@data-time-words="' . Words::DOC_GRID['posting_time'] . '"]'), 'a field of the editor\'s own form');
         self::assertSame(1, self::nodes($page, '//div[contains(@class, "kg-head-bar")]/button[@value="post"][@data-kg-final][contains(@class, "primary")]'), 'make final: the main button');
-        // A time gone: refused under the field, nothing set.
-        $form = $page->form($path . '/schedule');
+        $status = static fn (): string => (string) self::$db->value('SELECT status FROM document WHERE id = ?', [$doc->id]);
+        // A time gone, with the main button: refused under the field, the time kept, nothing saved, never made final.
+        $form = $page->form($path . '/lines', true);
         $form['submit_at'] = (new \DateTimeImmutable('yesterday 10:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
-        $r = $web->post($path . '/schedule', $form);
+        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'typed with it'] + $form);
         self::assertSame(422, $r->status, self::why($r));
         self::assertSame([Words::ARRIVAL_ERROR['bad_submit_at']], self::texts($r, '//fieldset[contains(@class, "kg-posting")]//p[@id="kg-posting-error"]'));
-        self::assertSame(1, self::nodes($r, '//input[@name="submit_at"][@aria-invalid="true"][@aria-describedby="kg-posting-error"]'));
-        self::assertNull(self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]));
-        // A time still to come: timed; the head says when its stock goes to the websites; "..." holds make final now and take the time off.
-        $form = $web->get($path)->form($path . '/schedule');
+        self::assertSame(1, self::nodes($r, '//input[@name="submit_at"][@aria-invalid="true"][@aria-describedby="kg-posting-error"][@value="' . $form['submit_at'] . '"]'));
+        self::assertSame(['draft', null, null], [$status(), self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]),
+            self::$db->value('SELECT note FROM document WHERE id = ?', [$doc->id])], 'nothing saved, nothing final');
+        // A time still to come, with the main button: saved and timed in one request; the head says when its stock goes to the websites.
+        $form = $web->get($path)->form($path . '/lines', true);
         $form['submit_at'] = (new \DateTimeImmutable('tomorrow 18:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
-        $r = $web->post($path . '/schedule', $form);
-        self::assertSame(303, $r->status, self::why($r));
-        $page = $web->follow($r);
+        $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'saved with the time'] + $form);
+        self::assertSame($path . '?notice=timed#lines', $r->location(), self::why($r));
+        self::assertSame(['draft', 'saved with the time'], [$status(), self::$db->value('SELECT note FROM document WHERE id = ?', [$doc->id])]);
         self::assertNotNull(self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]));
+        $page = $web->follow($r);
         self::assertStringStartsWith((string) strstr(Words::DOC_GRID['goes_live'], '%s', true), implode(' ', self::texts($page, '//header[contains(@class, "page-head")]//span[contains(@class, "chip")]')));
         self::assertSame([Words::DOC_GRID['final_now'], Words::DOC_GRID['take_off']], self::texts($page, '//div[contains(@class, "kg-head-bar")]//details[contains(@class, "kg-head-more")]//button'));
-        self::assertSame(['post'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//details[contains(@class, "kg-head-more")]//button[@form="pi-form"]'))));
+        self::assertSame(['post_now'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//details[contains(@class, "kg-head-more")]//button[@form="pi-form"]'))), '"Make final now": the time left aside');
+        // The timed route itself still works (pack J).
+        $form = $page->form($path . '/schedule');
+        $form['submit_at'] = (new \DateTimeImmutable('tomorrow 19:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
+        self::assertSame(303, $web->post($path . '/schedule', $form)->status);
+
+        // A new invoice: the posting fields from the start; Save and make final with a time: the draft made and timed, never final.
+        $new = $web->get('/ui/purchasing/invoices/new', ['supplier' => (string) $s['id']]);
+        self::assertSame(1, self::nodes($new, '//form[@id="pi-form"]//fieldset[contains(@class, "kg-posting")][not(@hidden)]//input[@name="submit_at"]'));
+        $form = $new->form('/ui/purchasing/invoices', true);
+        $form['submit_at'] = (new \DateTimeImmutable('tomorrow 20:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'POST-NEW', 'action' => 'post',
+            DocGrid::FIELD => self::grid([['sku' => $sku, 'q' => '2', 'p' => '1.00']])] + $form);
+        $id = self::idOf($r->location(), '/ui/purchasing/invoices');
+        self::assertStringContainsString('notice=timed', (string) $r->location(), self::why($r));
+        self::assertSame(['draft', 1], [(string) self::$db->value('SELECT status FROM document WHERE id = ?', [$id]),
+            (int) self::$db->value('SELECT COUNT(*) FROM supplier_invoice WHERE document_id = ? AND submit_at IS NOT NULL', [$id])]);
     }
 
     /** The site's keys (KG13-KG20): the panel on every page; Ctrl+B's new document where the person may make one; the lists' rows; the PDF. */
@@ -732,8 +774,8 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         self::assertSame(403, $r->status, self::why($r));
         self::assertSame((int) $a['id'], (int) self::$db->value('SELECT supplier_id FROM purchase_order WHERE document_id = ?', [$d->id]));
         // The buyer's change, with a new line picked from the old supplier's packs before the box changed.
-        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['supplier_id' => (string) $b['id'], 'action' => 'save',
-            DocGrid::FIELD => self::grid([['si' => (int) $siAx['id'], 'q' => '1', 'p' => '1.00']])] + $f);
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['supplier_id' => (string) $b['id'], 'action' => 'save', 'line_2_price' => '£1.80',
+            DocGrid::FIELD => self::grid([['si' => (int) $siAx['id'], 'q' => '1', 'p' => '1.00']])] + $f); // £: read as the save reads it (Codex finding 8)
         self::assertSame("/ui/purchasing/orders/{$d->id}?notice=supplier_changed&unpriced=1#scan", $r->location(), self::why($r));
         self::assertSame((int) $b['id'], (int) self::$db->value('SELECT supplier_id FROM purchase_order WHERE document_id = ?', [$d->id]));
         self::assertSame([[(int) $siBx['id'], 2, '1.5000'], [(int) $siBy['id'], 2, '10.8000'], [0, 1, '3.0000'], [(int) $siBx['id'], 1, '1.5000']], self::poLines($d->id),
@@ -791,7 +833,8 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         self::assertSame(409, $r->status, self::why($r));
         self::assertSame((int) $a['id'], (int) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]));
         // Another number with it: moved.
-        $r = $web->post($path . '/lines', ['supplier_id' => (string) $b['id'], 'invoice_number' => 'SC-2', 'action' => 'save', 'form_key' => str_repeat('c1', 16)] + $f);
+        $r = $web->post($path . '/lines', ['supplier_id' => (string) $b['id'], 'invoice_number' => 'SC-2', 'action' => 'save', 'form_key' => str_repeat('c1', 16),
+            'pp_1' => '£1.00', 'pp_2' => '£ 5.00'] + $f); // prices as people type them (Codex finding 8)
         self::assertSame($path . '?notice=supplier_changed&unpriced=1#lines', $r->location(), self::why($r));
         self::assertSame([(int) $b['id'], '2026-10-15'], [(int) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]),
             (string) self::$db->value('SELECT due_date FROM supplier_invoice WHERE document_id = ?', [$doc->id])], 'the due date: B\'s 14 days');

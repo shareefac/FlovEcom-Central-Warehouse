@@ -4,8 +4,9 @@
 // Its boxes have no name: app.js sends the new lines in one field (DocGrid::FIELD), so a new line never exists without the script.
 $r = $r ?? null;
 $bad = $bad ?? null;
+$replace = $replace ?? null; // a saved line whose item was changed in place, drawn again after a refusal: the line it takes the place of (KG22, KG32)
 ?>
-        <tr data-kg-row data-kg-new<?php if ($r !== null): ?> data-si="<?= $e($r['si']) ?>" data-sku="<?= $e($r['sku']) ?>" data-u="<?= $e($r['u']) ?>" data-kg-upp="<?= $e($r['upp']) ?>"<?php endif; ?><?php if ($bad !== null): ?> class="kg-bad"<?php endif; ?>>
+        <tr data-kg-row data-kg-new<?php if ($r !== null): ?> data-si="<?= $e($r['si']) ?>" data-sku="<?= $e($r['sku']) ?>" data-u="<?= $e($r['u']) ?>" data-kg-upp="<?= $e($r['upp']) ?>" data-name="<?= $e($r['name']) ?>" data-code="<?= $e($r['code']) ?>" data-pack="<?= $e($r['pack']) ?>" data-their="<?= $e($r['their']) ?>"<?php endif; ?><?php if ($replace !== null): ?> data-kg-replace="<?= $e($replace) ?>"<?php endif; ?><?php if ($bad !== null): ?> class="kg-bad"<?php endif; ?>>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?php if ($r !== null): ?><?= $e($no) ?><?php endif; ?></td>
           <th scope="row" class="c-head c-item"><span class="kg-name" data-kg-name><?= $e($r['name'] ?? '') ?></span> <span class="kg-code" data-kg-code><?= $e($r['code'] ?? '') ?></span><?php if ($bad !== null): ?><span class="o-sub kg-error"><?= $e($bad) ?></span><?php endif; ?></th>
           <td data-label="<?= $word('ORDER', 'their_code') ?>" data-kg-their><?= $e($r['their'] ?? '') ?></td>

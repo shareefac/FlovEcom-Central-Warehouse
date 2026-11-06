@@ -49,7 +49,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
 <?php endif; ?>
 
-<form id="po-form" class="po-editor kg-doc" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?>>
+<form id="po-form" class="po-editor kg-doc" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
@@ -148,6 +148,10 @@ $rowNo = 0;
           <td class="num" data-label="<?= $word('ORDER', 'total') ?>" data-kg-amount><?= $e($l['net']) ?></td>
           <td class="c-status"><?php if ($editable): ?><button type="submit" name="remove_line" value="<?= $e($no) ?>" class="btn ghost po-x" data-kg-x aria-label="<?= $say('PO_ONE', 'remove', $no) ?>">&times;</button><?php if ($gone): ?><input type="hidden" name="line_<?= $e($no) ?>_remove" value="1"><?php endif; ?><?php endif; ?></td>
         </tr>
+<?php if ($gone && isset($grid['swapped'][$no])): ?>
+<?php $rowNo++; $sw = $grid['swapped'][$no]; ?>
+<?= $partial('po_grid_line', ['r' => $sw, 'no' => $rowNo, 'bad' => $grid['bad'] === $sw['key'] ? $grid['badText'] : null, 'replace' => $no]) ?>
+<?php endif; ?>
 <?php endforeach; ?>
 <?php foreach ($grid['newRows'] as $r): ?>
 <?php $rowNo++; ?>

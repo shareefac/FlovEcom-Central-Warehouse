@@ -1003,8 +1003,17 @@
   // The table of keys: the first whose test holds runs (its default action stopped), unless it answers false (not for it after all).
   var KEYS = [
     // Lines (the order's and the invoice's grid): only inside the lines, but Save, the undo and "+ Add new".
-    { id: 'take', test: function (ev, t) { return kbBox(t) !== null && kbInGrid(t) && ev.key === 'Tab' && kbIs(ev, false, false, false) && kb.grid.marked() !== null; },
-      run: function () { kb.grid.takeMarked(); } },
+    { id: 'take', test: function (ev, t) {
+      var b = kbBox(t);
+      return b !== null && kbInGrid(t) && ev.key === 'Tab' && kbIs(ev, false, false, false) && (b.marked ? b.marked() : kb.grid.marked()) !== null;
+    }, run: function (ev, t) {
+      var b = kbBox(t);
+      if (b.take) {
+        b.take();
+      } else {
+        kb.grid.takeMarked();
+      }
+    } },
     { id: 'next', test: function (ev, t) { return kbCell(t) && ev.key === 'Enter' && kbIs(ev, false, false, false); }, run: function (ev, t) { kb.grid.step(t, 1); } },
     { id: 'updown', test: function (ev, t) { return kbCell(t) && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && kbIs(ev, false, false, false); },
       run: function (ev, t) { kb.grid.vertical(t, ev.key === 'ArrowDown' ? 1 : -1); } },
@@ -1208,8 +1217,9 @@
         }
         var value = li.getAttribute('data-value') || '';
         if (value !== select.value && select.value !== '' && hasLines() && select.getAttribute('data-change-ask')) {
-          input.value = shown();
           askChange(value);
+          var chosen = Array.prototype.filter.call(select.options, function (x) { return x.value === value; })[0];
+          input.value = chosen ? nameOf(chosen) : shown(); // the supplier asked about, until Keep puts the one chosen before back (S6)
           return;
         }
         set(value);
@@ -1320,8 +1330,8 @@
     });
     input.addEventListener('blur', function () {
       window.setTimeout(function () {
-        if (document.activeElement !== input) {
-          input.value = shown(); // no choice made: the box names the supplier chosen
+        if (document.activeElement !== input && !asking) {
+          input.value = shown(); // no choice made: the box names the supplier chosen (while the question is asked, the one asked about)
         }
       }, 200);
     });
@@ -1600,10 +1610,13 @@
     // A line out of the lines at once (the numbers, the totals), faded out, then gone: a new line from the page, a saved one hidden with its
     // remove field sent with the form (the server leaves it out without reading it).
     var takeOut = function (tr) {
-      var u = { tr: tr, before: tr.nextSibling, flag: null, timer: 0 };
+      var u = { tr: tr, before: tr.nextSibling, flag: null, timer: 0, off: [] };
       tr.setAttribute('data-kg-gone', '1');
       if (!tr.hasAttribute('data-kg-new')) {
         var no = tr.getAttribute('data-kg-line') || '';
+        // Its boxes are not sent, only its remove field: a long document's removals stay inside PHP's max_input_vars (the Codex review,
+        // finding 10); Undo sends them again.
+        u.off = offBoxes(tr);
         var flag = tr.querySelector('input[data-kg-flag]');
         if (!flag && removeName !== '' && /^[1-9][0-9]*$/.test(no)) {
           flag = document.createElement('input');
@@ -1635,6 +1648,17 @@
       }
       return u;
     };
+    // A removed saved line's named boxes switched off (not sent), all but a remove field; a list of them, to switch on again.
+    var offBoxes = function (tr) {
+      var off = [];
+      each(tr.querySelectorAll('input[name], select[name], textarea[name]'), function (el) {
+        if (!el.disabled && !el.hasAttribute('data-kg-flag') && !(removeName !== '' && el.name === removeName.replace('%d', tr.getAttribute('data-kg-line') || ''))) {
+          el.disabled = true;
+          off.push(el);
+        }
+      });
+      return off;
+    };
     var putBack = function (u) {
       if (u.timer) {
         window.clearTimeout(u.timer);
@@ -1644,12 +1668,16 @@
       if (u.flag && u.flag.parentNode) {
         u.flag.parentNode.removeChild(u.flag);
       }
+      each(u.off || [], function (el) { el.disabled = false; });
       if (!u.tr.parentNode) {
         body.insertBefore(u.tr, u.before && u.before.parentNode === body ? u.before : empty);
       }
       u.tr.hidden = false;
     };
     var removeLines = function (trs, cell) {
+      if (sending) {
+        return; // a save is on its way (hold)
+      }
       var all = lines();
       var gone = trs.filter(removable);
       if (gone.length === 0) {
@@ -1673,8 +1701,8 @@
       goTo(next ? (cellIn(next, cell) || boxesOf(next)[0] || box.input) : box.input);
     };
     undoButton.addEventListener('click', function () {
-      if (!undo) {
-        return;
+      if (!undo || sending) {
+        return; // nothing to put back, or a save on its way (hold)
       }
       var u = undo;
       undo = null;
@@ -1682,6 +1710,7 @@
       hideUndo();
       renumber();
       totals();
+      twice(); // the same item on two lines said again (S4)
       goTo(boxesOf(u.items[0].tr)[0] || box.input);
     });
     // The lines ticked (ERPNext's way of taking out several at once): the head's box ticks every line, "Delete" shows while any is ticked.
@@ -1794,9 +1823,21 @@
           swap(tr, li);
         },
         enter: function (ev) {
-          ev.preventDefault(); // Enter in a line's item box never sends the form
+          ev.preventDefault(); // Enter in a line's item box never sends the form; with no choice marked it goes on to the line's next box
+          goTo(step(input, 1));
         },
       });
+      // The keys' layer knows this box as it knows the empty line's (the Codex review of 04421ad, finding 11): Tab takes its marked choice,
+      // Alt+C is "+ Add new item" with what was typed, for who may add one.
+      var markedHere = function () { return list.hidden ? null : list.querySelector('li[aria-selected="true"]'); };
+      kb.boxes.push({ input: input, marked: markedHere, take: function () { var m = markedHere(); if (m) { c.choose(m); } },
+        addNew: function () {
+          if (!box.input.getAttribute('data-add')) {
+            return false;
+          }
+          newItem.open(input.value.trim(), tr);
+          return true;
+        } });
       input.addEventListener('input', function () {
         window.clearTimeout(timer);
         turn++;
@@ -1825,6 +1866,9 @@
     };
     // A line's item changed in place: a new line's is replaced; a saved line is sent as a new line with its number (it takes its place).
     var swap = function (tr, li) {
+      if (sending) {
+        return; // a save is on its way (hold)
+      }
       var a = function (name) { return li.getAttribute(name) || ''; };
       fill(tr, { si: a('data-si'), sku: a('data-sku'), u: a('data-upp'), upp: a('data-upp') || '1', name: a('data-name') || a('data-label'), code: a('data-code'),
         pack: a('data-pack'), their: a('data-their') });
@@ -2101,6 +2145,9 @@
     };
     // A new line under the others, its item and figures given; the cursor in its Qty box (a scan: the Item box stays, for the next one).
     var addLine = function (it, qv, pv, stay) {
+      if (sending) {
+        return null; // a save is on its way (hold)
+      }
       if (max > 0 && lines().length >= max) {
         box.say(word('too-many'));
         return null;
@@ -2378,6 +2425,8 @@
         }
         if (tr.hasAttribute('data-kg-swap') && !tr.hidden) {
           o.line = parseInt(tr.getAttribute('data-kg-line') || '0', 10);
+        } else if (tr.hasAttribute('data-kg-replace')) {
+          o.line = parseInt(tr.getAttribute('data-kg-replace') || '0', 10); // a changed saved line drawn again after a refusal (KG32)
         } else if (tr.hasAttribute('data-kg-swap')) {
           return; // a saved line changed, then removed: its remove field says it all
         }
@@ -2450,11 +2499,19 @@
       var mineHidden = {};
       each(hiddenOf(form), function (i) { mineHidden[i.name] = i; });
       var anchor = form.querySelector('button.po-default');
+      var theirsHidden = {};
       each(hiddenOf(nf), function (i) {
+        theirsHidden[i.name] = true;
         if (mineHidden[i.name]) {
           mineHidden[i.name].value = i.value;
         } else {
           form.insertBefore(document.importNode(i, true), anchor || form.firstChild);
+        }
+      });
+      // The fields the server no longer draws go too (a draft grown past what the editor carries has no line_count: the Codex review, finding 7).
+      each(Object.keys(mineHidden), function (name) {
+        if (!theirsHidden[name] && mineHidden[name].parentNode === form) {
+          form.removeChild(mineHidden[name]);
         }
       });
       each(nf.querySelectorAll('[data-kg-swap-part]'), function (theirsPart) {
@@ -2490,6 +2547,7 @@
       undo = null;
       hideUndo();
       each(body.querySelectorAll('tr[data-kg-row]'), wire);
+      each(body.querySelectorAll('tr[data-kg-line][hidden]'), offBoxes);
       renumber();
       tick();
       if (look) {
@@ -2502,6 +2560,7 @@
       if (address !== '' && window.history && window.history.replaceState && address.charAt(0) === '/') {
         window.history.replaceState(null, '', address);
       }
+      document.dispatchEvent(new window.Event('kg-swapped')); // what lives outside the grid and reads the head (the posting time's button)
       return true;
     };
     var toast = function (text, bad) {
@@ -2517,11 +2576,30 @@
     };
     var canSend = function () { return !plain && !!window.FormData && !!window.fetch && !!window.DOMParser && !sending; };
     // The save itself: then(ok) after the answer is in place (ok: saved, no refusal).
+    // While a save is on its way the page's boxes are read-only (and no line is added or removed): what the answer puts in place is what
+    // was sent, never a later edit lost under it (the Codex review of 04421ad, finding 5).
+    var held = [];
+    var hold = function (on) {
+      if (on) {
+        each(form.querySelectorAll('input, textarea'), function (el) {
+          if (el.type !== 'hidden' && !el.readOnly) {
+            el.readOnly = true;
+            held.push(el);
+          }
+        });
+        form.setAttribute('aria-busy', 'true');
+        return;
+      }
+      each(held, function (el) { el.readOnly = false; });
+      held = [];
+      form.removeAttribute('aria-busy');
+    };
     var ajaxSave = function (by, then) {
       serialise();
       var data = new window.FormData(form);
       data.set('action', 'save');
       sending = true;
+      hold(true);
       if (by) {
         by.disabled = true;
       }
@@ -2529,8 +2607,22 @@
       fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
         .then(function (part) {
           sending = false;
+          hold(false);
           if (by) {
             by.disabled = false;
+          }
+          var answered = part.querySelector('form[data-kg-editor]');
+          if (answered && answered.hasAttribute('data-kg-conflict')) {
+            // Changed in another tab meanwhile (the Codex review, finding 6): the page drawn again as the server has it now (the head too),
+            // by a plain post of the same form: refused again as changed, the new lines kept, nothing saved.
+            plain = true;
+            var again = by || form.querySelector('button[name="action"][value="save"]') || document.querySelector('button[form="' + form.id + '"][name="action"][value="save"]');
+            if (form.requestSubmit && again) {
+              form.requestSubmit(again);
+            } else if (again) {
+              again.click();
+            }
+            return;
           }
           if (!swapIn(part)) {
             throw new Error('not this page');
@@ -2548,6 +2640,7 @@
         })
         .catch(function () {
           sending = false;
+          hold(false);
           if (by) {
             by.disabled = false;
           }
@@ -2571,6 +2664,8 @@
       ev.preventDefault();
       ajaxSave(by, null);
     }, true);
+    // The saved lines drawn removed after a refusal: their boxes off too (only their remove field is sent; finding 10).
+    each(body.querySelectorAll('tr[data-kg-line][hidden]'), offBoxes);
     renumber();
     tick();
     // What the site's keys do in the lines (kb, KEYS): docGrid is their one place.
@@ -3035,14 +3130,15 @@
     }
   });
 
-  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27; pack J's "make it final later"): the one UK date-and-
-  // time box (submit_at, its own form pi-schedule) shown as the date and the time side by side (Words from the page); while they hold a
-  // time still to come, the head's main button says "Schedule" and sends the timed form (the draft saved first when it holds anything not
-  // saved); empty or now: it makes the invoice final as before. The server checks the time again (a time still to come, the clocks).
+  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27, KG32; pack J's "make it final later"): the one UK
+  // date-and-time box of the editor's form (submit_at) shown as the date and the time side by side (Words from the page). The SERVER
+  // decides what the main button does: with a time typed it saves the draft and sets the time (a time gone is refused under the field),
+  // never "make final now"; so the script only says it: the button reads "Schedule" while a time is typed, and the line under the grid
+  // says when the stock goes to the websites. The button is found each time (a save without reload draws the head again, "kg-swapped").
   each(document.querySelectorAll('input[data-kg-posting]'), function (at) {
     var label = at.closest('label');
-    var finalButton = document.querySelector('button[data-kg-final]');
-    if (!label || !finalButton) {
+    var finalButton = function () { return document.querySelector('button[data-kg-final]'); };
+    if (!label) {
       return;
     }
     // One field of the details' grid, as the demo the owner approved draws it (KG31): its words above, the date and the time side by side.
@@ -3084,7 +3180,10 @@
     var later = function () { return at.value !== '' && at.value > london(); };
     var show = function () {
       at.value = date.value !== '' && time.value !== '' ? date.value + 'T' + time.value : '';
-      finalButton.textContent = later() ? (grid ? grid.getAttribute('data-kg-schedule') || '' : '') : finalButton.getAttribute('data-kg-final-words') || finalButton.textContent;
+      var b = finalButton();
+      if (b) {
+        b.textContent = at.value !== '' ? (grid ? grid.getAttribute('data-kg-schedule') || '' : '') : b.getAttribute('data-kg-final-words') || b.textContent;
+      }
       if (sched) {
         // "Stock goes to the websites: 07 Nov 2026, 18:00 (UK). Until then it stays a draft." while the time is still to come.
         var shown = '';
@@ -3099,28 +3198,8 @@
     };
     date.addEventListener('input', show);
     time.addEventListener('input', show);
+    document.addEventListener('kg-swapped', show);
     show();
-    finalButton.addEventListener('click', function (ev) {
-      if (!later()) {
-        return; // made final now, as before
-      }
-      ev.preventDefault();
-      var go = function () {
-        var f = document.getElementById('pi-schedule');
-        if (f) {
-          if (f.requestSubmit) {
-            f.requestSubmit();
-          } else {
-            f.submit();
-          }
-        }
-      };
-      if (kb.grid) {
-        kb.grid.saveThen(go);
-      } else {
-        go();
-      }
-    });
   });
 
   // Lines to place (Approvals › From the stores, docs/decisions.md LQ4): a row's "Item in CW" is the order page's dropdown. Without the script

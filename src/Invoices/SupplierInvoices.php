@@ -665,8 +665,10 @@ final class SupplierInvoices
                 continue;
             }
             try {
+                // As saveLines reads it (£, spaces, commas; the Codex review of 04421ad, finding 8).
+                $price = $price === '' ? '' : self::packPrice($price, 'pack_price');
                 $priceE4 = $price === '' ? null : PoMath::e4($price);
-            } catch (\RangeException | \InvalidArgumentException) {
+            } catch (\RangeException | \InvalidArgumentException | CwException) {
                 $out[] = $l; // saveLines says what is wrong with it
                 continue;
             }

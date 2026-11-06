@@ -1360,7 +1360,7 @@ every other Items and Inventory page. Layout and view data only.
   random lines, drafts, the refresh's inputs), `tests/Integration/UiKernel/ReorderBuyForScreensTest.php`, `tests/Integration/Migration0061Test.php`.
   The EXPLAIN on 20,000 lines (BF9) is a scratch tool kept out of the repository: `/root/cw_work/runs/bf_explain_scratch.php`.
 
-### The lines of a document as a standard grid, the site's keys, and square-ish corners (`docs/decisions.md` KG1-KG31; branch `doc-key-grid`; 6 Nov 2026)
+### The lines of a document as a standard grid, the site's keys, and square-ish corners (`docs/decisions.md` KG1-KG32; branch `doc-key-grid`; 6 Nov 2026)
 
 The order's and the supplier invoice's page (and, later, the sales invoice's) share ONE grid: a No. column, rows one line high on a
 computer, the empty line last (its Item box the product box, `combo()`), every box of every line edited in place, lines added and removed

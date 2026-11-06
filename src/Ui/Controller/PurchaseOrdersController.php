@@ -901,8 +901,14 @@ final class PurchaseOrdersController
             return $ctx->error(400, 'form_truncated', Words::ERROR['bad_form']);
         }
         $count = (int) $count;
-        $rows = $req->fieldsMatching('/^line_[1-9][0-9]{0,4}_packs$/');
-        if ($editable && ($count > PurchaseOrders::MAX_EDITOR_LINES || count($rows) < $count)) {
+        // Every saved line comes back with its packs, or with its remove field alone (the script sends a removed line without its boxes, so
+        // a long order's removals never pass PHP's max_input_vars: the Codex review of 04421ad, finding 10); fewer: the form was cut short.
+        $present = [];
+        foreach (array_keys($req->fieldsMatching('/^line_[1-9][0-9]{0,4}_packs$/')) as $name) {
+            $present[(int) substr($name, 5)] = true;
+        }
+        $present += DocGrid::removedLines($req->post, 'line_%d_remove');
+        if ($editable && ($count > PurchaseOrders::MAX_EDITOR_LINES || count($present) < $count)) {
             return $ctx->error(400, 'form_truncated', Words::say('ORDER', 'too_many', self::editorMaxLines()));
         }
         $ask = self::asked($req);

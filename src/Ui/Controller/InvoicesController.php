@@ -453,6 +453,28 @@ final class InvoicesController
      * time that comes twice (the hour the clocks go back; review finding 6, Codex 15 Oct) is not guessed: both are shown and the person
      * chooses (`submit_clock` BST or GMT; 422 ambiguous_submit_at until then); a time that does not happen is refused.
      */
+    /**
+     * The posting time typed in the invoice editor's own form (docs/decisions.md KG32: its main button with a time saves the draft and sets
+     * the time in one request, as this route sets it): null when none is typed; else the moment, as this route reads it (a time that comes
+     * twice needs `submit_clock`: 422 ambiguous_submit_at; one that does not happen: 422 bad_submit_at). The service refuses a time gone.
+     */
+    public static function postingMoment(UiRequest $req): ?\DateTimeImmutable
+    {
+        $typed = trim((string) ($req->field('submit_at') ?? ''));
+        if ($typed === '') {
+            return null;
+        }
+        $moments = UkTime::moments($typed);
+        if ($moments === []) {
+            throw new CwException('bad_submit_at', Words::ARRIVAL_ERROR['bad_submit_at'], 422, ['field' => 'submit_at']);
+        }
+        $clock = (string) ($req->field('submit_clock') ?? '');
+        if (count($moments) > 1 && !isset($moments[$clock])) {
+            throw new CwException('ambiguous_submit_at', Words::ARRIVAL_ERROR['ambiguous_submit_at'], 422, ['field' => 'submit_clock']);
+        }
+        return count($moments) > 1 ? $moments[$clock] : reset($moments);
+    }
+
     public function schedule(Context $ctx, string $kind): HtmlResponse
     {
         $clear = $ctx->req->field('clear') === '1';
