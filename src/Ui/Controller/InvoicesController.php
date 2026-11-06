@@ -420,25 +420,41 @@ final class InvoicesController
         }, ['credit' => $typed]);
     }
 
+    /**
+     * POST {id}/post: pack C's "Make it final" of a draft. A credit note's as before. A supplier invoice's asks first, as its editor does
+     * (the Codex re-check of 33eb962; docs/decisions.md KG36, KG37): made final NOW only with `post_now_confirmed=1`; without it 422
+     * confirm_final_now before anything is read or changed (a timed invoice keeps its time), its page drawn with the question open and any
+     * posting time sent kept. No page sends an invoice here any more (its editor makes it final), so only a hand-made POST meets this.
+     */
     public function post(Context $ctx, string $kind): HtmlResponse
     {
-        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx): array {
+        $asks = $kind === 'invoice' && $ctx->req->field(InvoiceOnePage::CONFIRM) !== '1';
+        $carry = $kind === 'invoice' ? InvoiceOnePage::postingCarried($ctx->req) : [];
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $asks): array {
+            if ($asks && $ctx->documents()->get($id)->status === 'draft') { // one not a draft: submit() refuses it as before
+                throw new CwException('confirm_final_now', Words::DOC_GRID['final_ask'], 422, ['field' => 'submit_date']);
+            }
             // Pack J (PJ9): "book as received" books its receipt first (SupplierInvoices::submit).
             $d = $si->submit($ctx->caller(), $id, $version);
             return $d->status === 'awaiting_approval' ? ['notice' => 'submitted'] : ['notice' => 'posted', 'query' => ['number' => $d->number]];
-        });
+        }, ['typed' => $carry]);
     }
 
     /**
-     * Pack J (PJ6, PJ9): POST {id}/receiving: how the draft's goods come in, and the duty stamp per line for "book as received". The posting
-     * date, time and clock typed in the invoice's editor come with it (the script, data-kg-carry-posting; the Codex re-check of f4358b7,
-     * finding 2; docs/decisions.md KG36): carried to the page after it, saved or refused, never set by it.
+     * Pack J (PJ6, PJ9): POST {id}/receiving: how the draft's goods come in, and the duty stamp per line for "book as received". It is the
+     * invoice editor's own form sent here (its "Save" a button of that form with this formaction, its choices the form's: docs/decisions.md
+     * KG37, the Codex re-checks of f4358b7 and 33eb962), so the posting date, time and clock typed come with it, script or not: half a time
+     * (or one that is not one) is refused as the main button refuses it (422, under the fields, nothing saved); else they are carried to
+     * the page after it, saved or refused, and never set by it. The rest of the editor's form is not read here.
      */
     public function receiving(Context $ctx, string $kind): HtmlResponse
     {
         $mode = (string) ($ctx->req->field('receive_mode') ?? '');
         $carry = $kind === 'invoice' ? InvoiceOnePage::postingCarried($ctx->req) : [];
-        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $mode, $carry): array {
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $mode, $carry, $kind): array {
+            if ($kind === 'invoice') {
+                self::postingTyped($ctx->req); // half a time, or one that is not one: refused before anything is saved
+            }
             $stamps = [];
             foreach ($si->lines($id) as $l) {
                 if ($l['kind'] === 'goods' && $l['grn_document_id'] === null) {

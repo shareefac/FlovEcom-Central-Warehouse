@@ -3315,41 +3315,9 @@
         }
       });
     }
-    // "How its goods come in" is a form of its own (pack J): the posting date, time and clock typed go with it, so the page after it shows
-    // them again (the Codex re-check of f4358b7, finding 2); half typed, it is stopped as the editor's own sends are.
-    document.addEventListener('submit', function (ev) {
-      var other = ev.target;
-      if (!other || other === form || ev.defaultPrevented || !other.hasAttribute || !other.hasAttribute('data-kg-carry-posting')) {
-        return;
-      }
-      if (bad()) {
-        ev.preventDefault();
-        if (ev.stopImmediatePropagation) {
-          ev.stopImmediatePropagation();
-        }
-        say(true);
-        date.focus();
-        return;
-      }
-      each(other.querySelectorAll('input[data-kg-carried]'), function (x) { x.parentNode.removeChild(x); });
-      var clock = '';
-      each(form ? form.querySelectorAll('input[name="submit_clock"]') : [], function (r) {
-        if (r.checked) {
-          clock = r.value;
-        }
-      });
-      each([['submit_date', date.value], ['submit_time', time.value], ['submit_clock', clock]], function (kv) {
-        if (kv[1] === '') {
-          return;
-        }
-        var h = document.createElement('input');
-        h.type = 'hidden';
-        h.name = kv[0];
-        h.value = kv[1];
-        h.setAttribute('data-kg-carried', '');
-        other.appendChild(h);
-      });
-    }, true);
+    // "How its goods come in" (pack J) needs nothing here: its choices and its Save belong to this form (form="pi-form", the Save's
+    // formaction its own route), so the posting date, time and clock typed go with it as the browser sends them, script or not, and the
+    // guard above stops it half typed as every send of this form (docs/decisions.md KG37; KG36's copy into a form of its own is gone).
     var show = function () {
       var b = finalButton();
       if (b) {

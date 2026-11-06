@@ -65,15 +65,20 @@ final class InvoiceOnePage
     /**
      * The one form's fields outside its line rows, with room to spare (csrf, version, line_count, form_key, the button pressed, the supplier and
      * the three of "+ Add new supplier", 4 header fields, the due date drawn, "From", the item box's 5, the 7 of "+ Add new item", the charge's 3,
-     * the note, the file's kind, the two totals, a row's remove or a choice: 38). A line row sends 2 (the Codex review of 6418b15, finding 3).
+     * the note, the file's kind, the two totals, a row's remove or a choice, the posting date, time and clock, "How its goods come in"'s choice:
+     * 42). A line row sends 2 (the Codex review of 6418b15, finding 3); each duty stamp asked in "How its goods come in" 1 more (KG37: its
+     * choices are this form's).
      */
     public const FIXED_FIELDS = 48;
     public const LINE_FIELDS = 2;
 
-    /** Whether the one form can carry these many lines under PHP's max_input_vars (read on the server); else they are shown read-only. */
-    public static function linesFit(int $lines): bool
+    /**
+     * Whether the one form can carry these many lines (and $more fields of its own: the duty stamps "How its goods come in" asks, KG37) under
+     * PHP's max_input_vars (read on the server); else they are shown read-only.
+     */
+    public static function linesFit(int $lines, int $more = 0): bool
     {
-        return self::FIXED_FIELDS + self::LINE_FIELDS * $lines < UiRequest::maxInputVars();
+        return self::FIXED_FIELDS + self::LINE_FIELDS * $lines + $more < UiRequest::maxInputVars();
     }
 
     // ------------------------------------------------------------------------------------------
@@ -917,6 +922,10 @@ final class InvoiceOnePage
         $pick = self::picked($ctx, $supplierId, $typed, $q);
         $editable = $doc !== null && $doc->status === 'draft';
         $problems = $doc !== null ? $si->problems($id) : [];
+        $arrival = $rec === null || $doc === null ? null : ArrivalsController::invoiceBox($ctx, $rec, $doc, $editable, $lines); // pack J (PJ6, PJ9, PJ10)
+        // The duty stamps "How its goods come in" asks (its choices are this form's, KG37): fields the form sends with its lines.
+        $stamps = $arrival !== null && $arrival['editable'] && $arrival['mode'] === 'received'
+            ? count(array_filter($arrival['stampLines'], static fn (array $sl): bool => (bool) $sl['required'])) : 0;
         $data = [
             'isNew' => $doc === null,
             'doc' => $doc,
@@ -955,7 +964,7 @@ final class InvoiceOnePage
             // What the box showed when the page was drawn: a due date the person cleared keeps its marker through a refused button (the
             // Codex review of e1db3a4, M2, PV22), so the save after it does not fill the terms' date again.
             'dueShown' => $clearedHere ? $text('due_shown') : $form['due_date'],
-            'linesFit' => self::linesFit(count($lines)),
+            'linesFit' => self::linesFit(count($lines), $stamps),
             'from' => $text('from'),
             'charge' => ['kind' => $text('charge_kind', 'freight'), 'amount' => $text('charge_amount'), 'description' => $text('charge_description')],
             'chargeOpen' => $text('charge_amount') !== '' || $text('charge_description') !== '',
@@ -988,7 +997,7 @@ final class InvoiceOnePage
             'errorCode' => $error?->errorCode,
             'problemsOfError' => $error !== null && is_array($error->detail['problems'] ?? null) ? array_map(static fn (array $p): string => InvoicesController::problemText($p),
                 $error->detail['problems']) : [],
-            'arrival' => $rec === null || $doc === null ? null : ArrivalsController::invoiceBox($ctx, $rec, $doc, $editable, $lines), // pack J (PJ6, PJ9, PJ10)
+            'arrival' => $arrival,
             'clockChoice' => self::clockKept($extra['clock'] ?? null, self::postingKept($typed)),
             // The posting date, time and clock as typed: kept after a refusal, a version conflict and "+ Add new supplier" (KG32, KG33).
             'postingTyped' => self::postingKept($typed),

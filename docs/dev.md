@@ -1360,7 +1360,7 @@ every other Items and Inventory page. Layout and view data only.
   random lines, drafts, the refresh's inputs), `tests/Integration/UiKernel/ReorderBuyForScreensTest.php`, `tests/Integration/Migration0061Test.php`.
   The EXPLAIN on 20,000 lines (BF9) is a scratch tool kept out of the repository: `/root/cw_work/runs/bf_explain_scratch.php`.
 
-### The lines of a document as a standard grid, the site's keys, and square-ish corners (`docs/decisions.md` KG1-KG36; branch `doc-key-grid`; 6 Nov 2026)
+### The lines of a document as a standard grid, the site's keys, and square-ish corners (`docs/decisions.md` KG1-KG37; branch `doc-key-grid`; 6 Nov 2026)
 
 The order's and the supplier invoice's page (and, later, the sales invoice's) share ONE grid: a No. column, rows one line high on a
 computer, the empty line last (its Item box the product box, `combo()`), every box of every line edited in place, lines added and removed
@@ -1380,7 +1380,7 @@ ONE layer of keys (one table, one listener) and a panel of them on every page.
 | `public/ui/assets/app.js` | the keys' layer (`var kb`, `KEYS`, the one listener), `fragment()` (`SENT`: the only two things ever posted by fetch), the supplier box (the question on a change, KG30), `docGrid(table, box)` (to "(the lines' grid ends here)"), the posting time's block |
 | `public/ui/assets/app.css` | block "kg" (to "end kg"): the grid, the head bar, the sections and fields, the strict grid (KG28), the panel, the radius tokens (KG12, KG29) |
 | `src/Ui/Words.php` | `DOC_GRID`, `KEYS` (each key's words), `KEYS_KBD` (each key as printed: a computer's, a Mac's) |
-| "Make it final now?" (KG36) | `InvoiceOnePage::CONFIRM` (`post_now_confirmed=1`: the ONLY way an invoice is made final now from its editor; sent by the button of `pi_final_ask` and of `pi_head_more`, with no `action`); without it and without a posting time the post is refused 422 `confirm_final_now` (the question drawn open); `InvoiceOnePage::POSTING` (the posting fields every step carries); `data-kg-ask-final` (the question, `div.kg-confirm.kg-final-ask`, drawn `hidden`), `data-kg-confirm-now` (its answer), `data-kg-ask-cancel`; `form[data-kg-carry-posting]` (another form that takes the editor's posting fields with it: "How its goods come in") |
+| "Make it final now?" (KG36) | `InvoiceOnePage::CONFIRM` (`post_now_confirmed=1`: the ONLY way an invoice is made final now from its editor; sent by the button of `pi_final_ask` and of `pi_head_more`, with no `action`); without it and without a posting time the post is refused 422 `confirm_final_now` (the question drawn open); `InvoiceOnePage::POSTING` (the posting fields every step carries); `data-kg-ask-final` (the question, `div.kg-confirm.kg-final-ask`, drawn `hidden`), `data-kg-confirm-now` (its answer), `data-kg-ask-cancel`; pack C's `/{id}/post` asks the same for a supplier invoice (KG37). "How its goods come in" (KG37): no form of its own, its choices `form="pi-form"` and its Save `form="pi-form" formaction=".../receiving"` (`div.record.kg-how`), so the posting fields go with it script or not; `linesFit($lines, $stamps)` counts its duty stamps |
 
 **Every key** (`KEYS` in `app.js`; Mac: Cmd for Ctrl, Option for Alt; letters by `ev.code`):
 

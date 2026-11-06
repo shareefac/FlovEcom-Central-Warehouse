@@ -8,8 +8,9 @@
 // form; Enter is Add (its first button). The supplier is the order page's plain select that app.js makes the site's one dropdown (SM11),
 // ending with "+ Add new supplier"; "From" is a plain select of every open delivery and order, each naming its supplier, that the script
 // narrows to the chosen supplier's. A draft's timed option, how its goods come in and "Stop" are forms of their own after this one (pack J,
-// pack C), their controls in the page named with form=; "how its goods come in" takes the posting time typed with it (data-kg-carry-posting,
-// the script; KG36). "Make it final now?" (pi_final_ask) is asked inside the form before "make final" with no posting time (KG36). The
+// pack C), their controls in the page named with form=; "how its goods come in" is this form sent to its route (form="pi-form", formaction:
+// the posting time typed goes with it, KG37). "Make it final now?" (pi_final_ask) is asked inside the form before "make final" with no
+// posting time (KG36). The
 // lines are the standard grid of docs/decisions.md KG (the owner, 6 Nov 2026): a No. column, one line a row on a computer, a line filled
 // in place and the keys of a standard screen by app.js; every POST of the form sends the new lines in one field (DocGrid::FIELD). Without
 // the script, as before.
@@ -339,13 +340,16 @@ $rowNo = 0;
   <p class="muted"><?= $word('ARRIVALS', 'lines_on_delivery') ?></p>
 <?php else: ?>
   <p class="muted"><?php if ($arrival['sellsBefore']): ?><?= $word('ARRIVALS', 'sells_before') ?><?php else: ?><?= $word('ARRIVALS', 'sells_after') ?><?php endif; ?></p>
-  <form class="record" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/receiving') ?>" data-kg-carry-posting>
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+<?php
+// Its choices and its Save belong to the editor's form (form="pi-form"; the Save's formaction is the /receiving route), not to a form of their
+// own: the posting date, time and clock typed go with them, script or not (docs/decisions.md KG37; the Codex re-check of 33eb962), with the
+// editor's token and version. The /receiving route reads only these and the posting fields (half a time refused, the rest carried).
+?>
+  <div class="record kg-how">
     <fieldset>
       <legend><?= $word('ARRIVALS', 'how_title') ?></legend>
 <?php foreach (\CW\Ui\Words::RECEIVE_MODE as $code => $label): ?>
-      <label class="choice"><input type="radio" name="receive_mode" value="<?= $e($code) ?>"<?php if ($arrival['mode'] === $code): ?> checked<?php endif; ?>> <?= $e($label) ?></label>
+      <label class="choice"><input type="radio" name="receive_mode" value="<?= $e($code) ?>" form="pi-form"<?php if ($arrival['mode'] === $code): ?> checked<?php endif; ?>> <?= $e($label) ?></label>
 <?php endforeach; ?>
     </fieldset>
 <?php if ($arrival['mode'] === 'received'): ?>
@@ -358,7 +362,7 @@ $rowNo = 0;
           <th scope="row" class="c-head"><?= $e($sl['line_no']) ?></th>
           <td data-label="<?= $word('ARRIVALS', 'item') ?>"><?= $e($sl['code']) ?> <?= $e($sl['name']) ?></td>
           <td data-label="<?= $word('ARRIVALS', 'stamp') ?>"><?php if ($sl['required']): ?>
-            <select name="stamp_<?= $e($sl['line_no']) ?>">
+            <select name="stamp_<?= $e($sl['line_no']) ?>" form="pi-form">
               <option value=""><?= $word('ARRIVALS', 'stamp_choose') ?></option>
 <?php foreach (\CW\Ui\Words::STAMP_ANSWER as $code => $label): ?>
               <option value="<?= $e($code) ?>"<?php if ($sl['answer'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
@@ -370,8 +374,8 @@ $rowNo = 0;
     </table>
     </div>
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="btn"><?= $word('ARRIVALS', 'save_how') ?></button></p>
-  </form>
+    <p class="actions"><button type="submit" form="pi-form" formaction="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/receiving') ?>" class="btn"><?= $word('ARRIVALS', 'save_how') ?></button></p>
+  </div>
 <?php endif; ?>
 </details>
 <?php endif; ?>

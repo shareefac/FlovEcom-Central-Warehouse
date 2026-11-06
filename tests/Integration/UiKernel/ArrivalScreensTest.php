@@ -90,7 +90,8 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         self::assertStringContainsString(Words::ARRIVALS['how_title'], $page->text());
         self::assertStringContainsString(Words::ARRIVALS['sells_before'], $page->text(), 'the supplier sells before arrival (the setting)');
-        self::assertTrue($page->hasForm($path . '/receiving'));
+        // Its choices are the editor form's; its Save sends that form to /receiving (docs/decisions.md KG37: the posting boxes go with it).
+        self::assertStringContainsString('formaction="' . $path . '/receiving"', $page->body);
         // Made final tomorrow at 06:00 (UK time) by itself.
         $form = $page->form($path . '/schedule');
         $form['submit_at'] = (new \DateTimeImmutable('tomorrow 06:00', new \DateTimeZone('Europe/London')))->format('Y-m-d\TH:i');

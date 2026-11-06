@@ -989,11 +989,12 @@ label.choice:has(input:checked), .check:has(input:checked) { border: 1.5px solid
 form.inline { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0; max-width: 100%; }
 form.inline label { display: inline-flex; align-items: center; gap: 8px; }
 form.inline input[type="text"], form.inline input[type="number"], form.inline select { width: auto; min-width: 6rem; flex: 1 1 8rem; }
-/* A form's fields in a responsive grid (at least 200 px each) */
-form.record, form.decide { display: grid; gap: 14px; max-width: 820px; }
-form.record fieldset, form.decide fieldset { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); align-items: start; }
-form.record fieldset > :not(label):not(.field), form.decide fieldset > :not(label):not(.field),
-form.record fieldset > label:has(textarea), form.record fieldset > label.choice, form.decide fieldset > label.choice,
+/* A form's fields in a responsive grid (at least 200 px each); div.record: a group of another form's fields laid out the same (the supplier
+   invoice's "How its goods come in", the editor form's: docs/decisions.md KG37) */
+form.record, div.record, form.decide { display: grid; gap: 14px; max-width: 820px; }
+form.record fieldset, div.record fieldset, form.decide fieldset { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); align-items: start; }
+form.record fieldset > :not(label):not(.field), div.record fieldset > :not(label):not(.field), form.decide fieldset > :not(label):not(.field),
+form.record fieldset > label:has(textarea), form.record fieldset > label.choice, div.record fieldset > label.choice, form.decide fieldset > label.choice,
 form.record fieldset > label:has(> input[type="checkbox"]), form.decide fieldset > label:has(> input[type="radio"]) { grid-column: 1 / -1; }
 form.decide { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); padding: 20px 24px; }
 form.upload { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hairline); }

@@ -762,7 +762,7 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
     /**
      * A draft supplier invoice of the purchasing desk for the KG36 tests: one line of a dry item at £1.00, its date and totals typed.
      *
-     * @return array{web: \CW\Tests\Support\KernelBrowser, id: int, path: string, supplier: int, sku: int, tomorrow: string}
+     * @return array{web: \CW\Tests\Support\KernelBrowser, id: int, path: string, supplier: int, sku: int, tomorrow: string, desk: int}
      */
     private function askDraft(string $number): array
     {
@@ -774,7 +774,7 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $doc = $si->saveLines(Caller::staff($desk['id']), $doc->id, $doc->version, [$si->goodsLine((int) $s['id'], 1, '1.00', $sku)]);
         $si->saveHeader(Caller::staff($desk['id']), $doc->id, $doc->version, ['net_total' => '1.00', 'vat_total' => '0.00']);
         return ['web' => $this->signIn($desk), 'id' => $doc->id, 'path' => "/ui/purchasing/invoices/{$doc->id}", 'supplier' => (int) $s['id'], 'sku' => $sku,
-            'tomorrow' => (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Europe/London')))->format('Y-m-d')];
+            'tomorrow' => (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Europe/London')))->format('Y-m-d'), 'desk' => (int) $desk['id']];
     }
 
     /** [status, submit_at] of a document. @return array{string, mixed} */
@@ -811,25 +811,92 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
     }
 
     /**
-     * The Codex re-check of f4358b7, finding 2 (HIGH; KG36): "How its goods come in" is a form of its own, so a posting time typed in the
-     * editor was lost by saving it. The script sends the date, time and clock with it (`data-kg-carry-posting`; stopped while half typed,
-     * the node harness), and the server carries them to the page after it, saved or refused; never set by it.
+     * "How its goods come in" sends the posting boxes typed, with or without the script (the Codex re-check of f4358b7, finding 2, KG36;
+     * the re-check of 33eb962, script off, KG37). Its choices and its "Save" belong to the editor's own form (form="pi-form", the button's
+     * formaction its /receiving route), so the browser sends the posting date, time and clock with it: an invoice timed for tomorrow 10:00
+     * with 18:00 typed comes back with 18:00 typed (never set by it: the stored time stays 10:00); half a time is refused as the main
+     * button refuses it (422 partial_submit_at, under the fields, nothing saved); a refusal of the receiving keeps the time typed too.
      */
-    public function testHowItsGoodsComeInCarriesThePostingTimeTyped(): void
+    public function testHowItsGoodsComeInSendsThePostingBoxesWithoutTheScript(): void
     {
         ['web' => $web, 'id' => $id, 'path' => $path, 'tomorrow' => $tomorrow] = $this->askDraft('ASK-HOW');
-        $page = $web->get($path);
-        self::assertSame(1, self::nodes($page, '//form[contains(@action, "/receiving")][@data-kg-carry-posting]'), 'the script sends the posting time with it');
-        $r = $web->post($path . '/receiving', ['receive_mode' => 'count', 'submit_date' => $tomorrow, 'submit_time' => '18:00', 'submit_clock' => 'GMT']
-            + $page->form($path . '/receiving'));
+        $mode = static fn (): mixed => self::$db->value('SELECT receive_mode FROM supplier_invoice WHERE document_id = ?', [$id]);
+        // Timed for tomorrow 10:00 (the main button with the time).
+        $r = $web->post($path . '/lines', ['action' => 'post', 'submit_date' => $tomorrow, 'submit_time' => '10:00'] + $web->get($path)->form($path . '/lines', true));
+        self::assertSame($path . '?notice=timed#lines', $r->location(), self::why($r));
+        $at = self::finalState($id)[1];
+        self::assertNotNull($at);
+        $page = $web->follow($r);
+        // The page: no form of its own; its choices and its button are the editor form's, the button sending it to /receiving.
+        self::assertSame(0, self::nodes($page, '//form[contains(@action, "/receiving")]'), 'no separate form: nothing typed is left behind');
+        self::assertGreaterThan(0, self::nodes($page, '//details[@id="how"]//input[@type="radio"][@name="receive_mode"][@form="pi-form"]'));
+        self::assertSame(0, self::nodes($page, '//details[@id="how"]//*[self::input or self::select][not(@form="pi-form")]'), 'every choice of it is the editor form\'s');
+        self::assertSame(1, self::nodes($page, '//details[@id="how"]//button[@type="submit"][@form="pi-form"][@formaction="' . $path . '/receiving"][not(@name)]'
+            . '[not(contains(@class, "primary"))]'), 'its Save: the editor form sent to /receiving');
+        // What the browser sends with that button: the editor form's fields (the posting boxes as typed: 18:00) and the choice.
+        $form = $page->form($path . '/lines', true);
+        self::assertSame([$tomorrow, '10:00'], [$form['submit_date'] ?? null, $form['submit_time'] ?? null], 'the stored time shown');
+        $r = $web->post($path . '/receiving', ['receive_mode' => 'count', 'submit_time' => '18:00'] + $form);
         self::assertSame(303, $r->status, self::why($r));
-        self::assertStringContainsString('submit_date=' . $tomorrow, (string) $r->location());
-        self::assertStringContainsString('submit_clock=GMT', (string) $r->location());
-        self::assertSame([$tomorrow, '18:00'], self::postingShown($web->follow($r), $path), 'kept after it');
-        $r = $web->post($path . '/receiving', ['receive_mode' => 'nonsense', 'submit_date' => $tomorrow, 'submit_time' => '18:00'] + $web->get($path)->form($path . '/receiving'));
+        self::assertStringContainsString('submit_time=18%3A00', (string) $r->location());
+        self::assertSame([$tomorrow, '18:00'], self::postingShown($web->follow($r), $path), 'the time typed drawn again, not the stored 10:00');
+        self::assertSame(['draft', $at, 'count'], [...self::finalState($id), $mode()], 'how saved; the time never set by it');
+        // Half a time: refused as the main button refuses it, said under the fields, nothing saved, what was typed kept.
+        $form = $web->get($path)->form($path . '/lines', true);
+        $r = $web->post($path . '/receiving', ['receive_mode' => 'received', 'submit_date' => '', 'submit_time' => '18:00'] + $form);
+        self::assertSame(422, $r->status, self::why($r));
+        self::assertSame([Words::ARRIVAL_ERROR['partial_submit_at']], self::texts($r, '//fieldset[contains(@class, "kg-posting")]//p[@id="kg-posting-error"]'));
+        self::assertSame(['', '18:00'], self::postingShown($r, $path));
+        self::assertSame(['draft', $at, 'count'], [...self::finalState($id), $mode()], 'half a time: nothing saved');
+        // A refusal of the receiving itself keeps the time typed.
+        $r = $web->post($path . '/receiving', ['receive_mode' => 'nonsense', 'submit_date' => $tomorrow, 'submit_time' => '19:00'] + $form);
         self::assertSame(400, $r->status, self::why($r));
-        self::assertSame([$tomorrow, '18:00'], self::postingShown($r, $path), 'kept after a refusal');
-        self::assertSame(['draft', null], self::finalState($id));
+        self::assertSame([$tomorrow, '19:00'], self::postingShown($r, $path), 'kept after a refusal');
+        self::assertSame(['draft', $at], self::finalState($id));
+    }
+
+    /**
+     * The invoice's own pack C route `/{id}/post` (the Codex re-check of 33eb962, HIGH; KG37): a POST to it made a supplier invoice, a timed
+     * one too, final NOW with no answer. For a supplier invoice it asks as the editor does: without `post_now_confirmed=1` 422
+     * confirm_final_now, the editor drawn with the question open, nothing changed (its time kept); with it, made final now. A credit note's
+     * "Make it final" through the same route is as before.
+     */
+    public function testTheInvoicesOwnPostRouteAsksToo(): void
+    {
+        ['web' => $web, 'id' => $id, 'path' => $path, 'supplier' => $sid, 'tomorrow' => $tomorrow, 'desk' => $deskId] = $this->askDraft('ASK-POST');
+        $version = static fn (): string => (string) self::$db->value('SELECT version FROM document WHERE id = ?', [$id]);
+        $hand = fn (): array => ['csrf' => $this->token($web), 'version' => $version()];
+        $ask = '//form[@id="pi-form"]//div[@data-kg-ask-final][not(@hidden)]';
+        // A draft: refused and asked, nothing changed.
+        $before = $version();
+        $r = $web->post($path . '/post', $hand());
+        self::assertSame(422, $r->status, self::why($r));
+        self::assertSame(1, self::nodes($r, $ask), 'the question, open');
+        self::assertSame(['draft', null, $before], [...self::finalState($id), $version()]);
+        // A timed draft: the same; its time kept.
+        $r = $web->post($path . '/lines', ['action' => 'post', 'submit_date' => $tomorrow, 'submit_time' => '10:00'] + $web->get($path)->form($path . '/lines', true));
+        self::assertSame($path . '?notice=timed#lines', $r->location(), self::why($r));
+        $at = self::finalState($id)[1];
+        $before = $version();
+        $r = $web->post($path . '/post', $hand());
+        self::assertSame(422, $r->status, self::why($r));
+        self::assertSame(1, self::nodes($r, $ask));
+        self::assertSame(['draft', $at, $before], [...self::finalState($id), $version()], 'still timed for tomorrow, nothing changed');
+        // With the answer: made final now.
+        $r = $web->post($path . '/post', ['post_now_confirmed' => '1'] + $hand());
+        self::assertStringContainsString('notice=posted', (string) $r->location(), self::why($r));
+        self::assertSame('posted', self::finalState($id)[0]);
+        // A credit note through the same route: as before, no question.
+        $desk = Caller::staff($deskId);
+        $si = $this->invoicesService();
+        $cn = $si->createDraft($desk, 'credit_note', $sid, ['invoice_number' => 'ASK-POST-CN', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'credits_id' => $id]);
+        $cn = $si->addCredit($desk, $cn->id, $cn->version, 1, 1);
+        $cn = $si->saveHeader($desk, $cn->id, $cn->version, ['net_total' => '1.00', 'vat_total' => '0.00']);
+        $cpath = '/ui/purchasing/credit-notes/' . $cn->id;
+        $r = $web->post($cpath . '/post', $web->get($cpath)->form($cpath . '/post'));
+        self::assertSame(303, $r->status, self::why($r));
+        self::assertStringContainsString('notice=posted', (string) $r->location());
+        self::assertSame('posted', (string) self::$db->value('SELECT status FROM document WHERE id = ?', [$cn->id]));
     }
 
     /**

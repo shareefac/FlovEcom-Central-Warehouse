@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG36)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG37)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16739,7 +16739,7 @@ the invoice final at once (its stock on the websites early). The two paths are m
   The form is marked `data-kg-carry-posting`; the script adds the editor's date, time and clock to it as hidden fields when it is sent (and
   stops the send while the time is half typed, as for the editor's own sends: KG35), and `InvoicesController::receiving` carries them to the
   page after it, saved or refused (`InvoiceOnePage::postingCarried`, now public). Never set by it. Without the script the time typed there
-  is still lost; the next point makes that harmless.
+  is still lost; the next point makes that harmless. (Replaced by KG37: the editor's own form, script or not.)
 - *Make final NOW needs its own answer* (the class): the main button with both posting boxes empty no longer makes it final. With the
   script it sends nothing and opens, in the page (never a browser dialog), "Make it final now? The stock goes to the websites now." with
   [Make final now] [Cancel] (`pi_final_ask`: drawn shut inside the editor's form, the site's `.kg-confirm` look, under the head; Cancel
@@ -16761,6 +16761,34 @@ without the answer by `post` and `post_now` with nothing saved and the question 
 final with it, a new invoice made only when confirmed); the node harness section 6b (the question opened, Cancel, Esc, a double press, a
 time typed shuts it, the answer waits for a save, the answer and the "..."'s send the field, "How its goods come in" carries the time once
 and is stopped half typed; the harness DOM learned `form="id"`).
+
+**KG37. The two paths left by the Codex re-check of `33eb962` (KG36's finding 1 fixed; 2 HIGH).**
+- *The invoice's own "Make it final" route asks too* (either script setting): pack C's `POST /ui/purchasing/invoices/{id}/post` made a
+  supplier invoice, a timed one too, final NOW on any POST with its token and version. No page sends an invoice there any more (the
+  editor makes it final), but a hand-made POST could. For a supplier invoice still a draft it now asks as the editor does: with
+  `post_now_confirmed=1` made final now; without it 422 `confirm_final_now` before anything is read or changed (a timed invoice keeps its
+  time), the editor drawn with the question open and any posting time sent kept. Not a draft: `submit()` refuses it as before. A credit
+  note's "Make it final" through the same route is unchanged (no question).
+- *"How its goods come in" without the script* (KG36 needed the script to copy the time into its own form): it has no form of its own any
+  more. Its choices (`receive_mode`, each `stamp_N`) are the editor form's (`form="pi-form"`) and its Save is a button of that form with
+  `formaction` its `/receiving` route, so the browser sends the posting date, time and clock as typed with it, with the editor's token and
+  version (the version after a save without reload, too). `InvoicesController::receiving` reads only its own choices and the posting
+  fields: half a time, or one that is not one, is refused as the main button refuses it (422 `partial_submit_at` / `bad_submit_at`,
+  under the fields, nothing saved); otherwise the time is carried to the page after it, saved or refused, and never set by it (a time
+  timed for 10:00 with 18:00 typed comes back with 18:00 typed; the stored 10:00 is unchanged until the main button). With the script the
+  editor's guard stops it half typed as every send of the form; KG36's copy into a separate form (`data-kg-carry-posting`) is removed: one
+  way only. Its fields now go with every send of the editor form (ignored by the others), so the form's count of fields
+  (`InvoiceOnePage::linesFit`) adds the duty stamps it asks; its layout is the record form's grid (`div.record` shares `form.record`'s
+  rule). Kept: every receiving rule, its permission (the route's), CSRF, the version check.
+- Tests changed on purpose: KG36's `testHowItsGoodsComeInCarriesThePostingTimeTyped` became
+  `testHowItsGoodsComeInSendsThePostingBoxesWithoutTheScript`; `ArrivalScreensTest` pins the Save's formaction instead of a form.
+Tests (red first: `runs/kg_red_first7.log` on `33eb962`, the 2 new screen tests and the changed pin failing; the harness passes on both, as
+the fix is the page's and the server's): `DocKeyGridScreensTest::testHowItsGoodsComeInSendsThePostingBoxesWithoutTheScript` (no form of
+its own, its fields and Save the editor's, 18:00 typed over a stored 10:00 drawn again and never set, half a time refused with nothing
+saved, a receiving refusal keeps the time), `::testTheInvoicesOwnPostRouteAsksToo` (a draft and a timed draft refused and asked, nothing
+changed; with the answer final; a credit note as before); the node harness 6b (the Save sends the editor form to /receiving with the
+posting fields; half typed, stopped; nothing copied by the script; the harness DOM sends a form's `form="id"` controls and records the
+formaction).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,
