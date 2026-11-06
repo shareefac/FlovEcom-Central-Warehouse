@@ -1243,6 +1243,10 @@
       },
     };
     var set = function (value) {
+      if (kb.busy) {
+        input.value = shown();
+        return; // a save is on its way: the supplier stays as it was sent (KG33, KG35)
+      }
       select.value = value;
       input.value = shown();
       if (panel) {
@@ -1287,6 +1291,9 @@
       keep.setAttribute('data-kg-keep', '');
       keep.textContent = (select.getAttribute('data-change-keep') || '').replace('%s', shown());
       yes.addEventListener('click', function () {
+        if (kb.busy) {
+          return; // a save is on its way: asked again after it (the Codex re-check of 54cf4cf, finding C)
+        }
         shutAsk();
         set(value);
         input.focus();
@@ -1898,7 +1905,7 @@
       }
       var a = function (name) { return li.getAttribute(name) || ''; };
       fill(tr, { si: a('data-si'), sku: a('data-sku'), u: a('data-upp'), upp: a('data-upp') || '1', name: a('data-name') || a('data-label'), code: a('data-code'),
-        pack: a('data-pack'), their: a('data-their') });
+        pack: a('data-pack'), their: a('data-their'), stock: a('data-stock'), coming: a('data-coming') }); // its stock too (KG34, KG35)
       if (!tr.hasAttribute('data-kg-new')) {
         tr.setAttribute('data-kg-swap', '1');
         var no = tr.getAttribute('data-kg-line') || '';
@@ -2697,6 +2704,9 @@
         });
     };
     form.addEventListener('submit', function (ev) {
+      if (ev.defaultPrevented) {
+        return; // stopped before it (the posting time half typed, KG35): nothing sent
+      }
       serialise();
       var by = ev.submitter;
       var isSave = !!by && by.getAttribute('name') === 'action' && by.getAttribute('value') === 'save';
@@ -2788,6 +2798,9 @@
       },
       // The draft saved first when it holds anything not saved (or is not made yet), then $fn (the timed route of the posting time, KG27).
       saveThen: function (fn) {
+        if (kb.postingBad && kb.postingBad()) {
+          return; // the posting time half typed (KG35)
+        }
         if (!form.hasAttribute('data-dirty') && (form.getAttribute('data-kg-editor') || '').indexOf(':new') < 0) {
           fn();
           return;
@@ -3207,11 +3220,53 @@
     };
     var typed = function () { return date.value !== '' && time.value !== '' ? date.value + 'T' + time.value.slice(0, 5) : ''; };
     var later = function () { var t = typed(); return t !== '' && t > london(); };
+    // Something typed the browser cannot read (a date or time half typed: its value is '', validity.badInput), or one without the other
+    // (the Codex re-check of 54cf4cf, finding A; KG35): never "make final now".
+    var badInput = function (el) { return !!(el.validity && el.validity.badInput); };
+    var bad = function () { return badInput(date) || badInput(time) || (date.value === '') !== (time.value === ''); };
+    var empty = function () { return date.value === '' && time.value === '' && !badInput(date) && !badInput(time); };
+    var say = function (on) {
+      var err = set.querySelector('#kg-posting-error');
+      if (on && !err) {
+        err = document.createElement('p');
+        err.className = 'field-error';
+        err.id = 'kg-posting-error';
+        set.insertBefore(err, sched || null);
+      }
+      if (err) {
+        err.textContent = on ? set.getAttribute('data-kg-partial') || '' : '';
+        err.hidden = !on;
+      }
+      each([date, time], function (el) {
+        if (on) {
+          el.setAttribute('aria-invalid', 'true');
+          el.setAttribute('aria-describedby', 'kg-posting-error');
+        } else {
+          el.removeAttribute('aria-invalid');
+        }
+      });
+    };
+    kb.postingBad = bad;
+    // Any send of the editor's form (a button, Enter, Ctrl+S) with the posting time half there: stopped, said under the fields, nothing sent.
+    var form = date.form;
+    document.addEventListener('submit', function (ev) {
+      if (ev.target !== form || !bad()) {
+        return;
+      }
+      ev.preventDefault();
+      if (ev.stopImmediatePropagation) {
+        ev.stopImmediatePropagation();
+      }
+      say(true);
+      date.focus();
+    }, true);
     var show = function () {
       var b = finalButton();
       if (b) {
-        b.textContent = date.value !== '' || time.value !== '' ? (sched ? sched.getAttribute('data-schedule') || '' : '') : b.getAttribute('data-kg-final-words') || b.textContent;
+        // "Save and make final" only while both boxes are truly empty; anything else is a time (or not yet one): "Schedule".
+        b.textContent = empty() ? b.getAttribute('data-kg-final-words') || b.textContent : (sched ? sched.getAttribute('data-schedule') || '' : '');
       }
+
       if (sched) {
         // "Stock goes to the websites: 07 Nov 2026, 18:00 (UK). Until then it stays a draft." while the time is still to come.
         var shown = '';
@@ -3224,8 +3279,16 @@
         sched.hidden = !later();
       }
     };
-    date.addEventListener('input', show);
-    time.addEventListener('input', show);
+    var edited = function () {
+      show();
+      if (!bad()) {
+        say(false); // put right: the words under the fields go (a refusal's too, once the person changes the time)
+      }
+    };
+    each(['input', 'change', 'blur'], function (type) {
+      date.addEventListener(type, edited);
+      time.addEventListener(type, edited);
+    });
     document.addEventListener('kg-swapped', show);
     show();
   });

@@ -153,7 +153,8 @@ final class InvoiceOnePage
             }
             $file = self::file($ctx);
             $save = self::saveOnly($ask);
-            $r = FormOnce::run($ctx, 'ui.invoice.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $save, $file, $cleared, $new, &$keys, $at): OpResult {
+            $carry = self::postingCarried($req);
+            $r = FormOnce::run($ctx, 'ui.invoice.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $save, $file, $cleared, $new, &$keys, $at, $carry): OpResult {
                 $ask = $save;
                 $si = $ctx->supplierInvoices();
                 $caller = $ctx->caller();
@@ -192,7 +193,7 @@ final class InvoiceOnePage
                 }
                 // The version this form saved (PV21): "make final" posts that version, so the same form sent again never makes later edits final.
                 return OpResult::of(303, ['result' => $res['status'], 'document_id' => $doc->id, 'version' => $ctx->documents()->get($doc->id)->version,
-                    'redirect' => self::after($doc->id, $res, $taken)]);
+                    'redirect' => self::after($doc->id, $res, $taken, $carry)]);
             });
         } catch (CwException $e) {
             $extra = ['typed' => $req->post, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys), 'gridBadText' => InvoicesController::plain($e)];
@@ -230,6 +231,7 @@ final class InvoiceOnePage
             $new = DocGrid::read($req->field(DocGrid::FIELD), SupplierInvoices::MAX_LINES);
             self::check($ask, false);
             $at = self::timed($req, $ask); // KG32: the main button with a posting time saves and times the draft in one request
+            $carry = self::postingCarried($req); // KG35: a step that does not set the time keeps it on the page after it
             $header = self::header($req, true);
             $file = self::file($ctx);
             $save = self::saveOnly($ask);
@@ -247,12 +249,12 @@ final class InvoiceOnePage
                 // by its first answer (FormOnce, with the version), never done twice. An Add that finds several items or none then leaves
                 // nothing saved (the page shows them with every line kept), as on the new page.
                 $r = FormOnce::run($ctx, $ask['action'] === 'new_item' ? 'ui.invoice.new_item' : ($new !== [] ? 'ui.invoice.grid' : 'ui.invoice.timed'), ['id' => $id] + self::request($req),
-                    function (Db $db) use ($id, $work): OpResult {
+                    function (Db $db) use ($id, $work, $carry): OpResult {
                         $res = $work();
                         if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
                             throw new CwException('one_page_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? []]);
                         }
-                        return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'version' => $res['saved'], 'redirect' => self::after($id, $res, null)]);
+                        return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'version' => $res['saved'], 'redirect' => self::after($id, $res, null, $carry)]);
                     });
                 if ($ask['action'] === 'post' && ($r->body['result'] ?? '') !== 'timed') {
                     return self::makeFinal($ctx, $id, isset($r->body['version']) ? (int) $r->body['version'] : null);
@@ -282,7 +284,8 @@ final class InvoiceOnePage
             return self::draftPage($ctx, $id, 422, new CwException('not_found', Words::say('STOCK_ERROR', 'not_found', $ask['q']), 422),
                 ['q' => $ask['q'], 'packs' => (string) ($req->field('packs') ?? '1'), 'price' => (string) ($req->field('price') ?? '')] + $unsaved);
         }
-        return $ask['action'] === 'post' && $res['status'] !== 'timed' ? self::makeFinal($ctx, $id, (int) $res['saved']) : HtmlResponse::redirect(self::after($id, $res, null));
+        return $ask['action'] === 'post' && $res['status'] !== 'timed' ? self::makeFinal($ctx, $id, (int) $res['saved'])
+            : HtmlResponse::redirect(self::after($id, $res, null, self::postingCarried($req)));
     }
 
     /**
@@ -384,6 +387,19 @@ final class InvoiceOnePage
         }
         $typed = $kept['date'] . 'T' . $kept['time'];
         return count(\CW\Arrivals\UkTime::moments($typed)) > 1 ? ['typed' => $typed, 'time' => $kept['time'], 'chosen' => $chosen] : null;
+    }
+
+    /** @return array<string, string> the posting date, time and clock the form sent (empty ones left out): what after() carries (KG35) */
+    private static function postingCarried(UiRequest $req): array
+    {
+        $out = [];
+        foreach (['submit_date', 'submit_time', 'submit_clock'] as $k) {
+            $v = trim((string) ($req->field($k) ?? ''));
+            if ($v !== '') {
+                $out[$k] = mb_substr($v, 0, 16);
+            }
+        }
+        return $out;
     }
 
     /** The save part of what was asked: "Save and make final" saves first, as "Save as draft" does (makeFinal() posts after). @param array<string, mixed> $ask @return array<string, mixed> */
@@ -737,10 +753,12 @@ final class InvoiceOnePage
     }
 
     /** Where a done form leads: the draft's page at its lines, or the invoice once final, with its notice. @param array{status: string, document: Document} $res */
-    private static function after(int $id, array $res, ?string $taken): string
+    private static function after(int $id, array $res, ?string $taken, array $carry = []): string
     {
         $s = $res['status'];
-        $query = ['notice' => $s];
+        // The posting date, time and clock typed and not set by this step (a save, Fill the lines, a charge, an item...): carried to the page
+        // after it, never lost (the Codex re-check of 54cf4cf, finding B; KG35); a timed or final invoice shows its own.
+        $query = ['notice' => $s] + (in_array($s, ['timed', 'posted', 'submitted'], true) ? [] : $carry);
         if ($s === 'posted') {
             $query['number'] = $res['document']->number;
         } elseif ($s === 'number_taken') {
@@ -814,6 +832,15 @@ final class InvoiceOnePage
         $me = $ctx->me();
         $si = $ctx->supplierInvoices();
         $typed = is_array($extra['typed'] ?? null) ? $extra['typed'] : [];
+        // The posting date, time and clock carried by the address after a step that did not set them (after(), KG35): the page shows them.
+        if (!isset($typed['submit_date']) && !isset($typed['submit_time'])) {
+            foreach (['submit_date', 'submit_time', 'submit_clock'] as $k) {
+                $v = $ctx->req->param($k);
+                if ($v !== null) {
+                    $typed[$k] = mb_substr($v, 0, 16);
+                }
+            }
+        }
         $text = static fn (string $k, string $default = ''): string => is_string($typed[$k] ?? null) ? (string) $typed[$k] : $default;
         $rec = $id === null ? null : $si->record($id);
         $doc = $rec === null ? null : Document::fromRow($rec);

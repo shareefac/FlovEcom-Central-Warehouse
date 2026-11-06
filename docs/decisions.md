@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG34)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG35)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16711,6 +16711,23 @@ writer. The item box's choices carry it (`data-stock`, `data-coming`, and "In st
 choices), so a line the script adds shows its stock at once (and fill down copies it); after a save the server's figures replace them.
 On a phone the figure is a row of the line's card, under the item's name. Tests changed for the new column, on purpose: `UiTemplatesTest`
 (the saved order's line columns: seven), `InvoiceOnePageScreensTest` and `DocKeyGridScreensTest` (the columns after the item).
+
+**KG35. The Codex check of `54cf4cf` / `607c55b` (5 findings).**
+- *A date or time half typed never reads as "both empty"* (A, HIGH): a native date or time box half typed sends '' (the browser cannot
+  read it). The script stops ANY send of the invoice's form (a button, Enter, Ctrl+S) while either box has something it cannot read
+  (`validity.badInput`) or one is filled without the other: the words under the fields ("Type both the posting date and the time, or
+  clear both to make it final now."), nothing sent. The main button reads "Save and make final" only while both boxes are truly empty;
+  otherwise "Schedule". The server still refuses one without the other (KG33). Known limit: without the script a half-typed native box
+  still arrives as empty (the browser gives nothing else); the main button then says what it does ("Save and make final").
+- *A typed posting time is never lost by a step that does not set it* (B, HIGH): "Save as draft" by a post, Fill the lines, a charge,
+  "+ New item", Add, a removal: the date, time and clock typed are carried in the address after it (as CARRIED does for "+ Add new
+  supplier") and drawn again; a save without reload keeps them on the page (the posting fields are not redrawn). They are only SET by the
+  main button (Schedule); a plain save never times the draft.
+- *The supplier question's Change waits for a save on its way* (C): its button and the box's setter both check `kb.busy`.
+- *A line's item changed in place shows the new item's stock* (D, KG34): `swap()` passes its data-stock / data-coming.
+- *One stock query for "+ Add new item"'s suggestions* (E, LOW): `PoAddNew::choicesOf` reads the stock of all of them at once.
+Tests: `DocKeyGridScreensTest::testThePostingTimeIsTheTimedRoute` (a save and a charge carry the time, never set it), the node harness
+(half typed: Schedule, the send stopped with its words, put right; the question's Change during a save; a changed item's stock).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,

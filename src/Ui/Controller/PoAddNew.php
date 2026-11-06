@@ -141,28 +141,42 @@ final class PoAddNew
                 });
             $made = (int) $r->body['sku_id'];
             $si = isset($r->body['supplier_item_id']) ? (int) $r->body['supplier_item_id'] : null;
-            return $fragment(['choice' => self::choiceOf($ctx, (int) $sid, $made, $si)]);
+            return $fragment(['choice' => self::choicesOf($ctx, (int) $sid, [[$made, $si]])[0]]);
         } catch (CwException $e) {
-            $others = [];
+            $asked = [];
             if ($e->errorCode === 'same_item_exists' && is_array($e->detail['items'] ?? null)) {
                 foreach ($e->detail['items'] as $o) {
-                    $others[] = self::choiceOf($ctx, (int) $sid, (int) $o['id'], null);
+                    $asked[] = [(int) $o['id'], null];
                 }
             } elseif ($e->errorCode === 'barcode_on_other_item' && isset($e->detail['sku_id'])) {
-                $others[] = self::choiceOf($ctx, (int) $sid, (int) $e->detail['sku_id'], null);
+                $asked[] = [(int) $e->detail['sku_id'], null];
             }
+            $others = self::choicesOf($ctx, (int) $sid, $asked); // one stock query for all of them (KG35)
             return $fragment(['error' => $e->errorCode === 'same_item_exists' ? Words::PO_ADD['same_title'] . ' ' . Words::PO_ADD['same_text'] : self::plainItem($e),
                 'others' => $others, 'anyway' => $e->errorCode === 'same_item_exists' ? Words::PO_ADD['same_anyway'] : '', 'nextKey' => self::keyAgain($ctx, $e)]);
         }
     }
 
     /**
-     * An item as the product box's choice for this supplier (PurchaseOrdersController::productChoice): its supplier item when $si names one,
-     * else this supplier's preferred pack of it when there is one, else the item alone.
+     * Items as the product box's choices for this supplier (PurchaseOrdersController::productChoice), with their current stock read in ONE
+     * query for all of them (withStock, docs/decisions.md KG34, KG35). $asked: [item, its supplier item or null] each.
      *
-     * @return array<string, string>
+     * @param list<array{0: int, 1: ?int}> $asked
+     * @return list<array<string, string>>
      */
-    private static function choiceOf(Context $ctx, int $supplierId, int $sku, ?int $si): array
+    private static function choicesOf(Context $ctx, int $supplierId, array $asked): array
+    {
+        $rows = array_map(static fn (array $a): array => self::choiceRow($ctx, $supplierId, $a[0], $a[1]), $asked);
+        return PurchaseOrdersController::withStock($ctx->db, $rows, array_map(PurchaseOrdersController::productChoice(...), $rows));
+    }
+
+    /**
+     * An item as productChoice()'s row for this supplier: its supplier item when $si names one, else this supplier's preferred pack of it
+     * when there is one, else the item alone.
+     *
+     * @return array<string, mixed>
+     */
+    private static function choiceRow(Context $ctx, int $supplierId, int $sku, ?int $si): array
     {
         $row = $ctx->db->one('SELECT * FROM supplier_item WHERE ' . ($si !== null ? 'id = ?' : 'supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY is_preferred DESC, id LIMIT 1'),
             $si !== null ? [$si] : [$supplierId, $sku]);
@@ -171,7 +185,7 @@ final class PoAddNew
             $item = ['supplier_item_id' => (int) $row['id'], 'units_per_pack' => (int) $row['units_per_pack'], 'supplier_code' => $row['supplier_code'],
                 'purchase_unit' => (string) $row['purchase_unit'], 'last_pack_price' => $row['last_pack_price']] + $item;
         }
-        return PurchaseOrdersController::withStock($ctx->db, [$item], [PurchaseOrdersController::productChoice($item)])[0]; // its stock too (KG34)
+        return $item;
     }
 
     /** "3" -> 3 ('' is 1); anything but a whole number of at least 1: 422 bad_number in words. */

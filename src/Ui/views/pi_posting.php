@@ -14,7 +14,7 @@ $shownDate = $typed !== null ? $typed['date'] : (string) substr($shownAt, 0, 10)
 $shownTime = $typed !== null ? $typed['time'] : (string) substr($shownAt, 11, 5);
 ?>
 <?php if ($canTime || $isNew): ?>
-  <fieldset class="kg-posting">
+  <fieldset class="kg-posting" data-kg-partial="<?= $word('ARRIVAL_ERROR', 'partial_submit_at') ?>">
     <legend class="visually-hidden"><?= $word('ARRIVALS', 'when_title') ?></legend>
 <?php if ($canTime && $arrival['failed'] !== null): ?>
     <p class="error doc-wide" role="alert"><?= $say('ARRIVALS', 'failed', $arrival['failed']) ?></p>

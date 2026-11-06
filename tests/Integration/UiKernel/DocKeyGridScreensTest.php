@@ -708,6 +708,19 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         self::assertSame(409, $r->status, self::why($r));
         self::assertSame([$tomorrow, '18:00'], [$r->form($path . '/lines', true)['submit_date'] ?? null, $r->form($path . '/lines', true)['submit_time'] ?? null]);
         self::assertSame('draft', $status());
+        // A step that does not set the time (Save as draft by a post, a charge): the time typed carried to the page after it, never set
+        // (the Codex re-check of 54cf4cf, finding B; KG35), so the next "Save and make final" still schedules it.
+        $form = $web->get($path)->form($path . '/lines', true);
+        foreach ([['action' => 'save'], ['action' => 'add_charge', 'charge_kind' => 'freight', 'charge_amount' => '1.50', 'charge_description' => 'Courier']] as $i => $step) {
+            $r = $web->post($path . '/lines', $step + ['submit_date' => $tomorrow, 'submit_time' => '17:00', 'form_key' => str_repeat('k' . $i, 16)] + $form);
+            self::assertSame(303, $r->status, self::why($r));
+            self::assertStringContainsString('submit_date=' . $tomorrow, (string) $r->location());
+            $after = $web->follow($r);
+            self::assertSame([$tomorrow, '17:00'], [$after->form($path . '/lines', true)['submit_date'] ?? null, $after->form($path . '/lines', true)['submit_time'] ?? null], $step['action']);
+            self::assertNull(self::$db->value('SELECT submit_at FROM supplier_invoice WHERE document_id = ?', [$doc->id]), $step['action'] . ': not set by it');
+            self::assertSame('draft', $status());
+            $form = $after->form($path . '/lines', true);
+        }
         // A time still to come, with the main button: saved and timed in one request; the head says when its stock goes to the websites.
         $form = $web->get($path)->form($path . '/lines', true);
         $r = $web->post($path . '/lines', ['action' => 'post', 'note' => 'saved with the time', 'submit_date' => $tomorrow, 'submit_time' => '18:00'] + $form);
