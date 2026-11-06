@@ -8,9 +8,11 @@
 // form; Enter is Add (its first button). The supplier is the order page's plain select that app.js makes the site's one dropdown (SM11),
 // ending with "+ Add new supplier"; "From" is a plain select of every open delivery and order, each naming its supplier, that the script
 // narrows to the chosen supplier's. A draft's timed option, how its goods come in and "Stop" are forms of their own after this one (pack J,
-// pack C), their controls in the page named with form=. The lines are the standard grid of docs/decisions.md KG (the owner, 6 Nov 2026):
-// a No. column, one line a row on a computer, a line filled in place and the keys of a standard screen by app.js; every POST of the form
-// sends the new lines in one field (DocGrid::FIELD). Without the script, as before.
+// pack C), their controls in the page named with form=; "how its goods come in" takes the posting time typed with it (data-kg-carry-posting,
+// the script; KG36). "Make it final now?" (pi_final_ask) is asked inside the form before "make final" with no posting time (KG36). The
+// lines are the standard grid of docs/decisions.md KG (the owner, 6 Nov 2026): a No. column, one line a row on a computer, a line filled
+// in place and the keys of a standard screen by app.js; every POST of the form sends the new lines in one field (DocGrid::FIELD). Without
+// the script, as before.
 ?>
 <?php
 // ERPNext's head as the demo the owner approved (docs/decisions.md KG26, KG27, KG31): the status beside the title (Not saved, Draft, the time
@@ -24,7 +26,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
 <?= $head((string) $title, intro: $isNew ? 'invoice_new' : 'supplier_invoice', back: ['/ui/purchasing/invoices', (string) $k['tab']],
     aside: $isNew ? $chip('waiting', \CW\Ui\Words::DOC_GRID['not_saved']) : ($timed ? $chip('info', \CW\Ui\Words::say('DOC_GRID', 'goes_live', (string) $arrival['at'])) : $stateChip('DOC_STATUS', 'draft')),
     side: $headSide) ?>
-<?php if ($error !== null): ?>
+<?php if ($error !== null && $errorCode !== 'confirm_final_now'): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>
 <ul class="problems">
@@ -57,6 +59,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
   <input type="hidden" name="<?= $e(\CW\Ui\DocGrid::FIELD) ?>" value="<?= $e($grid['newJson']) ?>" data-kg-field>
   <button type="submit" name="action" value="add" class="po-default" tabindex="-1" aria-hidden="true"><?= $word('PI_ONE', 'add') ?></button>
   <div class="kg-look" data-kg-look role="alert" hidden></div>
+<?= $partial('pi_final_ask', ['open' => $errorCode === 'confirm_final_now']) ?>
   <section class="kg-sec kg-details" aria-labelledby="kg-details-h">
   <h2 class="kg-sec-title" id="kg-details-h"><?= $word('DOC_GRID', 'details') ?></h2>
   <fieldset class="po-header doc-grid" data-kg-swap-part="header">
@@ -336,7 +339,7 @@ $rowNo = 0;
   <p class="muted"><?= $word('ARRIVALS', 'lines_on_delivery') ?></p>
 <?php else: ?>
   <p class="muted"><?php if ($arrival['sellsBefore']): ?><?= $word('ARRIVALS', 'sells_before') ?><?php else: ?><?= $word('ARRIVALS', 'sells_after') ?><?php endif; ?></p>
-  <form class="record" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/receiving') ?>">
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/receiving') ?>" data-kg-carry-posting>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
     <fieldset>

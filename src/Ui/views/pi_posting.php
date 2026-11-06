@@ -24,7 +24,7 @@ $shownTime = $typed !== null ? $typed['time'] : (string) substr($shownAt, 11, 5)
     <div class="kg-pair-field" role="group" aria-labelledby="kg-posting-words">
       <span class="kg-label" id="kg-posting-words"><?= $word('DOC_GRID', 'posting_pair') ?></span>
       <div class="kg-pair">
-        <input type="date" name="submit_date" value="<?= $e($shownDate) ?>" aria-label="<?= $word('DOC_GRID', 'posting_date') ?>" data-kg-posting-date<?php if ($timeError): ?> aria-invalid="true" aria-describedby="kg-posting-error"<?php endif; ?>>
+        <input type="date" name="submit_date" id="kg-posting-date" value="<?= $e($shownDate) ?>" aria-label="<?= $word('DOC_GRID', 'posting_date') ?>" data-kg-posting-date<?php if ($timeError): ?> aria-invalid="true" aria-describedby="kg-posting-error"<?php endif; ?>>
         <input type="time" name="submit_time" value="<?= $e($shownTime) ?>" aria-label="<?= $word('DOC_GRID', 'posting_time') ?>" data-kg-posting-time<?php if ($timeError): ?> aria-invalid="true" aria-describedby="kg-posting-error"<?php endif; ?>>
       </div>
     </div>

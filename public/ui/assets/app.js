@@ -3194,11 +3194,12 @@
     }
   });
 
-  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27, KG32, KG33; pack J's "make it final later"): two
-  // fields of the editor's form (submit_date, submit_time, UK). The SERVER decides what the main button does: both typed, it saves the draft
-  // and sets the time (a time gone refused under them), never "make final now"; one without the other is refused too; only both empty make
-  // it final now. So the script only says it: the button reads "Schedule" while either is typed, and the line under them says when the
-  // stock goes to the websites. The button is found each time (a save without reload draws the head again, "kg-swapped").
+  // The supplier invoice's "Posting date" and "Posting time" (docs/decisions.md KG27, KG32, KG33, KG36; pack J's "make it final later"):
+  // two fields of the editor's form (submit_date, submit_time, UK). The SERVER decides what the main button does: both typed, it saves the
+  // draft and sets the time (a time gone refused under them), never "make final now"; one without the other is refused too; both empty, it
+  // asks first (KG36: only "Make final now", post_now_confirmed=1, makes it final now). So the script says it: the button reads "Schedule"
+  // while either is typed, the line under them says when the stock goes to the websites, and with both empty the main button opens the
+  // question in the page. The button is found each time (a save without reload draws the head again, "kg-swapped").
   each(document.querySelectorAll('input[data-kg-posting-date]'), function (date) {
     var set = date.closest('fieldset');
     var time = set ? set.querySelector('input[data-kg-posting-time]') : null;
@@ -3260,6 +3261,95 @@
       say(true);
       date.focus();
     }, true);
+    // "Make it final now? The stock goes to the websites now." (docs/decisions.md KG36; the Codex re-check of f4358b7: round after round found
+    // another step that lost a typed posting time, and the next press of the main button then made the invoice final at once.) The main
+    // button with both boxes empty sends nothing: the question the server draws shut in the form (data-kg-ask-final) opens, in the page,
+    // never a browser dialog, its Cancel taking the cursor (Enter twice is never "final"). Only its "Make final now" (data-kg-confirm-now:
+    // post_now_confirmed=1, as the "..."'s) sends the form; the server refuses a "make final" without it (or a time to come) and draws the
+    // same question open, so without the script it is asked too. Cancel, Esc, a time typed or any other send shut it; while a save is on its
+    // way "Make final now" waits (pressed again after it).
+    var ask = form ? form.querySelector('[data-kg-ask-final]') : null;
+    var shutAsk = function () {
+      if (ask) {
+        ask.hidden = true;
+      }
+    };
+    if (ask) {
+      var cancel = ask.querySelector('[data-kg-ask-cancel]');
+      var stop = function (ev) {
+        ev.preventDefault();
+        if (ev.stopImmediatePropagation) {
+          ev.stopImmediatePropagation();
+        }
+      };
+      document.addEventListener('submit', function (ev) {
+        if (ev.target !== form || ev.defaultPrevented) {
+          return;
+        }
+        var by = ev.submitter || null;
+        if (by && by.hasAttribute('data-kg-final') && empty()) {
+          stop(ev);
+          ask.hidden = false;
+          (cancel || ask).focus();
+          return;
+        }
+        if (by && by.hasAttribute('data-kg-confirm-now')) {
+          if (kb.busy) {
+            stop(ev);
+          }
+          return;
+        }
+        shutAsk();
+      }, true);
+      var back = function (ev) {
+        ev.preventDefault();
+        shutAsk();
+        date.focus();
+      };
+      if (cancel) {
+        cancel.addEventListener('click', back);
+      }
+      ask.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+          back(ev);
+        }
+      });
+    }
+    // "How its goods come in" is a form of its own (pack J): the posting date, time and clock typed go with it, so the page after it shows
+    // them again (the Codex re-check of f4358b7, finding 2); half typed, it is stopped as the editor's own sends are.
+    document.addEventListener('submit', function (ev) {
+      var other = ev.target;
+      if (!other || other === form || ev.defaultPrevented || !other.hasAttribute || !other.hasAttribute('data-kg-carry-posting')) {
+        return;
+      }
+      if (bad()) {
+        ev.preventDefault();
+        if (ev.stopImmediatePropagation) {
+          ev.stopImmediatePropagation();
+        }
+        say(true);
+        date.focus();
+        return;
+      }
+      each(other.querySelectorAll('input[data-kg-carried]'), function (x) { x.parentNode.removeChild(x); });
+      var clock = '';
+      each(form ? form.querySelectorAll('input[name="submit_clock"]') : [], function (r) {
+        if (r.checked) {
+          clock = r.value;
+        }
+      });
+      each([['submit_date', date.value], ['submit_time', time.value], ['submit_clock', clock]], function (kv) {
+        if (kv[1] === '') {
+          return;
+        }
+        var h = document.createElement('input');
+        h.type = 'hidden';
+        h.name = kv[0];
+        h.value = kv[1];
+        h.setAttribute('data-kg-carried', '');
+        other.appendChild(h);
+      });
+    }, true);
     var show = function () {
       var b = finalButton();
       if (b) {
@@ -3283,6 +3373,9 @@
       show();
       if (!bad()) {
         say(false); // put right: the words under the fields go (a refusal's too, once the person changes the time)
+      }
+      if (!empty()) {
+        shutAsk(); // a time typed: the main button schedules, the question no longer applies (KG36)
       }
     };
     each(['input', 'change', 'blur'], function (type) {

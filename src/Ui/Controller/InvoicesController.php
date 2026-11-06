@@ -429,11 +429,16 @@ final class InvoicesController
         });
     }
 
-    /** Pack J (PJ6, PJ9): POST {id}/receiving: how the draft's goods come in, and the duty stamp per line for "book as received". */
+    /**
+     * Pack J (PJ6, PJ9): POST {id}/receiving: how the draft's goods come in, and the duty stamp per line for "book as received". The posting
+     * date, time and clock typed in the invoice's editor come with it (the script, data-kg-carry-posting; the Codex re-check of f4358b7,
+     * finding 2; docs/decisions.md KG36): carried to the page after it, saved or refused, never set by it.
+     */
     public function receiving(Context $ctx, string $kind): HtmlResponse
     {
         $mode = (string) ($ctx->req->field('receive_mode') ?? '');
-        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $mode): array {
+        $carry = $kind === 'invoice' ? InvoiceOnePage::postingCarried($ctx->req) : [];
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $mode, $carry): array {
             $stamps = [];
             foreach ($si->lines($id) as $l) {
                 if ($l['kind'] === 'goods' && $l['grn_document_id'] === null) {
@@ -444,8 +449,8 @@ final class InvoicesController
                 }
             }
             $si->setReceiving($ctx->caller(), $id, $version, $mode, $stamps);
-            return ['notice' => 'receiving_saved'];
-        });
+            return ['notice' => 'receiving_saved', 'query' => $carry];
+        }, ['typed' => $carry]);
     }
 
     /**
@@ -769,7 +774,7 @@ final class InvoicesController
             'credit_more_than_invoiced' => isset($d['left']) ? Words::say('INVOICE_ERROR', 'credit_left', (int) $d['left']) : self::problemText(['code' => $e->errorCode,
                 'message' => $e->getMessage()] + (isset($d['line']) ? ['line' => (int) $d['line']] : [])),
             'note_required' => Words::INVOICE_ERROR['accept_note'],
-            'scan_pending', 'not_final', 'form_again' => $e->getMessage(), // made in words (the invoice on one page, PV; form_again: PV32)
+            'scan_pending', 'not_final', 'form_again', 'confirm_final_now' => $e->getMessage(), // made in words (the invoice on one page, PV; form_again: PV32; KG36)
             default => isset(Words::INVOICE_ERROR[$e->errorCode]) && is_int($d['line'] ?? null)
                 ? Words::say('INVOICE_ERROR', 'on_line', (int) $d['line'], Words::INVOICE_ERROR[$e->errorCode])
                 : (Words::INVOICE_ERROR[$e->errorCode] ?? Words::ARRIVAL_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode]

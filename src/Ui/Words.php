@@ -6910,6 +6910,9 @@ final class Words
         'goes_live' => 'Stock goes to the websites: %s',
         'take_off' => 'Take the time off',
         'final_now' => 'Make final now',
+        // "Make final now" is always a second press (KG36): asked in the page when the main button has no posting time
+        'final_ask' => 'Make it final now? The stock goes to the websites now.',
+        'final_cancel' => 'Cancel',
         // The supplier changed on a draft (the owner, 6 Nov 2026: "also in draft and new easily supplier change option"; KG30)
         'change_ask' => 'Change supplier to %s? Lines stay; prices come from %s where it has them.',
         // Each line's item's current stock (the owner, 6 Nov 2026: "in purchase order and purchase invoice need to show current item stock"; KG34)

@@ -142,7 +142,7 @@ final class InvoiceScreensTest extends KernelUiTestCase
         $form = ['net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'save'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines');
         self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
         $page = $desk->get('/ui/purchasing/invoices/' . $id);
-        $r = $desk->post('/ui/purchasing/invoices/' . $id . '/lines', ['action' => 'post'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines'));
+        $r = $desk->post('/ui/purchasing/invoices/' . $id . '/lines', ['action' => 'post', 'post_now_confirmed' => '1'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines'));
         self::assertSame(303, $r->status, $r->describe());
         $page = $desk->follow($r);
         self::assertStringContainsString(Words::say('INVOICE_NOTICE', 'posted', 'SINV-000001'), $page->text());
@@ -202,7 +202,7 @@ final class InvoiceScreensTest extends KernelUiTestCase
         self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
         $page = $desk->get('/ui/purchasing/invoices/' . $id);
         // The invoice's one page (PV): the totals typed and made final with its one form.
-        $form = ['net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'post'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines');
+        $form = ['net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'post', 'post_now_confirmed' => '1'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines');
         $page = $desk->follow($desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form));
         self::assertStringContainsString(Words::MATCH_STATE['matched'], $page->text(), '£10 dearer than the delivery: the invoice price is the right price');
         self::assertStringContainsString(Words::say('INVOICES', 'price_info_more_delivery', '£10.00'), $page->text());

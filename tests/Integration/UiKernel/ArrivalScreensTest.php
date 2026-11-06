@@ -110,7 +110,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertStringNotContainsString('ARR-SCR-1', $desk->get(\CW\Ui\Controller\ArrivalsController::TIMED)->text());
         $page = $desk->get($path);
         // The draft is the invoice's one page (docs/decisions.md PV): "Save and make final" is a button of its one form.
-        $r = $desk->post($path . '/lines', ['action' => 'post'] + $page->form($path . '/lines'));
+        $r = $desk->post($path . '/lines', ['action' => 'post', 'post_now_confirmed' => '1'] + $page->form($path . '/lines'));
         self::assertSame(303, $r->status, $r->describe());
         $page = $desk->follow($r);
         self::assertStringContainsString(Words::ARRIVAL_STATE['open'], $page->text(), 'its goods on their way');

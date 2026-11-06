@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG35)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG36)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16728,6 +16728,39 @@ On a phone the figure is a row of the line's card, under the item's name. Tests 
 - *One stock query for "+ Add new item"'s suggestions* (E, LOW): `PoAddNew::choicesOf` reads the stock of all of them at once.
 Tests: `DocKeyGridScreensTest::testThePostingTimeIsTheTimedRoute` (a save and a charge carry the time, never set it), the node harness
 (half typed: Schedule, the send stopped with its words, put right; the question's Change during a save; a changed item's stock).
+
+**KG36. "Make it final now" is always a second, deliberate press (the Codex re-check of `f4358b7`: 2 HIGH, both a typed posting time lost
+before the main button).** Every round found another step that dropped the posting time typed, after which ONE press of the main button made
+the invoice final at once (its stock on the websites early). The two paths are mended, and the class is closed:
+- *An Add that finds several items or none keeps the time* (finding 1): the draft's own path (nothing new in the grid) drew the page again
+  with the "+ Add new" fields only; it now keeps `submit_date`, `submit_time`, `submit_clock` too (`InvoiceOnePage::POSTING`, the one list
+  every carry uses now). Never set by an Add.
+- *"How its goods come in" carries the time* (finding 2): a form of its own (pack J), so a time typed in the editor was lost by saving it.
+  The form is marked `data-kg-carry-posting`; the script adds the editor's date, time and clock to it as hidden fields when it is sent (and
+  stops the send while the time is half typed, as for the editor's own sends: KG35), and `InvoicesController::receiving` carries them to the
+  page after it, saved or refused (`InvoiceOnePage::postingCarried`, now public). Never set by it. Without the script the time typed there
+  is still lost; the next point makes that harmless.
+- *Make final NOW needs its own answer* (the class): the main button with both posting boxes empty no longer makes it final. With the
+  script it sends nothing and opens, in the page (never a browser dialog), "Make it final now? The stock goes to the websites now." with
+  [Make final now] [Cancel] (`pi_final_ask`: drawn shut inside the editor's form, the site's `.kg-confirm` look, under the head; Cancel
+  takes the cursor, so Enter twice is never "final"; Cancel or Esc shut it and put the cursor in the posting date; a time typed or any other
+  send shuts it; while a save is on its way the answer waits). Only [Make final now] makes it final now: a button named
+  `post_now_confirmed` with the value 1 (one button sends one field, so it sends no `action`: the server reads it as the post). The
+  "..." of a timed draft's "Make final now" is the same button (a press in that menu is already the second). The SERVER refuses a
+  "make final" (`action=post`, or an old `post_now`) that has neither that field nor a posting time: 422 `confirm_final_now` before
+  anything is read, saved or stored, the page drawn again with everything typed and the question open (so it is asked without the script
+  too; the red error line is not drawn for it: it is a question). A time to come schedules exactly as before (no question); with the
+  answer a time typed is left aside, as "Make final now" always did. Not a magenta button: the head's main button stays the page's one.
+  Not changed: the timed route `/schedule`, "Take the time off", and pack C's `/post` route (drawn only for a credit note's draft now).
+- Tests changed on purpose: every screen test that made an invoice final now by `action=post` with no time now sends
+  `post_now_confirmed=1` (`InvoiceOnePageScreensTest`, `InvoiceScreensTest`, `ArrivalScreensTest`, `DocKeyGridScreensTest`); the "..."
+  button's pin is the new field.
+Tests (red first: `runs/kg_red_first6.log` on `f4358b7`): `DocKeyGridScreensTest::testAFallbackAddKeepsThePostingTimeTyped`,
+`::testHowItsGoodsComeInCarriesThePostingTimeTyped`, `::testMakingItFinalNowIsAlwaysASecondPress` (the question drawn shut, refused
+without the answer by `post` and `post_now` with nothing saved and the question open, the scheduled path unchanged, the "..."'s field, made
+final with it, a new invoice made only when confirmed); the node harness section 6b (the question opened, Cancel, Esc, a double press, a
+time typed shuts it, the answer waits for a save, the answer and the "..."'s send the field, "How its goods come in" carries the time once
+and is stopped half typed; the harness DOM learned `form="id"`).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,

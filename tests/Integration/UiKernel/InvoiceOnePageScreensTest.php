@@ -329,7 +329,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(2, self::invoices());
         // "Save and make final" with words left in the item box: refused (as the order's Confirm), nothing made.
-        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => $sid, 'invoice_number' => 'ONE-2', 'q' => '5012345000127', 'action' => 'post']
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => $sid, 'invoice_number' => 'ONE-2', 'q' => '5012345000127', 'action' => 'post', 'post_now_confirmed' => '1']
             + self::newForm($web->get('/ui/purchasing/invoices/new')));
         self::assertSame(422, $r->status, $r->describe());
         self::assertStringContainsString(Words::say('INVOICE_ERROR', 'scan_pending', '5012345000127'), $r->text());
@@ -338,7 +338,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         // date, no totals): the Codex review of 6418b15, finding 1: the save is its own transaction and the posting the unchanged one after
         // it, so the draft is kept (never a half-final invoice) and the page says it was saved, not made final, and why.
         $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => $sid, 'invoice_number' => 'ONE-2', 'charge_amount' => '5.00', 'charge_description' => 'Carriage',
-            'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+            'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
         self::assertSame(422, $r->status, $r->describe());
         self::assertStringContainsString((string) strstr(Words::PI_ONE['not_final'], '%s', true), $r->text());
         self::assertStringContainsString(Words::INVOICE_ERROR['totals_required'], $r->text());
@@ -349,12 +349,12 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame('ONE-2', self::draftForm($r, $kept)['invoice_number'], 'the page is the draft\'s');
         // On the draft the edits are saved even when making it final is refused; then made final.
         $f = self::draftForm($r, $kept);
-        $r = $web->post("/ui/purchasing/invoices/{$kept}/lines", ['a_1' => '6.00', 'action' => 'post'] + $f);
+        $r = $web->post("/ui/purchasing/invoices/{$kept}/lines", ['a_1' => '6.00', 'action' => 'post', 'post_now_confirmed' => '1'] + $f);
         self::assertSame(422, $r->status, $r->describe());
         self::assertSame('6.00', (string) self::$db->value('SELECT CAST(amount AS DECIMAL(14,2)) FROM document_line WHERE document_id = ?', [$kept]), 'saved');
         $f = self::draftForm($r, $kept);
         $r = $web->post("/ui/purchasing/invoices/{$kept}/lines", ['invoice_date' => gmdate('Y-m-d', time() - 86400), 'net_total' => '6.00', 'vat_total' => '1.20',
-            'action' => 'post'] + $f);
+            'action' => 'post', 'post_now_confirmed' => '1'] + $f);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [$kept]));
     }
@@ -369,7 +369,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $s = $this->supplier('Twice Invoices Ltd');
         $web = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'TWICE-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
-            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
+            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
         $a = $web->post('/ui/purchasing/invoices', $send);
         self::assertSame(303, $a->status, $a->describe());
         $b = $web->post('/ui/purchasing/invoices', $send);
@@ -382,7 +382,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             $web->follow($b)->text());
 
         $before = (int) self::$db->value('SELECT COUNT(*) FROM stored_file');
-        $r = $web->postMultipart('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'TWICE-2', 'charge_amount' => '5.00', 'action' => 'post']
+        $r = $web->postMultipart('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'TWICE-2', 'charge_amount' => '5.00', 'action' => 'post', 'post_now_confirmed' => '1']
             + self::newForm($web->get('/ui/purchasing/invoices/new')), ['file' => ['path' => $this->pdf(), 'name' => 'paper.pdf']]);
         self::assertSame(422, $r->status, $r->describe());
         $kept = (int) self::$db->value("SELECT id FROM document WHERE doc_type = 'SINV' AND external_ref = 'TWICE-2'");
@@ -412,7 +412,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::PI_ONE['too_many'], $page->text());
         $f = self::draftForm($page, $d->id);
         self::assertLessThan(\CW\Ui\UiRequest::maxInputVars(), count($f) + 5, 'the form fits');
-        $r = $web->post("/ui/purchasing/invoices/{$d->id}/lines", ['net_total' => number_format($n, 2, '.', ''), 'vat_total' => '0.00', 'action' => 'post'] + $f);
+        $r = $web->post("/ui/purchasing/invoices/{$d->id}/lines", ['net_total' => number_format($n, 2, '.', ''), 'vat_total' => '0.00', 'action' => 'post', 'post_now_confirmed' => '1'] + $f);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(['posted', $n], [self::$db->value('SELECT status FROM document WHERE id = ?', [$d->id]),
             (int) self::$db->value('SELECT COUNT(*) FROM sinv_line WHERE document_id = ?', [$d->id])]);
@@ -680,7 +680,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $f = self::draftForm($ed, $id);
         self::assertSame((new \DateTimeImmutable($date))->modify('+30 days')->format('Y-m-d'), $f['due_date'], 'from the supplier\'s payment terms');
         self::assertStringContainsString(Words::INVOICE_ERROR['totals_required'], $ed->text(), 'what stops it is said before');
-        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['pp_1' => '4.00', 'net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'post'] + $f);
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['pp_1' => '4.00', 'net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'post', 'post_now_confirmed' => '1'] + $f);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(['posted', (new \DateTimeImmutable($date))->modify('+30 days')->format('Y-m-d')], [self::$db->value('SELECT status FROM document WHERE id = ?', [$id]),
             (string) self::$db->value('SELECT due_date FROM supplier_invoice WHERE document_id = ?', [$id])]);
@@ -829,7 +829,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $s = $this->supplier('Replay Invoices Ltd');
         $web = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'REPLAY-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
-            'charge_description' => 'Carriage', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
+            'charge_description' => 'Carriage', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
         $r = $web->post('/ui/purchasing/invoices', $send);
         self::assertSame(422, $r->status, $r->describe());
         $id = (int) self::$db->value("SELECT id FROM document WHERE doc_type = 'SINV' AND external_ref = 'REPLAY-1'");
@@ -853,7 +853,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $s = $this->supplier('Old Replay Ltd');
         $web = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'REPLAY-OLD', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
-            'charge_description' => 'Carriage', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
+            'charge_description' => 'Carriage', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
         self::assertSame(422, $web->post('/ui/purchasing/invoices', $send)->status);
         $id = (int) self::$db->value("SELECT id FROM document WHERE doc_type = 'SINV' AND external_ref = 'REPLAY-OLD'");
         // As FormOnce stored it before PV21: no version in its result.
@@ -919,7 +919,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             'invoice_date' => gmdate('Y-m-d', time() - 86400), 'action' => 'from'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
         self::assertSame(303, $r->status, $r->describe());
         $id = self::invoiceId($r->location());
-        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['p_1' => '12', 'net_total' => '12.00', 'vat_total' => '0.00', 'action' => 'post']
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['p_1' => '12', 'net_total' => '12.00', 'vat_total' => '0.00', 'action' => 'post', 'post_now_confirmed' => '1']
             + self::draftForm($web->follow($r), $id));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
@@ -963,7 +963,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             for ($no = 1; $no <= $n; $no++) {
                 $prices['pp_' . $no] = '4.00';
             }
-            $r = $web->post("/ui/purchasing/invoices/{$id}/lines", $prices + ['net_total' => number_format(40 * $n, 2, '.', ''), 'vat_total' => '0.00', 'action' => 'post']
+            $r = $web->post("/ui/purchasing/invoices/{$id}/lines", $prices + ['net_total' => number_format(40 * $n, 2, '.', ''), 'vat_total' => '0.00', 'action' => 'post', 'post_now_confirmed' => '1']
                 + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
             self::assertSame(303, $r->status, $r->describe());
             self::assertSame('needs_review', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$id]));
@@ -1049,7 +1049,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'MORE-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
-            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
+            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
         $id = self::invoiceId($desk->post('/ui/purchasing/invoices', $send)->location());
         $ipath = '/ui/purchasing/invoices/' . $id;
         $r = $desk->post($ipath . '/reverse', ['reason_code' => 'other', 'note' => ''] + $desk->get($ipath)->form($ipath . '/reverse'));
@@ -1082,7 +1082,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'HEAD-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
-            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
+            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
         $id = self::invoiceId($desk->post('/ui/purchasing/invoices', $send)->location());
         $inv = $desk->get('/ui/purchasing/invoices/' . $id);
         self::assertSame(1, self::nodes($inv, $bar . '/details[contains(concat(" ", @class, " "), " more ")]'), $inv->describe());
@@ -1164,7 +1164,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $open = $this->order((int) $s['id'], 2);
         $web = $this->signIn($deskUser);
         $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'po:' . $done['po'], 'invoice_number' => 'LEFT-1',
-            'invoice_date' => gmdate('Y-m-d', time() - 86400), 'net_total' => '4.00', 'vat_total' => '0.00', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+            'invoice_date' => gmdate('Y-m-d', time() - 86400), 'net_total' => '4.00', 'vat_total' => '0.00', 'action' => 'post', 'post_now_confirmed' => '1'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [self::invoiceId($r->location())]));
         $page = $web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]);
@@ -1196,7 +1196,7 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'grn:' . $x['grn'], 'invoice_number' => 'LOOK-W1',
             'invoice_date' => gmdate('Y-m-d', time() - 86400), 'action' => 'from'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
         $id = self::invoiceId($r->location());
-        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['pp_1' => '4.00', 'net_total' => '40.00', 'vat_total' => '0.00', 'action' => 'post']
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['pp_1' => '4.00', 'net_total' => '40.00', 'vat_total' => '0.00', 'action' => 'post', 'post_now_confirmed' => '1']
             + self::draftForm($web->follow($r), $id));
         self::assertSame('needs_review', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$id]), $r->describe());
         $view = $web->get('/ui/purchasing/invoices/' . $id);

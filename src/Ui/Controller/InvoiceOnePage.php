@@ -55,6 +55,14 @@ final class InvoiceOnePage
     /** The one form's actions (the default, Enter, is Add: the form's first button). */
     public const ACTIONS = ['add', 'add_charge', 'from', 'save', 'post', 'post_now', 'new_supplier', 'new_item'];
     /**
+     * "Make final now", answered (docs/decisions.md KG36): sent only by the in-page question's "Make final now" and the "..." of a timed draft
+     * (pi_final_ask, pi_head_more), each a button of this name with the value 1 (and no `action`: it is the post). A "make final" without it
+     * (the main button with both posting boxes empty, an old post_now) is refused and asked in the page: never final now by one press.
+     */
+    public const CONFIRM = 'post_now_confirmed';
+    /** The posting date, time and clock choice typed in the form (KG33): kept through every step that does not set them (KG35, KG36). */
+    public const POSTING = ['submit_date', 'submit_time', 'submit_clock'];
+    /**
      * The one form's fields outside its line rows, with room to spare (csrf, version, line_count, form_key, the button pressed, the supplier and
      * the three of "+ Add new supplier", 4 header fields, the due date drawn, "From", the item box's 5, the 7 of "+ Add new item", the charge's 3,
      * the note, the file's kind, the two totals, a row's remove or a choice: 38). A line row sends 2 (the Codex review of 6418b15, finding 3).
@@ -269,13 +277,14 @@ final class InvoiceOnePage
                 return self::draftPage($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409),
                     // The posting date, time and clock typed are kept too (the Codex re-check of 48dc75b, finding 2): a retry never
                     // finalises now for want of the time.
-                    ['typed' => array_intersect_key($typed, [DocGrid::FIELD => 1, 'submit_date' => 1, 'submit_time' => 1, 'submit_clock' => 1, 'submit_at' => 1])]);
+                    ['typed' => array_intersect_key($typed, array_flip([DocGrid::FIELD, ...self::POSTING, 'submit_at']))]);
             }
             return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys),
                 'gridBadText' => InvoicesController::plain($e)]);
         }
-        // An Add that found several items or none saved the rest of the form; the "+ Add new" form was not saved: it comes back as typed.
-        $unsaved = ['typed' => array_intersect_key($typed, array_flip(self::UNSAVED))];
+        // An Add that found several items or none saved the rest of the form; the "+ Add new" form was not saved: it comes back as typed, and
+        // so do the posting date, time and clock typed (never set by an Add: the Codex re-check of f4358b7, finding 1; KG36).
+        $unsaved = ['typed' => array_intersect_key($typed, array_flip([...self::UNSAVED, ...self::POSTING]))];
         if ($res['status'] === 'choices') {
             return self::draftPage($ctx, $id, 200, null, ['choices' => $res['choices'], 'q' => $ask['q'], 'packs' => (string) max(1, $ask['packs']),
                 'price' => (string) ($req->field('price') ?? '')] + $unsaved);
@@ -333,17 +342,22 @@ final class InvoiceOnePage
     /**
      * The posting time sent with "Save and make final" (docs/decisions.md KG32; the Codex review of 04421ad, findings 1 and 2): any time typed
      * goes through the timed route's rules (a time gone or one that does not happen is refused under the field, nothing saved), never "make
-     * final now"; none typed, or "Make final now" (post_now): null, made final now as before.
+     * final now". "Make final now" answered (`post_now_confirmed=1`: the in-page question's or the "..."'s): null, made final now, a time
+     * typed left aside. None typed and not answered (KG36): refused before anything is read or saved (422 confirm_final_now), the page drawn
+     * again with the question open and everything typed kept, so a time lost by any step is never "final now" by one press.
      *
      * @param array<string, mixed> $ask
      */
     private static function timed(UiRequest $req, array $ask): ?\DateTimeImmutable
     {
-        if ($ask['action'] !== 'post' || $req->field('action') === 'post_now') {
+        if ($ask['action'] !== 'post' || $ask['now']) {
             return null;
         }
         $at = InvoicesController::postingMoment($req);
-        if ($at !== null && $at <= new \DateTimeImmutable('now')) {
+        if ($at === null) {
+            throw new CwException('confirm_final_now', Words::DOC_GRID['final_ask'], 422, ['field' => 'submit_date']);
+        }
+        if ($at <= new \DateTimeImmutable('now')) {
             // Before anything is applied or a file stored (the Codex re-check of 48dc75b, finding 5); the service checks it again when it sets it.
             throw new CwException('bad_submit_at', Words::ARRIVAL_ERROR['bad_submit_at'], 422, ['field' => 'submit_date']);
         }
@@ -389,11 +403,14 @@ final class InvoiceOnePage
         return count(\CW\Arrivals\UkTime::moments($typed)) > 1 ? ['typed' => $typed, 'time' => $kept['time'], 'chosen' => $chosen] : null;
     }
 
-    /** @return array<string, string> the posting date, time and clock the form sent (empty ones left out): what after() carries (KG35) */
-    private static function postingCarried(UiRequest $req): array
+    /**
+     * @return array<string, string> the posting date, time and clock the form sent (empty ones left out): what after() carries (KG35), and
+     *     "How its goods come in" (InvoicesController::receiving, KG36)
+     */
+    public static function postingCarried(UiRequest $req): array
     {
         $out = [];
-        foreach (['submit_date', 'submit_time', 'submit_clock'] as $k) {
+        foreach (self::POSTING as $k) {
             $v = trim((string) ($req->field($k) ?? ''));
             if ($v !== '') {
                 $out[$k] = mb_substr($v, 0, 16);
@@ -563,14 +580,19 @@ final class InvoiceOnePage
      * scan text), the packs and price typed with it, the charge, "From" (`grn:<id>` or `po:<id>`, applied with any action but "+ Add new
      * supplier"), the row removed. A "+ Add new" form is sent by its own button only (PX7).
      *
+     * `now`: "Make final now" answered (CONFIRM; KG36): a post made final now, the time typed left aside. The question's and the "..."'s
+     * button sends it with no `action` (a button sends one field): read as the post.
+     *
      * @return array{action: string, q: string, packs: int, price: string, si: ?int, sku: ?int, source: ?array{0: string, 1: int}, remove: ?int,
-     *     charge: array{kind: string, amount: string, description: string}}
+     *     charge: array{kind: string, amount: string, description: string}, now: bool}
      */
     private static function asked(UiRequest $req): array
     {
-        $action = $req->field('action') ?? 'add';
+        $now = $req->field(self::CONFIRM) === '1';
+        $action = $req->field('action') ?? ($now ? 'post' : 'add');
         $action = in_array($action, self::ACTIONS, true) ? $action : 'add';
-        $action = $action === 'post_now' ? 'post' : $action; // "Make final now" (the "..." of a timed draft): a post that ignores the time typed
+        // An old "Make final now" (post_now, before KG36): a post; made final now only with the answer, else asked like the main button.
+        $action = $action === 'post_now' ? 'post' : $action;
         $q = trim($req->field('q') ?? '');
         $packsTyped = trim($req->field('packs') ?? '');
         $packs = $packsTyped === '' ? 1 : (PoLinesFile::wholeNumber($packsTyped) ?? 0);
@@ -593,7 +615,8 @@ final class InvoiceOnePage
         return ['action' => $action, 'q' => $q, 'packs' => $packs, 'price' => trim($req->field('price') ?? ''), 'si' => $si, 'sku' => $sku, 'source' => $source,
             'remove' => $remove,
             'charge' => ['kind' => (string) ($req->field('charge_kind') ?? ''), 'amount' => trim($req->field('charge_amount') ?? ''),
-                'description' => trim($req->field('charge_description') ?? '')]];
+                'description' => trim($req->field('charge_description') ?? '')],
+            'now' => $now && $action === 'post'];
     }
 
     /**
@@ -834,7 +857,7 @@ final class InvoiceOnePage
         $typed = is_array($extra['typed'] ?? null) ? $extra['typed'] : [];
         // The posting date, time and clock carried by the address after a step that did not set them (after(), KG35): the page shows them.
         if (!isset($typed['submit_date']) && !isset($typed['submit_time'])) {
-            foreach (['submit_date', 'submit_time', 'submit_clock'] as $k) {
+            foreach (self::POSTING as $k) {
                 $v = $ctx->req->param($k);
                 if ($v !== null) {
                     $typed[$k] = mb_substr($v, 0, 16);

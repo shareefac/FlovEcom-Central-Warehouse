@@ -3915,4 +3915,8 @@ form.kg-doc fieldset:is(.doc-grid, .kg-posting) label { flex: 0 0 auto; }
 table.kg-grid td.kg-stock, table.kg-view td.kg-stock { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.kg-grid th.c-stock, table.kg-view th.c-stock { width: 5.5rem; }
 table.kg-grid td.kg-stock .kg-coming, table.kg-view td.kg-stock .kg-coming { display: block; color: var(--ink-muted); font-size: 11px; line-height: 14px; }
+/* "Make it final now?" (KG36): the supplier question's look (.kg-confirm), at the top of the editor's form, right under the head's main
+   button; its two answers 44 px high on a phone. */
+form.kg-doc > .kg-final-ask { margin: 16px 0 0; }
+@media (max-width: 699.98px), (pointer: coarse) { .kg-final-ask .btn { min-height: 44px; } }
 /* ==== end kg ====================================================================================================================== */
