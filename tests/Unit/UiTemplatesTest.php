@@ -1936,8 +1936,8 @@ final class UiTemplatesTest extends TestCase
             'meta: ', "\$e(\$factLine)"] as $part) {
             self::assertStringContainsString($part, $order, "the order's page: {$part}");
         }
-        // Five line columns after the No. column of the standard grid (docs/decisions.md KG10; was five without it).
-        self::assertSame(6, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines kg-view">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'the No. column and five line columns');
+        // Six line columns after the No. column of the standard grid (docs/decisions.md KG10, KG34: the item's current stock after it).
+        self::assertSame(7, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines kg-view">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'the No. column and six line columns');
         self::assertStringNotContainsString('doc-progress', $order, 'the steps, not the figures strip');
         foreach (['lines.xlsx', 'lines.csv', "'/ui/documents/' . \$doc->id"] as $link) {
             self::assertStringContainsString($link, $t['po_bar.php'], "under More: {$link}");

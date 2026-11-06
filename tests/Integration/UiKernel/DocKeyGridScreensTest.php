@@ -403,8 +403,8 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         // The saved order: a No. column first, the code beside the name, the rest as before.
         $this->pos()->approve(Caller::staff($buyer['id']), $d->id, (new Documents(self::$db, DocumentHandlers::all(self::$db)))->get($d->id)->version);
         $view = $web->get("/ui/purchasing/orders/{$d->id}");
-        self::assertSame([Words::DOC_GRID['no'], Words::ORDER['col_item'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'],
-            Words::ORDER['col_line_total']], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'));
+        self::assertSame([Words::DOC_GRID['no'], Words::ORDER['col_item'], Words::DOC_GRID['stock'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'],
+            Words::ORDER['col_line_total']], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 'the Stock column after the item (KG34)');
         self::assertSame(['1'], self::texts($view, '//table[contains(@class, "doc-lines")]/tbody/tr/td[contains(@class, "c-no")]'));
         self::assertSame([sprintf('CW-%06d', $pod)], self::texts($view, '//table[contains(@class, "doc-lines")]/tbody/tr/th//*[contains(@class, "kg-code")]'));
     }
@@ -521,8 +521,8 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $web = $this->signIn($desk);
         $page = $web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]);
         $grid = '//form[contains(@class, "pi-editor")]//table[@data-kg-grid]';
-        self::assertSame([Words::DOC_GRID['no'], Words::PI_ONE['item'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
-            array_slice(self::texts($page, $grid . '/thead/tr/th'), 0, 5));
+        self::assertSame([Words::DOC_GRID['no'], Words::PI_ONE['item'], Words::DOC_GRID['stock'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
+            array_slice(self::texts($page, $grid . '/thead/tr/th'), 0, 6), 'the Stock column after the item (KG34)');
         self::assertSame(1, self::nodes($page, $grid . '/tbody/tr[last()][@data-kg-empty]//input[@name="q"]'));
         self::assertSame(1, self::nodes($page, '//p[contains(@class, "kg-keys")]'));
         self::assertSame(1, self::nodes($page, '//form[@id="pi-form"][@data-kg-editor="pi:new"]'));
@@ -880,5 +880,65 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $r = $bw->post($path . '/lines', ['csrf' => $this->token($bw), 'supplier_id' => (string) $a['id'], 'action' => 'save', 'form_key' => str_repeat('c3', 16)] + $f);
         self::assertSame(403, $r->status, self::why($r));
         self::assertSame((int) $b['id'], (int) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]));
+    }
+
+    /**
+     * Each line's item's current stock (the owner, 6 Nov 2026: "in purchase order and purchase invoice need to show current item stock";
+     * KG34): a Stock column after the item on the order's and the invoice's editor and the saved order, on hand in the sellable warehouses
+     * with what is on its way under it, 0 as 0; the item box's choices carry it (data-stock, data-coming, "In stock 14").
+     */
+    public function testEachLineShowsItsItemsCurrentStock(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $bid = $buyer['id'];
+        $s = $this->supplier('Grid Stock Ltd');
+        $pod = $this->dryItem('Stock shown pod');
+        $none = self::makeSku('Stock shown none');
+        // Its stock as CW books it (the ledger's invariants hold): 14 in by Goods in, 12 on their way on a final invoice (count on arrival).
+        $this->book('goods_in', $pod, 14);
+        $desk = $this->uiUser('purchasing_desk');
+        $si = $this->invoicesService();
+        $on = $si->createDraft(Caller::staff($desk['id']), 'invoice', (int) $s['id'], ['invoice_number' => 'STK-WAY', 'invoice_date' => gmdate('Y-m-d', time() - 86400)]);
+        $on = $si->saveLines(Caller::staff($desk['id']), $on->id, $on->version, [$si->goodsLine((int) $s['id'], 12, '1.00', $pod)]);
+        $on = $si->saveHeader(Caller::staff($desk['id']), $on->id, $on->version, ['net_total' => '12.00', 'vat_total' => '0.00']);
+        $si->submit(Caller::staff($desk['id']), $on->id, $on->version);
+        self::assertSame([14, 12], [(int) self::$db->value('SELECT SUM(b.on_hand) FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.is_sellable = 1 WHERE b.sku_id = ?', [$pod]),
+            (int) self::$db->value('SELECT SUM(b.incoming) FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.is_sellable = 1 WHERE b.sku_id = ?', [$pod])], 'the fixture');
+        $siPod = $this->pack($bid, (int) $s['id'], $pod, 1, 'STK-1', '1.00');
+        $siNone = $this->pack($bid, (int) $s['id'], $none, 1, 'STK-2', '2.00');
+        $d = $this->pos()->createDraft(Caller::staff($bid), (int) $s['id'], []);
+        $d = $this->pos()->saveDraft(Caller::staff($bid), $d->id, $d->version, [], [['supplier_item_id' => (int) $siPod['id'], 'packs' => 1],
+            ['supplier_item_id' => (int) $siNone['id'], 'packs' => 1]]);
+        $web = $this->signIn($buyer);
+        $ed = $web->get("/ui/purchasing/orders/{$d->id}");
+        $grid = '//table[@data-kg-grid]';
+        self::assertSame([Words::ORDER['product'], Words::DOC_GRID['stock']], array_slice(self::texts($ed, $grid . '/thead/tr/th'), 1, 2), 'Stock right after the item');
+        self::assertSame(['14' . Words::say('DOC_GRID', 'coming', '12'), '0'], self::texts($ed, $grid . '/tbody/tr[@data-kg-line]/td[@data-kg-stock]'), 'on hand, what is coming under it; 0 as 0');
+        self::assertSame(1, self::nodes($ed, $grid . '/tbody/tr[@data-kg-line="1"][@data-stock="14"][@data-coming="12"]'));
+        self::assertSame(1, self::nodes($ed, $grid . '/tbody/tr[@data-kg-empty]/td[@colspan="4"]'), 'the empty line\'s item box over Stock too');
+        // The item box's choices.
+        $frag = $web->get('/ui/purchasing/orders/products', ['supplier' => (string) $s['id'], 'q' => 'Stock shown pod']);
+        $xp = new \DOMXPath($frag->dom());
+        self::assertSame(['14', '12'], [(string) $xp->evaluate('string(//li[@data-si="' . $siPod['id'] . '"]/@data-stock)'),
+            (string) $xp->evaluate('string(//li[@data-si="' . $siPod['id'] . '"]/@data-coming)')]);
+        self::assertStringContainsString(Words::say('DOC_GRID', 'in_stock', '14'), (string) $xp->evaluate('string(//li[@data-si="' . $siPod['id'] . '"]/span[@class="sm-opt-meta"])'));
+        // A new line drawn again after a refusal carries its stock too.
+        $f = $ed->form('/lines');
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['action' => 'save', 'line_1_packs' => 'x', DocGrid::FIELD => self::grid([['si' => (int) $siPod['id'], 'q' => '1', 'p' => '1.00']])] + $f);
+        self::assertSame(422, $r->status, self::why($r));
+        self::assertSame(['14' . Words::say('DOC_GRID', 'coming', '12')], self::texts($r, $grid . '/tbody/tr[@data-kg-new]/td[@data-kg-stock]'));
+        // The saved order.
+        $this->pos()->approve(Caller::staff($bid), $d->id, (new Documents(self::$db, DocumentHandlers::all(self::$db)))->get($d->id)->version);
+        $view = $web->get("/ui/purchasing/orders/{$d->id}");
+        self::assertSame(['14' . Words::say('DOC_GRID', 'coming', '12'), '0'], self::texts($view, '//table[contains(@class, "kg-view")]/tbody/tr/td[@data-kg-stock]'));
+        // The invoice's editor and its item box.
+        $doc = $si->createDraft(Caller::staff($desk['id']), 'invoice', (int) $s['id'], ['invoice_number' => 'STK-1']);
+        $si->saveLines(Caller::staff($desk['id']), $doc->id, $doc->version, [$si->goodsLine((int) $s['id'], 1, '1.00', $pod)]);
+        $dw = $this->signIn($desk);
+        $inv = $dw->get("/ui/purchasing/invoices/{$doc->id}");
+        self::assertSame([Words::PI_ONE['item'], Words::DOC_GRID['stock']], array_slice(self::texts($inv, $grid . '/thead/tr/th'), 1, 2));
+        self::assertSame(['14' . Words::say('DOC_GRID', 'coming', '12')], self::texts($inv, $grid . '/tbody/tr[@data-kg-line]/td[@data-kg-stock]'));
+        $frag = $dw->get('/ui/purchasing/invoices/products', ['supplier' => (string) $s['id'], 'q' => 'Stock shown pod']);
+        self::assertSame('14', (string) (new \DOMXPath($frag->dom()))->evaluate('string(//li[@data-si="' . $siPod['id'] . '"]/@data-stock)'));
     }
 }

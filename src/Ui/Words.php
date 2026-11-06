@@ -6912,6 +6912,10 @@ final class Words
         'final_now' => 'Make final now',
         // The supplier changed on a draft (the owner, 6 Nov 2026: "also in draft and new easily supplier change option"; KG30)
         'change_ask' => 'Change supplier to %s? Lines stay; prices come from %s where it has them.',
+        // Each line's item's current stock (the owner, 6 Nov 2026: "in purchase order and purchase invoice need to show current item stock"; KG34)
+        'stock' => 'Stock',
+        'coming' => '+%s coming',
+        'in_stock' => 'In stock %s',
         'change_yes' => 'Change',
         'change_keep' => 'Keep %s',
         'unpriced_one' => '1 line has no price from %s yet.',

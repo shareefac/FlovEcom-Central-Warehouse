@@ -120,6 +120,7 @@
       <tr>
         <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
         <th scope="col"><?= $word('ORDER', 'col_item') ?></th>
+        <th scope="col" class="num c-stock"><?= $word('DOC_GRID', 'stock') ?></th>
         <th scope="col" class="num"><?= $word('ORDER', 'col_ordered') ?></th>
         <th scope="col" class="num"><?= $word('ORDER', 'col_received') ?></th>
         <th scope="col" class="num"><?= $word('ORDER', 'col_cost') ?></th>
@@ -132,11 +133,13 @@
         <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"><?= $e($l['line_no']) ?></td>
 <?php if ($l['kind'] === 'charge'): ?>
         <th scope="row" class="c-head"><span class="o-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span> <span class="o-sub"><?= $word('ORDER', 'charge') ?> · <?= $e($l['vat_code']) ?></span></th>
+<?= $partial('doc_stock', ['st' => null]) ?>
         <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"></td>
         <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"></td>
 <?php else: ?>
 <?php $toCome = in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, (int) $l['qty'] - (int) $l['received_units']) : 0; ?>
         <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span> <span class="o-sub"><?php if (($l['code'] ?? null) !== null && $l['code'] !== ''): ?><?= $e($l['code']) ?> · <?php endif; ?><?= $e($l['pack_label']) ?> · <?= $word('ORDER', 'vat') ?> <?= $e($l['vat_code']) ?></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
+<?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
         <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"><?= $n($l['qty']) ?><?php if ((int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'packs_of', \CW\Ui\Html::int($l['packs']), (string) $l['pack_label']) ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"><span class="po-got<?php if ((int) $l['received_units'] >= (int) $l['qty']): ?> done<?php elseif ((int) $l['received_units'] > 0): ?> part<?php endif; ?>"><?= $n($l['received_units']) ?></span><?php if ($toCome > 0 && (int) $l['received_units'] > 0): ?> <?= $chip('needs', \CW\Ui\Words::say('ORDER', 'to_come_pill', \CW\Ui\Html::int($toCome))) ?><?php endif; ?></td>
 <?php endif; ?>

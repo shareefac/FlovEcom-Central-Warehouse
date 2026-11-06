@@ -147,6 +147,7 @@ $rowNo = 0;
         <tr>
           <th scope="col" class="c-no"><input type="checkbox" class="kg-tick" data-kg-tick-all data-kg-js hidden tabindex="-1" aria-label="<?= $word('DOC_GRID', 'tick_all') ?>"><?= $word('DOC_GRID', 'no') ?></th>
           <th scope="col" class="c-item"><?= $word('PI_ONE', 'item') ?></th>
+          <th scope="col" class="num c-stock"><?= $word('DOC_GRID', 'stock') ?></th>
           <th scope="col" class="num"><?= $word('PI_ONE', 'qty') ?></th>
           <th scope="col" class="num"><?= $word('PI_ONE', 'price') ?></th>
           <th scope="col" class="num"><?= $word('PI_ONE', 'amount') ?></th>
@@ -156,10 +157,11 @@ $rowNo = 0;
       <tbody>
 <?php foreach ($lines as $l): ?>
 <?php $no = (int) $l['line_no']; $gone = $linesFit && isset($grid['removed'][$no]); $bad = $grid['bad'] === 'line:' . $no; if (!$gone) { $rowNo++; } ?>
-        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if ($l['kind'] === 'goods'): ?> data-si="" data-sku="<?= $e($l['sku_id']) ?>" data-u="<?= $e((int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-name="<?= $e($l['name'] ?? '') ?>" data-code="<?= $e($l['code'] ?? '') ?>" data-pack="<?= $e($l['packs_text']) ?>" data-their="<?= $e($l['supplier_code'] ?? '') ?>"<?php endif; ?> data-kg-e2="<?= $e(\CW\Invoices\InvoiceMath::e2((string) ($l['amount'] ?? '0'))) ?>"<?php if ($l['kind'] !== 'goods'): ?> data-kg-charge<?php endif; ?><?php if ($bad): ?> class="kg-bad"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
+        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if ($l['kind'] === 'goods'): ?> data-si="" data-sku="<?= $e($l['sku_id']) ?>" data-u="<?= $e((int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-name="<?= $e($l['name'] ?? '') ?>" data-code="<?= $e($l['code'] ?? '') ?>" data-pack="<?= $e($l['packs_text']) ?>" data-their="<?= $e($l['supplier_code'] ?? '') ?>" data-stock="<?= $e(($stock ?? [])[(int) $l['sku_id']]['on_hand'] ?? '') ?>" data-coming="<?= $e(($stock ?? [])[(int) $l['sku_id']]['coming'] ?? '') ?>"<?php endif; ?> data-kg-e2="<?= $e(\CW\Invoices\InvoiceMath::e2((string) ($l['amount'] ?? '0'))) ?>"<?php if ($l['kind'] !== 'goods'): ?> data-kg-charge<?php endif; ?><?php if ($bad): ?> class="kg-bad"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?php if (!$gone): ?><?= $e($rowNo) ?><?php endif; ?></td>
 <?php if ($l['kind'] === 'goods'): ?>
           <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>" class="kg-name" tabindex="-1"><?= $e($l['name'] ?? '') ?></a> <span class="kg-code"><?= $e($l['code'] ?? '') ?></span><span class="o-sub"><?= $e($l['packs_text']) ?><?php if ($l['supplier_code'] !== null): ?> · <?= $e($l['supplier_code']) ?><?php endif; ?><?php if ($l['grn_number'] !== null): ?> · <?= $say('INVOICES', 'for_delivery', (string) $l['grn_number'], (int) $l['grn_line_no']) ?><?php endif; ?><?php if ($l['po_number'] !== null): ?> · <?= $say('INVOICES', 'for_order', (string) $l['po_number'], (int) $l['po_line_no']) ?><?php endif; ?></span><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
+<?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
 <?php if ($linesFit): ?>
           <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"><input type="text" name="p_<?= $e($no) ?>" value="<?= $e($typedLines['p_' . $no] ?? $l['packs']) ?>" inputmode="numeric" maxlength="7" class="short" autocomplete="off" data-kg-cell="qty" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('PI_ONE', 'line_n', $no) ?>: <?= $word('PI_ONE', 'qty') ?>"></td>
           <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"><input type="text" name="pp_<?= $e($no) ?>" value="<?= $e($typedLines['pp_' . $no] ?? $l['price_text']) ?>" inputmode="decimal" maxlength="16" class="short" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('PI_ONE', 'line_n', $no) ?>: <?= $word('PI_ONE', 'price') ?>"></td>
@@ -174,6 +176,7 @@ $rowNo = 0;
 <?php else: ?>
           <th scope="row" class="c-head c-item"><?= $e($l['description'] ?? '') ?><span class="o-sub"><?= $e($l['kind_word']) ?></span></th>
 <?php endif; ?>
+<?= $partial('doc_stock', ['st' => null]) ?>
           <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"></td>
           <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"></td>
           <td class="num" data-label="<?= $word('PI_ONE', 'amount') ?>"><?php if ($linesFit): ?><input type="text" name="a_<?= $e($no) ?>" value="<?= $e($typedLines['a_' . $no] ?? $l['amount_text']) ?>" inputmode="decimal" maxlength="16" class="short" autocomplete="off" data-kg-cell="amount" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $word('PI_ONE', 'amount') ?>"><?php else: ?><?= $money($l['amount']) ?><?php endif; ?></td>
@@ -191,7 +194,7 @@ $rowNo = 0;
 <?php endforeach; ?>
         <tr class="grp-add po-add-row" data-kg-empty>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?= $e($rowNo + 1) ?></td>
-          <td class="c-item" data-label="">
+          <td class="c-item" colspan="2" data-label="">
             <div class="po-box-field">
               <label for="po-q" class="visually-hidden"><?= $word('PI_ONE', 'item_box') ?></label>
               <input id="po-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autocomplete="off" placeholder="<?= $word('PI_ONE', 'add_line') ?>" aria-keyshortcuts="Control+Enter Meta+Enter Insert" data-po-pick data-options="<?= $e($productsUrl) ?>" data-loading="<?= $word('PI_ONE', 'loading') ?>" data-failed="<?= $word('PI_ONE', 'failed') ?>"<?php if ($canAddItem): ?> data-add="<?= $word('PO_ADD', 'new_item') ?>" data-panel="pi-add-item"<?php else: ?> data-ask="<?= $e($askItem) ?>"<?php endif; ?>>

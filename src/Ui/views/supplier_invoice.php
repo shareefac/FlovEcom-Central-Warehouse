@@ -438,6 +438,7 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
       <tr>
         <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
         <th scope="col"><?= $word('PI_ONE', 'item') ?></th>
+        <th scope="col" class="num c-stock"><?= $word('DOC_GRID', 'stock') ?></th>
         <th scope="col" class="num"><?= $word('PI_ONE', 'qty') ?></th>
         <th scope="col" class="num"><?= $word('PI_ONE', 'price') ?></th>
         <th scope="col" class="num"><?= $word('PI_ONE', 'amount') ?></th>
@@ -452,6 +453,7 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
       <tr>
         <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"><?= $e($l['line_no']) ?></td>
         <th scope="row" class="c-head"><?php if ($l['kind'] === 'goods'): ?><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name'] ?? '') ?></a> <span class="kg-code"><?= $e($l['code'] ?? '') ?></span><?php if ($l['supplier_code'] !== null): ?><span class="o-sub"><?= $e($l['supplier_code']) ?></span><?php endif; ?><?php else: ?><?= $e($l['description'] ?? '') ?><span class="o-sub"><?= $e($l['kind_word']) ?></span><?php endif; ?></th>
+<?= $partial('doc_stock', ['st' => $l['kind'] === 'goods' ? (($stock ?? [])[(int) $l['sku_id']] ?? null) : null]) ?>
         <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"><?php if ($l['packs'] !== null && $l['kind'] === 'goods'): ?><?= $n($l['packs']) ?><span class="o-sub"><?= $e($l['packs_text'] ?? '') ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"><?php if ($l['pack_price'] !== null && $l['kind'] === 'goods'): ?><?= $money($l['pack_price']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('PI_ONE', 'amount') ?>"><?= $money($l['amount']) ?></td>

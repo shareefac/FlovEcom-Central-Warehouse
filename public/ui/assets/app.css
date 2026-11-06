@@ -3910,4 +3910,9 @@ form.kg-doc fieldset:is(.doc-grid, .kg-posting) label { flex: 0 0 auto; }
   table.kg-grid th.c-item > .kg-code { display: inline-block; max-width: 6rem; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
   table.kg-grid th.c-item > .o-sub { white-space: normal; }
 }
+/* Each line's item's current stock (KG34): a narrow read-only figure after the item, what is coming small under it; on a phone a card's row
+   under the item's name. */
+table.kg-grid td.kg-stock, table.kg-view td.kg-stock { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.kg-grid th.c-stock, table.kg-view th.c-stock { width: 5.5rem; }
+table.kg-grid td.kg-stock .kg-coming, table.kg-view td.kg-stock .kg-coming { display: block; color: var(--ink-muted); font-size: 11px; line-height: 14px; }
 /* ==== end kg ====================================================================================================================== */

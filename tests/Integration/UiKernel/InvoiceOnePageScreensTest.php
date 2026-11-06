@@ -218,8 +218,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         // Zoho's "New Bill" as the layout: the header in a grid, the lines table with its headings, the totals, the bar at the bottom.
         self::assertSame(1, self::nodes($page, '//form[@action="/ui/purchasing/invoices"]//fieldset[contains(@class, "doc-grid")]'));
         // The No. column first (the standard grid, docs/decisions.md KG1; was Item first).
-        self::assertSame([Words::DOC_GRID['no'], Words::PI_ONE['item'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
-            array_slice(self::texts($page, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 0, 5));
+        self::assertSame([Words::DOC_GRID['no'], Words::PI_ONE['item'], Words::DOC_GRID['stock'], Words::PI_ONE['qty'], Words::PI_ONE['price'], Words::PI_ONE['amount']],
+            array_slice(self::texts($page, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 0, 6), 'the Stock column after the item (KG34)');
         self::assertSame(1, self::nodes($page, '//table[contains(@class, "doc-lines")]//tr[contains(@class, "grp-add")]//input[@name="q"][@placeholder="' . Words::PI_ONE['add_line'] . '"]'));
         self::assertSame(1, self::nodes($page, '//section[contains(@class, "doc-totals")]//input[@name="net_total"]'));
         self::assertSame(1, self::nodes($page, '//section[contains(@class, "doc-totals")]//input[@name="vat_total"]'));
@@ -1337,8 +1337,8 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame([Words::DOC['party'], Words::ORDER['deliver_to']], self::texts($view, '//div[@class="po-paper-head"]/section/p[@class="doc-label"]'));
         self::assertSame([Words::ORDER['order_date'], Words::ORDER['expected_short'], Words::ORDER['terms'], Words::ORDER['their_ref']],
             self::texts($view, '//div[@class="po-paper-head"]/dl[contains(@class, "po-dates")]/dt'));
-        self::assertSame([Words::DOC_GRID['no'], Words::ORDER['col_item'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'],
-            Words::ORDER['col_line_total']], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 'the No. column first (KG10)');
+        self::assertSame([Words::DOC_GRID['no'], Words::ORDER['col_item'], Words::DOC_GRID['stock'], Words::ORDER['col_ordered'], Words::ORDER['col_received'], Words::ORDER['col_cost'],
+            Words::ORDER['col_line_total']], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'), 'the No. column first (KG10), Stock after the item (KG34)');
         self::assertSame(1, self::nodes($view, '//section[contains(@class, "doc-totals")]'));
         self::assertSame([Words::ORDER['rel_received'], Words::ORDER['rel_invoices']], self::texts($view, '//section[contains(@class, "po-related")]//span[@class="po-rel-text"]'));
         // Related links only to what the person may open (the fix round, docs/decisions.md RD-F2): a buyer reads invoices, not deliveries.

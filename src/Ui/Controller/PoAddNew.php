@@ -171,7 +171,7 @@ final class PoAddNew
             $item = ['supplier_item_id' => (int) $row['id'], 'units_per_pack' => (int) $row['units_per_pack'], 'supplier_code' => $row['supplier_code'],
                 'purchase_unit' => (string) $row['purchase_unit'], 'last_pack_price' => $row['last_pack_price']] + $item;
         }
-        return PurchaseOrdersController::productChoice($item);
+        return PurchaseOrdersController::withStock($ctx->db, [$item], [PurchaseOrdersController::productChoice($item)])[0]; // its stock too (KG34)
     }
 
     /** "3" -> 3 ('' is 1); anything but a whole number of at least 1: 422 bad_number in words. */

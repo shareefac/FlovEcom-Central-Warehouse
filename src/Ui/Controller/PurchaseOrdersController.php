@@ -352,7 +352,7 @@ final class PurchaseOrdersController
         if (mb_strlen($q) >= 2) {
             $r = $this->service($ctx)->resolve($sid, $q);
             $rows = $r['status'] === 'choices' ? $r['choices'] : ($r['status'] === 'found' ? [self::foundRow($ctx->db, $r)] : []);
-            $choices = array_map(self::productChoice(...), $rows);
+            $choices = self::withStock($ctx->db, $rows, array_map(self::productChoice(...), $rows));
         }
         return $ctx->fragment('po_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('PO_ONE', 'none', $q) : '']);
     }
@@ -392,7 +392,33 @@ final class PurchaseOrdersController
             'meta' => implode(' · ', array_filter([(string) $c['sku_code'], (string) ($c['brand'] ?? ''), $supply], static fn (string $v): bool => $v !== '')),
             'si' => $si === null ? '' : (string) $si, 'sku' => $si === null ? (string) $c['sku_id'] : '', 'code' => (string) $c['sku_code'],
             'pack' => self::pack($si === null ? ($upp > 1 ? 'case' : 'each') : (string) $c['purchase_unit'], $upp), 'upp' => (string) $upp,
-            'their' => $si === null ? '' : (string) ($c['supplier_code'] ?? ''), 'price' => $si === null || $last === null ? '' : PoMath::price((string) $last)];
+            'their' => $si === null ? '' : (string) ($c['supplier_code'] ?? ''), 'price' => $si === null || $last === null ? '' : PoMath::price((string) $last),
+            'stock' => '', 'coming' => ''];
+    }
+
+    /**
+     * The choices with their item's current stock (docs/decisions.md KG34): data-stock / data-coming for the line the grid fills, and "In
+     * stock 14" (and "+12 coming") on the choice's second line; one query for all of them (DocGrid::stock). $rows: productChoice()'s input,
+     * in the same order.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<array<string, mixed>> $choices
+     * @return list<array<string, mixed>>
+     */
+    public static function withStock(Db $db, array $rows, array $choices): array
+    {
+        $stock = DocGrid::stock($db, array_map(static fn (array $r): ?int => isset($r['sku_id']) ? (int) $r['sku_id'] : null, $rows));
+        foreach ($choices as $i => $c) {
+            $s = $stock[(int) ($rows[$i]['sku_id'] ?? 0)] ?? null;
+            if ($s === null) {
+                continue;
+            }
+            $choices[$i]['stock'] = (string) $s['on_hand'];
+            $choices[$i]['coming'] = (string) $s['coming'];
+            $choices[$i]['meta'] = implode(' · ', array_filter([(string) $c['meta'], Words::say('DOC_GRID', 'in_stock', Html::int($s['on_hand'])),
+                $s['coming'] > 0 ? Words::say('DOC_GRID', 'coming', Html::int($s['coming'])) : ''], static fn (string $v): bool => $v !== ''));
+        }
+        return $choices;
     }
 
     /** The fields "+ Add new supplier" carries back to the new page (what was typed before it), besides the supplier itself. */
@@ -634,6 +660,7 @@ final class PurchaseOrdersController
             'doc' => null,
             'title' => Words::PO_ONE['title'],
             'lines' => [],
+            'stock' => [],
             'units' => 0,
             'totals' => ['net' => $zero, 'vat' => $zero, 'gross' => $zero, 'by_code' => []],
             'vatLabels' => [],
@@ -1216,6 +1243,7 @@ final class PurchaseOrdersController
             'supplierName' => $supplierName,
             'title' => self::title($doc, $supplierName),
             'lines' => $lines,
+            'stock' => DocGrid::stock($db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
             'units' => $units,
             'totals' => ['net' => PoMath::money($netE2), 'vat' => PoMath::money(PoMath::e2((string) ($po['vat_total'] ?? '0'))),
                 'gross' => PoMath::money(PoMath::e2((string) ($po['gross_total'] ?? '0'))),

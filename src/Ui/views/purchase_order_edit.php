@@ -119,6 +119,7 @@ $rowNo = 0;
         <tr>
           <th scope="col" class="c-no"><input type="checkbox" class="kg-tick" data-kg-tick-all data-kg-js hidden tabindex="-1" aria-label="<?= $word('DOC_GRID', 'tick_all') ?>"><?= $word('DOC_GRID', 'no') ?></th>
           <th scope="col" class="c-item"><?= $word('ORDER', 'product') ?></th>
+          <th scope="col" class="num c-stock"><?= $word('DOC_GRID', 'stock') ?></th>
           <th scope="col"><?= $word('ORDER', 'their_code') ?></th>
           <th scope="col"><?= $word('ORDER', 'pack') ?></th>
           <th scope="col" class="num"><?= $word('ORDER', 'packs') ?></th>
@@ -130,16 +131,18 @@ $rowNo = 0;
       <tbody>
 <?php foreach ($lines as $i => $l): ?>
 <?php $no = $i + 1; $gone = $editable && isset($grid['removed'][$no]); $bad = $grid['bad'] === 'line:' . $no; if (!$gone) { $rowNo++; } ?>
-        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if ($l['kind'] !== 'charge'): ?> data-si="<?= $e($l['supplier_item_id'] ?? '') ?>" data-sku="<?= $e($l['supplier_item_id'] === null ? $l['sku_id'] : '') ?>" data-u="<?= $e($l['supplier_item_id'] === null && (int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-name="<?= $e($l['sku_name']) ?>" data-code="<?= $e($l['sku_code']) ?>" data-pack="<?= $e($l['pack_label']) ?>" data-their="<?= $e($l['code'] ?? '') ?>"<?php endif; ?> data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-kg-vat="<?= $e($l['vat_code']) ?>" data-kg-rate="<?= $e($l['vat_rate']) ?>" data-kg-e2="<?= $e(\CW\PurchaseOrders\PoMath::e2((string) $l['amount'])) ?>"<?php if ($l['kind'] === 'charge'): ?> data-kg-charge<?php endif; ?><?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1) || $bad): ?> class="<?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1)): ?>differs<?php endif; ?><?php if ($bad): ?> kg-bad<?php endif; ?>"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
+        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if ($l['kind'] !== 'charge'): ?> data-si="<?= $e($l['supplier_item_id'] ?? '') ?>" data-sku="<?= $e($l['supplier_item_id'] === null ? $l['sku_id'] : '') ?>" data-u="<?= $e($l['supplier_item_id'] === null && (int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-name="<?= $e($l['sku_name']) ?>" data-code="<?= $e($l['sku_code']) ?>" data-pack="<?= $e($l['pack_label']) ?>" data-their="<?= $e($l['code'] ?? '') ?>" data-stock="<?= $e(($stock ?? [])[(int) $l['sku_id']]['on_hand'] ?? '') ?>" data-coming="<?= $e(($stock ?? [])[(int) $l['sku_id']]['coming'] ?? '') ?>"<?php endif; ?> data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-kg-vat="<?= $e($l['vat_code']) ?>" data-kg-rate="<?= $e($l['vat_rate']) ?>" data-kg-e2="<?= $e(\CW\PurchaseOrders\PoMath::e2((string) $l['amount'])) ?>"<?php if ($l['kind'] === 'charge'): ?> data-kg-charge<?php endif; ?><?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1) || $bad): ?> class="<?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1)): ?>differs<?php endif; ?><?php if ($bad): ?> kg-bad<?php endif; ?>"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?php if (!$gone): ?><?= $e($rowNo) ?><?php endif; ?></td>
 <?php if ($l['kind'] === 'charge'): ?>
           <th scope="row" class="c-head c-item"><span class="kg-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span><?php if ($editable): ?><input type="hidden" name="line_<?= $e($no) ?>_packs" value="1"><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
+<?= $partial('doc_stock', ['st' => null]) ?>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"></td>
           <td data-label="<?= $word('ORDER', 'pack') ?>"></td>
           <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"></td>
           <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
 <?php else: ?>
           <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>" class="kg-name" tabindex="-1"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span><?php if ($l['merged_into_sku_id'] !== null): ?> <span class="tag blocked"><?= $word('ORDER', 'replaced') ?></span><?php elseif ($l['si_active'] !== null && (int) $l['si_active'] !== 1): ?> <span class="tag needs"><?= $word('ORDER', 'switched_off') ?></span><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
+<?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"><?= $e($l['code']) ?></td>
           <td data-label="<?= $word('ORDER', 'pack') ?>"><?php if ($l['supplier_item_id'] === null && $editable): ?><label><?= $word('ORDER', 'items_per_pack') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short" data-kg-cell="upp"></label><?php else: ?><?= $e($l['pack_label']) ?><?php endif; ?></td>
           <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"><?php if ($editable): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" data-kg-cell="qty" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'packs') ?>"><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
@@ -159,7 +162,7 @@ $rowNo = 0;
 <?php endforeach; ?>
         <tr class="grp-add po-add-row" data-kg-empty>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?= $e($rowNo + 1) ?></td>
-          <td class="c-item" colspan="3" data-label="">
+          <td class="c-item" colspan="4" data-label="">
             <div class="po-box-field">
               <label for="po-q" class="visually-hidden"><?= $word('PO_ONE', 'product_box') ?></label>
               <input id="po-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autocomplete="off" placeholder="<?= $word('PO_ONE', 'add_product') ?>"<?php if (!$isNew): ?> autofocus<?php endif; ?> aria-keyshortcuts="Control+Enter Meta+Enter Insert" data-po-pick data-options="<?= $e($productsUrl) ?>" data-loading="<?= $word('PO_ONE', 'loading') ?>" data-failed="<?= $word('PO_ONE', 'failed') ?>"<?php if ($canAddItem): ?> data-add="<?= $word('PO_ADD', 'new_item') ?>" data-panel="po-add-item"<?php else: ?> data-ask="<?= $e($askItem) ?>"<?php endif; ?>>

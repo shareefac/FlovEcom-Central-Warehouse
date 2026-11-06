@@ -104,7 +104,7 @@ final class InvoiceOnePage
         if (mb_strlen($q) >= 2) {
             $r = (new PurchaseOrders($ctx->db, $ctx->documents(), $ctx->settings()))->resolve($sid, $q);
             $rows = $r['status'] === 'choices' ? $r['choices'] : ($r['status'] === 'found' ? [PurchaseOrdersController::foundRow($ctx->db, $r)] : []);
-            $choices = array_map(PurchaseOrdersController::productChoice(...), $rows);
+            $choices = PurchaseOrdersController::withStock($ctx->db, $rows, array_map(PurchaseOrdersController::productChoice(...), $rows));
         }
         return $ctx->fragment('po_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('PO_ONE', 'none', $q) : '']);
     }
@@ -911,6 +911,7 @@ final class InvoiceOnePage
             'chargeOpen' => $text('charge_amount') !== '' || $text('charge_description') !== '',
             'chargeKinds' => array_intersect_key(Words::INVOICE_LINE, array_flip(SupplierInvoices::CHARGE_KINDS)),
             'lines' => $lines,
+            'stock' => DocGrid::stock($db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
             'typedLines' => $typed,
             // The lines' grid (docs/decisions.md KG): the new lines typed and the lines removed (drawn again after a refusal), the row a
             // refusal is about, the invoice's limit.

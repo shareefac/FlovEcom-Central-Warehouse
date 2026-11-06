@@ -694,6 +694,7 @@ final class InvoicesController
                 'packs_text' => $l['kind'] === 'goods' ? ReceivingController::packsText((int) $l['packs'], (string) ($l['purchase_unit'] ?? 'each'), (int) $l['units_per_pack']) : null,
                 'match' => $match['lines'][(int) $l['line_no']] ?? null], $lines),
             'sum' => $sum,
+            'stock' => \CW\Ui\DocGrid::stock($ctx->db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
             'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted'),
             'storedMatch' => $isInvoice && $doc->status === 'posted' && $original ? (string) $rec['match_state'] : null,
             'problems' => $editable ? $si->problems($id) : [],

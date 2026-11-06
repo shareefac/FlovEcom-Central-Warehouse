@@ -152,6 +152,11 @@ final class DocGrid
                 $bySku[(int) $r['id']] = $r;
             }
         }
+        $items = [];
+        foreach ($new as $l) {
+            $items[] = $l['si'] !== null ? (isset($bySi[$l['si']]) ? (int) $bySi[$l['si']]['sku_id'] : null) : $l['sku'];
+        }
+        $stock = self::stock($db, $items); // KG34: one query for all the lines
         $out = [];
         foreach ($new as $j => $l) {
             $si = $l['si'] !== null ? ($bySi[$l['si']] ?? null) : null;
@@ -162,9 +167,27 @@ final class DocGrid
                 'p' => $l['p'], 'name' => (string) ($si['name'] ?? $sku['name'] ?? ''), 'code' => (string) ($si['code'] ?? $sku['code'] ?? ''),
                 'item' => $si !== null ? (int) $si['sku_id'] : ($sku !== null ? (int) $sku['id'] : null),
                 'pack' => $si === null ? PurchaseOrdersController::pack($upp > 1 ? 'case' : 'each', $upp) : PurchaseOrdersController::pack((string) $si['purchase_unit'], $upp),
-                'their' => (string) ($si['supplier_code'] ?? ''), 'upp' => $upp, 'amount' => self::amount($l['q'], $l['p'])];
+                'their' => (string) ($si['supplier_code'] ?? ''), 'upp' => $upp, 'amount' => self::amount($l['q'], $l['p']),
+                'stock' => $stock[(int) ($items[$j] ?? 0)] ?? null];
         }
         return $out;
+    }
+
+    /**
+     * The current stock of a document's items (the owner, 6 Nov 2026: "in purchase order and purchase invoice need to show current item
+     * stock"; docs/decisions.md KG34): per item, on hand in the SELLABLE warehouses (the item page's "on hand") and what is on its way to
+     * them (its "incoming"), by the one existing reader (Purchasing::stockOf: one query for all the page's items, chunks of 1,000).
+     *
+     * @param list<int|null> $skuIds
+     * @return array<int, array{on_hand: int, coming: int}>
+     */
+    public static function stock(Db $db, array $skuIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', array_filter($skuIds, static fn (mixed $v): bool => $v !== null)))));
+        if ($ids === []) {
+            return [];
+        }
+        return array_map(static fn (array $s): array => ['on_hand' => (int) $s['on_hand'], 'coming' => (int) $s['incoming']], (new \CW\Purchasing($db))->stockOf($ids));
     }
 
     /** packs x a pack's price, half-up to the penny (PoMath, as both services work a line out), in words; '' when either is not a figure. */

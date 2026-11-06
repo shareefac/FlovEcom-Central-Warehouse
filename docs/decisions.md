@@ -16388,7 +16388,7 @@ saved key it cannot open, and with one it can: its address called through the pu
   Now an error names the HTTP status and ERPNext's exception type only when it is one of Frappe's known names (`ErpApiReader::EXC_TYPES`);
   nothing else of the answer. Test: `testAnErrorNeverCarriesTheAnswersOwnText`.
 
-## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG33)
+## The lines of a document as a standard grid, with the keys of a standard screen (branch `doc-key-grid`, 6 Nov 2026; KG1-KG34)
 
 The owner, 6 Nov 2026: "purchase invoice and sales invoice, purchase order view style need to standard feel, need also key shortcut: item
 new and delete, field switching, all need". The purchase order's and the supplier invoice's new/draft page work like a standard accounting
@@ -16699,6 +16699,18 @@ after Undo, the supplier's name while asked).
 Tests: `DocKeyGridScreensTest::testThePostingTimeIsTheTimedRoute` (half a time, a date that is not one, the time before a line's refusal,
 a conflict keeping the time, "+ Add new supplier" carrying it), `ArrivalScreensTest` (the time kept is the two fields), the node harness
 (the label for half a time, Ctrl+D, the supplier and the lists during a save).
+
+**KG34. Each line's item's current stock** (the owner, 6 Nov 2026: "in purchase order and purchase invoice need to show current item
+stock"; ERPNext's "available qty" on an item row). A read-only "Stock" column right after the item on the order's and the supplier
+invoice's editor and on the saved order and invoice: the item's units ON HAND in the SELLABLE warehouses now (`stock_balance.on_hand`
+summed over `warehouse.is_sellable = 1`: the item page's "on hand", its "shelf" figure), with what is on its way to them small under it
+("+12 coming": `stock_balance.incoming`, the units of final supplier invoices still on their way, the item page's "incoming"); 0 shown as
+0, below 0 as it is; a charge line has none. Read by the one existing reader, `Purchasing::stockOf` (it now also sums `incoming`; the
+reorder list reads only `available`, unchanged): ONE query for all the page's items (`DocGrid::stock`), never the ERP stock feed, no
+writer. The item box's choices carry it (`data-stock`, `data-coming`, and "In stock 14" on their second line: one query for all the
+choices), so a line the script adds shows its stock at once (and fill down copies it); after a save the server's figures replace them.
+On a phone the figure is a row of the line's card, under the item's name. Tests changed for the new column, on purpose: `UiTemplatesTest`
+(the saved order's line columns: seven), `InvoiceOnePageScreensTest` and `DocKeyGridScreensTest` (the columns after the item).
 
 Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `9190115` with the words and the corners already in place):
 `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (7 tests), `UiUnitTest::testTheDocumentLinesAreOneKeyboardGridOnTheOneDropdown`,

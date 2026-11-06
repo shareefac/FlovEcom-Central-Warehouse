@@ -1755,7 +1755,8 @@
       var price = cellIn(tr, 'price');
       return { si: tr.getAttribute('data-si') || '', sku: tr.getAttribute('data-sku') || '', u: tr.getAttribute('data-u') || '',
         upp: tr.getAttribute('data-kg-upp') || '1', name: tr.getAttribute('data-name') || '', code: tr.getAttribute('data-code') || '',
-        pack: tr.getAttribute('data-pack') || '', their: tr.getAttribute('data-their') || '', q: qty ? qty.value : '1', p: price ? price.value : '' };
+        pack: tr.getAttribute('data-pack') || '', their: tr.getAttribute('data-their') || '', q: qty ? qty.value : '1', p: price ? price.value : '',
+        stock: tr.getAttribute('data-stock') || '', coming: tr.getAttribute('data-coming') || '' };
     };
     var sameItem = function (a, b) { return !!a && !!b && (a.si !== '' ? a.si === b.si : (b.si === '' && a.sku === b.sku && (a.u || '1') === (b.u || '1'))); };
     // A line's item, put in its row: its attributes (what the server is sent) and its words (what the person sees: the item box, the CW code,
@@ -1781,6 +1782,28 @@
       put('[data-kg-code]', it.code);
       var their = put('[data-kg-their]', it.their);
       put('[data-kg-pack]', it.pack + (!their && it.their !== '' ? ' · ' + it.their : ''));
+      // The item's current stock (KG34), from the choice (the products route's data-stock / data-coming); a save's answer draws the
+      // server's figures in its place.
+      var stockCell = tr.querySelector('[data-kg-stock]');
+      if (stockCell && it.stock !== undefined) {
+        tr.setAttribute('data-stock', it.stock || '');
+        tr.setAttribute('data-coming', it.coming || '');
+        while (stockCell.firstChild) {
+          stockCell.removeChild(stockCell.firstChild);
+        }
+        var whole = function (v) { return /^-?[0-9]+$/.test(v || '') ? parseInt(v, 10) : null; };
+        var onHand = whole(it.stock);
+        var coming = whole(it.coming);
+        if (onHand !== null) {
+          stockCell.appendChild(document.createTextNode(onHand.toLocaleString('en-GB')));
+          if (coming !== null && coming > 0) {
+            var sub = document.createElement('span');
+            sub.className = 'o-sub kg-coming';
+            sub.textContent = word('coming').replace('%s', coming.toLocaleString('en-GB'));
+            stockCell.appendChild(sub);
+          }
+        }
+      }
     };
     // A line's item box (every box of every line is edited in place, KG22): the item's name in the site's one dropdown, its own list asked
     // of the products route as the empty line's is; a choice is the line's item (a saved line: replaced by a new line in its place, sent
@@ -1807,7 +1830,7 @@
           li.id = list.id + '-' + n++;
           li.setAttribute('role', 'option');
           li.setAttribute('aria-selected', 'false');
-          each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price'], function (name) {
+          each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price', 'data-stock', 'data-coming'], function (name) {
             li.setAttribute(name, o.getAttribute(name) || '');
           });
           var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
@@ -2181,7 +2204,7 @@
     var fromLi = function (li) {
       var a = function (name) { return li.getAttribute(name) || ''; };
       return { si: a('data-si'), sku: a('data-sku'), u: a('data-upp'), upp: a('data-upp') || '1', name: a('data-name') || a('data-label'), code: a('data-code'),
-        pack: a('data-pack'), their: a('data-their'), price: a('data-price') };
+        pack: a('data-pack'), their: a('data-their'), price: a('data-price'), stock: a('data-stock'), coming: a('data-coming') };
     };
     // "+ Add new item" (KG21): the form's fields, sent by the one fetch to the page's new-item route (the item and its pack, never the
     // document; its own FormOnce key), and the item made added as a line (or, opened from a line's item box, put in that line); a refusal
@@ -2879,7 +2902,7 @@
         li.id = list.id + '-' + n++;
         li.setAttribute('role', 'option');
         li.setAttribute('aria-selected', 'false');
-        each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price'], function (name) {
+        each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-price', 'data-stock', 'data-coming'], function (name) {
           li.setAttribute(name, o.getAttribute(name) || '');
         });
         var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
