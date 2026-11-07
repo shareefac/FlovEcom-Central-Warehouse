@@ -4064,9 +4064,11 @@
       goTo(cellIn(u.tr, 'qty') || cells(u.tr)[0] || scan);
     });
     // A new line from what the scan box names: its item in its attributes (what the one field sends), its words, its packs.
-    var addLine = function (it, packs, price) {
+    // $adds: the line adds to a line of the delivery already there (another page's, GW14): it makes no line, so the limit does not stop it (GW19).
+    var addLine = function (it, packs, price, adds) {
       var gone = Array.prototype.filter.call(body.querySelectorAll('tr[data-kg-line]'), function (tr) { return tr.hidden; }).length;
-      if (max > 0 && count - gone + body.querySelectorAll('tr[data-kg-new]').length >= max) { // the delivery's limit (GoodsReceipts::MAX_LINES)
+      var made = Array.prototype.filter.call(body.querySelectorAll('tr[data-kg-new]'), function (tr) { return !tr.hasAttribute('data-gi-adds'); }).length;
+      if (!adds && max > 0 && count - gone + made >= max) { // the delivery's limit (GoodsReceipts::MAX_LINES), counted on the lines the save makes
         giSaid(word('too-many'));
         return null;
       }
@@ -4076,6 +4078,9 @@
       tr.setAttribute('data-u', it.si === '' && it.upp > 1 ? String(it.upp) : '');
       tr.setAttribute('data-kg-upp', String(it.upp));
       tr.setAttribute('data-gi-p', price);
+      if (adds) {
+        tr.setAttribute('data-gi-adds', '1');
+      }
       each(['name', 'code', 'pack', 'their'], function (k) { tr.setAttribute('data-' + k, it[k]); });
       var put = function (sel, text) { var el = tr.querySelector(sel); if (el) { el.textContent = text; } };
       put('[data-kg-name]', it.name);
@@ -4142,6 +4147,10 @@
       if (sending) {
         return; // a save is on its way (hold)
       }
+      if (supplierMoved()) {
+        plainAdd(); // a choice of the saved supplier's while another is chosen on the page: never taken; Add, as before (GW16, GW20)
+        return;
+      }
       var a = function (name) { return li.getAttribute(name) || ''; };
       var it = { si: a('data-si'), sku: a('data-sku'), upp: parseInt(a('data-upp'), 10) || 1, name: a('data-name') || a('data-label'), code: a('data-code'),
         pack: a('data-pack'), their: a('data-their') };
@@ -4158,7 +4167,7 @@
       if (row === null && a('data-line') !== '' && !document.getElementById('line-' + a('data-line'))) {
         // Its line is on another page of this delivery: the chosen item in the one field and a plain save (the server adds it to that line, as
         // Add, and the page after it says so); the search is not sent (GW14).
-        var far = addLine(it, packs, price);
+        var far = addLine(it, packs, price, true);
         if (far) {
           clear();
           send(form.querySelector('button[name="action"][value="save"]'));
@@ -4273,8 +4282,8 @@
           giSaid(scan.getAttribute('data-loading') || '');
           fragment(base + 'q=' + encodeURIComponent(q), '[data-gi-fragment]')
             .then(function (node) {
-              if (mine !== turn) {
-                return;
+              if (mine !== turn || supplierMoved()) {
+                return; // asked before other words, or for the saved supplier while another is chosen now (GW20)
               }
               draw(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
               answered = q;
@@ -4349,6 +4358,18 @@
           }
           timer = window.setTimeout(function () { load(v); }, 300);
         });
+        // Another supplier chosen in the page's box: the list on show and any answer on its way were the saved supplier's; both go (GW20).
+        if (supplierBox) {
+          supplierBox.addEventListener('change', function () {
+            window.clearTimeout(timer);
+            turn++;
+            asked = null;
+            answered = null;
+            waiting = false;
+            draw([]);
+            c.close();
+          });
+        }
         var marked = function () { return c.isOpen() ? list.querySelector('li.is-active[role="option"]:not([aria-disabled="true"])') : null; };
         return { marked: marked, take: function () { var m = marked(); if (m) { c.choose(m); } }, scanned: function (v) { scan.value = v; c.close(); answered = null; asked = null; waiting = true; load(v); } };
       })();

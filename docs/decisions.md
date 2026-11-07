@@ -16962,3 +16962,21 @@ the panel opened again, the prices fold kept open when it was.
 Tests: `GoodsInGridScreensTest::testAReplayedSaveIsItsFirstAnswerWhateverItsChecksWouldSayNow`, `::testANewLineOfALineOnAnotherPageAddsToThatLine`;
 the node harness section 7 (GW11 both ways, GW13, GW14, GW15, GW16, GW17 price and panel, GW18, CW-922 extended). Changed on purpose: the
 harness's "a line of another page" check (a plain save with the item now, GW14).
+
+### The Codex re-check of 764d76b (`runs/gw_codex_recheck1.txt`): GW11-GW15, GW17, GW18 fixed; two MEDIUM left, both reproduced and fixed test-first (branch `gi-key-grid`, third commit, 7 Nov 2026; GW19-GW20)
+
+Shown failing first on `764d76b`: `runs/gw_fix2_red_first.log` (the node harness's 4 new checks: GW19 once, GW20 three ways).
+
+**GW19. The line limit counts the lines a save makes, not the entries sent** (Codex 1: at 2,000 lines, an item whose line is on another
+page was refused in the page, "too many lines", though it adds to that line). In the page, a line that adds to a line of the delivery
+already there (GW14, marked `data-gi-adds`) is not counted and is sent; a new item at the limit is still refused in the page. The server
+already counted the lines after the merge (`normaliseLines` on the merged list: a new line of a line there is saved at the limit, a new item
+past it is refused 422 with nothing saved): `testAtTheLineLimitANewLineOfALineThereAddsToIt` pins it (it passes on `764d76b` too).
+
+**GW20. A choice of the saved supplier's is never taken while another supplier is chosen on the page** (Codex 2, GW16 completed: a list
+asked under supplier A and still on show, or an answer still on its way, became a line after the box was switched to B; Save refused it).
+On a change of the supplier box the scan box's list, what it answered and any answer on its way are dropped (the request counter moves on);
+an answer that comes while the box differs from the saved supplier is never drawn; and every choice, by Enter, Tab or a press, checks
+the box again first: different, it is Add, as before (GW16).
+Tests: the node harness section 8 (GW19 both ways; GW20: a list on show with and without the box's change event, an answer on its way),
+`GoodsInGridScreensTest::testAtTheLineLimitANewLineOfALineThereAddsToIt`.

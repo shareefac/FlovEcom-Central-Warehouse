@@ -470,4 +470,46 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('RECEIPT_ADDED', 'incremented', $far, sprintf('CW-%06d', $skus[$far]) . ' Other page coil ' . $far, 2, '3 items'),
             $web->follow($r)->text());
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex re-check of 764d76b (docs/decisions.md GW19, GW20)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * GW19: the delivery's line limit counts the lines the save makes, not the entries sent: at the limit, a new line of an item whose line is
+     * there already adds to that line (Add's rule) and is saved; a new item is refused, nothing saved. (The server already counted the
+     * lines after the merge; this pins it beside the page's own count.)
+     */
+    public function testAtTheLineLimitANewLineOfALineThereAddsToIt(): void
+    {
+        $desk = $this->uiUser('purchasing_desk');
+        $s = (int) $this->supplier('Line Limit Ltd')['id'];
+        $sku = self::makeSku('Line limit coil');
+        $other = self::makeSku('Line limit other');
+        $lines = [];
+        for ($i = 1; $i <= GoodsReceipts::MAX_LINES; $i++) {
+            $lines[] = ['sku_id' => $sku, 'units_per_pack' => $i, 'packs' => 1]; // one item in 2,000 packs sizes: 2,000 lines
+        }
+        $id = $this->delivery($desk['id'], $s, $lines);
+        $web = $this->signIn($desk);
+        $size = ReceivingController::pageSize(true);
+        $form = ['csrf' => $this->token($web), 'version' => (string) self::docVersion($id), 'page' => 'one', 'line_count' => (string) GoodsReceipts::MAX_LINES,
+            'lines_editable' => '1', 'from' => '1', 'page_count' => (string) $size, 'stamp' => $this->receipts()->deskStamp($id), 'header_present' => '1',
+            'form_key' => str_repeat('b', 32), 'action' => 'save'];
+        for ($n = 1; $n <= $size; $n++) {
+            $form['line_' . $n . '_packs'] = '1';
+        }
+        $far = GoodsReceipts::MAX_LINES - 1;
+        $r = $web->post("/ui/receiving/{$id}/lines", [DocGrid::FIELD => self::grid([['sku' => $sku, 'u' => $far, 'q' => '2', 'p' => '']])] + $form);
+        self::assertSame(303, $r->status, self::why($r));
+        self::assertStringContainsString('notice=incremented', (string) $r->location());
+        self::assertSame([GoodsReceipts::MAX_LINES, 3], [(int) self::$db->value('SELECT COUNT(*) FROM grn_line WHERE document_id = ?', [$id]),
+            (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ? AND line_no = ?', [$id, $far])], 'no new line; 1 + 2 packs on its own line');
+        $v = self::docVersion($id);
+        $form = ['version' => (string) $v, 'stamp' => $this->receipts()->deskStamp($id), 'form_key' => str_repeat('c', 32)] + $form;
+        $no = $web->post("/ui/receiving/{$id}/lines", [DocGrid::FIELD => self::grid([['sku' => $other, 'q' => '1', 'p' => '']])] + $form);
+        self::assertSame(422, $no->status, self::why($no));
+        self::assertSame([$v, GoodsReceipts::MAX_LINES], [self::docVersion($id), (int) self::$db->value('SELECT COUNT(*) FROM grn_line WHERE document_id = ?', [$id])],
+            'a new item past the limit: nothing saved');
+    }
 }
