@@ -964,7 +964,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $this->receipts()->bench(Caller::staff($this->uiUser('goods_in')['id']), $id, self::docVersion($id), [], [1 => ['damaged_units' => '1']]);
         $desk = $this->signIn($deskUser);
         $body = $desk->get("/ui/receiving/{$id}")->body;
-        self::assertStringContainsString('<table class="stack list board doc-lines gi-lines">', $body);
+        self::assertStringContainsString('<table class="stack list board doc-lines gi-lines kg-grid" data-kg-grid', $body); // KG's grid since GW1
         self::assertStringContainsString('<tr class="gi-row needs" id="line-1"', $body, 'a line with a problem: amber edge');
         self::assertStringContainsString('<tr class="gi-row waiting" id="line-2"', $body, 'not checked: grey edge');
         self::assertStringContainsString('<td class="c-status doc-st needs gi-check"', $body);

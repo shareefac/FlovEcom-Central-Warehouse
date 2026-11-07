@@ -18,6 +18,7 @@ use CW\Receiving\ReceiptMath;
 use CW\Receiving\ReceiptPlan;
 use CW\Receiving\SellingModes;
 use CW\Ui\Context;
+use CW\Ui\DocGrid;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -327,6 +328,58 @@ final class ReceivingController
         return $this->page($ctx, $id, 200, null, $notice);
     }
 
+    /**
+     * GET /ui/receiving/{id}/products?q=: the scan box's choices on a delivery's page (docs/decisions.md GW3), a fragment the script draws in
+     * the box's list (data-gi-fragment): what the delivery's Add would add for the words, read only (GoodsReceipts::resolveScan, Add's own
+     * resolution: a barcode's units, a case, this supplier's code, a CW code, a search). Each choice: the item's name and CW code, its pack,
+     * the packs one scan is (data-packs), the line of this delivery it adds to when it is already one (data-line, Add's same-line rule), the
+     * case's words. No price: the save sets it as Add does (goods in never sees one, GV6). Nothing for one letter; words naming nothing: said.
+     */
+    public function choices(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $doc = $ctx->documents()->find($id);
+        if ($doc === null || $doc->docType !== 'GRN' || $doc->reversesId !== null || $doc->status !== 'draft') {
+            return $ctx->error(404, 'unknown_receipt', Words::RECEIPT_ERROR['unknown_receipt']);
+        }
+        $svc = $ctx->goodsReceipts();
+        $q = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
+        $choices = [];
+        $says = '';
+        if (mb_strlen($q) >= 2) {
+            $r = $svc->resolveScan($id, $q);
+            $rows = [];
+            if ($r['status'] === 'found') {
+                $l = $r['line'];
+                $s = $ctx->db->one('SELECT code, name, brand FROM sku WHERE id = ?', [(int) $l['sku_id']]) ?? [];
+                $si = $l['supplier_item_id'] === null ? null : $ctx->db->one('SELECT supplier_code FROM supplier_item WHERE id = ?', [(int) $l['supplier_item_id']]);
+                $rows[] = ['sku_id' => (int) $l['sku_id'], 'sku_code' => (string) ($s['code'] ?? ''), 'name' => (string) ($s['name'] ?? ''), 'brand' => $s['brand'] ?? null,
+                    'supplier_item_id' => $l['supplier_item_id'], 'units_per_pack' => (int) $l['units_per_pack'], 'supplier_code' => $si['supplier_code'] ?? null,
+                    'purchase_unit' => (string) $l['purchase_unit'], 'per_scan' => (int) $r['per_scan'], 'note' => $r['note']];
+            } else {
+                foreach ($r['choices'] as $c) {
+                    $rows[] = $c + ['per_scan' => 1, 'note' => null];
+                }
+                if ($r['status'] === 'choices' && $r['note'] !== null) {
+                    $says = ReceiptWords::one((string) $r['note'], array_column($r['choices'], 'name', 'sku_code'));
+                }
+            }
+            $lines = $svc->lines($id);
+            foreach ($rows as $c) {
+                $choice = PurchaseOrdersController::productChoice($c + ['last_pack_price' => null]);
+                $upp = max(1, (int) ($c['units_per_pack'] ?? 1));
+                $line = ['sku_id' => (int) $c['sku_id'], 'supplier_item_id' => $c['supplier_item_id'] === null ? null : (int) $c['supplier_item_id'], 'units_per_pack' => $upp];
+                [, $at, $status] = GoodsReceipts::merge($lines, $line, 1, null);
+                $choices[] = $choice + ['packs' => (string) max(1, (int) $c['per_scan']), 'line' => $status === 'incremented' ? (string) ($at + 1) : '',
+                    'note' => ($c['note'] ?? null) !== null && $upp > 1 ? Words::say('RECEIPT_ADDED', 'case', $upp) : ''];
+            }
+            if ($choices === []) {
+                $says = Words::say('RECEIPT_ERROR', 'not_found', $q);
+            }
+        }
+        return $ctx->fragment('gi_products', ['choices' => $choices, 'says' => $says]);
+    }
+
     /** "Added line 7: Name, 2 cases of 10 = 20 items at £18.50 a pack." / "Line 1, Name: +5 items (now 4 packs of 5 = 20 items)." */
     private function addedNotice(Context $ctx, int $id, string $kind, int $lineNo, int $unitsAdded, bool $case): ?string
     {
@@ -402,8 +455,15 @@ final class ReceivingController
             return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('RECEIPT_ERROR', 'scan_pending', $q), 422), null, $back);
         }
         $adding = $addSku !== null || $addSi !== null || ($req->field('action') === 'add' && $q !== '');
-        // The keyer's part: the header and the lines (a person who did not key it sends neither; sent anyway, the service refuses it).
-        $deskSave = $editable || $req->field('header_present') === '1';
+        // The lines added in the page (docs/decisions.md GW4): ONE field, `new_lines` (DocGrid's shape); anything else is 400 bad_form, nothing read.
+        try {
+            $new = DocGrid::read($req->field(DocGrid::FIELD), GoodsReceipts::MAX_LINES);
+        } catch (CwException $e) {
+            return $ctx->error(400, $e->errorCode, $e->getMessage());
+        }
+        // The keyer's part: the header and the lines (a person who did not key it sends neither; sent anyway, the service refuses it). New
+        // lines are the keyer's too: sent by anyone else, the service refuses the save (403 not_creator).
+        $deskSave = $editable || $req->field('header_present') === '1' || $new !== [];
         $header = [];
         if ($deskSave) {
             foreach (['invoice_number', 'invoice_date', 'delivery_note', 'received_at', 'backdate_reason', 'note', 'supplier_id', 'po_id'] as $k) {
@@ -451,6 +511,7 @@ final class ReceivingController
         } catch (CwException $e) {
             return $this->page($ctx, $id, $e->httpStatus, $e, null, $back + ['open' => (int) ($e->detail['line'] ?? 0)]);
         }
+        $keys = []; // each line's row on the page, in the order the lines go to the service (DocGrid::rowOf: a refusal on its row)
         $tries = 0;
         while (true) {
             $now = $ctx->documents()->find($id);
@@ -458,27 +519,81 @@ final class ReceivingController
                 return $ctx->error(404, 'unknown_receipt', Words::RECEIPT_ERROR['unknown_receipt']);
             }
             $use = $version;
+            $staleAnswer = null;
             // Someone else's save since this page was drawn (a moved version), or stamps a refused form carried back (GV16): look first.
-            if ($now->status === 'draft' && ($now->version !== $version || $answers !== [] || $checklist['header'] !== [] || ($invoice['touched'] ?? false))) {
-                $stale = $this->stale($ctx, $id, $now, $deskSave, $answers, $checklist, $invoice, $count, $back);
-                if ($stale !== null) {
-                    return $stale;
+            $look = function (Document $now) use ($ctx, $id, $version, $deskSave, $answers, $checklist, $invoice, $count, $back, &$staleAnswer): int {
+                if ($now->status === 'draft' && ($now->version !== $version || $answers !== [] || $checklist['header'] !== [] || ($invoice['touched'] ?? false))) {
+                    $staleAnswer = $this->stale($ctx, $id, $now, $deskSave, $answers, $checklist, $invoice, $count, $back);
+                    if ($staleAnswer !== null) {
+                        throw new CwException('form_stale', 'drawn again', 409);
+                    }
+                    return $now->version;
                 }
-                $use = $now->version;
-            }
+                return $version;
+            };
             try {
-                $result = $ctx->db->transaction(fn (): array => $this->saveAll($ctx, $id, $use, $deskSave, $header, $editable, $count, $from, $to, $answers, $checklist,
-                    $invoice, $files, $adding, $addSi, $addSku, $q, $packs, $price));
+                if ($new === []) {
+                    $use = $look($now);
+                    $result = $ctx->db->transaction(fn (): array => $this->saveAll($ctx, $id, $use, $deskSave, $header, $editable, $count, $from, $to, $answers, $checklist,
+                        $invoice, $files, $adding, $addSi, $addSku, $q, $packs, $price, [], $keys));
+                } else {
+                    // Lines added in the page (docs/decisions.md GW5, as KG5): the save adds them, so it runs through FormOnce as well as the
+                    // version and the stamps: the same form sent again (a double click, the back button, a retry) is answered by its first
+                    // answer and adds nothing twice. Everything of the save is inside it (the look, the save, the check, the files, the Add);
+                    // an Add that finds several items or none leaves nothing saved (the page shows them with every line kept).
+                    $once = FormOnce::run($ctx, 'ui.grn.grid', ['id' => $id] + array_diff_key($req->post, ['csrf' => 1, FormOnce::FIELD => 1]),
+                        function () use ($ctx, $id, $look, $deskSave, $header, $editable, $count, $from, $to, $pageCount, $answers, $checklist, $invoice, $files, $adding,
+                            $addSi, $addSku, $q, $packs, $price, $new, $version, &$keys): OpResult {
+                            $now = $ctx->documents()->get($id);
+                            $use = $look($now);
+                            $res = $this->saveAll($ctx, $id, $use, $deskSave, $header, $editable, $count, $from, $to, $answers, $checklist, $invoice, $files, $adding,
+                                $addSi, $addSku, $q, $packs, $price, $new, $keys);
+                            if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
+                                throw new CwException('grid_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? [],
+                                    'choice_note' => $res['choice_note'] ?? null]);
+                            }
+                            return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'version' => (int) $res['version'], 'same' => $use === $version,
+                                'redirect' => self::savedAddress($id, $res, $ctx->req, $from, $pageCount)]);
+                        });
+                    $result = ['status' => 'once', 'body' => $once->body];
+                }
                 break;
             } catch (CwException $e) {
+                if ($e->errorCode === 'form_stale' && $staleAnswer !== null) {
+                    return $staleAnswer;
+                }
                 if ($e->errorCode === 'version_conflict' && ++$tries < 3) {
                     continue; // changed between the look and the save: look again
                 }
                 if ($e->errorCode === 'version_conflict') {
                     return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['conflict' => true] + $back);
                 }
-                return $this->page($ctx, $id, $e->httpStatus, $e, null, $back + ['open' => (int) ($e->detail['line'] ?? 0)]);
+                if ($e->errorCode === 'grid_choices') {
+                    // Nothing was saved with it (FormOnce rolled the save back): the choices, with everything typed kept (the new lines too).
+                    $choices = is_array($e->detail['choices'] ?? null) ? $e->detail['choices'] : [];
+                    $named = array_column($choices, 'name', 'sku_code');
+                    $note = $e->detail['choice_note'] ?? null;
+                    return $this->page($ctx, $id, 200, null, is_string($note) ? ReceiptWords::one($note, $named) : null, ['choices' => $choices, 'q' => $q,
+                        'packs' => max(1, $packs), 'price' => $price ?? ''] + $back);
+                }
+                if ($e->errorCode === 'grid_not_found') {
+                    return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('RECEIPT_ERROR', 'not_found_kept', $q), 422), null, $back);
+                }
+                // The refusal said on its row (KG6): the row the save named, else the line's place in the list mapped back to its row.
+                $row = DocGrid::rowOf($e, $keys);
+                $open = $row !== null && str_starts_with($row, 'line:') ? (int) substr($row, 5) : ($row === null ? (int) ($e->detail['line'] ?? 0) : 0);
+                return $this->page($ctx, $id, $e->httpStatus, $e, null, $back + ['open' => $open, 'gridBad' => $row]);
             }
+        }
+        if ($result['status'] === 'once') {
+            $body = $result['body'];
+            if ($posting && !($body['same'] ?? false)) {
+                return $this->page($ctx, $id, 409, new CwException('not_booked', Words::RECEIPT_ERROR['saved_not_booked_changed'], 409), null, ['from' => $from, 'ready' => true]);
+            }
+            if ($posting) {
+                return $this->bookIn($ctx, $id, (int) ($body['version'] ?? 0), $from);
+            }
+            return FormOnce::redirect(OpResult::of(303, $body));
         }
         if ($result['status'] === 'choices') {
             // The note names the product by its name (U86): the choices carry it, also when it is not on the delivery yet.
@@ -497,6 +612,17 @@ final class ReceivingController
         if ($posting) {
             return $this->bookIn($ctx, $id, (int) $result['version'], $from);
         }
+        return HtmlResponse::redirect(self::savedAddress($id, $result, $req, $from, $pageCount));
+    }
+
+    /**
+     * Where a save lands (lines()): the delivery with what was done (saved, added, incremented: the line; the checks this save took back),
+     * on the page of lines the person was on (the next one after "Save and show the next lines"), at the line or the scan box.
+     *
+     * @param array<string, mixed> $result saveAll()'s
+     */
+    private static function savedAddress(int $id, array $result, UiRequest $req, int $from, int $pageCount): string
+    {
         $query = ['notice' => $result['status']];
         if (isset($result['line_no'])) {
             $query += ['line' => $result['line_no'], 'u' => $result['units_added'] ?? null, 'x' => ($result['note'] ?? null) !== null ? 'case' : null];
@@ -516,7 +642,7 @@ final class ReceivingController
             $result['checked'] !== [] => '#line-' . max($result['checked']),
             default => '#scan',
         };
-        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, $query) . $anchor);
+        return Html::url('/ui/receiving/' . $id, $query) . $anchor;
     }
 
     /**
@@ -528,12 +654,16 @@ final class ReceivingController
      * @param array{stamp: string, header: array<string, mixed>} $checklist
      * @param array{fields: array<string, string>, touched: bool}|null $invoice
      * @param list<array{path: string, name: string, role: string, note: ?string}> $files
+     * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new the lines added in the page (DocGrid::read)
+     * @param list<string> $keys set here: each line's row on the page ('line:N' a saved line, 'new:J' the J-th new line), in the order of the save
      * @return array<string, mixed> status (saved, added, incremented, choices, not_found), version, checked (the lines whose check was written),
      *   cleared (the lines whose check this save took back), removed (this page's lines removed), and an add's line_no, units_added, note, choices
      */
     private function saveAll(Context $ctx, int $id, int $version, bool $deskSave, array $header, bool $editable, int $count, int $from, int $to, array $answers,
-        array $checklist, ?array $invoice, array $files, bool $adding, ?int $addSi, ?int $addSku, string $q, int $packs, ?string $price): array
+        array $checklist, ?array $invoice, array $files, bool $adding, ?int $addSi, ?int $addSku, string $q, int $packs, ?string $price, array $new = [],
+        array &$keys = []): array
     {
+        $keys = [];
         $svc = $ctx->goodsReceipts();
         $caller = $ctx->caller();
         $current = $svc->lines($id);
@@ -556,10 +686,17 @@ final class ReceivingController
         $removed = 0;
         if ($deskSave) {
             $lines = $editable ? self::editedLines($ctx->req, $current, $count, $from, $to) : $current;
+            $keys = [];
+            foreach ($lines as $l) {
+                $keys[] = 'line:' . (int) $l['line_no'];
+            }
+            [$lines, $keys] = self::withNewLines($svc, $id, $lines, $keys, $new);
             $v = $svc->saveDraft($caller, $id, $v, $header, $lines)->version;
             $map = [];
             foreach ($lines as $i => $l) {
-                $map[(int) $l['line_no']] = $i + 1;
+                if (isset($l['line_no'])) {
+                    $map[(int) $l['line_no']] = $i + 1;
+                }
             }
             foreach ($current as $l) {
                 $removed += $l['line_no'] >= $from && $l['line_no'] <= $to && !isset($map[$l['line_no']]) ? 1 : 0;
@@ -611,6 +748,43 @@ final class ReceivingController
         }
         return $result + ['version' => $v, 'checked' => array_keys(array_filter($bench, static fn (array $b): bool => ($b['checked'] ?? true) !== false)),
             'cleared' => $cleared, 'removed' => $removed];
+    }
+
+    /**
+     * The lines added in the page put in the save (docs/decisions.md GW4), each by today's Add rules (GoodsReceipts::newLine: this supplier's
+     * pack, switched on; an item not joined; GoodsReceipts::merge: the same purchase already a line gets the packs added, as Add does), at
+     * the packs typed (a whole number; 0 leaves it out) and the price typed (none: the save's own, as Add's; a price that is not one is
+     * refused by the save in its words). A refusal names its row ('new:J', KG6). $keys: each line's row, kept in step.
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param list<string> $keys
+     * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new
+     * @return array{0: list<array<string, mixed>>, 1: list<string>}
+     */
+    private static function withNewLines(GoodsReceipts $svc, int $id, array $lines, array $keys, array $new): array
+    {
+        foreach ($new as $j => $n) {
+            $row = 'new:' . ($j + 1);
+            $at = count($lines) + 1;
+            $packs = DocGrid::packs($n['q']);
+            if ($packs === null || $packs > PoMath::MAX_PACKS) {
+                throw new CwException('grid_packs', Words::say('RECEIPT_ERROR', 'grid_packs', $at), 422, ['line' => $at, 'field' => 'packs', 'row' => $row]);
+            }
+            if ($packs === 0) {
+                continue;
+            }
+            try {
+                $line = $svc->newLine($id, $n['si'], $n['sku'], $n['u'] ?? 1);
+            } catch (CwException $e) {
+                throw new CwException($e->errorCode, $e->getMessage(), $e->httpStatus, ['row' => $row] + $e->detail);
+            }
+            [$lines, $i, $status] = GoodsReceipts::merge($lines, $line + ['entry' => 'scan'], $packs, trim($n['p']) === '' ? null : trim($n['p']));
+            if ($status === 'added') {
+                $keys[] = $row;
+            }
+            unset($i);
+        }
+        return [$lines, $keys];
     }
 
     /**
@@ -1366,6 +1540,11 @@ final class ReceivingController
         $arrival = ArrivalsController::receiptBox($ctx, $doc->id, $doc->status);
         $refusedPost = ($extra['ready'] ?? false) || ($error !== null && is_array($error->detail['problems'] ?? null));
         $backdateField = (bool) ($plan['header']['backdated'] ?? false) || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null;
+        // The lines added in the page and not saved yet (a refusal draws them again, every one, with its words on its row: KG6, GW6); the
+        // keyer's only, as Add is. The refusal's row: 'line:N' or 'new:J' (DocGrid::rowOf).
+        $new = $keyer ? DocGrid::read($typed[DocGrid::FIELD] ?? null, GoodsReceipts::MAX_LINES, false) : [];
+        $gridBad = is_string($extra['gridBad'] ?? null) ? (string) $extra['gridBad'] : null;
+        $sentKey = (string) ($typed[FormOnce::FIELD] ?? '');
         return $ctx->page('receipt_edit', $data + [
             'fixes' => $refusedPost && $plan !== null ? self::fixes($plan, $rows, $backdateField, $doc->id) : [],
             'keyer' => $keyer,
@@ -1409,6 +1588,16 @@ final class ReceivingController
             'canCancel' => $keyer || $svc->mayCancel($me->id, $me->roles, $doc->id),
             'arrival' => $arrival,
             'canCopy' => $keyer && $data['po'] !== null,
+            // The grid (docs/decisions.md GW): the new lines typed, drawn again; their one field; the save's FormOnce key (a refused save stored
+            // nothing, so its key is drawn again; a page drawn after a save gets a new one); the row a refusal is about and its words.
+            'newRows' => DocGrid::rows($db, $new),
+            'newJson' => DocGrid::json($new),
+            'formKey' => $keyer ? (preg_match('/^[0-9a-f]{32}$/D', $sentKey) === 1 ? $sentKey : FormOnce::newKey()) : null,
+            'gridBad' => $gridBad,
+            'gridBadText' => $gridBad === null || $error === null ? null : self::plain($error),
+            'maxPacks' => PoMath::MAX_PACKS,
+            'gridKeys' => $keyer ? ['tab', 'updown', 'new', 'del', 'undo', 'save'] : ['tab', 'scan', 'save'],
+            'pageNotice' => $notice, // also the form's (data-gi-notice): a save without reload says it (GW7)
         ], $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
     }
 
@@ -1610,7 +1799,7 @@ final class ReceivingController
         return match (true) {
             // The page's own refusals are made in words already.
             in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required', 'fine_needs_stamp', 'fine_no_stamp', 'not_booked',
-                'too_many_files', 'files_too_big'], true)
+                'too_many_files', 'files_too_big', 'grid_packs'], true)
                 => $e->getMessage(),
             $code === 'version_conflict' && (in_array($e->getMessage(), [Words::RECEIPT_ERROR['version_conflict'], Words::RECEIPT_ERROR['version_conflict_choice']], true)
                 || str_starts_with($e->getMessage(), (string) strstr(Words::RECEIPT_ERROR['version_conflict_bench'], '(', true))) => $e->getMessage(),

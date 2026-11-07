@@ -303,9 +303,11 @@
   // caller shows the page's words for that.
   // Sent (POST, with the form's CSRF token and a FormOnce key in its body; docs/decisions.md KG21, KG24), only two kinds: the lines' grid's
   // "+ Add new item" (its route answers a fragment, data-ni-fragment) and the editor's Save (its own address answers the editor's page,
-  // data-kg-editor: what it gives back is the part of the page around the form, to put in place; a refusal's 409 / 422 is its answer too).
-  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?$/ };
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/' };
+  // data-kg-editor: what it gives back is the part of the page around the form, to put in place; a refusal's 409 / 422 is its answer too):
+  // the order's, the supplier invoice's and a delivery's (docs/decisions.md GW7: its one form, /ui/receiving/<id>/lines). A delivery's scan
+  // box reads its own choices (GW3: data-gi-fragment, /ui/receiving/<id>/products?…).
+  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/(purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?|receiving\/[1-9][0-9]{0,17}\/lines)$/ };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker, body) {
@@ -948,7 +950,12 @@
       return;
     }
     var has = { grid: !!kb.grid, list: kbRows().length > 0, 'new': !!kbPanel.querySelector('a[data-key-new]'), pdf: !!document.querySelector('a[data-key-print]') };
-    each(kbPanel.querySelectorAll('[data-kb-when]'), function (r) { r.hidden = !has[r.getAttribute('data-kb-when')]; });
+    // A grid that names its keys (a delivery's, docs/decisions.md GW2) shows only those of the Lines group.
+    var own = kb.grid && kb.grid.keys ? kb.grid.keys : null;
+    each(kbPanel.querySelectorAll('[data-kb-when]'), function (r) {
+      var when = r.getAttribute('data-kb-when');
+      r.hidden = !has[when] || (when === 'grid' && own !== null && own.indexOf(r.getAttribute('data-kb-key') || '') < 0);
+    });
     each(kbPanel.querySelectorAll('[data-kb-group]'), function (g) { g.hidden = g.querySelector('.kb-row:not([hidden])') === null; });
     kbBack = document.activeElement;
     kbPanel.hidden = false;
@@ -1016,7 +1023,7 @@
     } },
     { id: 'next', test: function (ev, t) { return kbCell(t) && ev.key === 'Enter' && kbIs(ev, false, false, false); }, run: function (ev, t) { kb.grid.step(t, 1); } },
     { id: 'updown', test: function (ev, t) { return kbCell(t) && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && kbIs(ev, false, false, false); },
-      run: function (ev, t) { kb.grid.vertical(t, ev.key === 'ArrowDown' ? 1 : -1); } },
+      run: function (ev, t) { return kb.grid.vertical(t, ev.key === 'ArrowDown' ? 1 : -1); } }, // false: the box's own (a delivery's selects, GW2)
     { id: 'new_line', test: function (ev, t) {
       return kbInGrid(t) && ((ev.key === 'Enter' && kbIs(ev, true, false, false)) || (ev.code === 'KeyN' && kbIs(ev, false, true, false))
         || (ev.key === 'Insert' && kbIs(ev, false, false, false)));
@@ -1028,7 +1035,7 @@
     { id: 'undo_line', test: function (ev, t) {
       return !!kb.grid && kb.grid.canUndo() && ((ev.code === 'KeyU' && kbIs(ev, false, true, false)) || (ev.code === 'KeyZ' && kbIs(ev, true, false, false) && !kbTyping(t)));
     }, run: function () { kb.grid.undo(); } },
-    { id: 'fill_down', test: function (ev, t) { return kbInGrid(t) && ev.code === 'KeyD' && kbIs(ev, true, false, false); }, run: function (ev, t) { kb.grid.fillDown(t); } },
+    { id: 'fill_down', test: function (ev, t) { return kbInGrid(t) && ev.code === 'KeyD' && kbIs(ev, true, false, false); }, run: function (ev, t) { return kb.grid.fillDown(t); } },
     { id: 'add_new', test: function (ev, t) { return kbBox(t) !== null && ev.code === 'KeyC' && kbIs(ev, false, true, false); }, run: function (ev, t) { return kbBox(t).addNew(); } },
     { id: 'save', test: function (ev) { return !!kb.grid && ev.code === 'KeyS' && kbIs(ev, true, false, false); }, run: function () { kb.grid.save(); } },
     { id: 'esc', test: function (ev, t) { return ev.key === 'Escape' && (kbCell(t) || kbBox(t) !== null); }, run: function (ev, t) { t.blur(); } },
@@ -1347,6 +1354,51 @@
       }, 200);
     });
   });
+
+  // What a save without reload says (docs/decisions.md KG24; a delivery's too, GW7): one line at the bottom of the screen, made once.
+  var kgToast = function (text, bad) {
+    var t = document.querySelector('p.toast[data-kg-toast]');
+    if (!t) {
+      t = document.createElement('p');
+      t.setAttribute('data-kg-toast', '1');
+      document.body.appendChild(t);
+    }
+    t.className = bad ? 'toast error' : 'notice toast';
+    t.setAttribute('role', bad ? 'alert' : 'status');
+    t.textContent = text;
+  };
+  // While a save is on its way the form's boxes are read-only (and its lists, files and ticks switched off), so what the answer puts in place
+  // is what was sent, never a later edit lost under it (the Codex review of 04421ad, finding 5): hold(true), then hold(false) with the answer.
+  var kgHold = function (form) {
+    var held = [];
+    var disabledHere = [];
+    return function (on) {
+      kb.busy = on;
+      if (on) {
+        each(form.querySelectorAll('input, textarea, select'), function (el) {
+          if (el.type === 'hidden') {
+            return;
+          }
+          if (el.tagName === 'SELECT' || /^(file|checkbox|radio)$/.test(el.type || '')) {
+            if (!el.disabled) {
+              el.disabled = true;
+              disabledHere.push(el);
+            }
+          } else if (!el.readOnly) {
+            el.readOnly = true;
+            held.push(el);
+          }
+        });
+        form.setAttribute('aria-busy', 'true');
+        return;
+      }
+      each(held, function (el) { el.readOnly = false; });
+      each(disabledHere, function (el) { el.disabled = false; });
+      held = [];
+      disabledHere = [];
+      form.removeAttribute('aria-busy');
+    };
+  };
 
   // The lines of a document as a standard grid (docs/decisions.md KG1-KG26; the owner, 6 Nov 2026: "purchase invoice and sales invoice,
   // purchase order view style need to standard feel, need also key shortcut ...", "make ajax", "save all in ajax; row wise delete option and
@@ -2603,52 +2655,15 @@
       document.dispatchEvent(new window.Event('kg-swapped')); // what lives outside the grid and reads the head (the posting time's button)
       return true;
     };
-    var toast = function (text, bad) {
-      var t = document.querySelector('p.toast[data-kg-toast]');
-      if (!t) {
-        t = document.createElement('p');
-        t.setAttribute('data-kg-toast', '1');
-        document.body.appendChild(t);
-      }
-      t.className = bad ? 'toast error' : 'notice toast';
-      t.setAttribute('role', bad ? 'alert' : 'status');
-      t.textContent = text;
-    };
+    var toast = kgToast;
     var canSend = function () { return !plain && !!window.FormData && !!window.fetch && !!window.DOMParser && !sending; };
     // The save itself: then(ok) after the answer is in place (ok: saved, no refusal).
     // While a save is on its way the page's boxes are read-only (and no line is added or removed): what the answer puts in place is what
     // was sent, never a later edit lost under it (the Codex review of 04421ad, finding 5).
-    var held = [];
     // Boxes are made read-only (the cursor stays); what read-only does not stop (a list, a file, a tick, a choice) is switched off, after
     // the form's data was taken (the Codex re-check of 48dc75b, finding 4). Every change by the script (a choice, fill down, a new item, add
     // several, a removal, Undo, the supplier) waits for the answer too (sending, kb.busy).
-    var disabledHere = [];
-    var hold = function (on) {
-      kb.busy = on;
-      if (on) {
-        each(form.querySelectorAll('input, textarea, select'), function (el) {
-          if (el.type === 'hidden') {
-            return;
-          }
-          if (el.tagName === 'SELECT' || /^(file|checkbox|radio)$/.test(el.type || '')) {
-            if (!el.disabled) {
-              el.disabled = true;
-              disabledHere.push(el);
-            }
-          } else if (!el.readOnly) {
-            el.readOnly = true;
-            held.push(el);
-          }
-        });
-        form.setAttribute('aria-busy', 'true');
-        return;
-      }
-      each(held, function (el) { el.readOnly = false; });
-      each(disabledHere, function (el) { el.disabled = false; });
-      held = [];
-      disabledHere = [];
-      form.removeAttribute('aria-busy');
-    };
+    var hold = kgHold(form);
     var ajaxSave = function (by, then) {
       serialise();
       var data = new window.FormData(form);
@@ -3510,7 +3525,7 @@
 
   // A file input with a size limit: a camera photo larger than the limit is made smaller in the browser (JPEG, at most 2400 px),
   // anything else too large is refused here instead of by the server after the upload (its words: data-too-big, English if none).
-  each(document.querySelectorAll('input[type="file"][data-max-bytes]'), function (input) {
+  var shrinkOnPick = function (input) {
     var max = parseInt(input.getAttribute('data-max-bytes'), 10) || 2097152;
     input.addEventListener('change', function () {
       var said = input.parentNode ? input.parentNode.querySelector('[data-said]') : null;
@@ -3561,10 +3576,11 @@
         tooBig();
       });
     });
-  });
+  };
+  each(document.querySelectorAll('input[type="file"][data-max-bytes]'), shrinkOnPick);
 
   // A scanner ends with Enter: in a field marked data-enter="next" (the bench's stamp code) it moves on instead of saving the page.
-  each(document.querySelectorAll('[data-enter="next"]'), function (field) {
+  var enterNext = function (field) {
     field.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter') {
         return;
@@ -3576,10 +3592,13 @@
       var i = fields.indexOf(field);
       if (i >= 0 && fields[i + 1]) { fields[i + 1].focus(); }
     });
-  });
+  };
+  each(document.querySelectorAll('[data-enter="next"]'), enterNext);
 
   // Goods in on one page (docs/decisions.md GV): the script only fills the page's one form and shows what it did; every press works
-  // without it (the row's "All fine" sends the form, "Problem" is a link to its panel row, opened by CSS :target).
+  // without it (the row's "All fine" sends the form, "Problem" is a link to its panel row, opened by CSS :target). Since 7 Nov 2026 the
+  // lines are a standard grid (GW, below: giGrid) and Save is sent without leaving the page, so the form's own parts are wired by giWire(),
+  // again after each save that put the server's answer in place.
   var giTones = ['waiting', 'done', 'needs', 'blocked', 'review', 'info', 'off'];
   var giTone = function (el, tone) {
     if (!el) { return; }
@@ -3604,14 +3623,8 @@
     each(panel.querySelectorAll('[data-unstamped-only]'), function (el) { el.hidden = !some; });
   };
   // "N lines still to check" in the bar follows the ticks of this page (the server's figure counts every page).
-  var giLeft = document.querySelector('[data-gi-left]');
+  var giLeft = null;
   var giStart = {};
-  each(document.querySelectorAll('tr.gi-row[data-gi-line]'), function (row) {
-    var no = row.getAttribute('data-gi-line');
-    var box = document.querySelector('input[name="b_' + no + '_ok"]');
-    giStart[no] = !!(box && box.checked);
-    giStampOnly(no);
-  });
   var giCount = function () {
     if (!giLeft) { return; }
     var left = parseInt(giLeft.getAttribute('data-gi-left'), 10) || 0;
@@ -3625,101 +3638,191 @@
     giLeft.textContent = left === 0 ? (giLeft.getAttribute('data-none') || '') : left === 1 ? (giLeft.getAttribute('data-one') || '')
       : (giLeft.getAttribute('data-many') || '%s').replace('%s', String(left));
   };
-  each(document.querySelectorAll('tr.gi-panel input[type="checkbox"]'), function (box) {
-    if (/^b_[0-9]+_ok$/.test(box.name)) { box.addEventListener('change', giCount); }
-  });
-  // "Problem" / "Open": the panel opens on its row (the address does not change).
-  each(document.querySelectorAll('a[data-gi-panel]'), function (a) {
-    a.addEventListener('click', function (ev) {
-      var no = (a.getAttribute('aria-controls') || '').replace('gi-p-', '');
-      var panel = giPanel(no);
-      if (!panel) { return; }
-      ev.preventDefault();
-      var open = !panel.classList.contains('open');
-      giOpen(no, open);
-      if (open) {
-        var first = panel.querySelector('input:not([type="hidden"]), select, textarea');
-        if (first) { first.focus(); }
+  var giSaid = function (text) {
+    var said = document.getElementById('gi-scan-said');
+    if (said) { said.textContent = text; }
+  };
+  var giNorm = function (v) { v = String(v || '').trim().toLowerCase(); return /^[0-9]+$/.test(v) ? v.replace(/^0+/, '') : v; };
+  // The scan box finding a line of this page by a code (its CW number, supplier code or a barcode): highlighted, its "All fine" or "Open"
+  // focused, said under the box. False when no line of this page has it.
+  var giFind = function (value) {
+    var scan = document.getElementById('gi-scan');
+    var want = giNorm(value);
+    var hit = null;
+    each(document.querySelectorAll('tr.gi-row[data-codes]'), function (row) {
+      row.classList.remove('found');
+      if (!hit && !row.hidden && (row.getAttribute('data-codes') || '').split(/\s+/).map(giNorm).indexOf(want) >= 0) {
+        hit = row;
       }
     });
-  });
-  // "All fine": the line ticked with no problem, in the page (nothing is sent until Save or Book in). A duty line needs its stamp
-  // answer first; "No stamp" is a problem, so its panel opens instead.
-  each(document.querySelectorAll('button[data-gi-fine]'), function (b) {
-    b.addEventListener('click', function (ev) {
-      var no = b.getAttribute('data-gi-fine');
-      var row = document.getElementById('line-' + no);
+    if (!hit || want === '') {
+      return false;
+    }
+    hit.classList.add('found');
+    if (hit.scrollIntoView) { hit.scrollIntoView({ block: 'center' }); }
+    var go = hit.querySelector('button[data-gi-fine], a[data-gi-panel]');
+    if (go) { go.focus(); }
+    var name = hit.querySelector('.o-name');
+    giSaid(((scan && scan.getAttribute('data-found')) || '%s: %s').replace('%s', hit.getAttribute('data-gi-line') || '').replace('%s', name ? name.textContent.trim() : ''));
+    if (scan) { scan.value = ''; }
+    return true;
+  };
+  var giWire = function (root) {
+    giLeft = document.querySelector('[data-gi-left]');
+    giStart = {};
+    each(root.querySelectorAll('tr.gi-row[data-gi-line]'), function (row) {
+      var no = row.getAttribute('data-gi-line');
       var box = document.querySelector('input[name="b_' + no + '_ok"]');
-      var mark = document.querySelector('input[name="b_' + no + '_fine"]');
-      if (!row || !box || !mark) { return; }
-      ev.preventDefault();
-      var duty = row.querySelector('select[data-gi-duty]');
-      var why = row.querySelector('[data-gi-why]');
-      if (duty && duty.value === '') {
-        // Refused: said in the row, next to the duty stamp cell, never in a browser dialog (GV11); the duty answer is focused where it is
-        // (the page does not scroll, GV15).
-        if (why) { why.textContent = b.getAttribute('data-needs-stamp') || 'Choose the duty stamp first.'; }
-        duty.focus({ preventScroll: true });
-        return;
-      }
-      if (duty && duty.value === 'none') {
-        // "No stamp" is a problem: its panel opens under the row and the row says why; nothing else moves.
-        if (why) { why.textContent = b.getAttribute('data-none-stamp') || 'No stamp: write below how many items have none.'; }
-        giOpen(no, true);
-        return;
-      }
-      if (why) { why.textContent = ''; }
-      // All fine: the line ticked where it is; the page keeps its scroll position (GV15) and the focus stays on the button.
-      var x = window.scrollX || window.pageXOffset || 0;
-      var y = window.scrollY || window.pageYOffset || 0;
-      ['short', 'over', 'damaged', 'wrong', 'unstamped'].forEach(function (k) {
-        var f = document.querySelector('input[name="b_' + no + '_' + k + '"]');
-        if (f) { f.value = '0'; }
-      });
-      mark.value = '1';
-      box.checked = true;
-      box.dispatchEvent(new Event('change', { bubbles: true }));
-      var cell = row.querySelector('td.gi-check');
-      giTone(cell, 'done');
-      giTone(row, 'done');
-      // The cell's pill takes the words (the status is a pill in its cell since the redesign, RD8); the cell keeps the tone.
-      var pill = cell ? (cell.querySelector('.chip') || cell) : null;
-      if (pill) { pill.textContent = cell.getAttribute('data-words') || pill.textContent; }
-      giOpen(no, false);
+      giStart[no] = !!(box && box.checked);
       giStampOnly(no);
-      if (typeof window.scrollTo === 'function') { window.scrollTo(x, y); }
     });
-  });
-  // The duty stamp answer colours its cell; "No stamp" opens the panel (count the items without one).
-  each(document.querySelectorAll('select[data-gi-duty]'), function (s) {
-    s.addEventListener('change', function () {
-      var row = s.closest ? s.closest('tr.gi-row') : null;
-      var no = row ? row.getAttribute('data-gi-line') : null;
-      giTone(s.parentNode, s.value === '' ? 'waiting' : s.value === 'none' ? 'blocked' : 'done');
-      var why = row ? row.querySelector('[data-gi-why]') : null;
-      if (why && s.value !== '') { why.textContent = ''; }
-      if (no && s.value === 'none') { giOpen(no, true); }
-      if (no) { giStampOnly(no); }
+    each(root.querySelectorAll('tr.gi-panel input[type="checkbox"]'), function (box) {
+      if (/^b_[0-9]+_ok$/.test(box.name)) { box.addEventListener('change', giCount); }
     });
-  });
-  // A problem typed in a panel after "All fine" (or its tick taken off) is what is sent: the line is not "all fine" any more.
-  each(document.querySelectorAll('tr.gi-panel'), function (panel) {
-    var no = panel.id.replace('gi-p-', '');
-    var unmark = function (ev) {
-      var mark = document.querySelector('input[name="b_' + no + '_fine"]');
-      var t = ev.target;
-      if (!mark || !t || !t.name || (t.name === 'b_' + no + '_ok' && t.checked)) { return; }
-      if (t.name.indexOf('b_' + no + '_') === 0) { mark.value = ''; }
-    };
-    panel.addEventListener('input', unmark);
-    panel.addEventListener('change', unmark);
-  });
-  each(document.querySelectorAll('tr.gi-panel input[data-unstamped]'), function (count) {
-    count.addEventListener('input', function () {
-      var panel = count.closest ? count.closest('tr.gi-panel') : null;
-      if (panel) { giStampOnly(panel.id.replace('gi-p-', '')); }
+    // "Problem" / "Open": the panel opens on its row (the address does not change). The link is in the Tab order: Enter on it opens the panel
+    // from the keyboard, the cursor in its first box (docs/decisions.md GW2); Esc in the panel shuts it, the cursor back on the link.
+    each(root.querySelectorAll('a[data-gi-panel]'), function (a) {
+      a.addEventListener('click', function (ev) {
+        var no = (a.getAttribute('aria-controls') || '').replace('gi-p-', '');
+        var panel = giPanel(no);
+        if (!panel) { return; }
+        ev.preventDefault();
+        var open = !panel.classList.contains('open');
+        giOpen(no, open);
+        if (open) {
+          var first = panel.querySelector('input:not([type="hidden"]), select, textarea');
+          if (first) { first.focus(); }
+        }
+      });
     });
-  });
+    // "All fine": the line ticked with no problem, in the page (nothing is sent until Save or Book in). A duty line needs its stamp
+    // answer first; "No stamp" is a problem, so its panel opens instead.
+    each(root.querySelectorAll('button[data-gi-fine]'), function (b) {
+      b.addEventListener('click', function (ev) {
+        var no = b.getAttribute('data-gi-fine');
+        var row = document.getElementById('line-' + no);
+        var box = document.querySelector('input[name="b_' + no + '_ok"]');
+        var mark = document.querySelector('input[name="b_' + no + '_fine"]');
+        if (!row || !box || !mark) { return; }
+        ev.preventDefault();
+        var duty = row.querySelector('select[data-gi-duty]');
+        var why = row.querySelector('[data-gi-why]');
+        if (duty && duty.value === '') {
+          // Refused: said in the row, next to the duty stamp cell, never in a browser dialog (GV11); the duty answer is focused where it is
+          // (the page does not scroll, GV15).
+          if (why) { why.textContent = b.getAttribute('data-needs-stamp') || 'Choose the duty stamp first.'; }
+          duty.focus({ preventScroll: true });
+          return;
+        }
+        if (duty && duty.value === 'none') {
+          // "No stamp" is a problem: its panel opens under the row and the row says why; nothing else moves.
+          if (why) { why.textContent = b.getAttribute('data-none-stamp') || 'No stamp: write below how many items have none.'; }
+          giOpen(no, true);
+          return;
+        }
+        if (why) { why.textContent = ''; }
+        // All fine: the line ticked where it is; the page keeps its scroll position (GV15) and the focus stays on the button.
+        var x = window.scrollX || window.pageXOffset || 0;
+        var y = window.scrollY || window.pageYOffset || 0;
+        ['short', 'over', 'damaged', 'wrong', 'unstamped'].forEach(function (k) {
+          var f = document.querySelector('input[name="b_' + no + '_' + k + '"]');
+          if (f) { f.value = '0'; }
+        });
+        mark.value = '1';
+        box.checked = true;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+        var cell = row.querySelector('td.gi-check');
+        giTone(cell, 'done');
+        giTone(row, 'done');
+        // The cell's pill takes the words (the status is a pill in its cell since the redesign, RD8); the cell keeps the tone.
+        var pill = cell ? (cell.querySelector('.chip') || cell) : null;
+        if (pill) { pill.textContent = cell.getAttribute('data-words') || pill.textContent; }
+        giOpen(no, false);
+        giStampOnly(no);
+        if (typeof window.scrollTo === 'function') { window.scrollTo(x, y); }
+      });
+    });
+    // A scanner's next code while a found line's "All fine" or "Open" has the cursor (the scan box puts it there: giFind): its characters go
+    // to the scan box, so its Enter is a scan there, never a press of that line's button (docs/decisions.md GW8). Enter and Space stay the
+    // button's, for a deliberate press.
+    each(root.querySelectorAll('button[data-gi-fine], a[data-gi-panel]'), function (b) {
+      b.addEventListener('keydown', function (ev) {
+        var scan = document.getElementById('gi-scan');
+        if (!scan || ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey || typeof ev.key !== 'string' || ev.key.length !== 1 || ev.key === ' ') {
+          return;
+        }
+        ev.preventDefault();
+        scan.focus();
+        scan.value = ev.key;
+        scan.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+    // The duty stamp answer colours its cell; "No stamp" opens the panel (count the items without one).
+    each(root.querySelectorAll('select[data-gi-duty]'), function (s) {
+      s.addEventListener('change', function () {
+        var row = s.closest ? s.closest('tr.gi-row') : null;
+        var no = row ? row.getAttribute('data-gi-line') : null;
+        giTone(s.parentNode, s.value === '' ? 'waiting' : s.value === 'none' ? 'blocked' : 'done');
+        var why = row ? row.querySelector('[data-gi-why]') : null;
+        if (why && s.value !== '') { why.textContent = ''; }
+        if (no && s.value === 'none') { giOpen(no, true); }
+        if (no) { giStampOnly(no); }
+      });
+    });
+    // A problem typed in a panel after "All fine" (or its tick taken off) is what is sent: the line is not "all fine" any more.
+    each(root.querySelectorAll('tr.gi-panel'), function (panel) {
+      var no = panel.id.replace('gi-p-', '');
+      var unmark = function (ev) {
+        var mark = document.querySelector('input[name="b_' + no + '_fine"]');
+        var t = ev.target;
+        if (!mark || !t || !t.name || (t.name === 'b_' + no + '_ok' && t.checked)) { return; }
+        if (t.name.indexOf('b_' + no + '_') === 0) { mark.value = ''; }
+      };
+      panel.addEventListener('input', unmark);
+      panel.addEventListener('change', unmark);
+      panel.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Escape' || ev.defaultPrevented || !panel.classList.contains('open')) { return; }
+        ev.preventDefault(); // Esc shuts the open panel (GW2); the cursor goes back to the line's "Problem" / "Open"
+        giOpen(no, false);
+        var link = document.querySelector('a[data-gi-panel][aria-controls="gi-p-' + no + '"]');
+        if (link) { link.focus(); }
+      });
+    });
+    each(root.querySelectorAll('tr.gi-panel input[data-unstamped]'), function (count) {
+      count.addEventListener('input', function () {
+        var panel = count.closest ? count.closest('tr.gi-panel') : null;
+        if (panel) { giStampOnly(panel.id.replace('gi-p-', '')); }
+      });
+    });
+  };
+  // The scan box's Enter as before, when the grid's dropdown did not take it (someone who did not key the delivery, or no script for the
+  // fetch): a code of a line of this page finds it; another code is added by the keyer (the form's first button, Add), or said not to be
+  // on this delivery.
+  var giScanPlain = function () {
+    var giScan = document.getElementById('gi-scan');
+    if (!giScan) {
+      return;
+    }
+    giScan.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' || ev.defaultPrevented) {
+        return;
+      }
+      if (giNorm(giScan.value) === '') {
+        if (!giScan.hasAttribute('data-adds')) { ev.preventDefault(); }
+        return;
+      }
+      if (giFind(giScan.value)) {
+        ev.preventDefault();
+        return;
+      }
+      if (giScan.hasAttribute('data-adds')) {
+        return; // the keyer: Enter sends the form with its first button, Add
+      }
+      ev.preventDefault();
+      giSaid((giScan.getAttribute('data-not-here') || '%s').replace('%s', giScan.value.trim()));
+      giScan.value = '';
+    });
+  };
   // One save is one request: PHP takes at most data-max-total bytes of it (post_max_size; past it every field is lost) and data-max-files
   // files (max_file_uploads; past it the later ones are dropped, so one is kept back). Counted as the browser sends it (each field a
   // part with its boundary and header, each file its name and bytes); too much is said in the bar and not sent, so nothing typed is lost
@@ -3754,50 +3857,715 @@
       }
     });
   });
-  // The scan box: Enter on a code of a line of this page finds it (highlighted, its "All fine" or "Open" focused); another code is added
-  // by the keyer (the form's first button, Add), or said not to be on this delivery.
-  var giScan = document.getElementById('gi-scan');
-  if (giScan) {
-    var giSaid = document.getElementById('gi-scan-said');
-    var giNorm = function (v) { v = String(v || '').trim().toLowerCase(); return /^[0-9]+$/.test(v) ? v.replace(/^0+/, '') : v; };
-    giScan.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Enter') {
+
+  // Goods received as a standard grid (docs/decisions.md GW1-GW; the owner, 6 Nov 2026: "check all purchase order, purchase invoice, sales
+  // order like this all form", Goods received first): a delivery's lines worked like the order's and the invoice's (KG), with the same keys
+  // (the site's one table of keys, KEYS, calls into kb.grid): Tab and Enter box to box, Up / Down the same box on the line above or below,
+  // Ctrl+Enter (Insert) the scan box (the delivery's "new line"), Ctrl+Delete the line the cursor is on (its keyer's, as the server allows;
+  // "Line 3 removed." with Undo), Ctrl+S the page's Save (never "Book in"). The keyer's scan box is the site's one dropdown (combo()): a scan
+  // with Enter, or a choice, naming one item makes a new line in place (what the delivery's Add would add, asked of its own route), or adds
+  // to its line when it is on the delivery already, as Add does; a code of a line of this page still finds that line. The new lines go in
+  // ONE field (new_lines) with every send of the form. Save (and Ctrl+S) is sent by the one fetch and the answer put in place (giSwap);
+  // anything else is a plain post, as is the next Save after a failure. Without the script nothing of it runs: the page works as before.
+  var giComboList = null;
+  var giGrid = function (form) {
+    var card = form.querySelector('section.gi-lines-card');
+    var table = card ? card.querySelector('table.gi-lines[data-kg-grid]') : null;
+    var scan = document.getElementById('gi-scan');
+    var undoLine = card ? card.querySelector('[data-kg-undo-line]') : null;
+    var undoText = undoLine ? undoLine.querySelector('[data-kg-undo-text]') : null;
+    var undoButton = undoLine ? undoLine.querySelector('button[data-kg-undo]') : null;
+    if (!table || !table.tBodies[0] || !scan || !undoLine || !undoText || !undoButton) {
+      return null;
+    }
+    var body = table.tBodies[0];
+    var field = form.querySelector('input[data-kg-field]');
+    var tpl = card.querySelector('template[data-kg-row]');
+    var keyer = table.hasAttribute('data-kg-keyer') && !!field && !!tpl && !!tpl.content && !!tpl.content.firstElementChild;
+    var word = function (name) { return table.getAttribute('data-kg-' + name) || ''; };
+    var words = function (name) { return table.getAttribute('data-gi-' + name) || ''; };
+    var max = parseInt(word('max'), 10) || 0;
+    var maxQty = parseInt(word('max-qty'), 10) || 1000000;
+    var count = parseInt(word('count'), 10) || 0;
+    var from = parseInt(word('from'), 10) || 1;
+    var motion = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var sending = false;
+    var plain = false;
+    var hold = kgHold(form);
+    var whole = function (v) {
+      var m = /^([0-9]{1,12})$/.exec(String(v).replace(/,/g, '').trim());
+      return m ? parseInt(m[1], 10) : null;
+    };
+    var dirty = function () { form.setAttribute('data-dirty', '1'); };
+    var flash = function (tr) {
+      tr.classList.remove('kg-flash');
+      if (motion) {
+        tr.classList.add('kg-flash'); // a short soft highlight (app.css, KG's)
+      }
+    };
+    var goTo = function (el) {
+      if (!el) {
         return;
       }
-      var want = giNorm(giScan.value);
-      if (want === '') {
-        if (!giScan.hasAttribute('data-adds')) { ev.preventDefault(); }
+      el.focus();
+      if (el.select && el.tagName === 'INPUT') {
+        el.select();
+      }
+    };
+    // The lines on show, in order: the saved ones (a removed one is hidden until it is sent) and the new ones (a removed one is gone).
+    var lines = function () {
+      return Array.prototype.filter.call(body.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden && !tr.hasAttribute('data-kg-gone'); });
+    };
+    // A box the keys go to: in the page's sight (not in a shut panel, a shut fold or a hidden part) and not switched off.
+    var on = function (el) {
+      if (!el || el.disabled || el.type === 'hidden') {
+        return false;
+      }
+      for (var p = el.parentNode; p && p !== form && p.nodeType === 1; p = p.parentNode) {
+        if (p.hidden || (p.tagName === 'DETAILS' && !p.open)) {
+          return false;
+        }
+        if (p.tagName === 'TR' && p.classList.contains('gi-panel') && !p.classList.contains('open') && !(window.location && window.location.hash === '#' + p.id)) {
+          return false;
+        }
+      }
+      return true;
+    };
+    var cells = function (scope) { return Array.prototype.filter.call(scope.querySelectorAll('[data-kg-cell]'), on); };
+    var cellIn = function (tr, cell) { return tr ? tr.querySelector('[data-kg-cell="' + cell + '"]') : null; };
+    var tableOf = function (el) { return el && el.closest ? el.closest('table') : null; };
+    // The line a box belongs to: its row, the row of its panel, or of its line in the prices fold.
+    var lineOf = function (el) {
+      var tr = el && el.closest ? el.closest('tr') : null;
+      if (!tr) {
+        return null;
+      }
+      if (tr.hasAttribute('data-gi-panel-of')) {
+        return document.getElementById('line-' + tr.getAttribute('data-gi-panel-of'));
+      }
+      if (tr.hasAttribute('data-gi-price')) {
+        return document.getElementById('line-' + tr.getAttribute('data-gi-price'));
+      }
+      return tr.hasAttribute('data-kg-row') ? tr : null;
+    };
+    // The next box after (or before) one in its table, in the page's order; past the last box of the last line: the scan box.
+    var step = function (from, by) {
+      var all = cells(tableOf(from) || table);
+      var i = all.indexOf(from);
+      if (i < 0) {
+        return null;
+      }
+      return i + by >= all.length ? scan : all[Math.max(0, i + by)];
+    };
+    // The lines' numbers: a saved line its number on the delivery (this page's from the first), closed up over the lines removed; a new
+    // line after every line of the delivery (where the save puts it).
+    var renumber = function () {
+      var saved = 0;
+      var added = 0;
+      var gone = 0;
+      each(body.querySelectorAll('tr[data-kg-line]'), function (tr) {
+        if (tr.hidden || tr.hasAttribute('data-kg-gone')) { gone++; }
+      });
+      each(lines(), function (tr) {
+        var n = tr.hasAttribute('data-kg-new') ? count - gone + (++added) : from + (saved++);
+        var no = tr.querySelector('[data-kg-no]');
+        if (no) { no.textContent = String(n); }
+        var price = tr.hasAttribute('data-kg-line') ? form.querySelector('tr[data-gi-price="' + tr.getAttribute('data-kg-line') + '"] [data-kg-no]') : null;
+        if (price) { price.textContent = String(n); }
+      });
+      var wrap = table.closest('.table-wrap');
+      if (wrap && lines().length > 0) { wrap.removeAttribute('data-gi-none'); }
+      var none = card.querySelector('[data-gi-none-hint]');
+      if (none) { none.hidden = lines().length > 0; }
+    };
+    // A line out: a new one at once; a saved one hidden with its panel and its prices row, their fields switched off and its Got sent as 0
+    // (the server's own way to take a line out: GoodsReceipts::saveDraft without it); Undo puts the last removal back.
+    var undo = null;
+    var hideUndo = function () {
+      undoLine.hidden = true;
+      undoText.textContent = '';
+    };
+    var removable = function (tr) {
+      if (!keyer || !tr || !tr.hasAttribute('data-kg-row') || tr.hidden || tr.hasAttribute('data-kg-gone')) {
+        return false;
+      }
+      return tr.hasAttribute('data-kg-new') || !!tr.querySelector('input[data-kg-cell="qty"][name]');
+    };
+    var takeOut = function (tr) {
+      var u = { tr: tr, before: tr.nextSibling, parts: [], off: [], flag: null };
+      if (tr.hasAttribute('data-kg-new')) {
+        tr.setAttribute('data-kg-gone', '1');
+        if (tr.parentNode) { tr.parentNode.removeChild(tr); }
+        return u;
+      }
+      var no = tr.getAttribute('data-kg-line') || '';
+      u.parts = [tr, giPanel(no), form.querySelector('tr[data-gi-price="' + no + '"]')].filter(function (x) { return !!x; });
+      each(u.parts, function (part) {
+        each(part.querySelectorAll('input[name], select[name], textarea[name]'), function (el) {
+          if (!el.disabled) {
+            el.disabled = true;
+            u.off.push(el);
+          }
+        });
+        part.hidden = true;
+      });
+      var flag = document.createElement('input');
+      flag.type = 'hidden';
+      flag.name = 'line_' + no + '_packs';
+      flag.value = '0';
+      flag.setAttribute('data-kg-flag', '1');
+      tr.appendChild(flag);
+      u.flag = flag;
+      return u;
+    };
+    var putBack = function (u) {
+      if (u.tr.hasAttribute('data-kg-new')) {
+        u.tr.removeAttribute('data-kg-gone');
+        if (u.before && u.before.parentNode === body) {
+          body.insertBefore(u.tr, u.before);
+        } else {
+          body.appendChild(u.tr);
+        }
         return;
       }
-      var hit = null;
-      each(document.querySelectorAll('tr.gi-row[data-codes]'), function (row) {
-        row.classList.remove('found');
-        if (!hit && (row.getAttribute('data-codes') || '').split(/\s+/).map(giNorm).indexOf(want) >= 0) {
-          hit = row;
+      if (u.flag && u.flag.parentNode) { u.flag.parentNode.removeChild(u.flag); }
+      each(u.off, function (el) { el.disabled = false; });
+      each(u.parts, function (part) { part.hidden = false; });
+    };
+    var removeLine = function (tr, cell) {
+      if (sending || !removable(tr)) {
+        return false;
+      }
+      var all = lines();
+      var at = all.indexOf(tr);
+      var next = all[at + 1] || null;
+      undo = takeOut(tr);
+      undoText.textContent = word('removed').replace('%s', tr.querySelector('[data-kg-no]') ? tr.querySelector('[data-kg-no]').textContent : String(at + 1));
+      undoLine.hidden = false;
+      dirty();
+      renumber();
+      goTo(next ? (cellIn(next, cell) || cells(next)[0] || scan) : scan);
+      return true;
+    };
+    undoButton.addEventListener('click', function () {
+      if (!undo || sending) {
+        return;
+      }
+      var u = undo;
+      undo = null;
+      putBack(u);
+      hideUndo();
+      renumber();
+      goTo(cellIn(u.tr, 'qty') || cells(u.tr)[0] || scan);
+    });
+    // A new line from what the scan box names: its item in its attributes (what the one field sends), its words, its packs.
+    var addLine = function (it, packs, price) {
+      var gone = Array.prototype.filter.call(body.querySelectorAll('tr[data-kg-line]'), function (tr) { return tr.hidden; }).length;
+      if (max > 0 && count - gone + body.querySelectorAll('tr[data-kg-new]').length >= max) { // the delivery's limit (GoodsReceipts::MAX_LINES)
+        giSaid(word('too-many'));
+        return null;
+      }
+      var tr = tpl.content.firstElementChild.cloneNode(true);
+      tr.setAttribute('data-si', it.si);
+      tr.setAttribute('data-sku', it.si !== '' ? '' : it.sku);
+      tr.setAttribute('data-u', it.si === '' && it.upp > 1 ? String(it.upp) : '');
+      tr.setAttribute('data-kg-upp', String(it.upp));
+      tr.setAttribute('data-gi-p', price);
+      each(['name', 'code', 'pack', 'their'], function (k) { tr.setAttribute('data-' + k, it[k]); });
+      var put = function (sel, text) { var el = tr.querySelector(sel); if (el) { el.textContent = text; } };
+      put('[data-kg-name]', it.name);
+      put('[data-kg-code]', it.code);
+      put('[data-kg-pack]', it.pack + (it.their !== '' ? ' · ' + words('their').replace('%s', it.their) : ''));
+      var qty = cellIn(tr, 'qty');
+      if (qty) { qty.value = String(packs); }
+      body.appendChild(tr);
+      wire(tr);
+      flash(tr);
+      dirty();
+      renumber();
+      return tr;
+    };
+    var wire = function (tr) {
+      var x = tr.querySelector('[data-kg-x]');
+      if (x && !x.hasAttribute('data-kg-wired')) {
+        x.setAttribute('data-kg-wired', '1');
+        x.tabIndex = -1; // Tab goes box to box; the x is a click (or Ctrl+Delete)
+        x.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          removeLine(tr, 'qty');
+        });
+      }
+    };
+    each(body.querySelectorAll('tr[data-kg-new]'), wire);
+    // What the scan box named, taken (docs/decisions.md GW4): Add's own rules. An item already on a new line of this page: more packs on that
+    // line; already a line of the delivery (data-line, the route's answer): more packs in that line's Got box (on another page of a big
+    // delivery: Add, as without the script); else a new line, the packs a scan is times the Packs box, the Price box's price. The cursor goes
+    // to the line's Got box (a scanner's next code typed there is taken as the next scan: step()).
+    var scanPacks = function () {
+      var p = form.querySelector('input[name="packs"]');
+      var n = p ? whole(p.value) : null;
+      return n !== null && n > 0 ? n : 1;
+    };
+    var scanReset = function () {
+      var p = form.querySelector('input[name="packs"]');
+      var pr = form.querySelector('input[name="price"]');
+      if (p) { p.value = '1'; }
+      if (pr) { pr.value = ''; }
+    };
+    var addButton = function () { return form.querySelector('.gi-scan button[name="action"][value="add"]'); };
+    var plainAdd = function () {
+      var b = addButton();
+      plain = true;
+      if (b && form.requestSubmit) {
+        form.requestSubmit(b);
+      } else if (b) {
+        b.click();
+      }
+    };
+    var take = function (li, clear) {
+      if (sending) {
+        return; // a save is on its way (hold)
+      }
+      var a = function (name) { return li.getAttribute(name) || ''; };
+      var it = { si: a('data-si'), sku: a('data-sku'), upp: parseInt(a('data-upp'), 10) || 1, name: a('data-name') || a('data-label'), code: a('data-code'),
+        pack: a('data-pack'), their: a('data-their') };
+      var packs = (parseInt(a('data-packs'), 10) || 1) * scanPacks();
+      var pr = form.querySelector('input[name="price"]');
+      var price = pr ? pr.value.trim() : '';
+      var same = null;
+      each(body.querySelectorAll('tr[data-kg-new]'), function (tr) {
+        var si = tr.getAttribute('data-si') || '';
+        if (same === null && !tr.hasAttribute('data-kg-gone') && (it.si !== '' ? si === it.si : (si === '' && tr.getAttribute('data-sku') === it.sku
+          && (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1) === it.upp))) {
+          same = tr;
         }
       });
-      if (hit) {
-        ev.preventDefault();
-        hit.classList.add('found');
-        hit.scrollIntoView({ block: 'center' });
-        var go = hit.querySelector('button[data-gi-fine], a[data-gi-panel]');
-        if (go) { go.focus(); }
-        var name = hit.querySelector('.o-name');
-        if (giSaid) {
-          giSaid.textContent = (giScan.getAttribute('data-found') || '%s: %s').replace('%s', hit.getAttribute('data-gi-line') || '')
-            .replace('%s', name ? name.textContent.trim() : '');
+      var row = same;
+      if (row === null && a('data-line') !== '') {
+        row = document.getElementById('line-' + a('data-line'));
+        if (!row || row.hidden || !cellIn(row, 'qty') || !cellIn(row, 'qty').name) {
+          plainAdd(); // a line of another page of this delivery (or not drawn here): Add, as without the script
+          return;
         }
-        giScan.value = '';
+      }
+      if (row !== null) {
+        var got = cellIn(row, 'qty');
+        got.value = String((whole(got.value) || 0) + packs);
+        if (price !== '') { row.setAttribute('data-gi-p', price); }
+        flash(row);
+        dirty();
+        clear();
+        scanReset();
+        giSaid(words('more').replace('%s', (row.querySelector('[data-kg-no]') || { textContent: '' }).textContent).replace('%s', it.name).replace('%s', got.value));
+        goTo(got);
         return;
       }
-      if (giScan.hasAttribute('data-adds')) {
-        return; // the keyer: Enter sends the form with its first button, Add
+      var tr = addLine(it, packs, price);
+      if (!tr) {
+        return;
+      }
+      clear();
+      scanReset();
+      giSaid(words('added').replace('%s', (tr.querySelector('[data-kg-no]') || { textContent: '' }).textContent).replace('%s', it.name)
+        + (a('data-note') !== '' ? ' ' + a('data-note') : ''));
+      goTo(cellIn(tr, 'qty'));
+    };
+    // The keyer's scan box: the site's one dropdown, its choices asked of the delivery's own route (what Add would add), drawn as text.
+    var box = null;
+    if (keyer && window.fetch && window.DOMParser && (scan.getAttribute('data-options') || '').indexOf('/ui/receiving/') === 0) {
+      box = (function () {
+        var base = scan.getAttribute('data-options') || '';
+        if (giComboList && giComboList.parentNode) {
+          giComboList.parentNode.removeChild(giComboList); // the list of the box a save without reload replaced
+        }
+        var list = document.createElement('ul');
+        list.id = 'gi-scan-list';
+        list.className = 'sm-list';
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('aria-label', scan.getAttribute('data-label') || '');
+        list.hidden = true;
+        giComboList = list;
+        var timer = 0;
+        var turn = 0;
+        var asked = null;
+        var answered = null;
+        var waiting = false;
+        var offline = false;
+        var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+        var draw = function (from) {
+          while (list.firstChild) {
+            list.removeChild(list.firstChild);
+          }
+          var n = 0;
+          each(from, function (o) {
+            var li = document.createElement('li');
+            li.id = list.id + '-' + n++;
+            li.setAttribute('role', 'option');
+            li.setAttribute('aria-selected', 'false');
+            each(['data-label', 'data-si', 'data-sku', 'data-name', 'data-code', 'data-pack', 'data-upp', 'data-their', 'data-packs', 'data-line', 'data-note'], function (name) {
+              li.setAttribute(name, o.getAttribute(name) || '');
+            });
+            var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+            twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+            list.appendChild(li);
+          });
+          c.mark(-1);
+        };
+        var clear = function () {
+          window.clearTimeout(timer);
+          turn++;
+          asked = null;
+          answered = null;
+          waiting = false;
+          scan.value = '';
+          draw([]);
+          c.close();
+        };
+        var one = function () {
+          var all = options();
+          if (all.length === 1) {
+            c.close();
+            take(all[0], clear);
+          } else if (all.length > 1) {
+            c.unshut();
+            c.open();
+          }
+        };
+        var load = function (q) {
+          if (asked === q) {
+            return;
+          }
+          asked = q;
+          var mine = ++turn;
+          giSaid(scan.getAttribute('data-loading') || '');
+          fragment(base + 'q=' + encodeURIComponent(q), '[data-gi-fragment]')
+            .then(function (node) {
+              if (mine !== turn) {
+                return;
+              }
+              draw(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
+              answered = q;
+              var says = node.querySelector('[data-po-says]');
+              giSaid(says ? says.textContent.trim() : '');
+              if (waiting) {
+                waiting = false;
+                one();
+                return;
+              }
+              c.open(); // (only while the box has the focus)
+            })
+            .catch(function () {
+              if (mine !== turn) {
+                return;
+              }
+              asked = null;
+              draw([]);
+              giSaid(scan.getAttribute('data-failed') || '');
+              offline = true; // Enter is Add again, as without the script
+              if (waiting) {
+                waiting = false;
+                plainAdd();
+              }
+            });
+        };
+        var c = combo(scan, list, {
+          options: options,
+          choose: function (li) { take(li, clear); },
+          enter: function (ev) {
+            if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey || offline) {
+              return; // offline: Enter is Add (the form's first button), as without the script
+            }
+            ev.preventDefault(); // Enter in the scan box never sends the form while the grid works
+            var v = scan.value.trim();
+            if (v === '') {
+              c.close();
+              return;
+            }
+            if (giFind(v)) {
+              clear(); // a code of a line of this page: that line, as before (nothing added)
+              return;
+            }
+            if (v.length < 2) {
+              c.close();
+              return;
+            }
+            if (answered === v) {
+              one(); // none: the line under the box already says so
+              return;
+            }
+            waiting = true; // a scanner's Enter comes before the 300 ms: asked at once, the one item taken when it comes
+            window.clearTimeout(timer);
+            load(v);
+          },
+        });
+        scan.addEventListener('input', function () {
+          window.clearTimeout(timer);
+          turn++;
+          asked = null;
+          answered = null;
+          waiting = false;
+          c.unshut();
+          draw([]);
+          var v = scan.value.trim();
+          if (v.length < 2) {
+            return;
+          }
+          timer = window.setTimeout(function () { load(v); }, 300);
+        });
+        var marked = function () { return c.isOpen() ? list.querySelector('li.is-active[role="option"]:not([aria-disabled="true"])') : null; };
+        return { marked: marked, take: function () { var m = marked(); if (m) { c.choose(m); } }, scanned: function (v) { scan.value = v; c.close(); answered = null; asked = null; waiting = true; load(v); } };
+      })();
+    }
+    kb.boxes = kb.boxes.filter(function (b) { return document.body.contains(b.input); });
+    kb.boxes.push({ input: scan, marked: function () { return box ? box.marked() : null; }, take: function () { if (box) { box.take(); } }, addNew: function () { return false; } });
+    // Every send of the form carries the new lines in their one field, in order (docs/decisions.md GW4; KG4's `new_lines`).
+    var serialise = function () {
+      if (!field) {
+        return;
+      }
+      var out = [];
+      each(body.querySelectorAll('tr[data-kg-new]'), function (tr) {
+        if (tr.hasAttribute('data-kg-gone')) {
+          return;
+        }
+        var si = tr.getAttribute('data-si') || '';
+        var o = si !== '' ? { si: parseInt(si, 10) } : { sku: parseInt(tr.getAttribute('data-sku') || '0', 10) };
+        var u = tr.getAttribute('data-u') || '';
+        if (si === '' && /^[1-9][0-9]*$/.test(u) && u !== '1') {
+          o.u = parseInt(u, 10);
+        }
+        var qty = cellIn(tr, 'qty');
+        o.q = qty ? qty.value.trim() : '';
+        o.p = tr.getAttribute('data-gi-p') || '';
+        out.push(o);
+      });
+      field.value = out.length > 0 ? JSON.stringify(out) : '';
+    };
+    // Save without leaving the page (docs/decisions.md GW7, KG24): the form sent by the one fetch, multipart as the browser sends it (its
+    // photos and papers too), a POST to its own address with its CSRF token, FormOnce key, version and stamps; the answer put in place when
+    // it is this delivery's page (giSwap), the cursor back on the same line and box, "Saved." said; anything else changes nothing, says so,
+    // and the next Save is a plain post. "Book in", "All fine" and the rest are as before.
+    var canSend = function () { return !plain && !!window.FormData && !!window.fetch && !!window.DOMParser && !sending; };
+    var ajaxSave = function (by) {
+      serialise();
+      var data = new window.FormData(form);
+      data.set('action', 'save');
+      sending = true;
+      hold(true);
+      if (by) {
+        by.disabled = true;
+      }
+      kgToast(word('saving'), false);
+      fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
+        .then(function (part) {
+          sending = false;
+          hold(false);
+          if (by) {
+            by.disabled = false;
+          }
+          var said = giSwap(form, part);
+          if (said === null) {
+            throw new Error('not this page');
+          }
+          kgToast(said.error !== '' ? said.error : (said.notice !== '' ? said.notice : word('saved')), said.error !== '');
+          if (said.error === '') {
+            form.removeAttribute('data-dirty');
+          }
+        })
+        .catch(function () {
+          sending = false;
+          hold(false);
+          if (by) {
+            by.disabled = false;
+          }
+          plain = true;
+          kgToast(word('save-failed'), true);
+        });
+    };
+    // The form's own send (its listeners are the form's, once: giStartup; this grid answers them while it is the page's).
+    var submit = function (ev) {
+      serialise();
+      if (ev.defaultPrevented) {
+        return; // stopped before it (a size or count refused in the page): nothing sent
+      }
+      var by = ev.submitter;
+      var value = by && by.getAttribute('name') === 'action' ? by.getAttribute('value') : null;
+      // Save, or the form's first button (Add) with nothing in the scan box (Enter in a field of the page): a save without leaving the page.
+      var isSave = value === 'save' || (value === 'add' && scan.value.trim() === '');
+      if (sending) {
+        ev.preventDefault();
+        return; // a save is on its way (hold)
+      }
+      undo = null;
+      hideUndo();
+      if (!isSave || !canSend()) {
+        return; // "Book in", Add, "Save and show the next lines", the choices: plain posts; after a failed Save, so is the next one
       }
       ev.preventDefault();
-      if (giSaid) { giSaid.textContent = (giScan.getAttribute('data-not-here') || '%s').replace('%s', giScan.value.trim()); }
-      giScan.value = '';
+      ajaxSave(by);
+    };
+    form.giGrid = { serialise: serialise, submit: submit };
+    renumber();
+    // What the site's keys do in the lines (kb, KEYS): the lines' card (the scan box, the lines, the prices fold) is the grid's place.
+    kb.grid = {
+      table: card,
+      keys: keyer ? ['next', 'back', 'updown', 'new_line', 'delete_line', 'undo_line', 'fill_down', 'save', 'esc'] : ['next', 'back', 'updown', 'save', 'esc'],
+      marked: function () { return box ? box.marked() : null; },
+      takeMarked: function () { if (box) { box.take(); } },
+      // Enter in a box: the next box (never the form sent). A Got box holding a scanner's code (more digits than any count can have) is the
+      // next scan, not a count: the box gets back what it held, the code goes to the scan box.
+      step: function (from, by) {
+        var v = from.value || '';
+        if (box && from.getAttribute('data-kg-cell') === 'qty' && /^[0-9]{8,}$/.test(v.trim()) && parseInt(v, 10) > maxQty) {
+          from.value = from.getAttribute('data-gi-was') || '1';
+          box.scanned(v.trim());
+          scan.focus();
+          return;
+        }
+        goTo(step(from, by));
+      },
+      // Up / Down: the same box of the line above or below (a select keeps its own); past the last line: the scan box.
+      vertical: function (from, by) {
+        if (from.tagName === 'SELECT') {
+          return false;
+        }
+        var name = from.getAttribute('data-kg-cell');
+        var all = cells(tableOf(from) || table).filter(function (c) { return c.getAttribute('data-kg-cell') === name; });
+        var i = all.indexOf(from) + by;
+        if (i >= 0 && i < all.length) {
+          goTo(all[i]);
+        } else if (by > 0) {
+          goTo(scan);
+        }
+        return true;
+      },
+      toEmpty: function () { goTo(scan); }, // Ctrl+Enter, Insert: the scan box, the delivery's new line
+      removeAt: function (from) { return removeLine(lineOf(from), from.getAttribute('data-kg-cell') || 'qty'); },
+      canUndo: function () { return undo !== null; },
+      undo: function () { undoButton.click(); },
+      // Ctrl+D in a Got box: the figure of the line above (a spreadsheet's fill down); elsewhere the browser's.
+      fillDown: function (from) {
+        var name = from.getAttribute('data-kg-cell');
+        if (sending || (name !== 'qty' && name !== 'upp')) {
+          return false;
+        }
+        var all = cells(table).filter(function (c) { return c.getAttribute('data-kg-cell') === name; });
+        var i = all.indexOf(from);
+        if (i > 0) {
+          from.value = all[i - 1].value;
+          dirty();
+        }
+        return true;
+      },
+      save: function () { // Ctrl+S: the page's Save, never "Book in" or anything that moves stock
+        var save = form.querySelector('button[name="action"][value="save"]');
+        if (save && !save.disabled) {
+          save.click();
+        }
+      },
+    };
+    // A Got box remembers what it held when the cursor came in (a scanner's code typed over it gives it back, above).
+    card.addEventListener('focusin', function (ev) {
+      var t = ev.target;
+      if (t && t.getAttribute && t.getAttribute('data-kg-cell') === 'qty') {
+        t.setAttribute('data-gi-was', t.value);
+      }
     });
-  }
+    return kb.grid;
+  };
+  // A save's answer put in place (docs/decisions.md GW7): only this delivery's page (form[data-kg-editor] of the same delivery). Before the
+  // form: the messages as the server drew them (the head stays: its More keeps its forms and their guards; its title, status and the line
+  // under it are the answer's; every form of this delivery on the page takes the new version). The form: its address and limits and every
+  // part, as drawn, wired again (giWire, the grid, a photo's size, a stamp code's Enter); the cursor back on the same line and box, the page
+  // where it was. Returns what to say (the answer's refusal, else its notice), or null when the answer is not this page.
+  var giSwap = function (form, part) {
+    var nf = part.querySelector('form[data-kg-editor]');
+    if (!nf || nf.getAttribute('data-kg-editor') !== form.getAttribute('data-kg-editor')) {
+      return null;
+    }
+    var active = document.activeElement;
+    var activeId = active && active.id && form.contains(active) ? active.id : '';
+    var cell = active && active.getAttribute ? active.getAttribute('data-kg-cell') : null;
+    var row = active && active.closest && form.contains(active) ? active.closest('tr[data-kg-row]') : null;
+    var rowsNow = Array.prototype.filter.call(form.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden; });
+    var at = row ? rowsNow.indexOf(row) : -1;
+    var x = window.scrollX || window.pageXOffset || 0;
+    var y = window.scrollY || window.pageYOffset || 0;
+    var keep = function (el) { return el.nodeType === 1 && el.classList.contains('doc-head'); };
+    var parent = form.parentNode;
+    var theirs = nf.parentNode;
+    var notice = nf.getAttribute('data-gi-notice') || '';
+    var mine = [];
+    for (var el = parent.firstChild; el && el !== form; el = el.nextSibling) {
+      mine.push(el);
+    }
+    each(mine, function (el) {
+      if (!keep(el)) { parent.removeChild(el); }
+    });
+    var myHead = parent.querySelector('.doc-head');
+    var beforeHead = !!myHead;
+    for (var el2 = theirs.firstChild; el2 && el2 !== nf; el2 = el2.nextSibling) {
+      if (keep(el2)) {
+        beforeHead = false;
+        continue;
+      }
+      // In their order: what comes before the head (the crumbs) before it, the rest (the messages) between the head and the form.
+      var copy = document.importNode(el2, true);
+      parent.insertBefore(copy, beforeHead ? myHead : form);
+      if (copy.nodeType === 1) {
+        each(copy.querySelectorAll('form[method="post"]'), sendOnce);
+        if (copy.tagName === 'FORM' && copy.getAttribute('method') === 'post') {
+          sendOnce(copy);
+        }
+      }
+    }
+    var theirHead = theirs.querySelector('.doc-head');
+    if (myHead && theirHead) {
+      each(['h1', '.ph-meta'], function (sel) {
+        var a = myHead.querySelector(sel);
+        var b = theirHead.querySelector(sel);
+        if (a && b) { a.parentNode.replaceChild(document.importNode(b, true), a); }
+      });
+    }
+    var version = nf.querySelector('input[name="version"]');
+    var self = form.getAttribute('action') || '';
+    var stem = self.replace(/\/lines$/, '/');
+    each(document.querySelectorAll('form'), function (f) {
+      var fv = f !== form ? f.querySelector('input[name="version"]') : null;
+      if (fv && version && (f.getAttribute('action') || '').indexOf(stem) === 0) {
+        fv.value = version.value;
+      }
+    });
+    each(['action', 'data-max-total', 'data-max-files', 'data-total-words', 'data-files-words'], function (a) {
+      if (nf.getAttribute(a) !== null) { form.setAttribute(a, nf.getAttribute(a)); }
+    });
+    while (form.firstChild) {
+      form.removeChild(form.firstChild);
+    }
+    each(Array.prototype.slice.call(nf.childNodes), function (n) { form.appendChild(document.importNode(n, true)); });
+    giWire(form);
+    each(form.querySelectorAll('input[type="file"][data-max-bytes]'), shrinkOnPick);
+    each(form.querySelectorAll('[data-enter="next"]'), enterNext);
+    giGrid(form);
+    giScanPlain();
+    var rowsThen = Array.prototype.filter.call(form.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden; });
+    var back = at >= 0 ? rowsThen[Math.min(at, rowsThen.length - 1)] : null;
+    var target = back ? (back.querySelector('[data-kg-cell="' + (cell || 'qty') + '"]') || back.querySelector('[data-kg-cell]')) : (activeId !== '' ? document.getElementById(activeId) : null);
+    if (target && target.focus) {
+      target.focus({ preventScroll: true });
+    }
+    if (typeof window.scrollTo === 'function') { window.scrollTo(x, y); }
+    var refused = parent.querySelector('.gi-refused p, ul.error.problems li, p.error[role="alert"]');
+    return { notice: notice, error: refused ? refused.textContent.trim() : '' };
+  };
+  each(document.querySelectorAll('form.gi-form'), function (form) {
+    // The form's sends, listened to once (the form stays when a save's answer is put in place; its parts and their grid are new).
+    form.addEventListener('submit', function () { if (form.giGrid) { form.giGrid.serialise(); } }, true);
+    form.addEventListener('submit', function (ev) { if (form.giGrid) { form.giGrid.submit(ev); } });
+    giWire(form);
+    giGrid(form);
+  });
+  giScanPlain();
 
   // A count sheet's lines (form[data-mark], Stock > Counts): a quantity is saved when Enter is pressed in its box (the form's own
   // button; the server keeps only the lines changed on this page). The script marks a box typed in and not saved yet, with the

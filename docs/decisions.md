@@ -16795,3 +16795,125 @@ Tests (red first: `runs/kg_red_first.log`, 8 of the 10 new tests failing on `919
 `UiUnitTest::testEveryCornerIsSmallAndNoneIsOval`, `WordsTest::testTheLinesGridNamesItsKeysInWords`. The script driven in node on a minimal
 DOM (`runs/kg_js_harness/`, 43 checks: fill in place, the totals, every key, Undo, a saved line's remove field, Ctrl+S, a scan with Enter,
 Tab, the route failing, the limit, a Mac, the invoice; `runs/kg_js1.log`); not yet in a real browser.
+
+## Goods received as a standard grid (branch `gi-key-grid`, 7 Nov 2026; GW1-GW10; tracker CW-920 part 1)
+
+The owner, 6 Nov 2026: "check all purchase order, purchase invoice, sales order like this all form"; on 7 Nov, one form at a time, Goods
+received first (the form staff use most). A delivery's draft page (Purchasing › Goods in › a delivery, `/ui/receiving/{id}`) works like the
+purchase order's and the supplier invoice's since CW-919 (KG1-KG37): a numbered lines table worked from the keyboard, no page reload per
+line, the same keys, Save without leaving the page, so staff learn it once. Built from main `9b85a22` in `/root/cw-gw`. No migration, no
+permission, no setting. One route added (the scan box's choices, read only, GW3). Three of `GoodsReceipts`' Add rules are shared now
+(`resolveScan()`, `newLine()`, `merge()`; `addLine()`, `addChoice()`, `addResolved()` use them, unchanged). Only Goods received: the
+stock records, hand-overs, purchase returns, adjustments and sales are later parts of CW-920.
+
+**GW1. The standard look (KG1, KG10).** The draft's lines are KG's grid (`table.gi-lines.kg-grid[data-kg-grid]`, on the delivery's board): a
+No. column (the line's number on the delivery; a line added in the page after the delivery's last line, where the save puts it; closed up
+over a line removed), the item's name (out of the Tab order) with its CW code small beside it (`kg-code`) and the pack and their code on the
+sub line (the sub line's "line N" went: the No. column says it, as KG10 did for the order), numbers right-aligned, the Got box a 32 px grid
+box (`data-kg-cell`), 4 px corners (KG12's tokens). The prices fold's table has the same No. column and look. The read-only page
+(`receipt.php`) has KG10's view look (`table.kg-view`, the No. column, the CW code beside the name). On a phone the GI_Phone cards as before
+(GV23-GV25): no No. column (KG's rule for `table.stack.doc-lines`), nothing sideways, 48 px buttons. Layout only, CSS block "gw" (to "end
+gw"): the table waits hidden until its first line on a keyer's empty delivery (`data-gi-none`), the problem panel's boxes stay white,
+a line's problems and a refusal's words under the name.
+
+**GW2. The keys, KG3's** (Mac: Cmd), through the site's one table of keys (`KEYS`, `kb.grid`): Tab / Shift+Tab the browser's own, box to box
+along a line and on to the next (the item's link and a new line's x out of the Tab order); Enter in a box: the next box of its table (the
+Got box, items a pack, the duty stamp, an open panel's boxes; the prices fold's boxes their own) and never the form sent; Enter in the last
+box of the last line: the scan box. Up / Down in a box: the same box of the line above / below (a number box's own step not taken; a
+select keeps its arrows: `KEYS`' updown now returns the grid's answer, false for a select; past the last line: the scan box). Ctrl+Enter,
+Alt+N, Insert: the scan box (the delivery's "new line"). Ctrl+Delete, Cmd+Backspace, Alt+R: the line the cursor is on, its keyer's only and
+any line of the page, as the server's rule (the keyer's Got 0 takes any line out; nobody else changes lines): "Line 3 removed." with Undo
+(Alt+U, Ctrl+Z when not typing), one removal deep. Ctrl+D in a Got box: the figure of the line above (elsewhere the browser's). Ctrl+S: the
+page's Save (the bar's button), never "Book in" or anything that moves stock (KG15). Esc shuts the scan box's list (combo) and an open problem
+panel (its own listener; the cursor back on its link). Never taken: Alt+D, Ctrl+N/T/W, Ctrl+Shift+Delete, Delete or Backspace alone.
+**The problem panel from the keyboard** (the brief's choice): its "Problem" / "Open" link stays in the Tab order; Enter on it opens the panel
+with the cursor in its first box (no new key). The hint line under the table (`doc_grid_keys` with the page's keys, `kgKeys`): the keyer's
+Tab next, ↑↓ line, Ctrl+Enter new line, Alt+R delete, Alt+U undo, Ctrl+S save; someone else's Tab, Ctrl+Enter scan box (`DOC_GRID k_scan`),
+Ctrl+S save; then "All keys (?)". Hidden under 700 px and without the script (KG's rules). The keys' panel shows only the delivery's keys
+(`kb.grid.keys`; the layout's rows carry `data-kb-key`; the order's and the invoice's grids name none: as before). `aria-keyshortcuts` on the
+Got boxes, the scan box and Save (`doc_bar`'s optional `keys`).
+
+**GW3. The scan box.** The keyer's is the site's one dropdown (`combo()`, its seventh use; no second engine). Its choices come from the
+delivery's own route, `GET /ui/receiving/{id}/products?q=` (`ReceivingController::choices`, `doc.GRN.post`, read only, a draft only; the
+fragment `gi_products`, marker `data-gi-fragment`): what the delivery's Add would add, by Add's own resolution (`GoodsReceipts::resolveScan`,
+taken out of `addLine()`: a barcode's units, a case, the one-unit question, this supplier's code, a CW code, a search). Each choice carries
+the packs one scan is (`data-packs`), the delivery's line it adds to when it is one already (`data-line`, Add's same-line rule) and a
+case's words; no price (goods in never sees one, GV6; the save sets it, as Add does). A code of a line of THIS page still finds that line
+(highlighted, its "All fine" focused, nothing added: today's behaviour). Enter in an empty scan box does nothing (the form is never sent from
+the lines). Someone who did not key it: their scan box as before (finds a line, or says it is not on this delivery).
+
+**GW4. A line added in place, the keyer's, by Add's rules.** A scan with Enter (asked at once, so a scanner's Enter does not wait for the
+300 ms) or a choice naming one item: not on the delivery: a new line (its name, CW code, pack and their code; packs = the packs a scan is
+times the Packs box; the Price box's price when typed), the cursor in its Got box; the same item on a new line of this page: more packs
+there; a line of the delivery on this page (`data-line`): more packs in its Got box, as Add adds units to that line, never a second line; a
+line of another page of a big delivery: Add as without the script (the reload adds to that line). Several items: the list; none: said under
+the box; the route failing: Add as without the script. The server: the new lines in ONE field, `new_lines` (DocGrid's shape; `DocGrid::read`
+strict: anything else is 400 `bad_form`, nothing read), appended after the page's edits and removals and saved by the same `saveDraft` (the
+same transaction, version check, stamps (GV4, GV16) and FormOnce: GW5), before the check, the files, the Add and "Book in". Each by today's Add
+rules (`ReceivingController::withNewLines`): `GoodsReceipts::newLine` (this supplier's pack, switched on, else 422 `unknown_supplier_item`; an
+item not joined into another, else 422 `unknown_sku`; an item with `u` a case of u), `GoodsReceipts::merge` (the same purchase already a line
+gets the packs, and the typed price, as Add does; else at the end, at the save's own price: Add's: the order line's, else the supplier's last,
+else 0); packs a whole number (0 leaves it out, else 422 `grid_packs`), the price as the save reads prices (exact, 4 decimals); `entry`
+`scan`. Sent by anyone but the keyer: the service refuses the save (403 `not_creator`, nothing saved).
+
+**GW5. FormOnce on a save that adds lines (KG5).** A delivery's form now draws a `form_key` for its keyer. A save that carries new lines runs
+through FormOnce (`ui.grn.grid`): the look for someone else's save meanwhile (`stale()`), the save, the check, the files and an Add all inside
+it; the same form sent again (a double click, the back button, a retry after a lost answer) is answered by its first answer and adds nothing
+twice. "Book in" comes after it, outside it, with the version the save left (stored with the answer), as GV3; the same "Book in" sent twice
+lands on the delivery the first one booked in. An Add with new lines that finds several items or none leaves nothing saved (the choices, or
+"Nothing matches … Nothing was saved: your lines and changes are still here.", with every line kept). A refused save stored nothing, so its
+page draws the same key again; the page after a save has a new one. Without new lines a save is as before (no key needed).
+
+**GW6. A refused save keeps every typed line (KG6).** The new lines are drawn again (`gi_grid_line`, from `DocGrid::rows`) with their field;
+the line a refusal is about is red with its words under the name (`tr.kg-bad`): `DocGrid::rowOf` (a new line's own row, else the save's line
+number mapped back through the rows; the panel a refusal opens is now the right line's after a removal on the page); the edits as typed (as
+before). A version conflict keeps the new lines (they name their item); the edits of the saved lines as before (kept while the delivery has
+the same number of lines, I175).
+
+**GW7. Save without leaving the page (KG24).** `fragment()`'s SENT list gets the delivery's one form by a whole-address pattern
+(`/ui/receiving/<id>/lines`). With the script, Save, Ctrl+S and the form's first button with an empty scan box (Enter in a field of the page)
+send the form by the one fetch, multipart as the browser sends it (a chosen photo or paper goes with it: the brief's choice; GV19's size and
+count guard runs first and still stops a send too big), with its token, FormOnce key, version and stamps. The answer counts only when it is
+this delivery's form (`form[data-kg-editor="grn:<id>"]`); then it is put in place (`giSwap`): what comes before the form as the server drew
+it (the messages, a refusal's list) but the head, of which only the title, its status and the line under it are taken (its More keeps its
+forms and their guards; every form of this delivery on the page takes the new version); the form's limits and every part, wired again
+(`giWire()`, the grid, a photo's size, a stamp code's Enter); the cursor back on the same line and box, the page where it was; the server's
+notice said (`data-gi-notice`), else "Saved."; a refusal's words said. While it is on its way the page is held (KG's hold, now shared:
+`kgHold`; `kgToast` too). Anything else (no network, the sign-in page, another page, a 500, 413) changes nothing, says so, and the next Save
+is a plain post. "Book in", "All fine" (GV15: in the page), Add with words in the scan box, "Save and show the next lines", the choices'
+Add, copy, import, cancel and reverse stay plain posts, as before.
+
+**GW8. A scanner's code typed into a Got box is the next scan.** The cursor goes to a new line's Got box (the brief), so a scanner's next
+code may land there; Enter in a Got box holding 8 or more digits, more than a line can have, gives the box back what it held when the cursor
+came in and takes the code as the next scan. Many items in a row by scanning work without the mouse (scan, Enter to the next box or type the
+count, and so on; or scan straight on). The same for a line found by its code (GV8: its "All fine" or "Open" gets the cursor): before this,
+a scanner's next code typed on that button was lost and its Enter pressed "All fine" for the line found, unchecked (seen while building this;
+said in the report). Now a character typed on a line's "All fine" or "Open" goes to the scan box, so the code's Enter is a scan there; Enter
+and Space stay the button's, for a deliberate press.
+
+**GW9. Big deliveries.** The paging (`from`, `page_count`, `editorFits`, `editorMaxLines`), the field budget (GV7) and the size guard
+(`data-max-total`, `data-max-files`, GV19) are kept. The new lines are one field, so PHP's max_input_vars is not made worse; a saved line
+removed in the page sends its Got as 0 alone (its other fields switched off). The script adds no line past the delivery's limit
+(`GoodsReceipts::MAX_LINES`, `data-kg-max`, counting every line of the delivery). CW-921 (the invoice's 990-line case) is not in this part.
+
+**GW10. Without the script, as before; every rule kept.** The new lines' rows only come from the script (or a refusal's page); the field is
+empty; Add submits, Save posts, the panels open by their links, Enter in the scan box adds (the form's first button). Kept: who may key,
+check and book in, drafts, the version and the stamps, FormOnce, CSRF, the checklist, the duty stamp rules, the bench, the unstamped
+actions and evidence, the over-delivery tolerance, the invoice copy's rules (GV18), the refusal lists (GV14, GV21), GV22. Shared code:
+`KEYS`' updown and fill_down return the grid's answer (the order's and the invoice's grids answer as before); the keys' panel's grid rows
+filtered by `kb.grid.keys` when a grid names them; `shrinkOnPick` and `enterNext` named so a page put in place is wired again. Known limits:
+Undo is one removal deep; a new line's price is not shown (the prices fold shows it after the save); KG25's checks before a save are not
+on the delivery (the server refuses in words, on the row); a line's item is not changed in place (KG22 is not part of this); no browser on
+this server: checked by the tests, the node harness and the rules. Tests changed on purpose: `UiUnitTest` (SENT and FRAGMENTS, seven `combo(`
+uses, the Goods in hooks wired by `giWire(root)`, the route), `UiSecurityTest` (the route needs a sign-in), `UiTemplatesTest` and
+`GoodsInOnePageScreensTest` (the lines table's tag is KG's grid now).
+Tests (red first: `runs/gw_red_first.log` and `runs/gw_red_first_screens.log` on `9b85a22` with the new tests: the 8 screen tests and the 4
+changed unit tests failing, the harness failing): `tests/Integration/UiKernel/GoodsInGridScreensTest.php` (8 tests: the No. column on the
+draft, the prices fold and the read page, the hints and their words; several new lines + an edited Got + a removed line in one post; an item
+on the delivery adds to its line, by the grid, the route and the no-script Add; another supplier's, a switched-off, a joined item and bad
+packs refused with every line kept; a version conflict keeps the new lines; the same form twice adds nothing twice; only the keyer adds;
+without the script as before and "Book in" saving the new lines first), the node harness `runs/gw_js_harness/run_gw.js` (47 checks: Up /
+Down along the Got column, Enter, Ctrl+Enter, Insert, the panel by the keyboard and Esc, Ctrl+D, Ctrl+S sent without leaving the page and
+never "Book in", the answer put in place, a failure then a plain post, a refusal, another page's answer, Ctrl+Delete and Undo, not the keyer,
+the scan box: a line of this page, a new line, a scanner's code in a Got box, the same item again, a line of the delivery, Tab with a choice,
+the field, the x, nothing found, the route failing, a line of another page) and kg's harness unchanged and green.

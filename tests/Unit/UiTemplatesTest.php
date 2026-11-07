@@ -1948,7 +1948,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString("back: ['/ui/receiving', \\CW\\Ui\\Words::MENU['receiving']]", $gr);
         self::assertStringContainsString("\$say('GI', 'fact_checked', \$progress['checked'], \$progress['lines'])", $gr);
         self::assertStringNotContainsString('doc-progress', $gr, 'no figures strip: the line under the title says it');
-        preg_match('#<table class="stack list board doc-lines gi-lines">\s*<thead>(.*?)</thead>#s', $gr, $gh);
+        preg_match('#<table class="stack list board doc-lines gi-lines kg-grid".*?>\s*<thead>(.*?)</thead>#s', $gr, $gh); // KG's grid, its No. column DOC_GRID's (GW1)
         self::assertSame(["'col_item'", "'col_expected'", "'col_got'", "'col_check'", "'col_action'"], preg_match_all("/GI', ('[a-z_]+')/", $gh[1], $m) > 0 ? $m[1] : []);
         self::assertMatchesRegularExpression('#<td class="c-next gi-acts"><\?php if \(\$l\[\'stamp_req\'\]\): \?><label class="gi-duty #', $gr, 'the duty stamp in the line\'s answers');
         self::assertStringContainsString('data-gi-duty="1"', $gr);

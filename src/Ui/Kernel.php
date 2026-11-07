@@ -733,6 +733,7 @@ final class Kernel
         $r->add('POST', '/ui/receiving/incidents/{id}', 'incidents.resolve', $incidents->resolve(...));
         $r->add('GET', '/ui/receiving/{id}', 'receiving.view', $recv->show(...));
         $r->add('POST', '/ui/receiving/{id}/lines', 'doc.GRN.post', $recv->lines(...));
+        $r->add('GET', '/ui/receiving/{id}/products', 'doc.GRN.post', $recv->choices(...)); // the scan box's choices (docs/decisions.md GW3)
         $r->add('POST', '/ui/receiving/{id}/copy', 'doc.GRN.post', $recv->copy(...));
         $r->add('POST', '/ui/receiving/{id}/import', 'doc.GRN.post', $recv->import(...));
         $r->add('POST', '/ui/receiving/{id}/files', 'doc.GRN.post', $recv->files(...));

@@ -210,9 +210,10 @@
 <section aria-labelledby="lines-h">
   <h2 id="lines-h"><?= $word('RECEIPT', 'lines') ?></h2>
   <div class="table-wrap">
-  <table class="stack list grn-lines">
+  <table class="stack list grn-lines doc-lines kg-view">
     <thead>
       <tr>
+        <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
         <th scope="col"><?= $word('RECEIPT', 'product') ?></th>
         <th scope="col"><?= $word('RECEIPT', 'pack') ?></th>
         <th scope="col" class="num"><?= $word('RECEIPT', 'packs') ?></th>
@@ -229,7 +230,8 @@
     <tbody>
 <?php foreach ($lines as $no => $l): ?>
       <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="o-sub"><?= $e($l['sku_code']) ?> · <?= $say('RECEIPT', 'line', $no) ?><?php if ($l['supplier_code'] !== null): ?> · <?= $say('RECEIPT', 'their_code', (string) $l['supplier_code']) ?><?php endif; ?></span><?php if ($l['description'] !== null): ?> <span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
+        <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"><?= $e($no) ?></td>
+        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span><?php if ($l['supplier_code'] !== null): ?> <span class="o-sub"><?= $say('RECEIPT', 'their_code', (string) $l['supplier_code']) ?></span><?php endif; ?><?php if ($l['description'] !== null): ?> <span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
         <td data-label="<?= $word('RECEIPT', 'pack') ?>"><?= $e($l['pack_label']) ?></td>
         <td class="num" data-label="<?= $word('RECEIPT', 'packs') ?>"><?= $n($l['packs']) ?></td>
         <td class="num" data-label="<?= $word('RECEIPT', 'items') ?>"><?= $n($l['units']) ?></td>

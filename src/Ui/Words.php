@@ -6840,6 +6840,10 @@ final class Words
         'kbd_undo_mac' => 'Option+U',
         'kbd_copy_mac' => 'Cmd+D',
         'kbd_save_mac' => 'Cmd+S',
+        // A delivery's lines (docs/decisions.md GW2): for someone who checks a delivery they did not key, Ctrl+Enter is the scan box (they add no lines).
+        'k_scan' => 'scan box',
+        'kbd_scan' => 'Ctrl+Enter',
+        'kbd_scan_mac' => 'Cmd+Enter',
         // What app.js says when the page holds as many lines as a document may have (the service's limit; the server refuses more anyway).
         'too_many' => 'This page holds the most lines it can. Save it, then add the rest to another one.',
         'all_keys' => 'All keys (?)', // the hint line's button: the panel of every key (KEYS)
@@ -9225,6 +9229,10 @@ final class Words
         'add' => 'Add',
         'found' => 'Line %s: %s',
         'not_here' => 'Not on this delivery: %s',
+        // A line added in the page by the scan box (docs/decisions.md GW4): said under the box; a new line's x.
+        'grid_added' => 'Line %s added: %s.',
+        'grid_more' => 'Line %s: %s, now %s packs.',
+        'remove_new' => 'Take this line out',
         // The lines.
         'lines' => 'Products on this delivery',
         'col_item' => 'Item',
@@ -9414,6 +9422,12 @@ final class Words
     public const RECEIPT_ERROR = [
         'scan_pending' => 'The scan box still holds "%s": press Add, or clear it, then book in again. Nothing was saved.',
         'not_found' => 'Nothing matches "%s" (a barcode, this supplier\'s code, a CW number or words of the name). Your other changes are saved.',
+        // The lines added in the page (docs/decisions.md GW): an Add with them finds nothing, so nothing is saved; a line's packs are not a number.
+        'not_found_kept' => 'Nothing matches "%s" (a barcode, this supplier\'s code, a CW number or words of the name). Nothing was saved: your lines and '
+            . 'changes are still here.',
+        'grid_packs' => 'Not saved: line %s, packs: a whole number (0 takes the line out). Every line you typed is still here.',
+        'unknown_supplier_item' => 'Not saved: this supplier does not sell that pack (it is switched off, or another supplier\'s). Every line you typed is still '
+            . 'here: take that line out, or choose it again from the scan box.',
         'import_refused_one' => 'Nothing was imported: the sheet has 1 problem. Correct it and import the whole sheet again.',
         'import_refused' => 'Nothing was imported: the sheet has %s problems. Correct them and import the whole sheet again.',
         'version_conflict' => 'Not saved: this delivery was changed since you opened it (perhaps by you in another tab). Here it is as it is now, with what you '

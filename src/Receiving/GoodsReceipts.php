@@ -285,25 +285,42 @@ final class GoodsReceipts
         return $this->db->transaction(function () use ($caller, $id, $version, $q, $packs, $price): array {
             $me = $this->poster($caller);
             $this->lockDraft($id, $version, $me);
-            $supplierId = (int) ($this->header($id)['supplier_id'] ?? 0);
-            $scan = $this->scanned($id, $supplierId, $q);
-            if ($scan !== null) {
-                if ($scan['status'] === 'choices') {
-                    return ['status' => 'choices', 'document' => $this->docs->get($id), 'choices' => $scan['choices'], 'choice_note' => $scan['note'], 'q' => $q];
-                }
-                if ($packs < 1 || $packs > PoMath::MAX_PACKS) {
-                    throw new CwException('bad_field', 'packs: a whole number from 1 to ' . number_format(PoMath::MAX_PACKS), 422, ['field' => 'packs']);
-                }
-                return $this->addResolved($caller, $id, $version, $scan['line'], $packs * $scan['per_scan'], 'scan', $price, $scan['note'] ?? null) + ['q' => $q];
-            }
-            $r = $this->pos()->resolve($supplierId, $q);
+            $r = $this->resolveScan($id, $q);
             if ($r['status'] !== 'found') {
-                return ['status' => $r['status'], 'document' => $this->docs->get($id), 'choices' => $r['choices'] ?? [], 'q' => $q];
+                return ['status' => $r['status'], 'document' => $this->docs->get($id), 'choices' => $r['choices']] + ($r['note'] === null ? [] : ['choice_note' => $r['note']])
+                    + ['q' => $q];
             }
-            $si = $r['supplier_item'];
-            return $this->addResolved($caller, $id, $version, ['sku_id' => (int) $r['sku_id'], 'supplier_item_id' => $si === null ? null : (int) $si['id'],
-                'units_per_pack' => (int) $r['units_per_pack'], 'purchase_unit' => (string) $r['purchase_unit']], $packs, 'scan', $price) + ['q' => $q];
+            if ($packs < 1 || $packs > PoMath::MAX_PACKS) {
+                throw new CwException('bad_field', 'packs: a whole number from 1 to ' . number_format(PoMath::MAX_PACKS), 422, ['field' => 'packs']);
+            }
+            return $this->addResolved($caller, $id, $version, $r['line'], $packs * $r['per_scan'], 'scan', $price, $r['note']) + ['q' => $q];
         });
+    }
+
+    /**
+     * What Add would add for what was scanned or typed ($q), read only: addLine()'s own resolution, shared with the delivery's scan box
+     * (docs/decisions.md GW3), so the line made in the page is the one Add makes. A usable barcode first (scanned(): the units it stands
+     * for, a case, the one-unit question), else PurchaseOrders::resolve (this supplier's code, a CW code, a search).
+     *
+     * @return array{status: string, line?: array{sku_id: int, supplier_item_id: ?int, units_per_pack: int, purchase_unit: string}, per_scan?: int,
+     *   note: ?string, choices: list<array<string, mixed>>} status found (line, per_scan: the packs one scan is), choices or not_found
+     */
+    public function resolveScan(int $id, string $q): array
+    {
+        $q = trim($q);
+        $supplierId = (int) ($this->header($id)['supplier_id'] ?? 0);
+        $scan = $this->scanned($id, $supplierId, $q);
+        if ($scan !== null) {
+            return $scan['status'] === 'choices' ? ['status' => 'choices', 'choices' => $scan['choices'], 'note' => $scan['note']]
+                : ['status' => 'found', 'line' => $scan['line'], 'per_scan' => (int) $scan['per_scan'], 'note' => $scan['note'] ?? null, 'choices' => []];
+        }
+        $r = $this->pos()->resolve($supplierId, $q);
+        if ($r['status'] !== 'found') {
+            return ['status' => (string) $r['status'], 'choices' => $r['choices'] ?? [], 'note' => null];
+        }
+        $si = $r['supplier_item'];
+        return ['status' => 'found', 'line' => ['sku_id' => (int) $r['sku_id'], 'supplier_item_id' => $si === null ? null : (int) $si['id'],
+            'units_per_pack' => (int) $r['units_per_pack'], 'purchase_unit' => (string) $r['purchase_unit']], 'per_scan' => 1, 'note' => null, 'choices' => []];
     }
 
     /**
@@ -317,19 +334,60 @@ final class GoodsReceipts
         return $this->db->transaction(function () use ($caller, $id, $version, $supplierItemId, $skuId, $packs, $price): array {
             $me = $this->poster($caller);
             $this->lockDraft($id, $version, $me);
-            $supplierId = (int) ($this->header($id)['supplier_id'] ?? 0);
-            if ($supplierItemId !== null) {
-                $si = $this->db->one('SELECT * FROM supplier_item WHERE id = ? AND supplier_id = ? AND is_active = 1', [$supplierItemId, $supplierId])
-                    ?? throw new CwException('unknown_supplier_item', 'this supplier has no such active supplier item', 422);
-                $line = ['sku_id' => (int) $si['sku_id'], 'supplier_item_id' => (int) $si['id'], 'units_per_pack' => (int) $si['units_per_pack'],
-                    'purchase_unit' => (string) $si['purchase_unit']];
-            } else {
-                $sku = $this->db->one('SELECT id FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [(int) $skuId])
-                    ?? throw new CwException('unknown_sku', 'there is no such item', 422);
-                $line = ['sku_id' => (int) $sku['id'], 'supplier_item_id' => null, 'units_per_pack' => 1, 'purchase_unit' => 'each'];
-            }
-            return $this->addResolved($caller, $id, $version, $line, $packs, 'manual', $price);
+            return $this->addResolved($caller, $id, $version, $this->newLine($id, $supplierItemId, $skuId), $packs, 'manual', $price);
         });
+    }
+
+    /**
+     * A new line of the receipt by Add's own rule (addChoice; shared with the delivery's lines added in the page, docs/decisions.md GW4):
+     * one of this supplier's supplier items, switched on (else 422 unknown_supplier_item); or an item in CW not joined into another (else
+     * 422 unknown_sku) in packs of $units (1; a case's barcode stands for its units: a "case").
+     *
+     * @return array{sku_id: int, supplier_item_id: ?int, units_per_pack: int, purchase_unit: string}
+     */
+    public function newLine(int $id, ?int $supplierItemId, ?int $skuId, int $units = 1): array
+    {
+        $supplierId = (int) ($this->header($id)['supplier_id'] ?? 0);
+        if ($supplierItemId !== null) {
+            $si = $this->db->one('SELECT * FROM supplier_item WHERE id = ? AND supplier_id = ? AND is_active = 1', [$supplierItemId, $supplierId])
+                ?? throw new CwException('unknown_supplier_item', 'this supplier has no such active supplier item', 422);
+            return ['sku_id' => (int) $si['sku_id'], 'supplier_item_id' => (int) $si['id'], 'units_per_pack' => (int) $si['units_per_pack'],
+                'purchase_unit' => (string) $si['purchase_unit']];
+        }
+        $sku = $this->db->one('SELECT id FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [(int) $skuId])
+            ?? throw new CwException('unknown_sku', 'there is no such item', 422);
+        if ($units < 1 || $units > PoMath::MAX_UNITS_PER_PACK) {
+            throw new CwException('bad_line', 'units per pack: a whole number from 1 to ' . number_format(PoMath::MAX_UNITS_PER_PACK), 422, ['field' => 'units_per_pack']);
+        }
+        return ['sku_id' => (int) $sku['id'], 'supplier_item_id' => null, 'units_per_pack' => $units, 'purchase_unit' => $units > 1 ? 'case' : 'each'];
+    }
+
+    /**
+     * Add's rule for a line added to $lines (addResolved; shared with the delivery's lines added in the page, docs/decisions.md GW4): the
+     * same purchase already a line (the same supplier item, or the same item and pack without one) gets the packs added, and the price
+     * typed with them (null keeps its own); else the line goes at the end, at the price typed (none: the save's own default).
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param array<string, mixed> $new newLine()'s, with its entry
+     * @return array{0: list<array<string, mixed>>, 1: int, 2: string} the lines, the index of the line added to, 'added' or 'incremented'
+     */
+    public static function merge(array $lines, array $new, int $packs, ?string $price): array
+    {
+        foreach ($lines as $i => $l) {
+            if (self::sameLine($l, $new)) {
+                $lines[$i]['packs'] = (int) $l['packs'] + $packs;
+                if ($price !== null) {
+                    $lines[$i]['pack_price'] = $price;
+                }
+                return [$lines, $i, 'incremented'];
+            }
+        }
+        $new += ['packs' => $packs, 'entry' => 'manual', 'po_line_no' => null];
+        if ($price !== null) {
+            $new['pack_price'] = $price;
+        }
+        $lines[] = $new;
+        return [$lines, count($lines) - 1, 'added'];
     }
 
     /**
@@ -860,28 +918,10 @@ final class GoodsReceipts
         }
         $price = $price === null || trim($price) === '' ? null : trim($price);
         $lines = $this->lines($id);
-        $new += ['packs' => $packs, 'entry' => $entry, 'po_line_no' => null];
-        if ($price !== null) {
-            $new['pack_price'] = $price;
-        }
-        $status = 'added';
-        $lineNo = count($lines) + 1;
-        foreach ($lines as $i => $l) {
-            if (self::sameLine($l, $new)) {
-                $lines[$i]['packs'] = $l['packs'] + $packs;
-                if ($price !== null) {
-                    $lines[$i]['pack_price'] = $price;
-                }
-                $status = 'incremented';
-                $lineNo = $i + 1;
-                break;
-            }
-        }
-        if ($status === 'added') {
-            if (count($lines) >= self::MAX_LINES) {
-                throw new CwException('too_many_lines', 'a receipt has at most ' . self::MAX_LINES . ' lines', 422);
-            }
-            $lines[] = $new;
+        [$lines, $at, $status] = self::merge($lines, $new + ['entry' => $entry], $packs, $price);
+        $lineNo = $at + 1;
+        if ($status === 'added' && count($lines) > self::MAX_LINES) {
+            throw new CwException('too_many_lines', 'a receipt has at most ' . self::MAX_LINES . ' lines', 422);
         }
         $doc = $this->saveDraft($caller, $id, $version, [], $lines);
         return ['status' => $status, 'document' => $doc, 'line_no' => $lineNo, 'units_added' => $packs * (int) $new['units_per_pack'], 'sku_id' => (int) $new['sku_id'],

@@ -137,7 +137,7 @@ $kbGroups = [
       <dl>
 <?php foreach ($kbRows as [$kbId, $kbWhen]): ?>
 <?php if ($kbId === 'new_doc' && ($newDoc ?? null) === null) { continue; } ?>
-        <div class="kb-row"<?php if ($kbWhen !== ''): ?> data-kb-when="<?= $e($kbWhen) ?>"<?php endif; ?>>
+        <div class="kb-row" data-kb-key="<?= $e($kbId) ?>"<?php if ($kbWhen !== ''): ?> data-kb-when="<?= $e($kbWhen) ?>"<?php endif; ?>>
           <dt><?php foreach (\CW\Ui\Words::KEYS_KBD[$kbId] as [$kbPc, $kbMac]): ?><kbd<?php if ($kbMac !== $kbPc): ?> data-mac="<?= $e($kbMac) ?>"<?php endif; ?>><?= $e($kbPc) ?></kbd> <?php endforeach; ?></dt>
           <dd><?php if ($kbId === 'new_doc'): ?><a href="<?= $u($newDoc['href']) ?>" data-key-new aria-keyshortcuts="Control+B"><?= $e($newDoc['label']) ?></a><?php else: ?><?= $word('KEYS', $kbId) ?><?php endif; ?></dd>
         </div>

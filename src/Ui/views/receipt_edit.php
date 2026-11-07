@@ -11,10 +11,14 @@
 // problems, what to do with items without a stamp, the stamp code, the proof, the note, the photo and the tick. The prices fold for the
 // buying desk only (invoices.view). Photos and papers (a file of the same form) and the note. "Before it can be booked in". The sticky
 // bar: leave, what is left to check, Save, "Book in N items".
+// The lines are a standard grid since 7 Nov 2026 (docs/decisions.md GW, the purchase order's and the invoice's KG): a No. column, rows one
+// line high on a computer (the CW code small beside the name), the keys of KG3 (the Got boxes data-kg-cell, the hint line under the table),
+// the keyer's lines added in place from the scan box (their one field `new_lines`, the row template, a refusal on its row) and Save sent
+// without leaving the page (form[data-kg-editor]); the phone's cards as before, without the No. column. Without the script, as before.
 $bar = $partial('gi_more', ['keyer' => $keyer, 'canCancel' => $canCancel, 'doc' => $doc, 'canCopy' => $canCopy, 'importErrors' => $importErrors, 'maxMb' => $maxMb]);
 $left = $left === 0 ? \CW\Ui\Words::GI['left_none'] : ($left === 1 ? \CW\Ui\Words::GI['left_one'] : \CW\Ui\Words::say('GI', 'left_many', $left));
 $book = $progress['in'] === 1 ? \CW\Ui\Words::GI['book_one'] : \CW\Ui\Words::say('GI', 'book', $progress['in']);
-$buttons = [['value' => 'save', 'label' => \CW\Ui\Words::GI['save']]];
+$buttons = [['value' => 'save', 'label' => \CW\Ui\Words::GI['save'], 'keys' => 'Control+S']];
 if ($paged && $from + $pageSize <= $count) {
     $buttons[] = ['name' => 'next', 'value' => '1', 'label' => \CW\Ui\Words::say('GI', 'next', $pageSize)];
 }
@@ -75,7 +79,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endif; ?>
 
 
-<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($postMax) ?>" data-max-files="<?= $e($maxFiles) ?>" data-total-words="<?= $say('GI', 'files_too_big', $postMaxMb) ?>" data-files-words="<?= $say('GI', 'files_too_many', $maxFiles - 1) ?>">
+<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-kg-editor="grn:<?= $e($doc->id) ?>" data-gi-notice="<?= $e($pageNotice ?? '') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($postMax) ?>" data-max-files="<?= $e($maxFiles) ?>" data-total-words="<?= $say('GI', 'files_too_big', $postMaxMb) ?>" data-files-words="<?= $say('GI', 'files_too_many', $maxFiles - 1) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
   <input type="hidden" name="page" value="one">
@@ -90,6 +94,8 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endif; ?>
 <?php if ($keyer): ?>
   <input type="hidden" name="header_present" value="1">
+  <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
+  <input type="hidden" name="new_lines" value="<?= $e($newJson) ?>" data-kg-field>
 <?php endif; ?>
   <button type="submit" name="action" value="<?php if ($keyer): ?>add<?php else: ?>save<?php endif; ?>" class="po-default" tabindex="-1" aria-hidden="true"><?php if ($keyer): ?><?= $word('GI', 'add') ?><?php else: ?><?= $word('GI', 'save') ?><?php endif; ?></button>
 
@@ -158,7 +164,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
   <section class="card gi-lines-card" id="lines" aria-labelledby="lines-h">
     <div class="gi-scan" id="scan">
       <label class="gi-scan-box"><?php if ($keyer): ?><?= $word('GI', 'scan') ?><?php else: ?><?= $word('GI', 'scan_find') ?><?php endif; ?>
-        <input type="search" id="gi-scan"<?php if ($keyer): ?> name="q" value="<?= $e($q) ?>"<?php endif; ?> maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="<?php if ($keyer): ?><?= $word('GI', 'scan_placeholder') ?><?php else: ?><?= $word('GI', 'find_placeholder') ?><?php endif; ?>" data-not-here="<?= $word('GI', 'not_here') ?>" data-found="<?= $word('GI', 'found') ?>"<?php if ($keyer): ?> data-adds="1"<?php endif; ?>></label>
+        <input type="search" id="gi-scan"<?php if ($keyer): ?> name="q" value="<?= $e($q) ?>" data-options="<?= $u('/ui/receiving/' . $doc->id . '/products') ?>?" data-loading="<?= $word('PO_ONE', 'loading') ?>" data-failed="<?= $word('PO_ONE', 'failed') ?>" data-label="<?= $word('GI', 'lines') ?>"<?php endif; ?> aria-keyshortcuts="Control+Enter Meta+Enter Insert" maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="<?php if ($keyer): ?><?= $word('GI', 'scan_placeholder') ?><?php else: ?><?= $word('GI', 'find_placeholder') ?><?php endif; ?>" data-not-here="<?= $word('GI', 'not_here') ?>" data-found="<?= $word('GI', 'found') ?>"<?php if ($keyer): ?> data-adds="1"<?php endif; ?>></label>
 <?php if ($keyer): ?>
       <label class="gi-scan-packs"><?= $word('GI', 'packs') ?> <input type="number" name="packs" min="1" max="1000000" inputmode="numeric" value="<?= $e($packs) ?>"></label>
 <?php if ($prices): ?>
@@ -194,13 +200,16 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php if ($paged): ?>
     <p class="note gi-page"><?= $say('GI', 'page_n', $from, min($count, $from + $pageSize - 1), $count) ?></p>
 <?php endif; ?>
-<?php if ($rows === []): ?>
-    <p class="hint"><?= $word('RECEIPT', 'no_lines') ?></p>
-<?php else: ?>
-    <div class="table-wrap doc-board <?= $e(\CW\Ui\Words::tone('GI_STATE', $state)) ?>">
-    <table class="stack list board doc-lines gi-lines">
+<?php if ($rows === [] && $newRows === []): ?>
+    <p class="hint" data-gi-none-hint><?= $word('RECEIPT', 'no_lines') ?></p>
+<?php endif; ?>
+<?php if ($rows !== [] || $newRows !== [] || $keyer): ?>
+<?php $kgNo = $count; ?>
+    <div class="table-wrap doc-board <?= $e(\CW\Ui\Words::tone('GI_STATE', $state)) ?>"<?php if ($rows === [] && $newRows === []): ?> data-gi-none<?php endif; ?>>
+    <table class="stack list board doc-lines gi-lines kg-grid" data-kg-grid data-kg-max="<?= $e(\CW\Receiving\GoodsReceipts::MAX_LINES) ?>" data-kg-max-qty="<?= $e($maxPacks) ?>" data-kg-min-qty="0" data-kg-count="<?= $e($count) ?>" data-kg-from="<?= $e($from) ?>"<?php if ($keyer): ?> data-kg-keyer<?php endif; ?><?= $partial('doc_grid_words', []) ?> data-gi-added="<?= $word('GI', 'grid_added') ?>" data-gi-more="<?= $word('GI', 'grid_more') ?>" data-gi-their="<?= $word('RECEIPT', 'their_code') ?>">
       <thead>
         <tr>
+          <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
           <th scope="col" class="c-item"><?= $word('GI', 'col_item') ?></th>
           <th scope="col" class="num"><?= $word('GI', 'col_expected') ?></th>
           <th scope="col" class="num"><?= $word('GI', 'col_got') ?></th>
@@ -213,24 +222,29 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php $typedRow = isset($typed['b_' . $no . '_present']); ?>
 <?php $over = (int) ($typed['b_' . $no . '_over'] ?? $l['over_units']); ?>
 <?php $duty = (string) ($typed['b_' . $no . '_duty'] ?? ($l['duty'] === 'unchecked' ? '' : $l['duty'])); ?>
-        <tr class="gi-row <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?>" id="line-<?= $e($no) ?>" data-codes="<?= $e($l['codes']) ?>" data-gi-line="<?= $e($no) ?>">
+<?php $bad = $gridBad === 'line:' . $no; ?>
+        <tr class="gi-row <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?><?php if ($bad): ?> kg-bad<?php endif; ?>" id="line-<?= $e($no) ?>" data-codes="<?= $e($l['codes']) ?>" data-gi-line="<?= $e($no) ?>" data-kg-row data-kg-line="<?= $e($no) ?>" data-si="<?= $e($l['supplier_item_id'] ?? '') ?>" data-sku="<?= $e($l['supplier_item_id'] === null ? $l['sku_id'] : '') ?>" data-u="<?= $e($l['supplier_item_id'] === null && (int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-name="<?= $e($l['sku_name']) ?>">
+          <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?= $e($no) ?></td>
           <th scope="row" class="c-head c-item">
             <input type="hidden" name="b_<?= $e($no) ?>_present" value="<?= $e($l['identity']) ?>">
             <input type="hidden" name="b_<?= $e($no) ?>_was" value="<?= $e($l['was']) ?>">
             <input type="hidden" name="b_<?= $e($no) ?>_fine" value="" data-gi-fine-mark="1">
-            <a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a>
-            <span class="o-sub"><?= $e($l['sku_code']) ?> · <?= $e($l['pack_label']) ?> · <?= $say('GI', 'line_n', $no) ?><?php if ($l['supplier_code'] !== null): ?> · <?= $say('RECEIPT', 'their_code', (string) $l['supplier_code']) ?><?php endif; ?></span>
+            <a class="o-name kg-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>" tabindex="-1"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span>
+            <span class="o-sub"><?= $e($l['pack_label']) ?><?php if ($l['supplier_code'] !== null): ?> · <?= $say('RECEIPT', 'their_code', (string) $l['supplier_code']) ?><?php endif; ?></span>
 <?php if ($l['findings'] !== ''): ?>
             <span class="o-sub gi-findings"><?= $e($l['findings']) ?></span>
 <?php endif; ?>
 <?php foreach ($l['problems'] as $p): ?>
             <span class="field-error"><?= $e($p) ?></span>
 <?php endforeach; ?>
+<?php if ($bad && $gridBadText !== null): ?>
+            <span class="o-sub kg-error"><?= $e($gridBadText) ?></span>
+<?php endif; ?>
           </th>
           <td class="num" data-label="<?= $word('GI', 'col_expected') ?>"><?php if (isset($l['ordered']['packs'])): ?><?= $n($l['ordered']['packs']) ?><?php elseif (isset($l['ordered']['items'])): ?><?= $say('GI', 'ordered_items', $l['ordered']['items']) ?><?php else: ?>&mdash;<?php endif; ?></td>
-          <td class="num gi-items" data-label="<?= $word('GI', 'col_got') ?>"><?php if ($keyer): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_packs') ?>"><?php if ($l['supplier_item_id'] === null): ?><label class="gi-upp"><?= $word('GI', 'upp') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short"></label><?php endif; ?><?php else: ?><?= $n($l['packs']) ?><?php endif; ?><span class="o-sub"><?= $say('GI', 'ordered_items', \CW\Ui\Html::int($l['accepted'])) ?><?php if ($l['accepted'] !== (int) $l['units']): ?> <?= $say('GI', 'of_items', (int) $l['units']) ?><?php endif; ?></span></td>
+          <td class="num gi-items" data-label="<?= $word('GI', 'col_got') ?>"><?php if ($keyer): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_packs') ?>" data-kg-cell="qty" aria-keyshortcuts="ArrowUp ArrowDown Control+Delete"><?php if ($l['supplier_item_id'] === null): ?><label class="gi-upp"><?= $word('GI', 'upp') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short" data-kg-cell="upp"></label><?php endif; ?><?php else: ?><?= $n($l['packs']) ?><?php endif; ?><span class="o-sub"><?= $say('GI', 'ordered_items', \CW\Ui\Html::int($l['accepted'])) ?><?php if ($l['accepted'] !== (int) $l['units']): ?> <?= $say('GI', 'of_items', (int) $l['units']) ?><?php endif; ?></span></td>
           <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?> gi-check" data-label="<?= $word('GI', 'col_check') ?>" data-words="<?= $word('GI_CHECK', 'done') ?>"><span class="chip"><?= $word('GI_CHECK', $l['check']) ?></span></td>
-          <td class="c-next gi-acts"><?php if ($l['stamp_req']): ?><label class="gi-duty <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?>"><span class="gi-duty-name"><?= $word('GI', 'col_duty') ?></span> <select name="b_<?= $e($no) ?>_duty" id="gi-duty-<?= $e($no) ?>" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1">
+          <td class="c-next gi-acts"><?php if ($l['stamp_req']): ?><label class="gi-duty <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?>"><span class="gi-duty-name"><?= $word('GI', 'col_duty') ?></span> <select name="b_<?= $e($no) ?>_duty" id="gi-duty-<?= $e($no) ?>" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1" data-kg-cell="duty">
               <option value=""><?= $word('GI_DUTY', 'unchecked') ?></option>
 <?php foreach ($duties as $d): ?>
 <?php if ($d !== 'yes' || $duty === 'yes'): ?>
@@ -239,15 +253,15 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endforeach; ?>
             </select></label><?php endif; ?><span class="gi-why" role="alert" data-gi-why="1"></span><?php if ($l['check'] === 'todo'): ?><button type="submit" name="fine" value="<?= $e($no) ?>" class="btn ok sm" data-gi-fine="<?= $e($no) ?>" data-needs-stamp="<?= $word('GI', 'needs_stamp') ?>" data-none-stamp="<?= $word('GI', 'none_stamp') ?>" aria-label="<?= $say('GI', 'fine_label', $no) ?>"><?= $word('GI', 'all_fine') ?></button> <a class="btn sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'problem_label', $no) ?>"><?= $word('GI', 'problem') ?></a><?php else: ?><a class="btn ghost sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'open_label', $no) ?>"><?= $word('GI', 'open') ?></a><?php endif; ?></td>
         </tr>
-        <tr class="gi-panel<?php if ($l['open']): ?> open<?php endif; ?>" id="gi-p-<?= $e($no) ?>">
-          <td colspan="5" class="c-head">
+        <tr class="gi-panel<?php if ($l['open']): ?> open<?php endif; ?>" id="gi-p-<?= $e($no) ?>" data-gi-panel-of="<?= $e($no) ?>">
+          <td colspan="6" class="c-head">
             <div class="gi-mini">
-              <label><?= $word('GI', 'short') ?> <input type="number" name="b_<?= $e($no) ?>_short" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_short'] ?? $l['short_units']) ?>"></label>
-              <label><?= $word('GI', 'over') ?> <input type="number" name="b_<?= $e($no) ?>_over" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_over'] ?? $l['over_units']) ?>"></label>
-              <label><?= $word('GI', 'damaged') ?> <input type="number" name="b_<?= $e($no) ?>_damaged" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_damaged'] ?? $l['damaged_units']) ?>"></label>
-              <label><?= $word('GI', 'wrong') ?> <input type="number" name="b_<?= $e($no) ?>_wrong" min="0" inputmode="numeric" value="<?= $e($typed['b_' . $no . '_wrong'] ?? $l['wrong_item_units']) ?>"></label>
+              <label><?= $word('GI', 'short') ?> <input type="number" name="b_<?= $e($no) ?>_short" min="0" inputmode="numeric" data-kg-cell="short" value="<?= $e($typed['b_' . $no . '_short'] ?? $l['short_units']) ?>"></label>
+              <label><?= $word('GI', 'over') ?> <input type="number" name="b_<?= $e($no) ?>_over" min="0" inputmode="numeric" data-kg-cell="over" value="<?= $e($typed['b_' . $no . '_over'] ?? $l['over_units']) ?>"></label>
+              <label><?= $word('GI', 'damaged') ?> <input type="number" name="b_<?= $e($no) ?>_damaged" min="0" inputmode="numeric" data-kg-cell="damaged" value="<?= $e($typed['b_' . $no . '_damaged'] ?? $l['damaged_units']) ?>"></label>
+              <label><?= $word('GI', 'wrong') ?> <input type="number" name="b_<?= $e($no) ?>_wrong" min="0" inputmode="numeric" data-kg-cell="wrong" value="<?= $e($typed['b_' . $no . '_wrong'] ?? $l['wrong_item_units']) ?>"></label>
 <?php if ($l['stamp_req']): ?>
-              <label><?= $word('GI', 'unstamped') ?> <input type="number" name="b_<?= $e($no) ?>_unstamped" min="0" inputmode="numeric" data-unstamped="1" value="<?= $e($typed['b_' . $no . '_unstamped'] ?? $l['unstamped_units']) ?>"></label>
+              <label><?= $word('GI', 'unstamped') ?> <input type="number" name="b_<?= $e($no) ?>_unstamped" min="0" inputmode="numeric" data-unstamped="1" data-kg-cell="unstamped" value="<?= $e($typed['b_' . $no . '_unstamped'] ?? $l['unstamped_units']) ?>"></label>
 <?php endif; ?>
             </div>
 <?php if ($over > (int) $l['units']): ?>
@@ -271,10 +285,10 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php if (!$refusal): ?>
               <label class="gi-proof" data-unstamped-only="1"><?= $word('GI', 'evidence') ?> <textarea name="b_<?= $e($no) ?>_evidence" maxlength="500" rows="2"><?= $e($typed['b_' . $no . '_evidence'] ?? ($l['pre_october_evidence'] ?? '')) ?></textarea></label>
 <?php endif; ?>
-              <label class="gi-code"><?= $word('GI', 'code') ?> <input type="text" name="b_<?= $e($no) ?>_code" maxlength="128" autocomplete="off" data-enter="next" value="<?= $e($typed['b_' . $no . '_code'] ?? ($l['stamp_code'] ?? '')) ?>"></label>
+              <label class="gi-code"><?= $word('GI', 'code') ?> <input type="text" name="b_<?= $e($no) ?>_code" maxlength="128" autocomplete="off" data-enter="next" data-kg-cell="code" value="<?= $e($typed['b_' . $no . '_code'] ?? ($l['stamp_code'] ?? '')) ?>"></label>
 <?php endif; ?>
 <?php if ($keyer): ?>
-              <label class="gi-note"><?= $word('GI', 'note') ?> <input type="text" name="line_<?= $e($no) ?>_note" maxlength="255" value="<?= $e($typed['line_' . $no . '_note'] ?? $l['description']) ?>"></label>
+              <label class="gi-note"><?= $word('GI', 'note') ?> <input type="text" name="line_<?= $e($no) ?>_note" maxlength="255" data-kg-cell="note" value="<?= $e($typed['line_' . $no . '_note'] ?? $l['description']) ?>"></label>
 <?php elseif ($l['description'] !== null): ?>
               <p class="gi-note"><?= $word('GI', 'note') ?>: <?= $e($l['description']) ?></p>
 <?php endif; ?>
@@ -284,18 +298,27 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
           </td>
         </tr>
 <?php endforeach; ?>
+<?php foreach ($newRows as $j => $r): ?>
+<?php $kgNo++; ?>
+<?= $partial('gi_grid_line', ['r' => $r, 'no' => $kgNo, 'bad' => $gridBad === $r['key'] ? $gridBadText : null]) ?>
+<?php endforeach; ?>
       </tbody>
     </table>
     </div>
+<?php if ($keyer): ?>
+    <template data-kg-row><?= $partial('gi_grid_line', ['r' => null, 'no' => 0, 'bad' => null]) ?></template>
+<?php endif; ?>
+<?= $partial('doc_grid_keys', ['kgKeys' => $gridKeys]) ?>
 <?php endif; ?>
 <?php if ($prices && $rows !== []): ?>
     <details class="fold gi-prices"<?php if (in_array($errorCode, ['bad_line', 'mode_conflict'], true)): ?> open<?php endif; ?>>
       <summary><?= $word('GI', 'prices') ?></summary>
       <p class="muted"><?= $say('GI', 'prices_value', (string) $totals['net']) ?> <?= $e($reaches) ?></p>
       <div class="table-wrap">
-      <table class="stack list gi-price-lines">
+      <table class="stack list doc-lines gi-price-lines kg-grid" data-gi-prices>
         <thead>
           <tr>
+            <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
             <th scope="col" class="c-item"><?= $word('GI', 'col_item') ?></th>
             <th scope="col" class="num"><?= $word('GI', 'col_price') ?></th>
             <th scope="col" class="num"><?= $word('GI', 'col_value') ?></th>
@@ -306,17 +329,18 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
         </thead>
         <tbody>
 <?php foreach ($rows as $no => $l): ?>
-          <tr>
-            <th scope="row" class="c-head c-item"><?= $e($l['sku_name']) ?> <span class="o-sub"><?= $say('GI', 'line_n', $no) ?></span></th>
-            <td class="num" data-label="<?= $word('GI', 'col_price') ?>"><?php if ($keyer): ?><input type="text" name="line_<?= $e($no) ?>_price" inputmode="decimal" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_price') ?>"><?php else: ?>£<?= $e($l['price']) ?><?php endif; ?></td>
+          <tr data-gi-price="<?= $e($no) ?>">
+            <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?= $e($no) ?></td>
+            <th scope="row" class="c-head c-item"><?= $e($l['sku_name']) ?> <span class="kg-code"><?= $e($l['sku_code']) ?></span></th>
+            <td class="num" data-label="<?= $word('GI', 'col_price') ?>"><?php if ($keyer): ?><input type="text" name="line_<?= $e($no) ?>_price" inputmode="decimal" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" data-kg-cell="price" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_price') ?>"><?php else: ?>£<?= $e($l['price']) ?><?php endif; ?></td>
             <td class="num" data-label="<?= $word('GI', 'col_value') ?>"><?= $e($l['net']) ?></td>
-            <td data-label="<?= $word('GI', 'col_order_line') ?>"><?php if ($keyer && $poLines !== []): ?><select name="line_<?= $e($no) ?>_po" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_order_line') ?>">
+            <td data-label="<?= $word('GI', 'col_order_line') ?>"><?php if ($keyer && $poLines !== []): ?><select name="line_<?= $e($no) ?>_po" data-kg-cell="po" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_order_line') ?>">
                 <option value="0"><?= $word('RECEIPT', 'not_against') ?></option>
 <?php foreach ($poLines as $pno => $plabel): ?>
                 <option value="<?= $e($pno) ?>"<?php if ((string) ($typed['line_' . $no . '_po'] ?? ($l['po_line_no'] ?? 0)) === (string) $pno): ?> selected<?php endif; ?>><?= $e($plabel) ?></option>
 <?php endforeach; ?>
               </select><?php elseif ($l['po_line_no'] !== null): ?><?= $say('RECEIPT', 'order_line_no', (int) $l['po_line_no']) ?><?php endif; ?></td>
-            <td data-label="<?= $word('GI', 'col_selling') ?>"><?php if ($keyer): ?><select name="line_<?= $e($no) ?>_mode" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_selling') ?>">
+            <td data-label="<?= $word('GI', 'col_selling') ?>"><?php if ($keyer): ?><select name="line_<?= $e($no) ?>_mode" data-kg-cell="mode" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_selling') ?>">
 <?php foreach ($modeChoices as $mc): ?>
                 <option value="<?= $e($mc) ?>"<?php if (($typed['line_' . $no . '_mode'] ?? $l['mode_choice']) === $mc): ?> selected<?php endif; ?>><?php if ($mc === 'default'): ?><?= $say('RECEIPT', 'mode_default', (string) ($l['mode_default']['mode'] ?? ''), \CW\Ui\Words::of('MODE_SOURCE', (string) ($l['mode_default']['source'] ?? 'fallback'))) ?><?php else: ?><?= $say('RECEIPT', 'mode_choice', $mc, \CW\Ui\Words::of('MODE_MEANING', $mc)) ?><?php endif; ?></option>
 <?php endforeach; ?>

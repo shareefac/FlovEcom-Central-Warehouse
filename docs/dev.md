@@ -1422,3 +1422,24 @@ empty line `tr[data-kg-empty]` holding the product box (`input[data-po-pick]`); 
   `WordsTest::testTheLinesGridNamesItsKeysInWords`. The script was driven in node with a minimal DOM (`/root/cw_work/runs/kg_js_harness/`,
   outside the repo: copy it into the worktree as `tools/kg_js/` for a run through the slot runner, `/root/poone_js/node` on cw-test, and
   remove it).
+
+### Goods received as a standard grid (`docs/decisions.md` GW1-GW10; branch `gi-key-grid`; tracker CW-920 part 1; 7 Nov 2026)
+
+A delivery's draft page uses the grid's contract (above) and the site's keys: its lines `table.gi-lines.kg-grid[data-kg-grid]` (the No.
+column, `data-kg-cell` boxes, `data-kg-keyer`, `data-kg-count`, `data-kg-from`, `data-kg-max`, the words of `doc_grid_words` and
+`data-gi-added` / `data-gi-more` / `data-gi-their`), its form `form.gi-form[data-kg-editor="grn:<id>"]` (`data-gi-notice`), the keyer's
+`new_lines` (`input[data-kg-field]`) and `form_key`, a `<template data-kg-row>` of `gi_grid_line`, `doc_grid_keys` with the page's keys.
+
+| Path | What |
+|---|---|
+| `src/Receiving/GoodsReceipts.php` | Add's rules shared: `resolveScan()` (what Add would add for a scan or words, read only), `newLine()` (this supplier's pack switched on, or an item not joined, packs of u), `merge()` (the same purchase gets the packs); `addLine()` / `addChoice()` / `addResolved()` use them |
+| `src/Ui/Controller/ReceivingController.php` | `lines()`: `new_lines` (DocGrid::read), FormOnce `ui.grn.grid` around the look + save when there are new lines, `savedAddress()`, the refusal's row (`DocGrid::rowOf`, `gridBad`); `saveAll(..., $new, &$keys)`, `withNewLines()`; `choices()` (`GET /ui/receiving/{id}/products`, the scan box's fragment); `onePage()`: `newRows`, `newJson`, `formKey`, `gridKeys`, `pageNotice` |
+| views `receipt_edit` (the grid), `gi_grid_line` (a new line, the template), `gi_products` (the scan box's choices, `data-gi-fragment`), `receipt` (`table.kg-view`), `doc_grid_keys` (`$kgKeys`), `doc_bar` (a button's `keys`), `layout` (`data-kb-key` on the keys' panel rows) | |
+| `public/ui/assets/app.js` | `SENT` / `FRAGMENTS` (the delivery's form and its scan box's route), `kgToast` / `kgHold` (shared with docGrid), the Goods in block: `giWire(root)`, `giScanPlain()`, `giGrid(form)` (to `giSwap`), `giSwap(form, part)` |
+| `public/ui/assets/app.css` | block "gw" (to "end gw") |
+| `src/Ui/Words.php` | `DOC_GRID k_scan`, `kbd_scan`; `GI grid_added`, `grid_more`, `remove_new`; `RECEIPT_ERROR not_found_kept`, `grid_packs`, `unknown_supplier_item` |
+
+- Tests: `tests/Integration/UiKernel/GoodsInGridScreensTest.php`, `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign` (the grid's hooks),
+  the route in `testEveryRealRouteHasADeliberateAccessLevel`, `UiSecurityTest` (sign-in). The script driven in node: `/root/cw_work/runs/gw_js_harness/`
+  (`run_gw.js` the delivery's, `run_kg.js` the order's and the invoice's; outside the repo: copy them into the worktree as `tools/gw_js/` for a
+  run through the slot runner, `/root/poone_js/node` on cw-test, and remove them; `runs/gw_js.sh` does it).

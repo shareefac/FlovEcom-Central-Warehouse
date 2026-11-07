@@ -34,6 +34,7 @@ final class UiSecurityTest extends UiTestCase
         // --- end of Pack G
         '/ui/purchasing/orders/new', '/ui/purchasing/orders/products?q=pod', // PO on one page (docs/decisions.md PX1, PX8)
         '/ui/items/families/1/find?q=pod', // a family's picker (docs/decisions.md FP3)
+        '/ui/receiving/1/products?q=pod', // a delivery's scan box (docs/decisions.md GW3)
         ];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',

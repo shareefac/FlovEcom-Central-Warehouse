@@ -3921,3 +3921,17 @@ table.kg-grid td.kg-stock .kg-coming, table.kg-view td.kg-stock .kg-coming { dis
 form.kg-doc > .kg-final-ask { margin: 16px 0 0; }
 @media (max-width: 699.98px), (pointer: coarse) { .kg-final-ask .btn { min-height: 44px; } }
 /* ==== end kg ====================================================================================================================== */
+/* ==== gw: a delivery's lines as the standard grid (branch gi-key-grid, docs/decisions.md GW1-GW10) ====================================
+   Goods received like the purchase order and the supplier invoice (KG): KG's table (table.kg-grid: the No. column, rows one line high on
+   a computer with the CW code small beside the name, 32 px boxes, numbers right) on the delivery's board, and on the prices fold's table;
+   the problem panel's boxes stay white on its amber; a line's problems and a refusal's words under the name; the table waits hidden until
+   its first line (a keyer's empty delivery: the scan box adds it in place). The phone's cards as before (GV23-GV25), without the No.
+   column (KG's rule for table.stack.doc-lines). */
+[data-gi-none] { display: none; }
+table.gi-lines tr.gi-panel input[data-kg-cell] { background-color: var(--card); }
+.gi-lines-card > .kg-status { margin: 0 16px; }
+.gi-lines-card > .kg-keys { margin: 0 16px 12px; }
+@container (min-width: 641px) {
+  table.gi-lines th.c-item .field-error, table.gi-lines th.c-item .kg-error { display: block; margin-left: 0; white-space: normal; }
+}
+/* ==== end gw ====================================================================================================================== */

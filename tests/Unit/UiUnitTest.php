@@ -412,6 +412,9 @@ final class UiUnitTest extends TestCase
         // the step's routes are gone.
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/new']);
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/products']);
+        // A delivery's scan box (docs/decisions.md GW3): its choices are for who receives goods, read only.
+        self::assertSame('doc.GRN.post', $byPath['GET /ui/receiving/{id}/products']);
+        self::assertArrayNotHasKey('POST /ui/receiving/{id}/products', $byPath);
         // A family's picker (docs/decisions.md FP3, FP4): its choices are read by everyone who reads the family, read only; the ticked items are
         // put in by whoever keeps the families, as the pasted list is.
         self::assertSame('catalogue.view', $byPath['GET /ui/items/families/{id}/find']);
@@ -985,7 +988,7 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
-        self::assertSame(6, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4), a quick adjustment\'s line (AG4) and a grid line\'s item box (KG22)');
+        self::assertSame(7, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4), a quick adjustment\'s line (AG4), a grid line\'s item box (KG22) and a delivery\'s scan box (GW3)');
         foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
             'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
             self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
@@ -1101,7 +1104,7 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         // No new dropdown for the invoice: its supplier and item boxes are the order page's. The fourth combo() call is Lines to place's item
         // box (docs/decisions.md LQ4) and the fifth a quick adjustment's line (AG4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
-        self::assertSame(6, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s (and a grid line\'s item box, KG22)');
+        self::assertSame(7, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s (and a grid line\'s item box, KG22; a delivery\'s scan box, GW3)');
         self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
         self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
@@ -1257,10 +1260,24 @@ final class UiUnitTest extends TestCase
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         self::assertSame(0, preg_match('/\.flow \{/', $css), 'no buying flow strip on any page, at any width (DC5)');
-        foreach (["document.querySelectorAll('button[data-gi-fine]')", "document.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",
-            "document.querySelector('[data-gi-left]')"] as $hook) {
+        // Wired by giWire(root): at load and again after a save without reload put the server's answer in place (docs/decisions.md GW7).
+        foreach (["root.querySelectorAll('button[data-gi-fine]')", "root.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",
+            "document.querySelector('[data-gi-left]')", 'var giWire = function (root) {'] as $hook) {
             self::assertStringContainsString($hook, $js, $hook);
         }
+        // Goods received as a standard grid (GW1-GW10): KG's look on the delivery's lines, the keys through the one layer (kb.grid), the
+        // scan box's choices from its own route, the new lines in one field, Ctrl+S the page's Save (never "Book in").
+        $from = (int) strpos($js, 'var giGrid = function (form) {');
+        self::assertGreaterThan(0, $from, 'the delivery\'s grid');
+        $gi = substr($js, $from, (int) strpos($js, 'var giSwap = function (form, part) {') - $from);
+        foreach (["fragment(base + 'q=' + encodeURIComponent(q), '[data-gi-fragment]')", 'kb.grid = {', "form.querySelector('input[data-kg-field]')", 'JSON.stringify(out)',
+            "form.querySelector('button[name=\"action\"][value=\"save\"]')", "fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)",
+            "flag.name = 'line_' + no + '_packs';"] as $hook) {
+            self::assertStringContainsString($hook, $gi, $hook);
+        }
+        self::assertStringNotContainsString('value="post"', $gi, 'nothing of the grid presses "Book in"');
+        self::assertSame(1, preg_match('/^\[data-gi-none\] \{ display: none; \}/m', $css), 'a keyer\'s empty delivery: the table waits for its first line');
+        self::assertSame(1, preg_match('/^table\.gi-lines tr\.gi-panel input\[data-kg-cell\] \{ background-color: var\(--card\); \}/m', $css), 'the panel\'s boxes white');
         // The page's own pieces close what they open (the bar, the panel row, More).
         $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/receipt_edit.php');
         foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'fieldset', 'p'] as $tag) {
@@ -1588,13 +1605,14 @@ final class UiUnitTest extends TestCase
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
             . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', "
-            . "'[data-fp-fragment]': '/ui/items/families/' };", $js,
+            . "'[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if ((!sent && (!path || url.indexOf(path) !== 0 || body !== undefined)) || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         // Two kinds are SENT (docs/decisions.md KG21, KG24): the lines' grid's "+ Add new item" and the editor's Save, each only to its own
         // routes (a whole-address pattern), with the form's body (its CSRF token and FormOnce key); everything else is the GET of a fragment.
+        // A delivery's one form too (docs/decisions.md GW7): its own /lines address, nothing else of Goods in.
         self::assertStringContainsString("var SENT = { '[data-ni-fragment]': /^\\/ui\\/purchasing\\/(orders|invoices)\\/new-item$/, "
-            . "'[data-kg-editor]': /^\\/ui\\/purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?$/ };", $js, 'what is sent, and only where');
+            . "'[data-kg-editor]': /^\\/ui\\/(purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?|receiving\\/[1-9][0-9]{0,17}\\/lines)$/ };", $js, 'what is sent, and only where');
         self::assertStringContainsString("var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);", $js);
         self::assertStringContainsString("credentials: 'same-origin', method: 'POST'", $js);
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');
@@ -1662,7 +1680,7 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, substr_count($js, 'var docGrid = function (table, box) {'), 'one engine');
         self::assertSame(1, substr_count($js, 'docGrid(grid, '), 'started by the product box, with its own combo');
-        self::assertSame(6, substr_count($js, ' = combo('), 'no second dropdown engine: the grid line\'s item box is one more use of combo() (KG22)');
+        self::assertSame(7, substr_count($js, ' = combo('), 'no second dropdown engine: the grid line\'s item box (KG22) and a delivery\'s scan box (GW3) are uses of combo()');
         $from = (int) strpos($js, 'var docGrid = function (table, box) {');
         $grid = substr($js, $from, (int) strpos($js, '// (the lines\' grid ends here)') - $from);
         self::assertGreaterThan(2000, strlen($grid), 'the engine, to its end marker');
