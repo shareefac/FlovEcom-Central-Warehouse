@@ -3707,6 +3707,11 @@
         ev.preventDefault();
         var duty = row.querySelector('select[data-gi-duty]');
         var why = row.querySelector('[data-gi-why]');
+        if (kb.busy) {
+          // A save is on its way: its answer is put in place of the page, so a tick now would be lost without a word (GW15). Said in the row.
+          if (why) { why.textContent = b.getAttribute('data-wait') || 'Saving: press All fine again when it is saved.'; }
+          return;
+        }
         if (duty && duty.value === '') {
           // Refused: said in the row, next to the duty stamp cell, never in a browser dialog (GV11); the duty answer is focused where it is
           // (the page does not scroll, GV15).
@@ -4097,10 +4102,11 @@
       }
     };
     each(body.querySelectorAll('tr[data-kg-new]'), wire);
-    // What the scan box named, taken (docs/decisions.md GW4): Add's own rules. An item already on a new line of this page: more packs on that
-    // line; already a line of the delivery (data-line, the route's answer): more packs in that line's Got box (on another page of a big
-    // delivery: Add, as without the script); else a new line, the packs a scan is times the Packs box, the Price box's price. The cursor goes
-    // to the line's Got box (a scanner's next code typed there is taken as the next scan: step()).
+    // What the scan box named, taken (docs/decisions.md GW4): Add's own rules. The first line of this page that is the same purchase as the
+    // page has it NOW (the same supplier's pack, or the same item in the same items a pack as its box says: GW11) gets the packs, in its
+    // Got box, and the price typed beside the scan box in its price box (GW13); an item whose line is on another page of a big delivery
+    // goes in the one field with a plain save, which adds it to that line (GW14); else a new line, the packs a scan is times the Packs box,
+    // the Price box's price. The cursor goes to the line's Got box (a scanner's next code typed there is taken as the next scan: step()).
     var scanPacks = function () {
       var p = form.querySelector('input[name="packs"]');
       var n = p ? whole(p.value) : null;
@@ -4113,14 +4119,24 @@
       if (pr) { pr.value = ''; }
     };
     var addButton = function () { return form.querySelector('.gi-scan button[name="action"][value="add"]'); };
-    var plainAdd = function () {
-      var b = addButton();
+    var send = function (b) {
       plain = true;
       if (b && form.requestSubmit) {
         form.requestSubmit(b);
       } else if (b) {
         b.click();
       }
+    };
+    var plainAdd = function () { send(addButton()); };
+    // A line's purchase as the page has it now: its supplier's pack, or its item and the items a pack its box says (else as saved).
+    var sameAs = function (tr, it) {
+      var si = tr.getAttribute('data-si') || '';
+      if (it.si !== '' || si !== '') {
+        return si === it.si;
+      }
+      var box = cellIn(tr, 'upp');
+      var upp = box ? whole(box.value) : (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
+      return (tr.getAttribute('data-sku') || '') === it.sku && upp === it.upp;
     };
     var take = function (li, clear) {
       if (sending) {
@@ -4132,26 +4148,36 @@
       var packs = (parseInt(a('data-packs'), 10) || 1) * scanPacks();
       var pr = form.querySelector('input[name="price"]');
       var price = pr ? pr.value.trim() : '';
-      var same = null;
-      each(body.querySelectorAll('tr[data-kg-new]'), function (tr) {
-        var si = tr.getAttribute('data-si') || '';
-        if (same === null && !tr.hasAttribute('data-kg-gone') && (it.si !== '' ? si === it.si : (si === '' && tr.getAttribute('data-sku') === it.sku
-          && (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1) === it.upp))) {
-          same = tr;
+      var row = null;
+      each(lines(), function (tr) {
+        var got = cellIn(tr, 'qty');
+        if (row === null && got && !got.disabled && (tr.hasAttribute('data-kg-new') || got.name) && sameAs(tr, it)) {
+          row = tr;
         }
       });
-      var row = same;
-      if (row === null && a('data-line') !== '') {
-        row = document.getElementById('line-' + a('data-line'));
-        if (!row || row.hidden || !cellIn(row, 'qty') || !cellIn(row, 'qty').name) {
-          plainAdd(); // a line of another page of this delivery (or not drawn here): Add, as without the script
-          return;
+      if (row === null && a('data-line') !== '' && !document.getElementById('line-' + a('data-line'))) {
+        // Its line is on another page of this delivery: the chosen item in the one field and a plain save (the server adds it to that line, as
+        // Add, and the page after it says so); the search is not sent (GW14).
+        var far = addLine(it, packs, price);
+        if (far) {
+          clear();
+          send(form.querySelector('button[name="action"][value="save"]'));
         }
+        return;
       }
       if (row !== null) {
         var got = cellIn(row, 'qty');
         got.value = String((whole(got.value) || 0) + packs);
-        if (price !== '') { row.setAttribute('data-gi-p', price); }
+        if (price !== '') {
+          if (row.hasAttribute('data-kg-new')) {
+            row.setAttribute('data-gi-p', price);
+          } else {
+            var pbox = form.querySelector('input[name="line_' + (row.getAttribute('data-kg-line') || '') + '_price"]');
+            if (pbox && !pbox.disabled) {
+              pbox.value = price; // the saved line's own price box: Save sends it (Add sets the price typed with it)
+            }
+          }
+        }
         flash(row);
         dirty();
         clear();
@@ -4169,6 +4195,13 @@
       giSaid(words('added').replace('%s', (tr.querySelector('[data-kg-no]') || { textContent: '' }).textContent).replace('%s', it.name)
         + (a('data-note') !== '' ? ' ' + a('data-note') : ''));
       goTo(cellIn(tr, 'qty'));
+    };
+    // The supplier chosen on the page and not saved yet (an empty delivery's): the scan box's route answers for the saved supplier, so the
+    // scan box is Add, as before (the save puts the supplier first, then Add looks for the scan with it: GW16).
+    var supplierBox = form.querySelector('select[name="supplier_id"]');
+    var supplierMoved = function () {
+      var saved = scan.getAttribute('data-gi-supplier') || '';
+      return !!supplierBox && saved !== '' && supplierBox.value !== saved;
     };
     // The keyer's scan box: the site's one dropdown, its choices asked of the delivery's own route (what Add would add), drawn as text.
     var box = null;
@@ -4285,6 +4318,10 @@
               clear(); // a code of a line of this page: that line, as before (nothing added)
               return;
             }
+            if (supplierMoved()) {
+              plainAdd(); // another supplier chosen, not saved yet: Add, as before (GW16)
+              return;
+            }
             if (v.length < 2) {
               c.close();
               return;
@@ -4307,8 +4344,8 @@
           c.unshut();
           draw([]);
           var v = scan.value.trim();
-          if (v.length < 2) {
-            return;
+          if (v.length < 2 || supplierMoved()) {
+            return; // one letter finds too much; another supplier chosen and not saved: no list of the saved one's (GW16)
           }
           timer = window.setTimeout(function () { load(v); }, 300);
         });
@@ -4484,9 +4521,17 @@
       return null;
     }
     var active = document.activeElement;
-    var activeId = active && active.id && form.contains(active) ? active.id : '';
+    var inForm = !!(active && active.closest && form.contains(active));
+    var activeId = inForm && active.id ? active.id : '';
     var cell = active && active.getAttribute ? active.getAttribute('data-kg-cell') : null;
-    var row = active && active.closest && form.contains(active) ? active.closest('tr[data-kg-row]') : null;
+    // The line the cursor is on: its row, or the row of its problem panel or of its prices line (GW17), and which of the three it is in.
+    var ptr = inForm ? active.closest('tr') : null;
+    var part = ptr ? (ptr.hasAttribute('data-gi-panel-of') ? 'panel' : (ptr.hasAttribute('data-gi-price') ? 'price' : (ptr.hasAttribute('data-kg-row') ? 'row' : null))) : null;
+    var row = part === 'row' ? ptr : (part ? document.getElementById('line-' + (ptr.getAttribute('data-gi-panel-of') || ptr.getAttribute('data-gi-price'))) : null);
+    var named = inForm && /^(b|line)_[0-9]+_[a-z]+$/.test(active.name || '') ? (active.name || '').replace(/^(b|line)_[0-9]+_/, '') : '';
+    var prefix = named !== '' ? (active.name || '').replace(/_[0-9]+_.*$/, '') : '';
+    var pricesFold = form.querySelector('details.gi-prices');
+    var pricesOpen = !!(pricesFold && pricesFold.open);
     var rowsNow = Array.prototype.filter.call(form.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden; });
     var at = row ? rowsNow.indexOf(row) : -1;
     var x = window.scrollX || window.pageXOffset || 0;
@@ -4548,9 +4593,34 @@
     each(form.querySelectorAll('[data-enter="next"]'), enterNext);
     giGrid(form);
     giScanPlain();
+    // "All keys (?)" of the hint line put in place opens the panel of keys again (GW18).
+    if (kbPanel) {
+      each(form.querySelectorAll('[data-kb-open]'), function (b) { b.addEventListener('click', kbOpen); });
+    }
+    // The prices fold stays open when it was; the cursor goes back to the same line (by its place) and the same box of it: in its row, its
+    // problem panel (opened again) or its prices line (GW17).
+    var foldThen = form.querySelector('details.gi-prices');
+    if (pricesOpen && foldThen) {
+      foldThen.open = true;
+    }
     var rowsThen = Array.prototype.filter.call(form.querySelectorAll('tr[data-kg-row]'), function (tr) { return !tr.hidden; });
     var back = at >= 0 ? rowsThen[Math.min(at, rowsThen.length - 1)] : null;
-    var target = back ? (back.querySelector('[data-kg-cell="' + (cell || 'qty') + '"]') || back.querySelector('[data-kg-cell]')) : (activeId !== '' ? document.getElementById(activeId) : null);
+    var target = null;
+    if (back) {
+      var no = back.getAttribute('data-kg-line') || '';
+      if (part === 'panel' && no !== '') {
+        giOpen(no, true);
+      }
+      if (part === 'price' && foldThen) {
+        foldThen.open = true;
+      }
+      target = named !== '' && no !== '' ? form.querySelector('[name="' + prefix + '_' + no + '_' + named + '"]') : null;
+      if (!target && part === 'row') {
+        target = back.querySelector('[data-kg-cell="' + (cell || 'qty') + '"]') || back.querySelector('[data-kg-cell]');
+      }
+    } else if (activeId !== '') {
+      target = document.getElementById(activeId);
+    }
     if (target && target.focus) {
       target.focus({ preventScroll: true });
     }

@@ -9233,6 +9233,7 @@ final class Words
         'grid_added' => 'Line %s added: %s.',
         'grid_more' => 'Line %s: %s, now %s packs.',
         'remove_new' => 'Take this line out',
+        'fine_wait' => 'Saving: press All fine again when it is saved.', // "All fine" pressed while a save is on its way (GW15)
         // The lines.
         'lines' => 'Products on this delivery',
         'col_item' => 'Item',

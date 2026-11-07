@@ -14,6 +14,7 @@ use CW\Suppliers\Suppliers;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Controller\ReceivingController;
 use CW\Ui\DocGrid;
 use CW\Ui\Words;
 
@@ -73,6 +74,15 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
     {
         $sku = self::makeSku($name);
         (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $sku, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
+        return $sku;
+    }
+
+    /** A duty-liable e-liquid (10 ml): its lines need the duty stamp answer before "All fine". */
+    private function liquid(string $name): int
+    {
+        $sku = self::makeSku($name);
+        (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $sku, 0, ['product_type' => 'e-liquid', 'liquid_ml' => '10',
+            'nicotine_mg' => '6', 'duty_liable' => 'yes']);
         return $sku;
     }
 
@@ -399,5 +409,65 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
         self::assertContains($book->status, [409, 422], self::why($book));
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), 'not booked in: lines to check');
         self::assertSame(4, (int) self::stored($id)[1]['packs'], 'B: 3 + 1 on its own line, saved before the booking');
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of 78eed4e (docs/decisions.md GW11-GW18)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * GW12 (Codex 2): a save with new lines sent again after its answer was lost is answered by its first answer, whatever its checks would
+     * say now: line 1 removed, dry line 2 "All fine", a new line; line 2 is now the duty line, so checking "fine=2" again would refuse it.
+     */
+    public function testAReplayedSaveIsItsFirstAnswerWhateverItsChecksWouldSayNow(): void
+    {
+        $desk = $this->uiUser('purchasing_desk');
+        $s = (int) $this->supplier('Replay Fine Ltd')['id'];
+        $a = $this->dry('Replay dry A');
+        $b = $this->dry('Replay dry B');
+        $l = $this->liquid('Replay liquid');
+        $d = $this->dry('Replay dry D');
+        $siD = $this->pack($s, $d, 1, 'RD-1', '1.00');
+        $id = $this->delivery($desk['id'], $s, [['sku_id' => $a, 'packs' => 1], ['sku_id' => $b, 'packs' => 1], ['sku_id' => $l, 'packs' => 1, 'units_per_pack' => 5]]);
+        $web = $this->signIn($desk);
+        $f = self::onePage($web->get("/ui/receiving/{$id}"), $id);
+        $post = ['line_1_packs' => '0', 'fine' => '2', 'action' => 'save', DocGrid::FIELD => self::grid([['si' => $siD, 'q' => '1', 'p' => '']])] + $f;
+        $one = $web->post("/ui/receiving/{$id}/lines", $post);
+        self::assertSame(303, $one->status, self::why($one));
+        self::assertSame([$b, $l, $d], array_map(static fn (array $x): int => (int) $x['sku_id'], self::stored($id)));
+        self::assertNotNull(self::$db->value('SELECT checked_at FROM grn_line WHERE document_id = ? AND line_no = 1', [$id]), 'B (now line 1) all fine');
+        $two = $web->post("/ui/receiving/{$id}/lines", $post);
+        self::assertSame([303, $one->location()], [$two->status, $two->location()], 'the first answer again, never "choose the duty stamp": ' . self::why($two));
+        self::assertSame(3, count(self::stored($id)), 'nothing done twice');
+    }
+
+    /**
+     * GW14 (Codex 4): a new line of an item whose line is on another page of a big delivery adds to that line (Add's same-line rule), and
+     * the page after the save says so, as Add's does ("Line 48, …: +2 items").
+     */
+    public function testANewLineOfALineOnAnotherPageAddsToThatLine(): void
+    {
+        $desk = $this->uiUser('purchasing_desk');
+        $s = (int) $this->supplier('Other Page Ltd')['id'];
+        $size = ReceivingController::pageSize(true);
+        $lines = [];
+        $skus = [];
+        for ($i = 1; $i <= $size + 3; $i++) {
+            $skus[$i] = self::makeSku('Other page coil ' . $i);
+            $lines[] = ['sku_id' => $skus[$i], 'packs' => 1];
+        }
+        $id = $this->delivery($desk['id'], $s, $lines);
+        $web = $this->signIn($desk);
+        $page = $web->get("/ui/receiving/{$id}");
+        $f = self::onePage($page, $id);
+        self::assertSame([(string) $size, '1'], [$f['page_count'], $f['from']], 'a big delivery: page 1 of its lines');
+        $far = $size + 2;
+        $r = $web->post("/ui/receiving/{$id}/lines", ['action' => 'save', DocGrid::FIELD => self::grid([['sku' => $skus[$far], 'q' => '2', 'p' => '']])] + $f);
+        self::assertSame(303, $r->status, self::why($r));
+        self::assertSame([3, $size + 3], [(int) self::stored($id)[$far - 1]['packs'], count(self::stored($id))], 'line ' . $far . ': 1 + 2 packs, no new line');
+        self::assertStringContainsString('notice=incremented', (string) $r->location(), 'the page says which line it added to');
+        self::assertStringContainsString('line=' . $far, (string) $r->location());
+        self::assertStringContainsString(Words::say('RECEIPT_ADDED', 'incremented', $far, sprintf('CW-%06d', $skus[$far]) . ' Other page coil ' . $far, 2, '3 items'),
+            $web->follow($r)->text());
     }
 }

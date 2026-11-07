@@ -16917,3 +16917,48 @@ Down along the Got column, Enter, Ctrl+Enter, Insert, the panel by the keyboard 
 never "Book in", the answer put in place, a failure then a plain post, a refusal, another page's answer, Ctrl+Delete and Undo, not the keyer,
 the scan box: a line of this page, a new line, a scanner's code in a Got box, the same item again, a line of the delivery, Tab with a choice,
 the field, the x, nothing found, the route failing, a line of another page) and kg's harness unchanged and green.
+
+### The Codex review of 78eed4e (`runs/gw_codex_review.txt`): one HIGH, five MEDIUM, two LOW, all reproduced and fixed test-first (branch `gi-key-grid`, second commit, 7 Nov 2026; GW11-GW18)
+
+Each shown failing first on `78eed4e`: `runs/gw_fix1_red_first.log` (the node harness's 8 new checks failing, one per JavaScript finding,
+and the 2 new screen tests failing: a replay refused 422, and "saved" where Add says which line it added to). CW-922 (a scanner's next code
+pressing the found line's "All fine") stays fixed: its harness check is kept and extended.
+
+**GW11. A scan adds to a line only when it is the same purchase as the page has it now** (Codex 1, HIGH: three packs of 10, the items a pack
+edited to 5, a case of 10 scanned: the grid made four packs of 5, 20 items, where the case and the edit make 25). The first line of the
+page whose purchase is the scan's as the page has it now gets the packs: the same supplier's pack, or the same item with the items a pack
+its box says (else as saved: a saved row's `data-kg-upp`). A line whose items a pack was edited is another purchase: the scan is a line
+of its own, and the save's merge (Add's rule, against the edited lines) decides. The route's `data-line` (the stored line) only tells
+that the line is on another page.
+
+**GW12. A save sent again is its first answer, whatever its checks would say now** (Codex 2). "All fine" needing the duty stamp answer
+reads the delivery as it is now (`plan()`), so for a save with new lines it is checked inside FormOnce, after the look for the first answer:
+a form that removed line 1 and marked line 2 "All fine", sent again after its answer was lost, is answered 303 as the first time, never
+422 because the duty line is line 2 now. Without new lines the check is where it was. Refused inside FormOnce, it is said on its row.
+
+**GW13. A price typed beside the scan box goes with a scan added to a saved line** (Codex 3): into that line's own price box (the prices
+fold's), which Save sends; Add sets the price typed with it the same way. A new line keeps it as its `p`.
+
+**GW14. An item whose line is on another page of a big delivery** (Codex 4: the fallback sent the words, the server asked again). The item
+chosen goes in the one field (`new_lines`: its pack, or its item and a case's items, the packs, the price typed) with a plain save, the
+scan box's words not sent; the save adds it to that line by Add's same-line rule (GW4), and the page after it says so as Add's does
+("Line 48, …: +2 items", `incremented`): `withNewLines` now tells which lines that were there a new line was added to.
+
+**GW15. "All fine" waits for a save on its way** (Codex 5: the answer was put in place of the page, the tick lost without a word). While a
+save is on its way (`kb.busy`) "All fine" changes nothing and says in the row "Saving: press All fine again when it is saved."
+(`GI fine_wait`, the button's `data-wait`).
+
+**GW16. Another supplier chosen on the page and not saved: the scan box is Add, as before** (Codex 6, the brief's choice): the scan box's
+route answers for the saved supplier, so while an empty delivery's supplier box differs from the saved one (`data-gi-supplier`) the box
+asks nothing (no list) and Enter is Add (a plain post: the save puts the supplier first, then Add looks for the scan with it). Chosen over
+the route taking the supplier typed: no second check of a header not saved yet.
+
+**GW17. The cursor back after a save from a price box or a problem panel** (Codex 7): the line is found from the box's row, its panel
+(`data-gi-panel-of`) or its prices line (`data-gi-price`); the box by its name (`line_N_price`, `b_N_short`... with the line's number now);
+the panel opened again, the prices fold kept open when it was.
+
+**GW18. "All keys (?)" after a save without reload** (Codex 8): the hint line put in place gets its button's press again (`kbOpen`).
+
+Tests: `GoodsInGridScreensTest::testAReplayedSaveIsItsFirstAnswerWhateverItsChecksWouldSayNow`, `::testANewLineOfALineOnAnotherPageAddsToThatLine`;
+the node harness section 7 (GW11 both ways, GW13, GW14, GW15, GW16, GW17 price and panel, GW18, CW-922 extended). Changed on purpose: the
+harness's "a line of another page" check (a plain save with the item now, GW14).

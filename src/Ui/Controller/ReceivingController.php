@@ -490,21 +490,31 @@ final class ReceivingController
                 }
             }
             $answers = self::answers($req);
-            // "All fine" on a duty line needs its stamp answer, by the line's own facts, not by what the form sent (finding 3).
-            $fines = array_filter($answers, static fn (array $a): bool => $a['fine']);
-            if ($fines !== []) {
+            // "All fine" on a duty line needs its stamp answer, by the line's own facts, not by what the form sent (finding 3). It reads the
+            // delivery as it is now, so a save that carries new lines checks it inside FormOnce, after the look for its first answer: the
+            // same form sent again is that answer, never refused by what changed since (the Codex review of 78eed4e, 2; GW12).
+            $fineCheck = static function () use ($svc, $id, $answers, $req): void {
+                $fines = array_filter($answers, static fn (array $a): bool => $a['fine']);
+                if ($fines === []) {
+                    return;
+                }
                 $planLines = $svc->plan($id)['lines'];
                 foreach (array_keys($fines) as $no) {
                     if (($planLines[$no]['stamp_required'] ?? false) === true) {
                         $duty = (string) ($req->field("b_{$no}_duty") ?? '');
                         if ($duty === '' || $duty === 'unchecked') {
-                            throw new CwException('fine_needs_stamp', Words::say('RECEIPT_ERROR', 'fine_needs_stamp', $no), 422, ['line' => $no, 'field' => 'stamp_on_pack']);
+                            throw new CwException('fine_needs_stamp', Words::say('RECEIPT_ERROR', 'fine_needs_stamp', $no), 422, ['line' => $no, 'field' => 'stamp_on_pack',
+                                'row' => 'line:' . $no]);
                         }
                         if ($duty === 'none') {
-                            throw new CwException('fine_no_stamp', Words::say('RECEIPT_ERROR', 'fine_no_stamp', $no), 422, ['line' => $no, 'field' => 'unstamped_units']);
+                            throw new CwException('fine_no_stamp', Words::say('RECEIPT_ERROR', 'fine_no_stamp', $no), 422, ['line' => $no, 'field' => 'unstamped_units',
+                                'row' => 'line:' . $no]);
                         }
                     }
                 }
+            };
+            if ($new === []) {
+                $fineCheck();
             }
             $checklist = self::checklist($req);
             $invoice = $deskSave ? null : self::invoiceSent($req);
@@ -542,8 +552,9 @@ final class ReceivingController
                     // answer and adds nothing twice. Everything of the save is inside it (the look, the save, the check, the files, the Add);
                     // an Add that finds several items or none leaves nothing saved (the page shows them with every line kept).
                     $once = FormOnce::run($ctx, 'ui.grn.grid', ['id' => $id] + array_diff_key($req->post, ['csrf' => 1, FormOnce::FIELD => 1]),
-                        function () use ($ctx, $id, $look, $deskSave, $header, $editable, $count, $from, $to, $pageCount, $answers, $checklist, $invoice, $files, $adding,
-                            $addSi, $addSku, $q, $packs, $price, $new, $version, &$keys): OpResult {
+                        function () use ($ctx, $id, $look, $fineCheck, $deskSave, $header, $editable, $count, $from, $to, $pageCount, $answers, $checklist, $invoice,
+                            $files, $adding, $addSi, $addSku, $q, $packs, $price, $new, $version, &$keys): OpResult {
+                            $fineCheck();
                             $now = $ctx->documents()->get($id);
                             $use = $look($now);
                             $res = $this->saveAll($ctx, $id, $use, $deskSave, $header, $editable, $count, $from, $to, $answers, $checklist, $invoice, $files, $adding,
@@ -684,13 +695,14 @@ final class ReceivingController
         }
         $v = $version;
         $removed = 0;
+        $merged = [];
         if ($deskSave) {
             $lines = $editable ? self::editedLines($ctx->req, $current, $count, $from, $to) : $current;
             $keys = [];
             foreach ($lines as $l) {
                 $keys[] = 'line:' . (int) $l['line_no'];
             }
-            [$lines, $keys] = self::withNewLines($svc, $id, $lines, $keys, $new);
+            [$lines, $keys, $merged] = self::withNewLines($svc, $id, $lines, $keys, $new);
             $v = $svc->saveDraft($caller, $id, $v, $header, $lines)->version;
             $map = [];
             foreach ($lines as $i => $l) {
@@ -732,6 +744,11 @@ final class ReceivingController
             $svc->attach($caller, $id, $file['path'], $file['name'], $file['role'], $file['note']);
         }
         $result = ['status' => 'saved'];
+        if ($merged !== []) {
+            // A new line that is the same purchase as a line already there was added to it, as Add does (a line of another page of a big
+            // delivery: GW14): the page after the save says so, as Add's does ("Line 48, …: +2 items").
+            $result = ['status' => 'incremented', 'line_no' => $merged[0]['line_no'], 'units_added' => $merged[0]['units'], 'note' => null];
+        }
         if ($adding) {
             $result = $addSi !== null || $addSku !== null ? $svc->addChoice($caller, $id, $v, $addSi, $addSi === null ? $addSku : null, max(1, $packs), $price)
                 : $svc->addLine($caller, $id, $v, $q, max(1, $packs), $price);
@@ -759,10 +776,13 @@ final class ReceivingController
      * @param list<array<string, mixed>> $lines
      * @param list<string> $keys
      * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new
-     * @return array{0: list<array<string, mixed>>, 1: list<string>}
+     * @return array{0: list<array<string, mixed>>, 1: list<string>, 2: list<array{line_no: int, units: int}>} the lines, their rows, and the lines
+     *   that were there already and a new line was added to (their number in the save, the items added)
      */
     private static function withNewLines(GoodsReceipts $svc, int $id, array $lines, array $keys, array $new): array
     {
+        $merged = [];
+        $there = count($lines);
         foreach ($new as $j => $n) {
             $row = 'new:' . ($j + 1);
             $at = count($lines) + 1;
@@ -781,10 +801,11 @@ final class ReceivingController
             [$lines, $i, $status] = GoodsReceipts::merge($lines, $line + ['entry' => 'scan'], $packs, trim($n['p']) === '' ? null : trim($n['p']));
             if ($status === 'added') {
                 $keys[] = $row;
+            } elseif ($i < $there) {
+                $merged[] = ['line_no' => $i + 1, 'units' => $packs * (int) $lines[$i]['units_per_pack']];
             }
-            unset($i);
         }
-        return [$lines, $keys];
+        return [$lines, $keys, $merged];
     }
 
     /**
