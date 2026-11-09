@@ -1443,3 +1443,21 @@ column, `data-kg-cell` boxes, `data-kg-keyer`, `data-kg-count`, `data-kg-from`, 
   the route in `testEveryRealRouteHasADeliberateAccessLevel`, `UiSecurityTest` (sign-in). The script driven in node: `/root/cw_work/runs/gw_js_harness/`
   (`run_gw.js` the delivery's, `run_kg.js` the order's and the invoice's; outside the repo: copy them into the worktree as `tools/gw_js/` for a
   run through the slot runner, `/root/poone_js/node` on cw-test, and remove them; `runs/gw_js.sh` does it).
+
+
+### The adjustment grid on the site's keys (`docs/decisions.md` AJ1-AJ8; branch `adjust-key-grid`; tracker CW-920 part 2; 9 Nov 2026)
+
+The quick adjustment screen (AG) on the grid's keys and its save without reload: `form.aj-form[data-aj-grid][data-kg-editor="adj:new|adj:<id>"]`
+(a draft's `data-kg-address`; `data-aj-notice`; `data-kg-conflict` after a version conflict; the words `data-saving`, `data-saved`,
+`data-save-failed`, `data-removed` from `DOC_GRID`), `doc_grid_keys` under the lines. Its cells are NOT `data-kg-cell` (AG5's own keys).
+
+| Path | What |
+|---|---|
+| `public/ui/assets/app.js` | `SENT` (`/ui/stock/adjustments/new`, `/<id>/grid`), `leaving(form)` (the leave guard, for forms put in place), the quick adjustment block: `removeRow` / `putBack` / `forgetUndo`, `fromAfter`, `drawAll` (bulk), `canSend` / `ajaxSave` / `swapIn`, `kb.grid` (its `keys`), `rowOf` |
+| `src/Ui/Controller/StockOpsController.php` | `gridVars(..., $docId)` (`editor`, `address`, `notice`, `conflict`), `page()` (the grid's notice and conflict) |
+| `src/Ui/views/stock_adjust_grid.php` | the form's marks and words, `aria-keyshortcuts`, `doc_grid_keys` |
+| `public/ui/assets/app.css` | the `.aj-` block: 32 px boxes, the No. column, `.aj-lines > .kg-status, .kg-keys` |
+
+- Tests: `tests/Integration/UiKernel/AdjustGridScreensTest.php`, `UiUnitTest::testTheAssetsNeedNothingFromOutsideAndNoEval` (SENT). The script in
+  node: `/root/cw_work/runs/ajk_js_harness/` (`run_aj.js`; with `run_kg.js` and `run_gw.js`; `runs/ajk_js.sh` copies them in as `tools/ajk_js/`
+  for a run on cw-test and removes them).

@@ -212,7 +212,8 @@
       }, 0);
     });
   });
-  each(document.querySelectorAll('form[data-leaves]'), function (form) {
+  // (A form put in place by a save without reload is wired the same way: leaving(), docs/decisions.md AJ5.)
+  var leaving = function (form) {
     form.addEventListener('submit', function (ev) {
       var dirty = null;
       each(document.querySelectorAll('form[data-unsaved][data-dirty]'), function (f) {
@@ -232,7 +233,8 @@
           + 'or press the same button again to go on without them.');
       }
     });
-  });
+  };
+  each(document.querySelectorAll('form[data-leaves]'), leaving);
   // A link that leaves the page while a form holds typed values says so first too (docs/decisions.md CV14; Codex's review of 7cfcc89: a
   // tab or a filter link lost a typed count), in the page and never in a browser dialog (GV11): the first press goes nowhere and a red
   // note at the bottom of the screen says why (role="alert"; the words: the page's data-unsaved-link, Words::UI unsaved_link); the same
@@ -304,9 +306,10 @@
   // Sent (POST, with the form's CSRF token and a FormOnce key in its body; docs/decisions.md KG21, KG24), only two kinds: the lines' grid's
   // "+ Add new item" (its route answers a fragment, data-ni-fragment) and the editor's Save (its own address answers the editor's page,
   // data-kg-editor: what it gives back is the part of the page around the form, to put in place; a refusal's 409 / 422 is its answer too):
-  // the order's, the supplier invoice's and a delivery's (docs/decisions.md GW7: its one form, /ui/receiving/<id>/lines). A delivery's scan
-  // box reads its own choices (GW3: data-gi-fragment, /ui/receiving/<id>/products?…).
-  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/(purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?|receiving\/[1-9][0-9]{0,17}\/lines)$/ };
+  // the order's, the supplier invoice's, a delivery's (docs/decisions.md GW7: its one form, /ui/receiving/<id>/lines) and a quick adjustment's
+  // (docs/decisions.md AJ4: a new one's /ui/stock/adjustments/new, a draft's /ui/stock/adjustments/<id>/grid). A delivery's scan box reads its
+  // own choices (GW3: data-gi-fragment, /ui/receiving/<id>/products?…).
+  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/(purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?|receiving\/[1-9][0-9]{0,17}\/lines|stock\/adjustments\/(new|[1-9][0-9]{0,17}\/grid))$/ };
   var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
@@ -4965,6 +4968,11 @@
   // the answer is still on its way, as with a scanner, it is taken when it comes), and goes to Units; Tab or Enter in Units goes to the next line, or to After
   // when Units is empty; After sets Units, and Units sets After. Up and Down move between the lines of a column, Left and Right between the cells (in a text
   // box from its ends). Sending puts every line in one field (`lines`): the server checks everything; here a typed word that names no product stops the send.
+  // The site's keys work here too (docs/decisions.md AJ1-AJ8; the owner, 6 Nov 2026: "check all purchase order, purchase invoice, sales order like this all
+  // form"): this grid is kb.grid for the one table of keys (KEYS): Ctrl+S the page's Save (never "Make it final"), Ctrl+Delete / Alt+R / the x a line out
+  // with "Line 3 removed." and Undo (Alt+U, Ctrl+Z when not typing), Ctrl+D the box above (Units, Why, After), Ctrl+Enter / Insert / Alt+N the empty
+  // line, the hint line and "All keys (?)". Save (and Ctrl+S) is sent without leaving the page (KG24's one fetch, AJ4): the answer is put in place
+  // (swapIn), a new adjustment's first save makes the page its draft's; anything else changes nothing, says so, and the next Save is a plain post.
   each(document.querySelectorAll('form[data-aj-grid]'), function (form) {
     var base = form.getAttribute('data-options') || '';
     var body = form.querySelector('tbody[data-aj-rows]');
@@ -4982,6 +4990,17 @@
     var whyAll = form.querySelector('select[name="why"]');
     var rows = [];
     var made = 0;
+    var table = form.querySelector('table.aj-table') || body;
+    var counters = form.querySelectorAll('[data-aj-count]');
+    var undoLine = form.querySelector('[data-kg-undo-line]');
+    var undoText = undoLine ? undoLine.querySelector('[data-kg-undo-text]') : null;
+    var undoButton = undoLine ? undoLine.querySelector('button[data-kg-undo]') : null;
+    var word = function (name) { return form.getAttribute('data-' + name) || ''; };
+    var editor = form.getAttribute('data-kg-editor') || '';
+    var sending = false; // a save on its way without leaving the page (AJ4): nothing of the lines changes until its answer
+    var plain = false; // a save that got no answer of this page: the next one is a plain post
+    var undo = null; // the last line removed (AJ2): { r: the line, at: where it was }
+    var bulk = false; // many lines drawn at once (the page's first drawing, a save's answer): the numbers and sums once, at the end (AJ7)
     var say = function (text) {
       alarm.textContent = text;
       alarm.hidden = text === '';
@@ -5002,7 +5021,7 @@
           n.gone += v < 0 ? -v : 0;
         }
       });
-      each(form.querySelectorAll('[data-aj-count]'), function (el) {
+      each(counters, function (el) {
         var v = n[el.getAttribute('data-aj-count')];
         el.textContent = ((v === 1 && el.getAttribute('data-one')) || el.getAttribute('data-text') || '').replace('{n}', number(v));
       });
@@ -5019,7 +5038,9 @@
       if (!typing) {
         r.a.value = r.sku !== null && v !== null ? number(r.hand + v) : '';
       }
-      count();
+      if (!bulk) {
+        count();
+      }
     };
     var goTo = function (el) {
       el.focus();
@@ -5073,6 +5094,74 @@
         }
       }
     };
+    // After typed (the count): Units are the difference from the stock on show (AG5, AG6).
+    var fromAfter = function (r) {
+      var t = r.a.value.replace(/[,\s]/g, '');
+      var d = /^-?[0-9]{1,8}$/.test(t) ? parseInt(t, 10) - r.hand : null;
+      r.u.value = d === null ? '' : (d > 0 ? '+' + d : String(d));
+      show(r, true);
+    };
+    // A line out at once (its x, Ctrl+Delete, Cmd+Backspace, Alt+R; AJ2): "Line 3 removed." with Undo until the next removal or a send, the cursor in
+    // the same box of the line that takes its place; never the empty line at the end, nor while a save is on its way. The line given up for good
+    // takes its list with it.
+    var forgetUndo = function () {
+      if (undo) {
+        undo.r.drop();
+        undo = null;
+      }
+      if (undoLine) {
+        undoLine.hidden = true;
+      }
+      if (undoText) {
+        undoText.textContent = '';
+      }
+    };
+    var boxOf = function (r, field) {
+      return r.sku === null ? r.p : (r[field] && !r[field].disabled ? r[field] : r.u);
+    };
+    var removeRow = function (r, field) {
+      var at = rows.indexOf(r);
+      if (sending || at < 0 || (at === rows.length - 1 && blank(r))) {
+        return false;
+      }
+      forgetUndo();
+      r.forget();
+      rows.splice(at, 1);
+      body.removeChild(r.tr);
+      form.setAttribute('data-dirty', '1');
+      hold();
+      renumber();
+      count();
+      noteHint();
+      if (undoText && undoButton) {
+        undo = { r: r, at: at };
+        undoText.textContent = word('removed').replace('%s', String(at + 1));
+        undoLine.hidden = false;
+      } else {
+        r.drop();
+      }
+      goTo(boxOf(rows[Math.min(at, rows.length - 1)], field));
+      return true;
+    };
+    var putBack = function () {
+      if (!undo || sending) {
+        return;
+      }
+      var u = undo;
+      undo = null;
+      forgetUndo();
+      var at = Math.min(u.at, rows.length);
+      body.insertBefore(u.r.tr, rows[at] ? rows[at].tr : null);
+      rows.splice(at, 0, u.r);
+      form.setAttribute('data-dirty', '1');
+      show(u.r);
+      renumber();
+      noteHint();
+      goTo(boxOf(u.r, 'u'));
+    };
+    if (undoButton) {
+      undoButton.addEventListener('click', putBack);
+    }
     add = function (d) {
       var tr = tpl.content.firstElementChild.cloneNode(true);
       var cell = function (name) { return tr.querySelector('[data-cell="' + name + '"]'); };
@@ -5106,6 +5195,9 @@
         c.mark(-1);
       };
       var take = function (li) {
+        if (sending) {
+          return; // a save is on its way: the line stays as it was sent (AJ4)
+        }
         window.clearTimeout(timer);
         turn++;
         waiting = false;
@@ -5174,6 +5266,9 @@
         options: options,
         choose: take,
         enter: function (ev) {
+          if (ev.ctrlKey || ev.metaKey || ev.altKey) {
+            return; // Ctrl+Enter: the site's keys (the empty line, AJ1)
+          }
           ev.preventDefault();
           commit();
         },
@@ -5223,7 +5318,7 @@
       });
       r.u.addEventListener('input', function () { show(r); });
       r.u.addEventListener('keydown', function (ev) {
-        if ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter') {
+        if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter')) {
           if (r.sku === null) {
             return; // an empty line: Tab leaves the table
           }
@@ -5242,30 +5337,17 @@
         show(r);
         noteHint();
       });
-      r.a.addEventListener('input', function () {
-        var t = r.a.value.replace(/[,\s]/g, '');
-        var d = /^-?[0-9]{1,8}$/.test(t) ? parseInt(t, 10) - r.hand : null;
-        r.u.value = d === null ? '' : (d > 0 ? '+' + d : String(d));
-        show(r, true);
-      });
+      r.a.addEventListener('input', function () { fromAfter(r); });
       r.a.addEventListener('blur', function () { show(r); });
       r.a.addEventListener('keydown', function (ev) {
-        if ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter') {
+        if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && ((ev.key === 'Tab' && !ev.shiftKey) || ev.key === 'Enter')) {
           ev.preventDefault();
           nextLine(r);
           return;
         }
         move(ev, r, 'a');
       });
-      tr.querySelector('[data-aj-x]').addEventListener('click', function () {
-        r.drop();
-        rows.splice(rows.indexOf(r), 1);
-        body.removeChild(tr);
-        form.setAttribute('data-dirty', '1');
-        hold();
-        renumber();
-        count();
-      });
+      tr.querySelector('[data-aj-x]').addEventListener('click', function () { removeRow(r, 'u'); });
       if (d.sku) {
         r.sku = d.sku;
         r.line = d.l || 0;
@@ -5276,9 +5358,24 @@
         r.w.value = d.r || '';
       }
       show(r);
-      renumber();
-      noteHint();
+      if (!bulk) {
+        renumber();
+        noteHint();
+      }
       return r;
+    };
+    // Many lines at once ($drawn: the page's, or a save's answer): drawn, then numbered and summed once (AJ7).
+    var drawAll = function (drawn) {
+      bulk = true;
+      try {
+        each(drawn, function (d) { add(d); });
+        hold();
+      } finally {
+        bulk = false;
+      }
+      renumber();
+      count();
+      noteHint();
     };
     var kept = [];
     try {
@@ -5286,8 +5383,7 @@
     } catch (e) {
       kept = [];
     }
-    each(kept, function (d) { add(d); });
-    hold();
+    drawAll(kept);
     if (whyAll) {
       whyAll.addEventListener('change', noteHint);
     }
@@ -5319,14 +5415,19 @@
           }
           shownWarehouse = asked;
           refreshing = false;
+          var hands = {};
           each(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'), function (o) {
-            each(rows, function (r) {
-              if (String(r.sku) === o.getAttribute('data-sku')) {
-                r.hand = parseInt(o.getAttribute('data-hand'), 10) || 0;
-              }
-            });
+            hands[o.getAttribute('data-sku')] = parseInt(o.getAttribute('data-hand'), 10) || 0;
           });
-          each(rows, function (r) { show(r); });
+          bulk = true;
+          each(rows, function (r) {
+            if (r.sku !== null && hands[String(r.sku)] !== undefined) {
+              r.hand = hands[String(r.sku)];
+            }
+            show(r);
+          });
+          bulk = false;
+          count();
         })
         .catch(function () {
           if (mine !== stockTurn) {
@@ -5338,13 +5439,17 @@
           say(form.getAttribute('data-failed') || '');
         });
     });
-    // Enter in a box of the page never sends it: the two buttons do.
+    // Enter in a box of the page never sends it: the two buttons do. Ctrl+Enter in the lines is left to the site's keys (the empty line; AJ1).
     form.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter' && ev.target.tagName === 'INPUT') {
+      if (ev.key === 'Enter' && ev.target.tagName === 'INPUT' && !(kbIs(ev, true, false, false) && table.contains(ev.target))) {
         ev.preventDefault();
       }
     });
     form.addEventListener('submit', function (ev) {
+      if (sending) {
+        ev.preventDefault();
+        return; // a save is on its way (AJ4)
+      }
       var out = [];
       var bad = null;
       each(rows, function (r) {
@@ -5367,10 +5472,267 @@
         return;
       }
       lines.value = JSON.stringify(out);
+      forgetUndo(); // a send ends the Undo (KG3)
+      var by = ev.submitter;
+      if (!by || by.getAttribute('name') !== 'action' || by.getAttribute('value') !== 'save' || !canSend()) {
+        return; // "Make it final" is a plain post, always (KG15); so is Save after a save that got no answer of this page
+      }
+      ev.preventDefault();
+      ajaxSave(by);
     }, true);
     if (!form.hasAttribute('data-dirty') && !document.querySelector('.error[role="alert"]:not([hidden])')) {
       rows[rows.length - 1].p.focus(); // ready to type
     }
+    // Save without leaving the page (AJ4; KG24, GW7): the form sent by the one fetch, a POST to its own address (/new or the draft's /grid) with
+    // its token, FormOnce key or version and every line in `lines`; meanwhile the boxes are held (kgHold) and nothing of the lines changes.
+    var canSend = function () { return !plain && !sending && /^adj:/.test(editor) && !!window.FormData && !!window.fetch && !!window.DOMParser; };
+    var freeze = kgHold(form);
+    var ajaxSave = function (by) {
+      var data = new window.FormData(form);
+      data.set('action', 'save');
+      sending = true;
+      freeze(true);
+      by.disabled = true;
+      kgToast(word('saving'), false);
+      var done = function () {
+        sending = false;
+        freeze(false);
+        by.disabled = false;
+      };
+      fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
+        .then(function (part) {
+          done();
+          var said = swapIn(part);
+          if (said === null) {
+            throw new Error('not this page');
+          }
+          kgToast(said.error !== '' ? said.error : (said.notice !== '' ? said.notice : word('saved')), said.error !== '');
+        })
+        .catch(function () {
+          done();
+          plain = true;
+          kgToast(word('save-failed'), true);
+        });
+    };
+    // A save's answer put in place (AJ4, AJ5). Only this grid's editor: a new adjustment's answer is itself again (a refusal) or its draft (the first
+    // save); a draft's, the same draft. Changed meanwhile (data-kg-conflict, another tab): nothing changes on the page (what was typed stays to be
+    // seen), the server's words are said, and the next Save is a plain post, which draws the record as it is now. Otherwise: around the form, a first
+    // save takes everything as the server drew it (the draft's head with its More, its files), wired as at the start; a draft keeps its head (its
+    // More's forms and their state) and takes the rest before the form (the crumbs, a refusal's words); every other form of the record on the page
+    // takes the new version. In the form: its address, marker and hidden fields as drawn (a draft's version; a refusal's new FormOnce key), its
+    // lines as the server has them (a refusal: as typed) and whether it holds something to save; the cursor back on the same line and box; a first
+    // save's address in the address bar. Returns what to say: the refusal, else the notice (data-aj-notice: the layout's own is a toast outside the
+    // part put in place); null when the answer is not this page.
+    var swapIn = function (part) {
+      var nf = part.querySelector('form[data-kg-editor]');
+      var mark = nf ? nf.getAttribute('data-kg-editor') || '' : '';
+      if (!nf || !nf.hasAttribute('data-aj-grid') || !/^adj:([1-9][0-9]{0,17}|new)$/.test(mark) || (editor !== 'adj:new' && mark !== editor)) {
+        return null;
+      }
+      var theirs = nf.parentNode;
+      var refused = Array.prototype.filter.call(theirs.querySelectorAll('p.error[role="alert"]'), function (p) { return !nf.contains(p); })[0];
+      var error = refused ? refused.textContent.trim() : '';
+      if (nf.hasAttribute('data-kg-conflict')) {
+        plain = true;
+        return { error: error !== '' ? error : word('save-failed'), notice: '' };
+      }
+      var active = document.activeElement;
+      var at = -1;
+      var cell = null;
+      each(rows, function (r, i) {
+        if (at < 0 && active && r.tr.contains(active)) {
+          at = i;
+          cell = active.getAttribute('data-cell');
+        }
+      });
+      var parent = form.parentNode;
+      var whole = mark !== editor;
+      var wire = function (copy) {
+        if (copy.nodeType !== 1) {
+          return;
+        }
+        var forms = Array.prototype.slice.call(copy.querySelectorAll('form[method="post"]'));
+        if (copy.tagName === 'FORM' && copy.getAttribute('method') === 'post') {
+          forms.push(copy);
+        }
+        each(forms, function (f) {
+          sendOnce(f);
+          if (f.hasAttribute('data-leaves')) {
+            leaving(f);
+          }
+        });
+      };
+      var isHead = function (el) { return el.nodeType === 1 && el.classList.contains('doc-head'); };
+      var mine = [];
+      for (var el = parent.firstChild; el && el !== form; el = el.nextSibling) {
+        mine.push(el);
+      }
+      each(mine, function (el) {
+        if (whole || !isHead(el)) {
+          parent.removeChild(el);
+        }
+      });
+      var myHead = null;
+      for (var h = parent.firstChild; h && h !== form; h = h.nextSibling) {
+        if (isHead(h)) {
+          myHead = h;
+        }
+      }
+      var beforeHead = !!myHead;
+      for (var el2 = theirs.firstChild; el2 && el2 !== nf; el2 = el2.nextSibling) {
+        if (myHead && isHead(el2)) {
+          beforeHead = false; // in their order: the crumbs before the head kept, the rest (a refusal's words) between it and the form
+          continue;
+        }
+        var copy = document.importNode(el2, true);
+        parent.insertBefore(copy, beforeHead ? myHead : form);
+        wire(copy);
+      }
+      if (whole) {
+        var after = [];
+        for (var el3 = form.nextSibling; el3; el3 = el3.nextSibling) {
+          after.push(el3);
+        }
+        each(after, function (el) { parent.removeChild(el); });
+        for (var el4 = nf.nextSibling; el4; el4 = el4.nextSibling) {
+          var copy2 = document.importNode(el4, true);
+          parent.appendChild(copy2);
+          wire(copy2);
+        }
+      }
+      each(['action', 'data-kg-address', 'data-aj-notice'], function (a) {
+        if (nf.getAttribute(a) !== null) {
+          form.setAttribute(a, nf.getAttribute(a));
+        } else {
+          form.removeAttribute(a);
+        }
+      });
+      form.setAttribute('data-kg-editor', mark);
+      editor = mark;
+      var hiddenOf = function (f) { return Array.prototype.filter.call(f.querySelectorAll('input[type="hidden"][name]'), function (i) { return i.parentNode === f; }); };
+      var mineHidden = {};
+      each(hiddenOf(form), function (i) { mineHidden[i.name] = i; });
+      var theirsHidden = {};
+      each(hiddenOf(nf), function (i) {
+        theirsHidden[i.name] = true;
+        if (i.name === 'lines') {
+          return; // the lines go in at the next send
+        }
+        if (mineHidden[i.name]) {
+          mineHidden[i.name].value = i.value;
+        } else {
+          form.insertBefore(document.importNode(i, true), lines);
+        }
+      });
+      each(Object.keys(mineHidden), function (name) {
+        if (!theirsHidden[name] && name !== 'lines') {
+          form.removeChild(mineHidden[name]); // a draft has no FormOnce key
+        }
+      });
+      var version = form.querySelector('input[name="version"]');
+      var stem = (form.getAttribute('data-kg-address') || '') + '/';
+      if (version && stem.charAt(0) === '/' && stem !== '/') {
+        each(document.querySelectorAll('form'), function (f) {
+          var fv = f !== form ? f.querySelector('input[name="version"]') : null;
+          if (fv && (f.getAttribute('action') || '').indexOf(stem) === 0) {
+            fv.value = version.value;
+          }
+        });
+      }
+      var drawn = [];
+      try {
+        drawn = JSON.parse(nf.getAttribute('data-rows') || '[]');
+      } catch (e) {
+        drawn = [];
+      }
+      forgetUndo();
+      each(rows, function (r) {
+        r.drop();
+        if (r.tr.parentNode === body) {
+          body.removeChild(r.tr);
+        }
+      });
+      rows.splice(0, rows.length);
+      drawAll(drawn);
+      if (nf.hasAttribute('data-dirty')) {
+        form.setAttribute('data-dirty', '1');
+      } else {
+        form.removeAttribute('data-dirty');
+      }
+      if (at >= 0 && rows.length > 0) {
+        goTo(boxOf(rows[Math.min(at, rows.length - 1)], cell || 'u'));
+      }
+      var address = form.getAttribute('data-kg-address') || '';
+      if (whole && address.charAt(0) === '/' && window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', address);
+      }
+      return { error: error, notice: error === '' ? nf.getAttribute('data-aj-notice') || '' : '' };
+    };
+    // What the site's keys do in these lines (kb, KEYS; AJ1): the cells keep their own Tab / Enter / arrows (AG5: they are not data-kg-cell, so
+    // the table's next and updown pass them by); the keys that need the lines call in here.
+    kb.grid = {
+      table: table,
+      keys: ['next', 'back', 'updown', 'new_line', 'delete_line', 'undo_line', 'fill_down', 'save', 'esc'],
+      marked: function () { return null; },
+      takeMarked: function () {},
+      step: function () {},
+      vertical: function () { return false; },
+      toEmpty: function () { // Ctrl+Enter, Insert, Alt+N: the empty line's Product box
+        hold();
+        goTo(rows[rows.length - 1].p);
+      },
+      removeAt: function (from) {
+        var r = rowOf(from);
+        return r ? removeRow(r, from.getAttribute('data-cell') || 'u') : false;
+      },
+      canUndo: function () { return undo !== null; },
+      undo: putBack,
+      // Ctrl+D (a spreadsheet's fill down): the box above into this one: Units, Why, or After (its Units then from this line's own stock). In
+      // Product, the browser's own; on the first line nothing to copy.
+      fillDown: function (from) {
+        var r = rowOf(from);
+        var name = from.getAttribute('data-cell');
+        if (!r || (name !== 'u' && name !== 'w' && name !== 'a')) {
+          return false;
+        }
+        var above = rows[rows.indexOf(r) - 1];
+        if (sending || !above) {
+          return true;
+        }
+        if (name === 'u') {
+          r.u.value = above.u.value;
+          show(r);
+        } else if (name === 'w') {
+          r.w.value = above.w.value;
+          show(r);
+          noteHint();
+        } else {
+          if (r.sku === null || above.sku === null || r.a.disabled) {
+            return true;
+          }
+          r.a.value = above.a.value;
+          fromAfter(r);
+        }
+        form.setAttribute('data-dirty', '1');
+        goTo(from);
+        return true;
+      },
+      save: function () { // Ctrl+S: the page's Save, never "Make it final" (KG15)
+        var save = form.querySelector('button[name="action"][value="save"]');
+        if (save && !save.disabled) {
+          save.click();
+        }
+      },
+    };
+    var rowOf = function (el) {
+      var found = null;
+      each(rows, function (r) {
+        if (found === null && r.tr.contains(el)) {
+          found = r;
+        }
+      });
+      return found;
+    };
   });
 
   // A family's "Add items" picker (the owner, 5 Nov 2026: "i need a drop down with search and multicheck option"; docs/decisions.md FP1-FP11).

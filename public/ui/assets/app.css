@@ -3539,15 +3539,16 @@ a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 3
 .aj-table th:first-child { border-top-left-radius: var(--r-12); }
 .aj-table th:last-child { border-top-right-radius: var(--r-12); }
 .aj-table th.num, .aj-table td.num { text-align: right; }
-.aj-table td { padding: 3px 6px; border-bottom: 1px solid var(--divider); font-variant-numeric: tabular-nums; }
-.aj-c-no { width: 44px; color: var(--ink-muted); text-align: center; }
+/* The same look as the other grids (docs/decisions.md AJ3; KG1): rows one line high, 32 px boxes, the No. column right-aligned. */
+.aj-table td { padding: 4px 8px; border-bottom: 1px solid var(--divider); font-variant-numeric: tabular-nums; vertical-align: middle; }
+.aj-c-no { width: 3rem; color: var(--ink-muted); text-align: right; white-space: nowrap; }
 .aj-c-units { width: 104px; }
 .aj-c-why { width: 190px; }
 .aj-c-fig { width: 100px; }
 .aj-c-x { width: 44px; }
 .aj-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .aj-code { flex: none; color: var(--ink-muted); font-size: 12px; }
-.aj-form input.aj-cell, .aj-form select.aj-cell { width: 100%; min-width: 0; height: 36px; min-height: 36px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-8); background-color: transparent; color: var(--ink); font: 500 14px/20px var(--font); }
+.aj-form input.aj-cell, .aj-form select.aj-cell { width: 100%; min-width: 0; height: 32px; min-height: 32px; margin: 0; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-8); background-color: transparent; color: var(--ink); font: 500 14px/20px var(--font); }
 .aj-form input.aj-cell::placeholder { color: var(--ink-muted); font-weight: 400; }
 .aj-form select.aj-cell { color: var(--ink-muted); font-weight: 400; }
 .aj-form input.aj-cell:hover:not(:disabled), .aj-form select.aj-cell:hover { border-color: var(--hairline); }
@@ -3561,6 +3562,7 @@ a.nc-open { flex: none; display: inline-flex; align-items: center; min-height: 3
 .aj-c-x .btn:hover { background: var(--sf-red); color: var(--sf-red-ink); }
 .aj-row:last-child .aj-c-x .btn { visibility: hidden; }
 .aj-alarm { margin: 8px 12px 0; }
+.aj-lines > .kg-status, .aj-lines > .kg-keys { margin: 8px 12px 0; } /* the Undo line and the hint line under the lines (AJ2, AJ3) */
 .aj-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px; background: var(--page-alt); border-radius: 0 0 var(--r-12) var(--r-12); position: sticky; bottom: 0; z-index: 2; }
 .aj-sum { color: var(--ink); font-weight: 600; }
 .aj-up { color: var(--sf-green-ink); }

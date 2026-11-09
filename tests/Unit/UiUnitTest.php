@@ -1610,9 +1610,11 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("if ((!sent && (!path || url.indexOf(path) !== 0 || body !== undefined)) || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         // Two kinds are SENT (docs/decisions.md KG21, KG24): the lines' grid's "+ Add new item" and the editor's Save, each only to its own
         // routes (a whole-address pattern), with the form's body (its CSRF token and FormOnce key); everything else is the GET of a fragment.
-        // A delivery's one form too (docs/decisions.md GW7): its own /lines address, nothing else of Goods in.
+        // A delivery's one form too (docs/decisions.md GW7): its own /lines address, nothing else of Goods in. A quick adjustment's form
+        // (docs/decisions.md AJ): a new one's /new and a draft's /grid, nothing else of Stock records.
         self::assertStringContainsString("var SENT = { '[data-ni-fragment]': /^\\/ui\\/purchasing\\/(orders|invoices)\\/new-item$/, "
-            . "'[data-kg-editor]': /^\\/ui\\/(purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?|receiving\\/[1-9][0-9]{0,17}\\/lines)$/ };", $js, 'what is sent, and only where');
+            . "'[data-kg-editor]': /^\\/ui\\/(purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?|receiving\\/[1-9][0-9]{0,17}\\/lines"
+            . "|stock\\/adjustments\\/(new|[1-9][0-9]{0,17}\\/grid))$/ };", $js, 'what is sent, and only where');
         self::assertStringContainsString("var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);", $js);
         self::assertStringContainsString("credentials: 'same-origin', method: 'POST'", $js);
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');

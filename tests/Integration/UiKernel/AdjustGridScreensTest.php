@@ -35,6 +35,14 @@ final class AdjustGridScreensTest extends KernelUiTestCase
         return $web->post($action, ['lines' => (string) json_encode($rows)] + $over + $form);
     }
 
+    /** Where a browser's fetch lands after a 303 (it follows the redirect): the GET of the location, its query as parameters. */
+    private static function follow(KernelBrowser $web, UiResponse $r): UiResponse
+    {
+        $to = parse_url((string) $r->location());
+        parse_str($to['query'] ?? '', $query);
+        return $web->get((string) ($to['path'] ?? ''), array_map('strval', $query));
+    }
+
     private static function docs(): int
     {
         return (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'ADJ'");
@@ -284,5 +292,105 @@ final class AdjustGridScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         self::assertSame(403, $web->get(self::NEW)->status);
         self::assertSame(403, $web->get('/ui/stock/adjustments/products', ['q' => 'pod'])->status);
+    }
+
+    // ---- The site's keys and a save without leaving the page (docs/decisions.md AJ; CW-920 part 2) ----
+
+    public function testTheGridHasTheSitesKeysAndIsSavedWithoutLeavingThePage(): void
+    {
+        $a = $this->item('strict', 10, 'Grid pod P');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $x = new \DOMXPath($web->get(self::NEW)->dom());
+        $form = $x->query('//form[@data-aj-grid]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $form);
+        self::assertSame('adj:new', $form->getAttribute('data-kg-editor'), 'a new adjustment: the editor the one fetch may send (KG24)');
+        self::assertFalse($form->hasAttribute('data-kg-address'), 'no address until it is saved');
+        foreach (['data-saving' => 'saving', 'data-saved' => 'saved', 'data-save-failed' => 'save_failed', 'data-removed' => 'removed'] as $attr => $w) {
+            self::assertSame(Words::DOC_GRID[$w], $form->getAttribute($attr), $attr);
+        }
+        self::assertSame(1, $x->query('//form[@data-aj-grid]//p[contains(@class,"kg-keys")]//button[@data-kb-open]')->length, 'the hint line under the lines, with All keys');
+        $hints = $x->evaluate('string(//form[@data-aj-grid]//p[contains(@class,"kg-keys")])');
+        foreach (['kbd_new', 'kbd_del', 'kbd_undo', 'kbd_copy', 'kbd_save'] as $k) {
+            self::assertStringContainsString(Words::DOC_GRID[$k], $hints, $k);
+        }
+        self::assertSame(1, $x->query('//form[@data-aj-grid]//*[@data-kg-undo-line][@hidden]//button[@data-kg-undo]')->length, 'the Undo line, hidden until a line is removed');
+        self::assertSame('Control+S', $x->evaluate('string(//form[@data-aj-grid]//button[@name="action"][@value="save"]/@aria-keyshortcuts)'));
+        self::assertSame('', $x->evaluate('string(//form[@data-aj-grid]//button[@name="action"][@value="post"]/@aria-keyshortcuts)'), 'no key makes it final');
+        $this->send($web, self::NEW, self::NEW, [['sku' => $a, 'u' => '+1', 'r' => '']], ['why' => 'data_correction', 'action' => 'save']);
+        $id = self::lastDoc();
+        $d = new \DOMXPath($web->get('/ui/stock/adjustments/' . $id)->dom());
+        self::assertSame('adj:' . $id, $d->evaluate('string(//form[@data-aj-grid]/@data-kg-editor)'), 'the draft: its own editor');
+        self::assertSame('/ui/stock/adjustments/' . $id, $d->evaluate('string(//form[@data-aj-grid]/@data-kg-address)'), 'and its address (the address bar after a first save)');
+        self::assertSame(1, $d->query('//form[@data-aj-grid]//p[contains(@class,"kg-keys")]')->length);
+        self::assertSame(0, $d->query('//form[@data-aj-grid][@data-kg-conflict]')->length);
+    }
+
+    public function testEachSaveIsAnsweredWithTheDraftsEditorAndItsNewVersion(): void
+    {
+        $a = $this->item('strict', 10, 'Grid pod Q');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $before = self::docs();
+        $first = $this->send($web, self::NEW, self::NEW, [['sku' => $a, 'u' => '+1', 'r' => '']], ['why' => 'data_correction', 'action' => 'save']);
+        self::assertSame(303, $first->status, $first->describe());
+        $id = self::lastDoc();
+        $page = self::follow($web, $first); // where the page's fetch lands (it follows the 303)
+        self::assertSame(200, $page->status, $page->describe());
+        $x = new \DOMXPath($page->dom());
+        self::assertSame('adj:' . $id, $x->evaluate('string(//form[@data-kg-editor]/@data-kg-editor)'), 'the answer is this draft\'s editor');
+        self::assertSame('/ui/stock/adjustments/' . $id . '/grid', $x->evaluate('string(//form[@data-kg-editor]/@action)'));
+        self::assertSame(0, $x->query('//form[@data-kg-editor]/input[@name="form_key"]')->length, 'a draft is sent with its version, not a FormOnce key');
+        $v = (int) $x->evaluate('string(//form[@data-kg-editor]/input[@name="version"]/@value)');
+        self::assertGreaterThan(0, $v);
+        self::assertSame(Words::STOCK_NOTICE['lines'], $x->evaluate('string(//form[@data-kg-editor]/@data-aj-notice)'), 'the words the page says (the layout\'s notice is a toast outside the part put in place)');
+        $second = $this->send($web, '/ui/stock/adjustments/' . $id, '/ui/stock/adjustments/' . $id . '/grid', [['sku' => $a, 'u' => '+2', 'r' => '', 'l' => 1]],
+            ['why' => 'data_correction', 'action' => 'save']);
+        self::assertSame(303, $second->status, $second->describe());
+        $y = new \DOMXPath(self::follow($web, $second)->dom());
+        self::assertGreaterThan($v, (int) $y->evaluate('string(//form[@data-kg-editor]/input[@name="version"]/@value)'), 'the new version, for the next save');
+        self::assertSame([['qty' => 2, 'reason' => 'data_correction']], self::lines($id));
+        self::assertSame($before + 1, self::docs(), 'one record');
+    }
+
+    public function testAVersionConflictIsMarkedSoThePageKeepsWhatWasTyped(): void
+    {
+        $a = $this->item('strict', 10, 'Grid pod S');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $this->send($web, self::NEW, self::NEW, [['sku' => $a, 'u' => '+1', 'r' => '']], ['why' => 'data_correction', 'action' => 'save']);
+        $id = self::lastDoc();
+        $page = '/ui/stock/adjustments/' . $id;
+        $drawn = $web->get($page)->form($page . '/grid', true);
+        $ok = $web->post($page . '/grid', ['lines' => (string) json_encode([['sku' => $a, 'u' => '+2', 'r' => '', 'l' => 1]]), 'why' => 'data_correction', 'action' => 'save'] + $drawn);
+        self::assertSame(303, $ok->status, $ok->describe());
+        // The same form again (another tab, or a second press that got through): changed meanwhile.
+        $late = $web->post($page . '/grid', ['lines' => (string) json_encode([['sku' => $a, 'u' => '+5', 'r' => '', 'l' => 1]]), 'why' => 'data_correction', 'action' => 'save'] + $drawn);
+        self::assertSame(409, $late->status, $late->describe());
+        self::assertSame('version_conflict', $late->errorCode());
+        self::assertSame('1', (new \DOMXPath($late->dom()))->evaluate('string(//form[@data-aj-grid]/@data-kg-conflict)'), 'marked: the page keeps the lines typed');
+        self::assertSame([['qty' => 2, 'reason' => 'data_correction']], self::lines($id), 'nothing of the late send saved');
+        // A refusal that is not a conflict: no mark; the typed lines come back.
+        $now = $web->get($page)->form($page . '/grid', true);
+        $bad = $web->post($page . '/grid', ['lines' => (string) json_encode([['sku' => $a, 'u' => 'ten', 'r' => '', 'l' => 1]]), 'why' => 'data_correction', 'action' => 'save'] + $now);
+        self::assertSame(422, $bad->status, $bad->describe());
+        self::assertSame(0, (new \DOMXPath($bad->dom()))->query('//form[@data-aj-grid][@data-kg-conflict]')->length);
+        self::assertSame('ten', self::rows($bad)[0]['u']);
+    }
+
+    public function testACountOf200And500LinesIsSavedInOneSend(): void
+    {
+        $a = $this->item('strict', 1000, 'Grid pod R');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $r = $this->send($web, self::NEW, self::NEW, array_fill(0, 200, ['sku' => $a, 'u' => '+1', 'r' => '']), ['why' => 'data_correction', 'action' => 'save']);
+        self::assertSame(303, $r->status, $r->describe());
+        $id = self::lastDoc();
+        self::assertCount(200, self::lines($id));
+        $page = '/ui/stock/adjustments/' . $id;
+        $rows = [];
+        for ($i = 1; $i <= 500; $i++) {
+            $rows[] = ['sku' => $a, 'u' => '-1', 'r' => '', 'l' => $i <= 200 ? $i : 0];
+        }
+        $r2 = $this->send($web, $page, $page . '/grid', $rows, ['why' => 'data_correction', 'action' => 'save']);
+        self::assertSame(303, $r2->status, $r2->describe());
+        self::assertCount(500, self::lines($id), 'StockOps::MAX_LINES lines in one send (the biggest ERPNext count in 90 days: 162)');
+        self::assertCount(500, self::rows($web->get($page)), 'the screen draws all 500');
     }
 }

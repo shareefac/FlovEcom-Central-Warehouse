@@ -429,7 +429,7 @@ final class StockOpsController
             'base' => StockOps::PATHS['adjust'],
             'listName' => Words::STOCK_KIND['adjust']['tab'],
             'grid' => self::gridVars($ctx, $form, $choices, StockOps::PATHS['adjust'] . '/new', FormOnce::newKey(), null,
-                self::gridShown($ctx, (int) $form['warehouse'], $rows), self::gridTop($choices['reasons'], $typed['why'] ?? null), $ruleWaits, $typed !== null),
+                self::gridShown($ctx, (int) $form['warehouse'], $rows), self::gridTop($choices['reasons'], $typed['why'] ?? null), $ruleWaits, $typed !== null, null),
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::ADJ_GRID['title']]);
@@ -679,21 +679,24 @@ final class StockOpsController
         $rec = $ctx->stockOps()->record($doc->id);
         $form = self::form('adjust', $choices, $extra['header'] ?? null, $rec);
         return self::gridVars($ctx, $form, $choices, StockOps::PATHS['adjust'] . '/' . $doc->id . '/grid', null, $doc->version,
-            self::gridShown($ctx, (int) $form['warehouse'], $rows), $top, $ruleWaits, isset($extra['header']));
+            self::gridShown($ctx, (int) $form['warehouse'], $rows), $top, $ruleWaits, isset($extra['header']), $doc->id);
     }
 
     /**
-     * What stock_adjust_grid draws.
+     * What stock_adjust_grid draws. $docId: the creator's draft (null: a new adjustment): its editor's mark and address, for a save without leaving
+     * the page (docs/decisions.md AJ4); page() adds the notice and whether the refusal was a version conflict.
      *
      * @param array<string, mixed> $form
      * @param array<string, mixed> $choices
      * @param list<array<string, mixed>> $rows
      * @return array<string, mixed>
      */
-    private static function gridVars(Context $ctx, array $form, array $choices, string $action, ?string $formKey, ?int $version, array $rows, string $top, bool $ruleWaits, bool $dirty): array
+    private static function gridVars(Context $ctx, array $form, array $choices, string $action, ?string $formKey, ?int $version, array $rows, string $top, bool $ruleWaits, bool $dirty,
+        ?int $docId): array
     {
         return ['form' => $form, 'reasons' => $choices['reasons'], 'action' => $action, 'formKey' => $formKey, 'version' => $version, 'rows' => $rows, 'top' => $top,
-            'ruleWaits' => $ruleWaits, 'dirty' => $dirty, 'k' => Words::STOCK_KIND['adjust'], 'options' => StockOps::PATHS['adjust'] . '/products?'];
+            'ruleWaits' => $ruleWaits, 'dirty' => $dirty, 'k' => Words::STOCK_KIND['adjust'], 'options' => StockOps::PATHS['adjust'] . '/products?',
+            'editor' => 'adj:' . ($docId ?? 'new'), 'address' => $docId === null ? null : StockOps::PATHS['adjust'] . '/' . $docId, 'notice' => '', 'conflict' => false];
     }
 
     /** The record's page after it was made final or sent for a reviewer's OK, with its notice. */
@@ -835,8 +838,14 @@ final class StockOpsController
         $oneForm = $editable && $lines !== [] && self::oneFormFits($kind, count($lines));
         $page = self::linesPage($ctx->req, $shown, $oneForm, self::linesPerPage($kind));
         $typedGrid = ($extra['typedVersion'] ?? null) === $doc->version ? ($extra['gridRows'] ?? null) : null;
+        $grid = $kind === 'adjust' && $editable ? self::draftGrid($ctx, $doc, $lines, $choices, $extra, $typedGrid, $ruleWaits) : null;
+        if ($grid !== null) {
+            // A save without leaving the page (docs/decisions.md AJ4) says the page's notice; a version conflict keeps what the page holds (AJ6).
+            $grid['notice'] = $notice ?? '';
+            $grid['conflict'] = $error?->errorCode === 'version_conflict';
+        }
         return $ctx->page('stock_op', [
-            'grid' => $kind === 'adjust' && $editable ? self::draftGrid($ctx, $doc, $lines, $choices, $extra, $typedGrid, $ruleWaits) : null,
+            'grid' => $grid,
             'kind' => $kind,
             'k' => Words::STOCK_KIND[$kind],
             'base' => StockOps::PATHS[$kind],

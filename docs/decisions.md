@@ -16980,3 +16980,68 @@ an answer that comes while the box differs from the saved supplier is never draw
 the box again first: different, it is Add, as before (GW16).
 Tests: the node harness section 8 (GW19 both ways; GW20: a list on show with and without the box's change event, an answer on its way),
 `GoodsInGridScreensTest::testAtTheLineLimitANewLineOfALineThereAddsToIt`.
+
+## The adjustment grid on the site's keys (branch `adjust-key-grid`, 9 Nov 2026; AJ1-AJ8; tracker CW-920 part 2, step 1)
+
+The owner, 6 Nov 2026: "check all purchase order, purchase invoice, sales order like this all form": every form worked from the keyboard with the
+same keys and a save that does not leave the page, one form at a time. Goods received went first (GW, live 9 Nov). A read-only look at ERPNext
+(last 90 days) showed what staff use of Stock records: 430 stock counts (Stock Reconciliation, 7,213 lines, the biggest 162) against one stock
+out and no stock in or transfer. So the quick adjustment screen (AG1-AG8: type the counted number in After, as in ERPNext) comes first. The owner
+said "Yes start step 1" (plan: `/root/cw_work/stock_records_plan_20261109/`).
+
+**AJ1. The keys, through the site's one table** (`KEYS`, `kb.grid`; KG3, a Mac's Cmd). This grid is `kb.grid`, naming its keys (GW2), so "All
+keys (?)" shows only those. Its cells keep their own Tab / Enter / arrows (AG5): they are not `data-kg-cell`, so the table's `next` and `updown`
+pass them by. Ctrl+Enter, Insert, Alt+N: the empty line's Product box (the product box's Enter, and Units' and After's Tab / Enter, now leave a
+Ctrl / Cmd / Alt + Enter to the keys; the form's guard that stops Enter sending the page lets Ctrl+Enter in the lines through to them). Ctrl+S:
+the page's Save, never "Make it final" (KG15; no key makes it final). Esc shuts the product list (combo, as before). Never taken: Alt+D,
+Ctrl+N/T/W, Ctrl+Shift+Delete, Delete or Backspace alone.
+
+**AJ2. A line out, and Undo.** The x, Ctrl+Delete, Cmd+Backspace and Alt+R take the line the cursor is on out at once; the numbers close up, the
+sums follow, the cursor goes to the same box of the line that takes its place; "Line 3 removed." with Undo (the button, Alt+U, Ctrl+Z when not
+typing) puts it back where it was with everything it held. One removal deep: the next removal or any send ends it, and the line given up takes
+its product list with it (combo puts a list under body). The empty line at the end cannot be removed (the key stays the box's own). Nothing is
+removed or put back while a save is on its way.
+
+**AJ3. Ctrl+D and the look.** Ctrl+D copies the box above into this one: Units, Why, or After (After then sets Units from this line's own stock
+on show, as typing it does). In Product it is the browser's own (no line is made from the line above: a count names each product); on the first
+line it does nothing. The look of the other grids (KG1): 32 px boxes, rows one line high (cells 4 px 8 px), the No. column right-aligned; a
+phone keeps AG's cards and 44 px boxes. Under the lines: the Undo line and the hint line (`doc_grid_keys`, the order's keys: Tab, ↑↓, Ctrl+Enter,
+Alt+R, Alt+U, Ctrl+D, Ctrl+S, "All keys (?)"), hidden under 700 px and without the script. `aria-keyshortcuts`: Control+S on Save, Control+D on
+Units and After.
+
+**AJ4. Save without leaving the page** (KG24, GW7). `fragment()`'s `SENT` gets this form by whole-address patterns: a new adjustment's
+`/ui/stock/adjustments/new` and a draft's `/ui/stock/adjustments/<id>/grid`, under the editor's marker (`form[data-kg-editor]`: `adj:new`, or
+`adj:<id>` for the creator's draft, which also carries its address `data-kg-address` and the page's notice `data-aj-notice`: the layout's
+notice is a toast outside the part put in place). With the script, Save and Ctrl+S send the form by the one fetch, with its token, its FormOnce
+key (new) or version (draft) and every line in `lines`; meanwhile the boxes are held (`kgHold`), a second Save or "Make it final" sends nothing,
+and no line changes (a product answer arriving then is not taken). The answer counts only when it is this grid's editor (a new adjustment's: itself
+again, a refusal, or its draft; a draft's: the same draft). "Make it final" stays a plain post, always. Anything else (no network, the sign-in
+page, another page, a 500, a record no longer a draft) changes nothing, says so (DOC_GRID's words), and the next Save is a plain post. The server
+is unchanged: the same routes, FormOnce, version check, `checkDrawn`, CSRF and refusals.
+
+**AJ5. What the answer puts in place.** In the form: its address, marker and notice; its hidden fields as drawn (a draft's version, no FormOnce
+key; a refused new form's new key); its lines from the answer's `data-rows` (a refusal: as typed), so each row names its saved line (`l`) for
+the next save; whether it holds something to save; the cursor back on the same line and box. The details at the top stay as on the page (they are
+what was sent). Around the form: a FIRST save (a new adjustment's answer is its draft) takes everything as the server drew it (the draft's head
+with its More, its files after the form), each form wired as at the start (`sendOnce`, and `leaving()`: the guard that asks before another form
+leaves the page, now a function for this), and the address bar says the draft's address (`history.replaceState`); a draft keeps its head (its
+More's forms and their state, GW7) and takes the rest before the form (the crumbs, a refusal's words). Every other form of the record on the page
+(its `/ui/stock/adjustments/<id>/…` forms: Stop this draft) takes the new version.
+
+**AJ6. Changed meanwhile (another tab).** The server's refusal of a version conflict marks the form (`data-kg-conflict`). The page then keeps
+everything as typed (so the person sees what they had), says the server's words, and the next Save is a plain post, which draws the record as
+it is now (the brief's choice; the order's grid posts at once instead, KG24 finding 6). Any other refusal (a reason the other way, units that
+are not a number, the limit) is put in place with every typed line, its words said, still something to save.
+
+**AJ7. Big counts.** `StockOps::MAX_LINES` (500) is unchanged: 200 and 500 lines save in one send (one field, AG3), 501 is refused with every line
+kept (as before). Drawing many lines at once (the page, a save's answer) numbers them, sums them and checks the note once at the end, and the
+sums find their places once; a change of warehouse sums once. In the node harness (dom.js, slower than a browser) 500 lines drew in 8.2 s before
+and 0.38 s after; a save of 500 lines put back in 0.55 s.
+
+**AJ8. Not in this step.** The reason the page opens on stays Data correction (`GRID_REASON`, a constant; it needs a note). Making it a setting
+needs a new `app_setting` row, a migration, so the brief left it out: plan step 2 is the owner's choice ("Count difference" offered on
+Adjustments, and opening on it). Rules unchanged (AG8): who may post, below zero, reasons and their direction, notes, drafts, approvals; no
+migration, no new permission, no route. Stock in, Stock out, Transfers and Releases keep the old page (plan step 3).
+Tests: `AdjustGridScreensTest` (4 new: the editor, words and hints on the new page and the draft; each save answered with the draft's editor and
+its new version; the conflict mark; 200 and 500 lines), `UiUnitTest` (SENT), the node harness `/root/cw_work/runs/ajk_js_harness/run_aj.js`
+(11 sections; `run_kg.js` and `run_gw.js` stay green).
