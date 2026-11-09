@@ -73,7 +73,8 @@ final class ItemCards
      * is a bare "pod" / "pods": in UK vape retail that is as often an EMPTY refillable pod (an accessory) as a prefilled one (I123).
      */
     private const TYPE_SPELLINGS = [
-        'e liquid' => 'e_liquid', 'eliquid' => 'e_liquid', 'liquid' => 'e_liquid', 'nic salt' => 'e_liquid', 'nicotine salt' => 'e_liquid',
+        'e liquid' => 'e_liquid', 'eliquid' => 'e_liquid', 'liquid' => 'e_liquid',
+        'nic salts' => 'nic_salt', 'nicotine salt' => 'nic_salt', 'nicotine salts' => 'nic_salt', 'nicsalt' => 'nic_salt', 'nicsalts' => 'nic_salt',
         'short fill' => 'shortfill', 'nic shot' => 'nic_shot', 'nicotine shot' => 'nic_shot', 'booster' => 'nic_shot',
         'prefilled pod' => 'prefilled_pod', 'pre filled pod' => 'prefilled_pod', 'prefilled pods' => 'prefilled_pod', 'pre filled pods' => 'prefilled_pod',
         'device kit' => 'device_kit', 'device' => 'device_kit', 'kit' => 'device_kit', 'pod kit' => 'device_kit', 'vape kit' => 'device_kit',

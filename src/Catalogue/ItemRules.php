@@ -31,6 +31,7 @@ final class ItemRules
     /** Product types (item_card.product_type ENUM, 0016) => what people read. */
     public const TYPES = [
         'e_liquid' => 'e-liquid',
+        'nic_salt' => 'nic salt', // its own type (owner, 9 Nov 2026); the same rules as an e-liquid
         'shortfill' => 'shortfill',
         'nic_shot' => 'nicotine shot',
         'prefilled_pod' => 'prefilled pod',
@@ -41,11 +42,11 @@ final class ItemRules
         'accessory' => 'accessory',
     ];
     /** Refill containers: the 10 ml limit applies when they hold nicotine. */
-    public const REFILL_TYPES = ['e_liquid', 'shortfill', 'nic_shot'];
+    public const REFILL_TYPES = ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot'];
     /** Tanks and cartridges (a tank, a pod, a device's or a single-use vape's): the 2 ml capacity limit. */
     public const TANK_TYPES = ['tank', 'prefilled_pod', 'device_kit', 'single_use'];
     /** Products that hold vaping liquid: duty-liable from 1 Oct 2026 (VPD, FA 2026 s.115-116), nicotine-free included. */
-    public const LIQUID_TYPES = ['e_liquid', 'shortfill', 'nic_shot', 'prefilled_pod', 'single_use'];
+    public const LIQUID_TYPES = ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'prefilled_pod', 'single_use'];
     /** Products that never hold liquid. */
     public const DRY_TYPES = ['coil', 'tank', 'accessory'];
 

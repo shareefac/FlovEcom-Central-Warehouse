@@ -33,7 +33,7 @@ final class ItemRulesTest extends TestCase
 
     public function testTheRefillLimitIsTenMlOfNicotineLiquid(): void
     {
-        foreach (['e_liquid', 'shortfill', 'nic_shot'] as $type) {
+        foreach (['e_liquid', 'nic_salt', 'shortfill', 'nic_shot'] as $type) {
             self::assertSame([], ItemRules::breaches(self::card(['product_type' => $type, 'liquid_ml' => '10.0', 'nicotine_mg' => '20.00'])), "{$type}: 10 ml is allowed");
             self::assertSame(['trpr_refill_ml'], ItemRules::breaches(self::card(['product_type' => $type, 'liquid_ml' => '10.1', 'nicotine_mg' => '3.00'])), "{$type}: 10.1 ml");
             self::assertSame(['trpr_refill_ml'], ItemRules::breaches(self::card(['product_type' => $type, 'liquid_ml' => '50.0', 'nicotine_mg' => '0.01'])));
@@ -128,6 +128,8 @@ final class ItemRulesTest extends TestCase
         self::assertStringContainsString('Vaping Products Duty applies to all vaping liquids', ItemRules::advice(self::card(['product_type' => 'shortfill', 'duty_liable' => 0]))[0]);
         self::assertStringContainsString('holds no vaping liquid', ItemRules::advice(self::card(['product_type' => 'coil', 'duty_liable' => 1]))[0]);
         self::assertSame([], ItemRules::advice(self::card(['product_type' => 'e_liquid', 'duty_liable' => 1, 'ecid' => '12345-16-12345'])));
+        self::assertStringContainsString('a nic salt holds vaping liquid', ItemRules::advice(self::card(['product_type' => 'nic_salt', 'duty_liable' => 0]))[0],
+            'nic salt is a vaping liquid (owner 9 Nov 2026: its own product type, the same rules as e-liquid)');
         self::assertStringContainsString('usual shape', ItemRules::advice(self::card(['ecid' => 'GB12345']))[0]);
         self::assertSame([], ItemRules::breaches(self::card(['product_type' => 'shortfill', 'duty_liable' => 0])));
     }
@@ -164,7 +166,7 @@ final class ItemRulesTest extends TestCase
     public function testTheSqlFormNamesTheSameLimits(): void
     {
         $sql = ItemRules::sqlBreach('c');
-        foreach (["c.nicotine_mg > 20", "c.liquid_ml > 10", "c.liquid_ml > 2", "c.single_use = 1", "'e_liquid','shortfill','nic_shot'", "'tank','prefilled_pod','device_kit','single_use'"] as $part) {
+        foreach (["c.nicotine_mg > 20", "c.liquid_ml > 10", "c.liquid_ml > 2", "c.single_use = 1", "'e_liquid','nic_salt','shortfill','nic_shot'", "'tank','prefilled_pod','device_kit','single_use'"] as $part) {
             self::assertStringContainsString($part, $sql);
         }
         self::assertStringContainsString('JSON_LENGTH(c.confirmed_breaches)', ItemRules::sqlBlocked('c'));

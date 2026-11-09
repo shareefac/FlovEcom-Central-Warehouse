@@ -130,6 +130,19 @@ final class ItemCardsTest extends CatalogueTestCase
         self::refused(422, 'card_invalid', fn () => $this->cards->save($who, $kit, 4, ['product_type' => 'accessory']), '0 ml stays a kit\'s answer');
     }
 
+    public function testNicSaltIsItsOwnTypeWithTheRulesOfAnELiquid(): void
+    {
+        // The owner, 9 Nov 2026: "Product type should be Nic Salt" (migration 0064 adds it to the column's list).
+        $who = $this->editor();
+        $salt = $this->item('legacy', 0, 'Salt');
+        self::assertSame('saved', $this->cards->save($who, $salt, 0, ['product_type' => 'Nic salt', 'liquid_ml' => '10', 'nicotine_mg' => '20', 'duty_liable' => 'yes', 'single_use' => 'no'])['result']);
+        self::assertSame('nic_salt', self::$db->value('SELECT product_type FROM item_card WHERE sku_id = ?', [$salt]), 'stored as its own type');
+        self::assertSame('confirmed', $this->cards->confirm($who, $salt, 1)['result'], '10 ml at 20 mg is allowed');
+        $this->cards->save($who, $salt, 2, ['liquid_ml' => '20']);
+        self::assertSame(['trpr_refill_ml'], self::refused(422, 'card_breaches', fn () => $this->cards->confirm($who, $salt, 3))->detail['rules'],
+            'the 10 ml refill limit applies as to an e-liquid');
+    }
+
     public function testAFormSaveKeepsAProposedFlavourProposed(): void
     {
         $who = $this->editor();

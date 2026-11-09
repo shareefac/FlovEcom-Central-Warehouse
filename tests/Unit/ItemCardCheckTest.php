@@ -40,7 +40,7 @@ final class ItemCardCheckTest extends TestCase
 
     public function testProductTypesAndTheirSpellings(): void
     {
-        $types = ['e_liquid' => ['e_liquid', 'E-Liquid', 'eliquid', 'nic salt', 'Nicotine Salt'], 'shortfill' => ['Shortfill', 'short fill'],
+        $types = ['e_liquid' => ['e_liquid', 'E-Liquid', 'eliquid'], 'nic_salt' => ['nic_salt', 'Nic salt', 'nic salts', 'Nicotine Salt', 'nicsalt'], 'shortfill' => ['Shortfill', 'short fill'],
             'nic_shot' => ['nic shot', 'Nicotine shot', 'booster'], 'prefilled_pod' => ['prefilled pod', 'Pre-filled pod', 'Prefilled pods', 'pre-filled pods'],
             'device_kit' => ['device / kit', 'Device/Kit', 'kit', 'pod kit'], 'single_use' => ['single-use vape', 'Single use', 'single_use'],
             'coil' => ['coil', 'Coils'], 'tank' => ['Tank'], 'accessory' => ['accessories', 'Accessory']];
