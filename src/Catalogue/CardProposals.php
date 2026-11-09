@@ -32,7 +32,7 @@ final class CardProposals
     public const FIELDS = ['product_type', 'liquid_ml', 'nicotine_mg', 'duty_liable', 'brand', 'flavour'];
     /** The Normalizer's forms (CW\Matching\Form::ALL) => the card's product type; the others propose nothing. */
     public const FORM_TO_TYPE = [
-        'e_liquid' => 'e_liquid', 'nic_salt' => 'e_liquid', 'shortfill' => 'shortfill', 'nic_shot' => 'nic_shot', 'prefilled_pod' => 'prefilled_pod',
+        'e_liquid' => 'e_liquid', 'nic_salt' => 'nic_salt', 'shortfill' => 'shortfill', 'nic_shot' => 'nic_shot', 'prefilled_pod' => 'prefilled_pod',
         'pod_kit' => 'device_kit', 'kit' => 'device_kit', 'battery' => 'device_kit', 'coil' => 'coil', 'tank' => 'tank', 'accessory' => 'accessory',
     ];
     public const MAX_LISTINGS = 25;

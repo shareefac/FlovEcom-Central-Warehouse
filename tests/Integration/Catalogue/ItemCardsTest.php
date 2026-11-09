@@ -254,7 +254,8 @@ final class ItemCardsTest extends CatalogueTestCase
         self::assertContains("the item's identity card (filled by the matcher)", $p['fields']['nicotine_mg'][0]['sources']);
         self::assertContains('listing vpg P1 "Listing P1"', $p['fields']['nicotine_mg'][0]['sources']);
         self::assertSame(['10.0'], array_column($p['fields']['liquid_ml'], 'value'));
-        self::assertSame(['e_liquid'], array_column($p['fields']['product_type'], 'value'), 'nic_salt and e_liquid are both an e-liquid; a disposable proposes no type');
+        self::assertSame(['nic_salt', 'e_liquid'], array_column($p['fields']['product_type'], 'value'),
+            'nic salt is its own type (0064): the matcher and P1 say nic salt, A1 e-liquid; a disposable proposes no type');
         self::assertSame('Blue Razz', $p['fields']['flavour'][0]['value'], 'the matcher and a listing agree');
         self::assertContains('Blue Razz Ice', array_column($p['fields']['flavour'], 'value'), 'another listing says more: shown too, a person picks');
         self::assertSame(['Elux'], array_column($p['fields']['brand'], 'value'));
