@@ -17045,3 +17045,17 @@ migration, no new permission, no route. Stock in, Stock out, Transfers and Relea
 Tests: `AdjustGridScreensTest` (4 new: the editor, words and hints on the new page and the draft; each save answered with the draft's editor and
 its new version; the conflict mark; 200 and 500 lines), `UiUnitTest` (SENT), the node harness `/root/cw_work/runs/ajk_js_harness/run_aj.js`
 (11 sections; `run_kg.js` and `run_gw.js` stay green).
+
+### The Codex review of 8787c8b (`runs/ajk_codex_review.txt`): no HIGH; three MEDIUM and one LOW, each reproduced in the node harness and fixed test-first (branch `adjust-key-grid`, second commit, 10 Nov 2026)
+
+1. MEDIUM: after a draft's save the server draws its first line's own reason as the one for every line, but the page kept its box: the next save
+   turned that line's reason into the page's (Damaged into Data correction). Now the details at the top are put in place from the answer too (AJ5:
+   what the server saved), the reason for every line among them.
+2. MEDIUM: a line removed, then another warehouse chosen, then Undo: the line came back with the first warehouse's stock (After 98 on a stock of 100
+   gave +88). The line kept for Undo is now asked about with the others.
+3. MEDIUM: another warehouse chosen and saved while its figures were on their way; when that look-up failed, it put the box back to the first
+   warehouse and the saved page kept it (the next save moved the draft back). The answer's details win, and a look-up still on its way when the answer
+   comes is dropped.
+4. LOW: Ctrl+Enter with a product marked in a line's list took the product. The form now sees Ctrl+Enter first in the lines: that list is shut (its
+   search dropped, the words kept) and the cursor goes to the empty line.
+Tests: the node harness sections 12-15 (red on 8787c8b: `runs/ajk_fix1_red.js.log`, 10 checks).

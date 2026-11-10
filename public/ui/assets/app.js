@@ -5391,9 +5391,11 @@
     // Only the last answer counts, and After waits for it: it is worked out from the figure on show. No answer: back to the warehouse the figures are for.
     var stockTurn = 0;
     var shownWarehouse = warehouse.value;
+    // The line kept for Undo is asked about too, so it comes back with this warehouse's stock (Codex round 1, MEDIUM 2).
+    var withUndo = function () { return undo ? rows.concat([undo.r]) : rows; };
     warehouse.addEventListener('change', function () {
       var skus = [];
-      each(rows, function (r) {
+      each(withUndo(), function (r) {
         if (r.sku === null) {
           r.forget();
         } else {
@@ -5420,7 +5422,7 @@
             hands[o.getAttribute('data-sku')] = parseInt(o.getAttribute('data-hand'), 10) || 0;
           });
           bulk = true;
-          each(rows, function (r) {
+          each(withUndo(), function (r) {
             if (r.sku !== null && hands[String(r.sku)] !== undefined) {
               r.hand = hands[String(r.sku)];
             }
@@ -5439,6 +5441,19 @@
           say(form.getAttribute('data-failed') || '');
         });
     });
+    // Ctrl+Enter in the lines is the empty line (AJ1), even with a product marked in a line's list, which would take it (Codex round 1, LOW 4): that
+    // list is shut first (its search dropped; the words stay, to be finished or removed), before the dropdown sees the key.
+    form.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' || !kbIs(ev, true, false, false) || !table.contains(ev.target)) {
+        return;
+      }
+      var r = rowOf(ev.target);
+      if (r && ev.target === r.p) {
+        r.forget();
+      }
+      ev.preventDefault();
+      toEmpty();
+    }, true);
     // Enter in a box of the page never sends it: the two buttons do. Ctrl+Enter in the lines is left to the site's keys (the empty line; AJ1).
     form.addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter' && ev.target.tagName === 'INPUT' && !(kbIs(ev, true, false, false) && table.contains(ev.target))) {
@@ -5639,6 +5654,18 @@
           }
         });
       }
+      // The details as the server has them: what it saved. The reason for every line is the one it reads the lines by (a draft's first line's own
+      // reason becomes it: Codex round 1, MEDIUM 1); the warehouse is the one sent, even when a look-up of its figures failed meanwhile and put the
+      // box back (MEDIUM 3); a look-up still on its way is for the page before this answer.
+      each(nf.querySelectorAll('section.aj-top [name]'), function (theirsField) {
+        var mineField = form.querySelector('section.aj-top [name="' + theirsField.getAttribute('name') + '"]');
+        if (mineField && (mineField.tagName === 'SELECT' || mineField.tagName === 'INPUT')) {
+          mineField.value = theirsField.value;
+        }
+      });
+      stockTurn++;
+      refreshing = false;
+      shownWarehouse = warehouse.value;
       var drawn = [];
       try {
         drawn = JSON.parse(nf.getAttribute('data-rows') || '[]');
@@ -5677,10 +5704,7 @@
       takeMarked: function () {},
       step: function () {},
       vertical: function () { return false; },
-      toEmpty: function () { // Ctrl+Enter, Insert, Alt+N: the empty line's Product box
-        hold();
-        goTo(rows[rows.length - 1].p);
-      },
+      toEmpty: function () { toEmpty(); }, // Ctrl+Enter, Insert, Alt+N: the empty line's Product box
       removeAt: function (from) {
         var r = rowOf(from);
         return r ? removeRow(r, from.getAttribute('data-cell') || 'u') : false;
@@ -5723,6 +5747,10 @@
           save.click();
         }
       },
+    };
+    var toEmpty = function () {
+      hold();
+      goTo(rows[rows.length - 1].p);
     };
     var rowOf = function (el) {
       var found = null;
