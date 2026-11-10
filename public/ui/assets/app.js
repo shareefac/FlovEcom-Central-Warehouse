@@ -5031,7 +5031,9 @@
       var v = units(r);
       r.tr.classList.toggle('is-up', v !== null && v > 0);
       r.tr.classList.toggle('is-down', v !== null && v < 0);
-      var known = r.sku !== null && !r.unknown; // r.unknown: the last warehouse look-up did not answer for its product (Codex re-check, MEDIUM)
+      // r.at: the warehouse its stock figure is for. Another warehouse on show (a look-up that left it out, or failed after it was chosen there):
+      // no stock shown, After off, never the other warehouse's figure (Codex re-checks 1-3, MEDIUM).
+      var known = r.sku !== null && r.at === warehouse.value;
       r.tr.classList.toggle('is-below', known && v !== null && r.hand + v < 0);
       r.w.classList.toggle('is-own', r.w.value !== '');
       r.now.textContent = known ? number(r.hand) : '';
@@ -5169,7 +5171,7 @@
       var list = tr.querySelector('ul');
       list.id = 'aj-list-' + (++made);
       var r = { tr: tr, p: cell('p'), u: cell('u'), w: cell('w'), a: cell('a'), no: tr.querySelector('[data-aj-no]'), code: tr.querySelector('[data-aj-code]'),
-        now: tr.querySelector('[data-aj-now]'), sku: null, hand: 0, line: 0 };
+        now: tr.querySelector('[data-aj-now]'), sku: null, hand: 0, line: 0, at: warehouse.value }; // a drawn line's figures: the page's warehouse
       body.appendChild(tr);
       rows.push(r);
       var timer = 0;
@@ -5204,7 +5206,7 @@
         waiting = false;
         r.sku = parseInt(li.getAttribute('data-sku'), 10);
         r.hand = parseInt(li.getAttribute('data-hand'), 10) || 0;
-        r.unknown = false;
+        r.at = warehouse.value; // its box asked for the warehouse on show (a change since drops that search: forget)
         r.p.value = li.getAttribute('data-label') || '';
         r.code.textContent = li.getAttribute('data-code') || '';
         var scan = parseInt(li.getAttribute('data-units'), 10) || 1;
@@ -5429,12 +5431,8 @@
           each(withUndo(), function (r) {
             if (r.sku !== null && hands[String(r.sku)] !== undefined) {
               r.hand = hands[String(r.sku)];
-              r.unknown = false;
-            } else if (r.sku !== null && skus.indexOf(r.sku) >= 0) {
-              // Asked for and left out: never the other warehouse's figure (no stock shown, After off until it is answered for or chosen again).
-              // A product chosen meanwhile was not asked for here: its own figures are this warehouse's already (Codex re-check 2, MEDIUM).
-              r.unknown = true;
-            }
+              r.at = asked;
+            } // left out: its figure stays the other warehouse's (show() hides it); chosen meanwhile: its own is this warehouse's already
             show(r);
           });
           bulk = false;

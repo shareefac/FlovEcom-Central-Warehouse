@@ -17077,3 +17077,12 @@ Tests: the node harness sections 16-17 (red on 117391a: `runs/ajk_fix2_red.js.lo
 2. LOW: Ctrl+Enter while a word is being composed (an input method) moved to the empty line; it is the composition's now, as combo and the keys'
    layer leave such keys.
 Tests: the node harness sections 18-19 (red on 853374c: `runs/ajk_fix3_red.js.log`, 2 checks).
+
+### The Codex re-check of 1b2b475 (`runs/ajk_codex_recheck3.txt`): both fixed; no HIGH, no LOW; one MEDIUM there before this build too, reproduced and fixed test-first (fifth commit, 10 Nov 2026)
+
+MEDIUM (an AG gap, there on 886dc69 as well): a product chosen while another warehouse's figures were on their way has that warehouse's stock;
+when the look-up failed, the box went back to the first warehouse and that line kept the other's figure with After on (a count of 2 where the
+first warehouse holds 100 gave -1, not -98). Each line now knows which warehouse its stock figure is for (`r.at`: the page's when drawn, the one
+on show when its product is chosen, the one asked when a look-up answers for it), and shows the figure and After only while that warehouse is on
+show. This replaces `r.unknown` of the two rounds before (a product a look-up left out keeps its old warehouse, so it is hidden the same way).
+Tests: the node harness section 20 (red on 1b2b475: `runs/ajk_fix4_red.js.log`); sections 13, 16 and 18 still pass.
