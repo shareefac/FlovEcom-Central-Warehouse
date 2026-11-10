@@ -17086,3 +17086,11 @@ first warehouse holds 100 gave -1, not -98). Each line now knows which warehouse
 on show when its product is chosen, the one asked when a look-up answers for it), and shows the figure and After only while that warehouse is on
 show. This replaces `r.unknown` of the two rounds before (a product a look-up left out keeps its old warehouse, so it is hidden the same way).
 Tests: the node harness section 20 (red on 1b2b475: `runs/ajk_fix4_red.js.log`); sections 13, 16 and 18 still pass.
+
+### The Codex re-check of d6f0f85 (`runs/ajk_codex_recheck4.txt`): partly fixed; no HIGH, no LOW; one MEDIUM (also there on 886dc69), reproduced and fixed test-first (sixth commit, 10 Nov 2026)
+
+MEDIUM: a product SEARCHED for (not yet chosen) while another warehouse's figures were on their way: when the look-up failed and the box went back,
+that search's late answer or its list on show could still be chosen, and the line was then tagged with the warehouse on show (warehouse 1) while
+its stock was warehouse 2's. Now each choice carries the warehouse it was asked for (`data-wh`; `r.at` comes from it), and the failed look-up that
+puts the box back drops every product search still open (as a change of warehouse already did): Enter asks again for the warehouse on show.
+Tests: the node harness section 21 (both orders; red on d6f0f85: `runs/ajk_fix5_red.js.log`).

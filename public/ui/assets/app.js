@@ -5179,7 +5179,7 @@
       var waiting = false; // Tab or Enter came before the answer: the first choice is taken when it comes
       var options = function () { return list.querySelectorAll('li[role="option"]'); };
       var c = null;
-      var draw = function (from) {
+      var draw = function (from, wh) {
         while (list.firstChild) {
           list.removeChild(list.firstChild);
         }
@@ -5188,6 +5188,7 @@
           li.id = list.id + '-' + i;
           li.setAttribute('role', 'option');
           li.setAttribute('aria-selected', 'false');
+          li.setAttribute('data-wh', wh || ''); // the warehouse its stock is for (Codex re-check 4)
           each(['data-label', 'data-sku', 'data-code', 'data-hand', 'data-units'], function (name) {
             li.setAttribute(name, o.getAttribute(name) || '');
           });
@@ -5206,7 +5207,7 @@
         waiting = false;
         r.sku = parseInt(li.getAttribute('data-sku'), 10);
         r.hand = parseInt(li.getAttribute('data-hand'), 10) || 0;
-        r.at = warehouse.value; // its box asked for the warehouse on show (a change since drops that search: forget)
+        r.at = li.getAttribute('data-wh') || warehouse.value; // the warehouse its box asked for
         r.p.value = li.getAttribute('data-label') || '';
         r.code.textContent = li.getAttribute('data-code') || '';
         var scan = parseInt(li.getAttribute('data-units'), 10) || 1;
@@ -5223,13 +5224,14 @@
       };
       var load = function (q) {
         var mine = ++turn;
+        var wh = warehouse.value;
         say(form.getAttribute('data-loading') || '');
-        fragment(base + 'warehouse=' + encodeURIComponent(warehouse.value) + '&q=' + encodeURIComponent(q), marker)
+        fragment(base + 'warehouse=' + encodeURIComponent(wh) + '&q=' + encodeURIComponent(q), marker)
           .then(function (node) {
             if (mine !== turn) {
               return;
             }
-            draw(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'));
+            draw(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'), wh);
             var says = node.querySelector('[data-aj-says]');
             say(says ? says.textContent.trim() : '');
             var all = options();
@@ -5444,6 +5446,11 @@
           }
           warehouse.value = shownWarehouse;
           refreshing = false;
+          each(rows, function (r) {
+            if (r.sku === null) {
+              r.forget(); // a search for the other warehouse (on its way, or its list on show) is dropped (Codex re-check 4)
+            }
+          });
           each(rows, function (r) { show(r); });
           say(form.getAttribute('data-failed') || '');
         });
