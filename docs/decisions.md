@@ -17174,3 +17174,14 @@ on the page and by `giSwap` on the form it filled (same commit as the fix above)
 their hint line where it is (it is not one of the parts they put in place; seen on staging: Cmd and Option still there after a save), and
 the keys panel is outside `<main>`: not changed.
 Tests: `run_gw.js`, a closing block (a Mac's page and a PC's; red on 9167385: `runs/ajk_fix8_red.js.log`, 1 check).
+
+Codex on de25488 (`runs/ajk_codex_recheck10.txt`): nothing in the commit itself; no HIGH, no MEDIUM; one LOW in the wider build, fixed
+test-first (tenth commit). The red line under the adjustment's lines (`[data-aj-alarm]`) says what the page's own check found before a send
+("Choose a product on line 3."). With a line typed but not chosen, Save said so; the line removed, the next Save went through, said "Saved…"
+and left those words on show: a save without leaving the page never took them away (on live, 886dc69, the save drew the whole page again).
+Now a save that goes out takes the red line's words away first, whatever its answer is going to be (the lines passed the page's own check; a
+refusal, a record changed meanwhile and "Not saved…" are said by the line at the bottom). A search still on its way keeps its "Looking…".
+Tests: `run_aj.js` section 28 (red on de25488: `runs/ajk_fix9_red.js.log`, 4 checks).
+OLD, on live since GW7 (886dc69), not changed here, raised to the owner and on the tracker (P3): a delivery's foot bar is placed by a
+handler that keeps hold of the first bar; a save puts a new bar in place (`giSwap`), so on a short delivery in a tall window the new bar
+can stay where the server drew it instead of at the window's foot until the page is loaded again.

@@ -5615,6 +5615,12 @@
       sending = true;
       freeze(true);
       by.disabled = true;
+      // The lines passed the page's own check: what the red line said before this send (a line without its product, a look-up that failed) is
+      // over, as it was when a save drew the whole page again (Codex re-check 10: the words stayed after their line was removed and the save
+      // went through). A search still on its way keeps its "Looking…".
+      if (lookers === 0 || alarm.textContent !== (form.getAttribute('data-loading') || '')) {
+        say('');
+      }
       kgToast(word('saving'), false, true);
       var done = function () {
         sending = false;
