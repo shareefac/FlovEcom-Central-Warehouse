@@ -2636,6 +2636,8 @@ final class Words
         'counts.review_over_units' => 'Check a count difference above this many units',
         'counts.review_over_percent' => 'Check a count difference above this percent',
         'counts.time_window_max_minutes' => 'Share a count time within this many minutes',
+        // The adjustment page (0065; docs/decisions.md AJ9).
+        'stock.adjust_opens_on' => 'Reason a new adjustment opens on',
         'company.legal_name' => 'Company name (legal)',
         'company.trading_name' => 'Trading name',
         'company.address' => 'Registered address',
@@ -3867,6 +3869,7 @@ final class Words
     /** app_setting key prefix => the topic its settings are listed under. */
     public const SETTING_TOPIC = [
         'counts' => 'Stock counts',
+        'stock' => 'Stock records',
         'po' => 'Purchase orders',
         'suppliers' => 'Suppliers',
         'reorder' => 'Reorder',
@@ -3915,6 +3918,9 @@ final class Words
             . 'earlier, when nothing moved in between: one record holds at most 20 count times. This is the most minutes a line\'s time may move back '
             . '(0 to 60). Up to 10, a parcel sent or brought back in that gap and reported late is flagged on Stock > Counts > Differences; above 10 '
             . 'it may not be. A sheet that needs more count times is refused, and the lines to count again are marked.',
+        'stock.adjust_opens_on' => 'A new adjustment (Stock > Adjustments) opens with this reason chosen for every line. The person can still choose another. '
+            . 'Only a reason offered on stock corrections can be chosen here (Settings > Reasons). None: the person chooses each time. If the reason is '
+            . 'switched off later, or is no longer offered on stock corrections, the page opens on Data correction again.',
         'po.terms' => 'The text printed under every purchase order.',
         'po.default_vat_code' => 'Used on a new order line when the supplier has no VAT code.',
         'po.over_delivery_tolerance_pct' => 'How much more than ordered goods in may still accept on a delivery.',
@@ -9687,6 +9693,11 @@ final class Words
         'uk_time' => 'A UK date and time, like 2026-10-27 18:00, at most 90 days ahead, and not in the hour the clocks change.',
         'list' => 'Tick the ones that apply. None ticked is allowed.',
         'list_none' => 'None',
+        // A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ10): %s is the use in words (REASON_USE); the first
+        // choice; a reason held that is not offered now (switched off, or no longer offered on that use), %s its name.
+        'reason_use' => 'One of the reasons offered on %s.',
+        'reason_none' => 'None: choose each time',
+        'reason_gone' => '%s (not offered now)',
     ];
 
     /** Notices after saving a setting (ReferenceController). */

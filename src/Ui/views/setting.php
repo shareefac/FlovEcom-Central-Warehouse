@@ -2,6 +2,8 @@
 // One setting, on the settings shell (the approved TP_Settings of 29 Oct 2026, pattern 6; docs/decisions.md W13.9): Rules and numbers as
 // the eyebrow (DC3), its name; a card of what it is (what it does, its value now, whether the owner agreed it, its last change); for whoever
 // changes settings a card with its one form (the value, the agreed tick, the reason; Save), or where its rule is changed; then its History.
+// The value is a box to type in, Yes / No, the ticked boxes of a list, or (a setting that names a reason; docs/decisions.md AJ10) a choice of
+// the reasons offered: $choices, code => words.
 ?>
 <?= $head((string) $name, intro: 'setting', more: $lookOnly, back: ['/ui/reference/settings', \CW\Ui\Words::SETTINGS_PAGE['title']]) ?>
 <div class="set-shell">
@@ -36,6 +38,15 @@
       <label class="choice"><input type="checkbox" name="<?= $e($it['name']) ?>" value="1"<?php if ($it['checked']): ?> checked<?php endif; ?>> <?= $e($it['label']) ?></label>
 <?php endforeach; ?>
     </fieldset>
+<?php elseif ($choices !== null): ?>
+    <label><?= $word('SETTING_EDIT', 'value') ?>
+      <span class="hint"><?= $e($hint) ?></span>
+      <select name="value"<?php if ($errorCode === 'bad_value'): ?> aria-invalid="true"<?php endif; ?>>
+<?php foreach ($choices as $code => $label): ?>
+        <option value="<?= $e((string) $code) ?>"<?php if ((string) $code === $raw): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+      </select>
+    </label>
 <?php elseif ($type === 'bool'): ?>
     <fieldset>
       <legend><?= $word('SETTING_EDIT', 'value') ?></legend>

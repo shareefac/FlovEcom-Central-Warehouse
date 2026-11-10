@@ -48,7 +48,10 @@ final class StockOpsController
     public const ADJUSTMENT_KINDS = ['in', 'out', 'adjust', 'release'];
     /** Adjustments' "All kinds" (the Inventory artboard's first Show choice, docs/decisions.md DG1): every kind of ADJUSTMENT_KINDS together. */
     public const ALL_PATH = '/ui/stock/adjustments/all';
-    /** What "Why, for every line" opens on (AG2): the reason most corrections have. */
+    /**
+     * What "Why, for every line" opens on while the setting `stock.adjust_opens_on` names no reason that is offered (AG2; docs/decisions.md
+     * AJ9, AJ11): the reason the page opened on before the setting, and the setting's set-up value.
+     */
     private const GRID_REASON = 'data_correction';
     /** The kinds that print a PDF (the transfer note, the release invoice). */
     public const PDF_KINDS = ['transfer', 'release'];
@@ -429,7 +432,7 @@ final class StockOpsController
             'base' => StockOps::PATHS['adjust'],
             'listName' => Words::STOCK_KIND['adjust']['tab'],
             'grid' => self::gridVars($ctx, $form, $choices, StockOps::PATHS['adjust'] . '/new', FormOnce::newKey(), null,
-                self::gridShown($ctx, (int) $form['warehouse'], $rows), self::gridTop($choices['reasons'], $typed['why'] ?? null), $ruleWaits, $typed !== null, null),
+                self::gridShown($ctx, (int) $form['warehouse'], $rows), self::gridTop($ctx, $choices['reasons'], $typed['why'] ?? null), $ruleWaits, $typed !== null, null),
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::ADJ_GRID['title']]);
@@ -634,15 +637,27 @@ final class StockOpsController
     }
 
     /**
-     * The reason for every line (AG2): what was typed, else what the draft's first line says, else Data correction while it is offered.
+     * The reason for every line (AG2; docs/decisions.md AJ9, AJ11): what was typed, else what the draft's first line says, else the reason
+     * the setting `stock.adjust_opens_on` names (Settings, "Stock records"), while it is offered here. A setting of nothing ("None") means the
+     * person chooses each time: no reason is chosen. A reason it names that is not offered now (switched off, or no longer offered on stock
+     * corrections) is not used: Data correction, as before the setting, while that is offered. The same where the setting's row is not there
+     * yet (the code a moment before migration 0065).
      *
-     * @param list<array<string, mixed>> $reasons
+     * @param list<array<string, mixed>> $reasons the reasons the page offers
      */
-    private static function gridTop(array $reasons, ?string $wanted): string
+    private static function gridTop(Context $ctx, array $reasons, ?string $wanted): string
     {
         $codes = array_column($reasons, 'code');
-        foreach ([$wanted, self::GRID_REASON] as $c) {
-            if ($c !== null && in_array($c, $codes, true)) {
+        if ($wanted !== null && in_array($wanted, $codes, true)) {
+            return $wanted;
+        }
+        $settings = $ctx->settings();
+        $set = $settings->has('stock.adjust_opens_on') ? (string) $settings->get('stock.adjust_opens_on') : self::GRID_REASON;
+        if ($set === '') {
+            return '';
+        }
+        foreach ([$set, self::GRID_REASON] as $c) {
+            if (in_array($c, $codes, true)) {
                 return $c;
             }
         }
@@ -665,7 +680,7 @@ final class StockOpsController
         foreach ($lines as $l) {
             $first ??= $l['reason_code'];
         }
-        $top = self::gridTop($choices['reasons'], $extra['typedWhy'] ?? $first);
+        $top = self::gridTop($ctx, $choices['reasons'], $extra['typedWhy'] ?? $first);
         $rows = $typedGrid ?? array_map(static fn (array $l): array => ['sku' => (int) $l['sku_id'], 'u' => ($l['qty'] > 0 ? '+' : '') . $l['qty'],
             'r' => $l['reason_code'] === $top ? '' : (string) $l['reason_code'], 'l' => (int) $l['line_no']], array_values(array_filter($lines, static fn (array $l): bool => $l['sku_id'] !== null)));
         // A record started from the item page (IV2): the item is a line of the draft's, its units still to type.

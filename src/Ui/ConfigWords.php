@@ -19,18 +19,29 @@ final class ConfigWords
     /**
      * The versions of a subject as rows for a `table.stack`: when (UTC, the template shows UK time), who, action, what, why.
      *
+     * A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ12) has its values shown by the reasons' names
+     * as they are now ("Data correction → Count difference"), not their codes.
+     *
      * @param string|null $valueType a setting's value type (its values are shown in words)
      * @return list<array{when: string, who: string, action: string, what: string, why: string}>
      */
     public static function history(Db $db, string $type, string $key, ?string $valueType = null, int $limit = 50): array
     {
         $out = [];
+        $names = null;
+        if ($type === 'setting' && isset(Settings::RULES[$key]['reason_use'])) {
+            $names = [];
+            foreach ($db->all('SELECT code, label FROM reason_code') as $r) {
+                $names[(string) $r['code']] = (string) $r['label'];
+            }
+        }
         foreach (ConfigHistory::history($db, $type, $key, $limit) as $v) {
             $out[] = [
                 'when' => $v['created_at'],
                 'who' => self::who($v['actor'], $v['who']),
                 'action' => Words::of('CONFIG_ACTION', $v['action']),
-                'what' => $v['before'] === null ? self::state($type, $v['state'], $valueType, $key) : self::changes($type, $v['before'], $v['state'], $valueType, $key),
+                'what' => $v['before'] === null ? self::state($type, $v['state'], $valueType, $key, $names)
+                    : self::changes($type, $v['before'], $v['state'], $valueType, $key, $names),
                 'why' => (string) ($v['reason'] ?? ''),
             ];
         }
@@ -51,13 +62,14 @@ final class ConfigWords
      *
      * @param array<string, mixed> $before
      * @param array<string, mixed> $after
+     * @param array<string, string>|null $names a setting's values by name (a reason's code => its name; history())
      */
-    public static function changes(string $type, array $before, array $after, ?string $valueType = null, ?string $key = null): string
+    public static function changes(string $type, array $before, array $after, ?string $valueType = null, ?string $key = null, ?array $names = null): string
     {
         $parts = [];
         foreach (self::labels($type) as $field => $label) {
-            $b = self::field($type, $field, $before[$field] ?? null, $valueType, $key);
-            $a = self::field($type, $field, $after[$field] ?? null, $valueType, $key);
+            $b = self::field($type, $field, $before[$field] ?? null, $valueType, $key, $names);
+            $a = self::field($type, $field, $after[$field] ?? null, $valueType, $key, $names);
             if ($b !== $a) {
                 $parts[] = $label . ': ' . $b . ' → ' . $a;
             }
@@ -65,18 +77,28 @@ final class ConfigWords
         return implode(' · ', $parts);
     }
 
-    /** A whole state in words (a baseline or an add): "Name: Main warehouse · In use: Yes …". @param array<string, mixed> $state */
-    public static function state(string $type, array $state, ?string $valueType = null, ?string $key = null): string
+    /**
+     * A whole state in words (a baseline or an add): "Name: Main warehouse · In use: Yes …".
+     *
+     * @param array<string, mixed> $state
+     * @param array<string, string>|null $names a setting's values by name (a reason's code => its name; history())
+     */
+    public static function state(string $type, array $state, ?string $valueType = null, ?string $key = null, ?array $names = null): string
     {
         $parts = [];
         foreach (self::labels($type) as $field => $label) {
-            $parts[] = $label . ': ' . self::field($type, $field, $state[$field] ?? null, $valueType, $key);
+            $parts[] = $label . ': ' . self::field($type, $field, $state[$field] ?? null, $valueType, $key, $names);
         }
         return implode(' · ', $parts);
     }
 
-    /** A setting's stored JSON text in words: Yes / No, "not set", the value; a list setting's items in words (listWords). */
-    public static function settingValue(string $valueType, mixed $json, ?string $key = null): string
+    /**
+     * A setting's stored JSON text in words: Yes / No, "not set", the value; a list setting's items in words (listWords); a value that
+     * $names has (a reason's code, for a setting that names a reason; AJ12) by its name.
+     *
+     * @param array<string, string>|null $names
+     */
+    public static function settingValue(string $valueType, mixed $json, ?string $key = null, ?array $names = null): string
     {
         if ($json === null || $json === '') {
             return Words::CONFIG['not_set'];
@@ -88,6 +110,9 @@ final class ConfigWords
         }
         if ($key !== null && is_string($v) && ($list = self::listWords($key, $v)) !== null) {
             return $list;
+        }
+        if ($names !== null && is_string($v) && isset($names[$v])) {
+            return $names[$v];
         }
         return match (true) {
             is_bool($v) => Words::CONFIG[$v ? 'yes' : 'no'],
@@ -127,10 +152,11 @@ final class ConfigWords
         };
     }
 
-    private static function field(string $type, string $field, mixed $v, ?string $valueType, ?string $key = null): string
+    /** @param array<string, string>|null $names */
+    private static function field(string $type, string $field, mixed $v, ?string $valueType, ?string $key = null, ?array $names = null): string
     {
         if ($type === 'setting' && $field === 'value') {
-            return self::settingValue($valueType ?? 'string', $v, $key);
+            return self::settingValue($valueType ?? 'string', $v, $key, $names);
         }
         if ($type === 'setting' && $field === 'provisional') {
             return Words::CONFIG[(int) $v === 1 ? 'no' : 'yes'];

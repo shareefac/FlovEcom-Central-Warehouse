@@ -17185,3 +17185,55 @@ Tests: `run_aj.js` section 28 (red on de25488: `runs/ajk_fix9_red.js.log`, 4 che
 OLD, on live since GW7 (886dc69), not changed here, raised to the owner and on the tracker (P3): a delivery's foot bar is placed by a
 handler that keeps hold of the first bar; a save puts a new bar in place (`giSwap`), so on a short delivery in a tall window the new bar
 can stay where the server drew it instead of at the window's foot until the page is loaded again.
+
+## The reason a new adjustment opens on is a setting (branch `adjust-open-reason`, 10 Nov 2026; AJ9-AJ13; migration 0065; tracker CW-920 part 2, step 2)
+
+The owner, 10 Nov 2026: "Yes, step 2" (plan: `/root/cw_work/stock_records_plan_20261109/PLAN.md`: the reason "Count difference" offered on
+Adjustments and the page opening on it, so an everyday count needs no note). Offering a reason on Adjustments is a setting already (Settings >
+Reasons). What the page opens on was a constant (`GRID_REASON`, AJ8), and the owner's rule of 7 Oct is that everything is settable in CW. This
+step makes it a setting and changes nothing by itself: as set up, the page opens on Data correction, as before. Which reason it opens on, on
+live, is the owner's own choice, on his word, through CW's own screens: Settings > Reasons ("Count difference": offered on stock corrections
+too), then Settings > Rules and numbers > Stock records (choose it). No reason and no setting is changed by this release.
+
+**AJ9. The setting.** `stock.adjust_opens_on` (a string; migration `0065_adjust_opens_on.sql` adds its row, "data_correction", not agreed yet,
+with its version-1 baseline: two rows, no table changed, no row changed, no reason touched). `StockOpsController::gridTop` reads it. This takes
+the place of AJ8's "stays a constant": `GRID_REASON` stays as the fall-back (AJ11), and is what the page uses where the row is not there yet
+(the code a moment before the migration).
+
+**AJ10. Only a reason that can be chosen there, and a choice on the screens.** A new rule in `Settings::RULES`: `reason_use` => a use
+(`reason_code.applies_to`). The value is the code of a reason that is in use, is offered on that use and is not one CW sets itself
+(`Settings::reasonChoices`: the same question and order as the adjustment page's own list), or empty. `checkRule` refuses anything else
+(`bad_value`), for the screens, the CLI and the API alike. On the screens it is a choice, never a box to type a code in: on the setting's page
+and in its row of the Settings list (a new topic, "Stock records", after Stock counts) a select of "None: choose each time" and the reasons
+offered, by name, in the Reasons order (`SettingsController::choices`); the hint says "One of the reasons offered on stock corrections."
+
+**AJ11. What the page opens on.** In order: what was typed (a refused form keeps it), a draft's first line's own reason (AG2, unchanged), then
+the reason the setting names, while the page offers it. "None" (empty): no reason is chosen and the person chooses each time. A reason the
+setting names that is not offered now (switched off on the Reasons page, or no longer offered on stock corrections) is not used: the page opens
+on Data correction again while that is offered, on nothing when it is not. Switching such a reason off is not refused and does not change the
+setting (one place for one thing: the Reasons page says what is offered, the setting says which one comes first; the setting's help says what
+happens). Switched on or offered again, the setting works again with nothing to set twice.
+
+**AJ12. Shown by name.** The setting's value now, its row in the list and its History show the reason's name as it is now ("Value now: Data
+correction → Count difference"), not its code (`ConfigWords::history` passes the names on, an optional last parameter, so every other caller
+is as before). A value held that is not offered now is shown, and stays a choice of the select, as "Count difference (not offered now)", so
+the page never drops what is stored silently; the same for what a refused form sent (a code that is no reason: the code itself). Saving the
+page with such a value left chosen is refused like any other value that is not offered (`bad_value`: the rule is checked before "nothing
+changed"); choose a reason that is offered, or None. The CLI (`bin/settings.php`) prints codes, as it takes them.
+
+**AJ13. The red line under the lines (two small things, with this step).** (1) Codex re-check 11, LOW: a look-up of another warehouse's
+figures that fails while a save is on its way wrote "The products could not be loaded." after the send's own clearing, and the words stayed
+on show after the good save. Now the save's answer put in place (`swapIn`) clears the red line: the page is the server's again, and its words
+(a refusal, the notice) are the answer's. An answer that is not put in place (changed meanwhile, no network) leaves the look-up's words with
+the box they are about. (2) The staging look of 10 Nov: "Choose a product on line 3." stayed on show after line 3 was removed, until the next
+save. Now the words belong to their line (`chooseFor`): removed with it; Undo of the line brings it back without them (the next save says them
+again); a line above removed or put back, they say the line's number as it is now (`renumber`). Any other words said meanwhile ("Looking…",
+"Write a note.") end that and are left alone.
+
+Rules unchanged: who may post, below zero, reasons and their direction, notes (Data correction needs one; Count difference does not), drafts,
+approvals; no new permission, no route, no change to the Reasons page.
+Tests, written first: `tests/Integration/UiKernel/AdjustOpensOnTest.php` (7: as set up; offered and chosen, an everyday count posts with no
+note; switched off / no longer offered; None; typed and a draft's own reason win; the setting's page; the Settings list) and
+`tests/Integration/StockOps/Migration0065Test.php` (2: the row, its baseline, words and rule; the rule's refusals), red on 241739c
+(`runs/aor_red.php.log`: 9 tests, 6 errors, 3 failures); the node harness `/root/cw_work/runs/aor_js_harness/run_aj.js` sections 29 and 30
+(red on 241739c: `runs/aor_red.js.log`, 7 checks; `run_kg.js` and `run_gw.js` stay green).

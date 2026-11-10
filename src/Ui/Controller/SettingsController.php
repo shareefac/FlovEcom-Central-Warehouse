@@ -20,7 +20,8 @@ use CW\Ui\Words;
  * (checked by Settings::parse and Settings::RULES), a reason and the "agreed" tick, through Settings::change (which re-checks the
  * permission, the version the form was drawn with and the value). The approval switches are changed on the Approval rules page
  * (one place for one thing); the company details have their own page. Refusals are shown in words by their code, the typed value
- * kept.
+ * kept. A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ10, AJ12) is a choice of the reasons offered
+ * on that use, shown by name everywhere: choices().
  */
 final class SettingsController
 {
@@ -75,6 +76,10 @@ final class SettingsController
     {
         $parts = [Words::SETTING_EDIT['type_' . $type] ?? ''];
         $rule = Settings::RULES[$key] ?? (str_ends_with($key, '_days') ? Settings::DAYS_RULE : []);
+        if (isset($rule['reason_use'])) {
+            // A choice, not a box to type in: the hint says where the choices come from (AJ10).
+            return sprintf(Words::SETTING_EDIT['reason_use'], Words::REASON_USE[$rule['reason_use']] ?? (string) $rule['reason_use']);
+        }
         if (isset($rule['min'], $rule['max'])) {
             $parts[] = sprintf(Words::SETTING_EDIT['range'], is_int($rule['min']) ? number_format($rule['min']) : $rule['min'],
                 is_int($rule['max']) ? number_format($rule['max']) : $rule['max']);
@@ -112,6 +117,30 @@ final class SettingsController
         };
     }
 
+    /**
+     * The choices of a setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ10, AJ12), as its page and its row
+     * in the list draw them: "None: choose each time" first, then the reasons offered on that use by name, in the Reasons order; a value
+     * held that is not one of them (the reason was switched off or is no longer offered on that use; or what a refused form sent) last,
+     * by its name (its code when it is no reason) and marked "(not offered now)", so the page shows what is stored and never drops it
+     * silently. Null for any other setting.
+     *
+     * @return array<string, string>|null code => words ('' is None; PHP keeps a code of digits as an int key: compare as strings)
+     */
+    public static function choices(Context $ctx, string $key, string $held): ?array
+    {
+        $use = Settings::RULES[$key]['reason_use'] ?? null;
+        if ($use === null) {
+            return null;
+        }
+        $offered = $ctx->settings()->reasonChoices((string) $use);
+        $out = ['' => Words::SETTING_EDIT['reason_none']] + $offered;
+        if ($held !== '' && !isset($offered[$held])) {
+            $label = $ctx->db->value('SELECT label FROM reason_code WHERE code = ?', [$held]);
+            $out[$held] = sprintf(Words::SETTING_EDIT['reason_gone'], $label === null ? $held : (string) $label);
+        }
+        return $out;
+    }
+
     /** @param array{value: string, agreed: bool, reason: string}|null $typed what a refused form sent (kept) */
     private function page(Context $ctx, string $key, int $status, ?CwException $error, ?array $typed, ?string $notice = null): HtmlResponse
     {
@@ -132,6 +161,9 @@ final class SettingsController
         $canEdit = $ctx->me()->can('settings.manage') && !$approval;
         $latest = ConfigHistory::latest($ctx->db, 'setting', $key);
         $hint = self::hint($key, $type);
+        // A setting that names a reason (AJ10, AJ12): its value now by the reason's name; the form's choices hold what a refused form sent.
+        $held = is_string($value) ? $value : '';
+        $named = self::choices($ctx, $key, $held);
         return $ctx->page('setting', [
             'key' => $key,
             'name' => Words::settingName($key),
@@ -141,8 +173,10 @@ final class SettingsController
                 is_bool($value) => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, $value) : Words::CONFIG[$value ? 'yes' : 'no'],
                 is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                 $value === null, $value === '' => null,
+                $named !== null && isset($named[$held]) => $named[$held],
                 default => (string) $row['display'],
             },
+            'choices' => $typed === null ? $named : self::choices($ctx, $key, $typed['value']),
             // A list setting's boxes (Settings::RULES `list_in`): each allowed value in words, ticked when the value (or what a refused
             // form sent) holds it.
             'items' => self::items($key, $typed['value'] ?? (is_string($value) ? $value : '')),

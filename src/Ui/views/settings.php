@@ -4,7 +4,8 @@
 // company details first (their own page), then each topic's settings, a row each: the name (its page: the value, the agreed tick and its
 // History), what it does, "Not agreed yet" while the owner has not said yes, who changed it last; at the right its value. For whoever
 // changes settings a simple value is a box in the row with its unit, a reason and a plain Save that saves that setting alone (its own
-// route and fields; the row's Save never changes "agreed"); a list, a long text or a hidden value has "Change" to its page. The VAT codes
+// route and fields; the row's Save never changes "agreed"); a setting that names a reason is a choice of the reasons offered, in its row
+// (docs/decisions.md AJ10); a list, a long text or a hidden value has "Change" to its page. The VAT codes
 // last (read only), then the one line that says each change is kept. Above the search (NightlyConfirm.dc.html; docs/decisions.md NC8): the
 // "Last night" line of the nightly Confirm all (off: it says so; on: last night's run, linked to its done page for who may open it, and the
 // next run).
@@ -79,7 +80,13 @@
     </div>
     <div class="set-v">
       <label class="visually-hidden" for="v-<?= $e($s['key']) ?>"><?= $word('SETTINGS_PAGE', 'new_value') ?></label>
-<?php if ($s['type'] === 'bool'): ?>
+<?php if ($s['choices'] !== null): ?>
+      <select id="v-<?= $e($s['key']) ?>" name="value">
+<?php foreach ($s['choices'] as $code => $label): ?>
+        <option value="<?= $e((string) $code) ?>"<?php if ((string) $code === $s['raw']): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+      </select>
+<?php elseif ($s['type'] === 'bool'): ?>
       <select id="v-<?= $e($s['key']) ?>" name="value">
         <option value="true"<?php if ($s['raw'] === 'true'): ?> selected<?php endif; ?>><?= $e($s['yes']) ?></option>
         <option value="false"<?php if ($s['raw'] !== 'true'): ?> selected<?php endif; ?>><?= $e($s['no']) ?></option>

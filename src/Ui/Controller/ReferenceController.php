@@ -105,7 +105,8 @@ final class ReferenceController
      * card each, one row per setting with its plain name, what it does, whether the owner has agreed it and who last changed it (UK
      * time); for whoever changes settings (settings.manage) a simple value (a number, a date, a short text, yes or no) is changed in its
      * row, with a reason, and saved on its own through the setting's own route (SettingsController::save, the same fields as its page;
-     * the version the row was drawn with, and "agreed" as it is now, so a row's Save never changes it); a list, a long text or a hidden
+     * the version the row was drawn with, and "agreed" as it is now, so a row's Save never changes it); a setting that names a reason is
+     * a choice of the reasons offered, in its row (SettingsController::choices; docs/decisions.md AJ10); a list, a long text or a hidden
      * value opens its page. One search finds a setting (`q`: its name, what it does, its topic). The company details' card first, the
      * VAT codes' last. Who checks what is on the Approval rules page (one place for one thing). The screen never names a server tool.
      */
@@ -140,6 +141,8 @@ final class ReferenceController
             // Changed in its row: a value typed in one box (W13.9); a list (ticked boxes), a long text or a hidden value on its own page.
             $inline = $canChange && in_array($type, ['int', 'decimal', 'string', 'date', 'bool'], true) && !isset(Settings::RULES[$key]['list_in'])
                 && !Settings::isSecret($key);
+            // A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ10, AJ12): a choice in its row, its value by name.
+            $choices = SettingsController::choices($ctx, $key, is_string($value) ? $value : '');
             $topics[$topic][] = [
                 'key' => $key,
                 'href' => Html::url('/ui/reference/settings/setting', ['key' => $key]),
@@ -147,6 +150,7 @@ final class ReferenceController
                 'help' => Words::settingHelp($key, (string) $s['description']),
                 'type' => $type,
                 'inline' => $inline,
+                'choices' => $choices,
                 'raw' => is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value),
                 // A switch's two words (On / Off for the nightly Confirm all, docs/decisions.md NC8; else Yes / No).
                 'yes' => Words::settingBool($key, true),
@@ -159,6 +163,7 @@ final class ReferenceController
                     is_bool($value) => Words::settingBool($key, $value),
                     is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                     $value === null, $value === '' => null,
+                    $choices !== null && is_string($value) && isset($choices[$value]) => $choices[$value],
                     default => (string) $s['display'],
                 },
                 'agreed' => !$s['provisional'],

@@ -5064,9 +5064,14 @@
     var plain = false; // a save that got no answer of this page: the next one is a plain post
     var undo = null; // the last line removed (AJ2): { r: the line, at: where it was }
     var bulk = false; // many lines drawn at once (the page's first drawing, a save's answer): the numbers and sums once, at the end (AJ7)
+    // The line the red words ask a product for ("Choose a product on line 3.", the page's own check before a send; AJ13): the words belong to
+    // it. They go with it when it is removed, and say its number as it is now (a line above removed, or put back by Undo): renumber(). Any other
+    // words said meanwhile end that.
+    var chooseFor = null;
     var say = function (text) {
       alarm.textContent = text;
       alarm.hidden = text === '';
+      chooseFor = null;
     };
     var lookers = 0; // the lines whose product search is on its way: the alarm line says "Looking…" for them
     var number = function (n) { return Number(n).toLocaleString('en-GB'); };
@@ -5130,6 +5135,12 @@
     };
     var renumber = function () {
       each(rows, function (r, i) { r.no.textContent = String(i + 1); });
+      if (chooseFor !== null) {
+        var asked = chooseFor;
+        var at = rows.indexOf(asked);
+        say(at < 0 ? '' : word('choose').replace('{n}', String(at + 1)));
+        chooseFor = at < 0 ? null : asked;
+      }
     };
     var add; // (the lines make lines)
     var hold = function () { // one empty line stays ready at the end
@@ -5583,7 +5594,8 @@
       });
       if (bad !== null) {
         ev.preventDefault();
-        say((form.getAttribute('data-choose') || '').replace('{n}', String(rows.indexOf(bad) + 1)));
+        say(word('choose').replace('{n}', String(rows.indexOf(bad) + 1)));
+        chooseFor = bad; // the words are this line's (AJ13)
         goTo(bad.p);
         return;
       }
@@ -5780,7 +5792,9 @@
       }
       // The details as the server has them: what it saved. The reason for every line is the one it reads the lines by (a draft's first line's own
       // reason becomes it: Codex round 1, MEDIUM 1); the warehouse is the one sent, even when a look-up of its figures failed meanwhile and put the
-      // box back (MEDIUM 3); a look-up still on its way is for the page before this answer.
+      // box back (MEDIUM 3); a look-up still on its way is for the page before this answer. What the red line said about the page before it (a
+      // look-up of another warehouse's figures that failed while the save was on its way, written after the send's own clearing) is over too: the
+      // page is the server's again, and its words (a refusal, the notice) are the answer's (AJ13; Codex re-check 11, LOW).
       each(nf.querySelectorAll('section.aj-top [name]'), function (theirsField) {
         var mineField = form.querySelector('section.aj-top [name="' + theirsField.getAttribute('name') + '"]');
         if (mineField && (mineField.tagName === 'SELECT' || mineField.tagName === 'INPUT')) {
@@ -5790,6 +5804,7 @@
       stockTurn++;
       refreshing = false;
       shownWarehouse = warehouse.value;
+      say('');
       var drawn = [];
       try {
         drawn = JSON.parse(nf.getAttribute('data-rows') || '[]');

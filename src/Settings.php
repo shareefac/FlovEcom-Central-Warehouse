@@ -34,7 +34,9 @@ final class Settings
      * Key-specific checks on top of the type (parse()): `min`/`max` (an int or a decimal string), `vat_code` (the code
      * must exist in vat_code and be active), `email` (a valid address or empty), `in` (one of the listed values, exactly),
      * `pattern` (a regular expression the text must match; `pattern_says` words it for the refusal), `list_in` (a list of the listed
-     * values separated by commas, each once, in any order, or empty; `words` names the Ui\Words group the screens show them in).
+     * values separated by commas, each once, in any order, or empty; `words` names the Ui\Words group the screens show them in),
+     * `reason_use` (the code of a reason in use that is offered on that use, reason_code.applies_to, and is not one CW sets itself, or
+     * empty; the screens show it as a choice of those reasons, by name: reasonChoices()).
      * Every key ending in `_days` is a day count from 0 to 120 unless listed here.
      */
     public const RULES = [
@@ -240,6 +242,9 @@ final class Settings
             'pattern_says' => 'numbers of days separated by commas, like 7,14,28 (empty: only a typed number)'],
         'reorder.buy_for_min_days' => ['min' => 1, 'max' => 365, 'at_most' => ['reorder.buy_for_max_days']],
         'reorder.buy_for_max_days' => ['min' => 1, 'max' => 365, 'at_least' => ['reorder.buy_for_min_days']],
+        // ---- The reason a new adjustment opens on (0065; docs/decisions.md AJ9-AJ11): one of the reasons offered on stock corrections
+        // (Settings > Reasons), or empty: the person chooses each time.
+        'stock.adjust_opens_on' => ['reason_use' => 'adjustment'],
     ];
 
     /**
@@ -464,7 +469,7 @@ final class Settings
 
     /**
      * The key-specific rule of a setting (RULES; `_days` keys 0..120), checked on a parsed value: 400 bad_value.
-     * Needs the database for `vat_code`.
+     * Needs the database for `vat_code` and `reason_use`.
      */
     public function checkRule(string $key, mixed $value): void
     {
@@ -489,6 +494,9 @@ final class Settings
             if ($this->db->value('SELECT 1 FROM vat_code WHERE code = ? AND is_active = 1', [(string) $value]) === null) {
                 throw $bad('there is no active VAT code ' . mb_substr((string) $value, 0, 8));
             }
+        }
+        if (isset($rule['reason_use']) && !isset($this->reasonChoices((string) $rule['reason_use'])[(string) $value])) {
+            throw $bad('must be a reason in use that is offered on ' . $rule['reason_use']);
         }
         if (($rule['email'] ?? false) === true && filter_var((string) $value, FILTER_VALIDATE_EMAIL) === false) {
             throw $bad('must be an e-mail address');
@@ -622,6 +630,22 @@ final class Settings
         $text = json_decode((string) $v, false, 4);
         $items = is_string($text) && $text !== '' ? explode(',', $text) : [];
         return array_values(array_filter($allowed, static fn (string $a): bool => in_array($a, $items, true)));
+    }
+
+    /**
+     * The reasons a `reason_use` setting may name (0065; docs/decisions.md AJ10): in use, offered on that use (reason_code.applies_to) and
+     * not one CW sets itself, in the order the screens list reasons. Read on every call: a reason changed on the Reasons page counts at once.
+     *
+     * @return array<string, string> code => label
+     */
+    public function reasonChoices(string $use): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT code, label FROM reason_code WHERE FIND_IN_SET(?, applies_to) > 0 AND is_active = 1 AND system_only = 0 '
+            . 'ORDER BY sort_order, code', [$use]) as $r) {
+            $out[(string) $r['code']] = (string) $r['label'];
+        }
+        return $out;
     }
 
     /** An int setting read straight from the database: $default when the row does not exist, is not an int or is not set. */

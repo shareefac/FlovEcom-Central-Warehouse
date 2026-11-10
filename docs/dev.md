@@ -1461,3 +1461,30 @@ The quick adjustment screen (AG) on the grid's keys and its save without reload:
 - Tests: `tests/Integration/UiKernel/AdjustGridScreensTest.php`, `UiUnitTest::testTheAssetsNeedNothingFromOutsideAndNoEval` (SENT). The script in
   node: `/root/cw_work/runs/ajk_js_harness/` (`run_aj.js`; with `run_kg.js` and `run_gw.js`; `runs/ajk_js.sh` copies them in as `tools/ajk_js/`
   for a run on cw-test and removes them).
+
+### The reason a new adjustment opens on (`docs/decisions.md` AJ9-AJ13; branch `adjust-open-reason`; tracker CW-920 part 2, step 2; 10 Nov 2026)
+
+The setting `stock.adjust_opens_on` (Settings > Rules and numbers > "Stock records"): the reason "Why, for every line" opens on for a new
+adjustment. A setting that names a reason has the rule `reason_use` in `Settings::RULES` and is a `<select name="value">` on its page and in
+its row of the list (never a box to type a code in), shown by the reason's name everywhere. To add another such setting: the row (a
+migration, with its baseline), `'<key>' => ['reason_use' => '<use>']`, its words (`Words::SETTING`, `SETTING_HELP`; a new key prefix needs a
+`SETTING_TOPIC`); the screens need nothing more.
+
+| Path | What |
+|---|---|
+| `migrations/0065_adjust_opens_on.sql` | the row ("data_correction", provisional) and its version-1 baseline |
+| `src/Settings.php` | `RULES['stock.adjust_opens_on']` (`reason_use`), `checkRule` (the refusal), `reasonChoices($use)` (code => name, the Reasons order) |
+| `src/Ui/Controller/StockOpsController.php` | `gridTop($ctx, $reasons, $wanted)`: typed / the draft's first line, the setting, `GRID_REASON` (the fall-back); "None" chooses nothing |
+| `src/Ui/Controller/SettingsController.php` | `choices($ctx, $key, $held)` (None, the reasons offered, a held value "(not offered now)"), `hint()`, `page()` (`shown`, `choices`) |
+| `src/Ui/Controller/ReferenceController.php`, `src/Ui/views/settings.php` | the row's `choices`: a select in the row, the value by name for who only looks |
+| `src/Ui/views/setting.php` | the `$choices` branch of the form |
+| `src/Ui/ConfigWords.php` | `history()` builds the names (code => name) for a `reason_use` setting; `changes` / `state` / `settingValue` take them as an optional last parameter |
+| `src/Ui/Words.php` | `SETTING`, `SETTING_HELP`, `SETTING_TOPIC['stock']`, `SETTING_EDIT` (`reason_use`, `reason_none`, `reason_gone`) |
+| `public/ui/assets/app.js` | the quick adjustment block: `chooseFor`, `say`, `renumber` (the "Choose a product on line N." words go and move with their line), `swapIn` (`say('')`) (AJ13) |
+
+- Migration `0065_adjust_opens_on.sql`: the setting `stock.adjust_opens_on` ("data_correction"). No reason is changed by it; which reason the
+  page opens on is set on the screens (or `bin/settings.php`), and "Count difference" is offered on stock corrections on Settings > Reasons.
+- Tests: `tests/Integration/UiKernel/AdjustOpensOnTest.php`, `tests/Integration/StockOps/Migration0065Test.php`. Both change seed rows
+  (`reason_code`, `app_setting` are kept by `TestDb::clean`) and put them back themselves. The script in node:
+  `/root/cw_work/runs/aor_js_harness/` (`run_aj.js` sections 29 and 30; with `run_kg.js` and `run_gw.js`; `runs/aor_js.sh` copies them in as
+  `tools/aor_js/` and removes them; `runs/aor_full.sh <tag>` runs everything).
