@@ -17069,3 +17069,11 @@ Tests: the node harness sections 12-15 (red on 8787c8b: `runs/ajk_fix1_red.js.lo
 2. LOW: Insert and Alt+N went to the empty line but left a product search on its way in the box they left, whose late answer took the product and
    pulled the cursor back. All three keys (Ctrl+Enter, Insert, Alt+N) now drop that search first (`toEmpty`).
 Tests: the node harness sections 16-17 (red on 117391a: `runs/ajk_fix2_red.js.log`, 4 checks).
+
+### The Codex re-check of 853374c (`runs/ajk_codex_recheck2.txt`): every finding before fixed; no HIGH; one MEDIUM and one LOW the fixes brought, reproduced and fixed test-first (fourth commit, 10 Nov 2026)
+
+1. MEDIUM: a product chosen while another warehouse's figures were on their way has its own figures (its box asks for the warehouse chosen), but
+   the look-up's answer marked it unknown because it was not in the answer. Only a product the look-up ASKED for and the answer left out is unknown.
+2. LOW: Ctrl+Enter while a word is being composed (an input method) moved to the empty line; it is the composition's now, as combo and the keys'
+   layer leave such keys.
+Tests: the node harness sections 18-19 (red on 853374c: `runs/ajk_fix3_red.js.log`, 2 checks).

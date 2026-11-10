@@ -5430,8 +5430,10 @@
             if (r.sku !== null && hands[String(r.sku)] !== undefined) {
               r.hand = hands[String(r.sku)];
               r.unknown = false;
-            } else if (r.sku !== null) {
-              r.unknown = true; // never the other warehouse's figure: no stock shown, After off until it is answered for (or chosen again)
+            } else if (r.sku !== null && skus.indexOf(r.sku) >= 0) {
+              // Asked for and left out: never the other warehouse's figure (no stock shown, After off until it is answered for or chosen again).
+              // A product chosen meanwhile was not asked for here: its own figures are this warehouse's already (Codex re-check 2, MEDIUM).
+              r.unknown = true;
             }
             show(r);
           });
@@ -5451,8 +5453,8 @@
     // Ctrl+Enter in the lines is the empty line (AJ1), even with a product marked in a line's list, which would take it (Codex round 1, LOW 4): that
     // list is shut first (its search dropped; the words stay, to be finished or removed), before the dropdown sees the key.
     form.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Enter' || !kbIs(ev, true, false, false) || !table.contains(ev.target)) {
-        return;
+      if (ev.isComposing || ev.key !== 'Enter' || !kbIs(ev, true, false, false) || !table.contains(ev.target)) {
+        return; // a word being composed (an input method) keeps its keys (Codex re-check 2, LOW)
       }
       ev.preventDefault();
       toEmpty();
