@@ -5031,12 +5031,13 @@
       var v = units(r);
       r.tr.classList.toggle('is-up', v !== null && v > 0);
       r.tr.classList.toggle('is-down', v !== null && v < 0);
-      r.tr.classList.toggle('is-below', r.sku !== null && v !== null && r.hand + v < 0);
+      var known = r.sku !== null && !r.unknown; // r.unknown: the last warehouse look-up did not answer for its product (Codex re-check, MEDIUM)
+      r.tr.classList.toggle('is-below', known && v !== null && r.hand + v < 0);
       r.w.classList.toggle('is-own', r.w.value !== '');
-      r.now.textContent = r.sku === null ? '' : number(r.hand);
-      r.a.disabled = r.sku === null || refreshing;
+      r.now.textContent = known ? number(r.hand) : '';
+      r.a.disabled = !known || refreshing;
       if (!typing) {
-        r.a.value = r.sku !== null && v !== null ? number(r.hand + v) : '';
+        r.a.value = known && v !== null ? number(r.hand + v) : '';
       }
       if (!bulk) {
         count();
@@ -5203,6 +5204,7 @@
         waiting = false;
         r.sku = parseInt(li.getAttribute('data-sku'), 10);
         r.hand = parseInt(li.getAttribute('data-hand'), 10) || 0;
+        r.unknown = false;
         r.p.value = li.getAttribute('data-label') || '';
         r.code.textContent = li.getAttribute('data-code') || '';
         var scan = parseInt(li.getAttribute('data-units'), 10) || 1;
@@ -5399,7 +5401,9 @@
         if (r.sku === null) {
           r.forget();
         } else {
-          skus.push(r.sku);
+          if (skus.indexOf(r.sku) < 0) {
+            skus.push(r.sku); // each product once (the route answers at most StockOps::MAX_LINES)
+          }
           r.a.disabled = true;
         }
       });
@@ -5425,6 +5429,9 @@
           each(withUndo(), function (r) {
             if (r.sku !== null && hands[String(r.sku)] !== undefined) {
               r.hand = hands[String(r.sku)];
+              r.unknown = false;
+            } else if (r.sku !== null) {
+              r.unknown = true; // never the other warehouse's figure: no stock shown, After off until it is answered for (or chosen again)
             }
             show(r);
           });
@@ -5446,10 +5453,6 @@
     form.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter' || !kbIs(ev, true, false, false) || !table.contains(ev.target)) {
         return;
-      }
-      var r = rowOf(ev.target);
-      if (r && ev.target === r.p) {
-        r.forget();
       }
       ev.preventDefault();
       toEmpty();
@@ -5748,7 +5751,14 @@
         }
       },
     };
+    // The empty line's Product box (Ctrl+Enter, Insert, Alt+N): a product box left first drops its search still on its way and shuts its list, so
+    // neither a marked choice nor a late answer takes a product there (Codex round 1 LOW, re-check LOW); its words stay, to finish or remove.
     var toEmpty = function () {
+      var at = document.activeElement;
+      var from = at ? rowOf(at) : null;
+      if (from && at === from.p) {
+        from.forget();
+      }
       hold();
       goTo(rows[rows.length - 1].p);
     };

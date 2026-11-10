@@ -17059,3 +17059,13 @@ its new version; the conflict mark; 200 and 500 lines), `UiUnitTest` (SENT), the
 4. LOW: Ctrl+Enter with a product marked in a line's list took the product. The form now sees Ctrl+Enter first in the lines: that list is shut (its
    search dropped, the words kept) and the cursor goes to the empty line.
 Tests: the node harness sections 12-15 (red on 8787c8b: `runs/ajk_fix1_red.js.log`, 10 checks).
+
+### The Codex re-check of 117391a (`runs/ajk_codex_recheck1.txt`): round 1's 1, 3 and 4 fixed, 2 partly; no HIGH; one MEDIUM and one LOW, both reproduced and fixed test-first (third commit, 10 Nov 2026)
+
+1. MEDIUM: the warehouse look-up's route answers at most `StockOps::MAX_LINES` products, so with 500 lines and one kept for Undo the last one asked
+   (the Undo line) kept the first warehouse's stock. Now each product is asked once (the same product on two lines is one), and a line whose product
+   the answer left out shows no stock and keeps After off (`r.unknown`) until a later look-up answers for it or the product is chosen again: never the
+   other warehouse's figure.
+2. LOW: Insert and Alt+N went to the empty line but left a product search on its way in the box they left, whose late answer took the product and
+   pulled the cursor back. All three keys (Ctrl+Enter, Insert, Alt+N) now drop that search first (`toEmpty`).
+Tests: the node harness sections 16-17 (red on 117391a: `runs/ajk_fix2_red.js.log`, 4 checks).
