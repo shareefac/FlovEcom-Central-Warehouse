@@ -341,6 +341,9 @@
         var node = document.importNode(editor ? part.parentNode : part, true);
         if (!editor) {
           each(node.querySelectorAll('form[method="post"]'), sendOnce);
+        } else {
+          // The answer's own name (its <title>), for the page that puts the answer in place: a first save names the tab as its draft (kgTitle).
+          node.setAttribute('data-kg-title', doc.title || '');
         }
         return node;
       });
@@ -1361,16 +1364,59 @@
   });
 
   // What a save without reload says (docs/decisions.md KG24; a delivery's too, GW7): one line at the bottom of the screen, made once.
-  var kgToast = function (text, bad) {
+  // It goes as the layout's message after a change does (p.toast, further down: 8 s, a press on it at once, never under the mouse): the
+  // staging look of 10 Nov 2026 found "Saved" still over the page's corner minutes later. Words that must be read stay: a refusal's (bad)
+  // until a press on them or the next words, and "Saving" (stays) for as long as the save is on its way.
+  var kgToastTimer = 0;
+  var kgToastHeld = false; // the mouse is on it
+  var kgToastFades = false; // the words on show are ones that go by themselves
+  var kgToastWaits = false; // the words on show say a save is on its way ("Saving"): only its answer takes their place
+  var kgToastGone = function () {
+    var t = document.querySelector('p.toast[data-kg-toast]');
+    if (t && !kgToastHeld) {
+      t.classList.add('is-gone');
+    }
+  };
+  var kgToast = function (text, bad, stays) {
     var t = document.querySelector('p.toast[data-kg-toast]');
     if (!t) {
       t = document.createElement('p');
       t.setAttribute('data-kg-toast', '1');
       document.body.appendChild(t);
+      t.addEventListener('mouseenter', function () { kgToastHeld = true; });
+      t.addEventListener('mouseleave', function () {
+        kgToastHeld = false;
+        if (kgToastFades) {
+          window.clearTimeout(kgToastTimer);
+          kgToastTimer = window.setTimeout(kgToastGone, 3000);
+        }
+      });
+      t.addEventListener('click', function () {
+        if (kgToastWaits) {
+          return; // a press does not hide that the save is still on its way (Codex re-check 8)
+        }
+        kgToastHeld = false;
+        window.clearTimeout(kgToastTimer);
+        t.classList.add('is-gone');
+      });
     }
-    t.className = bad ? 'toast error' : 'notice toast';
+    window.clearTimeout(kgToastTimer); // words said earlier never fade the newer ones
+    t.className = bad ? 'toast error' : 'notice toast'; // (on show again: is-gone goes with the old class)
     t.setAttribute('role', bad ? 'alert' : 'status');
     t.textContent = text;
+    kgToastWaits = !bad && !!stays;
+    kgToastFades = !bad && !stays;
+    if (kgToastFades) {
+      kgToastTimer = window.setTimeout(kgToastGone, 8000);
+    }
+  };
+  // An answer put in place names the tab as the page it is now (fragment() hands the answer's <title> over as data-kg-title): a new record's
+  // first save turns the page into its draft, the address bar and the tab's name with it. An answer without a name changes nothing.
+  var kgTitle = function (part) {
+    var title = part.getAttribute('data-kg-title') || '';
+    if (title !== '' && document.title !== title) {
+      document.title = title;
+    }
   };
   // While a save is on its way the form's boxes are read-only (and its lists, files and ticks switched off), so what the answer puts in place
   // is what was sent, never a later edit lost under it (the Codex review of 04421ad, finding 5): hold(true), then hold(false) with the answer.
@@ -2657,6 +2703,7 @@
       if (address !== '' && window.history && window.history.replaceState && address.charAt(0) === '/') {
         window.history.replaceState(null, '', address);
       }
+      kgTitle(part); // the tab's name with it (a new order's first save; a draft's supplier changed)
       document.dispatchEvent(new window.Event('kg-swapped')); // what lives outside the grid and reads the head (the posting time's button)
       return true;
     };
@@ -2678,7 +2725,7 @@
       if (by) {
         by.disabled = true;
       }
-      toast(word('saving'), false);
+      toast(word('saving'), false, true);
       fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
         .then(function (part) {
           sending = false;
@@ -4418,7 +4465,7 @@
       if (by) {
         by.disabled = true;
       }
-      kgToast(word('saving'), false);
+      kgToast(word('saving'), false, true);
       fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
         .then(function (part) {
           sending = false;
@@ -5007,6 +5054,7 @@
       alarm.textContent = text;
       alarm.hidden = text === '';
     };
+    var lookers = 0; // the lines whose product search is on its way: the alarm line says "Looking…" for them
     var number = function (n) { return Number(n).toLocaleString('en-GB'); };
     var units = function (r) {
       var v = r.u.value.trim();
@@ -5179,6 +5227,25 @@
       var timer = 0;
       var turn = 0;
       var waiting = false; // Tab or Enter came before the answer: the first choice is taken when it comes
+      var asking = false; // this line's search is on its way
+      var rest = function () {
+        if (asking) {
+          asking = false;
+          lookers--;
+        }
+      };
+      // A search given up (Esc, the empty line's key, its line removed, another warehouse) says nothing more: its "Looking…" goes, unless
+      // another line's search is still on its way. Words that are not its own (a refusal, "Failed.") stay (the staging look of 10 Nov 2026:
+      // "Looking…" stayed, in red, until the next search).
+      var hush = function () {
+        if (!asking) {
+          return;
+        }
+        rest();
+        if (lookers === 0 && alarm.textContent === (form.getAttribute('data-loading') || '')) {
+          say('');
+        }
+      };
       var options = function () { return list.querySelectorAll('li[role="option"]'); };
       var c = null;
       var draw = function (from, wh) {
@@ -5207,6 +5274,7 @@
         window.clearTimeout(timer);
         turn++;
         waiting = false;
+        rest();
         r.sku = parseInt(li.getAttribute('data-sku'), 10);
         r.hand = parseInt(li.getAttribute('data-hand'), 10) || 0;
         r.at = li.getAttribute('data-wh') || warehouse.value; // the warehouse its box asked for
@@ -5227,12 +5295,17 @@
       var load = function (q) {
         var mine = ++turn;
         var wh = warehouse.value;
+        if (!asking) {
+          asking = true;
+          lookers++;
+        }
         say(form.getAttribute('data-loading') || '');
         fragment(base + 'warehouse=' + encodeURIComponent(wh) + '&q=' + encodeURIComponent(q), marker)
           .then(function (node) {
             if (mine !== turn) {
               return;
             }
+            rest();
             draw(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'), wh);
             var says = node.querySelector('[data-aj-says]');
             say(says ? says.textContent.trim() : '');
@@ -5248,6 +5321,7 @@
             if (mine !== turn) {
               return;
             }
+            rest();
             waiting = false;
             draw([]);
             say(form.getAttribute('data-failed') || '');
@@ -5285,12 +5359,14 @@
         window.clearTimeout(timer);
         turn++;
         waiting = false;
+        hush();
         draw([]);
         c.close();
       };
       r.drop = function () {
         window.clearTimeout(timer);
         turn++;
+        hush();
         c.close();
         if (list.parentNode) {
           list.parentNode.removeChild(list);
@@ -5300,6 +5376,7 @@
         window.clearTimeout(timer);
         turn++;
         waiting = false;
+        rest();
         r.sku = null;
         r.hand = 0;
         r.line = 0;
@@ -5524,7 +5601,7 @@
       sending = true;
       freeze(true);
       by.disabled = true;
-      kgToast(word('saving'), false);
+      kgToast(word('saving'), false, true);
       var done = function () {
         sending = false;
         freeze(false);
@@ -5720,6 +5797,7 @@
       if (whole && address.charAt(0) === '/' && window.history && window.history.replaceState) {
         window.history.replaceState(null, '', address);
       }
+      kgTitle(part); // the tab's name with it (a first save: "New adjustment" becomes the draft's)
       return { error: error, notice: error === '' ? nf.getAttribute('data-aj-notice') || '' : '' };
     };
     // What the site's keys do in these lines (kb, KEYS; AJ1): the cells keep their own Tab / Enter / arrows (AG5: they are not data-kg-cell, so

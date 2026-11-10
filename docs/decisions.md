@@ -17122,3 +17122,35 @@ Tests: the node harness sections 22-24, and the page's `<noscript>` in every sec
 of them the "Lines saved." checks of sections 6-7; section 24 red before point 4: `runs/ajk_fix6_red2.js.log`, 2 checks).
 In a real browser (Chrome 157, 10 Nov): `new DOMParser().parseFromString(...)` gives the `<noscript>` paragraph as a real element
 (`closest('noscript')` finds it), a page's own `innerHTML` does not: point 1's cause, seen.
+
+### The staging look of af13116 (Fable, 10 Nov 2026; Chrome 157 on a Mac, `runs/ajk_report.md`): the three fixes of the check seen right; three things looked wrong, fixed test-first (eighth commit)
+
+Seen right on staging: Cmd+S says "Saving…" then the server's own "Saved: the lines are changed." (never the no-script words); a first save
+turns the page into its draft in place (the address bar, the head, More, Files); the second Esc leaves the box; Enter then Esc chooses nothing
+when the answer comes; Cmd+Enter, Cmd+D, Option+R with Undo, the keys panel. No console message. What looked wrong:
+
+A. What a save says never went away. `kgToast` (KG24, GW7: the order's, the invoice's, a delivery's and now the adjustment's save) made its
+   line once and left it: "Saved…" sat over the page's bottom right corner (here: over the Files card's "Choose file") until the page was
+   left. The layout's message after a change has always faded (8 s; a press on it at once; it stays under the mouse, then 3 s). Now the save's
+   line goes the same way. Words that must be read stay: a refusal's and "Not saved…" until a press on them or the next words; "Saving" for
+   as long as the save is on its way (a slow line is not left without a word). Words said earlier never fade newer ones (one timer, cleared
+   by each new line). The same on the purchase order, the supplier invoice and Goods received: one function.
+B. A product search given up went on saying "Looking…" in the red alarm line: after Esc (fix 3 of the check), the empty line's key, the
+   line's x, another warehouse. Nothing said it was over until the next search or choice. Now a line knows its search is on its way
+   (`asking`) and a search given up (`r.forget`, `r.drop`) takes its own "Looking…" away, unless another line's search is still on its way
+   (`lookers`). Words that are not the search's own are never taken away: "Failed.", "Choose a product on line N.", a refusal.
+C. After a first save the tab went on being named "New adjustment": the address bar became the draft's (AJ5), the tab's name not. The same
+   on a new purchase order and a new supplier invoice (KG24), by the code. `fragment()` now hands an editor's answer its own `<title>`
+   (`data-kg-title` on the node it gives back) and both `swapIn`s name the tab with it (`kgTitle`), next to the address. So a draft order
+   whose supplier is changed and saved is named for the new supplier too. A version conflict and an answer that is not this page change
+   nothing, as before. A delivery's save is left alone (its address and name do not change).
+
+Not changed: "Looking…" is said in the alarm line (red, `role="alert"`) on every search, as since AG; a calmer line for it is a look of its
+own, for every screen that searches.
+Tests: the node harness, `run_aj.js` sections 25-27 and one closing block each in `run_kg.js` and `run_gw.js` (red on af13116:
+`runs/ajk_fix7_red.js.log`, 15 checks: 10 + 4 + 1). The harness stubs `fragment()`, so the one line that hands the title over is checked in
+the real browser on staging, with the fade, after the deploy.
+Codex on these fixes before the commit (`runs/ajk_codex_recheck8.txt`): no HIGH, no MEDIUM, one LOW, fixed in the same commit: a press on
+"Saving…" put it away while the save was still on its way (the form held, nothing said until the answer). Now only the answer takes the
+place of "Saving": a press on it does nothing (`kgToastWaits`); the answer's words, good or bad, are put away by a press as above (red:
+`runs/ajk_fix7b_red.js.log`, 1 check). Nothing found in B, C or the other users of `p.toast`.
