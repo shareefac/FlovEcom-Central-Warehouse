@@ -1041,7 +1041,9 @@
     { id: 'fill_down', test: function (ev, t) { return kbInGrid(t) && ev.code === 'KeyD' && kbIs(ev, true, false, false); }, run: function (ev, t) { return kb.grid.fillDown(t); } },
     { id: 'add_new', test: function (ev, t) { return kbBox(t) !== null && ev.code === 'KeyC' && kbIs(ev, false, true, false); }, run: function (ev, t) { return kbBox(t).addNew(); } },
     { id: 'save', test: function (ev) { return !!kb.grid && ev.code === 'KeyS' && kbIs(ev, true, false, false); }, run: function () { kb.grid.save(); } },
-    { id: 'esc', test: function (ev, t) { return ev.key === 'Escape' && (kbCell(t) || kbBox(t) !== null); }, run: function (ev, t) { t.blur(); } },
+    // (a grid whose boxes are not data-kg-cell names them itself, kb.grid.own: the quick adjustment's, AJ1)
+    { id: 'esc', test: function (ev, t) { return ev.key === 'Escape' && (kbCell(t) || kbBox(t) !== null || (kbInGrid(t) && !!kb.grid.own && kb.grid.own(t))); },
+      run: function (ev, t) { t.blur(); } },
     // Page: every page.
     { id: 'new_doc', test: function (ev) { return ev.code === 'KeyB' && kbIs(ev, true, false, false); }, run: function () { return kbClick('a[data-key-new]'); } },
     { id: 'search', test: function (ev, t) { return (ev.code === 'KeyG' && kbIs(ev, true, false, false)) || (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !kbTyping(t)); },
@@ -5315,6 +5317,10 @@
         if (ev.isComposing || ev.defaultPrevented) {
           return; // the list took the key
         }
+        if (ev.key === 'Escape') {
+          r.forget(); // Esc leaves the box (the keys' layer): a search on its way, or one Enter asked for, chooses nothing after it; the words stay
+          return;
+        }
         if (ev.key === 'Tab' && !ev.shiftKey && !blank(r)) {
           ev.preventDefault();
           commit();
@@ -5555,7 +5561,12 @@
         return null;
       }
       var theirs = nf.parentNode;
-      var refused = Array.prototype.filter.call(theirs.querySelectorAll('p.error[role="alert"]'), function (p) { return !nf.contains(p); })[0];
+      // The page's own words for a browser without the script (<noscript>, AG1) are not a refusal: an answer is read with the script off
+      // (DOMParser), so there they are a real paragraph, right before the form (the check of 10 Nov 2026: every good save said them in red).
+      var noScript = function (el) { return el.nodeType === 1 && el.tagName === 'NOSCRIPT'; };
+      var refused = Array.prototype.filter.call(theirs.querySelectorAll('p.error[role="alert"]'), function (p) {
+        return !nf.contains(p) && !p.closest('noscript');
+      })[0];
       var error = refused ? refused.textContent.trim() : '';
       if (nf.hasAttribute('data-kg-conflict')) {
         plain = true;
@@ -5605,6 +5616,9 @@
       }
       var beforeHead = !!myHead;
       for (var el2 = theirs.firstChild; el2 && el2 !== nf; el2 = el2.nextSibling) {
+        if (noScript(el2)) {
+          continue; // not for this page: the script is on
+        }
         if (myHead && isHead(el2)) {
           beforeHead = false; // in their order: the crumbs before the head kept, the rest (a refusal's words) between it and the form
           continue;
@@ -5620,6 +5634,9 @@
         }
         each(after, function (el) { parent.removeChild(el); });
         for (var el4 = nf.nextSibling; el4; el4 = el4.nextSibling) {
+          if (noScript(el4)) {
+            continue;
+          }
           var copy2 = document.importNode(el4, true);
           parent.appendChild(copy2);
           wire(copy2);
@@ -5710,6 +5727,7 @@
     kb.grid = {
       table: table,
       keys: ['next', 'back', 'updown', 'new_line', 'delete_line', 'undo_line', 'fill_down', 'save', 'esc'],
+      own: function (t) { return t.hasAttribute('data-cell') && rowOf(t) !== null; }, // Esc leaves one of these boxes (the list, when open, shuts first)
       marked: function () { return null; },
       takeMarked: function () {},
       step: function () {},

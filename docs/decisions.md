@@ -17094,3 +17094,31 @@ that search's late answer or its list on show could still be chosen, and the lin
 its stock was warehouse 2's. Now each choice carries the warehouse it was asked for (`data-wh`; `r.at` comes from it), and the failed look-up that
 puts the box back drops every product search still open (as a change of warehouse already did): Enter asks again for the warehouse on show.
 Tests: the node harness section 21 (both orders; red on d6f0f85: `runs/ajk_fix5_red.js.log`).
+
+### The check of 2c8d2f5 (Fable, 10 Nov 2026; `runs/ajk_report.md`): no HIGH; one MEDIUM and two LOW, each reproduced in the node harness and fixed test-first (seventh commit)
+
+1. MEDIUM: after every good save the page said, in red, "This page needs JavaScript switched on in the browser." The page's `<noscript>` words
+   (AG1) stand right before the form; a save's answer is read with the script off (DOMParser), so there they are a real `p.error[role="alert"]`,
+   and `swapIn` took the first such paragraph outside the form for a refusal. The save itself was made, and a real refusal was still said (its
+   paragraph comes first). Now a paragraph inside a `<noscript>` is never a refusal, and the `<noscript>` is not put on the page. It was not seen
+   before because the harness's page had no `<noscript>` and no browser had opened the branch; the harness's page and answers carry it now.
+2. LOW: the keys panel says for Esc "Shut the list; again: leave the box"; here the second Esc did nothing (these boxes are not `data-kg-cell`,
+   AG5). The grid names its own boxes to the keys' layer (`kb.grid.own`) and the one rule for Esc (KEYS) asks it: Esc leaves a box of the lines,
+   as on the purchase order. A grid without `own` (the order's, the invoice's, a delivery's) is as before. Nothing typed is lost; with the keys
+   panel open Esc shuts the panel only.
+3. Noted, not changed (the same on the purchase order's first save, KG24): a FIRST save that reaches the server while its answer is lost says
+   "Not saved…". Save again with the same lines lands on the draft that was made (FormOnce replays it); with the lines changed meanwhile the
+   server refuses (`idempotency_key_reused`), the page takes a new key, and the next Save makes a second draft: the first stays, a draft to stop.
+   No stock moves either way.
+
+Checked and found right: Ctrl+S can never send `action=post` (the key presses Save; the fetch and the plain post both carry Save's own value; the
+server makes final on `post` only); the first red logs are red for the feature's absence; the other grids' code is not touched but for the one
+clause above.
+Codex on these fixes before the commit (`runs/ajk_codex_recheck6.txt`): no HIGH, no MEDIUM, one LOW, fixed in the same commit:
+4. LOW: Esc now leaves the product box, but a search Enter had asked for (the first choice taken when it comes, a scanner's Enter) still chose
+   when its answer came late, and took the cursor to Units. Esc in the product box drops the search first (`r.forget()`): the late answer
+   chooses nothing, the words stay, Enter back in the box asks again. The list's own Esc (open: shut it) comes first and is unchanged.
+Tests: the node harness sections 22-24, and the page's `<noscript>` in every section (red on 2c8d2f5: `runs/ajk_fix6_red.js.log`, 9 checks, two
+of them the "Lines saved." checks of sections 6-7; section 24 red before point 4: `runs/ajk_fix6_red2.js.log`, 2 checks).
+In a real browser (Chrome 157, 10 Nov): `new DOMParser().parseFromString(...)` gives the `<noscript>` paragraph as a real element
+(`closest('noscript')` finds it), a page's own `innerHTML` does not: point 1's cause, seen.
