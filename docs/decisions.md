@@ -17154,3 +17154,23 @@ Codex on these fixes before the commit (`runs/ajk_codex_recheck8.txt`): no HIGH,
 "Saving…" put it away while the save was still on its way (the form held, nothing said until the answer). Now only the answer takes the
 place of "Saving": a press on it does nothing (`kgToastWaits`); the answer's words, good or bad, are put away by a press as above (red:
 `runs/ajk_fix7b_red.js.log`, 1 check). Nothing found in B, C or the other users of `p.toast`.
+
+Codex on 9167385 (`runs/ajk_codex_recheck9.txt`): no HIGH, no MEDIUM, one LOW, fixed test-first (ninth commit). On a purchase order or a
+supplier invoice changed in another tab meanwhile, the save's answer says so (`data-kg-conflict`) and the same form is posted plainly (KG24):
+"Saving…" was left on show for that post. If the post was then stopped (the browser's Stop, another listener, the page's own checks), no
+answer was to come, and since the fix above a press no longer put "Saving…" away: it stayed until the page was left. Now, before the plain
+post, the line says the server's own words for the conflict, in red (they stay until a press on them); with no such words in the answer,
+"Not saved…". The plain post then draws the page with the same words, as before. The adjustment's and a delivery's saves always said
+words here (their own `swapIn`): not changed. Not a step back against live (886dc69: "Saving…" was never put away by anything).
+Tests: `run_kg.js`, four checks at the end of its conflict section (red on 9167385: `runs/ajk_fix8_red.js.log`, 3 checks).
+
+The staging look of 9167385 (Fable, 10 Nov 2026; Chrome 157 on a Mac, `runs/ajk_report.md`): the three look fixes seen right on the
+adjustment, the purchase order and a delivery ("Saved…" fades after 8 s and then takes no press, so "Book in" under it can be pressed;
+"Looking…" goes on Esc; a first save names the tab). One more thing looked wrong, on a delivery only, and on live since GW7 (886dc69): after
+a save the hint line under the lines said a PC's keys on a Mac (Ctrl+Enter, Alt+R, Alt+U, Ctrl+S for Cmd+Enter, Option+R, Option+U, Cmd+S;
+the keys themselves went on working). A Mac's names were put on the key chips once, at the start (`kbd[data-mac]`); a delivery's save puts
+the whole form in place as the server drew it (`giSwap`), its hint line with it. Now the naming is a function (`kbNames`), run at the start
+on the page and by `giSwap` on the form it filled (same commit as the fix above). The order's, the invoice's and the adjustment's saves leave
+their hint line where it is (it is not one of the parts they put in place; seen on staging: Cmd and Option still there after a save), and
+the keys panel is outside `<main>`: not changed.
+Tests: `run_gw.js`, a closing block (a Mac's page and a PC's; red on 9167385: `runs/ajk_fix8_red.js.log`, 1 check).

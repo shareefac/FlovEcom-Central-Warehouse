@@ -904,15 +904,21 @@
   var kb = { grid: null, boxes: [], row: -1, busy: false };
   var kbNav = window.navigator || {};
   var kbMac = /mac|iphone|ipad/i.test((kbNav.userAgentData && kbNav.userAgentData.platform) || kbNav.platform || '');
-  if (kbMac) {
-    each(document.querySelectorAll('kbd[data-mac]'), function (k) {
+  // A Mac's names on the key chips under root: the whole page's at the start, then those of what a save's answer puts in place with chips in
+  // it (a delivery's form: the staging look of 10 Nov 2026 found its hint line saying Ctrl and Alt again after every save).
+  var kbNames = function (root) {
+    if (!kbMac) {
+      return;
+    }
+    each(root.querySelectorAll('kbd[data-mac]'), function (k) {
       if (k.getAttribute('data-mac') === '') {
         k.hidden = true; // a key a Mac has not (Insert)
       } else {
         k.textContent = k.getAttribute('data-mac');
       }
     });
-  }
+  };
+  kbNames(document);
   // Exactly these modifiers: Ctrl (on a Mac Cmd or Ctrl), Alt (Option), Shift; a Windows key never counts as Ctrl.
   var kbIs = function (ev, ctrl, alt, shift) {
     return (ev.ctrlKey || (kbMac && ev.metaKey)) === ctrl && ev.altKey === alt && ev.shiftKey === shift && (kbMac || !ev.metaKey);
@@ -2738,6 +2744,13 @@
             // Changed in another tab meanwhile (the Codex review, finding 6): the page drawn again as the server has it now (the head too),
             // by a plain post of the same form: refused again as changed, the new lines kept, nothing saved.
             plain = true;
+            // "Saving" is over: the server's own words meanwhile (red: they stay until a press on them), so a plain post that is stopped
+            // (the browser's Stop, another listener) never leaves a word that only an answer could take away (Codex re-check 9). Never
+            // the words inside the form (a line's) or a <noscript>'s (an answer is read with the script off).
+            var why = Array.prototype.filter.call(part.querySelectorAll('p.error[role="alert"]'), function (p) {
+              return !answered.contains(p) && !p.closest('noscript');
+            })[0];
+            toast(why && why.textContent.trim() !== '' ? why.textContent.trim() : word('save-failed'), true);
             var again = by || form.querySelector('button[name="action"][value="save"]') || document.querySelector('button[form="' + form.id + '"][name="action"][value="save"]');
             if (form.requestSubmit && again) {
               form.requestSubmit(again);
@@ -4661,6 +4674,7 @@
       form.removeChild(form.firstChild);
     }
     each(Array.prototype.slice.call(nf.childNodes), function (n) { form.appendChild(document.importNode(n, true)); });
+    kbNames(form); // the hint line as the server drew it says a PC's keys
     giWire(form);
     each(form.querySelectorAll('input[type="file"][data-max-bytes]'), shrinkOnPick);
     each(form.querySelectorAll('[data-enter="next"]'), enterNext);
