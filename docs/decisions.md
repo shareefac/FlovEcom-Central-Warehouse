@@ -17237,3 +17237,31 @@ note; switched off / no longer offered; None; typed and a draft's own reason win
 `tests/Integration/StockOps/Migration0065Test.php` (2: the row, its baseline, words and rule; the rule's refusals), red on 241739c
 (`runs/aor_red.php.log`: 9 tests, 6 errors, 3 failures); the node harness `/root/cw_work/runs/aor_js_harness/run_aj.js` sections 29 and 30
 (red on 241739c: `runs/aor_red.js.log`, 7 checks; `run_kg.js` and `run_gw.js` stay green).
+
+### The Codex review of ca9de9e (`runs/aor_codex_review.txt`): no HIGH; 1 MEDIUM and 1 LOW old, 1 LOW new, fixed; 1 MEDIUM old left
+
+- **A key in other letters (MEDIUM, old).** `Settings::change` looked the row up with `WHERE setting_key = ?`, and MySQL finds it whatever
+  the case of the letters (its collation; an accent or a space at the end the same), while the rules (`RULES`), the secrets and the "changed
+  on its own page" guards (`company.`, the approval switches) go by the exact key. So `STOCK.adjust_opens_on` = `no_such_reason`, from the
+  CLI or a form changed by hand, was saved with no rule checked, and an approval switch could be changed the same way past its own page.
+  Now only the key as it is stored, letter for letter, is a setting: anything else is `unknown_setting` (400), as a key that is not there;
+  the setting's page already answered 404 to such a key (it goes by the exact key) and still does, now with nothing saved before it.
+- **A refused form that sent "Choose…" (LOW, old).** `gridTop` took an empty `why` as "nothing typed" and chose again: before this branch
+  Data correction, with it the setting's reason. A form that is refused is drawn again as it was sent: "Choose…" stays "Choose…" (a new
+  record and a draft's own page). Only a page with nothing typed and no line yet (null) takes the setting.
+- **Two reasons of one name in the History (LOW, new).** Reasons lets two reasons share a name (and a reason is renamed), and AJ12 shows a
+  setting's change by the names as they are now: a change from one to the other read "Data correction → Data correction", which
+  `ConfigWords::changes` took for no change and left "What changed" empty. Now, when the two sides of a reason-naming setting's value read
+  the same, each has its short code added: "Value now: Data correction (data_correction) → Data correction (count_difference)"
+  (`Words::SETTING_EDIT['reason_coded']`). The short code is what the Reasons page shows at the right of each reason, so it can be looked
+  up there. Two names that differ stay without codes; the same value twice (only "agreed" changed) is still not listed.
+- **Not fixed here (MEDIUM, old; on the tracker, P3).** A draft whose line was saved with a reason that is switched off (or no longer offered
+  on stock corrections) afterwards: its page has no such choice, the line's own reason becomes empty in the browser, and the next Save
+  writes the top reason over it with nothing said. Old (the same on 241739c and before), needs a reason switched off while a draft holds it;
+  the fix (the saved reason kept as a marked choice, "(not offered now)", until the person chooses another) changes the page's lines and
+  the script, so it is its own piece of work.
+
+Tests, written first: `AdjustOpensOnTest` +3 (`testARefusedFormKeepsNoReasonChosenWhenThatIsWhatItSent`,
+`testAKeyWrittenInOtherLettersIsNoSetting`, `testTwoReasonsOfOneNameAreToldApartInTheHistoryByTheirCodes`), red on ca9de9e
+(`runs/aor_fix1_red.php.log`: 10 tests, 3 failures), green with the fixes (`runs/aor_fix1_green.php.log`: 12 tests with `Migration0065Test`,
+225 assertions).

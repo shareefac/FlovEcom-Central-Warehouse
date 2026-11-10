@@ -29,7 +29,7 @@ final class Migration0065Test extends IntegrationTestCase
         self::assertArrayHasKey(self::KEY, Words::SETTING_HELP);
         self::assertSame('Stock records', Words::SETTING_TOPIC['stock'] ?? null);
         self::assertSame(Words::SETTING_TOPIC['stock'], Words::settingTopic(self::KEY), 'listed under Stock records');
-        foreach (['reason_use', 'reason_none', 'reason_gone'] as $word) {
+        foreach (['reason_use', 'reason_none', 'reason_gone', 'reason_coded'] as $word) {
             self::assertArrayHasKey($word, Words::SETTING_EDIT);
         }
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key = '" . self::KEY . "' "

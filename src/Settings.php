@@ -551,7 +551,8 @@ final class Settings
      * (system caller) may. Writes value_json, provisional, updated_actor (the caller) and updated_at, the next config_change
      * version (`change`, or `agree` / `unagree` when only the mark moved) and audit setting.change {key, before, after, reason,
      * version, loosened when an approval rule became looser}. Nothing is written when neither the value nor the mark changes. A
-     * company.* key is refused (400 company_details): the company details have their own screen and history since 0013 (I91).
+     * company.* key is refused (400 company_details): the company details have their own screen and history since 0013 (I91). A key
+     * is the key as it is stored, letter for letter: the same letters in another case are no setting (400 unknown_setting).
      * Loosening an approval rule (Admin\ApprovalRules::loosens: a switch off, a smaller spot check) needs a Reviewer (403
      * loosen_needs_reviewer, review finding I1); tightening it, or only marking it agreed, needs settings.manage as any change.
      *
@@ -566,8 +567,13 @@ final class Settings
         $reason = \CW\Admin\ConfigHistory::reason($reason);
         return $this->db->transaction(function (Db $db) use ($caller, $key, $raw, $reason, $agreed, $seen): array {
             \CW\Admin\ConfigHistory::authorise($db, $caller);
-            $row = $db->one('SELECT setting_key, value_type, CAST(value_json AS CHAR) AS value_json, provisional FROM app_setting WHERE setting_key = ? FOR UPDATE', [$key])
-                ?? throw new CwException('unknown_setting', 'there is no setting ' . mb_substr($key, 0, 64), 400);
+            $row = $db->one('SELECT setting_key, value_type, CAST(value_json AS CHAR) AS value_json, provisional FROM app_setting WHERE setting_key = ? FOR UPDATE', [$key]);
+            // MySQL finds the row whatever the case of the key's letters; the rules (RULES), the secrets and the "changed elsewhere" guards go by
+            // the exact key, so "STOCK.adjust_opens_on" was saved with no rule checked. Only the key as it is stored is a setting (Codex on
+            // ca9de9e, MEDIUM, old).
+            if ($row === null || (string) $row['setting_key'] !== $key) {
+                throw new CwException('unknown_setting', 'there is no setting ' . mb_substr($key, 0, 64), 400);
+            }
             \CW\Admin\ConfigHistory::checkSeen($db, 'setting', $key, $seen);
             $type = (string) $row['value_type'];
             $before = self::decode($type, (string) $row['value_json']);

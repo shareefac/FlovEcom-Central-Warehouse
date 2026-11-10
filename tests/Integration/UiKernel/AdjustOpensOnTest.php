@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\UiKernel;
 
+use CW\Admin\ApprovalRules;
 use CW\Admin\ReasonCodes;
 use CW\Caller;
+use CW\CwException;
 use CW\Db;
 use CW\Documents\DocumentHandlers;
 use CW\Settings;
@@ -42,7 +44,7 @@ final class AdjustOpensOnTest extends KernelUiTestCase
     {
         parent::setUp();
         $this->settings = self::$db->all('SELECT setting_key, CAST(value_json AS CHAR) AS v, provisional, updated_actor FROM app_setting');
-        $this->reasons = self::$db->all("SELECT code, applies_to, is_active FROM reason_code WHERE code IN ('count_difference', 'data_correction')");
+        $this->reasons = self::$db->all("SELECT code, label, applies_to, is_active FROM reason_code WHERE code IN ('count_difference', 'data_correction')");
     }
 
     protected function tearDown(): void
@@ -53,7 +55,7 @@ final class AdjustOpensOnTest extends KernelUiTestCase
                 [$r['v'], (int) $r['provisional'], $r['updated_actor'], $r['setting_key']]);
         }
         foreach ($this->reasons as $r) {
-            self::$db->exec('UPDATE reason_code SET applies_to = ?, is_active = ? WHERE code = ?', [$r['applies_to'], (int) $r['is_active'], $r['code']]);
+            self::$db->exec('UPDATE reason_code SET label = ?, applies_to = ?, is_active = ? WHERE code = ?', [$r['label'], $r['applies_to'], (int) $r['is_active'], $r['code']]);
         }
         parent::tearDown();
     }
@@ -210,6 +212,28 @@ final class AdjustOpensOnTest extends KernelUiTestCase
         self::assertSame('damaged', $n instanceof \DOMElement ? $n->getAttribute('value') : null, 'a refused form keeps the reason that was chosen');
     }
 
+    public function testARefusedFormKeepsNoReasonChosenWhenThatIsWhatItSent(): void
+    {
+        // Codex on ca9de9e (LOW, old): "Choose…" picked by hand as the reason for every line, then a refusal: the page chose a reason again
+        // by itself (Data correction before the setting, the setting's reason with it), and the next Save would have used it.
+        $a = $this->item('strict', 10, 'Opens pod D');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $why = '//select[@name="why"]';
+        $bad = $this->send($web, self::NEW, self::NEW, [['sku' => $a, 'u' => 'ten', 'r' => 'damaged']], ['why' => '', 'action' => 'save']);
+        self::assertContains($bad->status, [400, 422], $bad->describe());
+        self::assertSame(1, (new \DOMXPath($bad->dom()))->query($why)->length, 'the refused form is the page again');
+        self::assertNull(self::chosen($bad, $why), 'a new record: "Choose…" was sent, "Choose…" is kept');
+        // The same on a draft's own page.
+        $ok = $this->send($web, self::NEW, self::NEW, [['sku' => $a, 'u' => '-1', 'r' => '']], ['why' => 'damaged', 'note' => 'Dropped', 'action' => 'save']);
+        self::assertSame(303, $ok->status, $ok->describe());
+        $page = '/ui/stock/adjustments/' . self::lastDoc();
+        self::assertSame('damaged', self::top($web->get($page)));
+        $bad = $this->send($web, $page, $page . '/grid', [['sku' => $a, 'u' => 'ten', 'r' => 'damaged']], ['why' => '']);
+        self::assertContains($bad->status, [400, 422], $bad->describe());
+        self::assertSame(1, (new \DOMXPath($bad->dom()))->query($why)->length, 'the refused form is the draft\'s page again');
+        self::assertNull(self::chosen($bad, $why), 'a draft: the same');
+    }
+
     // ------------------------------------------------------------------------------------------
     // The Settings screens
     // ------------------------------------------------------------------------------------------
@@ -311,5 +335,45 @@ final class AdjustOpensOnTest extends KernelUiTestCase
         self::assertSame($gone, self::options($list, $select)['count_difference'] ?? null);
         self::assertSame($gone, self::str($buyer->get(self::LIST), $look . '//span[contains(@class, "set-val")]'));
         self::assertSame($gone, self::now($buyer->get(self::PAGE, ['key' => self::KEY])));
+    }
+
+    public function testAKeyWrittenInOtherLettersIsNoSetting(): void
+    {
+        // Codex on ca9de9e (MEDIUM, old): MySQL finds a setting's row whatever the case of the key's letters, and the rules (and the
+        // "changed elsewhere" guards) are looked up by the exact key: a key in capitals was saved with no rule checked. Only the key as it
+        // is stored is a setting.
+        $switch = (string) array_key_first(ApprovalRules::SWITCHES);
+        $was = (new Settings(self::$db))->get($switch);
+        foreach (['STOCK.adjust_opens_on' => 'no_such_reason', 'Stock.Adjust_Opens_On' => 'no_such_reason', strtoupper($switch) => $was === true ? 'false' : 'true'] as $key => $value) {
+            try {
+                (new Settings(self::$db))->change(self::sys(), (string) $key, $value, 'a key in other letters');
+                self::fail($key . ': saved, its rule not checked');
+            } catch (CwException $e) {
+                self::assertSame('unknown_setting', $e->errorCode, (string) $key);
+            }
+        }
+        self::assertSame('data_correction', (new Settings(self::$db))->get(self::KEY));
+        self::assertSame($was, (new Settings(self::$db))->get($switch));
+        // The Settings form with its key changed by hand.
+        $web = $this->signIn($this->uiUser('reviewer'));
+        $form = $web->get(self::PAGE, ['key' => self::KEY])->form(self::PAGE, true);
+        $bad = $web->post(self::PAGE, ['key' => 'STOCK.adjust_opens_on', 'value' => 'no_such_reason', 'reason' => 'the key changed by hand'] + $form);
+        self::assertSame(404, $bad->status, $bad->describe());
+        self::assertSame('data_correction', (new Settings(self::$db))->get(self::KEY), 'nothing saved');
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key = ?", [self::KEY]), 'no history row');
+    }
+
+    public function testTwoReasonsOfOneNameAreToldApartInTheHistoryByTheirCodes(): void
+    {
+        // Codex on ca9de9e (LOW): the History compared the reasons' names, so a change between two reasons of one name (Reasons lets two
+        // reasons share a name; a reason renamed since) was a row that said nothing.
+        self::offer();
+        self::opensOn('count_difference');
+        $web = $this->signIn($this->uiUser('reviewer'));
+        $history = static fn (): string => self::str($web->get(self::PAGE, ['key' => self::KEY]), '//section[contains(@class, "history")]');
+        self::assertStringContainsString(Words::SETTING_EDIT['now'] . ': Data correction → Count difference', $history(), 'two names: no codes');
+        (new ReasonCodes(self::$db))->rename(self::sys(), 'count_difference', 'Data correction', 'the same name as another reason');
+        self::assertStringContainsString(Words::SETTING_EDIT['now'] . ': Data correction (data_correction) → Data correction (count_difference)', $history(),
+            'one name: the change is still said, the codes tell the two apart');
     }
 }

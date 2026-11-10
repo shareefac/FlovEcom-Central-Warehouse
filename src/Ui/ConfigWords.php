@@ -20,7 +20,8 @@ final class ConfigWords
      * The versions of a subject as rows for a `table.stack`: when (UTC, the template shows UK time), who, action, what, why.
      *
      * A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ12) has its values shown by the reasons' names
-     * as they are now ("Data correction → Count difference"), not their codes.
+     * as they are now ("Data correction → Count difference"), not their codes; a change between two reasons of one name adds their
+     * codes (changes()).
      *
      * @param string|null $valueType a setting's value type (its values are shown in words)
      * @return list<array{when: string, who: string, action: string, what: string, why: string}>
@@ -70,11 +71,32 @@ final class ConfigWords
         foreach (self::labels($type) as $field => $label) {
             $b = self::field($type, $field, $before[$field] ?? null, $valueType, $key, $names);
             $a = self::field($type, $field, $after[$field] ?? null, $valueType, $key, $names);
+            if ($b === $a && $names !== null && $type === 'setting' && $field === 'value') {
+                // Two reasons of one name (Reasons lets two share a name; one renamed since): the change is still said, their codes telling
+                // them apart, "Data correction (data_correction) → Data correction (count_difference)" (Codex on ca9de9e, LOW). The same
+                // value twice (only "agreed" moved) stays the same words, and is not listed.
+                $b = self::coded($b, $valueType, $before[$field] ?? null);
+                $a = self::coded($a, $valueType, $after[$field] ?? null);
+            }
             if ($b !== $a) {
                 $parts[] = $label . ': ' . $b . ' → ' . $a;
             }
         }
         return implode(' · ', $parts);
+    }
+
+    /** A setting's value in words with the code it stores, "Data correction (data_correction)"; a value that is no text, or empty, as it is. */
+    private static function coded(string $words, ?string $valueType, mixed $json): string
+    {
+        if ($json === null || $json === '') {
+            return $words;
+        }
+        try {
+            $v = Settings::decode($valueType ?? 'string', (string) $json);
+        } catch (\JsonException) {
+            return $words;
+        }
+        return is_string($v) && $v !== '' ? sprintf(Words::SETTING_EDIT['reason_coded'], $words, $v) : $words;
     }
 
     /**

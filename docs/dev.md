@@ -1473,13 +1473,13 @@ migration, with its baseline), `'<key>' => ['reason_use' => '<use>']`, its words
 | Path | What |
 |---|---|
 | `migrations/0065_adjust_opens_on.sql` | the row ("data_correction", provisional) and its version-1 baseline |
-| `src/Settings.php` | `RULES['stock.adjust_opens_on']` (`reason_use`), `checkRule` (the refusal), `reasonChoices($use)` (code => name, the Reasons order) |
-| `src/Ui/Controller/StockOpsController.php` | `gridTop($ctx, $reasons, $wanted)`: typed / the draft's first line, the setting, `GRID_REASON` (the fall-back); "None" chooses nothing |
+| `src/Settings.php` | `RULES['stock.adjust_opens_on']` (`reason_use`), `checkRule` (the refusal), `reasonChoices($use)` (code => name, the Reasons order); `change()` takes a key only as it is stored, letter for letter (another case: `unknown_setting`) |
+| `src/Ui/Controller/StockOpsController.php` | `gridTop($ctx, $reasons, $wanted)`: typed (`''`, "Choose…" from a refused form, too) / the draft's first line, the setting, `GRID_REASON` (the fall-back); "None" chooses nothing |
 | `src/Ui/Controller/SettingsController.php` | `choices($ctx, $key, $held)` (None, the reasons offered, a held value "(not offered now)"), `hint()`, `page()` (`shown`, `choices`) |
 | `src/Ui/Controller/ReferenceController.php`, `src/Ui/views/settings.php` | the row's `choices`: a select in the row, the value by name for who only looks |
 | `src/Ui/views/setting.php` | the `$choices` branch of the form |
-| `src/Ui/ConfigWords.php` | `history()` builds the names (code => name) for a `reason_use` setting; `changes` / `state` / `settingValue` take them as an optional last parameter |
-| `src/Ui/Words.php` | `SETTING`, `SETTING_HELP`, `SETTING_TOPIC['stock']`, `SETTING_EDIT` (`reason_use`, `reason_none`, `reason_gone`) |
+| `src/Ui/ConfigWords.php` | `history()` builds the names (code => name) for a `reason_use` setting; `changes` / `state` / `settingValue` take them as an optional last parameter; `coded()` adds the short codes where two reasons of one name would read as no change |
+| `src/Ui/Words.php` | `SETTING`, `SETTING_HELP`, `SETTING_TOPIC['stock']`, `SETTING_EDIT` (`reason_use`, `reason_none`, `reason_gone`, `reason_coded`) |
 | `public/ui/assets/app.js` | the quick adjustment block: `chooseFor`, `say`, `renumber` (the "Choose a product on line N." words go and move with their line), `swapIn` (`say('')`) (AJ13) |
 
 - Migration `0065_adjust_opens_on.sql`: the setting `stock.adjust_opens_on` ("data_correction"). No reason is changed by it; which reason the

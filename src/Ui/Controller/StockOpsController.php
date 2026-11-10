@@ -637,7 +637,7 @@ final class StockOpsController
     }
 
     /**
-     * The reason for every line (AG2; docs/decisions.md AJ9, AJ11): what was typed, else what the draft's first line says, else the reason
+     * The reason for every line (AG2; docs/decisions.md AJ9, AJ11): what was typed ("Choose…" too), else what the draft's first line says, else the reason
      * the setting `stock.adjust_opens_on` names (Settings, "Stock records"), while it is offered here. A setting of nothing ("None") means the
      * person chooses each time: no reason is chosen. A reason it names that is not offered now (switched off, or no longer offered on stock
      * corrections) is not used: Data correction, as before the setting, while that is offered. The same where the setting's row is not there
@@ -648,7 +648,9 @@ final class StockOpsController
     private static function gridTop(Context $ctx, array $reasons, ?string $wanted): string
     {
         $codes = array_column($reasons, 'code');
-        if ($wanted !== null && in_array($wanted, $codes, true)) {
+        // '' is "Choose…" as a refused form sent it (chosen by hand, or the page opened on it): kept, never a reason again by itself (Codex on
+        // ca9de9e, LOW, old). null is a page with nothing typed and no line yet.
+        if ($wanted !== null && ($wanted === '' || in_array($wanted, $codes, true))) {
             return $wanted;
         }
         $settings = $ctx->settings();

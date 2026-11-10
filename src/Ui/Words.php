@@ -9694,10 +9694,12 @@ final class Words
         'list' => 'Tick the ones that apply. None ticked is allowed.',
         'list_none' => 'None',
         // A setting that names a reason (Settings::RULES `reason_use`; docs/decisions.md AJ10): %s is the use in words (REASON_USE); the first
-        // choice; a reason held that is not offered now (switched off, or no longer offered on that use), %s its name.
+        // choice; a reason held that is not offered now (switched off, or no longer offered on that use), %s its name; in the History, a
+        // reason's name with its code, where two reasons of one name have to be told apart.
         'reason_use' => 'One of the reasons offered on %s.',
         'reason_none' => 'None: choose each time',
         'reason_gone' => '%s (not offered now)',
+        'reason_coded' => '%s (%s)',
     ];
 
     /** Notices after saving a setting (ReferenceController). */
