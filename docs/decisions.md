@@ -17428,17 +17428,18 @@ plain text on one line: not UTF-8, a control character (a tab or line break insi
 `name_too_long` with the length, `name_not_plain`). Nothing else is ruled: names are not unique (the owner's own structure decides).
 
 **IR3. One transaction (`ItemNames::rename`).** The person checked again inside it (`ItemCards::editor`: staff, active, not admin,
-catalogue.edit; 403 otherwise), and again once the item is held (a job taken away while the rename waited counts); the item row
-`FOR UPDATE` (404 unknown); an item joined into another refused (409 `merged_item`, naming
+catalogue.edit; 403 otherwise), and again after the waits below (a job taken away while the rename waited counts); the same name (read
+without a lock) writes nothing; else the NEW name's guard row first (see below), then the item row `FOR UPDATE` (404 unknown); an item
+joined into another refused (409 `merged_item`, naming
 the item to rename instead); the same name (after IR2) writes nothing (`unchanged`, notice "Nothing changed"), also when someone else gave
 it that very name meanwhile; otherwise the name the page showed (`name_was`) must be the name it has now (409 `name_changed` with the name
 it has now, which the page shows; only the spaces of a stored name are forgiven, and a NUL the page's hidden field carries as U+FFFD; a
 case change by someone else is a change): `sku` has no version column, and the item page has no version of the item, so the name itself
-is the expected value. Then the NEW name's guard row (`item_name_guard`, as "Add item" and a store's choice take it before they make an
-item of a name: such a making at this moment waits for the rename and then sees it), `UPDATE sku SET name` and ONE audit row
-`sku.rename` {code, before, after} (CW's writer, `Audit::write`). Lock order: the item row, then the guard; HandMade and StoreChoices take
-the guard and then lock no existing item, so no cycle (a card change holds the item FOR SHARE and waits, or is waited for). A name that
-is not UTF-8 is refused (422 `name_not_plain`) before the form's key is stored. No stock feed row: nothing a website reads changes (the feed
+is the expected value. Then `UPDATE sku SET name` and ONE audit row `sku.rename` {code, before, after} (CW's writer, `Audit::write`).
+The guard: `item_name_guard`, keyed by the new name as the collation compares it, as "Add item" and a store's choice take it before they
+make an item of a name, so such a making at this moment waits for the rename and then sees it. Lock order: the guard, then the item, as
+those makers (HandMade may lock an existing item after its guard: `ItemBarcodes::add`'s join), so no cycle; a card change holds the item
+FOR SHARE and waits, or is waited for. A name that is not UTF-8 is refused (422 `name_not_plain`) before the form's key is stored. No stock feed row: nothing a website reads changes (the feed
 views carry code and policy, not the name).
 
 **IR4. The history is read from the audit rows.** `item_card_change` cannot hold a rename cleanly: its versions are the card's
@@ -17449,8 +17450,9 @@ views carry code and policy, not the name).
 **IR5. Find by a name it had.** Find (`/ui/search`) also finds an item by every word of a name it had before a rename
 (`Queries::searchSkus(..., formerNames: true)` -> `ItemNames::formerMatches`: the renames' audit rows by `ix_audit_action`, the `before`
 name compared as `sku.name` is, accents and case aside), after the items its name now finds and only while they leave room on the page;
-one row an item (the newest matching name), items joined into another and ones already found left out before the limit; one statement
-capped at 2 s (`MAX_EXECUTION_TIME`, `ItemNames::FORMER_MS`: past it, Find shows what the names now found). Such a row says "Was called:
+one row an item (the newest matching name), items joined into another and ones already found left out before the limit, the room
+counted on the items Find can show; two reads each capped at 2 s (`MAX_EXECUTION_TIME`, `ItemNames::FORMER_MS`): the items with their
+newest matching rename, then those rows by id; past a cap, Find shows what the names now found. Such a row says "Was called:
 <old name>". Its cost is a read of the rename rows (the action's index), the order of the name search's own read of `sku`.
 Only Find: the pickers (orders, invoices, stock records, families, matching) and the lists' filters (stock, movements, reservations,
 item cards, reorder, counts, duty register) find by the name now, as before.
@@ -17499,3 +17501,21 @@ item cards, reorder, counts, duty register) find by the name now, as before.
 - **The browser's maxlength counted an emoji as two (LOW).** No maxlength; the hint says the limit; the server keeps it (same test).
 
 Red on 578fc44: `runs/rename_r1_red.log` (18 tests, 1 error, 6 failures: the 7 new or changed); green: `runs/rename_r1_green.log`.
+
+### The Codex re-check of e19a646 (`item_rename_20261112/codex_round2.txt`): round 1's fixes checked; no HIGH; 3 MEDIUM new, 1 LOW (OLD filter), fixed test-first
+
+- **The lock order item -> guard could deadlock with "Add item" (MEDIUM).** HandMade holds its guard and may then lock an existing item
+  (`ItemBarcodes::add` joins the barcode's item FOR UPDATE). Now the rename takes the guard first, then the item, as the makers do; the same
+  name is read first without a lock and writes nothing (no guard taken). Test: the statement order in
+  `ItemNamesTest::testARenameHoldsTheNewNamesGuardSoAMakingOfThatNameWaits` (guard, item, name, audit).
+- **A job taken away while waiting for the guard (MEDIUM).** The person is read again after both waits. Test:
+  `ItemNamesTest::testAJobTakenAwayWhileTheRenameWaitedForTheGuardIsSeen` (and the same name takes no guard).
+- **The second read of the former names was not capped and read every matching row (MEDIUM).** The first read returns each item's newest
+  matching rename id; the second reads those rows by id; both capped, a cap on either leaves the names now. Test:
+  `ItemNamesTest::testTheMatchedNamesAreReadByTheirRowsUnderTheCap`.
+- **The room was counted before joined items were left out (LOW; the filter after the limit is OLD).** On Find the room is counted on the
+  items it can show and the limit applied after the filter; the other callers keep the OLD order. Test:
+  `ItemNamesTest::testTheRoomIsCountedOnTheItemsFindCanShow`.
+- Repeated, OLD and reported (IR6, the owner decides): posted records re-printed show the new name; the new-item guards compare names now only.
+
+Red on e19a646: `runs/rename_r2_red.log`; green: `runs/rename_r2_green.log`.

@@ -249,7 +249,9 @@ final class ItemNamesTest extends CatalogueTestCase
             str_contains($s, 'FROM sku WHERE id = ? FOR UPDATE') => 'item', str_starts_with($s, 'INSERT INTO item_name_guard') => 'guard',
             str_starts_with($s, 'UPDATE sku SET name') => 'name', str_starts_with($s, 'INSERT INTO audit_log') => 'audit', default => null,
         }, $seen)));
-        self::assertSame(['item', 'guard', 'name', 'audit'], $order, 'lock order: the item, then the name\'s guard (HandMade and StoreChoices take the guard and then no existing item)');
+        // Round 2, MEDIUM 1: the guard BEFORE the item, as HandMade and StoreChoices take it before anything (an item made by hand may lock an
+        // existing item after its guard: ItemBarcodes::add's join), so no cycle.
+        self::assertSame(['guard', 'item', 'name', 'audit'], $order, 'lock order: the name\'s guard, then the item');
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM item_name_guard WHERE name_key = ?', [$key('New guard name')]));
         // Nothing written, no guard taken: the same name, a refused one.
         $this->names->rename($who, $sku, 'New guard name', 'New guard name');
@@ -347,5 +349,87 @@ final class ItemNamesTest extends CatalogueTestCase
         self::$db->exec('UPDATE sku SET name = ? WHERE id = ?', ["El\0ux", $sku]);
         self::assertSame('renamed', $this->names->rename($who, $sku, "El\u{FFFD}ux", 'Elux')['result']);
         self::assertSame('Elux', $this->nameOf($sku));
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex re-check of e19a646 (round 2)
+    // ------------------------------------------------------------------------------------------
+
+    /** Round 2, MEDIUM 2: a job taken away while the rename waited for the name's guard is seen too (the person is read after every wait). */
+    public function testAJobTakenAwayWhileTheRenameWaitedForTheGuardIsSeen(): void
+    {
+        $who = $this->editor();
+        $sku = $this->item('legacy', 0, 'Guarded name');
+        $other = TestDb::connect();
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use ($other, $who): void {
+            if (str_starts_with($sql, 'INSERT INTO item_name_guard')) {
+                $other->exec('UPDATE staff_user SET is_active = 0 WHERE id = ?', [$who->staffUserId]);
+            }
+        }]]);
+        try {
+            self::refused(403, 'staff_not_allowed', fn () => $this->names->rename($who, $sku, 'Guarded name', 'Never'));
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertSame(['Guarded name', 0], [$this->nameOf($sku), $this->renames($sku)]);
+        // The same name takes no guard at all (nothing written).
+        $same = $this->item('legacy', 0, 'Fresh same');
+        self::assertSame('unchanged', $this->names->rename($this->editor('mapping_lead'), $same, 'Fresh same', ' Fresh  same ')['result']);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM item_name_guard WHERE name_key = SHA2(WEIGHT_STRING(CAST(? AS CHAR CHARACTER SET utf8mb4) '
+            . 'COLLATE utf8mb4_0900_ai_ci), 256)', ['Fresh same']));
+    }
+
+    /**
+     * Round 2, MEDIUM 3: the former name that matched is read by the rows the capped read found (one row an item, by its id), and a cap
+     * reached on that read too leaves Find with what the names now found.
+     */
+    public function testTheMatchedNamesAreReadByTheirRowsUnderTheCap(): void
+    {
+        $who = $this->editor();
+        $q = new Queries(self::$db);
+        $now = $this->item('legacy', 0, 'Kiwi Now');
+        $was = $this->item('legacy', 0, 'Kiwi 0');
+        for ($i = 0; $i < 5; $i++) {
+            $this->names->rename($who, $was, "Kiwi {$i}", 'Kiwi ' . ($i + 1));
+        }
+        $this->names->rename($who, $was, 'Kiwi 5', 'Melon');
+        $audit = [];
+        $failOn = 0;
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use (&$audit, &$failOn): void {
+            if (str_contains($sql, 'audit_log')) {
+                $audit[] = (string) preg_replace('/\s+/', ' ', $sql);
+                if ($failOn === count($audit)) {
+                    throw new \PDOException('SQLSTATE[HY000]: General error: 3024 Query execution was interrupted, maximum statement execution time exceeded');
+                }
+            }
+        }]]);
+        try {
+            $found = $q->searchSkus('kiwi', 5, formerNames: true);
+            self::assertSame([[$now, null], [$was, 'Kiwi 5']], array_map(static fn (array $r): array => [(int) $r['id'], $r['former_name'] ?? null], $found));
+            self::assertCount(2, $audit, $audit === [] ? '' : implode(' | ', $audit));
+            self::assertStringStartsWith('SELECT /*+ MAX_EXECUTION_TIME(' . ItemNames::FORMER_MS . ') */', $audit[1]);
+            self::assertStringContainsString('WHERE a.id IN (?)', $audit[1], 'the newest matching row of each item, by its id');
+            $audit = [];
+            $failOn = 2;
+            self::assertSame([$now], array_map('intval', array_column($q->searchSkus('kiwi', 5, formerNames: true), 'id')), 'past the cap on the second read: the names now');
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+    }
+
+    /** Round 2, LOW 4 (OLD filter): the room is counted on what Find can show; a joined item found by its barcode takes no place. */
+    public function testTheRoomIsCountedOnTheItemsFindCanShow(): void
+    {
+        $who = $this->editor();
+        $q = new Queries(self::$db);
+        $keep = $this->item('legacy', 0, 'Keeper');
+        $gone = $this->item('legacy', 0, 'Joined boxed');
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('96385074', ?)", [$gone]);
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$keep, $gone]);
+        $renamed = $this->item('legacy', 0, 'Box 96385074 old');
+        $this->names->rename($who, $renamed, 'Box 96385074 old', 'Plain box');
+        $found = $q->searchSkus('96385074', 1, formerNames: true);
+        self::assertSame([[$renamed, 'Box 96385074 old']], array_map(static fn (array $r): array => [(int) $r['id'], $r['former_name'] ?? null], $found));
+        self::assertSame([], $q->searchSkus('96385074', 1), 'the other callers: as before');
     }
 }

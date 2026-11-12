@@ -1872,23 +1872,34 @@ final class Queries
                 $params,
             ));
         }
-        $former = [];
-        $now = array_values(array_unique(array_map('intval', $ids)));
-        if ($formerNames && $words !== '' && count($now) < $limit) {
-            // a name it had (the renames' audit rows), only while the names now leave room, the ones found left out
-            [$was, $wasParams] = $s->allWords(\CW\Catalogue\ItemNames::formerExpr());
-            foreach (\CW\Catalogue\ItemNames::formerMatches($this->db, $was, $wasParams, $limit - count($now), $now) as $id => $name) {
-                $former[$id] = $name;
-                $ids[] = $id;
+        $exact = $matching && $s->explicitCw() ? $s->cwId() : null;
+        $shows = static fn (int $id, array $rows): bool => isset($rows[$id])
+            && ($id === $exact || ($rows[$id]['merged_into_sku_id'] === null && (!$matching || (int) $rows[$id]['discontinued'] === 0)));
+        if ($formerNames && $words !== '') {
+            // Find (IR5): what the names now found that it can show, then, while they leave room, the items a name they had finds (the
+            // renames' audit rows; the ones found already and joined ones left out before the limit)
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            $rows = $this->skus($ids);
+            $out = array_slice(array_map(static fn (int $id): array => $rows[$id], array_values(array_filter($ids, static fn (int $id): bool => $shows($id, $rows)))),
+                0, $limit);
+            if (count($out) < $limit) {
+                [$was, $wasParams] = $s->allWords(\CW\Catalogue\ItemNames::formerExpr());
+                $former = \CW\Catalogue\ItemNames::formerMatches($this->db, $was, $wasParams, $limit - count($out), $ids);
+                $more = $this->skus(array_keys($former));
+                foreach ($former as $id => $name) {
+                    if ($shows($id, $more)) {
+                        $out[] = $more[$id] + ['former_name' => $name];
+                    }
+                }
             }
+            return $out;
         }
         $ids = array_slice(array_values(array_unique(array_map('intval', $ids))), 0, $limit);
         $rows = $this->skus($ids);
-        $exact = $matching && $s->explicitCw() ? $s->cwId() : null;
         $out = [];
         foreach ($ids as $id) {
-            if (isset($rows[$id]) && ($id === $exact || ($rows[$id]['merged_into_sku_id'] === null && (!$matching || (int) $rows[$id]['discontinued'] === 0)))) {
-                $out[] = isset($former[$id]) ? $rows[$id] + ['former_name' => $former[$id]] : $rows[$id];
+            if ($shows($id, $rows)) {
+                $out[] = $rows[$id];
             }
         }
         return $out;

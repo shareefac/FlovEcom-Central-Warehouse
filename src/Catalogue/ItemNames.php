@@ -17,14 +17,15 @@ use CW\Db;
  *    card stay as they are; no stock feed row is written (nothing a website reads changes).
  *  - Who: as ItemCards::editor (catalogue.edit: mapping_lead, stock_controller, purchasing_manager; never admin), read again inside the
  *    transaction.
- *  - ONE transaction: the item row locked FOR UPDATE (a merge meanwhile waits, or is seen) and the person read again once it is held (a
- *    job taken away while this waited counts), an item joined into another refused (409 merged_item: the item it was joined into is
- *    renamed instead), the same name written nothing (`unchanged`), a name someone else changed since the page was drawn refused (409
- *    name_changed, detail.name: the name it has now; the page sends the name it showed as the expected one: sku has no version column, and
- *    only the spaces of a stored name are forgiven, as clean() makes them single, and a NUL, which the page's hidden field carries as
- *    U+FFFD), then the NEW name's guard row (item_name_guard, as an item made by hand or a store's choice takes it: a making of that name
- *    at this moment waits and then sees the rename), the name, and one audit row `sku.rename` {code, before, after}. Lock order: the item,
- *    then the guard; HandMade and StoreChoices take the guard and then lock no existing item, so no cycle.
+ *  - ONE transaction: the same name (read without a lock) writes nothing (`unchanged`); else the NEW name's guard row first
+ *    (item_name_guard, as an item made by hand or a store's choice takes it before anything: a making of that name at this moment waits
+ *    and then sees the rename; HandMade may lock an existing item after its guard, so the guard comes first here too: no cycle), then the
+ *    item row FOR UPDATE (a merge meanwhile waits, or is seen), then the person read again after both waits (a job taken away meanwhile
+ *    counts), an item joined into another refused (409 merged_item: the item it was joined into is renamed instead), the same name again
+ *    (`unchanged`), a name someone else changed since the page was drawn refused (409 name_changed, detail.name: the name it has now; the
+ *    page sends the name it showed as the expected one: sku has no version column, and only the spaces of a stored name are forgiven, as
+ *    clean() makes them single, and a NUL, which the page's hidden field carries as U+FFFD), then the name and one audit row `sku.rename`
+ *    {code, before, after}.
  *  - The history (the item page) and the names an item had (Find) are read from those audit rows (entity sku / id, ix_audit_entity; the
  *    action's index ix_audit_action): no table of its own.
  */
@@ -75,9 +76,14 @@ final class ItemNames
         $name = self::clean($raw);
         return $this->db->transaction(function (Db $db) use ($caller, $skuId, $expected, $name): array {
             ItemCards::editor($db, $caller);
+            $seen = $db->one('SELECT name, merged_into_sku_id FROM sku WHERE id = ?', [$skuId]);
+            if ($seen !== null && $seen['merged_into_sku_id'] === null && (string) $seen['name'] === $name) {
+                return ['result' => 'unchanged', 'name' => $name, 'before' => $name];
+            }
+            self::guard($db, $name);
             $sku = $db->one('SELECT id, code, name, merged_into_sku_id FROM sku WHERE id = ? FOR UPDATE', [$skuId])
                 ?? throw new CwException('unknown_item', 'There is no such item.', 404);
-            // Again now that the item is held (READ COMMITTED: a fresh read): a job taken away while this waited for the item counts.
+            // Again after the waits for the guard and the item (READ COMMITTED: a fresh read): a job taken away meanwhile counts.
             ItemCards::editor($db, $caller);
             if ($sku['merged_into_sku_id'] !== null) {
                 $into = (int) $sku['merged_into_sku_id'];
@@ -91,7 +97,6 @@ final class ItemNames
             if (self::loose($before) !== self::loose($expected)) {
                 throw new CwException('name_changed', "Someone renamed {$sku['code']} meanwhile: it is \"{$before}\" now. Look at it again.", 409, ['name' => $before]);
             }
-            self::guard($db, $name);
             $db->exec('UPDATE sku SET name = ? WHERE id = ?', [$name, $skuId]);
             Audit::write($db, $caller, self::ACTION, 'sku', (string) $skuId, null, ['code' => (string) $sku['code'], 'before' => $before, 'after' => $name]);
             return ['result' => 'renamed', 'name' => $name, 'before' => $before];
@@ -123,7 +128,8 @@ final class ItemNames
      * The items a name they had matches (Find, docs/decisions.md IR5): every word of the search in a name before a rename, as the search
      * compares words ($where, $params: CW\Ui\SearchText::allWords on formerExpr()). At most $limit ITEMS, each once, not joined into
      * another and not in $skip (the ones the names now found), the most recently renamed first: item id => the newest of its former names
-     * that matched. One read of the renames (the action's index) capped at FORMER_MS: past it, none.
+     * that matched. Two reads, each capped at FORMER_MS (MAX_EXECUTION_TIME): the items with their newest matching rename (the action's
+     * index), then those rows by their ids; past a cap, none.
      *
      * @param list<string|int> $params
      * @param list<int> $skip
@@ -134,31 +140,33 @@ final class ItemNames
         if ($limit < 1 || $where === '') {
             return [];
         }
+        $cap = '/*+ MAX_EXECUTION_TIME(' . self::FORMER_MS . ') */';
         $not = $skip === [] ? '' : ' AND s.id NOT IN (' . implode(',', array_fill(0, count($skip), '?')) . ')';
         try {
-            $ids = array_map('intval', $db->column('SELECT /*+ MAX_EXECUTION_TIME(' . self::FORMER_MS . ') */ s.id FROM audit_log a '
-                . "JOIN sku s ON s.id = CAST(a.entity_id AS UNSIGNED) WHERE a.action = ? AND a.entity_type = 'sku' AND s.merged_into_sku_id IS NULL{$not} "
-                . "AND {$where} GROUP BY s.id ORDER BY MAX(a.id) DESC LIMIT " . $limit, [self::ACTION, ...$skip, ...$params]));
+            $last = [];
+            foreach ($db->all("SELECT {$cap} s.id, MAX(a.id) AS last FROM audit_log a JOIN sku s ON s.id = CAST(a.entity_id AS UNSIGNED) "
+                . "WHERE a.action = ? AND a.entity_type = 'sku' AND s.merged_into_sku_id IS NULL{$not} AND {$where} GROUP BY s.id ORDER BY last DESC LIMIT "
+                . $limit, [self::ACTION, ...$skip, ...$params]) as $r) {
+                $last[(int) $r['id']] = (int) $r['last'];
+            }
+            if ($last === []) {
+                return [];
+            }
+            $names = [];
+            foreach ($db->all("SELECT {$cap} a.id, " . self::formerExpr() . ' AS was FROM audit_log a WHERE a.id IN ('
+                . implode(',', array_fill(0, count($last), '?')) . ')', array_values($last)) as $r) {
+                $names[(int) $r['id']] = (string) $r['was'];
+            }
         } catch (\PDOException $e) {
             if (Db::driverCode($e) === 3024) {
                 return [];
             }
             throw $e;
         }
-        if ($ids === []) {
-            return [];
-        }
-        // The name that matched: the newest matching rename of each (ix_audit_entity).
-        $names = [];
-        foreach ($db->all('SELECT a.entity_id, ' . self::formerExpr() . " AS was FROM audit_log a WHERE a.entity_type = 'sku' AND a.entity_id IN ("
-            . implode(',', array_fill(0, count($ids), '?')) . ") AND a.action = ? AND {$where} ORDER BY a.id DESC",
-            [...array_map('strval', $ids), self::ACTION, ...$params]) as $r) {
-            $names[(int) $r['entity_id']] ??= (string) $r['was'];
-        }
         $out = [];
-        foreach ($ids as $id) {
-            if (isset($names[$id])) {
-                $out[$id] = $names[$id];
+        foreach ($last as $id => $row) {
+            if (isset($names[$row])) {
+                $out[$id] = $names[$row];
             }
         }
         return $out;
