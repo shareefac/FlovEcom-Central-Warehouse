@@ -13,6 +13,7 @@ use CW\Idempotency;
 use CW\OpResult;
 use CW\Output\CsvReader;
 use CW\Queues\QueueRules;
+use CW\Stock;
 
 /**
  * Doubtful stock (0066; docs/decisions.md DS1-): the items of a store whose stock figure is in doubt (CW and the shop differ, CW holds them
@@ -35,8 +36,9 @@ use CW\Queues\QueueRules;
  *   dismiss()  "Not needed": nothing is booked; the row is dismissed with the person's note (QueueRules::note: 3 to 500 characters).
  *
  * Who answers: the people who count stock (CountSheets::mayCount: doc.CNT.post, never admin), checked before, and again inside the
- * transaction once the row is held. Locks: the doubt row first, always by its id (FOR UPDATE; the load too), then what the counts engine
- * locks (the record, the number series, the balance).
+ * transaction once the row is held. Locks: the doubt row first, always by its id (FOR UPDATE; the load too), then, before the one-line
+ * sheet names the item, the count's number series and the item's balance at that warehouse (the engine's own order), then the rest of
+ * what the counts engine takes (the record, the item).
  * The lists (open(), checked()) read only; open() orders the rows with order() (pure, unit-tested) and pages them PAGE at a time.
  */
 final class StockDoubt
@@ -70,7 +72,8 @@ final class StockDoubt
      * Reads a list: its header must name the six COLUMNS (others are ignored); each row is checked, and the first bad one refuses the whole
      * file (400 bad_file, detail row = its data-row number, column = the column): a CW number (CW-000123, any letters' case), the figures
      * whole numbers (shop_qty and sold_30d may be empty: not known; sold_30d not below 0), why one of REASONS (any case), a note of at most
-     * NOTE_MAX characters (control characters become spaces; empty: none). An item twice is refused. At most MAX_ROWS rows.
+     * NOTE_MAX characters (control characters become spaces; empty: none). A line break inside a cell is refused (a quote left open would
+     * take the next rows into it). An item twice is refused. At most MAX_ROWS rows.
      *
      * @return list<array{row: int, cw_code: string, shop_qty: ?int, cw_qty: int, reason: string, sold_30d: ?int, note: ?string}>
      */
@@ -86,6 +89,12 @@ final class StockDoubt
         $seen = [];
         foreach ($t['rows'] as $n => $r) {
             $bad = static fn (string $column, string $why): CwException => new CwException('bad_file', "row {$n}, {$column}: {$why}", 400, ['row' => $n, 'column' => $column]);
+            foreach (self::COLUMNS as $column) {
+                if (preg_match('/[\r\n]/', $r[$column]) === 1) {
+                    // A cell opened with a quote and never closed takes the rows after it into itself (Codex round 2): one line per cell.
+                    throw $bad($column, 'a line break inside a cell: is a quote missing?');
+                }
+            }
             $code = strtoupper(trim($r['cw_code']));
             if (preg_match('/^CW-[0-9]{6,9}$/D', $code) !== 1) {
                 throw $bad('cw_code', 'a CW number, like CW-000123');
@@ -324,6 +333,12 @@ final class StockDoubt
                 $wh = $db->value('SELECT warehouse_id FROM channel_warehouse WHERE channel_id = ? AND is_sellable = 1', [(int) $row['channel_id']])
                     ?? throw new CwException('no_selling_warehouse', 'this store sells from no warehouse: there is nothing to count it against', 409);
                 $sku = (int) $row['sku_id'];
+                // The engine's own order before the sheet's line names the item (a shared lock on it, held to the end of this one transaction):
+                // the count's number series, then the item's balance at that warehouse, as a posting takes them (Documents::post, I21). Else
+                // a selling-mode change (balance, then the item) and this count could wait on each other (Codex round 2).
+                $prefix = (string) $db->value('SELECT prefix FROM document_type WHERE code = ?', [CountSheets::TYPE]);
+                $db->value('SELECT last_no FROM number_series WHERE prefix = ? FOR UPDATE', [$prefix]);
+                (new Stock($db))->lock([[(int) $wh, $sku]]);
                 $sheet = $sheets->open($caller, ['warehouse' => (int) $wh, 'note' => sprintf(self::SHEET_NOTE, $id)], [$sku]);
                 $sheets->setQuantities($caller, $sheet->id, [1 => $qty]);
                 $doc = $sheets->post($caller, $sheet->id, (int) $db->value('SELECT version FROM document WHERE id = ?', [$sheet->id]));

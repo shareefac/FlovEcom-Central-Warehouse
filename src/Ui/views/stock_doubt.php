@@ -37,9 +37,9 @@
 <?php endif; ?>
 <?php if ($rows === []): ?>
 <?php if ($narrowed): ?>
-<?= $empty(\CW\Ui\Words::DOUBT['none_found'], \CW\Ui\Words::DOUBT['none_found_text'], '/ui/stock/doubtful', \CW\Ui\Words::DOUBT['show_all']) ?>
+<?= $empty(\CW\Ui\Words::DOUBT['none_found'], \CW\Ui\Words::DOUBT['none_found_text'], $listHref, \CW\Ui\Words::DOUBT['show_all']) ?>
 <?php else: ?>
-<?= $empty(\CW\Ui\Words::DOUBT['none'], \CW\Ui\Words::DOUBT['none_text'], '/ui/stock/doubtful/checked', \CW\Ui\Words::SEGMENT['doubtful_checked']) ?>
+<?= $empty(\CW\Ui\Words::DOUBT['none'], \CW\Ui\Words::DOUBT['none_text'], $checkedHref, \CW\Ui\Words::SEGMENT['doubtful_checked']) ?>
 <?php endif; ?>
 <?php else: ?>
 <?php if ($shown !== null): ?>

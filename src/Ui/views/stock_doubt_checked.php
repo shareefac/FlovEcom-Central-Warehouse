@@ -20,7 +20,7 @@
 </form>
 <?php endif; ?>
 <?php if ($rows === []): ?>
-<?= $empty(\CW\Ui\Words::DOUBT['checked_none'], \CW\Ui\Words::DOUBT['checked_none_text'], '/ui/stock/doubtful', \CW\Ui\Words::SEGMENT['doubtful']) ?>
+<?= $empty(\CW\Ui\Words::DOUBT['checked_none'], \CW\Ui\Words::DOUBT['checked_none_text'], $listHref, \CW\Ui\Words::SEGMENT['doubtful']) ?>
 <?php else: ?>
 <?php if ($shown !== null): ?>
 <p class="muted"><?= $e($shown) ?></p>

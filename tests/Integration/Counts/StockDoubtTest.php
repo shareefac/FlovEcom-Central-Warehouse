@@ -188,6 +188,39 @@ final class StockDoubtTest extends CountsTestCase
         self::assertSame(40, self::doubtRow(self::openId($a))['cw_qty']);
     }
 
+    public function testSaveCountTakesTheNumberSeriesAndTheBalanceBeforeTheSheetNamesTheItem(): void
+    {
+        // Codex round 2, MEDIUM: the one-line sheet's line names the item (a shared lock on it, held to the end of the one transaction)
+        // before the posting locks the item's balance, while accepting a selling-mode change locks the balance and then the item: the two
+        // could wait on each other. The engine's own order is taken first: the count's number series, then the balance, then the rest.
+        $a = $this->item('strict', 10, 'Ordered pod');
+        $this->load([self::row($a)]);
+        $seen = [];
+        $after = static function (string $sql) use (&$seen): void {
+            $seen[] = $sql;
+        };
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [$after]]);
+        try {
+            $this->doubt->count($this->counter, self::openId($a), 11);
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        $first = static function (string $re) use ($seen): int {
+            foreach ($seen as $i => $sql) {
+                if (preg_match($re, $sql) === 1) {
+                    return $i;
+                }
+            }
+            self::fail('no statement ' . $re);
+        };
+        $series = $first('/\bnumber_series\b.*\bFOR UPDATE\b|^UPDATE number_series\b/s');
+        $balance = $first('/FROM stock_balance WHERE warehouse_id = \? AND sku_id = \? FOR UPDATE/');
+        $line = $first('/^INSERT INTO count_sheet_line\b/');
+        $doubt = $first('/FROM stock_doubt WHERE id = \? FOR UPDATE/');
+        self::assertTrue($doubt < $series && $series < $balance && $balance < $line, "doubt row {$doubt}, series {$series}, balance {$balance}, sheet line {$line}");
+        self::assertSame(11, $this->onHand($a));
+    }
+
     public function testAnAnswerChecksWhoAgainOnceItHoldsTheRow(): void
     {
         // Codex round 1, MEDIUM 4: an answer waiting on the row (a load holding it) went on after the person's job was taken away meanwhile.

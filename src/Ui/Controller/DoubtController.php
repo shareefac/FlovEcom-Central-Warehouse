@@ -98,6 +98,9 @@ final class DoubtController
             'shown' => $list['total'] > StockDoubt::PAGE ? Words::say('DOUBT', 'shown', $first + 1, $first + count($rows), $list['total']) : null,
             'prev' => $list['page'] > 1 ? Html::url(self::PATH, ['page' => (string) ($list['page'] - 1)] + $back) : null,
             'next' => $list['page'] < $list['pages'] ? Html::url(self::PATH, ['page' => (string) ($list['page'] + 1)] + $back) : null,
+            // The empty page's own buttons keep the store too (Codex round 2).
+            'listHref' => Html::url(self::PATH, ['store' => $back['store']]),
+            'checkedHref' => Html::url(self::PATH . '/checked', ['store' => $back['store']]),
             'canCount' => $canCount,
             'lookOnly' => $canCount ? null : Words::whoCan('doc.' . CountSheets::TYPE . '.post'),
             'noteMin' => \CW\Queues\QueueRules::NOTE_MIN,
@@ -134,6 +137,7 @@ final class DoubtController
             'stores' => array_values(array_filter($stores, static fn (array $s): bool => $s['rows'] > 0 || $s['id'] === ($store['id'] ?? null))),
             'store' => $store,
             'shown' => $list['total'] > StockDoubt::PAGE ? Words::say('DOUBT', 'shown', $first + 1, $first + count($rows), $list['total']) : null,
+            'listHref' => Html::url(self::PATH, $keep),
             'prev' => $list['page'] > 1 ? Html::url(self::PATH . '/checked', ['page' => (string) ($list['page'] - 1)] + $keep) : null,
             'next' => $list['page'] < $list['pages'] ? Html::url(self::PATH . '/checked', ['page' => (string) ($list['page'] + 1)] + $keep) : null,
         ], 200, ['title' => Words::title('doubtful')]);

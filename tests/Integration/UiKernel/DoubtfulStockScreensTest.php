@@ -319,7 +319,11 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get(self::PATH);
         self::assertSame([$pod], array_column(self::rows($page), 'sku'));
-        self::assertStringNotContainsString('Old pod', $web->get(self::PATH . '/checked')->text(), 'Checked opens on the same store as the list');
+        $firstChecked = $web->get(self::PATH . '/checked');
+        self::assertStringNotContainsString('Old pod', $firstChecked->text(), 'Checked opens on the same store as the list');
+        $toCheck = (new \DOMXPath($firstChecked->dom()))->query('//div[@class="empty"]//a[contains(@class, "btn")]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $toCheck);
+        self::assertSame(self::PATH . '?store=electrofag', $toCheck->getAttribute('href'), 'its way back keeps the store (Codex round 2)');
         $action = self::PATH . '/' . self::openId($pod) . '/count';
         $form = $page->form($action);
         self::assertSame('electrofag', $form['store'] ?? null, 'the answer says which store it came from');
@@ -329,6 +333,10 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
         self::assertSame('electrofag', $q['store'] ?? null);
         $after = $web->follow($r);
         self::assertStringContainsString(Words::DOUBT['none'], $after->text(), 'Electrofag has nothing left to check');
+        // Codex round 2, LOW: the empty page's own button to Checked kept the store too.
+        $button = (new \DOMXPath($after->dom()))->query('//div[@class="empty"]//a[contains(@class, "btn")]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $button);
+        self::assertSame(self::PATH . '/checked?store=electrofag', $button->getAttribute('href'));
         // Its Show leads to Checked of that store (the entry keeps `store`).
         $link = (new \DOMXPath($after->dom()))->query('//a[contains(@class, "show-item")][normalize-space(.//span[@class="show-name"]) = "'
             . Words::SEGMENT['doubtful_checked'] . '"]')->item(0);
@@ -339,6 +347,7 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
         self::assertStringContainsString('Electrofag pod', $checked->text());
         self::assertStringNotContainsString('Old pod', $checked->text());
         self::assertStringContainsString('Old pod', $web->get(self::PATH . '/checked', ['store' => 'vapeandgo'])->text());
+
     }
 
     public function testFiftyAPageWithPlainLinks(): void

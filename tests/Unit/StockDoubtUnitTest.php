@@ -91,6 +91,16 @@ final class StockDoubtUnitTest extends TestCase
         self::assertStringContainsString('row 1', $e->getMessage(), 'names the row it is on already');
     }
 
+    public function testAQuoteLeftOpenNeverSwallowsTheRowsAfterIt(): void
+    {
+        // Codex round 2, LOW (the CSV reader, OLD): a cell opened with a quote and never closed took the next rows into it, and the list
+        // loaded with an item missing. A line break inside a cell is refused, the row named.
+        $e = $this->refused(self::HEAD . "CW-000001,1,2,differs,0,\"check\nCW-000002,3,4,differs,0,ok\nCW-000003,5,6,differs,0,fine\n");
+        self::assertSame(['bad_file', 1, 'note'], [$e->errorCode, $e->detail['row'] ?? null, $e->detail['column'] ?? null]);
+        $e = $this->refused(self::HEAD . "CW-000001,\"1\r\n\",2,differs,0,\n");
+        self::assertSame(['bad_file', 1, 'shop_qty'], [$e->errorCode, $e->detail['row'] ?? null, $e->detail['column'] ?? null]);
+    }
+
     public function testTheListsNameIsShortPlainText(): void
     {
         self::assertSame('doubt_12nov', StockDoubt::batch(' doubt_12nov '));

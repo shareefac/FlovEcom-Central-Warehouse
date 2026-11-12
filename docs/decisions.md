@@ -17376,3 +17376,23 @@ Tests, written first (red on d5e9740: `runs/doubt_fix1_red.log`, 6 tests, 6 fail
 `testTheLoadLocksAnOpenRowOnlyByItsIdAsTheAnswersDo`, `testAnAnswerChecksWhoAgainOnceItHoldsTheRow`), `Migration0066Test` (a cleared row with
 nothing booked), `DoubtfulStockScreensTest::testTheStoreShownStaysTheStoreAfterAnAnswerAndOnChecked`; green with the fixes
 (`runs/doubt_fix1_green.log`).
+
+### The Codex re-check of 3e72f03 (`doubt_module_20261112/codex_round2.txt`): round 1's five fixed (the fifth in part); no HIGH; 1 MEDIUM and 1 LOW new, 1 LOW old, each shown failing first and fixed
+
+- **Save count and a selling-mode change could wait on each other (MEDIUM, new).** In the one transaction, the one-line sheet's line names
+  the item (its foreign key takes a shared lock on the item, held to the end) before the posting locks the item's balance, while accepting a
+  selling-mode change locks the balance and then the item. A count sheet's page never held both (its sheet is opened and posted in two
+  transactions). Now `count` takes the engine's own order first, right after the doubt row: the count's number series (FOR UPDATE, the row
+  `Documents::post` takes next anyway), then the item's balance at that warehouse (`Stock::lock`, as `Suspense::pick` does before booking),
+  then opens, fills and posts the sheet. The test pins the order of the statements.
+- **The empty page's buttons lost the store (LOW, new; round 1's fifth, in part).** "Nothing to check" leads to Checked of the same store,
+  "No item matches" back to its list, and Checked's empty page back to To check of the same store.
+- **A quote left open swallowed the rows after it (LOW, OLD: CW's CSV reader).** `fgetcsv` reads a cell opened with a quote and never closed
+  to the end of the file, so a list loaded with items missing and nothing said. The list reader now refuses a line break inside any of its
+  six columns, the row named ("is a quote missing?"). CsvReader itself is unchanged (its other callers read files that may hold a
+  line break in a cell).
+
+Tests, written first (red on 3e72f03: `runs/doubt_fix2_red.log`, 3 tests, 3 failures): `StockDoubtTest::
+testSaveCountTakesTheNumberSeriesAndTheBalanceBeforeTheSheetNamesTheItem`, `StockDoubtUnitTest::testAQuoteLeftOpenNeverSwallowsTheRowsAfterIt`,
+`DoubtfulStockScreensTest::testTheStoreShownStaysTheStoreAfterAnAnswerAndOnChecked` (+ the empty pages' links); green with the fixes
+(`runs/doubt_fix2_green.log`).
