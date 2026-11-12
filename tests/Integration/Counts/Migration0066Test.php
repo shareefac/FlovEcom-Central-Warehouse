@@ -69,6 +69,14 @@ final class Migration0066Test extends IntegrationTestCase
         ] as $i => $bad) {
             self::assertSame(3819, self::mysqlError($bad), "case {$i}: refused by a CHECK");
         }
+        // A cleared row says what it booked (Codex round 1, HIGH 1: never cleared with nothing booked).
+        self::$db->exec('SET FOREIGN_KEY_CHECKS = 0');
+        try {
+            self::assertSame(3819, self::mysqlError(fn () => $row('cleared', ['batch' => 'l', 'resolved_by' => $person, 'resolved_at' => '2026-11-12 06:00:00',
+                'counted_qty' => 4, 'count_document_id' => 999999])), 'cleared with no booked difference');
+        } finally {
+            self::$db->exec('SET FOREIGN_KEY_CHECKS = 1');
+        }
         $row('open', ['batch' => 'l', 'sold_30d' => 0]);
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM stock_doubt WHERE sku_id = ? AND status = 'open'", [$fresh]));
     }

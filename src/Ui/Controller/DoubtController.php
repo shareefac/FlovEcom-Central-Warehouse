@@ -61,9 +61,9 @@ final class DoubtController
         $page = UiRequest::id(is_string($src['page'] ?? null) ? $src['page'] : null) ?? 1;
         $list = $store === null ? ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1] : $svc->open($store['id'], $why, $q, $page);
         $canCount = Documents::mayPost($ctx->me()->roles, CountSheets::TYPE);
-        // What every answer sends back, so the list comes back as it was: the store only when it was chosen.
-        $back = ['store' => is_string($src['store'] ?? null) && $store !== null && $src['store'] === $store['code'] ? $store['code'] : null, 'why' => $why,
-            'q' => $q === '' ? null : $q, 'page' => $list['page'] > 1 ? (string) $list['page'] : null];
+        // What every answer and every page link sends back, so the list comes back as it was: the store shown (also when it was not asked
+        // for: the default may change once its last row is answered; Codex round 1), why, the search and the page.
+        $back = ['store' => $store['code'] ?? null, 'why' => $why, 'q' => $q === '' ? null : $q, 'page' => $list['page'] > 1 ? (string) $list['page'] : null];
         $typedId = isset($typed['id']) ? (int) $typed['id'] : null;
         $onPage = false;
         $rows = [];
@@ -88,7 +88,7 @@ final class DoubtController
             'rows' => $rows,
             'stores' => array_values(array_filter($stores, static fn (array $s): bool => $s['rows'] > 0 || $s['id'] === ($store['id'] ?? null))),
             'store' => $store,
-            'storeChosen' => $back['store'],
+            'storeCode' => $back['store'],
             'why' => $why,
             'whys' => StockDoubt::REASONS,
             'q' => $q,
@@ -113,10 +113,11 @@ final class DoubtController
     {
         $svc = new StockDoubt($ctx->db);
         $stores = $svc->stores();
-        $store = self::store($stores, $ctx->req->param('store'), 'rows');
+        // The same store as the list's when none is asked for (Codex round 1: Checked of another store than the list showed).
+        $store = self::store($stores, $ctx->req->param('store'), 'open');
         $page = UiRequest::id($ctx->req->param('page')) ?? 1;
         $list = $store === null ? ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1] : $svc->checked($store['id'], $page);
-        $keep = $ctx->req->param('store') === ($store['code'] ?? null) ? ['store' => $store['code'] ?? null] : [];
+        $keep = ['store' => $store['code'] ?? null];
         $rows = [];
         foreach ($list['rows'] as $r) {
             $rows[] = $r + [
@@ -132,7 +133,6 @@ final class DoubtController
             'rows' => $rows,
             'stores' => array_values(array_filter($stores, static fn (array $s): bool => $s['rows'] > 0 || $s['id'] === ($store['id'] ?? null))),
             'store' => $store,
-            'storeChosen' => $keep['store'] ?? null,
             'shown' => $list['total'] > StockDoubt::PAGE ? Words::say('DOUBT', 'shown', $first + 1, $first + count($rows), $list['total']) : null,
             'prev' => $list['page'] > 1 ? Html::url(self::PATH . '/checked', ['page' => (string) ($list['page'] - 1)] + $keep) : null,
             'next' => $list['page'] < $list['pages'] ? Html::url(self::PATH . '/checked', ['page' => (string) ($list['page'] + 1)] + $keep) : null,

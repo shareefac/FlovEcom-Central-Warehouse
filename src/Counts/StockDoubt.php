@@ -20,18 +20,23 @@ use CW\Queues\QueueRules;
  *
  *   load()     bin/doubt_load.php: a list (readFile(): a CSV of cw_code, shop_qty, cw_qty, reason, sold_30d, note) becomes the store's open
  *              rows, in ONE transaction with one audit row. An item already open is refreshed in place (its figures, why, the list's name and
- *              note), never doubled: under the open row's lock, and the database's UNIQUE (store, open item). An item answered in the SAME list
- *              is not opened again (a list run twice is safe); a new list opens it again. An item CW does not have, or one merged into
+ *              note), never doubled: under the open row's lock (taken by its id, as the answers take it), and the database's UNIQUE (store,
+ *              open item). Every list a row was on is kept (`batches`): an item answered on a list is not opened again by that list (a list
+ *              run twice is safe), and an older list never puts its figures back over a newer one; a new list opens it again. An item CW
+ *              does not have, or one merged into
  *              another, refuses the whole list (nothing written). plan() is the same reading with nothing written (the dry run).
  *   count()    "Save count": the shelf figure is booked as a stock count of that ONE item at the store's selling warehouse through the
  *              counts engine (CountSheets: a one-line sheet with the note "Doubtful stock #<id>", its quantity, posted: the count record,
  *              its ledger row, its review when the rules ask for one), and the row is cleared with what was counted, what it booked and the
  *              record, all in ONE transaction under the key doubt:<id> (Idempotency: a second press replays the first answer; any other
- *              answer for a row no longer open is refused, 409 doubt_settled). A refusal books nothing and keeps nothing: the row stays open.
+ *              answer for a row no longer open is refused, 409 doubt_settled). A count the engine leaves out (the item counted meanwhile with
+ *              a later time: nothing booked) is refused whole (409 counted_later), never a row cleared with nothing booked. A refusal books
+ *              nothing and keeps nothing: the row stays open.
  *   dismiss()  "Not needed": nothing is booked; the row is dismissed with the person's note (QueueRules::note: 3 to 500 characters).
  *
- * Who answers: the people who count stock (CountSheets::mayCount: doc.CNT.post, never admin), checked before and again inside the
- * transaction. Locks: the doubt row first (FOR UPDATE), then what the counts engine locks (the record, the number series, the balance).
+ * Who answers: the people who count stock (CountSheets::mayCount: doc.CNT.post, never admin), checked before, and again inside the
+ * transaction once the row is held. Locks: the doubt row first, always by its id (FOR UPDATE; the load too), then what the counts engine
+ * locks (the record, the number series, the balance).
  * The lists (open(), checked()) read only; open() orders the rows with order() (pure, unit-tested) and pages them PAGE at a time.
  */
 final class StockDoubt
@@ -199,12 +204,13 @@ final class StockDoubt
             $plan = $this->planOn($db, $channelId, $rows, $batch, true);
             foreach ($plan['rows'] as $r) {
                 $values = [$r['reason'], $r['shop_qty'], $r['cw_qty'], $r['sold_30d'], $batch, $r['note']];
+                $lists = json_encode($r['batches'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
                 if ($r['action'] === 'add') {
-                    $db->exec('INSERT INTO stock_doubt (channel_id, sku_id, reason, shop_qty, cw_qty, sold_30d, batch, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                        [$channelId, $r['sku_id'], ...$values]);
+                    $db->exec('INSERT INTO stock_doubt (channel_id, sku_id, reason, shop_qty, cw_qty, sold_30d, batch, note, batches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))',
+                        [$channelId, $r['sku_id'], ...$values, $lists]);
                 } elseif ($r['action'] === 'refresh') {
-                    $db->exec("UPDATE stock_doubt SET reason = ?, shop_qty = ?, cw_qty = ?, sold_30d = ?, batch = ?, note = ? WHERE id = ? AND status = 'open'",
-                        [...$values, $r['doubt_id']]);
+                    $db->exec("UPDATE stock_doubt SET reason = ?, shop_qty = ?, cw_qty = ?, sold_30d = ?, batch = ?, note = ?, batches = CAST(? AS JSON) WHERE id = ? AND status = 'open'",
+                        [...$values, $lists, $r['doubt_id']]);
                 }
             }
             Audit::write($db, $caller, 'stock_doubt.load', 'channel', (string) $channelId, null, ['batch' => $batch, 'file' => mb_substr($file, 0, 200),
@@ -249,25 +255,44 @@ final class StockDoubt
                     ['row' => (int) $r['row']]);
             }
             $sku = (int) $s['id'];
-            // The open row (the store's UNIQUE (channel_id, open_sku_id)), locked when the load writes.
-            $open = $db->one('SELECT id, CAST(reason AS CHAR) AS reason, shop_qty, cw_qty, sold_30d, batch, note FROM stock_doubt WHERE channel_id = ? AND open_sku_id = ?'
-                . ($lock ? ' FOR UPDATE' : ''), [$channelId, $sku]);
+            // The open row: found by the store's UNIQUE (channel_id, open_sku_id) with no lock, then locked by its id, as an answer locks it
+            // (Codex round 1: locking through that index first, while an answer holds the row and changes the index, could deadlock), and
+            // read again under the lock: answered meanwhile, it is no longer the open row.
+            $openId = $db->value('SELECT id FROM stock_doubt WHERE channel_id = ? AND open_sku_id = ?', [$channelId, $sku]);
+            $open = $openId === null ? null : $db->one('SELECT id, channel_id, sku_id, CAST(status AS CHAR) AS status, CAST(reason AS CHAR) AS reason, shop_qty, cw_qty, '
+                . 'sold_30d, batch, CAST(batches AS CHAR) AS batches, note FROM stock_doubt WHERE id = ?' . ($lock ? ' FOR UPDATE' : ''), [(int) $openId]);
+            if ($open !== null && ($open['status'] !== 'open' || (int) $open['channel_id'] !== $channelId || (int) $open['sku_id'] !== $sku)) {
+                $open = null;
+            }
             $new = ['reason' => (string) $r['reason'], 'shop_qty' => $r['shop_qty'] === null ? null : (int) $r['shop_qty'], 'cw_qty' => (int) $r['cw_qty'],
                 'sold_30d' => $r['sold_30d'] === null ? null : (int) $r['sold_30d'], 'batch' => $batch, 'note' => $r['note'] === null ? null : (string) $r['note']];
-            if ($open !== null) {
+            $lists = $open === null ? [] : self::lists((string) $open['batches']);
+            // Answered already on this list (the row of every list that put or refreshed it): this list never opens it again.
+            $answered = $db->value("SELECT 1 FROM stock_doubt WHERE channel_id = ? AND sku_id = ? AND status <> 'open' AND JSON_CONTAINS(batches, JSON_QUOTE(?)) LIMIT 1",
+                [$channelId, $sku, $batch]) !== null;
+            if ($answered || ($open !== null && in_array($batch, $lists, true) && $batch !== (string) $open['batch'])) {
+                // ... nor does an older list put its figures back over a newer list's.
+                $action = 'skip';
+            } elseif ($open !== null) {
                 $held = ['reason' => (string) $open['reason'], 'shop_qty' => $open['shop_qty'] === null ? null : (int) $open['shop_qty'], 'cw_qty' => (int) $open['cw_qty'],
                     'sold_30d' => $open['sold_30d'] === null ? null : (int) $open['sold_30d'], 'batch' => (string) $open['batch'],
                     'note' => $open['note'] === null ? null : (string) $open['note']];
-                $action = $held === $new ? 'same' : 'refresh';
-            } elseif ($db->value("SELECT 1 FROM stock_doubt WHERE channel_id = ? AND sku_id = ? AND batch = ? AND status <> 'open' LIMIT 1", [$channelId, $sku, $batch]) !== null) {
-                $action = 'skip';
+                $action = $held === $new && in_array($batch, $lists, true) ? 'same' : 'refresh';
             } else {
                 $action = 'add';
             }
             $counts[$action]++;
-            $out[] = ['row' => (int) $r['row'], 'cw_code' => $code, 'sku_id' => $sku, 'action' => $action, 'doubt_id' => $open === null ? null : (int) $open['id']] + $new;
+            $out[] = ['row' => (int) $r['row'], 'cw_code' => $code, 'sku_id' => $sku, 'action' => $action, 'doubt_id' => $open === null ? null : (int) $open['id'],
+                'batches' => array_values(array_unique([...$lists, $batch]))] + $new;
         }
         return ['rows' => $out, 'counts' => $counts];
+    }
+
+    /** @return list<string> the names of the lists a row was on (its `batches`) */
+    private static function lists(string $json): array
+    {
+        $v = json_decode($json, true);
+        return is_array($v) ? array_values(array_filter($v, 'is_string')) : [];
     }
 
     // ------------------------------------------------------------------------------------------
@@ -292,8 +317,10 @@ final class StockDoubt
         $key = self::KEY . $id;
         $r = (new Idempotency($this->db))->run($caller, $key, 'stock_doubt.count', '/ui/stock/doubtful/' . $id . '/count', ['id' => $id, 'qty' => $qty],
             self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $qty, $key, $sheets): OpResult {
+                $row = self::lock($db, $id);
+                // Who, again, now that the row is held: a job taken away while this waited on the row is refused (Codex round 1).
                 CountSheets::mayCount($db, $caller);
-                $row = self::lockOpen($db, $id);
+                self::mustBeOpen($row);
                 $wh = $db->value('SELECT warehouse_id FROM channel_warehouse WHERE channel_id = ? AND is_sellable = 1', [(int) $row['channel_id']])
                     ?? throw new CwException('no_selling_warehouse', 'this store sells from no warehouse: there is nothing to count it against', 409);
                 $sku = (int) $row['sku_id'];
@@ -304,9 +331,15 @@ final class StockDoubt
                     // A count posts at once (CountSheetHandler::approvalUnits is 0): anything else would leave the row cleared with nothing booked.
                     throw new \LogicException("count record {$doc->id} is {$doc->status}, not posted");
                 }
-                $line = (array) $db->one('SELECT system_qty, booked_delta FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$sheet->id]);
-                $had = (int) ($line['system_qty'] ?? 0);
-                $delta = ($line['booked_delta'] ?? null) === null ? null : (int) $line['booked_delta'];
+                $line = (array) $db->one('SELECT system_qty, booked_delta, outcome FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$sheet->id]);
+                if (($line['outcome'] ?? null) !== 'counted' || ($line['booked_delta'] ?? null) === null) {
+                    // The engine left this count out: the item was counted with a later time (another count booked meanwhile), so nothing was
+                    // booked. The whole answer is refused (Codex round 1, HIGH): the row stays to check, nothing is kept.
+                    throw new CwException('counted_later', 'this item was counted again, with a later time, while you saved: nothing was booked; look at the shelf again',
+                        409);
+                }
+                $had = (int) $line['system_qty'];
+                $delta = (int) $line['booked_delta'];
                 $now = Clock::db(Clock::now());
                 $n = $db->exec("UPDATE stock_doubt SET status = 'cleared', counted_qty = ?, booked_delta = ?, count_document_id = ?, resolved_by = ?, resolved_at = ? "
                     . "WHERE id = ? AND status = 'open'", [$qty, $delta, $sheet->id, $caller->staffUserId, $now, $id]);
@@ -338,13 +371,13 @@ final class StockDoubt
         $note = QueueRules::note($note);
         CountSheets::mayCount($this->db, $caller);
         $this->db->transaction(function (Db $db) use ($caller, $id, $note): void {
+            $row = self::lock($db, $id);
+            // Who, again, now that the row is held (Codex round 1).
             CountSheets::mayCount($db, $caller);
-            $was = $db->one('SELECT CAST(status AS CHAR) AS status, resolved_by, resolved_note FROM stock_doubt WHERE id = ? FOR UPDATE', [$id]);
-            if ($was !== null && $was['status'] === 'dismissed' && $was['resolved_by'] !== null && (int) $was['resolved_by'] === $caller->staffUserId
-                && $was['resolved_note'] === $note) {
+            if ($row['status'] === 'dismissed' && $row['resolved_by'] !== null && (int) $row['resolved_by'] === $caller->staffUserId && $row['resolved_note'] === $note) {
                 return;
             }
-            $row = self::lockOpen($db, $id);
+            self::mustBeOpen($row);
             $db->exec("UPDATE stock_doubt SET status = 'dismissed', resolved_by = ?, resolved_at = ?, resolved_note = ? WHERE id = ? AND status = 'open'",
                 [$caller->staffUserId, Clock::db(Clock::now()), $note, $id]);
             Audit::write($db, $caller, 'stock_doubt.dismiss', self::TABLE, (string) $id, null, ['channel_id' => (int) $row['channel_id'], 'sku_id' => (int) $row['sku_id'],
@@ -352,15 +385,23 @@ final class StockDoubt
         });
     }
 
-    /** @return array<string, mixed> the row, locked; 404 unknown_doubt, 409 doubt_settled */
-    private static function lockOpen(Db $db, int $id): array
+    /**
+     * The row, locked by its id (the one way every writer locks a row: the load too); 404 unknown_doubt.
+     *
+     * @return array<string, mixed>
+     */
+    private static function lock(Db $db, int $id): array
     {
-        $row = $db->one('SELECT id, channel_id, sku_id, CAST(status AS CHAR) AS status FROM stock_doubt WHERE id = ? FOR UPDATE', [$id])
+        return $db->one('SELECT id, channel_id, sku_id, CAST(status AS CHAR) AS status, resolved_by, resolved_note FROM stock_doubt WHERE id = ? FOR UPDATE', [$id])
             ?? throw new CwException('unknown_doubt', 'there is no such item to check', 404);
+    }
+
+    /** 409 doubt_settled for a row answered already. @param array<string, mixed> $row */
+    private static function mustBeOpen(array $row): void
+    {
         if ($row['status'] !== 'open') {
             throw new CwException('doubt_settled', "this item was checked already ({$row['status']})", 409, ['status' => $row['status']]);
         }
-        return $row;
     }
 
     // ------------------------------------------------------------------------------------------

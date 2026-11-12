@@ -2314,6 +2314,7 @@ final class Words
         'barcode_in_quantity' => 'That is a barcode, not a number of units. Nothing was booked. Type how many are on the shelf.',
         'note_required' => 'Say in 3 to 500 characters why it is not needed. Nothing was saved.',
         'doubt_settled' => 'Someone already checked this item. Nothing more was booked.',
+        'counted_later' => 'This item was counted again a moment ago, with a later time. Nothing was booked. Look at the shelf again and save.',
         'unknown_doubt' => 'There is no such item to check. Nothing was booked. Reload the page.',
         'no_selling_warehouse' => 'This store sells from no warehouse, so the shelf figure has nowhere to go. Nothing was booked.',
         'merged_item' => 'This item was joined into another one. Nothing was booked. Mark it not needed and check the other item.',

@@ -17275,7 +17275,7 @@ clear it on a page that shows ONLY those items. Not in this build: finding doubt
 count sheets opened on production for the same items (2630, 2631: left as they are).
 
 **DS1. One table, one open row per store and item.** `stock_doubt` (0066): the store, the item, why (`differs`, `below_zero`, `other`), the
-shop's and CW's figures and the units sold in 30 days as the list gave them, the list's name (`batch`) and note; `status` open, then cleared
+shop's and CW's figures and the units sold in 30 days as the list gave them, the list's name (`batch`) and note (and every list that put or refreshed it: `batches`, since the Codex review); `status` open, then cleared
 (by a count: `counted_qty`, `booked_delta`, `count_document_id`) or dismissed ("Not needed": `resolved_note`), with who and when. At most ONE
 open row per store and item: the database says so (UNIQUE (`channel_id`, `open_sku_id`), `open_sku_id` the item while the row is open: the
 pattern of 0004's open proposal per listing), and the only writer of open rows (the loader) reads each open row FOR UPDATE inside one
@@ -17348,3 +17348,31 @@ Tests, written first (red on 9e721e6 with 0066 held back: `runs/doubt_red.log`, 
 `tests/Integration/Counts/StockDoubtTest.php` (8), `Migration0066Test.php` (3), `DoubtLoadCliTest.php` (2),
 `tests/Integration/UiKernel/DoubtfulStockScreensTest.php` (7); `SectionsTest` and `HomeTasksTest` take the new entry and line; `WordsTest`
 covers DOUBT_WHY and DOUBT_STATE.
+
+### The Codex review of d5e9740 (`doubt_module_20261112/codex_round1.txt`): 1 HIGH, 3 MEDIUM, 1 LOW, all new, each shown failing first and fixed
+
+- **A count the engine leaves out cleared the row (HIGH).** Another count of the item with a later time, booked between this one's typing
+  and its posting, makes the engine leave this line out (`stale`: nothing booked, the record posted all the same: the engine's own rule,
+  OLD). The row was cleared with nothing booked and the line said "CW had the same". Now `count` refuses the whole answer unless the line was
+  `counted` with what it booked (409 `counted_later`: "counted again a moment ago, with a later time ... look at the shelf again and save"),
+  and the CHECK of a cleared row asks for `booked_delta` too.
+- **An older list took over a newer list's row (MEDIUM).** List A answered, list B opened the item again, A run again refreshed B's row into
+  A (and B run again after that opened it a third time). Every list a row was on is kept now (`batches`, a JSON list, 0066): a list on which
+  the item was answered skips it, and a list the open row was on before a newer one refreshed it skips it too (its old figures never come
+  back over the newer ones). A new list name still opens it again.
+- **The load and an answer could wait on each other (MEDIUM).** The load locked the open row through the unique (store, open item) index and
+  then the row, while an answer locks the row and then changes that index entry (its status). The load now finds the open row with no lock
+  and locks it by its id, as every answer does, then reads it again under the lock (answered meanwhile: it is no longer the open row).
+  The test pins it: every locking read of `stock_doubt` is `WHERE id = ? FOR UPDATE`.
+- **An answer that waited on the row went on after the person's job was taken away (MEDIUM).** Both answers now take the row first and
+  check who again after it (READ COMMITTED: the roles as they are then), as `CountSheets::lockDraft` does. Holding a lock on the person's own
+  row as well (Codex's stricter fix) is not done: no other service of CW does it; a job taken away after that check is as anywhere in CW.
+- **The store shown was lost after an answer and on Checked (LOW).** Every answer, page link and the filter now carry the store shown, also
+  when it was the default, and Checked opens on the same store as To check (the one with items to check first); the entry keeps `store` in
+  its Show.
+
+Tests, written first (red on d5e9740: `runs/doubt_fix1_red.log`, 6 tests, 6 failures): `StockDoubtTest` +4
+(`testACountTheEngineLeavesOutForALaterCountIsRefusedAndBooksNothing`, `testAnOlderListRunAgainNeverTakesOverARowAnsweredOrRefreshedSince`,
+`testTheLoadLocksAnOpenRowOnlyByItsIdAsTheAnswersDo`, `testAnAnswerChecksWhoAgainOnceItHoldsTheRow`), `Migration0066Test` (a cleared row with
+nothing booked), `DoubtfulStockScreensTest::testTheStoreShownStaysTheStoreAfterAnAnswerAndOnChecked`; green with the fixes
+(`runs/doubt_fix1_green.log`).

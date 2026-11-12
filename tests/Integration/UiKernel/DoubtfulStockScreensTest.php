@@ -306,6 +306,41 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
         self::assertSame([], MainButtons::problems($page->body), 'no main button repeated on every row');
     }
 
+    public function testTheStoreShownStaysTheStoreAfterAnAnswerAndOnChecked(): void
+    {
+        // Codex round 1, LOW 5: Vape and Go has only answered rows, Electrofag the open ones: the bare page shows Electrofag, but its answers and
+        // its Checked tab fell back to Vape and Go.
+        $old = $this->item('strict', 5, 'Old pod');
+        $this->load([[$old, 'differs', 4, 5, 1]]);
+        (new StockDoubt(self::$db))->dismiss(Caller::staff((int) $this->uiUser('stock_controller')['id']), self::openId($old), 'Checked last week');
+        $ef = (int) $this->site('electrofag')->channelId;
+        $pod = $this->item('strict', 7, 'Electrofag pod');
+        $this->load([[$pod, 'below_zero', 0, -1, 3]], $ef, 'ef_list');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $page = $web->get(self::PATH);
+        self::assertSame([$pod], array_column(self::rows($page), 'sku'));
+        self::assertStringNotContainsString('Old pod', $web->get(self::PATH . '/checked')->text(), 'Checked opens on the same store as the list');
+        $action = self::PATH . '/' . self::openId($pod) . '/count';
+        $form = $page->form($action);
+        self::assertSame('electrofag', $form['store'] ?? null, 'the answer says which store it came from');
+        $r = $web->post($action, ['qty' => '7'] + $form);
+        self::assertSame(303, $r->status, $r->describe());
+        parse_str((string) parse_url((string) $r->location(), PHP_URL_QUERY), $q);
+        self::assertSame('electrofag', $q['store'] ?? null);
+        $after = $web->follow($r);
+        self::assertStringContainsString(Words::DOUBT['none'], $after->text(), 'Electrofag has nothing left to check');
+        // Its Show leads to Checked of that store (the entry keeps `store`).
+        $link = (new \DOMXPath($after->dom()))->query('//a[contains(@class, "show-item")][normalize-space(.//span[@class="show-name"]) = "'
+            . Words::SEGMENT['doubtful_checked'] . '"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $link);
+        parse_str((string) parse_url($link->getAttribute('href'), PHP_URL_QUERY), $kept);
+        self::assertSame('electrofag', $kept['store'] ?? null);
+        $checked = $web->get(self::PATH . '/checked', ['store' => (string) $kept['store']]);
+        self::assertStringContainsString('Electrofag pod', $checked->text());
+        self::assertStringNotContainsString('Old pod', $checked->text());
+        self::assertStringContainsString('Old pod', $web->get(self::PATH . '/checked', ['store' => 'vapeandgo'])->text());
+    }
+
     public function testFiftyAPageWithPlainLinks(): void
     {
         $rows = [];

@@ -8,8 +8,8 @@
 <?= $head(\CW\Ui\Words::MENU['doubtful'], intro: 'doubtful', look: $lookOnly) ?>
 <form class="toolbar" method="get" action="/ui/stock/doubtful" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('DOUBT', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('DOUBT', 'find') ?>"></div>
-<?php if (count($stores) < 2 && $storeChosen !== null): ?>
-  <input type="hidden" name="store" value="<?= $e($storeChosen) ?>">
+<?php if (count($stores) < 2 && $storeCode !== null): ?>
+  <input type="hidden" name="store" value="<?= $e($storeCode) ?>">
 <?php endif; ?>
   <?= $showStart() ?>
   <div class="tb-state">

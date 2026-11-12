@@ -10,8 +10,9 @@
 --                 counts engine (a one-line count sheet, posted), and the row keeps what was counted, what it booked and the count's record;
 --      dismissed  "Not needed": nothing booked, with the person's note.
 --    At most ONE open row per store and item: the loader refreshes an open row (never a second one), and the database refuses a second
---    (UNIQUE on the store and `open_sku_id`, the item while the row is open: the pattern of 0004's open proposal per listing). Answered rows
---    are never removed (Grants::NO_DELETE, like the stores' queues).
+--    (UNIQUE on the store and `open_sku_id`, the item while the row is open: the pattern of 0004's open proposal per listing). Every list
+--    that put or refreshed a row is kept with it (`batches`): a list whose item was answered never opens it again, and an older list never
+--    puts its figures back over a newer one. Answered rows are never removed (Grants::NO_DELETE, like the stores' queues).
 --
 -- HOW IT IS APPLIED: one new table; nothing else is changed, no row is written. The code before this file never names it.
 
@@ -24,6 +25,7 @@ CREATE TABLE stock_doubt (
   cw_qty             INT               NOT NULL COMMENT 'CW''s figure when the list was made',
   sold_30d           INT               NULL COMMENT 'units sold in the 30 days before the list',
   batch              VARCHAR(64)       NOT NULL COMMENT 'the name of the list it came from (the last load that refreshed it)',
+  batches            JSON              NOT NULL DEFAULT (JSON_ARRAY()) COMMENT 'the names of every list that put or refreshed it (a list answered is never run on it again)',
   note               VARCHAR(500)      NULL COMMENT 'the list''s note',
   status             ENUM('open','cleared','dismissed') NOT NULL DEFAULT 'open',
   counted_qty        INT               NULL COMMENT 'cleared: the units counted on the shelf',
@@ -47,10 +49,11 @@ CREATE TABLE stock_doubt (
   CONSTRAINT fk_stock_doubt_document FOREIGN KEY (count_document_id) REFERENCES document (id),
   CONSTRAINT fk_stock_doubt_resolver FOREIGN KEY (resolved_by) REFERENCES staff_user (id),
   CONSTRAINT ck_stock_doubt_settled CHECK ((status = 'open') = (resolved_at IS NULL) AND (status = 'open') = (resolved_by IS NULL)),
-  CONSTRAINT ck_stock_doubt_cleared CHECK ((status = 'cleared' AND counted_qty IS NOT NULL AND count_document_id IS NOT NULL)
+  CONSTRAINT ck_stock_doubt_cleared CHECK ((status = 'cleared' AND counted_qty IS NOT NULL AND booked_delta IS NOT NULL AND count_document_id IS NOT NULL)
     OR (status <> 'cleared' AND counted_qty IS NULL AND booked_delta IS NULL AND count_document_id IS NULL)),
   CONSTRAINT ck_stock_doubt_counted CHECK (counted_qty IS NULL OR counted_qty >= 0),
   CONSTRAINT ck_stock_doubt_sold CHECK (sold_30d IS NULL OR sold_30d >= 0),
-  CONSTRAINT ck_stock_doubt_batch CHECK (CHAR_LENGTH(batch) >= 1)
+  CONSTRAINT ck_stock_doubt_batch CHECK (CHAR_LENGTH(batch) >= 1),
+  CONSTRAINT ck_stock_doubt_batches CHECK (JSON_TYPE(batches) = 'ARRAY')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='items whose stock figure is in doubt, to check on the shelf one by one (DS1): cleared by a count or dismissed, never removed';

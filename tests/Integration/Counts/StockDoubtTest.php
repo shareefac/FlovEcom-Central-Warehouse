@@ -7,6 +7,9 @@ namespace CW\Tests\Integration\Counts;
 use CW\Caller;
 use CW\Counts\CountSheets;
 use CW\Counts\StockDoubt;
+use CW\Db;
+use CW\Tests\Support\StatementHook;
+use CW\Tests\Support\TestDb;
 
 /**
  * Doubtful stock (0066; docs/decisions.md DS1-): the load (a dry run writes nothing; an open row is refreshed, never doubled; an unknown or
@@ -133,6 +136,84 @@ final class StockDoubtTest extends CountsTestCase
         self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM stock_doubt WHERE sku_id = ?', [$a]));
     }
 
+    public function testAnOlderListRunAgainNeverTakesOverARowAnsweredOrRefreshedSince(): void
+    {
+        // Codex round 1, MEDIUM 2: list A answered, list B opens the item again, A run again refreshed B's row into A (and B run again
+        // after that row was answered opened the item a third time).
+        $x = $this->item('strict', 5, 'Listed pod');
+        $at = fn (string $batch, int $cw = 12): array => $this->load([self::row($x, cw: $cw)], $batch)['counts'];
+        $at('list_a');
+        $this->doubt->count($this->counter, self::openId($x), 5);
+        self::assertSame(['add' => 1, 'refresh' => 0, 'same' => 0, 'skip' => 0], $at('list_b', 20));
+        $open = self::openId($x);
+        self::assertSame(['add' => 0, 'refresh' => 0, 'same' => 0, 'skip' => 1], $at('list_a'), 'A was answered: B\'s row is left alone');
+        self::assertSame(['list_b', 20], [self::doubtRow($open)['batch'], self::doubtRow($open)['cw_qty']]);
+        self::assertSame(['add' => 0, 'refresh' => 1, 'same' => 0, 'skip' => 0], $at('list_c', 30), 'a newer list refreshes it');
+        self::assertSame(['add' => 0, 'refresh' => 0, 'same' => 0, 'skip' => 1], $at('list_b', 20), 'an older list never puts its old figures back');
+        self::assertSame(['list_c', 30], [self::doubtRow($open)['batch'], self::doubtRow($open)['cw_qty']]);
+        self::assertSame(['add' => 0, 'refresh' => 0, 'same' => 1, 'skip' => 0], $at('list_c', 30));
+        $this->doubt->dismiss($this->counter, $open, 'Checked twice already');
+        foreach (['list_a', 'list_b', 'list_c'] as $batch) {
+            self::assertSame(['add' => 0, 'refresh' => 0, 'same' => 0, 'skip' => 1], $at($batch), "{$batch}: answered, every list it was on");
+        }
+        self::assertSame(['add' => 1, 'refresh' => 0, 'same' => 0, 'skip' => 0], $at('list_d'));
+        self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM stock_doubt WHERE sku_id = ?', [$x]));
+    }
+
+    public function testTheLoadLocksAnOpenRowOnlyByItsIdAsTheAnswersDo(): void
+    {
+        // Codex round 1, MEDIUM 3: the load locked an open row through the store's unique (store, open item) index and then its row, while
+        // an answer locks the row and then changes that index entry: the two could wait on each other. Every locking read of stock_doubt
+        // now goes by the row's id.
+        $a = $this->item('strict', 5, 'Locked pod');
+        $b = $this->item('strict', 5, 'Added pod');
+        $this->load([self::row($a)], 'list_1');
+        $seen = [];
+        $after = static function (string $sql) use (&$seen): void {
+            if (str_contains($sql, 'stock_doubt') && preg_match('/\bFOR\s+(UPDATE|SHARE)\b/i', $sql) === 1) {
+                $seen[] = $sql;
+            }
+        };
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [$after]]);
+        try {
+            $this->load([self::row($a, cw: 40), self::row($b, n: 2)], 'list_2');
+            $this->doubt->dismiss($this->counter, self::openId($b), 'Not this one');
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertNotSame([], $seen);
+        foreach ($seen as $sql) {
+            self::assertMatchesRegularExpression('/FROM stock_doubt WHERE id = \? FOR UPDATE$/', $sql);
+        }
+        self::assertSame(40, self::doubtRow(self::openId($a))['cw_qty']);
+    }
+
+    public function testAnAnswerChecksWhoAgainOnceItHoldsTheRow(): void
+    {
+        // Codex round 1, MEDIUM 4: an answer waiting on the row (a load holding it) went on after the person's job was taken away meanwhile.
+        $a = $this->item('strict', 5, 'Revoked pod');
+        $this->load([self::row($a)]);
+        $id = self::openId($a);
+        $who = $this->staffUser('warehouse');
+        $other = TestDb::connect();
+        $after = static function (string $sql) use ($other, $who): void {
+            if (str_contains($sql, 'FROM stock_doubt WHERE id = ? FOR UPDATE')) {
+                $other->exec('UPDATE staff_role SET revoked_at = UTC_TIMESTAMP(6) WHERE staff_user_id = ? AND revoked_at IS NULL', [$who->staffUserId]);
+            }
+        };
+        foreach ([fn () => $this->doubt->dismiss($who, $id, 'Not needed here'), fn () => $this->doubt->count($who, $id, 5)] as $i => $answer) {
+            self::$db->exec('UPDATE staff_role SET revoked_at = NULL WHERE staff_user_id = ?', [$who->staffUserId]);
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [$after]]);
+            try {
+                self::refused(403, 'role_not_allowed', $answer);
+            } finally {
+                self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+            }
+            self::assertSame('open', self::doubtRow($id)['status'], "answer {$i}: nothing done");
+        }
+        self::assertSame(0, self::cntDocs());
+    }
+
     // ------------------------------------------------------------------------------------------
     // Save count
     // ------------------------------------------------------------------------------------------
@@ -174,6 +255,26 @@ final class StockDoubtTest extends CountsTestCase
         $r = $this->doubt->count($this->counter, self::openId($other), 9);
         self::assertSame([9, 9, 0], [$r['counted'], $r['had'], $r['delta']]);
         self::assertSame(9, $this->onHand($other));
+    }
+
+    public function testACountTheEngineLeavesOutForALaterCountIsRefusedAndBooksNothing(): void
+    {
+        // Codex round 1, HIGH 1: another count of the item with a later time, booked between this one's typing and its posting: the engine
+        // leaves this line out (nothing booked) and the row was cleared all the same, "CW had the same".
+        $a = $this->item('strict', 10, 'Overtaken pod');
+        $this->load([self::row($a)]);
+        $id = self::openId($a);
+        $this->later('1 hour');
+        $this->book('count', $a, 12, 'MAIN', $this->now->format('Y-m-d\TH:i:s\Z'));
+        $this->now = $this->now->modify('-1 hour');
+        $e = self::refused(409, 'counted_later', fn () => $this->doubt->count($this->counter, $id, 7));
+        self::assertStringContainsString('later', $e->getMessage());
+        self::assertSame('open', self::doubtRow($id)['status'], 'the row stays to check');
+        self::assertSame(0, self::cntDocs(), 'no record kept');
+        self::assertSame(12, $this->onHand($a), 'the later count stands');
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM idempotency WHERE idem_key = ?", [StockDoubt::KEY . $id]), 'nothing kept: it may be saved again');
+        $this->later('2 hours');
+        self::assertSame([7, 12, -5], array_values(array_intersect_key($this->doubt->count($this->counter, $id, 7), array_flip(['counted', 'had', 'delta']))));
     }
 
     public function testASecondClickReplaysTheFirstAnswerAndAClearedRowRefusesAnother(): void
