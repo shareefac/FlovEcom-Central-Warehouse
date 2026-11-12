@@ -122,6 +122,9 @@ final class WordsTest extends TestCase
             // 0058 (docs/decisions.md SC9): why a store's choice waits for a person (and the two refusals it names), how one ended
             'NEW_PRODUCT_WHY' => [...\CW\Mapping\StoreChoices::OUTCOMES_CHECK, 'no_such_item', 'no_name'],
             'NEW_PRODUCT_DONE' => \CW\Mapping\StoreChoices::OUTCOMES_DONE,
+            // 0066 (docs/decisions.md DS1): why an item is doubtful, where it stands
+            'DOUBT_WHY' => \CW\Counts\StockDoubt::REASONS,
+            'DOUBT_STATE' => \CW\Counts\StockDoubt::STATUSES,
         ];
     }
 

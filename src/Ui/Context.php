@@ -359,6 +359,8 @@ final class Context
             // Stock > Counts > Differences (pack A2a): the open count differences this person may clear (not their own while a second
             // person is asked for).
             $out['counts_open'] = $this->countReviews()->openCount($this->who->id, $this->who->roles);
+            // Inventory › Doubtful stock (0066; docs/decisions.md DS1): the items of every store still to check on the shelf, for the people who count.
+            $out['stock_doubt'] = (new \CW\Counts\StockDoubt($this->db))->openCount();
         }
         // --- Pack C: the posted invoices whose 3-way match needs a person, for the people who post or accept invoices.
         if ($this->who !== null && ($this->who->can('doc.SINV.post') || $this->who->can('invoices.accept'))) {

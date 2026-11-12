@@ -17265,3 +17265,86 @@ Tests, written first: `AdjustOpensOnTest` +3 (`testARefusedFormKeepsNoReasonChos
 `testAKeyWrittenInOtherLettersIsNoSetting`, `testTwoReasonsOfOneNameAreToldApartInTheHistoryByTheirCodes`), red on ca9de9e
 (`runs/aor_fix1_red.php.log`: 10 tests, 3 failures), green with the fixes (`runs/aor_fix1_green.php.log`: 12 tests with `Migration0065Test`,
 225 assertions).
+
+## Doubtful stock: the items to check on the shelf, one at a time (branch `stock-doubt`, 12 Nov 2026; DS1-DS9; migration 0066)
+
+The owner, 12 Nov 2026 ~05:45 UK (CW chat): "create a module in central warehouse for doubt and clear ... only there need doubted product only".
+Today CW listens to the Vape and Go shop; from 13 Nov ~06:00 UK it writes the shop's stock. Some items have a doubtful figure (CW and the shop
+differ, or CW holds them below zero: 239 on 12 Nov, `/root/cw_work/switch_20261113/doubt_list_12nov.csv`). Staff check each on the shelf and
+clear it on a page that shows ONLY those items. Not in this build: finding doubtful items by itself, any shop or ERPNext change, the two draft
+count sheets opened on production for the same items (2630, 2631: left as they are).
+
+**DS1. One table, one open row per store and item.** `stock_doubt` (0066): the store, the item, why (`differs`, `below_zero`, `other`), the
+shop's and CW's figures and the units sold in 30 days as the list gave them, the list's name (`batch`) and note; `status` open, then cleared
+(by a count: `counted_qty`, `booked_delta`, `count_document_id`) or dismissed ("Not needed": `resolved_note`), with who and when. At most ONE
+open row per store and item: the database says so (UNIQUE (`channel_id`, `open_sku_id`), `open_sku_id` the item while the row is open: the
+pattern of 0004's open proposal per listing), and the only writer of open rows (the loader) reads each open row FOR UPDATE inside one
+transaction, under its job's lock (`Cli::tryLock`, one run per schema). CHECKs: answered rows name who and when, open ones neither; a cleared
+row has its count and record, any other row none of them. Rows are never removed (`Grants::NO_DELETE`, like the stores' queues). The answer's
+note is a column of its own (`resolved_note`), so "Not needed" never overwrites the list's note (the brief names one `note`: two are kept).
+
+**DS2. The load (`bin/doubt_load.php`, `StockDoubt::readFile`, `plan`, `load`).** A CSV with the columns `cw_code, shop_qty, cw_qty, reason,
+sold_30d, note` (others ignored; CW's `CsvReader`: comma, semicolon or tab, a BOM, Excel's Windows-1252; at most 2,000 rows). Every row is
+checked before anything is written: a CW number, whole numbers (shop_qty and sold_30d may be empty; sold_30d not below 0), a reason of the
+three, a note of at most 500 characters; an item twice, an item CW does not have, or one merged into another refuses the WHOLE list (exit 1,
+the row named, nothing written). Dry run by default (one line per row: add, refresh, same or skip, then the counts); `--apply` writes all of it
+in ONE transaction with one audit row `stock_doubt.load` (the list's name, the file's name and sha256, the counts). An item already open is
+refreshed in place (figures, why, list name, note), never doubled. An item answered in the SAME list is not opened again (`skip`), so a list run
+twice is safe; a list of another name opens it again. The command line is read whole (`Cli::main` strict: a misspelt option, a value on
+`--apply`: exit 2 before anything is read). It runs as the app login (no `--admin`): its rights on the table come from the grants.
+
+**DS3. "Save count" books ONE count of that ONE item through the counts engine.** `StockDoubt::count`: under the key `doubt:<id>`
+(`Idempotency::run`, one transaction): the person may count (`CountSheets::mayCount`: doc.CNT.post, never admin; before and again inside), the
+row locked and open, the store's selling warehouse (`channel_warehouse.is_sellable`; none: 409 `no_selling_warehouse`), then CountSheets as a
+person would: `open` a one-line sheet at that warehouse with the note "Doubtful stock #<id>", `setQuantities` line 1, `post` it (the count
+record CNT, its ledger row, the tolerance check and the record's review as the rules say, like any shelf count), then the row is cleared with
+what was counted, what the count line booked (`count_sheet_line.booked_delta`) and the record. A count posts at once (`approvalUnits` is 0); a
+record that came back not posted would be a bug, and refuses the whole answer. A second press of the same number (a double click, a resend,
+another person typing the same) replays the first answer: nothing more is booked. Any other answer for a row no longer open is refused: a
+different number finds the key kept with another request (`idempotency_key_reused`), which is said as 409 `doubt_settled` (the key is only
+ever kept by a count that cleared the row); "Not needed" on a cleared row and a count on a dismissed one find the row not open (409). Any
+refusal keeps nothing: the row stays open and the same key may try again. "Not needed" pressed twice (the same person, the same note: a
+double click, a resend) is its first answer and changes nothing more, so the person never reads "someone already checked it" about their own
+answer; another person or another note on a dismissed row is refused (409).
+
+**DS4. The moment it was counted is the moment it is saved.** The page has no script (the brief: plain forms), so it cannot send the moment the
+box was filled in as a count sheet's page does (CountsController `at_<line>`, review M-7). A sale dispatched between the look at the shelf and
+the press is therefore not taken off the count: the same as a count sheet's Enter without the script. Staff type the number and save it at
+the shelf (the page works on a phone).
+
+**DS5. What may be typed in "On the shelf".** A whole number of units from 0 to `CountSheets::MAX_QTY`, else 422 `bad_quantity`, said under
+the box with what was typed kept in it (`aria-invalid`, `aria-describedby`), nothing booked. Nine digits or more, or 4 to 8 digits that are a
+barcode CW knows, is refused as a barcode (422 `barcode_in_quantity`: the count sheet's own guard, review M-5, `CountsController::barcodeIn`,
+now public), checked before the range so a scanned EAN-8 is named as a barcode. A count that happens to equal a known 4-8 digit barcode is
+refused the same way as on a count sheet (enter it on a count sheet or an adjustment then).
+
+**DS6. "CW now" is on hand at the store's selling warehouse.** The figure a shelf count sets (stock_balance.on_hand of the warehouse the store
+sells from), 0 where it has no balance yet. The list's own figures stay as "Shop figure" (when the list was made). The line after a count
+says "Counted 42 of CW-000123. CW had 40: booked +2." from the count line's own figures (what CW held just before, what it booked); no
+difference: "CW had the same: nothing changed."
+
+**DS7. The page: Inventory › Doubtful stock.** A sidebar entry after Stock counts with two Show choices, To check and Checked (`keep`: the
+store). Everyone who reads records looks (documents.view, as Stock counts); the people who count answer (doc.CNT.post, the POST routes); a
+person who may not count sees the list and no forms. To check: the store asked for, else the one that has open rows, else one with any; a
+choice of store only when two or more have rows. The order (`StockDoubt::order`, pure): CW and the shop differ first, biggest difference first
+(a shop figure not known after every known one); then CW below zero, most sold in 30 days first; then the rest; oldest first within. 50 a page
+with plain Previous / Next links; the store's open rows are read whole and ordered in PHP (a list holds at most 2,000 rows). A search (CW
+number or name, its own % and _ as letters) and the filter by why, in the toolbar and its Show. Per row ONE plain form: "On the shelf" and
+"Save count" (a plain button: a main button on every row is not the pattern), and under More "Not needed" with its note (QueueRules::note: 3 to
+500 characters). Each form carries the list's store, why, search and page back, so the answer comes back to the list as it was. A phone
+gets one card per item (CW's `.stack`); the answer cell spans the card. Checked: newest answer first, who, when, what was on the shelf, what
+it changed and its count record, or why it was not needed.
+
+**DS8. Who sees how many.** The badge `stock_doubt` (every store's open rows) for the people who count (Documents::mayPost CNT, as
+`counts_open`), on the entry and the Inventory section; Home's "Waiting for you" has the line "Doubtful stock" with "N to check" for the same
+people (`HomeTasks` fact `doubt`, rank 69: a wrong figure goes to the shop and its customers; the badge's count, so the two agree), none when
+nothing is open. The owner (Matching lead, Reviewer) does not count, so he has no line; his sidebar shows the entry without a count.
+
+**DS9. Undo.** The release before this one; the table can stay (the code before it never names it). Rows already cleared stay cleared: each
+count is an ordinary count record (Stock > Counts > Count sheets), cancelled there as a whole if it must be put back.
+
+Tests, written first (red on 9e721e6 with 0066 held back: `runs/doubt_red.log`, 51 tests, 24 errors, 11 failures):
+`tests/Unit/StockDoubtUnitTest.php` (5: the list, its refusals by row and column, the list's name, the order, the box),
+`tests/Integration/Counts/StockDoubtTest.php` (8), `Migration0066Test.php` (3), `DoubtLoadCliTest.php` (2),
+`tests/Integration/UiKernel/DoubtfulStockScreensTest.php` (7); `SectionsTest` and `HomeTasksTest` take the new entry and line; `WordsTest`
+covers DOUBT_WHY and DOUBT_STATE.

@@ -107,7 +107,7 @@ final class ItemManagementUnitTest extends TestCase
         // opening the one-page form), Item groups, Multipacks, Barcodes; Repack is an Inventory entry.
         self::assertSame(['cards', 'families', 'multipacks', 'barcodes'], array_keys(Sections::MAP['items']['tabs']));
         self::assertSame(['cards', 'by_hand'], array_column(Sections::MAP['items']['tabs']['cards']['pages'], 'key'));
-        self::assertSame('repack', array_keys(Sections::MAP['inventory']['tabs'])[4]);
+        self::assertSame('repack', array_keys(Sections::MAP['inventory']['tabs'])[5], 'after Stock counts and Doubtful stock (docs/decisions.md DS7)');
         self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/new'));
         self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'cards'], Sections::locate('/ui/items/new/12/check'));
         self::assertSame(['section' => 'items', 'tab' => 'cards', 'page' => 'by_hand'], Sections::locate('/ui/items/new', ['show' => 'all']));

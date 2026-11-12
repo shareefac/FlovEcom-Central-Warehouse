@@ -1488,3 +1488,24 @@ migration, with its baseline), `'<key>' => ['reason_use' => '<use>']`, its words
   (`reason_code`, `app_setting` are kept by `TestDb::clean`) and put them back themselves. The script in node:
   `/root/cw_work/runs/aor_js_harness/` (`run_aj.js` sections 29 and 30; with `run_kg.js` and `run_gw.js`; `runs/aor_js.sh` copies them in as
   `tools/aor_js/` and removes them; `runs/aor_full.sh <tag>` runs everything).
+
+### Doubtful stock (`docs/decisions.md` DS1-DS9; branch `stock-doubt`; migration 0066; 12 Nov 2026)
+
+Inventory › Doubtful stock: the items of a store whose stock figure is in doubt, loaded from a list, checked on the shelf one at a time. "Save
+count" books a one-line count sheet through `CountSheets` (open, setQuantities, post) in the same transaction as the row's answer, under the
+key `doubt:<id>`.
+
+| Path | What |
+|---|---|
+| `migrations/0066_stock_doubt.sql` | `stock_doubt`; UNIQUE (`channel_id`, `open_sku_id`): one open row per store and item; CHECKs of an answered and a cleared row |
+| `src/Counts/StockDoubt.php` | `readFile` (the list's six columns), `batch`, `order`, `quantity` (pure); `plan` / `load` (the loader); `count` ("Save count"), `dismiss` ("Not needed"); `open`, `checked`, `stores`, `openCount`, `answered` (the page) |
+| `bin/doubt_load.php` | `--store --csv --batch [--apply]`: a dry run by default; exit 1 when the list is refused (nothing written) |
+| `src/Ui/Controller/DoubtController.php` | `index` (To check: store, why, search, 50 a page, the line after an answer), `checked`, `count` (the barcode guard, then the range), `dismiss`; each form carries `store`, `why`, `q`, `page` back |
+| `src/Ui/views/stock_doubt.php`, `stock_doubt_checked.php` | the board (`table.stack.board.doubt-list`, `doubt-checked`); per row one plain form and More › Not needed |
+| `src/Ui/Sections.php`, `Context.php` | the entry `doubtful` (pages `doubtful`, `doubtful_checked`; keep `store`), the badge `stock_doubt` (who may post CNT) |
+| `src/Ui/HomeTasks.php`, `HomeCounts.php` | the fact and line `doubt` (doc.CNT.post; rank 69; group inventory) |
+| `src/Ui/Words.php` | `DOUBT`, `DOUBT_WHY`, `DOUBT_STATE`, `DOUBT_NOTICE`, `DOUBT_ERROR`; MENU / SEGMENT / MENU_HELP / BADGE / PAGE_INTRO / TASK / AUDIT_ACTION entries |
+| `src/Schema/Grants.php` | `stock_doubt` in `NO_DELETE` |
+
+- Tests: `tests/Unit/StockDoubtUnitTest.php`, `tests/Integration/Counts/StockDoubtTest.php`, `Migration0066Test.php`, `DoubtLoadCliTest.php`,
+  `tests/Integration/UiKernel/DoubtfulStockScreensTest.php`. Runner: `/root/cw_work/runs/doubt_run.sh`, `doubt_full.sh <tag>`.

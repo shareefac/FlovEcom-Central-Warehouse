@@ -2616,6 +2616,33 @@ Settings › Users first (an admin never counts).
 ago, the sheet changed in another tab, too many count times). If the nightly check reports a `count sheet` line or a put back after a
 later count (C1–C6), tell Fazil: it is not fixed from a screen.
 
+## Inventory › Doubtful stock (0066; `docs/decisions.md` DS1–DS9)
+
+**Deploy.** It goes out with its code and ONE migration, `0066_stock_doubt.sql` (`install_cron.sh --migrate`): one new table, nothing else
+changed, no row written (the migrator grants `cw_app` select, insert and update on it, never delete). No job, no timer, no setting.
+
+**Loading a list (the owner's team, after the deploy).** The list is a CSV with the columns `cw_code, shop_qty, cw_qty, reason, sold_30d,
+note` (others are ignored; `reason` is `differs`, `below_zero` or `other`). A dry run first, then the same with `--apply`:
+
+```
+cd /opt/cw-prod && php bin/doubt_load.php --db=cw_prod --store=vapeandgo --csv=/root/doubt_load_12nov.csv --batch=doubt_12nov            # dry run
+cd /opt/cw-prod && php bin/doubt_load.php --db=cw_prod --store=vapeandgo --csv=/root/doubt_load_12nov.csv --batch=doubt_12nov --apply    # writes
+```
+
+One bad row, an item twice, an unknown or merged item: the whole list is refused (exit 1), the row named, nothing written. An item already
+open is refreshed, never doubled; the same list run again opens nothing already checked; a list of another `--batch` name opens it again.
+
+**What staff see and do.** Inventory › Doubtful stock: only the items to check, of one store, CW and the shop differ first (biggest difference
+first), then CW below zero (best sellers first). Type the number on the shelf in "On the shelf" and press "Save count": it is booked at once
+as a shelf count of that item at the store's selling warehouse (a one-line count sheet, "Doubtful stock #<id>", on Stock › Counts › Count
+sheets), and the line says what it changed. "More › Not needed" with a note books nothing. "Checked" shows who, when, counted and booked.
+Who may answer: whoever may make stock counts final (Stock controller, Warehouse); everyone who reads records can look. A count is a real
+count: the T0 rebase of a store (above) skips an item counted, as for any shelf count.
+
+**If something looks wrong.** A count is undone like any count sheet: Stock › Counts › Count sheets, the sheet "Doubtful stock #<id>",
+cancel it as a whole (its row on Doubtful stock stays checked: load the item again in a new list to check it again). Undo of the release:
+the release before; the table can stay.
+
 ## Going live, the CW side: the stores' queues, the relay, alerts, clean-up (pack F; `docs/decisions.md` PF1–PF14)
 
 **Deploy.** With its code and ONE migration, `0036_golive_queues_alerts.sql` (`install_cron.sh --migrate`): three new tables

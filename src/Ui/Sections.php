@@ -114,6 +114,14 @@ final class Sections
                 ['key' => 'count_differences', 'perm' => 'documents.view', 'path' => '/ui/stock/counts/differences', 'match' => ['/ui/stock/counts/differences*'],
                     'badge' => 'counts_open'],
             ]],
+            // Doubtful stock (0066; docs/decisions.md DS1): the items of a store whose stock figure is in doubt, checked on the shelf one at a time,
+            // and the ones checked. The people who read records look; the people who count answer (doc.CNT.post, the POST routes). The store
+            // chosen travels between the two (`keep`).
+            'doubtful' => ['keep' => ['store'], 'pages' => [
+                ['key' => 'doubtful', 'perm' => 'documents.view', 'path' => '/ui/stock/doubtful', 'match' => ['/ui/stock/doubtful', '/ui/stock/doubtful/{id}*'],
+                    'badge' => 'stock_doubt'],
+                ['key' => 'doubtful_checked', 'perm' => 'documents.view', 'path' => '/ui/stock/doubtful/checked', 'match' => ['/ui/stock/doubtful/checked*']],
+            ]],
             // Pack B (PB9): a Repack breaks packs into singles or makes packs; documents.view reads, doc.RPK.post books.
             'repack' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/repack', 'match' => ['/ui/stock/repack*'],
                 'new' => ['perm' => 'doc.RPK.post', 'href' => '/ui/stock/repack#new', 'label' => 'repack']]]],

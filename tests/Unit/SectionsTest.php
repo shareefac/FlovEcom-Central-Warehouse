@@ -107,7 +107,7 @@ final class SectionsTest extends TestCase
             }
         }
         self::assertSame(['approvals_inbox', 'reviews_open', 'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing', 'queue_new_products',
-            'barcodes_open', 'adjustments_open', 'stock_in_open', 'stock_out_open', 'releases_open', 'transfers_open', 'counts_open', 'incidents_open', 'arrivals_late',
+            'barcodes_open', 'adjustments_open', 'stock_in_open', 'stock_out_open', 'releases_open', 'transfers_open', 'counts_open', 'stock_doubt', 'incidents_open', 'arrivals_late',
             'invoices_to_match', 'invoices_timed_failed', 'linking_pending', 'linking_duplicates'], Sections::badgeNames());
     }
 
@@ -161,6 +161,10 @@ final class SectionsTest extends TestCase
             ['/ui/stock/counts', [], 'inventory', 'counts', 'counts'],
             ['/ui/stock/counts/12', [], 'inventory', 'counts', 'count_sheets'],
             ['/ui/stock/counts/differences', [], 'inventory', 'counts', 'count_differences'],
+            // Doubtful stock (docs/decisions.md DS1-): the items to check, and the ones checked; an answer sent back with a refusal stays there.
+            ['/ui/stock/doubtful', [], 'inventory', 'doubtful', 'doubtful'],
+            ['/ui/stock/doubtful/12/count', [], 'inventory', 'doubtful', 'doubtful'],
+            ['/ui/stock/doubtful/checked', [], 'inventory', 'doubtful', 'doubtful_checked'],
             ['/ui/stock/repack/12/post', [], 'inventory', 'repack', 'repack'],
             ['/ui/stock/reservations', ['channel' => 'vapeandgo', 'state' => 'held'], 'inventory', 'reservations', 'reservations'],
             ['/ui/stock/reservations/12', [], 'inventory', 'reservations', 'reservations'],
@@ -260,7 +264,7 @@ final class SectionsTest extends TestCase
         self::assertSame(['Suppliers', 'Purchase orders', 'Goods received', 'Purchase returns'], $entries(['goods_in'], 'purchases'), 'returns, not invoices (money)');
         self::assertSame(['Items', 'Item groups', 'Multipacks'], $entries(['buyer'], 'items'), 'no barcodes to decide for a buyer');
         self::assertSame(['Items', 'Item groups', 'Multipacks', 'Barcodes'], $entries(['stock_controller'], 'items'));
-        self::assertSame(['Stock on hand', 'Adjustments', 'Transfers', 'Stock counts', 'Repack', 'Reserved stock', 'Stock history'], $entries(['buyer'], 'inventory'));
+        self::assertSame(['Stock on hand', 'Adjustments', 'Transfers', 'Stock counts', 'Doubtful stock', 'Repack', 'Reserved stock', 'Stock history'], $entries(['buyer'], 'inventory'));
         self::assertSame(['Stock on hand', 'Reserved stock', 'Stock history'], $entries(['viewer'], 'inventory'), 'everyone who sees a product\'s stock');
         self::assertSame(['Sales orders', 'Shipments', 'Sales returns', 'Trade sales', 'Customers'], $entries(['warehouse'], 'sales'));
         self::assertSame(['Sales orders', 'Shipments', 'Sales returns'], $entries(['viewer'], 'sales'), 'the trade sales are records (documents.view)');
@@ -319,7 +323,7 @@ final class SectionsTest extends TestCase
             return $out;
         };
         self::assertSame(['Items' => ['Items*', 'Item groups', 'Multipacks', 'Barcodes']], $tree($owner, '/ui/items/12'));
-        self::assertSame(['Inventory' => ['Stock on hand', 'Adjustments*', 'Transfers', 'Stock counts', 'Repack', 'Reserved stock', 'Stock history']],
+        self::assertSame(['Inventory' => ['Stock on hand', 'Adjustments*', 'Transfers', 'Stock counts', 'Doubtful stock', 'Repack', 'Reserved stock', 'Stock history']],
             $tree($owner, '/ui/stock/releases/12'), 'a release is an Adjustments page (RD4)');
         self::assertSame(['Purchases' => ['Suppliers', 'Purchase orders', 'Goods received*', 'Purchase invoices', 'Purchase returns', 'Reorder']],
             $tree($owner, '/ui/receiving/duty'));
@@ -363,7 +367,7 @@ final class SectionsTest extends TestCase
         self::assertSame([3, 3, 6], [$f['phone'][1]['count'], $f['phone'][2]['count'], $f['phone'][3]['count']],
             'Receive: Goods received\'s; Count: the differences; Approvals: the inbox');
         $sub = array_column(Sections::frame(['stock_controller'], $badges, '/ui/stock/in')['nav'], 'subs', 'key')['inventory'];
-        self::assertSame([0, 5, 0, 3, 0, 0, 0], array_column($sub, 'count'), 'an entry counts its pages');
+        self::assertSame([0, 5, 0, 3, 0, 0, 0, 0], array_column($sub, 'count'), 'an entry counts its pages');
 
         // The bell: Approvals › Waiting for you and its count, for the people who answer there; nobody else has one.
         self::assertSame(['href' => '/ui/approvals', 'query' => [], 'count' => 6, 'countWords' => Words::BADGE['approvals_inbox']],
@@ -385,6 +389,7 @@ final class SectionsTest extends TestCase
         self::assertSame(['All kinds', 'Corrections', 'Stock in*', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in')));
         self::assertSame(['All kinds', 'Corrections', 'Stock in+', 'Stock out', 'Releases'], $show(Sections::frame(['buyer'], [], '/ui/stock/in/12')), 'a record: its page current, no "here"');
         self::assertSame(['Items to count', 'Count sheets*', 'Differences'], $show(Sections::frame(['buyer'], [], '/ui/stock/counts/sheets')));
+        self::assertSame(['To check*', 'Checked'], $show(Sections::frame(['buyer'], [], '/ui/stock/doubtful')));
         self::assertSame(['Transfers', 'Balance owed*'], $show(Sections::frame(['buyer'], [], '/ui/stock/accounts')));
         self::assertSame(['All items*', 'Made by hand'], $show(Sections::frame(['stock_controller'], [], '/ui/items/cards')));
         self::assertSame(['All items', 'Made by hand*'], $show(Sections::frame(['stock_controller'], [], '/ui/items/new', ['show' => 'waiting'])));

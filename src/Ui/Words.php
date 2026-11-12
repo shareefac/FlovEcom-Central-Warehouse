@@ -47,6 +47,8 @@ final class Words
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'COUNTS', 'COUNT_GROUP', 'COUNT_SHEET_GROUP', 'COUNT_KIND', 'COUNT_REVIEW', 'COUNT_REVIEW_HELP', 'COUNT_SHOW', 'COUNT_LINE', 'COUNT_CHECK', 'COUNT_BAD',
         'COUNT_NOTICE', 'COUNT_ERROR',
+        // Doubtful stock (0066, docs/decisions.md DS1)
+        'DOUBT', 'DOUBT_WHY', 'DOUBT_STATE', 'DOUBT_NOTICE', 'DOUBT_ERROR',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME', 'CHECK',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW', 'SIMPLE_MATCH',
@@ -242,6 +244,7 @@ final class Words
         'transfers' => 'Transfers',
         'adjustments' => 'Adjustments',
         'counts' => 'Stock counts',
+        'doubtful' => 'Doubtful stock', // 0066 (docs/decisions.md DS1)
         'reservations' => 'Reserved stock',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
@@ -316,6 +319,9 @@ final class Words
         'counts' => 'Items to count',
         'count_sheets' => 'Count sheets',
         'count_differences' => 'Differences',
+        // Inventory › Doubtful stock (0066, docs/decisions.md DS1)
+        'doubtful' => 'To check',
+        'doubtful_checked' => 'Checked',
         'transfers' => 'Transfers',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
@@ -412,6 +418,7 @@ final class Words
         'transfers' => 'Stock moved between warehouses or places, and what we owe another account.',
         'adjustments' => 'Every change of the stock figure outside a sale or a delivery: corrections, stock in, stock out, releases.',
         'counts' => 'Count the shelves: what to count next, the count sheets, and the count differences to check.',
+        'doubtful' => 'Items whose stock figure is in doubt: check each one on the shelf and clear it.',
         'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
         // Pack D (docs/decisions.md PD1): the three tabs of Sales (HV3)
         'sales_orders' => 'Every order of each store, newest first, with what became of it.',
@@ -470,6 +477,7 @@ final class Words
         'releases_open' => 'releases waiting for your check or OK',
         'adjustments_open' => 'adjustments waiting for your check or OK',
         'counts_open' => 'count differences waiting for your answer',
+        'stock_doubt' => 'doubtful items to check on the shelf', // 0066 (DS1)
         // A sidebar section's count: everything in it that waits for this person.
         'section' => 'waiting for you',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
@@ -663,6 +671,10 @@ final class Words
         'count_sheet_open' => ['An open sheet of a shelf count: nothing is booked until you make it final.',
             'Scan or find each item, enter how many are on the shelf and press Enter, then "Save and review".'],
         'count_sheet' => ['One shelf count record: what was found on the shelf, what it booked, and what became of each difference.', ''],
+        // Inventory › Doubtful stock (0066, docs/decisions.md DS1)
+        'doubtful' => ['Items whose stock figure is in doubt, one store at a time: the shop and CW differ, or CW holds them below zero.',
+            'Look on the shelf, type how many are there and save: it is booked as a shelf count.'],
+        'doubtful_checked' => ['The doubtful items already checked: who, when, what was on the shelf and what it changed.', ''],
         'count_before' => ['What making this sheet final would do, the biggest difference first.', 'Answer the marked lines, then make it final.'],
         'reservations' => ['The stock CW keeps for each order of a store until it is sent, freed or runs out of time, newest first.',
             'Choose a store or a state, or search for a store\'s order reference, a product name or a CW number. You can only look: the stores and CW change these.'],
@@ -2237,6 +2249,83 @@ final class Words
     ];
 
     /** The balance owed's refusals, by the service's code. */
+    /**
+     * Inventory › Doubtful stock (0066; docs/decisions.md DS1-): the page of the items of a store whose stock figure is in doubt, checked on
+     * the shelf one at a time ("Save count" books it as a shelf count of that one item; "Not needed" books nothing).
+     */
+    public const DOUBT = [
+        'store' => 'Store',
+        'why' => 'Why',
+        'all' => 'Every reason',
+        'find' => 'Find an item: CW number or name',
+        'col_item' => 'Item',
+        'col_shop' => 'Shop figure',
+        'col_cw' => 'CW now',
+        'col_why' => 'Why',
+        'col_sold' => 'Sold in 30 days',
+        'col_answer' => 'Check',
+        'on_shelf' => 'On the shelf',
+        'save' => 'Save count',
+        'not_needed' => 'Not needed',
+        'note' => 'Why it is not needed',
+        'list_note' => 'Note: %s',
+        'none' => 'Nothing to check',
+        'none_text' => 'Every doubtful item of this store has been checked.',
+        'none_found' => 'No item to check matches this.',
+        'none_found_text' => 'Clear the search or choose every reason.',
+        'show_all' => 'Show every item to check',
+        'checked_none' => 'Nothing checked yet',
+        'checked_none_text' => 'Items appear here once they are checked on the shelf or marked not needed.',
+        'col_answered' => 'Answer',
+        'col_counted' => 'On the shelf',
+        'col_booked' => 'Changed by',
+        'col_who' => 'Who',
+        'col_when' => 'When',
+        'record' => 'Record %s',
+        'shown' => 'Items %s to %s of %s',
+        'next' => 'Next page',
+        'prev' => 'Previous page',
+    ];
+
+    /** Why an item is on the Doubtful stock list (stock_doubt.reason). */
+    public const DOUBT_WHY = [
+        'differs' => 'CW and the shop differ',
+        'below_zero' => 'CW below zero',
+        'other' => 'Other',
+    ];
+
+    /** Where a doubtful item stands (stock_doubt.status). */
+    public const DOUBT_STATE = [
+        'open' => 'To check',
+        'cleared' => 'Checked on the shelf',
+        'dismissed' => 'Not needed',
+    ];
+
+    /** The line after an answer on Doubtful stock. */
+    public const DOUBT_NOTICE = [
+        'counted' => 'Counted %s of %s. CW had %s: booked %s.',
+        'counted_same' => 'Counted %s of %s. CW had the same: nothing changed.',
+        'dismissed' => '%s marked not needed. Nothing was booked.',
+    ];
+
+    /** Doubtful stock's refusals, by code: each says that nothing was booked or saved. */
+    public const DOUBT_ERROR = [
+        'bad_quantity' => 'Type the number of units on the shelf: a whole number, 0 or more. Nothing was booked.',
+        'barcode_in_quantity' => 'That is a barcode, not a number of units. Nothing was booked. Type how many are on the shelf.',
+        'note_required' => 'Say in 3 to 500 characters why it is not needed. Nothing was saved.',
+        'doubt_settled' => 'Someone already checked this item. Nothing more was booked.',
+        'unknown_doubt' => 'There is no such item to check. Nothing was booked. Reload the page.',
+        'no_selling_warehouse' => 'This store sells from no warehouse, so the shelf figure has nowhere to go. Nothing was booked.',
+        'merged_item' => 'This item was joined into another one. Nothing was booked. Mark it not needed and check the other item.',
+        'unknown_sku' => 'This item does not exist any more. Nothing was booked. Mark it not needed.',
+        'moved_since' => 'Stock of this item moved while you saved. Nothing was booked. Save again.',
+        'moved_meanwhile' => 'Stock of this item moved while you saved. Nothing was booked. Save again.',
+        'idempotency_key_busy' => 'This item is being saved in another window. Nothing more was booked. Look again in a moment.',
+        'role_not_allowed' => 'Your jobs cannot check stock on the shelf. Nothing was booked.',
+        'admin_cannot_post' => 'Admin cannot check stock on the shelf. Nothing was booked.',
+        'staff_required' => 'Only a person can check stock on the shelf. Nothing was booked.',
+    ];
+
     public const ACCOUNT_ERROR = [
         'bad_amount' => 'The amount is in pounds above 0, like 1250.00. Nothing was saved.',
         'bad_date' => 'The date it was paid is a day up to today. Nothing was saved.',
@@ -3242,6 +3331,12 @@ final class Words
             'title' => 'Barcodes to check',
             'unit' => ['to check', 'to check'],
             'line' => 'The computer could not place them: you decide',
+            'button' => 'Open the list',
+        ],
+        'doubt' => [ // 0066 (docs/decisions.md DS1)
+            'title' => 'Doubtful stock',
+            'unit' => ['to check', 'to check'],
+            'line' => 'Check each item on the shelf and save what is there',
             'button' => 'Open the list',
         ],
         'stock_drafts' => [
@@ -10316,6 +10411,11 @@ final class Words
         'policy_review.dismiss' => 'ERPNext selling-mode change closed',
         'oversell_event.handle' => 'Oversold order handled',
         'oversell_event.note' => 'Note added to an oversold order',
+        // Doubtful stock (0066, docs/decisions.md DS1)
+        'stock_doubt.load' => 'Doubtful stock list loaded',
+        'stock_doubt.count' => 'Doubtful item saved from the shelf',
+        'stock_doubt.clear' => 'Doubtful item checked and booked',
+        'stock_doubt.dismiss' => 'Doubtful item marked not needed',
         // Pack H (0038).
         'handover.create' => 'Hand-over started',
         'handover.header' => 'Hand-over\'s details changed',
@@ -13150,6 +13250,8 @@ final class Words
         'CREDIT_STATE' => ['open' => 'needs', 'part' => 'waiting', 'credited' => 'done'],
         // Pack F (PF5): waiting orange, done green, closed grey.
         'QUEUE_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
+        'DOUBT_STATE' => ['open' => 'needs', 'cleared' => 'done', 'dismissed' => 'off'], // 0066 (DS1)
+        'DOUBT_WHY' => ['differs' => 'review', 'below_zero' => 'blocked', 'other' => 'info'],
         // Pack H (0038): a line of the duty register.
         // The item page (docs/decisions.md IV4, IV5): a movement's cell by kind (in green, a sale blue, a count or correction purple, out amber,
         // a loss red, a reservation's own steps grey, a join navy); a store's state of the item.

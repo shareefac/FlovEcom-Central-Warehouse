@@ -47,6 +47,7 @@ final class HomeTasks
         'not_sent' => 60,
         'bench' => 65,
         'bench_refused' => 67,
+        'doubt' => 69, // Doubtful stock (0066, DS1): a wrong figure goes to the shop and its customers
         'to_post' => 70,
         'spot_check' => 100,
         'set_aside' => 110,
@@ -82,7 +83,7 @@ final class HomeTasks
         'bench' => 'purchases', 'bench_refused' => 'purchases', 'to_post' => 'purchases', 'incidents' => 'purchases', 'drafts' => 'purchases',
         'not_sent' => 'purchases', 'not_ok' => 'purchases', 'to_buy' => 'purchases', 'old_sales' => 'purchases', 'supplier_drafts' => 'purchases',
         'checks_due' => 'purchases',
-        'stock_drafts' => 'inventory', 'stock_waiting' => 'inventory',
+        'stock_drafts' => 'inventory', 'stock_waiting' => 'inventory', 'doubt' => 'inventory',
         'barcodes' => 'items',
         'spot_check' => 'listings', 'duplicates' => 'listings', 'set_aside' => 'listings', 'second_ok' => 'listings', 'clues' => 'listings',
         'strong' => 'listings', 'other' => 'listings',
@@ -119,6 +120,7 @@ final class HomeTasks
         'watch' => ['staff.approve'],
         'setup_closed' => ['staff.manage', 'staff.approve'],
         'code_off' => ['settings.manage'],
+        'doubt' => ['doc.CNT.post'], // 0066 (DS1): the people who count
     ];
     /** Lines the "changes to look at" card shows (the rest: the audit log). */
     public const WATCH_LINES = 8;
@@ -167,6 +169,7 @@ final class HomeTasks
  *            approval rules made looser in the last 7 days, newest first (review finding I1)
  *  setup_closed list<{id: int, name: string}>: active people whose sign-in set-up closed after too many wrong tries (I5)
  *  code_off  ?string: until when (a UTC database time) the sign-in asks for no 6-digit code (auth.totp_off_until, TF5), null: it asks
+ *  doubt     int (the items of every store still to check on Inventory › Doubtful stock: the badge's count, 0066, DS1)
      *  checks    also `deliveries` (optional): the part of `review` that is deliveries booked in (their own card)
      *
      * @param list<string> $roles
@@ -292,6 +295,10 @@ final class HomeTasks
         }
         if ($can('incidents.resolve')) {
             $out[] = self::counted('incidents', (int) ($f['incidents'] ?? 0), '/ui/receiving/incidents');
+        }
+        // Doubtful stock (0066; docs/decisions.md DS1): the items still to check on the shelf, for the people who count.
+        if ($can('doc.CNT.post')) {
+            $out[] = self::counted('doubt', (int) ($f['doubt'] ?? 0), \CW\Ui\Controller\DoubtController::PATH);
         }
         // Website bugs (LP8): orders a store took for a landing page, for the people who sort orders out with the customer.
         if ($can('queues.oversell')) {

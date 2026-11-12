@@ -151,7 +151,7 @@ final class HomeTasksTest extends TestCase
         $f = array_replace(self::ownerToday(), [
             'code_off' => '2026-10-27 18:00:00.000000', 'pending' => 2, 'orders' => ['drafts' => 1, 'not_sent' => 1, 'not_ok' => 1], 'demand' => true, 'sales' => 4,
             'suppliers' => ['drafts' => 1, 'due' => 1], 'receiving' => ['bench' => 1, 'to_post' => 1, 'refused' => 1], 'incidents' => 1, 'website_bugs' => 1,
-            'stock_ops' => ['drafts' => 1, 'waiting' => 1, 'drafts_kind' => 'transfer', 'waiting_kind' => 'release'],
+            'stock_ops' => ['drafts' => 1, 'waiting' => 1, 'drafts_kind' => 'transfer', 'waiting_kind' => 'release'], 'doubt' => 2,
             'staff' => ['test' => [['id' => 31, 'name' => 'T']], 'reviewers' => 1, 'clashes' => [['id' => 9, 'name' => 'Owner', 'off' => ['reviewer']], ['id' => 4, 'name' => 'Me', 'off' => ['buyer']]]],
             'integrity' => ['ok' => false, 'problems' => 2, 'finished_at' => '2026-10-20 01:00:00', 'hours' => 1], 'staff_requests' => 1,
             'watch' => [['at' => '2026-10-20 01:00:00', 'action' => 'staff.create', 'who' => 'A', 'person' => 'B', 'rule' => null]], 'setup_closed' => [['id' => 5, 'name' => 'C']],
@@ -382,7 +382,7 @@ final class HomeTasksTest extends TestCase
      */
     public function testTheStockRecordCards(): void
     {
-        self::assertSame(['stock_ops'], HomeTasks::needs(['warehouse']), 'the warehouse keeps transfers');
+        self::assertSame(['stock_ops', 'doubt'], HomeTasks::needs(['warehouse']), 'the warehouse keeps transfers, and counts');
         $f = ['stock_ops' => ['drafts' => 2, 'waiting' => 1, 'drafts_kind' => 'out', 'waiting_kind' => 'adjust']];
         $cards = HomeTasks::build(9, ['stock_controller'], $f);
         self::assertSame(['stock_drafts'], self::keys($cards['jobs']));
@@ -393,11 +393,32 @@ final class HomeTasksTest extends TestCase
         self::assertSame([], HomeTasks::build(9, ['stock_controller'], ['stock_ops' => ['drafts' => 0, 'waiting' => 0, 'drafts_kind' => null, 'waiting_kind' => null]])['jobs']);
     }
 
+    /**
+     * Doubtful stock (docs/decisions.md DS1-): the people who count see how many items wait to be checked on the shelf, ONE line that opens
+     * Inventory › Doubtful stock; nothing waiting, no line; a buyer counts nothing and never sees it.
+     */
+    public function testTheDoubtfulStockLine(): void
+    {
+        self::assertContains('doubt', HomeTasks::needs(['stock_controller']));
+        self::assertContains('doubt', HomeTasks::needs(['warehouse']));
+        self::assertNotContains('doubt', HomeTasks::needs(['buyer']));
+        self::assertNotContains('doubt', HomeTasks::needs(self::OWNER), 'the owner does not count stock');
+        $cards = HomeTasks::build(9, ['warehouse'], ['doubt' => 3, 'stock_ops' => ['drafts' => 0, 'waiting' => 0, 'drafts_kind' => null, 'waiting_kind' => null]]);
+        self::assertSame(['doubt'], self::keys($cards['jobs']));
+        $card = $cards['jobs'][0];
+        self::assertSame([Words::TASK['doubt']['title'], 3, 'to check', '/ui/stock/doubtful'], [$card['title'], $card['count'], $card['unit'], $card['href']]);
+        self::assertSame('Doubtful stock', $card['title']);
+        self::assertSame('inventory', HomeTasks::GROUP['doubt']);
+        self::assertOneButtonToAPageTheyMayOpen($card, ['warehouse']);
+        self::assertSame([], HomeTasks::build(9, ['warehouse'], ['doubt' => 0])['jobs']);
+        self::assertSame([], HomeTasks::build(9, ['buyer'], ['doubt' => 5])['jobs'], 'only for the people who count');
+    }
+
     public function testTheDeliveryCards(): void
     {
         self::assertSame(['company', 'receiving'], HomeTasks::needs(['goods_in']));
         self::assertSame(['company', 'receiving', 'stock_ops', 'incidents', 'website_bugs'], HomeTasks::needs(['purchasing_desk']), 'they sort orders out (LP8)');
-        self::assertSame(['barcodes', 'stock_ops', 'incidents', 'website_bugs'], HomeTasks::needs(['stock_controller']));
+        self::assertSame(['barcodes', 'stock_ops', 'incidents', 'website_bugs', 'doubt'], HomeTasks::needs(['stock_controller']));
 
         $f = ['receiving' => ['bench' => 2, 'to_post' => 1, 'refused' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
         $goodsIn = HomeTasks::build(5, ['goods_in'], $f);

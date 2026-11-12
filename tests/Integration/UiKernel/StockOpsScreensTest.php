@@ -61,7 +61,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/stock/in');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame([['Stock on hand', '/ui/stock'], ['Adjustments', '/ui/stock/adjustments/all'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
-            ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
+            ['Doubtful stock', '/ui/stock/doubtful'], ['Repack', '/ui/stock/repack'], ['Reserved stock', '/ui/stock/reservations'], ['Stock history', '/ui/stock/movements']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)), 'Stock in is an Adjustments page (RD4): its entry a link from here');
         self::assertSame([['All kinds', '/ui/stock/adjustments/all'], ['Stock in', null], ['Stock out', '/ui/stock/out'], ['Corrections', '/ui/stock/adjustments'], ['Releases', '/ui/stock/releases']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($page)), 'Adjustments\' Show, in Inventory.dc.html\'s order (RD-A5)');

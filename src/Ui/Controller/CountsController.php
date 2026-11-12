@@ -907,11 +907,12 @@ final class CountsController
 
     /**
      * The first line whose quantity is a barcode CW knows (as typed, or as the barcode key: an EAN-8 that starts with 0, a short code of
-     * the shop's own; review M-5, 14 Oct 2026). Only 4 digits or more, as the scan box reads a barcode. One indexed read.
+     * the shop's own; review M-5, 14 Oct 2026). Only 4 digits or more, as the scan box reads a barcode. One indexed read. Doubtful stock's
+     * "On the shelf" box uses it too (DoubtController::count, docs/decisions.md DS1).
      *
      * @param array<int, string> $typed line => what was typed in its box (the changed, non-empty ones)
      */
-    private static function barcodeIn(Db $db, array $typed): ?int
+    public static function barcodeIn(Db $db, array $typed): ?int
     {
         $forms = [];
         foreach ($typed as $no => $v) {

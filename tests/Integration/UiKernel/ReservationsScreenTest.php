@@ -177,7 +177,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertContains(self::PATH, $stock->hrefs());
         self::assertContains(['label' => 'Reserved stock', 'href' => self::PATH, 'count' => 0, 'current' => false], self::sectionTabs($stock), 'one of Inventory\'s entries');
         $sc = $this->page($this->signIn($this->uiUser('stock_controller')));
-        self::assertSame(['Stock on hand', 'Adjustments', 'Transfers', 'Stock counts', 'Repack', 'Reserved stock', 'Stock history'], self::tabLabels($sc));
+        self::assertSame(['Stock on hand', 'Adjustments', 'Transfers', 'Stock counts', 'Doubtful stock', 'Repack', 'Reserved stock', 'Stock history'], self::tabLabels($sc));
         self::assertSame([], self::moreTabs($sc));
     }
 

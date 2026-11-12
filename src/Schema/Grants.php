@@ -187,6 +187,8 @@ final class Grants
         'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event',
         // 0050 (docs/decisions.md LP8): an order a website took for a landing page, settled by a person like an oversold order, never removed.
         'landing_order',
+        // 0066 (docs/decisions.md DS1): an item whose stock figure is in doubt, answered once (cleared by a count, or not needed), never removed.
+        'stock_doubt',
         // ---- Pack E (0034, PE2)
         'role_permission',
         // --- Pack G (0037; docs/decisions.md PG1-PG7): CW's own sales record and its folded days (a day folded again sets its rows to 0 and
