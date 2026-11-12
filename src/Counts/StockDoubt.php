@@ -461,7 +461,8 @@ final class StockDoubt
     /**
      * The open rows of one store, in order(), PAGE at a time ($page past the end: the last page): each with its item (sku_id, code, name),
      * why, the list's figures and CW's figure now (`cw_now`: on hand at the store's selling warehouse, the figure a count sets; 0 when it has
-     * none). $why: one of REASONS, or null for all; $q: words of the item's CW number or name.
+     * none) and how many of them are reserved for orders (`cw_reserved`: allocated + held there, paid or in a checkout, not sent: the shop's
+     * figure leaves them out, as the count sheet says). $why: one of REASONS, or null for all; $q: words of the item's CW number or name.
      *
      * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
      */
@@ -480,13 +481,13 @@ final class StockDoubt
             array_push($params, $like, $like);
         }
         $rows = $this->db->all('SELECT d.id, d.sku_id, s.code, s.name, CAST(d.reason AS CHAR) AS reason, d.shop_qty, d.cw_qty, d.sold_30d, d.batch, d.note, d.created_at, '
-            . 'COALESCE(b.on_hand, 0) AS cw_now FROM stock_doubt d JOIN sku s ON s.id = d.sku_id '
+            . 'COALESCE(b.on_hand, 0) AS cw_now, COALESCE(b.allocated, 0) + COALESCE(b.held, 0) AS cw_reserved FROM stock_doubt d JOIN sku s ON s.id = d.sku_id '
             . 'LEFT JOIN channel_warehouse w ON w.channel_id = d.channel_id AND w.is_sellable = 1 '
             . 'LEFT JOIN stock_balance b ON b.warehouse_id = w.warehouse_id AND b.sku_id = d.sku_id WHERE ' . implode(' AND ', $where), $params);
         $rows = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'],
             'reason' => (string) $r['reason'], 'shop_qty' => $r['shop_qty'] === null ? null : (int) $r['shop_qty'], 'cw_qty' => (int) $r['cw_qty'],
             'sold_30d' => $r['sold_30d'] === null ? null : (int) $r['sold_30d'], 'batch' => (string) $r['batch'], 'note' => $r['note'], 'created_at' => (string) $r['created_at'],
-            'cw_now' => (int) $r['cw_now']], $rows);
+            'cw_now' => (int) $r['cw_now'], 'cw_reserved' => (int) $r['cw_reserved']], $rows);
         $total = count($rows);
         $pages = max(1, (int) ceil($total / self::PAGE));
         $page = max(1, min($page, $pages));

@@ -443,4 +443,21 @@ final class StockDoubtTest extends CountsTestCase
         self::assertSame(1, (int) $two['rows'][2]['sold_30d']);
         self::assertSame(2, $this->doubt->open((int) $this->site->channelId, null, '', 99)['page'], 'a page past the end is the last one');
     }
+
+    public function testCwNowSaysHowManyOfThemAreReservedForOrders(): void
+    {
+        // 12 Nov live: 56 of the 239 items had units paid but not sent; the shop's figure leaves them out, CW's on hand keeps them. The
+        // page says how many, as the count sheet does ("%s of them reserved for orders"), so a gap that is only orders is not taken for a loss.
+        $sku = $this->item('strict', 10, 'Reserved pods');
+        $this->listing($this->site, 'RP1', $sku);
+        $this->ok($this->commit($this->site, 'o1', [self::line('RP1', 'u1', 'u2')]));
+        $quiet = $this->item('strict', 5, 'Nothing reserved');
+        $this->load([self::row($sku, 'differs', 8, 10, 3), self::row($quiet, 'differs', 5, 6, 1, n: 2)]);
+
+        $rows = $this->doubt->open((int) $this->site->channelId, null, '', 1)['rows'];
+        $by = array_column($rows, null, 'sku_id');
+        self::assertSame(10, $by[$sku]['cw_now'], 'on hand still holds the paid units until they are sent');
+        self::assertSame(2, $by[$sku]['cw_reserved'], 'allocated + held at the selling warehouse');
+        self::assertSame(0, $by[$quiet]['cw_reserved']);
+    }
 }

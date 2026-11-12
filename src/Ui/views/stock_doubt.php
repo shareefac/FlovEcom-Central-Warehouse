@@ -64,7 +64,7 @@
       <tr id="doubt-<?= $e($r['id']) ?>">
         <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?></span><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $say('DOUBT', 'list_note', (string) $r['note']) ?></span><?php endif; ?></th>
         <td class="num" data-label="<?= $word('DOUBT', 'col_shop') ?>"><?= $n($r['shop_qty']) ?></td>
-        <td class="num" data-label="<?= $word('DOUBT', 'col_cw') ?>"><?= $n($r['cw_now']) ?></td>
+        <td class="num" data-label="<?= $word('DOUBT', 'col_cw') ?>"><?= $n($r['cw_now']) ?><?php if ($r['cw_reserved'] > 0): ?><span class="o-sub"><?= $say('COUNTS', 'reserved', $r['cw_reserved']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('DOUBT', 'col_why') ?>"><span class="tag <?= $e($r['tone']) ?>"><?= $e($r['why']) ?></span></td>
         <td class="num" data-label="<?= $word('DOUBT', 'col_sold') ?>"><?= $n($r['sold_30d']) ?></td>
         <td class="c-next" data-label="">

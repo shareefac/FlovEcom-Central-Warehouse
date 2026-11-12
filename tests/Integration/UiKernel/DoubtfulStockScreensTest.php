@@ -26,6 +26,7 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
     private const PATH = '/ui/stock/doubtful';
 
     private int $store;
+    private \CW\Caller $vpg;
 
     protected function handlers(Db $db): array
     {
@@ -35,7 +36,8 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->store = (int) $this->site('vapeandgo')->channelId;
+        $this->vpg = $this->site('vapeandgo');
+        $this->store = (int) $this->vpg->channelId;
     }
 
     private static function cw(int $sku): string
@@ -365,5 +367,20 @@ final class DoubtfulStockScreensTest extends KernelUiTestCase
         parse_str((string) parse_url($next->getAttribute('href'), PHP_URL_QUERY), $q);
         self::assertSame('2', $q['page'] ?? null);
         self::assertCount(2, self::rows($web->get(self::PATH, ['page' => '2'])));
+    }
+
+    public function testCwNowSaysHowManyOfThemAreReservedForOrders(): void
+    {
+        $pods = $this->item('strict', 10, 'Reserved pods');
+        $this->listing($this->vpg, 'RP1', $pods);
+        $this->ok($this->commit($this->vpg, 'o1', [self::line('RP1', 'u1', 'u2')]));
+        $mint = $this->item('strict', 5, 'Nothing reserved');
+        $this->load([[$pods, 'differs', 8, 10, 3], [$mint, 'differs', 5, 6, 1]]);
+
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $rows = self::rows($web->get(self::PATH));
+        $byName = array_combine(array_column($rows, 'sku'), array_map(static fn (array $r): string => $r['cells'][Words::DOUBT['col_cw']], $rows));
+        self::assertSame('10' . sprintf(Words::COUNTS['reserved'], '2'), $byName[$pods], 'the same words as the count sheet, on a line of their own (o-sub)');
+        self::assertSame('5', $byName[$mint], 'nothing reserved: the figure alone');
     }
 }
