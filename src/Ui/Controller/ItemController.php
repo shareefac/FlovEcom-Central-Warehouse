@@ -7,6 +7,7 @@ namespace CW\Ui\Controller;
 use CW\Catalogue\BarcodeReviews;
 use CW\Catalogue\CardProposals;
 use CW\Catalogue\ItemCards;
+use CW\Catalogue\ItemNames;
 use CW\Catalogue\ItemRules;
 use CW\Clock;
 use CW\Counts\CountSheets;
@@ -83,7 +84,7 @@ final class ItemController
      * The item page, also after a refused card or barcode action ($error shown on top, answered under $status; $typed: what
      * the barcode forms had, so a refused add keeps it).
      *
-     * @param array<string, mixed> $typed ('selling_mode': what a refused selling-mode form had)
+     * @param array<string, mixed> $typed ('selling_mode': what a refused selling-mode form had; 'rename': a refused name's name and form_key)
      */
     public function page(Context $ctx, int $status, ?CwException $error, ?string $notice = null, array $typed = []): HtmlResponse
     {
@@ -262,6 +263,10 @@ final class ItemController
             'error' => $error === null ? null : (isset(Words::ITEMS_ERROR[$error->errorCode]) ? FamiliesController::plain($error) : ItemCardsController::plain($error)),
             'errorCode' => $error?->errorCode,
             'errorDetail' => $error?->detail ?? [],
+            // The Name part of Details (docs/decisions.md IR1): the name now, and its form for who may change product cards (a refused one keeps
+            // what was typed and its key; the name the page shows travels as `name_was`, the expected name).
+            'rename' => !$canEdit ? null : ['now' => (string) $sku['name'], 'value' => (string) ($typed['rename']['name'] ?? $sku['name']),
+                'formKey' => (string) ($typed['rename']['form_key'] ?? FormOnce::newKey()), 'max' => ItemNames::NAME_MAX],
             'canEditBarcodes' => $canEdit,
             'barcodeAddKey' => $canEdit ? ($typed['form_key'] ?? FormOnce::newKey()) : null,
             'typedBarcode' => $typed['barcode'] ?? '',
@@ -394,7 +399,7 @@ final class ItemController
             'disposableSources' => $disposable,
             'disagree' => $disagree,
             'confirmKey' => $canEdit && $exists && $state !== 'confirmed' ? FormOnce::newKey() : null,
-            'cardHistory' => array_map(static function (array $h): array {
+            'cardHistory' => self::withRenames(array_map(static function (array $h): array {
                 $parts = [];
                 foreach ($h['changes'] as $f => $c) {
                     $label = $f === 'flavour_status' ? Words::CARD['flavour_status'] : mb_strtolower(Words::of('CARD_FIELD', (string) $f));
@@ -411,8 +416,24 @@ final class ItemController
                     default => implode('; ', $parts),
                 };
                 return ['version' => $h['version'], 'what' => $what, 'who' => $h['who'], 'at' => $h['at']];
-            }, $svc->history($id, 20)),
+            }, $svc->history($id, 20)), (new ItemNames($ctx->db))->history($id, 20)),
         ];
+    }
+
+    /**
+     * The page's history of the card with the item's renames in it (docs/decisions.md IR4: "name changed from X to Y", read from their audit
+     * rows), newest first, at most 20 lines.
+     *
+     * @param list<array{version: int, what: string, who: string, at: string}> $card
+     * @param list<array{before: string, after: string, who: string, at: string}> $renames ItemNames::history()
+     * @return list<array{version: ?int, what: string, who: string, at: string}>
+     */
+    private static function withRenames(array $card, array $renames): array
+    {
+        $lines = [...$card, ...array_map(static fn (array $r): array => ['version' => null, 'what' => Words::say('ITEM_NAME', 'h_renamed', $r['before'], $r['after']),
+            'who' => $r['who'], 'at' => $r['at']], $renames)];
+        usort($lines, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
+        return array_slice($lines, 0, 20);
     }
 
     /**
@@ -603,6 +624,7 @@ final class ItemController
                 str_starts_with($rest, '/barcodes') => 'barcodes',
                 $rest === '/selling-mode' => 'selling',
                 $rest === '/family' => 'groups',
+                $rest === '/name' => 'name',
                 default => null,
             };
         }

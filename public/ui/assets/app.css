@@ -3451,6 +3451,15 @@ table.item-history td.chg.down { color: var(--sf-red-ink); }
 .item-side p.note { margin: 12px 18px; }
 @media (max-width: 639.98px) { dl.item-facts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table.item-history td { padding: 12px 16px; } }
 @media (max-width: 699.98px), (pointer: coarse) { .item-cols .card-link, .item-side details > summary { min-height: 44px; } }
+/* The Name part of Details (docs/decisions.md IR1): the name under its small title, "Change the name" (a fold, no script) and its form: the
+   box as wide as the column, its hint, Save the name; on a phone the button is as wide as the screen */
+.item-details .facts-name .item-name-now { margin: 0; color: var(--ink); font: 500 14px/20px var(--font); overflow-wrap: anywhere; }
+.item-details details.name-change { margin: 4px 0 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.item-details details.name-change > summary { min-height: 32px; margin: 0; }
+.item-details details.name-change[open] > summary { margin-bottom: 4px; }
+.item-details form.item-name-form { gap: 8px; max-width: 40rem; }
+.item-details form.item-name-form p { margin: 0; }
+@container (max-width: 640px) { form.item-name-form button { width: 100%; } }
 /* ==== end rd2a ============================================================================================================================== */
 /* ==== ca: "Confirm all ready" for ERPNext corrections (docs/decisions.md CA1-CA12; ConfirmAll.dc.html, ConfirmAllCheck.dc.html,
    ConfirmAllDone.dc.html of 31 Oct 2026) ===================================================================================================

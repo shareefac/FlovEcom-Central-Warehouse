@@ -45,7 +45,7 @@
     <tbody>
 <?php foreach ($skus as $s): ?>
       <tr>
-        <th scope="row" class="c-head"><a class="o-name" href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['name']) ?></a> <span class="o-sub"><?= $e($s['code']) ?></span></th>
+        <th scope="row" class="c-head"><a class="o-name" href="/ui/items/<?= $e($s['id']) ?>"><?= $e($s['name']) ?></a> <span class="o-sub"><?= $e($s['code']) ?></span><?php if ($s['was'] !== null): ?> <span class="o-sub was-called"><?= $say('SEARCH', 'was_called', $s['was']) ?></span><?php endif; ?></th>
         <td data-label="<?= $word('SEARCH', 'brand') ?>"><?= $e($s['brand']) ?></td>
         <td data-label="<?= $word('SEARCH', 'rule') ?>"><?= $stateChip('POLICY', $s['policy']) ?></td>
         <td data-label="<?= $word('SEARCH', 'barcodes') ?>" class="muted"><?= $e(implode(', ', $s['barcodes'])) ?></td>

@@ -1836,9 +1836,12 @@ final class Queries
      * $beginsFirst (the order's and the invoice's item box, docs/decisions.md PV31): the items whose name begins with the words are read
      * first, so a long list of other matches never pushes them out of the $limit.
      *
+     * $formerNames (Find, docs/decisions.md IR5): an item is also found by a name it had before a rename (CW\Catalogue\ItemNames: every word in
+     * one such name), after the items found by what they are now; such a row carries `former_name`, the name that matched.
+     *
      * @return list<array<string, mixed>>
      */
-    public function searchSkus(string $q, int $limit = 20, bool $matching = false, bool $beginsFirst = false): array
+    public function searchSkus(string $q, int $limit = 20, bool $matching = false, bool $beginsFirst = false, bool $formerNames = false): array
     {
         $s = SearchText::parse($q);
         $q = $s->text;
@@ -1869,13 +1872,25 @@ final class Queries
                 $params,
             ));
         }
+        $former = [];
+        if ($formerNames && $words !== '') {
+            // a name it had (the renames' audit rows), for what its name now did not find
+            [$was, $wasParams] = $s->allWords(\CW\Catalogue\ItemNames::formerExpr());
+            $now = array_map('intval', $ids);
+            foreach (\CW\Catalogue\ItemNames::formerMatches($this->db, $was, $wasParams, $limit) as $id => $name) {
+                if (!in_array($id, $now, true)) {
+                    $former[$id] = $name;
+                    $ids[] = $id;
+                }
+            }
+        }
         $ids = array_slice(array_values(array_unique(array_map('intval', $ids))), 0, $limit);
         $rows = $this->skus($ids);
         $exact = $matching && $s->explicitCw() ? $s->cwId() : null;
         $out = [];
         foreach ($ids as $id) {
             if (isset($rows[$id]) && ($id === $exact || ($rows[$id]['merged_into_sku_id'] === null && (!$matching || (int) $rows[$id]['discontinued'] === 0)))) {
-                $out[] = $rows[$id];
+                $out[] = isset($former[$id]) ? $rows[$id] + ['former_name' => $former[$id]] : $rows[$id];
             }
         }
         return $out;

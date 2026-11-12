@@ -17406,3 +17406,63 @@ testSaveCountTakesTheNumberSeriesAndTheBalanceBeforeTheSheetNamesTheItem`, `Stoc
   under the item); telling a well-closed two-line cell from one left open needs a second reader of quotes beside CW's `CsvReader`, which the
   load does not justify. The refusal names the row and says "a line break inside a cell: is a quote missing?". The 12 Nov list has no
   line break in any cell.
+
+## An item's own name, changed on its page (branch `item-rename`, 12 Nov 2026; IR1-IR6; no migration)
+
+The owner, 12 Nov 2026 ~16:35 UK (CW chat): "i meant product name. i will change the product name in cw for cw i will keep the names clean with
+one structure for each category so easy to understand. just letting you know you dont have to do anything other than giving me an option to
+change the name". So: a way to change `sku.name` on the item page; the owner renames. Not in this build: renaming many at once (CSV), any
+website product name (CW never writes names to the shops), naming rules per category.
+
+**IR1. The Name part of Details.** For the people who may change product cards (`catalogue.edit`: mapping_lead, stock_controller,
+purchasing_manager; never admin) and on an item not joined into another: the first group of Details, "NAME", the name now and "Change the
+name", a fold (no script) holding a plain form: one text box (the name, at most 255 characters as the browser counts), a hint that only
+CW's name changes, "Save the name". `POST /ui/items/{id}/name` (`ItemNameController::save`, route permission `catalogue.edit`) under the
+form's key (FormOnce: the same form twice renames once; one key for two different names: 422 in words, a new key). A refusal draws the page
+again: the words on top, the fold open, what was typed kept, the same key. Everyone else reads the name in the page's head as before.
+
+**IR2. What a name may be (`ItemNames::clean`).** Trimmed, every run of spaces made one (a no-break space and a Unicode line separator are
+spaces); at least one character, at most 255 (`NAME_MAX` = the column's `VARCHAR(255)`, characters not bytes; a test reads the column);
+plain text on one line: not UTF-8, a control character (a tab or line break inside it, C0, DEL, C1) or a hidden formatting character
+(Unicode Cf: a zero-width space, a right-to-left override, a soft hyphen, a byte-order mark) refuses it (422 `name_empty`,
+`name_too_long` with the length, `name_not_plain`). Nothing else is ruled: names are not unique (the owner's own structure decides).
+
+**IR3. One transaction (`ItemNames::rename`).** The person checked again inside it (`ItemCards::editor`: staff, active, not admin,
+catalogue.edit; 403 otherwise); the item row `FOR UPDATE` (404 unknown); an item joined into another refused (409 `merged_item`, naming
+the item to rename instead); the same name (after IR2) writes nothing (`unchanged`, notice "Nothing changed"), also when someone else gave
+it that very name meanwhile; otherwise the name the page showed (`name_was`) must be the name it has now (409 `name_changed` with the name
+it has now, which the page shows; only the spaces of a stored name are forgiven, a case change by someone else is a change): `sku` has no
+version column, and the item page has no version of the item, so the name itself is the expected value. Then `UPDATE sku SET name` and
+ONE audit row `sku.rename` {code, before, after} (CW's writer, `Audit::write`). Locks: the one item row only, so no lock cycle with
+anything (a card change holds it FOR SHARE and waits, or is waited for). No stock feed row: nothing a website reads changes (the feed
+views carry code and policy, not the name).
+
+**IR4. The history is read from the audit rows.** `item_card_change` cannot hold a rename cleanly: its versions are the card's
+(`item_card.version`, 1..n per card) and the nightly IC1-IC3 compare its snapshot with `item_card`, which has no name. So the page's
+"History of the card" fold merges the card's lines with the renames (`ItemNames::history`: `audit_log` by `ix_audit_entity`, entity
+`sku`/id, action `sku.rename`), newest first, 20 lines: "<when> · <who>: name changed from "X" to "Y"". No new table, no migration.
+
+**IR5. Find by a name it had.** Find (`/ui/search`) also finds an item by every word of a name it had before a rename
+(`Queries::searchSkus(..., formerNames: true)` -> `ItemNames::formerMatches`: the renames' audit rows by `ix_audit_action`, the `before`
+name compared as `sku.name` is, accents and case aside), after the items its name now finds; such a row says "Was called: <old name>".
+Only Find: the pickers (orders, invoices, stock records, families, matching) and the lists' filters (stock, movements, reservations,
+item cards, reorder, counts, duty register) find by the name now, as before.
+
+**IR6. What reads the name, and what a rename changes there (the brief's point 4; checked in the code, 12 Nov 2026).**
+- *Posted records keep no copy of the line names.* `document_line` has a free `description` only; `po_line`, `grn_line`, the invoice and
+  return lines, `count_sheet_line`, the hand-over have no name column; the posting fingerprints (`document_posting.content`, `po_posting`,
+  `grn_posting`, `purchase_doc_posting`) hold the item's id, never its name, so no fingerprint or invariant breaks. Every page, PDF and CSV
+  of a record reads `sku.name` when drawn: a purchase order (page, PDF, lines file), a delivery, a supplier invoice and return, a count
+  sheet (page, CSV), a stock record (page, PDF), a repack, the generic record page and PDF, and a hand-over's invoice PDF (its company and
+  buyer are kept as they were; the lines are not). So printing an OLD posted record again after a rename shows the NEW name. Kept as they
+  were: the one stored PDF (a purchase order's PDF "as sent", archived when marked sent), the "Missing on arrival" lines of a claim (their
+  description holds "code name" as written then), a store's choice's record, `item.create`'s audit row. Not changed here: the owner
+  decides later.
+- *Matching.* The matching engine and the product-card suggestions never compare names with `sku.name` (they use the website products'
+  features and the identity fields). The name IS read by: By Item's first search for an item with no flavour (its name's first words),
+  the guards that stop "Create as new items" and a store's choice making a second item of a name CW already has (`StoreChoices::sameName`,
+  exact and close; `BulkDecisions::namesTaken`, exact), "Add item"'s "the same item exists" (`HandMade::sameItems`, name + identity), and
+  the fingerprint of a Key proposal (`ProposalBasis` covers `sku.name`). So after a rename: a website product named like the OLD name is no
+  longer stopped as "an item of this name exists" (a second item could be made from it by a store's choice or the bulk "new items"), an
+  open Key proposal for the item is no longer taken in bulk ("the item changed": a person decides it), and By Item's first search uses the
+  new words. No change made.

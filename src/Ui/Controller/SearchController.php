@@ -37,12 +37,13 @@ final class SearchController
             foreach ($q->channels() as $c) {
                 $names[(string) $c['code']] = (string) $c['name'];
             }
-            $found = $q->searchSkus($text, self::ITEMS);
+            // (also by a name an item had before a rename, said on its row: docs/decisions.md IR5)
+            $found = $q->searchSkus($text, self::ITEMS, formerNames: true);
             $bc = $q->barcodesOfMany(array_map(static fn (array $r): int => (int) $r['id'], $found));
             foreach ($found as $r) {
                 $skus[] = [
                     'id' => (int) $r['id'], 'code' => self::s($r['code']), 'name' => self::s($r['name']), 'brand' => self::s($r['brand']),
-                    'policy' => self::s($r['sell_policy']), 'barcodes' => $bc[(int) $r['id']] ?? [],
+                    'policy' => self::s($r['sell_policy']), 'barcodes' => $bc[(int) $r['id']] ?? [], 'was' => self::s($r['former_name'] ?? null),
                 ];
             }
             foreach ($q->searchListings($text, self::LISTINGS) as $r) {

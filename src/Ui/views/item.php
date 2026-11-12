@@ -62,6 +62,24 @@
 <div class="item-main">
 <section class="card item-card item-details<?php if ($rules['level'] === 'block'): ?> blocked<?php elseif ($rules['level'] === 'warn'): ?> warned<?php endif; ?>" id="card" aria-labelledby="card-h">
   <div class="card-head"><h2 id="card-h"><?= $word('ITEM_PAGE', 'details') ?></h2><?php if ($canEditCard): ?><a class="card-link" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?= $word('ITEM_PAGE', 'change') ?></a><?php endif; ?></div>
+<?php if ($rename !== null): ?>
+  <div class="facts-group facts-name">
+    <p class="facts-title"><?= $word('ITEM_NAME', 'title') ?></p>
+    <p class="item-name-now"><?= $e($rename['now']) ?></p>
+    <details class="name-change" id="item-name"<?php if ($open === 'name'): ?> open<?php endif; ?>>
+      <summary class="card-link"><?= $word('ITEM_NAME', 'change') ?></summary>
+      <form class="record item-name-form" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/name') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="form_key" value="<?= $e($rename['formKey']) ?>">
+        <input type="hidden" name="name_was" value="<?= $e($rename['now']) ?>">
+        <label for="item-name-new"><?= $word('ITEM_NAME', 'new') ?></label>
+        <input id="item-name-new" type="text" name="name" maxlength="<?= $e($rename['max']) ?>" required autocomplete="off" spellcheck="false" value="<?= $e($rename['value']) ?>">
+        <p class="hint"><?= $word('ITEM_NAME', 'hint') ?></p>
+        <p class="actions"><button type="submit" class="btn"><?= $word('ITEM_NAME', 'save') ?></button></p>
+      </form>
+    </details>
+  </div>
+<?php endif; ?>
 <?php foreach ($facts as $grp): ?>
   <div class="facts-group facts-<?= $e($grp['key']) ?>">
     <p class="facts-title"><?= $e($grp['title']) ?></p>

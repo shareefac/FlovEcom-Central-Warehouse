@@ -181,6 +181,9 @@ final class ItemCardsController
                 => Words::say('CARD_ERROR', 'barcode_on_other_item', $e->detail['code'], $e->detail['code']),
             $code === 'bad_file' && is_array($e->detail['columns'] ?? null) && $e->detail['columns'] !== []
                 => Words::say('CARD_ERROR', 'unknown_columns', implode(', ', array_map('strval', $e->detail['columns']))),
+            // A product's name on the same page (ItemNames; docs/decisions.md IR2): the name it has now, the column's limit.
+            $code === 'name_changed' => Words::say('CARD_ERROR', 'name_changed', (string) ($e->detail['name'] ?? '')),
+            $code === 'name_too_long' => Words::say('CARD_ERROR', 'name_too_long', \CW\Catalogue\ItemNames::NAME_MAX, (int) ($e->detail['length'] ?? 0)),
             // The selling-mode switch on the same page (IM10, SiteModes::set).
             $code === 'bad_threshold' => Words::say('SELLING_ERROR', 'bad_threshold', \CW\SiteWriter\SiteModes::THRESHOLD_MAX),
             isset(Words::SELLING_ERROR[$code]) && !str_contains(Words::SELLING_ERROR[$code], '%s') => Words::SELLING_ERROR[$code],

@@ -31,6 +31,7 @@ use CW\Ui\Controller\IncidentsController;
 use CW\Ui\Controller\InvoicesController;
 use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
+use CW\Ui\Controller\ItemNameController;
 use CW\Ui\Controller\NewVariantsController;
 use CW\Ui\Controller\OtherAccountsController;
 use CW\Ui\Controller\PeopleController;
@@ -555,6 +556,8 @@ final class Kernel
         $r->add('POST', '/ui/items/{id}/selling-mode', 'modes.set', (new SellingModeController())->set(...));
         $r->add('POST', '/ui/items/{id}/barcodes/remove', 'catalogue.edit', $barcodes->remove(...));
         $r->add('POST', '/ui/items/{id}/barcodes/units', 'catalogue.edit', $barcodes->setUnits(...));
+        // An item's own name (docs/decisions.md IR1-IR4): the catalogue team, checked again by CW\Catalogue\ItemNames (never admin).
+        $r->add('POST', '/ui/items/{id}/name', 'catalogue.edit', (new ItemNameController())->save(...));
         $r->add('GET', '/ui/items/barcodes', 'catalogue.edit', $barcodes->queue(...));
         $r->add('POST', '/ui/items/barcodes/{id}/decide', 'catalogue.edit', $barcodes->decide(...));
         // People and roles (I13): admin and auditor look, admin changes.

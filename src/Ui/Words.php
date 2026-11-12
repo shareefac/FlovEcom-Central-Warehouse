@@ -55,7 +55,7 @@ final class Words
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'ADJ_GRID', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         // The Items and Inventory pages on the approved redesign (docs/decisions.md RD-A)
-        'INV_LIST', 'ITEM_PAGE',
+        'INV_LIST', 'ITEM_PAGE', 'ITEM_NAME',
         // "Final uses what is on the screen" (docs/decisions.md OV)
         'OP_FINAL',
         // The item page, stock first (docs/decisions.md IV)
@@ -2501,6 +2501,19 @@ final class Words
         'f_each' => 'Stock in each warehouse',
         'f_selling' => 'Selling on the stores',
         'f_groups' => 'Item group and packs',
+    ];
+
+    /**
+     * A product's own name in CW, on its page (docs/decisions.md IR1-IR6; the owner, 12 Nov 2026): the Name part of Details and its form, for
+     * the people who may change product cards, and the line a rename leaves in the page's history.
+     */
+    public const ITEM_NAME = [
+        'title' => 'NAME',
+        'change' => 'Change the name',
+        'new' => 'New name',
+        'hint' => 'CW\'s own name only. The websites keep their product names, and the stock, CW number, barcodes and matches stay as they are.',
+        'save' => 'Save the name',
+        'h_renamed' => 'name changed from "%s" to "%s"',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -6070,6 +6083,8 @@ final class Words
         'store' => 'Store',
         'placed' => 'Placed',
         'state' => 'State',
+        // A product found by a name it had before someone renamed it (docs/decisions.md IR5).
+        'was_called' => 'Was called: %s',
     ];
 
     /**
@@ -8528,6 +8543,12 @@ final class Words
         'barcode_exists' => 'This product has this barcode already. Nothing was changed.',
         'barcode_on_other_item' => 'This barcode belongs to %s already, and a barcode belongs to one product. If it belongs here, remove it from %s first. '
             . 'If both products\' website products carry it, decide it in Barcodes instead. Nothing was changed.',
+        // A product's name (ItemNames; docs/decisions.md IR2).
+        'name_empty' => 'Not saved: the name is empty. Type the new name.',
+        'name_too_long' => 'Not saved: a name is at most %s characters, and this one has %s. Make it shorter.',
+        'name_not_plain' => 'Not saved: the name must be plain text on one line, without tabs or hidden characters. Type it again.',
+        'name_changed' => 'Not saved: someone changed this product\'s name while you had the page open. It is now "%s". What you typed is kept below: '
+            . 'check it and save again.',
         // "Change many product cards": a file with columns the import does not know.
         'unknown_columns' => 'Nothing was imported: the file has columns the product cards do not have: %s. Use the columns of the downloaded product list.',
     ];
@@ -8624,6 +8645,8 @@ final class Words
         'units_saved' => 'Saved: items per scan.',
         'units_unchanged' => 'Nothing changed.',
         'decided' => 'Done. The barcode sync will not ask about this barcode and product again unless something changes.',
+        'name_saved' => 'Saved: the name. Only CW\'s name changed: the websites keep their own product names.',
+        'name_unchanged' => 'Nothing changed: the product already has this name.',
     ];
 
     /** Change many product cards (/ui/items/cards/import). */

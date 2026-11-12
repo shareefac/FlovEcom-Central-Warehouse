@@ -505,7 +505,8 @@ final class ItemPageScreensTest extends KernelUiTestCase
             }
         }
         sort($editable);
-        self::assertSame(['/barcodes', '/barcodes/remove', '/barcodes/units', '/family', '/selling-mode'], $editable);
+        // (the Name part's form since IR1: guarded as the others)
+        self::assertSame(['/barcodes', '/barcodes/remove', '/barcodes/units', '/family', '/name', '/selling-mode'], $editable);
         self::assertSame(0, $xp->query('//main//nav[contains(@class, "tabs")]')->length, 'no tab link to leave by (RD-A4): the folds are on the page');
     }
 
