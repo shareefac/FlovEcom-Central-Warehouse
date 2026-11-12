@@ -2511,7 +2511,8 @@ final class Words
         'title' => 'NAME',
         'change' => 'Change the name',
         'new' => 'New name',
-        'hint' => 'CW\'s own name only. The websites keep their product names, and the stock, CW number, barcodes and matches stay as they are.',
+        'hint' => 'CW\'s own name only, at most %s characters. The websites keep their product names, and the stock, CW number, barcodes and matches stay '
+            . 'as they are.',
         'save' => 'Save the name',
         'h_renamed' => 'name changed from "%s" to "%s"',
     ];

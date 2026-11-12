@@ -73,8 +73,8 @@
         <input type="hidden" name="form_key" value="<?= $e($rename['formKey']) ?>">
         <input type="hidden" name="name_was" value="<?= $e($rename['now']) ?>">
         <label for="item-name-new"><?= $word('ITEM_NAME', 'new') ?></label>
-        <input id="item-name-new" type="text" name="name" maxlength="<?= $e($rename['max']) ?>" required autocomplete="off" spellcheck="false" value="<?= $e($rename['value']) ?>">
-        <p class="hint"><?= $word('ITEM_NAME', 'hint') ?></p>
+        <input id="item-name-new" type="text" name="name" required autocomplete="off" spellcheck="false" value="<?= $e($rename['value']) ?>">
+        <p class="hint"><?= $say('ITEM_NAME', 'hint', $rename['max']) ?></p>
         <p class="actions"><button type="submit" class="btn"><?= $word('ITEM_NAME', 'save') ?></button></p>
       </form>
     </details>

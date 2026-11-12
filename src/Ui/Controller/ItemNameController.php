@@ -25,8 +25,13 @@ final class ItemNameController
     {
         $id = $ctx->id();
         $name = $ctx->req->field('name') ?? '';
-        $was = $ctx->req->field('name_was') ?? '';
+        // (a name the page showed that is not UTF-8 is no name it showed: refused as a stale page, 409)
+        $was = mb_check_encoding($ctx->req->field('name_was') ?? '', 'UTF-8') ? (string) $ctx->req->field('name_was') : '';
         try {
+            if (!mb_check_encoding($name, 'UTF-8')) {
+                // before the form's key: FormOnce stores the form as JSON, which needs UTF-8 (an error page otherwise)
+                throw new CwException('name_not_plain', 'The name is not plain text.', 422);
+            }
             $r = FormOnce::run($ctx, 'ui.item.rename', ['name' => $name, 'name_was' => $was], static function (Db $db) use ($ctx, $id, $name, $was): OpResult {
                 $s = (new ItemNames($db))->rename($ctx->caller(), $id, $was, $name);
                 return OpResult::of(303, ['result' => $s['result'], 'redirect' => Html::url('/ui/items/' . $id,

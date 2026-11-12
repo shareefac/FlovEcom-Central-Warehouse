@@ -1873,15 +1873,13 @@ final class Queries
             ));
         }
         $former = [];
-        if ($formerNames && $words !== '') {
-            // a name it had (the renames' audit rows), for what its name now did not find
+        $now = array_values(array_unique(array_map('intval', $ids)));
+        if ($formerNames && $words !== '' && count($now) < $limit) {
+            // a name it had (the renames' audit rows), only while the names now leave room, the ones found left out
             [$was, $wasParams] = $s->allWords(\CW\Catalogue\ItemNames::formerExpr());
-            $now = array_map('intval', $ids);
-            foreach (\CW\Catalogue\ItemNames::formerMatches($this->db, $was, $wasParams, $limit) as $id => $name) {
-                if (!in_array($id, $now, true)) {
-                    $former[$id] = $name;
-                    $ids[] = $id;
-                }
+            foreach (\CW\Catalogue\ItemNames::formerMatches($this->db, $was, $wasParams, $limit - count($now), $now) as $id => $name) {
+                $former[$id] = $name;
+                $ids[] = $id;
             }
         }
         $ids = array_slice(array_values(array_unique(array_map('intval', $ids))), 0, $limit);

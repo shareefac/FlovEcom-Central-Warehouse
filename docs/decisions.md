@@ -17416,8 +17416,8 @@ website product name (CW never writes names to the shops), naming rules per cate
 
 **IR1. The Name part of Details.** For the people who may change product cards (`catalogue.edit`: mapping_lead, stock_controller,
 purchasing_manager; never admin) and on an item not joined into another: the first group of Details, "NAME", the name now and "Change the
-name", a fold (no script) holding a plain form: one text box (the name, at most 255 characters as the browser counts), a hint that only
-CW's name changes, "Save the name". `POST /ui/items/{id}/name` (`ItemNameController::save`, route permission `catalogue.edit`) under the
+name", a fold (no script) holding a plain form: one text box (no browser limit: a browser counts an emoji as two characters, CW as
+one; the hint says "at most 255 characters" and the server keeps it), a hint that only CW's name changes, "Save the name". `POST /ui/items/{id}/name` (`ItemNameController::save`, route permission `catalogue.edit`) under the
 form's key (FormOnce: the same form twice renames once; one key for two different names: 422 in words, a new key). A refusal draws the page
 again: the words on top, the fold open, what was typed kept, the same key. Everyone else reads the name in the page's head as before.
 
@@ -17428,13 +17428,17 @@ plain text on one line: not UTF-8, a control character (a tab or line break insi
 `name_too_long` with the length, `name_not_plain`). Nothing else is ruled: names are not unique (the owner's own structure decides).
 
 **IR3. One transaction (`ItemNames::rename`).** The person checked again inside it (`ItemCards::editor`: staff, active, not admin,
-catalogue.edit; 403 otherwise); the item row `FOR UPDATE` (404 unknown); an item joined into another refused (409 `merged_item`, naming
+catalogue.edit; 403 otherwise), and again once the item is held (a job taken away while the rename waited counts); the item row
+`FOR UPDATE` (404 unknown); an item joined into another refused (409 `merged_item`, naming
 the item to rename instead); the same name (after IR2) writes nothing (`unchanged`, notice "Nothing changed"), also when someone else gave
 it that very name meanwhile; otherwise the name the page showed (`name_was`) must be the name it has now (409 `name_changed` with the name
-it has now, which the page shows; only the spaces of a stored name are forgiven, a case change by someone else is a change): `sku` has no
-version column, and the item page has no version of the item, so the name itself is the expected value. Then `UPDATE sku SET name` and
-ONE audit row `sku.rename` {code, before, after} (CW's writer, `Audit::write`). Locks: the one item row only, so no lock cycle with
-anything (a card change holds it FOR SHARE and waits, or is waited for). No stock feed row: nothing a website reads changes (the feed
+it has now, which the page shows; only the spaces of a stored name are forgiven, and a NUL the page's hidden field carries as U+FFFD; a
+case change by someone else is a change): `sku` has no version column, and the item page has no version of the item, so the name itself
+is the expected value. Then the NEW name's guard row (`item_name_guard`, as "Add item" and a store's choice take it before they make an
+item of a name: such a making at this moment waits for the rename and then sees it), `UPDATE sku SET name` and ONE audit row
+`sku.rename` {code, before, after} (CW's writer, `Audit::write`). Lock order: the item row, then the guard; HandMade and StoreChoices take
+the guard and then lock no existing item, so no cycle (a card change holds the item FOR SHARE and waits, or is waited for). A name that
+is not UTF-8 is refused (422 `name_not_plain`) before the form's key is stored. No stock feed row: nothing a website reads changes (the feed
 views carry code and policy, not the name).
 
 **IR4. The history is read from the audit rows.** `item_card_change` cannot hold a rename cleanly: its versions are the card's
@@ -17444,7 +17448,10 @@ views carry code and policy, not the name).
 
 **IR5. Find by a name it had.** Find (`/ui/search`) also finds an item by every word of a name it had before a rename
 (`Queries::searchSkus(..., formerNames: true)` -> `ItemNames::formerMatches`: the renames' audit rows by `ix_audit_action`, the `before`
-name compared as `sku.name` is, accents and case aside), after the items its name now finds; such a row says "Was called: <old name>".
+name compared as `sku.name` is, accents and case aside), after the items its name now finds and only while they leave room on the page;
+one row an item (the newest matching name), items joined into another and ones already found left out before the limit; one statement
+capped at 2 s (`MAX_EXECUTION_TIME`, `ItemNames::FORMER_MS`: past it, Find shows what the names now found). Such a row says "Was called:
+<old name>". Its cost is a read of the rename rows (the action's index), the order of the name search's own read of `sku`.
 Only Find: the pickers (orders, invoices, stock records, families, matching) and the lists' filters (stock, movements, reservations,
 item cards, reorder, counts, duty register) find by the name now, as before.
 
@@ -17466,3 +17473,29 @@ item cards, reorder, counts, duty register) find by the name now, as before.
   longer stopped as "an item of this name exists" (a second item could be made from it by a store's choice or the bulk "new items"), an
   open Key proposal for the item is no longer taken in bulk ("the item changed": a person decides it), and By Item's first search uses the
   new words. No change made.
+
+### The Codex review of 578fc44 (`item_rename_20261112/codex_round1.txt`): no HIGH; 5 MEDIUM (2 OLD), 3 LOW; the new ones and one OLD fixed test-first
+
+- **A rename did not take the name's guard (MEDIUM, new).** "Add item" and a store's choice serialise two makings of one name on
+  `item_name_guard`; a rename A -> B did not, so a making of B at that moment could miss it and skip "the same item exists". Now the rename
+  takes the new name's guard after the item and before the name (IR3). Test: `ItemNamesTest::testARenameHoldsTheNewNamesGuardSoAMakingOfThatNameWaits`
+  (a second connection's guard insert of the name in another case waits, 1205; the statement order item, guard, name, audit). The OLD part
+  (those guards compare the name now only, so a website product still called by an old name is no longer stopped) is IR6: reported, the
+  owner decides.
+- **The former-name limit counted rows, not items Find can show (MEDIUM, new).** Joined items and an item renamed many times used the places.
+  Now one row an item, joined and already-found items left out in the read itself, the limit after that (IR5). Test:
+  `ItemNamesTest::testAFormerNameFindsEveryItemItCanShow`.
+- **Find read the rename history even with a full page, unbounded (MEDIUM, new).** Now only while the names now leave room, in one statement
+  capped at 2 s (past it: the names now). Test: `ItemNamesTest::testFormerNamesAreReadOnlyWhenThereIsRoomAndWithinATimeCap`. A table of its
+  own for former names is not built (the brief: no new table unless needed; the read is of the rename rows only).
+- **Posted records re-printed show the new name (MEDIUM, OLD).** IR6: reported, not changed (the brief: the owner decides).
+- **A job taken away while the rename waited for the item (MEDIUM, OLD helper `ItemCards::editor`).** Fixed for the rename: the person is read
+  again once the item is held. Test: `ItemNamesTest::testAJobTakenAwayWhileTheRenameWaitedIsSeen`. The other catalogue writers keep the
+  helper as it is (OLD; not in this build).
+- **A stored name with a NUL (LOW).** The page's hidden field carries it as U+FFFD (the HTML parser): compared as such. Test:
+  `ItemNamesTest::testAStoredNulIsTheNameThePageShowed`.
+- **A name that is not UTF-8 gave an error page (LOW, OLD FormOnce JSON).** Refused in words (422) before the form's key; a `name_was` that is
+  not UTF-8 is a stale page (409). Test: `ItemNameScreensTest::testANameThatIsNotTextIsRefusedInWordsAndTheBoxHasNoBrowserLimit`.
+- **The browser's maxlength counted an emoji as two (LOW).** No maxlength; the hint says the limit; the server keeps it (same test).
+
+Red on 578fc44: `runs/rename_r1_red.log` (18 tests, 1 error, 6 failures: the 7 new or changed); green: `runs/rename_r1_green.log`.

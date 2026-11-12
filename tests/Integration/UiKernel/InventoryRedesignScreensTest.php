@@ -357,8 +357,8 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([Words::ITEM['on_shelf'], Words::ITEM['held_orders'], Words::ITEM['free'], Words::ITEM['coming']],
             self::texts($page, '//section[contains(@class, "item-strip")]/div/p[@class="doc-step-label"]'));
         self::assertSame(['12', '0', '12', '0'], self::texts($page, '//section[contains(@class, "item-strip")]/div/p[contains(@class, "doc-step-big")]'));
-        // Details: PRODUCT, BUYING, LEGAL; Change opens the card's form.
-        self::assertSame([Words::ITEM_PAGE['g_product'], Words::ITEM_PAGE['g_buying'], Words::ITEM_PAGE['g_legal']],
+        // Details: PRODUCT, BUYING, LEGAL (and first, for who may change product cards, NAME with "Change the name": IR1); Change opens the card's form.
+        self::assertSame([Words::ITEM_NAME['title'], Words::ITEM_PAGE['g_product'], Words::ITEM_PAGE['g_buying'], Words::ITEM_PAGE['g_legal']],
             self::texts($page, '//section[@id="card"]/div[contains(@class, "facts-group")]/p[@class="facts-title"]'));
         self::assertSame(['/ui/items/' . $sku . '/card'], self::attrs($page, '//section[@id="card"]/div[@class="card-head"]/a', 'href'));
         self::assertSame(['Vape Wholesale', \CW\Ui\Controller\PurchaseOrdersController::pack('box', 10)],

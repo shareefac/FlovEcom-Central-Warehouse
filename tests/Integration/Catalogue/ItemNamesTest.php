@@ -208,4 +208,144 @@ final class ItemNamesTest extends CatalogueTestCase
         $this->names->rename($who, $sku, 'Short', $long);
         self::assertSame($long, $this->nameOf($sku), '255 characters, 4-byte ones too, fit the column');
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of 578fc44 (round 1)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Round 1, MEDIUM 1: a rename takes the NEW name's guard row (item_name_guard, as an item made by hand or a store's choice takes it), after
+     * the item and before the name, so a making of that name at this moment waits for the rename and then sees it ("the same item exists").
+     */
+    public function testARenameHoldsTheNewNamesGuardSoAMakingOfThatNameWaits(): void
+    {
+        $who = $this->editor();
+        $sku = $this->item('legacy', 0, 'Old guard name');
+        $key = static fn (string $n): string => (string) self::$db->value('SELECT SHA2(WEIGHT_STRING(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci), 256)', [$n]);
+        $other = TestDb::connect();
+        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $seen = [];
+        $waited = false;
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use (&$seen, &$waited, $other): void {
+            $seen[] = (string) preg_replace('/\s+/', ' ', $sql);
+            if (str_starts_with($sql, 'UPDATE sku SET name')) {
+                // A making of the same name (as HandMade::create takes its guard first) while the rename is not committed: it waits.
+                try {
+                    $other->exec('INSERT INTO item_name_guard (name_key, last_at) VALUES (SHA2(WEIGHT_STRING(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci), 256), '
+                        . 'UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE last_at = UTC_TIMESTAMP(6)', ['NEW guard name']);
+                } catch (\PDOException $e) {
+                    self::assertSame(1205, \CW\Db::driverCode($e), 'the making waits for the rename');
+                    $waited = true;
+                }
+            }
+        }]]);
+        try {
+            $this->names->rename($who, $sku, 'Old guard name', 'New guard name');
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($waited, 'a making of the new name (any case) is serialised with the rename');
+        $order = array_values(array_filter(array_map(static fn (string $s): ?string => match (true) {
+            str_contains($s, 'FROM sku WHERE id = ? FOR UPDATE') => 'item', str_starts_with($s, 'INSERT INTO item_name_guard') => 'guard',
+            str_starts_with($s, 'UPDATE sku SET name') => 'name', str_starts_with($s, 'INSERT INTO audit_log') => 'audit', default => null,
+        }, $seen)));
+        self::assertSame(['item', 'guard', 'name', 'audit'], $order, 'lock order: the item, then the name\'s guard (HandMade and StoreChoices take the guard and then no existing item)');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM item_name_guard WHERE name_key = ?', [$key('New guard name')]));
+        // Nothing written, no guard taken: the same name, a refused one.
+        $this->names->rename($who, $sku, 'New guard name', 'New guard name');
+        self::refused(409, 'name_changed', fn () => $this->names->rename($who, $sku, 'Old guard name', 'Third name'));
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM item_name_guard WHERE name_key = ?', [$key('Third name')]));
+    }
+
+    /** Round 1, MEDIUM 2: the names an item had are counted per item that Find can show (one a item, joined ones and ones already found left out). */
+    public function testAFormerNameFindsEveryItemItCanShow(): void
+    {
+        $who = $this->editor();
+        $q = new Queries(self::$db);
+        // Oldest: renamed once from a matching name.
+        $oldest = $this->item('legacy', 0, 'Mango Ice Oldest');
+        $this->names->rename($who, $oldest, 'Mango Ice Oldest', 'Fruit zero');
+        // Then renamed many times, each time from a matching name: one item.
+        $busy = $this->item('legacy', 0, 'Mango Ice 0');
+        for ($i = 0; $i < 12; $i++) {
+            $this->names->rename($who, $busy, "Mango Ice {$i}", 'Mango Ice ' . ($i + 1));
+        }
+        $this->names->rename($who, $busy, 'Mango Ice 12', 'Busy item');
+        $old = $this->item('legacy', 0, 'Mango Ice Classic');
+        $this->names->rename($who, $old, 'Mango Ice Classic', 'Fruit one');
+        // Newest: renamed from a matching name, then joined into another: never counted.
+        $keep = $this->item('legacy', 0, 'Keeper');
+        foreach ([1, 2] as $i) {
+            $joined = $this->item('legacy', 0, "Mango Ice Joined {$i}");
+            $this->names->rename($who, $joined, "Mango Ice Joined {$i}", "Joined {$i}");
+            self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$keep, $joined]);
+        }
+        self::assertSame([$old], array_map('intval', array_column($q->searchSkus('mango ice', 1, formerNames: true), 'id')), 'the joined ones are not counted');
+        $three = $q->searchSkus('mango ice', 3, formerNames: true);
+        self::assertSame([$old, $busy, $oldest], array_map('intval', array_column($three, 'id')), 'the newest rename first; one row an item');
+        self::assertSame(['Mango Ice Classic', 'Mango Ice 12', 'Mango Ice Oldest'], array_column($three, 'former_name'), 'the newest name of each that matched');
+    }
+
+    /**
+     * Round 1, MEDIUM 3: the names an item had are read only when the names now leave room on the page, in one statement capped in time
+     * (MAX_EXECUTION_TIME); past the cap Find shows what the names now found.
+     */
+    public function testFormerNamesAreReadOnlyWhenThereIsRoomAndWithinATimeCap(): void
+    {
+        $who = $this->editor();
+        $q = new Queries(self::$db);
+        $now = $this->item('legacy', 0, 'Grape Now');
+        $was = $this->item('legacy', 0, 'Grape Before');
+        $this->names->rename($who, $was, 'Grape Before', 'Plum');
+        $audit = [];
+        $timeout = false;
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use (&$audit, &$timeout): void {
+            if (str_contains($sql, 'audit_log')) {
+                $audit[] = (string) preg_replace('/\s+/', ' ', $sql);
+                if ($timeout) {
+                    throw new \PDOException('SQLSTATE[HY000]: General error: 3024 Query execution was interrupted, maximum statement execution time exceeded');
+                }
+            }
+        }]]);
+        try {
+            self::assertSame([$now], array_map('intval', array_column($q->searchSkus('grape', 1, formerNames: true), 'id')));
+            self::assertSame([], $audit, 'the page is full with the names now: no history read');
+            self::assertSame([$now, $was], array_map('intval', array_column($q->searchSkus('grape', 2, formerNames: true), 'id')));
+            self::assertNotSame([], $audit);
+            self::assertStringStartsWith('SELECT /*+ MAX_EXECUTION_TIME(' . ItemNames::FORMER_MS . ') */', $audit[0]);
+            $timeout = true;
+            self::assertSame([$now], array_map('intval', array_column($q->searchSkus('grape', 2, formerNames: true), 'id')), 'past the cap: the names now');
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+    }
+
+    /** Round 1, MEDIUM 5 (OLD helper): a job taken away while the rename waited for the item is seen: the person is read again once it holds it. */
+    public function testAJobTakenAwayWhileTheRenameWaitedIsSeen(): void
+    {
+        $who = $this->editor();
+        $sku = $this->item('legacy', 0, 'Waiting name');
+        $other = TestDb::connect();
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use ($other, $who): void {
+            if (str_contains($sql, 'FROM sku WHERE id = ? FOR UPDATE')) {
+                $other->exec('UPDATE staff_role SET revoked_at = UTC_TIMESTAMP(6) WHERE staff_user_id = ?', [$who->staffUserId]);
+            }
+        }]]);
+        try {
+            self::refused(403, 'role_not_allowed', fn () => $this->names->rename($who, $sku, 'Waiting name', 'Never'));
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertSame(['Waiting name', 0], [$this->nameOf($sku), $this->renames($sku)]);
+    }
+
+    /** Round 1, LOW 6: a stored name with a NUL reaches the page's hidden field as U+FFFD (the HTML parser's rule): it is still that name. */
+    public function testAStoredNulIsTheNameThePageShowed(): void
+    {
+        $who = $this->editor();
+        $sku = $this->item('legacy', 0, 'tmp');
+        self::$db->exec('UPDATE sku SET name = ? WHERE id = ?', ["El\0ux", $sku]);
+        self::assertSame('renamed', $this->names->rename($who, $sku, "El\u{FFFD}ux", 'Elux')['result']);
+        self::assertSame('Elux', $this->nameOf($sku));
+    }
 }

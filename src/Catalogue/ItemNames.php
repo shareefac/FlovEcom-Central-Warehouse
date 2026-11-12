@@ -17,11 +17,14 @@ use CW\Db;
  *    card stay as they are; no stock feed row is written (nothing a website reads changes).
  *  - Who: as ItemCards::editor (catalogue.edit: mapping_lead, stock_controller, purchasing_manager; never admin), read again inside the
  *    transaction.
- *  - ONE transaction: the item row locked FOR UPDATE (a merge meanwhile waits, or is seen), an item joined into another refused (409
- *    merged_item: the item it was joined into is renamed instead), the same name written nothing (`unchanged`), a name someone else changed
- *    since the page was drawn refused (409 name_changed, detail.name: the name it has now; the page sends the name it showed as the
- *    expected one: sku has no version column, and only the spaces of a stored name are forgiven, as clean() makes them single), then the
- *    name and one audit row `sku.rename` {code, before, after}.
+ *  - ONE transaction: the item row locked FOR UPDATE (a merge meanwhile waits, or is seen) and the person read again once it is held (a
+ *    job taken away while this waited counts), an item joined into another refused (409 merged_item: the item it was joined into is
+ *    renamed instead), the same name written nothing (`unchanged`), a name someone else changed since the page was drawn refused (409
+ *    name_changed, detail.name: the name it has now; the page sends the name it showed as the expected one: sku has no version column, and
+ *    only the spaces of a stored name are forgiven, as clean() makes them single, and a NUL, which the page's hidden field carries as
+ *    U+FFFD), then the NEW name's guard row (item_name_guard, as an item made by hand or a store's choice takes it: a making of that name
+ *    at this moment waits and then sees the rename), the name, and one audit row `sku.rename` {code, before, after}. Lock order: the item,
+ *    then the guard; HandMade and StoreChoices take the guard and then lock no existing item, so no cycle.
  *  - The history (the item page) and the names an item had (Find) are read from those audit rows (entity sku / id, ix_audit_entity; the
  *    action's index ix_audit_action): no table of its own.
  */
@@ -31,6 +34,8 @@ final class ItemNames
     public const NAME_MAX = 255;
     public const ACTION = 'sku.rename';
     public const HISTORY_LIMIT = 20;
+    /** The most time one read of the names items had may take (MAX_EXECUTION_TIME, ms): past it Find shows what the names now found. */
+    public const FORMER_MS = 2000;
 
     public function __construct(private readonly Db $db)
     {
@@ -72,6 +77,8 @@ final class ItemNames
             ItemCards::editor($db, $caller);
             $sku = $db->one('SELECT id, code, name, merged_into_sku_id FROM sku WHERE id = ? FOR UPDATE', [$skuId])
                 ?? throw new CwException('unknown_item', 'There is no such item.', 404);
+            // Again now that the item is held (READ COMMITTED: a fresh read): a job taken away while this waited for the item counts.
+            ItemCards::editor($db, $caller);
             if ($sku['merged_into_sku_id'] !== null) {
                 $into = (int) $sku['merged_into_sku_id'];
                 $code = (string) ($db->value('SELECT code FROM sku WHERE id = ?', [$into]) ?? '');
@@ -84,6 +91,7 @@ final class ItemNames
             if (self::loose($before) !== self::loose($expected)) {
                 throw new CwException('name_changed', "Someone renamed {$sku['code']} meanwhile: it is \"{$before}\" now. Look at it again.", 409, ['name' => $before]);
             }
+            self::guard($db, $name);
             $db->exec('UPDATE sku SET name = ? WHERE id = ?', [$name, $skuId]);
             Audit::write($db, $caller, self::ACTION, 'sku', (string) $skuId, null, ['code' => (string) $sku['code'], 'before' => $before, 'after' => $name]);
             return ['result' => 'renamed', 'name' => $name, 'before' => $before];
@@ -113,22 +121,47 @@ final class ItemNames
 
     /**
      * The items a name they had matches (Find, docs/decisions.md IR5): every word of the search in a name before a rename, as the search
-     * compares words ($where, $params: CW\Ui\SearchText::allWords on formerExpr()), newest rename first: item id => that former name.
+     * compares words ($where, $params: CW\Ui\SearchText::allWords on formerExpr()). At most $limit ITEMS, each once, not joined into
+     * another and not in $skip (the ones the names now found), the most recently renamed first: item id => the newest of its former names
+     * that matched. One read of the renames (the action's index) capped at FORMER_MS: past it, none.
      *
      * @param list<string|int> $params
+     * @param list<int> $skip
      * @return array<int, string>
      */
-    public static function formerMatches(Db $db, string $where, array $params, int $limit): array
+    public static function formerMatches(Db $db, string $where, array $params, int $limit, array $skip = []): array
     {
+        if ($limit < 1 || $where === '') {
+            return [];
+        }
+        $not = $skip === [] ? '' : ' AND s.id NOT IN (' . implode(',', array_fill(0, count($skip), '?')) . ')';
+        try {
+            $ids = array_map('intval', $db->column('SELECT /*+ MAX_EXECUTION_TIME(' . self::FORMER_MS . ') */ s.id FROM audit_log a '
+                . "JOIN sku s ON s.id = CAST(a.entity_id AS UNSIGNED) WHERE a.action = ? AND a.entity_type = 'sku' AND s.merged_into_sku_id IS NULL{$not} "
+                . "AND {$where} GROUP BY s.id ORDER BY MAX(a.id) DESC LIMIT " . $limit, [self::ACTION, ...$skip, ...$params]));
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) === 3024) {
+                return [];
+            }
+            throw $e;
+        }
+        if ($ids === []) {
+            return [];
+        }
+        // The name that matched: the newest matching rename of each (ix_audit_entity).
+        $names = [];
+        foreach ($db->all('SELECT a.entity_id, ' . self::formerExpr() . " AS was FROM audit_log a WHERE a.entity_type = 'sku' AND a.entity_id IN ("
+            . implode(',', array_fill(0, count($ids), '?')) . ") AND a.action = ? AND {$where} ORDER BY a.id DESC",
+            [...array_map('strval', $ids), self::ACTION, ...$params]) as $r) {
+            $names[(int) $r['entity_id']] ??= (string) $r['was'];
+        }
         $out = [];
-        foreach ($db->all('SELECT a.entity_id, ' . self::formerExpr() . " AS was FROM audit_log a WHERE a.action = ? AND a.entity_type = 'sku' AND {$where} "
-            . 'ORDER BY a.id DESC LIMIT ' . max(1, min(500, $limit * 5)), [self::ACTION, ...$params]) as $r) {
-            $id = (int) $r['entity_id'];
-            if ($id > 0 && !isset($out[$id])) {
-                $out[$id] = (string) $r['was'];
+        foreach ($ids as $id) {
+            if (isset($names[$id])) {
+                $out[$id] = $names[$id];
             }
         }
-        return array_slice($out, 0, $limit, true);
+        return $out;
     }
 
     /** The name before a rename in an audit row (alias `a`), compared as sku.name is (accents and case aside). */
@@ -137,9 +170,22 @@ final class ItemNames
         return "(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.before')) COLLATE utf8mb4_0900_ai_ci)";
     }
 
-    /** A name with its spaces made single: how a stored name is compared with the one the page showed. */
+    /**
+     * The name's guard row (item_name_guard, 0031: keyed by the name as the collation compares it), taken as HandMade::create and
+     * StoreChoices take it before they make an item of a name.
+     */
+    private static function guard(Db $db, string $name): void
+    {
+        $db->exec('INSERT INTO item_name_guard (name_key, last_at) VALUES (SHA2(WEIGHT_STRING(CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci), 256), '
+            . 'UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE last_at = UTC_TIMESTAMP(6)', [$name]);
+    }
+
+    /**
+     * A name with its spaces made single: how a stored name is compared with the one the page showed (a NUL as U+FFFD: what the HTML parser
+     * makes of it in the page's hidden field).
+     */
     private static function loose(string $s): string
     {
-        return trim((string) preg_replace('/\s+/u', ' ', $s));
+        return trim((string) preg_replace('/\s+/u', ' ', str_replace("\0", "\u{FFFD}", $s)));
     }
 }

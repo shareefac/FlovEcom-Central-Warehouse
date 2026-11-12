@@ -204,12 +204,42 @@ final class ItemNameScreensTest extends KernelUiTestCase
         self::assertStringContainsString('item-name-form', $form->getAttribute('class'));
         $box = $xp->query('.//input[@name="name"]', $form)->item(0);
         self::assertInstanceOf(\DOMElement::class, $box);
-        self::assertSame(['text', (string) ItemNames::NAME_MAX, ''], [$box->getAttribute('type'), $box->getAttribute('maxlength'), $box->getAttribute('style')]);
+        self::assertSame(['text', '', ''], [$box->getAttribute('type'), $box->getAttribute('maxlength'), $box->getAttribute('style')], 'no browser limit (round 1, LOW 8)');
         self::assertSame(1, $xp->query('.//label[@for="' . $box->getAttribute('id') . '"]', $form)->length);
         self::assertSame(Words::ITEM_NAME['save'], self::squash($xp->evaluate('string(.//button[@type="submit"])', $form)));
         self::assertSame(0, $xp->query('.//script | .//*[@style]', $form)->length);
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
         self::assertMatchesRegularExpression('/@container \(max-width: 640px\) \{[^}]*form\.item-name-form button \{ width: 100%; \}/s', $css, 'the button is the phone\'s width');
         self::assertDoesNotMatchRegularExpression('/\.item-name-form[^{]*\{[^}]*\b(min-)?width: \d{3,}px/', $css, 'nothing wider than a phone');
+    }
+
+    /**
+     * The Codex review of 578fc44, LOW 7 and 8: a name that is not UTF-8 is refused in words (422, not an error page: the form's key is
+     * hashed as JSON, which needs UTF-8), and a name the expected one is not (a forged form) is a 409 like any stale page; the box has no
+     * browser limit (a browser counts an emoji as two), the hint says the limit and the server keeps it.
+     */
+    public function testANameThatIsNotTextIsRefusedInWordsAndTheBoxHasNoBrowserLimit(): void
+    {
+        $sku = $this->item('legacy', 0, 'Text name');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $page = $web->get("/ui/items/{$sku}");
+        $f = self::nameForm($page, $sku);
+        $r = $web->post(self::path($sku), ['name' => "Bad\xC3\x28name"] + $f);
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertSame(Words::CARD_ERROR['name_not_plain'], self::squash(self::xp($r)->evaluate('string(//p[@class="error"])')));
+        self::assertTrue(self::open($r));
+        $r = $web->post(self::path($sku), ['name' => 'Fine name', 'name_was' => "Text\xC3\x28name"] + $f);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertSame('Text name', self::nameForm($r, $sku)['name_was']);
+        self::assertSame(['Text name', 0], [(string) self::$db->value('SELECT name FROM sku WHERE id = ?', [$sku]), $this->renames($sku)]);
+        $box = self::xp($page)->query('//form[contains(@action, "/name")]//input[@name="name"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $box);
+        self::assertFalse($box->hasAttribute('maxlength'), 'no browser limit: it counts characters another way than CW');
+        self::assertStringContainsString(Words::say('ITEM_NAME', 'hint', ItemNames::NAME_MAX),
+            self::squash(self::xp($page)->evaluate('string(//form[contains(@action, "/name")]//p[@class="hint"])')));
+        self::assertStringContainsString('255', Words::say('ITEM_NAME', 'hint', ItemNames::NAME_MAX));
+        $long = str_repeat('é', 254) . '🍓';
+        $ok = $web->post(self::path($sku), ['name' => $long] + $f);
+        self::assertSame("/ui/items/{$sku}?notice=name_saved", $ok->location(), $ok->describe());
     }
 }
