@@ -99,6 +99,9 @@ final class StockDoubtUnitTest extends TestCase
         self::assertSame(['bad_file', 1, 'note'], [$e->errorCode, $e->detail['row'] ?? null, $e->detail['column'] ?? null]);
         $e = $this->refused(self::HEAD . "CW-000001,\"1\r\n\",2,differs,0,\n");
         self::assertSame(['bad_file', 1, 'shop_qty'], [$e->errorCode, $e->detail['row'] ?? null, $e->detail['column'] ?? null]);
+        // Codex round 3, LOW (OLD reader): the same in a column the load ignores (the product's name) swallowed the next item too.
+        $e = $this->refused("cw_code,shop_qty,cw_qty,reason,sold_30d,note,product\nCW-000001,1,2,differs,0,ok,\"Pod\nCW-000002,3,4,differs,0,ok,Mint\n");
+        self::assertSame(['bad_file', 1, 'product'], [$e->errorCode, $e->detail['row'] ?? null, $e->detail['column'] ?? null]);
     }
 
     public function testTheListsNameIsShortPlainText(): void

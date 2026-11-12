@@ -17396,3 +17396,13 @@ Tests, written first (red on 3e72f03: `runs/doubt_fix2_red.log`, 3 tests, 3 fail
 testSaveCountTakesTheNumberSeriesAndTheBalanceBeforeTheSheetNamesTheItem`, `StockDoubtUnitTest::testAQuoteLeftOpenNeverSwallowsTheRowsAfterIt`,
 `DoubtfulStockScreensTest::testTheStoreShownStaysTheStoreAfterAnAnswerAndOnChecked` (+ the empty pages' links); green with the fixes
 (`runs/doubt_fix2_green.log`).
+
+### The Codex re-check of f22ea64 (`doubt_module_20261112/codex_round3.txt`): no HIGH, no MEDIUM; the lock order and the empty links checked right; 2 LOW about the list reader
+
+- **A quote left open in a column the load ignores (LOW, OLD reader; round 2's fix in part).** The check of round 2 looked at the six
+  columns only, so a product name left open swallowed the next item all the same. Now every cell of the row is checked, the column named.
+  Test first: `StockDoubtUnitTest::testAQuoteLeftOpenNeverSwallowsTheRowsAfterIt` (red on f22ea64: `runs/doubt_fix3_red.log`).
+- **A note of two lines, properly quoted, refuses the list (LOW, new): kept as it is.** A list's note is one line (it is shown in one line
+  under the item); telling a well-closed two-line cell from one left open needs a second reader of quotes beside CW's `CsvReader`, which the
+  load does not justify. The refusal names the row and says "a line break inside a cell: is a quote missing?". The 12 Nov list has no
+  line break in any cell.

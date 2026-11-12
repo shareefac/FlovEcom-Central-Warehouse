@@ -72,8 +72,8 @@ final class StockDoubt
      * Reads a list: its header must name the six COLUMNS (others are ignored); each row is checked, and the first bad one refuses the whole
      * file (400 bad_file, detail row = its data-row number, column = the column): a CW number (CW-000123, any letters' case), the figures
      * whole numbers (shop_qty and sold_30d may be empty: not known; sold_30d not below 0), why one of REASONS (any case), a note of at most
-     * NOTE_MAX characters (control characters become spaces; empty: none). A line break inside a cell is refused (a quote left open would
-     * take the next rows into it). An item twice is refused. At most MAX_ROWS rows.
+     * NOTE_MAX characters (control characters become spaces; empty: none). A line break inside any cell, of any column, is refused (a quote
+     * left open would take the next rows into it; a note is one line). An item twice is refused. At most MAX_ROWS rows.
      *
      * @return list<array{row: int, cw_code: string, shop_qty: ?int, cw_qty: int, reason: string, sold_30d: ?int, note: ?string}>
      */
@@ -89,10 +89,11 @@ final class StockDoubt
         $seen = [];
         foreach ($t['rows'] as $n => $r) {
             $bad = static fn (string $column, string $why): CwException => new CwException('bad_file', "row {$n}, {$column}: {$why}", 400, ['row' => $n, 'column' => $column]);
-            foreach (self::COLUMNS as $column) {
-                if (preg_match('/[\r\n]/', $r[$column]) === 1) {
-                    // A cell opened with a quote and never closed takes the rows after it into itself (Codex round 2): one line per cell.
-                    throw $bad($column, 'a line break inside a cell: is a quote missing?');
+            foreach ($r as $column => $cell) {
+                if (preg_match('/[\r\n]/', $cell) === 1) {
+                    // A cell opened with a quote and never closed takes the rows after it into itself (Codex rounds 2 and 3), in any column,
+                    // one the load ignores too: one line per cell.
+                    throw $bad((string) $column, 'a line break inside a cell: is a quote missing?');
                 }
             }
             $code = strtoupper(trim($r['cw_code']));
