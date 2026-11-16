@@ -17566,3 +17566,17 @@ nothing in CW decides by it. "Set by" says "given back to the website" for a row
 
 **WD7. Release order.** CW first (0067 + 0068 + this code; the old connector sends no `selling`: the column says "not known yet"), then the
 connector 0.4.13 (old CW ignores `selling`).
+
+### The Codex review of 4f36499 (2 runs): 2 MEDIUM, both fixed test-first
+
+- **0067 could not resume after a stop between its two ALTERs (MEDIUM, CW).** The migrator records a file only after its last statement; a
+  run stopped after the log's ALTER failed the second time on the CHECK already there ("Duplicate check constraint name"), and the production
+  installer would keep the web, the API and the jobs paused. Now each ALTER (the column made NULL-able and its CHECK: one atomic statement)
+  is a prepared statement that runs only while its CHECK is not there (as 0056 and 0060); a CHECK of that name on a column still NOT NULL
+  stops the migration, naming it. 0068 (one CREATE TABLE IF NOT EXISTS) was already safe; its test now shows it. Tests:
+  `Migration0067Test::testARunStoppedAnywhereRunsAgainCleanly` (red on 4f36499: the review's error, 3822), `Migration0068Test`.
+- **The connector's one-off re-send after 0.4.13 (MEDIUM, shop connector).** `selling` changes every shop-side hash, so the first full or
+  delta pass would have sent the whole catalogue in one worker call. Fixed in the connector (0.4.13, lib/listings.php): re-sends (a variant
+  last sent as its profile of before 0.4.13) share one budget kept in the shop's cw_meta, at most 3,000 a minute and 1,000 a call (one
+  request), in every pass; the rest waits, and the watch keeps a 0.4.12 memory as website states CW holds, so a status change still goes at
+  once. No CW change.

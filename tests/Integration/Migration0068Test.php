@@ -13,7 +13,7 @@ use CW\Tests\Support\MigrationFixture;
 /**
  * 0068 (each website product's own selling mode, T-556 step 2 option A), applied to a scratch schema: one new, empty table, nothing else
  * changed (no table altered, no row written); its CHECKs (a yes-or-no back-order flag, the change no later than the "as of"); the app
- * login never deletes a row (NO_DELETE). A second run changes nothing.
+ * login never deletes a row (NO_DELETE). A second run changes nothing; a run stopped before its record runs again cleanly.
  */
 final class Migration0068Test extends IntegrationTestCase
 {
@@ -60,5 +60,13 @@ final class Migration0068Test extends IntegrationTestCase
         // A second run of the statement changes nothing.
         $db->exec($statements[0]);
         self::assertSame(2, (int) $db->value('SELECT COUNT(*) FROM listing_selling'));
+        MigrationFixture::drop('m68', $this->dir);
+        $this->dir = null;
+
+        // A run stopped after the statement, before the migration's own record (the Codex review of option A, MEDIUM 1): runs again cleanly.
+        [$db, $this->dir] = MigrationFixture::upTo('m68', '0067_site_mode_website.sql');
+        $db->pdo()->exec($statements[0]);
+        self::assertNull($db->value('SELECT version FROM schema_migrations WHERE version = ?', [self::FILE]), 'stopped, not recorded');
+        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE), 'runs again');
     }
 }
