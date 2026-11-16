@@ -48,7 +48,7 @@ final class ItemController
     public const PARTS = ['barcodes', 'warehouses', 'selling', 'groups', 'history'];
 
     /** The part a redirect's notice opens: where the change was made. Any other notice opens none. */
-    public const NOTICE_PARTS = ['selling_mode_set' => 'selling', 'selling_mode_unchanged' => 'selling', 'family_set' => 'groups', 'family_out' => 'groups',
+    public const NOTICE_PARTS = ['selling_mode_set' => 'selling', 'selling_mode_unchanged' => 'selling', 'selling_mode_website' => 'selling', 'family_set' => 'groups', 'family_out' => 'groups',
         'unchanged' => 'groups'];
 
     /** An old link's tab (the tab row of before, IV6) => the part it opens now; Details and Barcodes are always shown. */

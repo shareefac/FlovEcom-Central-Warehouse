@@ -920,8 +920,20 @@ CW-" . sprintf('%06d', $b) . ",20
         self::assertSame(['vapeandgo'], $set['changed']);
         $view = (new \CW\Availability($app))->forVariants($ch, ['A1'])[0];
         self::assertSame([true, 'In-Stock', 4], [$view['site']['writer'], $view['site']['mode'], $view['site']['low_stock_threshold']]);
+        // T-556 option A (0067): "Let the website decide" as the app login (the row kept, its mode NULL); 0068: the website's own mode
+        // through the listing intake.
+        $back = (new \CW\SiteWriter\SiteModes($app))->set(Caller::staff($this->staffWith('purchasing_desk')), $sku, \CW\SiteWriter\SiteModes::WEBSITE, ['vapeandgo'], '',
+            'grants test: the website decides');
+        self::assertSame(['vapeandgo'], $back['changed']);
+        $view = (new \CW\Availability($app))->forVariants($ch, ['A1'])[0];
+        self::assertSame([true, null, 'site_own', 4], [$view['site']['writer'], $view['site']['mode'], $view['site']['why'], $view['site']['low_stock_threshold']]);
+        foreach ([1, 2] as $n) {
+            (new ListingIngestService($app))->push(Caller::channel($ch, 'vapeandgo'), [['variant_id' => 'A1', 'product_title' => 'Writer app item',
+                'selling' => ['stock_mode' => $n === 1 ? 'From-Warehouse' : 'Out-Of-Stock', 'allow_backorders' => 0, 'low_stock_threshold' => 4]]]);
+        }
+        self::assertSame('Out-Of-Stock', self::$db->value("SELECT s.stock_mode FROM listing_selling s JOIN channel_listing l ON l.id = s.listing_id WHERE l.external_variant_id = 'A1'"));
         self::assertSame([], Invariants::check(self::$db));
-        foreach (['DELETE FROM item_channel_mode', 'DELETE FROM item_channel_mode_log', 'UPDATE item_channel_mode_log SET version = 9'] as $sql) {
+        foreach (['DELETE FROM item_channel_mode', 'DELETE FROM item_channel_mode_log', 'UPDATE item_channel_mode_log SET version = 9', 'DELETE FROM listing_selling'] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }
     }

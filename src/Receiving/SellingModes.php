@@ -66,12 +66,13 @@ final class SellingModes
             }
             // IM10 (I157): the selling-mode switch writes the receipt sites' own rows (item_channel_mode); the newest write of either
             // kind is the item's last mode, so a switch to Out-Of-Stock on Vape and Go is what the next receipt brings back from.
+            // A row whose mode the switch gave back to the website (NULL, 0067) holds no mode of CW's: it is not read here.
             $sites = new SiteModes($this->db);
             $channels = array_keys($sites->receiptChannels());
             if ($channels !== []) {
                 foreach ($sites->current($chunk, $channels, $lock) as $row) {
                     $sku = $row['sku_id'];
-                    if ($row['updated_at'] > ($at[$sku] ?? '')) {
+                    if ($row['mode'] !== null && $row['updated_at'] > ($at[$sku] ?? '')) {
                         $at[$sku] = $row['updated_at'];
                         $out[$sku]['mode'] = $row['mode'];
                         $out[$sku]['previous'] = $row['previous'];

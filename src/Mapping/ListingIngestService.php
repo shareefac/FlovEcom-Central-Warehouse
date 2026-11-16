@@ -52,6 +52,13 @@ use CW\Idempotency;
  *
  * The state-only load (stateOnly(); bin/import_listings.php --state-only): the state columns and nothing else, for the variants
  * that are already there, and only where the line is the stored profile (the same profile_hash).
+ *
+ * The website's own selling mode (0068, T-556 option A; CW\Mapping\SiteSelling): a listing may also carry the optional object
+ * `selling` (stock_mode, allow_backorders, low_stock_threshold), sent by the shops' connector from 0.4.13. Read leniently (never a
+ * 400), attached AFTER both hashes like `website` (so it never makes a push look changed, marks nothing to check and moves no
+ * map_version), and written whole into listing_selling in this transaction, after the profiles (listing order), whatever branch the
+ * profile took. A push without it leaves the stored one. View only: nothing decides by it. The site's answer is unchanged (its counts
+ * are in the audit row: selling, selling_ignored). The state-only load does not read it.
  */
 final class ListingIngestService
 {
@@ -81,17 +88,18 @@ final class ListingIngestService
         // of their pages, after the intake's transaction has committed; each mark is a decision of its own, and a failure never costs
         // the push (LandingPages::onArrival() logs it).
         (new LandingPages($this->db))->onArrival((int) $caller->channelId, $r['landing_check']);
-        // (a site is answered what it always was: the counts of the website state are in the audit row)
-        return array_diff_key($r, ['website' => true, 'landing_check' => true]);
+        // (a site is answered what it always was: the counts of the website state and of the selling modes are in the audit row)
+        return array_diff_key($r, ['website' => true, 'landing_check' => true, 'selling' => true]);
     }
 
     /**
      * The same for any caller (a site for its own channel, or a system import naming the channel). $stateAt: as of when the
      * website state the listings carry was true (an import: its export's time); not given: now (a push says what is true now).
      * `website` counts the states: written, values ignored for their type, states left because the stored one is newer.
+     * `selling` counts the website's own selling modes (0068): sent (written unless the stored one is newer), values ignored.
      *
      * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>, website: array{written: int, ignored: int, older: int},
-     *     landing_check: list<int>}
+     *     selling: array{sent: int, ignored: int}, landing_check: list<int>}
      */
     public function ingest(Caller $caller, int $channelId, mixed $listings, ?\DateTimeImmutable $stateAt = null): array
     {
@@ -141,6 +149,8 @@ final class ListingIngestService
             $queued = 0;
             $landing = [];
             $site = ['written' => 0, 'ignored' => 0, 'older' => 0];
+            $selling = [];
+            $sellingIgnored = 0;
             $mark = ", arrival_state = 'queued', arrival_seq = arrival_seq + 1, arrival_channel_id = ?";
             foreach ($variants as $v) {
                 $p = $profiles[$v];
@@ -197,6 +207,11 @@ final class ListingIngestService
                 }
                 $counts[$result]++;
                 $out[] = ['variant_id' => $v, 'listing_id' => $id, 'result' => $result, 'identity_changed' => $identityChanged];
+                // The website's own selling mode (0068), whatever branch the profile took: written after the loop.
+                $sellingIgnored += $p['selling_ignored'];
+                if ($p['selling'] !== null) {
+                    $selling[$id] = $p['selling'];
+                }
                 // What the landing-page check looks at again (LP4): a new or changed profile, or a website state that says something new.
                 if ($result !== 'unchanged' || ($state !== null && ($before === null || SiteState::changed($before, $state)))) {
                     $landing[] = $id;
@@ -205,13 +220,17 @@ final class ListingIngestService
                     $stale[] = $id; // a listing people may have looked at or decided on (a row created now: nobody has)
                 }
             }
+            // The website's own selling modes (0068): after the profiles, in listing order (no other writer of listing_selling).
+            SiteSelling::write($db, $selling, $at);
             // Design I7: decisions and screens taken on the old identity are stale (DecisionService, the only
             // writer of channel_listing, moves their map_version on).
             $bumped = $stale === [] ? 0 : DecisionService::identityChanged($db, $stale);
             Audit::write($db, $caller, 'listing.profiles', 'channel', (string) $channelId, null,
                 $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped, 'arrival_queued' => $queued,
-                    'website' => $site['written'], 'website_ignored' => $site['ignored'], 'website_older' => $site['older']]);
-            return ['received' => count($variants)] + $counts + ['listings' => $out, 'website' => $site, 'landing_check' => $landing];
+                    'website' => $site['written'], 'website_ignored' => $site['ignored'], 'website_older' => $site['older'],
+                    'selling' => count($selling), 'selling_ignored' => $sellingIgnored]);
+            return ['received' => count($variants)] + $counts + ['listings' => $out, 'website' => $site,
+                'selling' => ['sent' => count($selling), 'ignored' => $sellingIgnored], 'landing_check' => $landing];
         });
     }
 
@@ -486,6 +505,10 @@ final class ListingIngestService
         $site = SiteState::parse($l[SiteState::KEY] ?? null);
         $p['website'] = $site['state'];
         $p['website_ignored'] = $site['ignored'];
+        // The website's own selling mode (0068), the same way: after both hashes, read leniently, never a refusal.
+        $sell = SiteSelling::parse($l[SiteSelling::KEY] ?? null);
+        $p['selling'] = $sell['state'];
+        $p['selling_ignored'] = $sell['ignored'];
         return $p;
     }
 

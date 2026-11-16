@@ -870,13 +870,13 @@ final class RollbackExport
         }
         $rows = $this->db->all('SELECT m.sku_id, CAST(m.mode AS CHAR) mode, CAST(m.previous_mode AS CHAR) previous_mode, m.low_stock_threshold, '
             . 'CAST(m.source AS CHAR) source, m.updated_at, s.code, s.name FROM item_channel_mode m JOIN channel c ON c.id = m.channel_id JOIN sku s ON s.id = m.sku_id '
-            . 'WHERE c.code = ? ORDER BY m.sku_id', [$this->store]);
+            . 'WHERE c.code = ? AND (m.mode IS NOT NULL OR m.low_stock_threshold IS NOT NULL) ORDER BY m.sku_id', [$this->store]); // (0067: a NULL mode = the website decides)
         foreach ($rows as $r) {
             $sku = (int) $r['sku_id'];
             $items = array_values(array_filter($this->candidates[$sku] ?? [], static fn (array $c): bool => CsvWriter::safeText($c['code']) === $c['code']));
             $why = ($this->candidates[$sku] ?? []) === [] ? Words::ROLLBACK_REASON['no_erp_item'] : Words::ROLLBACK_REASON['unsafe_text'];
             foreach ($items === [] ? [null] : $items as $c) {
-                $csv->add([$c['code'] ?? '', $c['u'] ?? null, (string) $r['code'], (string) $r['name'], (string) $r['mode'], (string) ($r['previous_mode'] ?? ''),
+                $csv->add([$c['code'] ?? '', $c['u'] ?? null, (string) $r['code'], (string) $r['name'], (string) ($r['mode'] ?? ''), (string) ($r['previous_mode'] ?? ''),
                     $r['low_stock_threshold'] === null ? null : (int) $r['low_stock_threshold'], (string) $r['source'], (string) $r['updated_at'],
                     implode(' | ', $this->variants[$sku] ?? []), $c === null ? $why : '']);
                 $n++;

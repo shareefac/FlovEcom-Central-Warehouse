@@ -1644,6 +1644,7 @@ html:has(.actions.sticky) { scroll-padding-bottom: 112px; }
 
 /* The selling mode on the websites (a product page, IM10) */
 table.selling-sites .o-sub { margin-top: 2px; }
+table.selling-sites .site-own { display: block; margin-top: 2px; }
 form.selling-mode-form { margin-top: 12px; }
 form.selling-mode-form .btn.lg { width: auto; }
 

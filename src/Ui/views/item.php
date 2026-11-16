@@ -329,6 +329,7 @@
         <th scope="col"><?= $word('SELLING', 'website') ?></th>
         <th scope="col"><?= $word('SELLING', 'link') ?></th>
         <th scope="col"><?= $word('SELLING', 'mode') ?></th>
+        <th scope="col"><?= $word('SELLING', 'site_now') ?></th>
         <th scope="col"><?= $word('SELLING', 'listings') ?></th>
         <th scope="col" class="num"><?= $word('SELLING', 'threshold') ?></th>
         <th scope="col"><?= $word('SELLING', 'set_by') ?></th>
@@ -342,9 +343,10 @@
         <td class="c-wide" data-label="<?= $word('SELLING', 'mode') ?>"><?php if ($s['mode'] === null): ?><span class="hint"><?= $word('SELLING', $s['why'] === 'unlinked' ? 'unlinked' : 'own') ?></span><?php else: ?><strong><?= $e($s['mode']) ?></strong><?php if ($s['backorders'] === 1): ?> <?= $word('SELLING', 'backorders') ?><?php endif; ?> <span class="o-sub"><?= $word('MODE_MEANING', $s['mode']) ?></span><?php endif; ?>
           <?php if ($s['previous'] !== null): ?><span class="o-sub"><?= $say('SELLING', 'before', (string) $s['previous']) ?></span><?php endif; ?>
           <span class="o-sub"><?= $word('SITE_SYNC', $s['channel_mode']) ?></span></td>
+        <td class="c-wide" data-label="<?= $word('SELLING', 'site_now') ?>"><?php if ($s['listings'] === []): ?><span class="hint"><?= $word('SELLING', 'none_linked') ?></span><?php else: ?><?php foreach ($s['listings'] as $l): ?><span class="site-own"><?php if (count($s['listings']) > 1): ?><?= $say('SELLING', 'option', (string) $l['variant']) ?> <?php endif; ?><?php if ($l['own'] === null): ?><span class="hint"><?= $word('SELLING', 'site_not_known') ?></span><?php else: ?><?php if ($l['own']['mode'] === null): ?><?= $word('SELLING', 'site_none') ?><?php else: ?><strong><?= $e($l['own']['mode']) ?></strong><?php endif; ?><?php if ($l['own']['backorders'] === 1): ?> <?= $word('SELLING', 'backorders') ?><?php endif; ?><?php if ($l['own']['threshold'] !== null): ?> <span class="muted small"><?= $say('SELLING', 'site_threshold', (string) $l['own']['threshold']) ?></span><?php endif; ?> <span class="muted small"><?= $say('SELLING', 'site_as_of', \CW\Ui\Html::when((string) $l['own']['as_of'])) ?></span><?php endif; ?></span><?php endforeach; ?><?php endif; ?></td>
         <td data-label="<?= $word('SELLING', 'listings') ?>"><?php if ($s['listings'] === []): ?><span class="hint"><?= $word('SELLING', 'none_linked') ?></span><?php else: ?><?php foreach ($s['listings'] as $l): ?><span class="o-sub"><?php if ($l['units'] !== 1): ?><?= $say('SELLING', 'option_sale', (string) $l['variant'], \CW\Ui\Words::saleUses($l['units'])) ?><?php else: ?><?= $say('SELLING', 'option', (string) $l['variant']) ?><?php endif; ?><?php if ($l['quarantined']): ?> <?= $stateChip('LISTING_STATUS', 'quarantined') ?><?php endif; ?></span><?php endforeach; ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SELLING', 'threshold') ?>"><?php if ($s['threshold'] === null && $s['level'] !== null): ?><?= $n($s['level']) ?> <span class="o-sub"><?= $word('REORDER_LOW', 'item_figure') ?></span><?php elseif ($s['threshold'] === null): ?><span class="hint"><?= $word('SELLING', 'site_own') ?></span><?php else: ?><?= $n($s['threshold']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('SELLING', 'set_by') ?>"><?php if ($s['set_by'] === null): ?><span class="hint"><?= $word('SELLING', 'never_set') ?></span><?php else: ?><?= $say('SELLING', 'set_line', \CW\Ui\Words::SELLING[$s['set_source'] === 'receipt' ? 'by_receipt' : 'by_switch'], (string) $s['set_by'], \CW\Ui\Html::when((string) $s['set_at'])) ?><?php endif; ?></td>
+        <td data-label="<?= $word('SELLING', 'set_by') ?>"><?php if ($s['set_by'] === null): ?><span class="hint"><?= $word('SELLING', 'never_set') ?></span><?php else: ?><?= $say('SELLING', 'set_line', \CW\Ui\Words::SELLING[$s['given_back'] ? 'by_website' : ($s['set_source'] === 'receipt' ? 'by_receipt' : 'by_switch')], (string) $s['set_by'], \CW\Ui\Html::when((string) $s['set_at'])) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
@@ -359,7 +361,7 @@
       <legend><?= $word('SELLING', 'change') ?></legend>
 <?php foreach ($sm['modes'] as $m): ?>
       <label class="choice"><input type="radio" name="mode" value="<?= $e($m['value']) ?>"<?php if ($sm['typed']['mode'] === $m['value']): ?> checked<?php endif; ?> required>
-        <?= $say('SELLING', 'mode_meaning', (string) $m['value'], \CW\Ui\Words::of('MODE_MEANING', (string) $m['value'])) ?></label>
+        <?= $say('SELLING', 'mode_meaning', (string) $m['label'], (string) $m['meaning']) ?></label>
 <?php endforeach; ?>
     </fieldset>
     <fieldset>

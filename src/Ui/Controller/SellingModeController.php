@@ -7,6 +7,7 @@ namespace CW\Ui\Controller;
 use CW\Catalogue\ItemCompliance;
 use CW\CwException;
 use CW\Db;
+use CW\Mapping\SiteSelling;
 use CW\OpResult;
 use CW\Receiving\SellingModes;
 use CW\SiteWriter\SiteModes;
@@ -23,6 +24,10 @@ use CW\Ui\Words;
  * meaning of the label) and who set it last; modes.set changes the mode of a legacy item on the ticked websites (or all of
  * them) with a reason (CW\SiteWriter\SiteModes::set; one effect per form, FormOnce; a stamp of what the page showed: 409 when someone
  * changed it meanwhile). A counted item follows its policy on every site: no form, the page says so.
+ *
+ * T-556 step 2, option A (the owner, 16 Nov 2026): one more choice, "Let the website decide" (SiteModes::WEBSITE, 0067), gives the
+ * ticked websites' mode back to them; and, per website product, the selling mode the website itself has now, as its connector last
+ * sent it (listing_selling, 0068; view only): "not known yet" until a connector that sends it (0.4.13) has.
  */
 final class SellingModeController
 {
@@ -50,8 +55,12 @@ final class SellingModeController
             $r = FormOnce::run($ctx, 'ui.selling_mode.set', ['mode' => $mode, 'sites' => $sites, 'threshold' => $threshold, 'reason' => $reason, 'stamp' => $stamp],
                 static function (Db $db) use ($ctx, $id, $mode, $sites, $threshold, $reason, $stamp): OpResult {
                     $s = (new SiteModes($db))->set($ctx->caller(), $id, $mode, $sites, $threshold, $reason, $stamp);
-                    return OpResult::of(303, ['redirect' => Html::url('/ui/items/' . $id, ['notice' => $s['changed'] === [] ? 'selling_mode_unchanged' : 'selling_mode_set'])
-                        . '#selling-mode']);
+                    $notice = match (true) {
+                        $s['changed'] === [] => 'selling_mode_unchanged',
+                        $mode === SiteModes::WEBSITE => 'selling_mode_website',
+                        default => 'selling_mode_set',
+                    };
+                    return OpResult::of(303, ['redirect' => Html::url('/ui/items/' . $id, ['notice' => $notice]) . '#selling-mode']);
                 });
         } catch (CwException $e) {
             return (new ItemController())->page($ctx, $e->httpStatus, $e, null, ['selling_mode' => ['mode' => $mode, 'sites' => $sites, 'threshold' => $threshold,
@@ -77,10 +86,12 @@ final class SellingModeController
         $blocked = (new ItemCompliance($db))->selling([$id])[$id] ?? [];
         $policy = (string) $sku['sell_policy'];
         $listings = [];
-        foreach ($db->all("SELECT channel_id, external_variant_id, status, units_per_item FROM channel_listing WHERE sku_id = ? AND status IN ('mapped', 'quarantined') "
-            . 'ORDER BY channel_id, id', [$id]) as $l) {
+        // (0068: each website product's own selling mode as its website last sent it; no row = not known yet)
+        foreach ($db->all('SELECT l.channel_id, l.external_variant_id, l.status, l.units_per_item, s.stock_mode, s.allow_backorders, s.low_stock_threshold, s.as_of '
+            . "FROM channel_listing l LEFT JOIN listing_selling s ON s.listing_id = l.id WHERE l.sku_id = ? AND l.status IN ('mapped', 'quarantined') "
+            . 'ORDER BY l.channel_id, l.id', [$id]) as $l) {
             $listings[(int) $l['channel_id']][] = ['variant' => (string) $l['external_variant_id'], 'quarantined' => $l['status'] === 'quarantined',
-                'units' => (int) $l['units_per_item']];
+                'units' => (int) $l['units_per_item'], 'own' => SiteSelling::shown($l)];
         }
         $names = [];
         foreach ($db->all('SELECT id, display_name FROM staff_user WHERE id IN (SELECT updated_by FROM item_channel_mode WHERE sku_id = ? AND updated_by IS NOT NULL)', [$id]) as $p) {
@@ -105,6 +116,7 @@ final class SellingModeController
                 'mode' => $w['writer'] ? $w['mode'] : null, 'backorders' => $w['backorders'] ?? null, 'why' => $w['why'], 'meaning' => $w['meaning'] ?? null,
                 'threshold' => $row['threshold'] ?? null, 'previous' => $row['previous'] ?? null,
                 'level' => ($row['threshold'] ?? null) === null && $level !== null ? intdiv($level, max(1, (int) ($ls[0]['units'] ?? 1))) : null,
+                'given_back' => $row !== null && $row['mode'] === null, // the switch gave the mode back to the website (0067)
                 'set_by' => $row === null ? null : ($names[(int) $row['updated_by']] ?? $row['updated_actor']),
                 'set_source' => $row['source'] ?? null,
                 'set_document' => $row['document_id'] ?? null,
@@ -121,7 +133,8 @@ final class SellingModeController
             'canSet' => $legacy && $ctx->me()->can('modes.set'),
             'stamp' => SiteModes::stamp($rows),
             'formKey' => $typed['form_key'] ?? FormOnce::newKey(),
-            'modes' => array_map(static fn (string $m): array => ['value' => $m, 'meaning' => Words::MODE_MEANING[$m]], SellingModes::MODES),
+            'modes' => [...array_map(static fn (string $m): array => ['value' => $m, 'label' => $m, 'meaning' => Words::MODE_MEANING[$m]], SellingModes::MODES),
+                ['value' => SiteModes::WEBSITE, 'label' => Words::SELLING['website_decides'], 'meaning' => Words::SELLING['website_decides_meaning']]],
             'typed' => ['mode' => $typed['mode'] ?? '', 'all' => in_array('*', $typed['sites'] ?? [], true), 'threshold' => $typed['threshold'] ?? '',
                 'reason' => $typed['reason'] ?? ''],
         ];

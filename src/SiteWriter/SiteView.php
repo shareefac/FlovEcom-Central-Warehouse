@@ -25,6 +25,8 @@ use CW\Db;
  *                          policy backorder                                   From-Warehouse, 1    why backorder
  *                          legacy, CW set a mode for this site                its mode, null       why site_mode
  *                          legacy, no mode set for this site                  null, null           why site_own
+ *                          legacy, the switch gave the mode back to the site  null, null           why site_own
+ *                            (its row's mode is NULL: "Let the website decide", 0067; its threshold is still CW's)
  *                        (plan §6.5 for the counted items, one policy for every site, §7.4; IM10 "mode is per site for legacy
  *                        items"). null = leave the site's own value; after a forced Out-Of-Stock (FORCED) that is the value the
  *                        site had before the force, which the site's writer restores (I178).
@@ -58,7 +60,7 @@ final class SiteView
      * The block of one listing (pure).
      *
      * @param array{writer_on: bool, linked: bool, status: string, policy: ?string, qty: ?int, blocked: list<string>,
-     *     site: ?array{mode: string, threshold: ?int}, level?: ?int} $l `level`: the item's low-stock figure in the variant's units (pack G)
+     *     site: ?array{mode: ?string, threshold: ?int}, level?: ?int} $l `level`: the item's low-stock figure in the variant's units (pack G)
      * @return array{writer: bool, why: string, qty?: ?int, mode?: ?string, backorders?: ?int, low_stock_threshold?: ?int, meaning?: string}
      */
     public static function rule(array $l): array
@@ -77,7 +79,7 @@ final class SiteView
             $l['policy'] === 'stopped' => ['Out-Of-Stock', 0, 'stopped'],
             $l['policy'] === 'strict' => ['From-Warehouse', 0, 'strict'],
             $l['policy'] === 'backorder' => ['From-Warehouse', 1, 'backorder'],
-            $site !== null => [$site['mode'], null, 'site_mode'],
+            $site !== null && $site['mode'] !== null => [$site['mode'], null, 'site_mode'],
             default => [null, null, 'site_own'],
         };
         return ['writer' => true, 'why' => $why, 'qty' => $l['qty'], 'mode' => $mode, 'backorders' => $backorders, 'low_stock_threshold' => $threshold,

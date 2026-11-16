@@ -24,6 +24,12 @@ use CW\Stock;
  *                 optionally a new low-stock threshold, with a reason; the rows FOR UPDATE, a stamp of what the person saw (409
  *                 selling_mode_changed when someone changed them meanwhile), audit selling_mode.set, then LAST one feed row for
  *                 the item (Stock::skuChanged 'mode': the feed clock), so every linked listing is re-sent.
+ *                 "Let the website decide" (WEBSITE; 0067, T-556 step 2 option A, the owner 16 Nov 2026) is one more choice of the
+ *                 same switch: the site's row keeps its place and its log, its mode becomes NULL (no previous mode; the threshold as
+ *                 for any mode: kept, or the new one), so SiteView reads it as no row at all (why site_own: the feed says "leave the
+ *                 site's own") and the website's staff set the mode there. A site with no row and no new threshold already decides:
+ *                 nothing is written for it (unchanged). A forced listing (blocked, quarantined, stopped) stays Out-Of-Stock, as for
+ *                 any mode (SiteView::rule asks those first).
  *  fromReceipt()  a posted receipt's modes (GoodsReceiptHandler, I136): for the sites in site_writer.receipt_mode_sites (Vape and Go
  *                 until the owner says otherwise), the item's mode on the receipt becomes its mode there (source receipt, the
  *                 threshold kept); only for the items it accepts something of into MAIN (I169). Called inside the posting before its stock locks; returns the items whose site mode changed (the
@@ -36,6 +42,8 @@ use CW\Stock;
 final class SiteModes
 {
     public const THRESHOLD_MAX = 100000;
+    /** The switch's choice "Let the website decide" (0067): stored as a NULL mode, never sent to a site as a mode. */
+    public const WEBSITE = 'website';
 
     public function __construct(private readonly Db $db)
     {
@@ -49,7 +57,7 @@ final class SiteModes
     /**
      * @param list<int> $skuIds
      * @param list<int>|null $channelIds null = every site
-     * @return array<string, array{sku_id: int, channel_id: int, mode: string, previous: ?string, threshold: ?int, version: int, source: string,
+     * @return array<string, array{sku_id: int, channel_id: int, mode: ?string, previous: ?string, threshold: ?int, version: int, source: string,
      *     document_id: ?int, updated_by: ?int, updated_actor: string, updated_at: string}>
      */
     public function current(array $skuIds, ?array $channelIds = null, bool $lock = false): array
@@ -70,7 +78,7 @@ final class SiteModes
             }
             foreach ($this->db->all($sql . ' ORDER BY sku_id, channel_id' . ($lock ? ' FOR UPDATE' : ''), $params) as $r) {
                 $out[self::key((int) $r['sku_id'], (int) $r['channel_id'])] = [
-                    'sku_id' => (int) $r['sku_id'], 'channel_id' => (int) $r['channel_id'], 'mode' => (string) $r['mode'],
+                    'sku_id' => (int) $r['sku_id'], 'channel_id' => (int) $r['channel_id'], 'mode' => $r['mode'] === null ? null : (string) $r['mode'],
                     'previous' => $r['previous_mode'] === null ? null : (string) $r['previous_mode'],
                     'threshold' => $r['low_stock_threshold'] === null ? null : (int) $r['low_stock_threshold'], 'version' => (int) $r['version'],
                     'source' => (string) $r['source'], 'document_id' => $r['document_id'] === null ? null : (int) $r['document_id'],
@@ -114,7 +122,8 @@ final class SiteModes
     }
 
     /**
-     * The switch (class docblock). $sites: channel codes, or ['*'] for every site. $threshold: '' = keep, else a whole number
+     * The switch (class docblock). $mode: one of SellingModes::MODES, or WEBSITE ("Let the website decide": the mode is given back
+     * to the website). $sites: channel codes, or ['*'] for every site. $threshold: '' = keep, else a whole number
      * 0..THRESHOLD_MAX. $stamp: stamp() of the rows the person saw (null: not checked, the CLI). 400 bad_mode / bad_reason /
      * bad_threshold · 404 unknown_item · 409 merged_item / protected_item / selling_mode_changed · 422 no_sites / unknown_site.
      *
@@ -123,8 +132,8 @@ final class SiteModes
      */
     public function set(Caller $caller, int $skuId, string $mode, array $sites, string $threshold, string $reason, ?string $stamp = null): array
     {
-        if (!in_array($mode, SellingModes::MODES, true)) {
-            throw new CwException('bad_mode', 'Choose In-Stock, From-Warehouse or Out-Of-Stock.', 400);
+        if (!in_array($mode, SellingModes::MODES, true) && $mode !== self::WEBSITE) {
+            throw new CwException('bad_mode', 'Choose In-Stock, From-Warehouse, Out-Of-Stock or "Let the website decide".', 400);
         }
         $reason = trim($reason);
         if (mb_strlen($reason) < 3 || mb_strlen($reason) > 500 || !mb_check_encoding($reason, 'UTF-8')) {
@@ -180,15 +189,17 @@ final class SiteModes
             $now = Clock::db(Clock::now());
             $changed = [];
             $unchanged = [];
+            $new = $mode === self::WEBSITE ? null : $mode; // the stored mode: NULL = the website decides (0067)
             foreach ($targets as $code => $cid) {
                 $cur = $rows[self::key($skuId, $cid)] ?? null;
-                $prev = SellingModes::previousFor(['mode' => $cur['mode'] ?? null, 'previous' => $cur['previous'] ?? null], $mode);
+                $prev = $new === null ? null : SellingModes::previousFor(['mode' => $cur['mode'] ?? null, 'previous' => $cur['previous'] ?? null], $new);
                 $th = $newThreshold ?? ($cur['threshold'] ?? null);
-                if ($cur !== null && $cur['mode'] === $mode && $cur['previous'] === $prev && $cur['threshold'] === $th) {
+                // Unchanged: the row already says so, or (the website decides) there is no row and no threshold to keep: the site decides already.
+                if ($cur === null ? ($new === null && $th === null) : ($cur['mode'] === $new && $cur['previous'] === $prev && $cur['threshold'] === $th)) {
                     $unchanged[] = $code;
                     continue;
                 }
-                $this->write($db, $caller, $skuId, $cid, $cur, $mode, $prev, $th, 'switch', null, null, $reason, $now);
+                $this->write($db, $caller, $skuId, $cid, $cur, $new, $prev, $th, 'switch', null, null, $reason, $now);
                 $changed[] = $code;
             }
             if ($changed !== []) {
@@ -231,8 +242,8 @@ final class SiteModes
         return array_map('intval', array_keys($changed));
     }
 
-    /** @param array<string, mixed>|null $cur */
-    private function write(Db $db, Caller $caller, int $skuId, int $channelId, ?array $cur, string $mode, ?string $prev, ?int $threshold, string $source,
+    /** @param array<string, mixed>|null $cur  $mode null: the website decides (the switch only, 0067) */
+    private function write(Db $db, Caller $caller, int $skuId, int $channelId, ?array $cur, ?string $mode, ?string $prev, ?int $threshold, string $source,
         ?int $documentId, ?int $lineNo, ?string $reason, string $now): void
     {
         $db->exec(

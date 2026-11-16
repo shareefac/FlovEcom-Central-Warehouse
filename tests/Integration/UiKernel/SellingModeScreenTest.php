@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\ChannelAdmin;
+use CW\Mapping\ListingIngestService;
 use CW\SiteWriter\SiteModes;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Html;
 use CW\Ui\Words;
 
 /**
@@ -34,7 +36,7 @@ final class SellingModeScreenTest extends KernelUiTestCase
         self::assertStringContainsString('deliveries set it', $text, 'Vape and Go is the receipt site (I136)');
         self::assertStringContainsString('never set here', $text);
         self::assertTrue($page->hasForm('/selling-mode'));
-        self::assertSame(['In-Stock', 'From-Warehouse', 'Out-Of-Stock'], $page->radios('mode'));
+        self::assertSame(['In-Stock', 'From-Warehouse', 'Out-Of-Stock', SiteModes::WEBSITE], $page->radios('mode'), 'and "Let the website decide" (T-556 option A)');
         self::assertStringContainsString(Words::MODE_MEANING['In-Stock'], $text, 'CW\'s meaning beside each label, in words (U89)');
         self::assertStringContainsString('<table class="stack list selling-sites">', $page->body, 'one card per website on a phone');
 
@@ -66,6 +68,52 @@ final class SellingModeScreenTest extends KernelUiTestCase
         $r = $web->post("/ui/items/{$sku}/selling-mode", ['mode' => 'Out-Of-Stock', 'reason' => 'no site'] + $f);
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::SELLING_ERROR['no_sites'], $r->text());
+    }
+
+    /**
+     * T-556 step 2, option A (the owner, 16 Nov 2026): "Let the website decide" gives the ticked websites' mode back to them (the row
+     * kept, its mode NULL, the feed told), with its own notice and "given back to the website" under "Set by"; and "Mode on the
+     * website now" shows each website product's own mode as its connector last sent it ("not known yet" before; view only).
+     */
+    public function testTheDeskLetsTheWebsiteDecideAndSeesEachStoresOwnMode(): void
+    {
+        $vpg = $this->site('vapeandgo');
+        (new ChannelAdmin(self::$db))->configure('vapeandgo', null, null, 'tester', true, true);
+        $sku = $this->item('legacy', 12, 'Given back liquid 10ml');
+        $this->listing($vpg, '4501', $sku);
+        (new SiteModes(self::$db))->set($this->staffUser('manager'), $sku, 'From-Warehouse', ['vapeandgo'], '', 'held by CW at the switch');
+        $web = $this->signIn($this->uiUser('purchasing_desk'));
+        $page = $web->get("/ui/items/{$sku}");
+        $text = $page->text();
+        self::assertStringContainsString(Words::SELLING['site_now'], $text);
+        self::assertStringContainsString(Words::SELLING['site_not_known'], $text, 'an older connector sends no mode of its own');
+        self::assertStringContainsString(Words::SELLING['website_decides'] . ': ' . Words::SELLING['website_decides_meaning'], $text, 'the choice, in words');
+
+        // The store's connector (0.4.13) sends the website's own mode with the listing.
+        (new ListingIngestService(self::$db))->push($vpg, [['variant_id' => '4501', 'product_title' => 'Given back liquid',
+            'selling' => ['stock_mode' => 'From-Warehouse', 'allow_backorders' => 1, 'low_stock_threshold' => 3]]]);
+        $at = (string) self::$db->value('SELECT s.as_of FROM listing_selling s JOIN channel_listing l ON l.id = s.listing_id WHERE l.external_variant_id = ?', ['4501']);
+        $text = $web->get("/ui/items/{$sku}")->text();
+        self::assertStringNotContainsString(Words::SELLING['site_not_known'], $text);
+        self::assertStringContainsString('From-Warehouse ' . Words::SELLING['backorders'] . ' ' . Words::say('SELLING', 'site_threshold', '3') . ' '
+            . Words::say('SELLING', 'site_as_of', Html::when($at)), $text);
+
+        $f = $web->get("/ui/items/{$sku}")->form("/ui/items/{$sku}/selling-mode");
+        $r = $web->post("/ui/items/{$sku}/selling-mode", ['mode' => SiteModes::WEBSITE, 'site_vapeandgo' => '1', 'reason' => 'staff set it on the website'] + $f);
+        self::assertSame([303, "/ui/items/{$sku}?notice=selling_mode_website#selling-mode"], [$r->status, $r->location()], $r->describe());
+        $page = $web->follow($r);
+        $text = $page->text();
+        self::assertStringContainsString(Words::SELLING_NOTICE['selling_mode_website'], $text);
+        self::assertStringContainsString(Words::SELLING['own'], $text, 'Selling mode it gets: the website keeps its own');
+        self::assertStringContainsString(Words::SELLING['by_website'] . ', Purchasing_desk', $text);
+        $row = (new SiteModes(self::$db))->current([$sku])[SiteModes::key($sku, (int) $vpg->channelId)];
+        self::assertSame([null, 2, 'switch'], [$row['mode'], $row['version'], $row['source']]);
+        self::assertSame(['website', 'staff set it on the website'], array_values(array_intersect_key(json_decode((string) self::$db->value(
+            "SELECT detail FROM audit_log WHERE action = 'selling_mode.set' ORDER BY id DESC LIMIT 1"), true), ['mode' => 0, 'reason' => 0])));
+        // Again: nothing changes.
+        $f = $page->form("/ui/items/{$sku}/selling-mode");
+        $r = $web->post("/ui/items/{$sku}/selling-mode", ['mode' => SiteModes::WEBSITE, 'all_sites' => '1', 'reason' => 'again'] + $f);
+        self::assertSame("/ui/items/{$sku}?notice=selling_mode_unchanged#selling-mode", $r->location());
     }
 
     public function testACountedItemHasNoFormAndABuyerMayNotSetIt(): void

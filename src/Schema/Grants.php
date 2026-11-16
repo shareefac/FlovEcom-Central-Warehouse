@@ -189,6 +189,8 @@ final class Grants
         'landing_order',
         // 0066 (docs/decisions.md DS1): an item whose stock figure is in doubt, answered once (cleared by a count, or not needed), never removed.
         'stock_doubt',
+        // 0068 (T-556 option A): a website product's own selling mode as its website last sent it (replaced by the next push, never removed).
+        'listing_selling',
         // ---- Pack E (0034, PE2)
         'role_permission',
         // --- Pack G (0037; docs/decisions.md PG1-PG7): CW's own sales record and its folded days (a day folded again sets its rows to 0 and

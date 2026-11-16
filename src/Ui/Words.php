@@ -3069,8 +3069,10 @@ final class Words
         'site_modes' => '**Off:** the website and the warehouse do not talk. **Watching only:** CW follows the website\'s sales without changing what it '
             . 'sells. **Live:** the website sells warehouse stock.',
         'selling_mode' => 'What a website shows for a product whose stock rule is still "Website uses its own stock". **In-Stock:** it sells whatever the stock figure says. '
-            . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. A website takes the mode from here only once its stock '
-            . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach.',
+            . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. **Let the website decide:** the warehouse stops '
+            . 'setting the mode on that website, and staff set it on the website itself. A website takes the mode from here only once its stock '
+            . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach. "Mode on the website now" is what each '
+            . 'website says it has: you can only look at it here.',
         // All products (/ui/items/cards): the "?" beside its heading (it was a paragraph above the list).
         'card_rules' => 'A card that breaks a rule is a **warning** until a person confirms its details. After that it **blocks** the product until a '
             . 'person confirms the card again. A block stops Reorder, the confirming of orders and the booking in of deliveries. It does not stop '
@@ -8599,11 +8601,20 @@ final class Words
         'why_hint' => '3 to 500 characters, for example: back in stock from the next delivery.',
         'save_does' => 'Each ticked website whose stock link is on takes it the next time it reads the warehouse stock.',
         'set_line' => '%s, %s, %s',
+        // T-556 step 2, option A (the owner, 16 Nov 2026): give a website its own selling mode back; and each website product's own mode.
+        'website_decides' => 'Let the website decide',
+        'website_decides_meaning' => 'staff set the selling mode on the website itself',
+        'by_website' => 'given back to the website',
+        'site_now' => 'Mode on the website now',
+        'site_not_known' => 'not known yet',
+        'site_none' => 'no selling mode set',
+        'site_threshold' => 'low-stock warning at %s',
+        'site_as_of' => 'the website said so on %s',
     ];
 
     /** The selling-mode switch's refusals in words, by the service's error code (SiteModes::set; ItemCardsController::plain). */
     public const SELLING_ERROR = [
-        'bad_mode' => 'Choose In-Stock, From-Warehouse or Out-Of-Stock. Nothing was changed.',
+        'bad_mode' => 'Choose In-Stock, From-Warehouse, Out-Of-Stock or "Let the website decide". Nothing was changed.',
         'bad_reason' => 'Say why the selling mode changes, in 3 to 500 characters. Nothing was changed.',
         'bad_threshold' => 'The low-stock warning is a whole number from 0 to %s, or empty to keep it. Nothing was changed.',
         'no_sites' => 'Tick the websites the selling mode is for, or "All websites". Nothing was changed.',
@@ -8616,6 +8627,7 @@ final class Words
     public const SELLING_NOTICE = [
         'selling_mode_set' => 'Selling mode saved. Each website whose stock link is on takes it the next time it reads the warehouse stock.',
         'selling_mode_unchanged' => 'Nothing changed: the ticked websites already had this selling mode.',
+        'selling_mode_website' => 'Saved: the ticked websites now decide this product\'s selling mode themselves. Staff can change it on each website.',
     ];
 
     /**

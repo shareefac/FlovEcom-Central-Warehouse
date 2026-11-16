@@ -241,7 +241,8 @@ final class RelayIntake
         $policy = (string) $item['sell_policy'];
         $proposed = self::proposedPolicy($settings, $mode);
         $cw = $db->one('SELECT mode, low_stock_threshold FROM item_channel_mode WHERE sku_id = ? AND channel_id = ?', [$skuId, $caller->channelId]);
-        $cwMode = $cw === null ? ((new SellingModes($db))->current([$skuId])[$skuId]['mode'] ?? null) : (string) $cw['mode'];
+        // (a row whose mode the switch gave back to the website, NULL since 0067, holds no mode of CW's for the site: as no row)
+        $cwMode = $cw === null || $cw['mode'] === null ? ((new SellingModes($db))->current([$skuId])[$skuId]['mode'] ?? null) : (string) $cw['mode'];
         $cwLow = $cw === null || $cw['low_stock_threshold'] === null ? null : (int) $cw['low_stock_threshold'];
         $same = match (true) {
             // The store says nothing changed (the mode and, when sent, the low-stock level were already so).

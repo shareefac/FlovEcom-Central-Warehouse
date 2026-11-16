@@ -17519,3 +17519,50 @@ Red on 578fc44: `runs/rename_r1_red.log` (18 tests, 1 error, 6 failures: the 7 n
 - Repeated, OLD and reported (IR6, the owner decides): posted records re-printed show the new name; the new-item guards compare names now only.
 
 Red on e19a646: `runs/rename_r2_red.log`; green: `runs/rename_r2_green.log`.
+
+## "Let the website decide", and each store's own selling mode on the item page (branch `t556-website-decides`, 16 Nov 2026; WD1-WD7; migrations 0067, 0068)
+
+The owner, 16 Nov 2026 ~16:53 UK (CW chat), T-556 step 2: "Yes A". Option A: staff set a product's selling mode in each store again; CW stops
+holding the modes it was given (the CW setting `site_writer.receipt_mode_sites` was emptied on live the same minute: a delivery no longer sets
+Vape and Go's modes); CW SHOWS each store's own mode (view only). The shop admin keeps a mode only while CW holds one (connector 0.4.12, step 1),
+so this build gives (a) the selling-mode switch a way to give a site's mode back to the website, and (b) CW a copy of what each store has.
+
+**WD1. "Let the website decide" is a choice of the selling-mode switch (`SiteModes::WEBSITE` = `website`).** The same form, service, permission
+(`modes.set`), reason (3-500 characters), per ticked site (or all), stamp (409 `selling_mode_changed`), legacy items only (409 `protected_item`
+for a counted one), audit `selling_mode.set` (mode `website`), one log row per site (`item_channel_mode_log`, version + 1), and LAST one feed
+row for the item (`Stock::skuChanged('mode')`), so every linked listing is re-sent at once. Its own notice: "Saved: the ticked websites now
+decide this product's selling mode themselves. Staff can change it on each website."
+
+**WD2. How it is kept (0067).** The site's `item_channel_mode` row STAYS (the app login never deletes it, NO_DELETE; W1 compares it with its
+newest log row; a deleted row would start its versions again at 1 against the log's unique version key): its `mode` becomes NULL = the website
+decides, no "mode before Out-Of-Stock", source `switch`; the log row's `mode_after` is NULL. Two new CHECKs say so in SQL (a NULL mode has no
+previous mode and was written by the switch); 0018's CHECKs stay. The threshold is not part of the choice: kept, or the one typed (as for any
+mode), so CW still writes a low-stock warning it holds. A site with no row and no threshold typed decides already: nothing is written for it
+(`unchanged`). A mode chosen later makes CW hold it again (no "mode before" is known then: the website decided meanwhile).
+
+**WD3. Who reads a NULL mode.** `SiteView::rule`: as no row (why `site_own`, mode null = "leave the site's own"; the threshold from the row as
+before); a forced listing (blocked, quarantined, stopped) is still Out-Of-Stock, those are asked first. `SellingModes::current` (a receipt's
+"last mode") skips such a row: it holds no mode of CW's. `RelayIntake` (the ERPNext mode relay's "same in CW") reads it as no row.
+`RollbackExport`'s selling-mode file leaves out a row with neither a mode nor a threshold, and prints an empty mode otherwise. The connector
+(0.4.12) then stops keeping the mode in the shop admin by itself (its held rule reads `site_mode` NULL; a force's restore is unchanged).
+
+**WD4. The website's own mode (0068, `listing_selling`; `CW\Mapping\SiteSelling`).** One row per website product: the mode as the website says
+it (VARCHAR 32: the shop's own labels), back-orders (0/1), low-stock warning (INT, the shop's column is signed), `as_of` (the push's time) and
+`changed_at` (since when the three are what they are, as far as CW heard). No FK to `channel_listing` (the intake writes up to a thousand a call:
+no shared lock on each listing row in that hot path; the ids are the intake's own; listings are never deleted). NO_DELETE for the app login.
+
+**WD5. Who writes it.** Only the listing intake, in its transaction, after the profiles (listing order), from the optional object `selling`
+(stock_mode, allow_backorders, low_stock_threshold) the shops' connector sends from 0.4.13. Read leniently (`SiteSelling::parse`): an object
+that names `stock_mode` (null included: none set there) is stored whole; a value of the wrong type is ignored, counted and stored as none;
+anything else is no state (the stored row stays). Attached after both hashes like `website` (M66): a selling change alone leaves the profile
+"unchanged", marks nothing to check, moves no map_version. An older `as_of` never overwrites a newer row. A push without it (an older
+connector, an import) leaves the row. The site's answer is unchanged; the audit row `listing.profiles` counts `selling`, `selling_ignored`.
+Old CW with the new connector: `selling` is an unknown key, ignored (ListingIngestService::profile reads named keys only; both hashes too).
+
+**WD6. Where it shows.** The item page, "Selling mode on the websites", a column "Mode on the website now" beside "Selling mode it gets": per
+website product (with its option number when the store has more than one), its mode in the website's words, "+ back-orders", "low-stock
+warning at N", "the website said so on <UK time>"; "not known yet" with no row; "no selling mode set" when the website has none. View only:
+nothing in CW decides by it. "Set by" says "given back to the website" for a row the switch gave back.
+
+**WD7. Release order.** CW first (0067 + 0068 + this code; the old connector sends no `selling`: the column says "not known yet"), then the
+connector 0.4.13 (old CW ignores `selling`).
