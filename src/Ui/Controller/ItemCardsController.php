@@ -21,8 +21,8 @@ use CW\Ui\Words;
 
 /**
  * The item card screens (IM3; docs/decisions.md I109, I110):
- *  - Items > Item cards (/ui/items/cards, catalogue.view): every item with its card, ordered by the stock it holds (a board by card, W11.1), with
- *    filters and the CSV download (the same filters);
+ *  - Items (/ui/items/cards, catalogue.view): every item in ONE list, ordered by the stock it holds, with whether each store's website sells
+ *    it (Alt, VPG, VBig: an icon each; docs/decisions.md IL1-IL4), the filters and the CSV download (the same filters);
  *  - the card form (/ui/items/{id}/card, catalogue.edit) and its POST; accepting a suggestion and confirming the card (POSTs
  *    from the item page);
  *  - the CSV import (/ui/items/cards/import, catalogue.edit): check only (the default) or save.
@@ -44,30 +44,16 @@ final class ItemCardsController
         if ($f['page'] > $pages) {
             $f['page'] = $pages;
         }
+        // ONE list of every item, most stock first (the owner, 17 Nov 2026: "remove and needs a look section. items pages is to see all products
+        // in cw properly ... remove the status columns"; docs/decisions.md IL1): no groups by card, no status pill, no card rules or warning under
+        // the name (the card's state, rules and Confirm are the item page's LEGAL part); "Not sold any more" stays, a fact about the product.
+        // Then one small column per store (IL3): its icon only, the words its label and its hover title.
         $rows = [];
         foreach ($list->rows($f, ItemCardList::PAGE, ($f['page'] - 1) * ItemCardList::PAGE) as $r) {
-            $hasCard = $r['card_sku_id'] !== null;
-            $st = $hasCard ? ItemRules::status($r) : ['level' => null, 'blocked' => [], 'warnings' => []];
-            $state = !$hasCard ? 'none' : ($r['confirmed_at'] !== null ? 'confirmed' : ($r['first_confirmed_at'] !== null ? 'changed' : 'unconfirmed'));
-            // The board's group (the redesign's Items artboard, docs/decisions.md RD-A3): Needs a look (a block, or a card still to confirm), No card
-            // yet, Ready (confirmed); the row's status label says which (Blocked in red, Check the card in amber).
-            $group = $st['level'] === 'block' ? 'blocked' : match ($state) { 'none' => 'none', 'confirmed' => 'confirmed', default => 'check' };
-            [$pillTone, $pill] = match ($group) {
-                'blocked' => ['blocked', Words::INV_LIST['p_blocked']],
-                'check' => ['needs', Words::INV_LIST['p_check']],
-                'none' => ['waiting', Words::INV_LIST['p_none']],
-                default => ['done', Words::INV_LIST['p_ready']],
-            };
             $rows[] = [
                 'id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'held' => (int) $r['held'],
-                'type' => $r['product_type'] === null ? null : ucfirst(ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type']),
-                'ml' => Html::dec($r['liquid_ml']), 'mg' => Html::dec($r['nicotine_mg']), 'duty' => self::yesNo($r['duty_liable']),
-                'single_use' => self::yesNo($r['single_use']), 'flavour' => $r['flavour'], 'flavour_proposed' => $r['flavour_status'] === 'proposed',
-                'discontinued' => $hasCard && (int) $r['discontinued'] === 1,
-                'state' => $state, 'group' => match ($group) { 'blocked', 'check' => 'look', 'confirmed' => 'ready', default => 'none' },
-                'pill' => $pill, 'pillTone' => $pillTone,
-                'stateWord' => $group === 'blocked' ? Words::CARD_STATE['blocked'] : Words::of('CARD_STATE', $state),
-                'level' => $st['level'], 'blocked' => ItemRules::labels($st['blocked']), 'warnings' => ItemRules::labels($st['warnings']),
+                'discontinued' => $r['card_sku_id'] !== null && (int) $r['discontinued'] === 1,
+                'stores' => self::stores($r['links']),
             ];
         }
         // The filters are plain inputs in the toolbar's Show row, with ONE Clear (the owner's patterns of 29 Oct 2026; the chips of 21 Oct are gone);
@@ -76,22 +62,17 @@ final class ItemCardsController
         $states = array_map(static fn (string $code): string => $code === 'unconfirmed' ? Words::CARDS['filter_unconfirmed'] : Words::of('CARD_STATE', $code),
             array_combine(array_keys(ItemCardList::STATES), array_keys(ItemCardList::STATES)));
         $states['all'] = Words::CARDS['any_card'];
+        $plain = $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued'];
         return $ctx->page('item_cards', [
             'rows' => $rows,
-            'groups' => Html::groups($rows, ['look' => ['needs', Words::INV_LIST['g_look']], 'none' => ['waiting', Words::INV_LIST['g_none']],
-                'ready' => ['done', Words::INV_LIST['g_ready']]]),
-            // The ONE Show choice (RD-A2): each a link (Made by hand is its own page). The artboard's "Needs a look" group holds two kinds, so
-            // its choices say which (the fix round, docs/decisions.md RD-F3): Not confirmed (state=unconfirmed: no card, or a card not confirmed)
-            // and Blocked (blocked=1: a card breaking a blocking rule, confirmed or not).
+            // The columns' heads (IL3): the owner's short name of each store, its full name the head's hover title.
+            'stores' => array_map(static fn (string $code): array => ['label' => Words::ITEM_LINKS['col_' . $code], 'name' => Words::SITE[$code]], ItemCardList::STORES),
+            // The ONE Show choice (RD-A2): each a link (Made by hand is its own page). Not confirmed and Blocked named the two kinds of the
+            // card group "Needs a look" (RD-F3) and left with it (IL4); both filters are still More's (the card select, the Blocked tick).
             'show' => [
-                ['label' => Words::INV_LIST['all_items'], 'href' => Html::url('/ui/items/cards', $f['q'] === '' ? [] : ['q' => $f['q']]),
-                    'current' => !$f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
+                ['label' => Words::INV_LIST['all_items'], 'href' => Html::url('/ui/items/cards', $f['q'] === '' ? [] : ['q' => $f['q']]), 'current' => !$f['stock'] && $plain],
                 ['label' => Words::INV_LIST['holding'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'stock' => '1']),
-                    'current' => $f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
-                ['label' => Words::INV_LIST['show_unconfirmed'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => 'unconfirmed']),
-                    'current' => !$f['stock'] && $f['state'] === 'unconfirmed' && $f['type'] === '' && !$f['warnings'] && !$f['blocked'] && !$f['discontinued']],
-                ['label' => Words::INV_LIST['show_blocked'], 'href' => Html::url('/ui/items/cards', ['q' => $f['q'] === '' ? null : $f['q'], 'blocked' => '1']),
-                    'current' => !$f['stock'] && $f['state'] === 'all' && $f['type'] === '' && !$f['warnings'] && $f['blocked'] && !$f['discontinued']],
+                    'current' => $f['stock'] && $plain],
                 ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(HandMadeController::PATH, ['show' => 'all']), 'current' => false],
             ],
             'searchClear' => $f['q'] === '' ? null : array_diff_key($query, ['q' => true]),
@@ -102,10 +83,31 @@ final class ItemCardsController
             'total' => $total,
             'page' => $f['page'],
             'pages' => $pages,
-            'filtered' => $f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued'],
+            'filtered' => $f['q'] !== '' || $f['stock'] || !$plain,
             'canEdit' => $ctx->me()->can('catalogue.edit'),
             'bar' => self::bar($ctx, $f, $query, $states),
         ], 200, ['title' => Words::MENU['cards'], 'active' => 'cards']);
+    }
+
+    /**
+     * A row's store cells (docs/decisions.md IL3), in ItemCardList::STORES' order: `on` when one of the store's website products or more is
+     * linked to the item (on hold too: still linked, D32), and the words that are the icon's label and its hover title ("Vape and Go:
+     * connected (2 website products)", "Electrofag: not connected"; "connected, on hold" when every linked one there is on hold).
+     *
+     * @param array<string, array{linked: int, on_hold: int}> $links ItemCardList::links() of one item
+     * @return list<array{on: bool, label: string}>
+     */
+    private static function stores(array $links): array
+    {
+        $out = [];
+        foreach (ItemCardList::STORES as $code) {
+            $n = (int) ($links[$code]['linked'] ?? 0);
+            $held = (int) ($links[$code]['on_hold'] ?? 0);
+            $site = Words::SITE[$code];
+            $out[] = ['on' => $n > 0, 'label' => $n === 0 ? Words::say('ITEM_LINKS', 'off', $site)
+                : Words::say('ITEM_LINKS', $held === $n ? 'on_hold' : 'on', $site, $n === 1 ? Words::ITEM_LINKS['one'] : Words::say('ITEM_LINKS', 'many', Html::int($n)))];
+        }
+        return $out;
     }
 
     /**
@@ -121,9 +123,8 @@ final class ItemCardsController
     private static function bar(Context $ctx, array $f, array $query, array $states): array
     {
         $me = $ctx->me();
-        $shown = !$f['warnings'] && !$f['discontinued'] && $f['type'] === '' && (!$f['blocked']
-            ? $f['state'] === 'all' || ($f['state'] === 'unconfirmed' && !$f['stock'])
-            : $f['state'] === 'all' && !$f['stock']);
+        // The Show choice names All items and Holding stock only (IL4): any other filter on opens More's filters.
+        $shown = !$f['warnings'] && !$f['discontinued'] && !$f['blocked'] && $f['type'] === '' && $f['state'] === 'all';
         $links = [];
         if ($f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued']) {
             $links[] = ['label' => Words::CARDS['clear_filters'], 'href' => '/ui/items/cards'];
@@ -150,16 +151,6 @@ final class ItemCardsController
             ],
             'links' => $links,
         ];
-    }
-
-    /** "Yes" / "No" / "" for a card's yes-no answer (1, 0, null). */
-    private static function yesNo(mixed $v): string
-    {
-        return match (ItemCards::yesNoLabel($v)) {
-            'yes' => Words::CARD['duty_yes'],
-            'no' => Words::CARD['no'],
-            default => '',
-        };
     }
 
     /**

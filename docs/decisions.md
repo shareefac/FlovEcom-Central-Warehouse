@@ -17580,3 +17580,54 @@ connector 0.4.13 (old CW ignores `selling`).
   last sent as its profile of before 0.4.13) share one budget kept in the shop's cw_meta, at most 3,000 a minute and 1,000 a call (one
   request), in every pass; the rest waits, and the watch keeps a 0.4.12 memory as website states CW holds, so a status change still goes at
   once. No CW change.
+
+## Items is one list of every item, with an icon per store (branch `items-list-links`, 17 Nov 2026; IL1-IL6; no migration)
+
+The owner, 17 Nov 2026 (CW chat), on https://warehouse.floverfy.com/ui/items/cards: "now this page. i want you to remve and needs a look section.
+items pages is to see all products in cw properly so we usee it for that. remove the sstatus coloums add 3 small extra coloum with alt, vpg,
+vbig should show icons just iicons to know if it is connected or not." So Items stops being a board by product card (RD-A3) and becomes the
+place to see every item; the card itself (its legal fields, its rules, Confirm) stays on the item page, unchanged.
+
+**IL1. ONE list.** Every item that is not merged away, in one card and one table, most stock first (as before: `ItemCardList::rows`, held
+DESC then id), 100 a page with the pager. No groups ("Needs a look", "No card yet", "Ready"), no Status column (the "Check the card" /
+"Blocked" / "No card" / "Ready" pill), and no card rules line or "Warning: ..." tag under the name either: they were the status column's words
+in another place, and the card's state is the item page's LEGAL part. A website whose stock link is on already shows a blocked product as
+Out-Of-Stock by itself (WD3, SiteView), which was the reason the block's rules stayed on the list (RD-A3, "safety"). "Not sold any more" stays
+a quiet tag under the name: a fact about the product, not a state of its card. The "?" beside the heading keeps the card rules: they still
+say what More's "Warning or blocked" and "Blocked" filters keep.
+
+**IL2. Linked = `channel_listing.sku_id` is the item (`ItemCardList::links`).** The link of DecisionService, its only writer. 0001's CHECK ties a
+set sku_id to `mapped` or `quarantined` (D32: both are "linked"; quarantined is on hold, held off sale), so a suggestion, a website product not
+matched yet, an ignored one and a landing page (all with no sku_id) are never connected. A merged item has no link: a merge moves every link
+of the item folded away to the kept item (M10), which then shows them, and the list leaves merged items out (as before). Read-only looks on
+17 Nov 2026: production has 0 quarantined listings, 44 merged items holding 0 links, 15,279 items; per store, items linked: Electrofag 6,633,
+Vape and Go 15,131, Vape Big 7,550; at most 3 linked website products for one item on one store. Staging the same shape (0 quarantined, 0
+links on merged items) with a fourth store, `vpgproto`.
+ONE read for a page's icons, whatever its rows (`WHERE cl.sku_id IN (<the page's ids>)` grouped by item and store, on the (sku_id,
+channel_id) index of 0024; LINKS_CHUNK 1,000 ids a read, so the CSV of the whole catalogue is sixteen reads); `rows()` attaches it to every
+row as `links` (store code => linked, on_hold). Nothing is stored: a link made or undone shows at the next page load.
+
+**IL3. Three small columns, icons only.** Between the item and On hand, in the owner's order and words: Alt (Electrofag), VPG (Vape and Go),
+VBig (Vape Big) (`ItemCardList::STORES`; heads `Words::ITEM_LINKS`, the store's full name `Words::SITE` the head's title). A store not there
+(a new test system) shows every item not connected; another store (the proto's `vpgproto`) has no column. A cell holds one icon and no text:
+connected, a tick in a green disc (`.link-ico.on`, the sprite's `check`); not connected, an empty grey ring (`.link-ico.off`, a CSS circle).
+Its words are the icon's `aria-label` (`role="img"`) and its hover `title`: "Vape and Go: connected (2 website products)", "Electrofag: not
+connected", "Electrofag: connected, on hold (1 website product)" when every linked one there is on hold (as the item page's "on hold", IV5).
+The cell sits above the link that covers the row (`td.c-link`, z-index 2, as `td.c-next`), so pointing at the icon shows its words; the rest
+of the row still opens the item. On a phone (the page column 640 px or narrower) the row is a card: the name, then the three on one line,
+each after its short name (the cell's data-label), then On hand.
+
+**IL4. Filters.** The Show choice is All items, Holding stock, Made by hand (also on Made by hand's own page). "Not confirmed" and "Blocked"
+named the two kinds of the "Needs a look" group (RD-F3) and went with it. Nothing else was dropped or renamed: More keeps every filter of
+before (the product card, the kind of product, Holds stock, Warning or blocked, Blocked, Not sold any more), Clear, Import, the download; any
+of them on says "Chosen filters" on the Show and opens More's filters. The search (name, brand, barcode, CW number) and the stock order are
+unchanged.
+
+**IL5. The CSV ("Download these for Excel").** Three columns after `stock_held`: `alt`, `vpg`, `vbig`, "yes" where the item is linked to one
+of that store's website products or more (on hold included), else "no" (`ItemCardCsv::STORE_COLUMNS`, in STORES' order). They are read-only
+like `stock_held` (`IGNORED`): an export still goes back through the import unchanged; an import of an older export (without them) is as before.
+An export made by this code and imported by an older CW would be refused for unknown columns (only during a rollback).
+
+**IL6. What points here.** Home's "Items" tile (the count of items not merged) and the sidebar's Items (Sections `cards`) still lead here and
+still say the right thing. The page's intro words (Words::PAGE_INTRO `cards`, not drawn: DC1) no longer say "Fix the ones marked with a
+warning first". The old words of the groups and pills (INV_LIST g_*, p_*, col_status, show_unconfirmed, show_blocked, needs_look) are gone.

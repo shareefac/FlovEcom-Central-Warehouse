@@ -349,9 +349,10 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => trim($a->textContent),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/span[@class="o-sub"][1]')));
         self::assertSame([self::cw($high), self::cw($low), self::cw($none)], $codes($list), 'most stock first');
-        // (the list is grouped by card: high is blocked and low not confirmed yet, both Needs a look; none has no card; most stock first in each)
-        self::assertStringContainsString('tank or pod over 2 ml', $list->text());
-        self::assertStringContainsString(Words::say('CARDS', 'warning_line', 'nicotine over 20 mg/ml'), $list->text());
+        // ONE list (docs/decisions.md IL1): high is blocked and low not confirmed yet, and neither row says so (the item page's LEGAL part does);
+        // More's filters still find them.
+        self::assertStringNotContainsString('tank or pod over 2 ml', $list->text());
+        self::assertStringNotContainsString(Words::say('CARDS', 'warning_line', 'nicotine over 20 mg/ml'), $list->text());
         self::assertStringNotContainsString('<b>None</b>', $list->body);
         self::assertSame([self::cw($high), self::cw($low)], $codes($web->get('/ui/items/cards', ['stock' => '1'])));
         self::assertSame([self::cw($high), self::cw($low)], $codes($web->get('/ui/items/cards', ['warnings' => '1'])));
@@ -371,7 +372,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         self::assertMatchesRegularExpression('/^attachment; filename="item-cards-\d{8}\.csv"/', (string) $csv->header('content-disposition'));
         $lines = explode("\r\n", trim(substr($csv->body, 3)));
         self::assertCount(3, $lines);
-        self::assertStringStartsWith('"' . self::cw($high) . '","High","",50,"tank",5.0,', $lines[1]);
+        self::assertStringStartsWith('"' . self::cw($high) . '","High","",50,"no","no","no","tank",5.0,', $lines[1]);
         self::assertStringContainsString('"\'=1+1"', $lines[1], 'formula-safe');
     }
 
@@ -455,11 +456,11 @@ final class ItemCardScreensTest extends KernelUiTestCase
     // All Products for normal staff (the owner's request of 21 Oct 2026: easier and friendlier, phone first)
     // ------------------------------------------------------------------------------------------
 
-    /** The texts of one group's column heads, in order. @return list<string> */
-    private static function heads(\DOMXPath $xp, string $group): array
+    /** The texts of the list's column heads, in order. @return list<string> */
+    private static function heads(\DOMXPath $xp): array
     {
         return array_map(static fn (\DOMElement $th): string => trim((string) preg_replace('/\s+/', ' ', $th->textContent)),
-            array_values(iterator_to_array($xp->query('//div[@id="g-' . $group . '"]//table[contains(@class, "item-cards")]/thead/tr/th'))));
+            array_values(iterator_to_array($xp->query('//table[contains(@class, "item-cards")]/thead/tr/th'))));
     }
 
     /** The list's row of one product. */
@@ -470,52 +471,51 @@ final class ItemCardScreensTest extends KernelUiTestCase
         return $row;
     }
 
-    /** The group a product's row is in (its board's id without "g-"). */
-    private static function groupOf(\DOMXPath $xp, int $sku): string
-    {
-        return substr((string) $xp->evaluate('string(//div[contains(@class, "doc-board")][.//tbody/tr/th/a[@href="/ui/items/' . $sku . '"]]/@id)'), 2);
-    }
-
     /**
-     * A product without a card (the owner's request of 21 Oct 2026; the redesign's Items artboard since 30 Oct, docs/decisions.md RD-A3): it is in
-     * the "No card yet" group, its status label "No card" grey (not started, never navy "switched off"); every group has the same three columns
-     * (the item, its status, on hand). A card not confirmed yet moves it to "Needs a look" ("Check the card", amber, its warning a soft tag); a
-     * confirmed card that a rule blocks stays there, "Blocked" in red. The card's form is one tap away on the item page (Details' Change).
+     * A product without a card (the owner's request of 21 Oct 2026) and one with a card, confirmed or not, blocked or not, are rows of the same
+     * ONE list (the owner, 17 Nov 2026; docs/decisions.md IL1), in the same five columns: the item (its name opens it, its CW number under it),
+     * Alt, VPG, VBig, on hand. Nothing in the row says the card's state: no status, no warning, no block; the card's form is one tap away on
+     * the item page (Details' Change), and the card's state is its LEGAL part. A card that is not sold any more says so under the name.
      */
-    public function testAProductWithoutACardIsQuietAndItsCardMovesItToItsGroup(): void
+    public function testEveryProductIsARowOfTheOneListWhateverItsCard(): void
     {
         $who = $this->uiUser('stock_controller');
         $a = $this->stocked('Elux Legend Cola 10ml', 3);
         $b = $this->stocked('Nothing filled in', 0);
         $web = $this->signIn($who);
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame([Words::INV_LIST['col_item'], Words::INV_LIST['col_status'], Words::INV_LIST['col_on_hand']], self::heads($xp, 'none'));
+        $heads = [Words::INV_LIST['col_item'], Words::ITEM_LINKS['col_electrofag'], Words::ITEM_LINKS['col_vapeandgo'], Words::ITEM_LINKS['col_vapebig'], Words::INV_LIST['col_on_hand']];
+        self::assertSame($heads, self::heads($xp));
         foreach ([$a => 'Elux Legend Cola 10ml', $b => 'Nothing filled in'] as $sku => $name) {
-            self::assertSame('none', self::groupOf($xp, $sku));
             $row = self::rowOf($xp, $sku);
             self::assertSame($name, trim((string) $xp->evaluate('string(th[@scope="row"]/a)', $row)), 'the name opens it');
             self::assertSame(self::cw($sku), trim((string) $xp->evaluate('string(th[@scope="row"]/span[@class="o-sub"][1])', $row)), 'its CW number under it');
-            self::assertSame(Words::INV_LIST['p_none'], trim((string) $xp->evaluate('string(td[contains(@class, "doc-st") and contains(@class, "waiting")])', $row)));
+            self::assertSame(0, $xp->query('td[contains(@class, "doc-st") or contains(@class, "c-status")]', $row)->length, 'no status cell');
             self::assertSame(0, $xp->query('td//a', $row)->length, 'nothing else to press in the row');
         }
         self::assertSame(['/ui/items/' . $a . '/card'], array_values(array_filter($web->get('/ui/items/' . $a)->hrefs(), static fn (string $h): bool => str_ends_with($h, '/card'))),
             'the card\'s form from the item page');
 
-        // A card: its row moves to its group; the one without a card stays where it was.
+        // A card with a warning, then confirmed and blocked: the row stays as it was, in its place in the stock order.
         $cards = new ItemCards(self::$db);
         $cards->save(Caller::staff($who['id']), $a, 0, ['product_type' => 'tank', 'liquid_ml' => '5', 'duty_liable' => 'no', 'flavour' => 'cola']);
+        foreach ([false, true] as $confirm) {
+            if ($confirm) {
+                $cards->confirm(Caller::staff($who['id']), $a, 1, true);
+            }
+            $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+            self::assertSame($heads, self::heads($xp), 'the same five columns');
+            self::assertSame(['/ui/items/' . $a, '/ui/items/' . $b], array_map(static fn (\DOMElement $l): string => $l->getAttribute('href'),
+                array_values(iterator_to_array($xp->query('//table[contains(@class, "item-cards")]/tbody/tr/th/a')))), 'most stock first');
+            $rowA = self::rowOf($xp, $a);
+            self::assertSame(1, $xp->query('th/span[@class="o-sub"]', $rowA)->length, 'only its CW number under the name');
+            self::assertSame(0, $xp->query('.//*[contains(@class, "chip") or contains(@class, "tag")]', $rowA)->length, $confirm ? 'not "Blocked"' : 'not "Check the card"');
+        }
+        // Not sold any more: a fact about the product, a quiet tag under the name.
+        $cards->save(Caller::staff($who['id']), $b, 0, ['discontinued' => 'yes']);
         $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(['look', 'none'], [self::groupOf($xp, $a), self::groupOf($xp, $b)]);
-        self::assertSame([Words::INV_LIST['col_item'], Words::INV_LIST['col_status'], Words::INV_LIST['col_on_hand']], self::heads($xp, 'look'), 'the same three columns');
-        $rowA = self::rowOf($xp, $a);
-        self::assertSame([Words::INV_LIST['p_check'], 'c-status doc-st needs'], [trim((string) $xp->evaluate('string(td[contains(@class, "doc-st")])', $rowA)),
-            (string) $xp->evaluate('string(td[contains(@class, "doc-st")]/@class)', $rowA)], 'Check the card: amber');
-        self::assertSame(['tag needs'], array_map(static fn (\DOMElement $t): string => $t->getAttribute('class'),
-            array_values(iterator_to_array($xp->query('th/span[@class="o-sub"]/span', $rowA)))), 'its warning a soft tag');
-        $cards->confirm(Caller::staff($who['id']), $a, 1, true);
-        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame('look', self::groupOf($xp, $a), 'confirmed, and blocked by the rule');
-        self::assertSame(Words::INV_LIST['p_blocked'], trim((string) $xp->evaluate('string(td[contains(@class, "doc-st") and contains(@class, "blocked")])', self::rowOf($xp, $a))));
+        self::assertSame([Words::CARDS['discontinued']], array_map(static fn (\DOMElement $t): string => trim($t->textContent),
+            array_values(iterator_to_array($xp->query('th/span[@class="o-sub"]/span[@class="tag off"]', self::rowOf($xp, $b))))));
         self::assertSame('waiting', Words::tone('CARD_STATE', 'none'), 'No card yet is "not started" (grey), never "switched off" (navy)');
     }
 
@@ -626,9 +626,9 @@ final class ItemCardScreensTest extends KernelUiTestCase
 
     /**
      * Less to scroll past on a phone: the rules about warnings and blocks fold into the page's "?" (Words::HELP card_rules) instead of a
-     * paragraph above the list; the board's groups say what the list is (the approved board has no figures and no heading of its own).
+     * paragraph above the list (they still say what More's Warning and Blocked filters keep); the list has no figures and no heading of its own.
      */
-    public function testTheRulesFoldAwayAndTheGroupsSayWhatTheListIs(): void
+    public function testTheRulesFoldAwayAndTheListHasNoHeadingOfItsOwn(): void
     {
         $this->stocked('Folded', 2);
         $web = $this->signIn($this->uiUser('buyer'));
@@ -643,9 +643,10 @@ final class ItemCardScreensTest extends KernelUiTestCase
         self::assertSame($rules, trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(div[@class="help-body"]/p[1])', $help))));
         self::assertSame(sprintf(Words::UI['look_only'], Words::whoCan('catalogue.edit')), trim((string) $xp->evaluate('string(div[@class="help-body"]/p[last()])', $help)));
         self::assertSame('What does "' . Words::CARDS['rules_label'] . '" mean?', (string) $xp->evaluate('string(summary/@aria-label)', $help));
-        self::assertSame([Words::INV_LIST['items'], Words::INV_LIST['g_none'], '1'], [trim((string) $xp->evaluate('string(//h1)')),
-            trim((string) $xp->evaluate('string(//h3[@class="grp-title"]/button)')), trim((string) $xp->evaluate('string(//h3[@class="grp-title"]/span[@class="grp-count"])'))]);
-        self::assertSame(0, $xp->query('//h2[contains(@class, "board-title")] | //ul[contains(@class, "summary-line")]')->length);
+        // The list is the page's (docs/decisions.md IL1): the title alone over ONE table, no group heading and no heading of its own.
+        self::assertSame(Words::INV_LIST['items'], trim((string) $xp->evaluate('string(//h1)')));
+        self::assertSame(0, $xp->query('//h3[@class="grp-title"] | //h2[contains(@class, "board-title")] | //ul[contains(@class, "summary-line")]')->length);
+        self::assertSame(1, $xp->query('//main//table[contains(@class, "item-cards")]/tbody/tr')->length);
     }
 
     /**

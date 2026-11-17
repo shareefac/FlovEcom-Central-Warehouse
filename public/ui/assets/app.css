@@ -2139,7 +2139,7 @@ body:has(.strip.test-system) .signin { min-height: calc(100vh / var(--zoom) - 28
    improved. One block, so a branch working on the same file rebases over it easily. Shared: the tabs' "more" fade (app.js marks the
    side), a 44 px search box on a phone or a touch screen, the search box's "Clear the search", the chips of the filters that are on.
    The list's own: a search box that fits its words, the summary as one quiet line, room for the product's name (one link with its
-   CW number), the quiet "No card yet" with its "Fill in the product card", and on a phone the card's state under the name. ---------- */
+   CW number), the quiet "No card yet" with its "Fill in the product card", and the three store columns (IL3). ---------- */
 
 /* Tabs that do not fit scroll inside their strip: app.js marks the side with more (more-left, more-right) and that edge fades */
 .tabs.more-right {
@@ -2200,25 +2200,31 @@ table.item-cards th.c-head a { display: block; }
 table.item-cards .ic-code { color: var(--ink); font-weight: 600; white-space: nowrap; }
 table.item-cards .ic-name { color: var(--ink-body); font-weight: 500; }
 table.item-cards th.c-head a:hover .ic-code, table.item-cards th.c-head a:hover .ic-name { color: inherit; }
-/* The card's state: its pills stack rather than widen the column */
-table.item-cards td.c-status { white-space: normal; }
-table.item-cards td.c-status .chip { margin: 2px 6px 2px 0; }
 /* No card yet: a quiet tag (the solid pills are for states with a meaning: confirmed, warning, blocked) and the link to fill it in */
 table.item-cards td.c-nocard { white-space: nowrap; }
 table.item-cards td.c-nocard .tag { margin: 0 10px 0 0; }
 table.item-cards .c-fill { font: 500 13px/20px var(--font); }
 @media (max-width: 699.98px), (pointer: coarse) { table.item-cards .c-fill { display: inline-flex; align-items: center; min-height: 44px; } }
-/* As a card on a phone: the name across the card, the card's state under it (a long "Blocked: …" wraps instead of squeezing the
-   name), then the stock held and the details */
+/* As a card on a phone: the name across the card, then the stock held and the details */
 @container (max-width: 640px) {
   table.item-cards thead th.c-product, table.item-cards tbody th.c-head { min-width: 0; }
   table.item-cards th.c-head { grid-column: 1 / -1; order: -2; }
-  table.item-cards td.c-status {
-    order: -1; grid-column: 1 / -1; grid-row: auto; justify-self: start; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
-    padding: 0 0 4px; white-space: normal;
-  }
-  table.item-cards td.c-status .chip { margin: 0; white-space: normal; text-align: left; }
   table.item-cards td.c-nocard .tag { margin: 0; }
+}
+/* Items' store columns (the owner, 17 Nov 2026: "3 small extra column with alt, vpg, vbig ... just icons"; docs/decisions.md IL3): Alt, VPG,
+   VBig, each as narrow as its head, its icon centred: a tick in a green disc where the item is connected to that website, an empty grey ring
+   where it is not (a true circle: 50 %). The words are the icon's label and its title, so the cell sits above the link that covers the row
+   (a.row-link::after) and pointing at the icon shows them; elsewhere in the row a click still opens the item. On a phone the three are one
+   line under the name, each with its short name (the cell's data-label), then On hand. */
+table.item-cards th.c-link, table.item-cards td.c-link { width: 1%; text-align: center; white-space: nowrap; }
+table.doc-list td.c-link { position: relative; z-index: 2; }
+.link-ico { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; vertical-align: middle; }
+.link-ico.on { background: var(--done-bg); color: var(--st-green); }
+.link-ico.on .ico { width: 14px; height: 14px; }
+.link-ico.off { border: 1.5px solid var(--ink-faint); }
+@container (max-width: 640px) {
+  table.stack.item-cards tr { grid-template-columns: max-content max-content max-content minmax(0, 1fr); column-gap: 20px; }
+  table.stack.item-cards td.c-link { grid-column: auto; grid-row: 2; display: flex; align-items: center; gap: 6px; width: auto; }
 }
 
 /* ==== search-match-ux (branch search-match-ux, docs/decisions.md SX5-SX7) ==========================================================

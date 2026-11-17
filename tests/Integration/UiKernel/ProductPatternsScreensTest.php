@@ -72,7 +72,7 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         return self::texts($page, '//main//div[contains(@class, "doc-group")]/h3[@class="grp-title"]/button[@class="grp-toggle"]');
     }
 
-    public function testItemsIsABoardByCardInTheArtboardsGroups(): void
+    public function testItemsIsOneListOfEveryItemNotABoardByCard(): void
     {
         $who = $this->uiUser('stock_controller');
         $cards = new ItemCards(self::$db);
@@ -86,20 +86,21 @@ final class ProductPatternsScreensTest extends KernelUiTestCase
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
         $xp = self::xp($list);
-        // The redesign's Items artboard (docs/decisions.md RD-A3): Needs a look (a block, a card to confirm), No card yet, Ready.
-        self::assertSame([Words::INV_LIST['g_look'], Words::INV_LIST['g_none']], self::assertBoard($list, 'items'));
-        self::assertSame(['needs', 'waiting'], array_map(static fn (\DOMElement $d): string => trim(str_replace(['grp-block', 'doc-group'], '', $d->getAttribute('class'))),
-            array_values(iterator_to_array($xp->query('//main//div[contains(@class, "doc-group")]')))));
-        self::assertSame(['Tank five', 'Strong shot'], self::texts($list, '//div[@id="g-look"]//tbody/tr/th/a[contains(@class, "row-link")]'));
-        self::assertSame(['/ui/items/' . $high, '/ui/items/' . $low], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-look"]//tbody/tr/th/a[contains(@class, "row-link")]')))));
-        self::assertSame([Words::INV_LIST['p_blocked'], Words::INV_LIST['p_check']], self::texts($list, '//div[@id="g-look"]//tbody/tr/td[contains(@class, "doc-st")]'));
-        self::assertSame(['tank or pod over 2 ml'], self::texts($list, '//div[@id="g-look"]//tbody/tr[1]/th/span[@class="o-sub"][2]'), 'the rules under the name, not a second "Blocked"');
-        self::assertSame([Words::say('CARDS', 'warning_line', 'nicotine over 20 mg/ml')], self::texts($list, '//div[@id="g-look"]//tbody/tr/th//span[contains(@class, "tag") and contains(@class, "needs")]'));
-        self::assertSame([Words::INV_LIST['col_item'], Words::INV_LIST['col_status'], Words::INV_LIST['col_on_hand']], self::texts($list, '//div[@id="g-none"]//thead/tr/th'));
-        self::assertSame(['/ui/items/' . $none], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            array_values(iterator_to_array($xp->query('//div[@id="g-none"]//tbody/tr/th/a')))));
-        // No figures strip, no heading of its own over the groups.
+        // The owner, 17 Nov 2026 (docs/decisions.md IL1): ONE list, every item in it, most stock first; no group by card, no status cell, no
+        // card rules or warning under the name; the board's search and ONE Show stay.
+        self::assertSame(1, $xp->query('//main//form[contains(@class, "toolbar")]//input[@type="search"]')->length, 'the search');
+        self::assertSame(1, $xp->query('//main//*[contains(@class, "toolbar")]/details[contains(@class, "show-menu")]')->length, 'ONE Show choice');
+        self::assertSame(0, $xp->query('//main//div[contains(@class, "doc-group")] | //main//h3[contains(@class, "grp-title")] | //main//td[contains(@class, "doc-st")]')->length,
+            'no group, no status cell');
+        self::assertSame(1, $xp->query('//main//div[contains(@class, "table-wrap") and contains(@class, "doc-board")]/table[contains(@class, "doc-list") and contains(@class, "item-cards")]')->length,
+            'one card holding one table');
+        self::assertSame(['Tank five', 'Strong shot', 'Nothing yet'], self::texts($list, '//main//tbody/tr/th/a[contains(@class, "row-link")]'));
+        self::assertSame(['/ui/items/' . $high, '/ui/items/' . $low, '/ui/items/' . $none], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            array_values(iterator_to_array($xp->query('//main//tbody/tr/th/a[contains(@class, "row-link")]')))));
+        self::assertSame(0, $xp->query('//main//tbody//span[contains(@class, "tag") and contains(@class, "needs")] | //main//tbody/tr/th/span[@class="o-sub"][2]')->length,
+            'no warning tag, no rules line');
+        self::assertSame(0, $xp->query('//main//tbody//span[contains(concat(" ", @class, " "), " chip ")]')->length, 'no status pill anywhere in the rows');
+        // No figures strip, no heading of its own over the list.
         self::assertSame(0, $xp->query('//main//section[contains(@class, "rp-figs")] | //main//h2[contains(@class, "board-title")] | //main//ul[contains(@class, "summary-line")]')->length);
         // A search and a filter of More keep each other; ONE Clear under More.
         $on = $web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'confirmed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1']);

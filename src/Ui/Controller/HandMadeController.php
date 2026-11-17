@@ -145,12 +145,11 @@ final class HandMadeController
             'groups' => Html::groups($rows, array_map(static fn (string $state): array => [Words::tone('BY_HAND_STATE', $state), Words::of('BY_HAND_STATE', $state)],
                 array_combine(['waiting', 'checked', 'not_asked'], ['waiting', 'checked', 'not_asked']))),
             'show' => $show,
-            // Items' ONE Show choice (the redesign, docs/decisions.md RD-A3): this page is its Made by hand; waiting for a check is under More.
+            // Items' ONE Show choice (the redesign, docs/decisions.md RD-A3; its card choices gone with the card groups, IL4): this page is its
+            // Made by hand; waiting for a check is under More.
             'views' => [
                 ['label' => Words::INV_LIST['all_items'], 'href' => '/ui/items/cards', 'current' => false],
                 ['label' => Words::INV_LIST['holding'], 'href' => '/ui/items/cards?stock=1', 'current' => false],
-                ['label' => Words::INV_LIST['show_unconfirmed'], 'href' => '/ui/items/cards?state=unconfirmed', 'current' => false],
-                ['label' => Words::INV_LIST['show_blocked'], 'href' => '/ui/items/cards?blocked=1', 'current' => false],
                 ['label' => Words::INV_LIST['by_hand'], 'href' => Html::url(self::PATH, ['show' => 'all']), 'current' => true],
             ],
             'bar' => ['links' => [$waiting ? ['label' => Words::ITEM_NEW['show_all'], 'href' => Html::url(self::PATH, ['show' => 'all'])]

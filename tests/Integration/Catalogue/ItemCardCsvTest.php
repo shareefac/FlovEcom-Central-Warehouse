@@ -62,13 +62,13 @@ final class ItemCardCsvTest extends CatalogueTestCase
         $this->cards->save($who, $high, 0, ['product_type' => 'tank', 'liquid_ml' => '5', 'duty_liable' => 'no', 'flavour' => '-Mint', 'ecid' => '12345-16-12345']);
         $this->cards->confirm($who, $high, 1, true);
         $csv = ItemCardCsv::export((new ItemCardList(self::$db))->rows(ItemCardList::filters([]), null));
-        self::assertStringStartsWith("\xEF\xBB\xBF\"code\",\"name\",\"catalogue_brand\",\"stock_held\",\"product_type\",\"liquid_ml\",\"nicotine_mg\",\"duty_liable\",\"single_use\","
+        self::assertStringStartsWith("\xEF\xBB\xBF\"code\",\"name\",\"catalogue_brand\",\"stock_held\",\"alt\",\"vpg\",\"vbig\",\"product_type\",\"liquid_ml\",\"nicotine_mg\",\"duty_liable\",\"single_use\","
             . "\"ecid\",\"manufacturer\",\"brand\",\"flavour\",\"flavour_status\",\"discontinued\",\"card_version\",\"confirmed\",\"confirmed_by\",\"confirmed_at\",\"warnings\"\r\n", $csv);
         $lines = explode("\r\n", trim($csv));
-        self::assertStringStartsWith('"' . self::code($high) . '","High stock","",50,"tank",5.0,,"no","","12345-16-12345","","","\'-Mint","confirmed","no",2,"yes"', $lines[1]);
+        self::assertStringStartsWith('"' . self::code($high) . '","High stock","",50,"no","no","no","tank",5.0,,"no","","12345-16-12345","","","\'-Mint","confirmed","no",2,"yes"', $lines[1]);
         self::assertStringEndsWith('"BLOCKED: tank or pod over 2 ml"', $lines[1]);
-        self::assertStringStartsWith('"' . self::code($low) . '","Low stock","",5,', $lines[2]);
-        self::assertStringStartsWith('"' . self::code($none) . '","\'=HYPERLINK(""http://x"")","",0,', $lines[3], 'a name that would run as a formula is text');
+        self::assertStringStartsWith('"' . self::code($low) . '","Low stock","",5,"no","no","no",', $lines[2]);
+        self::assertStringStartsWith('"' . self::code($none) . '","\'=HYPERLINK(""http://x"")","",0,"no","no","no",', $lines[3], 'a name that would run as a formula is text');
         self::assertStringContainsString(',"no",0,"no card",', $lines[3]);
         self::assertCount(4, $lines);
     }

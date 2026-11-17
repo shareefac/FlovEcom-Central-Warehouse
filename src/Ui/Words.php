@@ -39,7 +39,7 @@ final class Words
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
         'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'DOC_GRID', 'KEYS', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
-        'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
+        'CARD_FIELD', 'CARDS', 'ITEM_LINKS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
         'INCIDENT_KIND', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'RECEIVING', 'RECEIPT', 'BENCH', 'INCIDENTS',
         'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'GI', 'GI_STATE', 'GI_CHECK', 'GI_DUTY', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
@@ -586,7 +586,7 @@ final class Words
         'duplicate_group' => ['Pages that may sell the same product.', 'Compare them. If they are the same product, join them so they share one stock figure. If not, keep them apart.'],
         'search' => ['Find a warehouse product or a website product.', 'Type a product name, scan a barcode, or type a CW number.'],
         'item' => ['Everything about one warehouse product: its details, the website products that sell it, its stock and recent stock changes.', ''],
-        'cards' => ['Every warehouse product with its legal and buying details.', 'Fix the ones marked with a warning first.'],
+        'cards' => ['Every warehouse product, the stock it holds and the websites it is connected to.', 'Its legal and buying details are on its own page.'],
         'card_import' => ['Change many product cards at once.', 'Download the list, edit it in Excel, then import it here. Nothing is saved until you choose "Save the changes".'],
         'card_form' => ['The legal and buying details of one product.', 'Fill them in, then press Confirm when they are right.'],
         'barcodes' => ['Barcodes the computer could not place.', 'Decide which product (single or pack) each one belongs to.'],
@@ -2387,21 +2387,11 @@ final class Words
         'items_search' => 'Search name, brand, barcode or CW number',
         'all_items' => 'All items',
         'holding' => 'Holding stock',
-        'needs_look' => 'Needs a look',
-        // The Show's two choices of Needs a look's two kinds (the fix round, docs/decisions.md RD-F3).
-        'show_unconfirmed' => 'Not confirmed',
-        'show_blocked' => 'Blocked',
+        // Items is one list of every item since 17 Nov 2026 (docs/decisions.md IL1): no groups by card, no status column, and so no Show choices
+        // for the card groups (Not confirmed, Blocked: RD-F3); those filters stay under More.
         'by_hand' => 'Made by hand',
         'col_item' => 'Item',
-        'col_status' => 'Status',
         'col_on_hand' => 'On hand',
-        'g_look' => 'Needs a look',
-        'g_none' => 'No card yet',
-        'g_ready' => 'Ready',
-        'p_check' => 'Check the card',
-        'p_blocked' => 'Blocked',
-        'p_none' => 'No card',
-        'p_ready' => 'Ready',
         'state' => 'State',
         // Adjustments (the artboard Inventory: Adjustments) and Transfers
         'adjustments' => 'Adjustments',
@@ -8433,6 +8423,23 @@ final class Words
         'clear_filters' => 'Clear',
         'fill_col' => 'Action',
         'fill_button' => 'Fill in the card',
+    ];
+
+    /**
+     * Items' three store columns (the owner, 17 Nov 2026: "add 3 small extra column with alt, vpg, vbig should show icons just icons to know if
+     * it is connected or not"; docs/decisions.md IL3): each column's heading by store code (CW\Catalogue\ItemCardList::STORES; the store's
+     * full name, Words::SITE, is its hover title), and the words of a cell's icon, which are its label for a screen reader and its hover title:
+     * the store's name and whether the item is linked there, with how many of the store's website products are linked to it.
+     */
+    public const ITEM_LINKS = [
+        'col_electrofag' => 'Alt',
+        'col_vapeandgo' => 'VPG',
+        'col_vapebig' => 'VBig',
+        'on' => '%s: connected (%s)',
+        'on_hold' => '%s: connected, on hold (%s)',
+        'off' => '%s: not connected',
+        'one' => '1 website product',
+        'many' => '%s website products',
     ];
 
     /** A product card's state (ItemCardList::STATES keys and the card section). */

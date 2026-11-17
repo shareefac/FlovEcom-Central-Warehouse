@@ -74,9 +74,9 @@ final class MenusTest extends KernelUiTestCase
         $cards = $buyer->get('/ui/items/cards');
         self::assertSame([['Items', null], ['Item groups', '/ui/items/families'], ['Multipacks', '/ui/items/packs']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($cards)), 'the page shown has no link (CV13)');
-        self::assertSame([['All items', null], ['Holding stock', '/ui/items/cards?stock=1'], ['Not confirmed', '/ui/items/cards?state=unconfirmed'], ['Blocked', '/ui/items/cards?blocked=1']],
+        self::assertSame([['All items', null], ['Holding stock', '/ui/items/cards?stock=1']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::segments($cards)),
-            'a buyer makes no item: Made by hand is not theirs, so only the list\'s own choices (RD-A3, RD-I8)');
+            'a buyer makes no item: Made by hand is not theirs, so only the list\'s own choices (RD-A3, RD-I8; the card choices went with the card groups, IL4)');
         // Inventory: everyone who sees a product's stock; the stock records and the counts for the people who read records.
         $stockPage = $desk->get('/ui/stock');
         self::assertSame([['Stock on hand', null], ['Adjustments', '/ui/stock/adjustments/all'], ['Transfers', '/ui/stock/transfers'], ['Stock counts', '/ui/stock/counts'],
@@ -200,7 +200,7 @@ final class MenusTest extends KernelUiTestCase
         $cards = $both->get('/ui/items/cards');
         self::assertSame([['Items', null], ['Item groups', '/ui/items/families'], ['Multipacks', '/ui/items/packs'], ['Barcodes', '/ui/items/barcodes']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($cards)));
-        self::assertSame([['All items', null], ['Holding stock', '/ui/items/cards?stock=1'], ['Not confirmed', '/ui/items/cards?state=unconfirmed'], ['Blocked', '/ui/items/cards?blocked=1'],
+        self::assertSame([['All items', null], ['Holding stock', '/ui/items/cards?stock=1'],
             ['Made by hand', '/ui/items/new?show=all']], array_map(static fn (array $t): array => [$t['label'], $t['href']],
             self::segments($cards)), 'the items made by hand: a Show choice of Items (RD2, RD-A3)');
 

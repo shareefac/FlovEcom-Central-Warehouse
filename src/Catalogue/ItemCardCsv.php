@@ -16,7 +16,8 @@ use CW\Output\CsvWriter;
  * I120).
  *
  * Export (CsvWriter: UTF-8 with a BOM, formula-safe, I25): one row per item of the list's filters, in list order, with the
- * read-only columns people need to work (name, catalogue brand, stock held, confirmation, warnings) and `card_version`.
+ * read-only columns people need to work (name, catalogue brand, stock held, whether each store's website sells it: alt, vpg, vbig as
+ * yes / no, docs/decisions.md IL5; confirmation, warnings) and `card_version`.
  *
  * Import (CsvReader: comma, semicolon or TAB, Windows-1252 read as such, gzip guarded, I45):
  *  - `code` is required (CW-000123, or 123); the card columns (IMPORT_FIELDS) are optional; `card_version`, when given, must
@@ -39,8 +40,13 @@ use CW\Output\CsvWriter;
  */
 final class ItemCardCsv
 {
+    /**
+     * Items' three store columns in the CSV (ItemCardList::STORES, in its order), by store code: "yes" where the item is linked to one of
+     * that store's website products or more (on hold included: still linked), else "no" (docs/decisions.md IL5). Read-only (IGNORED).
+     */
+    public const STORE_COLUMNS = ['electrofag' => 'alt', 'vapeandgo' => 'vpg', 'vapebig' => 'vbig'];
     public const EXPORT_COLUMNS = [
-        ['code', 'text'], ['name', 'text'], ['catalogue_brand', 'text'], ['stock_held', 'number'],
+        ['code', 'text'], ['name', 'text'], ['catalogue_brand', 'text'], ['stock_held', 'number'], ['alt', 'text'], ['vpg', 'text'], ['vbig', 'text'],
         ['product_type', 'text'], ['liquid_ml', 'number'], ['nicotine_mg', 'number'], ['duty_liable', 'text'], ['single_use', 'text'],
         ['ecid', 'text'], ['manufacturer', 'text'], ['brand', 'text'], ['flavour', 'text'], ['flavour_status', 'text'], ['discontinued', 'text'],
         ['card_version', 'number'], ['confirmed', 'text'], ['confirmed_by', 'text'], ['confirmed_at', 'text'], ['warnings', 'text'],
@@ -48,7 +54,7 @@ final class ItemCardCsv
     /** The columns an import writes (ItemCards::FIELDS). */
     public const IMPORT_FIELDS = ['product_type', 'liquid_ml', 'nicotine_mg', 'duty_liable', 'single_use', 'ecid', 'manufacturer', 'brand', 'flavour', 'discontinued'];
     /** The export's read-only columns: read past, never written. */
-    public const IGNORED = ['name', 'catalogue_brand', 'stock_held', 'flavour_status', 'confirmed', 'confirmed_by', 'confirmed_at', 'warnings'];
+    public const IGNORED = ['name', 'catalogue_brand', 'stock_held', 'alt', 'vpg', 'vbig', 'flavour_status', 'confirmed', 'confirmed_by', 'confirmed_at', 'warnings'];
     /** The screen reads up to the whole catalogue (about 15,000 items): an unchanged row costs almost nothing (I120). */
     public const UI_MAX_ROWS = 20_000;
     /** The rows that CHANGE a card, on the screen: about 14 ms each, inside the UI pool's 60-second request (I112, I120). */
@@ -66,7 +72,7 @@ final class ItemCardCsv
     }
 
     /**
-     * The CSV of the list rows (ItemCardList::rows).
+     * The CSV of the list rows (ItemCardList::rows, with their `links`).
      *
      * @param iterable<array<string, mixed>> $rows
      */
@@ -80,6 +86,7 @@ final class ItemCardCsv
                 $st['warnings'] === [] ? '' : 'warning: ' . ItemRules::labels($st['warnings'])]));
             $csv->add([
                 (string) $r['code'], (string) $r['name'], $r['catalogue_brand'] === null ? null : (string) $r['catalogue_brand'], (int) $r['held'],
+                ...array_map(static fn (string $store): string => (int) ($r['links'][$store]['linked'] ?? 0) > 0 ? 'yes' : 'no', array_keys(self::STORE_COLUMNS)),
                 $r['product_type'] === null ? null : (ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type']),
                 $r['liquid_ml'] === null ? null : (string) $r['liquid_ml'], $r['nicotine_mg'] === null ? null : (string) $r['nicotine_mg'],
                 ItemCards::yesNoLabel($r['duty_liable']), ItemCards::yesNoLabel($r['single_use']), $r['ecid'], $r['manufacturer'], $r['brand'], $r['flavour'],

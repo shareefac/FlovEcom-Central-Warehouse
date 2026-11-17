@@ -13,10 +13,20 @@ use CW\Matching\Gtin;
  * catalogue work starts there. Filters: words (code, name, catalogue brand), state (no card, not confirmed, changed since it was
  * confirmed, confirmed), holds stock, warned or blocked (ItemRules::sqlFlagged: ItemRules::status in SQL), blocked
  * (ItemRules::sqlBlocked), product type (or not set), discontinued.
+ *
+ * Each row also says, per store of STORES, whether the item is linked there (`links`, docs/decisions.md IL2): Items' three small icon columns
+ * and the CSV's yes/no columns (the owner, 17 Nov 2026: "add 3 small extra column with alt, vpg, vbig ... to know if it is connected or not").
  */
 final class ItemCardList
 {
     public const PAGE = 100;
+    /**
+     * The stores Items shows a column for, in the owner's order ("alt, vpg, vbig": Alt is Electrofag), by channel code. A store that is not
+     * there (a new test system) shows every item as not linked; another store (a proto's channel) has no column.
+     */
+    public const STORES = ['electrofag', 'vapeandgo', 'vapebig'];
+    /** The items one read of links() asks about: a page (PAGE) is one read; the CSV of the whole catalogue (about 15,300 items) sixteen. */
+    public const LINKS_CHUNK = 1_000;
     public const STATES = [
         'all' => 'Any',
         'unconfirmed' => 'Not confirmed (no card, or not confirmed yet)',
@@ -63,7 +73,8 @@ final class ItemCardList
 
     /**
      * The rows of the filtered list, in list order: the sku columns (id, code, name, catalogue brand), `held` and every card
-     * column (NULL without a card), confirmed_by_name.
+     * column (NULL without a card), confirmed_by_name, and `links` (links(): store code => its linked website products, for every
+     * store of STORES; one more read per LINKS_CHUNK rows, never one per row).
      *
      * @param array{q: string, state: string, stock: bool, warnings: bool, blocked: bool, type: string, discontinued: bool, page: int} $f
      * @return list<array<string, mixed>>
@@ -71,11 +82,46 @@ final class ItemCardList
     public function rows(array $f, ?int $limit = self::PAGE, int $offset = 0): array
     {
         [$where, $params] = $this->where($f);
-        return $this->db->all('SELECT s.id, s.code, s.name, s.brand AS catalogue_brand, COALESCE(st.held, 0) AS held, c.sku_id AS card_sku_id, c.version, '
+        $rows = $this->db->all('SELECT s.id, s.code, s.name, s.brand AS catalogue_brand, COALESCE(st.held, 0) AS held, c.sku_id AS card_sku_id, c.version, '
             . 'c.product_type, c.liquid_ml, c.nicotine_mg, c.duty_liable, c.single_use, c.ecid, c.manufacturer, c.brand, c.flavour, c.flavour_status, '
             . 'c.discontinued, c.confirmed_at, c.confirmed_breaches, c.first_confirmed_at, u.display_name AS confirmed_by_name '
             . $this->from() . " WHERE {$where} ORDER BY held DESC, s.id"
             . ($limit === null ? '' : ' LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset)), $params);
+        $links = $this->links(array_map(static fn (array $r): int => (int) $r['id'], $rows));
+        foreach ($rows as $i => $r) {
+            $rows[$i]['links'] = $links[(int) $r['id']];
+        }
+        return $rows;
+    }
+
+    /**
+     * Where each item is linked (docs/decisions.md IL2): per store of STORES, how many of that store's website products are linked to it
+     * (`channel_listing.sku_id` = the item: the link of DecisionService, the only writer) and how many of those are on hold. 0001's CHECK
+     * ties a set sku_id to the two linked statuses, `mapped` and `quarantined` (on hold: linked, held off sale; D32), so the count reads the
+     * link alone; a suggestion, a website product not matched, ignored or a landing page has no sku_id and never counts. A merged item has
+     * none: a merge moves every link of the item folded away to the kept item (M10), whose row then counts them; the list leaves merged
+     * items out anyway. One read per LINKS_CHUNK items (a page: one), on the (sku_id, channel_id) index of 0024.
+     *
+     * @param list<int> $skuIds
+     * @return array<int, array<string, array{linked: int, on_hold: int}>> item id => store code (every one of STORES, in that order) => counts
+     */
+    public function links(array $skuIds): array
+    {
+        $empty = array_fill_keys(self::STORES, ['linked' => 0, 'on_hold' => 0]);
+        $out = [];
+        foreach ($skuIds as $id) {
+            $out[$id] = $empty;
+        }
+        foreach (array_chunk(array_keys($out), self::LINKS_CHUNK) as $chunk) {
+            $rows = $this->db->all('SELECT cl.sku_id, ch.code, COUNT(*) AS linked, SUM(cl.status = \'quarantined\') AS on_hold '
+                . 'FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id '
+                . 'WHERE cl.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND ch.code IN (' . implode(', ', array_fill(0, count(self::STORES), '?')) . ') '
+                . 'GROUP BY cl.sku_id, ch.code', [...$chunk, ...self::STORES]);
+            foreach ($rows as $r) {
+                $out[(int) $r['sku_id']][(string) $r['code']] = ['linked' => (int) $r['linked'], 'on_hold' => (int) $r['on_hold']];
+            }
+        }
+        return $out;
     }
 
     /** @param array{q: string, state: string, stock: bool, warnings: bool, blocked: bool, type: string, discontinued: bool, page: int} $f */

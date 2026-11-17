@@ -2088,9 +2088,13 @@ final class UiTemplatesTest extends TestCase
             'simple' => ['<form class="toolbar', '" method="get"', '$showMine($', 'menu: $bar'],
             'inbox' => ['<div class="ap-inbox">', '<section class="card ap-list"', '<div class="ap-group ', '<a class="ap-row', '<section class="ap-record ',
                 '<form class="ap-answer" id="ap-answer" method="post"', '<button type="submit" form="ap-answer" class="btn primary">', '<p class="ap-next">'],
+            // Items as ONE list (the owner, 17 Nov 2026; docs/decisions.md IL1): the board's card and table with no group around them, and a
+            // store column's icon with its words as its label and title (IL3).
+            'one_list' => ['<div class="table-wrap doc-board">', '<table class="stack list board doc-list item-cards">', '<th scope="col" class="c-link" title="',
+                '<td class="c-link" data-label="', '<span class="link-ico ', 'role="img" aria-label="<?= $e($c[\'label\']) ?>" title="<?= $e($c[\'label\']) ?>"'],
         ];
         $pages = [
-            'item_cards' => ['board', 'simple', 'search', 'row_link'], 'item_new' => ['form'], 'items_by_hand' => ['board', 'row_link'],
+            'item_cards' => ['one_list', 'simple', 'search', 'row_link'], 'item_new' => ['form'], 'items_by_hand' => ['board', 'row_link'],
             'families' => ['board', 'simple', 'search', 'row_link', 'new'], 'family' => ['record'],
             'packs' => ['simple', 'search', 'row_link', 'new'], 'pack_links' => ['row_link'], 'barcode_reviews' => ['inbox', 'simple', 'search'],
         ];
@@ -2126,7 +2130,12 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString("<?= \$partial('list_more', \$menu) ?>", $t['split.php'], 'inside the header\'s ONE More');
         self::assertArrayNotHasKey('rda_bar.php', $t, 'the stand-ins went (RD-I8)');
         self::assertArrayNotHasKey('rda_show.php', $t);
+        // Items: no group, no status cell (IL1); the item, a head per store (one loop over the three, IL3), on hand.
         self::assertSame(3, substr_count($t['item_cards.php'], '<th scope="col"'));
+        foreach (['grp-block', 'doc-group', 'grp-toggle', 'grp-count', 'c-status', 'doc-st', '$groups', 'warning_line', 'pillTone'] as $old) {
+            self::assertStringNotContainsString($old, $t['item_cards.php'], "item_cards: {$old} went with the card groups");
+        }
+        self::assertSame(1, substr_count($t['item_cards.php'], '<?php foreach ($stores as $s): ?>'), 'the store heads: one loop');
         // Add Item: name, brand and barcode come first; the made-by-hand list (and its check) is on its own view, not under the form.
         preg_match_all('/<input id="[^"]+" type="text" name="([a-z_]+)"/', $t['item_new.php'], $names);
         self::assertSame(['name', 'brand', 'barcode'], array_slice($names[1], 0, 3));

@@ -116,7 +116,7 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
     // Items
     // ------------------------------------------------------------------------------------------
 
-    public function testItemsIsTheArtboardsSimpleListOfThreeColumnsInItsThreeGroups(): void
+    public function testItemsIsTheSimpleListAsOneListOfFiveColumnsWithNoGroups(): void
     {
         $who = $this->uiUser('stock_controller');
         $cards = new ItemCards(self::$db);
@@ -131,26 +131,21 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         $cards->confirm(Caller::staff($who['id']), $ready, 1, true);
         $web = $this->signIn($who);
         $list = $web->get('/ui/items/cards');
-        // The Show says what each choice holds (the fix round, docs/decisions.md RD-F3): Not confirmed (a card not confirmed, or none) and
-        // Blocked (the existing blocked filter: a confirmed card can be blocked too); the group Needs a look holds both kinds.
-        self::assertSame([[Words::INV_LIST['all_items'], true], [Words::INV_LIST['holding'], false], [Words::INV_LIST['show_unconfirmed'], false],
-            [Words::INV_LIST['show_blocked'], false], [Words::INV_LIST['by_hand'], false]], self::assertSimpleList($list, 'items', Words::INV_LIST['items']));
-        self::assertSame(['/ui/items/cards?stock=1', '/ui/items/cards?state=unconfirmed', '/ui/items/cards?blocked=1', '/ui/items/new?show=all'],
+        // The Show: All items, Holding stock, Made by hand (docs/decisions.md IL4: Not confirmed and Blocked went with the card groups).
+        self::assertSame([[Words::INV_LIST['all_items'], true], [Words::INV_LIST['holding'], false], [Words::INV_LIST['by_hand'], false]],
+            self::assertSimpleList($list, 'items', Words::INV_LIST['items']));
+        self::assertSame(['/ui/items/cards?stock=1', '/ui/items/new?show=all'],
             self::attrs($list, '//details[contains(@class, "show-menu")]//a', 'href'), 'each choice a link: Made by hand is its own page');
         self::assertSame([Words::INV_LIST['items_search']], self::attrs($list, '//form[contains(@class, "toolbar")]//input[@type="search"]', 'placeholder'));
-        // The groups in the artboard's order and colours, each count a figure; three columns; the name opens the item, its CW number under it.
-        self::assertSame([[Words::INV_LIST['g_look'], '2'], [Words::INV_LIST['g_none'], '1'], [Words::INV_LIST['g_ready'], '1']], self::groupHeads($list));
-        self::assertSame(['needs', 'waiting', 'done'], array_map(static fn (string $c): string => trim(str_replace(['grp-block', 'doc-group'], '', $c)),
-            self::attrs($list, '//main//div[contains(@class, "doc-group")]', 'class')));
-        self::assertSame([Words::INV_LIST['col_item'], Words::INV_LIST['col_status'], Words::INV_LIST['col_on_hand']], self::texts($list, '//div[@id="g-look"]//thead/tr/th'));
-        self::assertSame(['Tank five', 'Strong shot'], self::texts($list, '//div[@id="g-look"]//tbody/tr/th/a[contains(@class, "row-link")]'), 'most stock first');
-        self::assertSame([self::cw($blocked), self::cw($check)], self::texts($list, '//div[@id="g-look"]//tbody/tr/th/span[@class="o-sub"][1]'));
-        self::assertSame([Words::INV_LIST['p_blocked'], Words::INV_LIST['p_check']], self::texts($list, '//div[@id="g-look"]//tbody/tr/td[contains(@class, "doc-st")]'));
-        self::assertSame(['c-status doc-st blocked', 'c-status doc-st needs'], self::attrs($list, '//div[@id="g-look"]//tbody/tr/td[contains(@class, "doc-st")]', 'class'));
-        self::assertSame(['tank or pod over 2 ml'], self::texts($list, '//div[@id="g-look"]//tbody/tr[1]/th/span[@class="o-sub"][2]'), 'a block\'s rules stay under the name');
-        self::assertSame([Words::INV_LIST['p_none']], self::texts($list, '//div[@id="g-none"]//tbody/tr/td[contains(@class, "doc-st")]'));
-        self::assertSame([Words::INV_LIST['p_ready']], self::texts($list, '//div[@id="g-ready"]//tbody/tr/td[contains(@class, "doc-st")]'));
-        self::assertSame(['50', '20'], self::texts($list, '//div[@id="g-look"]//tbody/tr/td[contains(@class, "num")]'));
+        // ONE list (IL1): no group, no status column; five columns, the three stores' in the owner's order; the name opens the item, its CW
+        // number under it; most stock first, whatever the card.
+        self::assertSame([], self::groupHeads($list));
+        self::assertSame(0, self::xp($list)->query('//main//div[contains(@class, "doc-group")] | //main//td[contains(@class, "c-status") or contains(@class, "doc-st")]')->length);
+        self::assertSame([Words::INV_LIST['col_item'], 'Alt', 'VPG', 'VBig', Words::INV_LIST['col_on_hand']], self::texts($list, '//main//div[contains(@class, "doc-board")]//thead/tr/th'));
+        self::assertSame(['Tank five', 'Strong shot', 'Cola ten', 'Nothing yet'], self::texts($list, '//main//tbody/tr/th/a[contains(@class, "row-link")]'), 'most stock first');
+        self::assertSame([self::cw($blocked), self::cw($check), self::cw($ready), self::cw($none)], self::texts($list, '//main//tbody/tr/th/span[@class="o-sub"][1]'));
+        self::assertSame(0, self::xp($list)->query('//main//tbody/tr/th/span[@class="o-sub"][2]')->length, 'no card rules and no warning under the name');
+        self::assertSame(['50', '20', '10', '0'], self::texts($list, '//main//tbody/tr/td[contains(@class, "num")]'));
         // The head: More (the filters of before, Import, the download), then "+ New item" for who may make an item by hand.
         $head = '//main//header[contains(@class, "page-head")]//div[contains(@class, "ph-actions")]';
         self::assertSame(['/ui/items/new'], self::attrs($list, $head . '/a[contains(@class, "primary")]', 'href'));
@@ -165,20 +160,15 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         self::assertSame([Words::INV_LIST['holding']], self::texts($holding, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
         self::assertSame(['stock'], self::attrs($holding, '//form[contains(@class, "toolbar")]/input[@type="hidden"]', 'name'));
         self::assertSame(['Tank five', 'Strong shot', 'Cola ten'], self::texts($holding, '//main//tbody/tr/th/a'));
-        $look = $web->get('/ui/items/cards', ['state' => 'unconfirmed']);
-        self::assertSame([Words::INV_LIST['show_unconfirmed']], self::texts($look, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
-        self::assertSame(['Strong shot', 'Nothing yet'], self::texts($look, '//main//tbody/tr/th/a'));
-        // Blocked: the confirmed card that breaks a blocking rule, which Not confirmed leaves out, is on its own choice.
-        $blockedOnly = $web->get('/ui/items/cards', ['blocked' => '1']);
-        self::assertSame([Words::INV_LIST['show_blocked']], self::texts($blockedOnly, '//details[contains(@class, "show-menu")]//*[@aria-current]'));
-        self::assertSame(['Tank five'], self::texts($blockedOnly, '//main//tbody/tr/th/a'));
-        // Every item of Needs a look is under one of its two choices.
-        self::assertSame(['Strong shot', 'Tank five'], array_values(array_intersect(['Strong shot', 'Tank five'],
-            [...self::texts($look, '//main//tbody/tr/th/a'), ...self::texts($blockedOnly, '//main//tbody/tr/th/a')])));
-        $warned = $web->get('/ui/items/cards', ['warnings' => '1']);
-        self::assertSame([Words::INV_LIST['filtered']], self::texts($warned, '//details[contains(@class, "show-menu")]//*[@aria-current]'), 'a filter of More: the choice says so');
-        self::assertSame(['warnings'], self::attrs($warned, $head . '/details[contains(concat(" ", @class, " "), " more ")]//details[@open]//input[@checked]', 'name'),
-            'More\'s filters open in the menu with the one on');
+        // The card filters of before are More's (IL4): each says "Chosen filters" on the Show and opens More's filters, as any filter of More.
+        foreach ([[['state' => 'unconfirmed'], ['Strong shot', 'Nothing yet'], 'state'], [['blocked' => '1'], ['Tank five'], 'blocked'],
+            [['warnings' => '1'], ['Tank five', 'Strong shot'], 'warnings']] as [$q, $names, $field]) {
+            $page = $web->get('/ui/items/cards', $q);
+            self::assertSame([Words::INV_LIST['filtered']], self::texts($page, '//details[contains(@class, "show-menu")]//*[@aria-current]'), "{$field}: a filter of More");
+            self::assertSame($names, self::texts($page, '//main//tbody/tr/th/a'), $field);
+            self::assertSame(1, self::xp($page)->query($head . '/details[contains(concat(" ", @class, " "), " more ")]//details[@open]//*[@name="' . $field . '"]')->length,
+                "{$field}: More's filters open in the menu with the one on");
+        }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -458,8 +448,9 @@ final class InventoryRedesignScreensTest extends KernelUiTestCase
         // Multipacks: its pack items and its pack links are one Show choice.
         self::assertSame([[Words::INV_LIST['packs_on'], true], [Words::INV_LIST['packs_all'], false], [Words::PAGE_TITLE['pack_links'], false]],
             self::assertSimpleList($web->get('/ui/items/packs'), 'packs', Words::INV_LIST['packs_on']));
-        // Made by hand is Items' Show choice, last (after Not confirmed and Blocked: the fix round, RD-F3).
-        self::assertSame([Words::INV_LIST['by_hand'], true], self::assertSimpleList($web->get('/ui/items/new', ['show' => 'all']), 'by hand', Words::INV_LIST['items'])[4]);
+        // Made by hand is Items' Show choice, last (after All items and Holding stock: the card choices of RD-F3 went with the card groups, IL4).
+        self::assertSame([[Words::INV_LIST['all_items'], false], [Words::INV_LIST['holding'], false], [Words::INV_LIST['by_hand'], true]],
+            self::assertSimpleList($web->get('/ui/items/new', ['show' => 'all']), 'by hand', Words::INV_LIST['items']));
         // Stock on hand: five columns, one On hand figure (every warehouse together).
         $stock = $web->get('/ui/stock');
         self::assertSame([Words::STOCK_VIEW['product'], Words::STOCK_VIEW['status'], Words::INV_LIST['col_on_hand'], Words::STOCK_VIEW['reserved'], Words::STOCK['available']],
