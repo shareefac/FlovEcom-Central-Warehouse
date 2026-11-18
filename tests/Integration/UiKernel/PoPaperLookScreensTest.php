@@ -267,6 +267,15 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         self::assertSame(['', ''], array_values(array_map('strval', (array) self::$db->one('SELECT external_ref, note FROM document WHERE id = ?', [$d['id']]))));
         self::assertSame(1, self::nodes($shareef->get($path), '//input[@name="external_ref"][@value=""][@placeholder="' . Words::DOC_LIST['none'] . '"]'));
         self::assertSame('2026-12-01', (string) self::$db->value('SELECT expected_date FROM purchase_order WHERE document_id = ?', [$d['id']]));
+        // ONE history on the order's page (the coordinator's second look): the History card names who started it and each person who changed
+        // it (DA2's changes), with no second "History of changes" list.
+        $page = $shareef->get($path);
+        $events = self::texts($page, '//section[contains(@class, "po-history")]//ol[contains(@class, "po-events")]/li');
+        self::assertStringContainsString(Words::say('ORDER', 'ev_started', (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$fazil['id']])), implode(' | ', $events));
+        $shareefName = (string) self::$db->value("SELECT u.display_name FROM staff_user u JOIN audit_log a ON a.staff_user_id = u.id WHERE a.entity_type = 'document' AND a.entity_id = ? "
+            . 'ORDER BY a.id DESC LIMIT 1', [(string) $d['id']]);
+        self::assertStringContainsString(Words::say('ORDER', 'ev_changed', $shareefName), $events[0], 'newest first: the change just saved');
+        self::assertSame(0, self::nodes($page, '//section[contains(@class, "doc-changes")]'), 'no second history list');
 
         // A product added without the script: the product box, its packs and Add (Enter).
         $page = $shareef->get($path);

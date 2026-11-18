@@ -184,6 +184,10 @@ final class DraftAnyoneScreensTest extends KernelUiTestCase
         self::assertSame(409, $refused->status, $refused->describe());
         self::assertStringContainsString(self::staffName($bUser['id']) . ' changed this draft at ', $refused->text());
         self::assertSame(5, (int) self::$db->value('SELECT packs FROM po_line WHERE document_id = ? AND line_no = 1', [$d->id]));
-        self::assertListed('Changed by ' . self::staffName($bUser['id']), self::changes($a->get($path)));
+        // The order's page has ONE history since one look (docs/decisions.md LP10): the changes are in its History card.
+        $events = array_map(static fn (\DOMNode $li): string => trim((string) preg_replace('/\s+/', ' ', $li->textContent)),
+            iterator_to_array((new \DOMXPath($a->get($path)->dom()))->query('//section[contains(@class, "po-history")]//ol[contains(@class, "po-events")]/li')));
+        self::assertNotEmpty(array_filter($events, static fn (string $ev): bool => str_ends_with($ev, Words::say('ORDER', 'ev_changed', self::staffName($bUser['id'])))),
+            implode(' | ', $events));
     }
 }

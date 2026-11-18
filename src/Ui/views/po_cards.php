@@ -1,7 +1,8 @@
 <?php
 // Under the order's paper (docs/decisions.md RD-B4; one look, LP1: a draft's paper too): Related (its deliveries and invoices, the orders it
 // corrects or that correct it, its cancellation and that PDF, its files) and History (what happened to it, newest first, then its checks and
-// OKs). $related, $events: PurchaseOrdersController::docView's; $history: viewData's.
+// OKs). $related, $events: PurchaseOrdersController::docView's (the events: started, each person who changed it while a draft, asked,
+// confirmed, sent, closed, cancelled: the order's ONE history, LP10; $eventsMore: the older changes left out); $history: viewData's.
 ?>
 <div class="po-cards">
 <section class="card po-related" aria-labelledby="related-h">
@@ -35,6 +36,9 @@
     <li><strong><?= $e($ev['when']) ?></strong> · <?= $e($ev['text']) ?></li>
 <?php endforeach; ?>
   </ol>
+<?php if (($eventsMore ?? null) !== null): ?>
+  <p class="muted"><?= $e($eventsMore) ?></p>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ($history !== []): ?>
   <h3 class="doc-label"><?= $word('ORDER', 'history') ?></h3>

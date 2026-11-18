@@ -10,6 +10,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Documents\DraftChanges;
 use CW\Items\HandMade;
 use CW\OpResult;
 use CW\Output\CsvWriter;
@@ -1338,7 +1339,7 @@ final class PurchaseOrdersController
             $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
             [, $more] = self::actions($data['can'], $state, false, false);
             $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
-            $view = self::docView($data, $doc, $po, $supplier, $supplierName, is_array($snapshot) ? $snapshot : $ctx->settings()->company(), null, $me);
+            $view = self::docView($data, $doc, $po, $supplier, $supplierName, is_array($snapshot) ? $snapshot : $ctx->settings()->company(), null, $me, $db);
             return $ctx->page('purchase_order', $data + $view + [
                 'paperEdit' => true,
                 'editor' => 'po-form',
@@ -1361,7 +1362,7 @@ final class PurchaseOrdersController
         // when it was confirmed, else the details in use now).
         $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
         $company = is_array($snapshot) ? $snapshot : $ctx->settings()->company();
-        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress, $me) + [
+        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress, $me, $db) + [
             'paperEdit' => false,
             'canReceive' => $canReceive,
             'canInvoice' => $canInvoice,
@@ -1490,7 +1491,7 @@ final class PurchaseOrdersController
      * @return array<string, mixed>
      */
     private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName, array $company, ?array $progress,
-        \CW\Auth\StaffIdentity $me): array
+        \CW\Auth\StaffIdentity $me, Db $db): array
     {
         $people = $data['people'];
         $head = self::paperHead($supplier, $supplierName, $company);
@@ -1523,6 +1524,14 @@ final class PurchaseOrdersController
                 . ($r->note !== null && $r->note !== '' ? ' – ' . $r->note : ''), (string) $r->number));
         } elseif ($doc->cancelledAt !== null) {
             $event($doc->cancelledAt, Words::say('ORDER', 'ev_cancelled', (string) $people['cancelled'], (string) $data['cancelReason']));
+        }
+        // ONE history (docs/decisions.md LP10; the coordinator's look on staging): each person who changed it while it was a draft (DA2's
+        // changes, DraftChanges: one entry for a person's saves in the same minute; its "started" is the Started line above), in the same list.
+        $changed = DraftChanges::list($db, $doc->id);
+        foreach ($changed['entries'] as $c) {
+            if ($c['kind'] === 'changed') {
+                $event($c['at'], Words::say('ORDER', 'ev_changed', $c['name']));
+            }
         }
         usort($events, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
         // Related: the papers around it (its deliveries and invoices as the goods-in and invoice lists find them, with how far each got). A
@@ -1575,6 +1584,7 @@ final class PurchaseOrdersController
             ],
             'factLine' => $factLine,
             'events' => $events,
+            'eventsMore' => $changed['more'] > 0 ? Words::say('DRAFT', 'earlier', $changed['more']) : null,
             'related' => $related,
             'totalRows' => $rows,
         ];

@@ -18022,7 +18022,7 @@ Round 2's two fixes checked, and the change on top of "drafts anyone may change"
 `edits` = may post the type, not admin): 0 HIGH, 0 MEDIUM, 0 LOW. The full suite on the rebased branch: Unit 626 OK, UiKernel 678 OK, the
 rest 1,286 OK (83 skipped: the HTTP tests of slot ui, one more than before: `UiSecurityTest::testThePollOfADraftOrderOverHttp`).
 
-## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP9; live drafts step 2; migration 0071, two setting rows)
+## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP10; live drafts step 2; migration 0071, two setting rows)
 
 The owner, 18 Nov 2026, of the read-only order page another buyer saw ("Shareef's window") beside the creator's grey form ("Fazil's"): "I liked
 how it looks on Shareef's window, the design". After DA1 everyone who writes orders gets the editor, so everyone would get the grey form;
@@ -18035,7 +18035,8 @@ tools and key hints), `po_paper_line` (one row: read only, a saved line with box
 `po_cards` (Related, History). A person who may only look gets the parts as words (`$edit` false), as before; a draft or a new order for
 someone who may post (`doc.PO.post`, DA1) gets them as boxes inside the one editor form
 `form#po-form.po-editor.kg-doc.kg-paper[data-kg-editor]`, which posts the whole page with its version, as `purchase_order_edit.php` did.
-The confirmed page's HTML is the same as before (checked by drawing both from the same data). The order's other pages (the PDF, the lists)
+The confirmed page's HTML was the same as before (checked by drawing both from the same data) until LP10 put the draft's changes in
+its History card. The order's other pages (the PDF, the lists)
 do not change.
 
 **LP2. The way back: the setting `po.draft_look`** (`paper`, the default, or `form`; migration 0071; `PurchaseOrdersController::draftLook`,
@@ -18094,6 +18095,13 @@ at every width; a label in the head and the foot reads as the paper's words (the
 the name and "+ Add product" under the Item heading, the packs and prices under their headings' right edge, the note under its label, the
 delivery under the totals' figures (the box reaches 8 px into the cell's padding). A box's edge on hover is the field's edge (clearly a box).
 The empty Their reference, Note and Delivery are real boxes; their "—" is a placeholder, never a value (a test saves them empty).
+
+**LP10. One history on the order's page; the head's boxes as tall as their content** (the coordinator's second look on staging). The
+order's page (a draft's paper and the read-only page) lists who changed it while it was a draft (DA2's changes, `DraftChanges`) in its History
+card with the other events, newest first ("18 Nov 2026, 18:15 · Changed by Shareef"; "Earlier changes: N more." under it), and no longer draws
+the separate "History of changes" (`doc_changes`) under the cards; the other records keep theirs. The head's blocks: each part as tall as its
+content and only the last part takes what the row has left (the one-page form's `.po-box-field` had a flex-basis of 18rem, which made the
+first row about 270 px tall in a block that is a column); a test reads every head rule for a height or a flex-basis of its own.
 
 ### The Codex reviews of look-paper (`lookpaper_20261118/codex_round1.txt` to `codex_round3.txt`; three rounds, the cap)
 - Round 1 (1 HIGH, 3 MEDIUM, 1 LOW): More > Copy on the paper left typed values without the unsaved guard (Copy is a leaving form there;

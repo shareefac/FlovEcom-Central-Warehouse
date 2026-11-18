@@ -1817,6 +1817,7 @@ final class UiUnitTest extends TestCase
         // where the paper's words stand (the box reaches 8 px into the cell's padding: the name under Item, the figures under their headings).
         foreach (['@container (min-width: 641px) { .doc-view .po-paper-head { grid-template-rows: 22px auto; } }',
             '.doc-view .po-paper-head > .doc-party { display: flex; flex-direction: column; }',
+            '.doc-view .po-paper-head > .doc-party > * { flex: 0 0 auto; }',
             '.doc-view .po-paper-head > .doc-party > :last-child { flex: 1 1 auto; }',
             '.doc-view .po-paper-head > .doc-party > .doc-label { line-height: 18px; }',
             'form.kg-paper .po-paper-head .doc-label > label, form.kg-paper .po-paper-head dt > label, form.kg-paper .doc-foot .doc-label > label, form.kg-paper .doc-foot dt > label {',
@@ -1830,6 +1831,26 @@ final class UiUnitTest extends TestCase
             self::assertStringContainsString($rule, $plain, $rule);
         }
         self::assertSame(1, preg_match('/form\.kg-paper \.doc-facts dd\.kg-in input\.kg-flat \{[^}]*min-height: 36px; padding: 7px;/', $plain), 'a fact\'s box: 7 + 20 + 7 + 2 = 36 px');
+        // The head's boxes are only as tall as their content (the coordinator's second look: 270 px boxes, the supplier field's old flex-basis
+        // of 18rem from the one-page form): every part of a block keeps its own height but the last; the paper's head rules set no height of
+        // their own above a box's (44 px), no flex-basis and no min-height in rem or %.
+        self::assertStringContainsString('form.po-editor .po-box-field { display: grid; gap: 4px; flex: 1 1 18rem; min-width: 0; }', $plain, 'the rule that stretched it');
+        preg_match_all('/([^{}@]+)\{([^{}]*)\}/', $plain, $headRules, PREG_SET_ORDER);
+        $seenHead = 0;
+        foreach ($headRules as [, $sel, $body]) {
+            if (!str_contains($sel, 'po-paper-head')) {
+                continue;
+            }
+            $seenHead++;
+            self::assertDoesNotMatchRegularExpression('/(?:^|;)\s*flex(?:-basis)?: (?!0 0 auto|1 1 auto)/', $body, trim($sel) . ': no flex-basis of its own');
+            if (preg_match_all('/(?:min-)?height: (\d+)px/', $body, $hm) > 0) {
+                foreach ($hm[1] as $px) {
+                    self::assertLessThanOrEqual(44, (int) $px, trim($sel) . ': a head box is never taller than 44 px by a rule');
+                }
+            }
+            self::assertDoesNotMatchRegularExpression('/(?:min-)?height: [0-9.]+(?:rem|%|vh)/', $body, trim($sel));
+        }
+        self::assertGreaterThan(10, $seenHead, 'the head\'s rules were read');
         self::assertStringContainsString("item.title = it.name;", $grid, 'the whole name on hover');
     }
 

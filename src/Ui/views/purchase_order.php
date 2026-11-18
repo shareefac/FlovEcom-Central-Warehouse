@@ -12,7 +12,8 @@
 // (po_paper_head, po_paper_lines, po_paper_foot) inside the one editor form, which posts the whole page with its version as the one-page form
 // did (Save and Confirm in the head's bar, for the form; the grid's keys, Add multiple, + New item and the save without leaving the page by
 // app.js). A person who may only look gets the same parts with words instead of boxes. The old one-page form is purchase_order_edit.php
-// (po.draft_look = form, the way back for one release).
+// (po.draft_look = form, the way back for one release). The order's ONE history is the History card: who changed it while it was a draft is
+// in it (LP10; no separate "History of changes" here).
 $paperEdit = $paperEdit ?? false;
 ?>
 <?php if ($paperEdit): ?>
@@ -158,7 +159,7 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 </form>
 <?php endif; ?>
 <?php if (!$isNew): ?>
-<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'history' => $history]) ?>
+<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'eventsMore' => $eventsMore ?? null, 'history' => $history]) ?>
 <?php endif; ?>
 <?php else: ?>
 <?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
@@ -248,7 +249,5 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?= $partial('po_paper_foot', ['edit' => false, 'note' => $doc->note, 'totalRows' => $totalRows]) ?>
 </article>
 
-<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'history' => $history]) ?>
+<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'eventsMore' => $eventsMore ?? null, 'history' => $history]) ?>
 <?php endif; ?>
-
-<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

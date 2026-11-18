@@ -3979,6 +3979,9 @@ form.kg-paper input.kg-flat[aria-invalid="true"], form.kg-paper tr.kg-bad input.
    a row share their top line and their height (a block is a column whose last part grows; a block's label is as high as a fact's words), so
    Supplier, Deliver to and Order date line up; a label in the head or the foot reads as the paper's words (not a form's 500 13 px label). */
 .doc-view .po-paper-head > .doc-party { display: flex; flex-direction: column; }
+/* Each part of a block as tall as its content (never a flex-basis of its own: the one-page form's .po-box-field had 18rem, which made the
+   boxes 270 px tall), only the last part takes what the row has left (the coordinator's second look on staging). */
+.doc-view .po-paper-head > .doc-party > * { flex: 0 0 auto; }
 .doc-view .po-paper-head > .doc-party > :last-child { flex: 1 1 auto; }
 .doc-view .po-paper-head > .doc-party > .doc-label { line-height: 18px; }
 /* The first row is the labels' (18 px words + 4 px), never more: a block taller than the Order date's box (a supplier box, an address of

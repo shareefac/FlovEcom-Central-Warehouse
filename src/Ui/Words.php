@@ -6627,6 +6627,7 @@ final class Words
         'history_title' => 'History',
         'no_events' => 'Nothing happened to it yet.',
         'ev_started' => 'Started by %s',
+        'ev_changed' => 'Changed by %s', // the order's one History (LP10): a person who changed it while it was a draft (DA2)
         'ev_asked' => 'OK asked for by %s',
         'ev_confirmed' => 'Confirmed by %s',
         'ev_sent' => 'Sent by %s (%s)',
