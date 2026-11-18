@@ -248,7 +248,7 @@ final class WordsTest extends TestCase
         self::assertSame('no job yet', Words::roles([]));
         self::assertSame('Reviewers', Words::whoCan('documents.review'));
         self::assertSame('Buyers and Purchasing managers', Words::whoCan('doc.PO.post'));
-        self::assertSame('Admins and Auditors', Words::whoCan('staff.view'));
+        self::assertSame('Admins, Auditors and People managers', Words::whoCan('staff.view'), 'the People manager sees the people too (PM1)');
         self::assertSame('everyone with a job', Words::whoCan('catalogue.view'));
         self::assertSame('a, b and c', Words::andList(['a', 'b', 'c']));
         self::assertSame('a', Words::andList(['a']));

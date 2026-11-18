@@ -91,6 +91,10 @@ abstract class KernelUiTestCase extends MappingTestCase
     {
         $roles = is_string($roles) ? [$roles] : $roles;
         $label = implode('-', $roles);
+        if (strlen($label) > 40) {
+            // Many jobs (the owner's six, PM1): an e-mail's local part holds at most 64 characters, so a long label is cut and made unique.
+            $label = substr($label, 0, 31) . '-' . substr(sha1($label), 0, 8);
+        }
         $n = ++$this->userSeq;
         $email = "k-{$label}-{$n}@test.example"; // a real person's address: `.invalid` marks a placeholder account (I35)
         $made = (new StaffAdmin(self::$db))->create(Caller::system('kernel_test'), $email, $roles, self::$box, ucfirst($label) . " {$n}");

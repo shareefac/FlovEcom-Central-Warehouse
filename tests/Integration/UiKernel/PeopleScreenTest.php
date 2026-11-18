@@ -43,7 +43,7 @@ final class PeopleScreenTest extends KernelUiTestCase
         $form = $page->form('/ui/people/' . $buyer['id'] . '/roles');
         self::assertSame('1', $form['role_buyer'] ?? null, 'the live roles are ticked');
         self::assertSame('buyer', $form['roles_seen']);
-        self::assertCount(14, self::checkboxes($page), 'one checkbox per role');
+        self::assertCount(count(\CW\Auth\Permissions::ROLES), self::checkboxes($page), 'one checkbox per role');
         foreach ([...array_values(Words::ROLE_GROUP), Words::ROLE_HELP['reviewer'], Words::ROLE['mapping_lead'], 'code: mapping_lead'] as $shown) {
             self::assertStringContainsString($shown, $page->text(), $shown);
         }

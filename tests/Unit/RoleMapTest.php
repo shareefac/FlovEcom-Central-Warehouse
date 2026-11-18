@@ -44,8 +44,15 @@ final class RoleMapTest extends TestCase
         $seed = self::seed();
         foreach ($seed as $perm => $jobs) {
             self::assertArrayHasKey($perm, Permissions::MAP, "{$perm}: seeded, but the code has no such permission");
-            self::assertSame(Permissions::ordered(Permissions::MAP[$perm]), $jobs, "{$perm}: the seed must be the code's map, in ROLES order");
-            self::assertEqualsCanonicalizing(Permissions::MAP[$perm], $jobs, $perm);
+            // 0069 added people_manager after 0034 (PM3): its four rows need no change, the code gives it them whatever a row says.
+            $code = array_values(array_diff(Permissions::MAP[$perm], ['people_manager']));
+            self::assertSame(Permissions::ordered($code), $jobs, "{$perm}: the seed must be the code's map, in ROLES order");
+            self::assertEqualsCanonicalizing($code, $jobs, $perm);
+        }
+        foreach (Permissions::PEOPLE_MANAGER_TASKS as $perm) {
+            self::assertNotContains('people_manager', $seed[$perm], $perm);
+            self::assertTrue(in_array($perm, Permissions::LOCKED, true) || in_array('people_manager', Permissions::REQUIRED[$perm] ?? [], true),
+                "{$perm}: the row 0034 left cannot keep it from people_manager");
         }
         foreach (['catalogue.view', 'staff.manage', 'settings.manage', 'staff.approve', 'documents.review', 'doc.PO.post', 'reports.view', 'values.view'] as $perm) {
             self::assertArrayHasKey($perm, $seed, "{$perm} is seeded");
@@ -116,12 +123,12 @@ final class RoleMapTest extends TestCase
 
         self::assertSame(array_keys(Permissions::MAP), array_keys(Permissions::map()), 'every permission of the code, in its order, and nothing else');
         self::assertSame(Permissions::ordered(Permissions::MAP['incidents.resolve']), Permissions::holders('incidents.resolve'));
-        self::assertSame(['admin'], Permissions::holders('staff.manage'));
+        self::assertSame(['admin', 'people_manager'], Permissions::holders('staff.manage'));
         self::assertSame(['admin', 'reviewer'], Permissions::holders('settings.manage'));
         self::assertSame(['reviewer'], Permissions::holders('staff.approve'));
         self::assertSame(['stock_controller'], Permissions::holders('doc.ADJ.post'));
         self::assertSame(['reviewer'], Permissions::holders('documents.review'));
-        self::assertSame(['admin', 'auditor'], Permissions::holders('staff.view'));
+        self::assertSame(['admin', 'auditor', 'people_manager'], Permissions::holders('staff.view'));
         self::assertSame(['buyer'], Permissions::holders('reorder.view'));
         self::assertSame(['viewer', 'admin', 'auditor'], Permissions::holders('audit.view'));
         self::assertSame([], Permissions::holders('doc.WO.post'));
@@ -172,6 +179,43 @@ final class RoleMapTest extends TestCase
         self::assertFalse(Permissions::isReadOnly('reports.manage'));
         self::assertFalse(Permissions::isReadOnly('doc.PO.post'));
         self::assertSame(['viewer', 'admin', 'reviewer'], Permissions::ordered(['reviewer', 'admin', 'viewer', 'admin', 'boss']));
+    }
+
+    /**
+     * The People manager's tasks are fixed (PM3, PM4): the people screens and what every job reads, whatever the table says, and nothing
+     * else: the screen refuses to give it another task and a row that names it anyway is read without it. Production's rows (0034's seed)
+     * give it its tasks at once.
+     */
+    public function testThePeopleManagersTasksAreFixed(): void
+    {
+        self::assertSame(['catalogue.view', 'staff.view', 'staff.manage', 'reference.view'], Permissions::PEOPLE_MANAGER_TASKS);
+        Permissions::useStored(self::seed());
+        self::assertSame(Permissions::PEOPLE_MANAGER_TASKS, Permissions::permissionsOf(['people_manager']), "0034's rows, as on production");
+        self::assertSame(['admin', 'auditor', 'people_manager'], Permissions::holders('staff.view'));
+        self::assertSame(['admin', 'people_manager'], Permissions::holders('staff.manage'));
+
+        $stored = self::seed();
+        $stored['reorder.view'] = ['buyer', 'people_manager'];
+        $stored['doc.ADJ.post'] = ['stock_controller', 'people_manager'];
+        $stored['audit.view'] = ['admin', 'reviewer', 'people_manager'];
+        $stored['staff.view'] = ['auditor'];
+        Permissions::useStored($stored);
+        self::assertSame(['buyer'], Permissions::holders('reorder.view'), 'read fail-closed: never another task');
+        self::assertSame(['stock_controller'], Permissions::holders('doc.ADJ.post'));
+        self::assertSame(['admin', 'reviewer'], Permissions::holders('audit.view'));
+        self::assertSame(['admin', 'auditor', 'people_manager'], Permissions::holders('staff.view'), 'always keeps it');
+        self::assertSame(Permissions::PEOPLE_MANAGER_TASKS, Permissions::permissionsOf(['people_manager']));
+        self::assertFalse(Permissions::can(['people_manager'], 'doc.ADJ.post'));
+
+        self::assertSame(['people_manager_job'], Permissions::problems('reorder.view', ['buyer', 'people_manager']));
+        self::assertSame(['people_manager_job'], Permissions::problems('audit.view', ['admin', 'reviewer', 'people_manager']));
+        self::assertSame(['acting_job', 'people_manager_job'], Permissions::problems('doc.ADJ.post', ['stock_controller', 'auditor', 'people_manager']));
+        self::assertSame(['required'], Permissions::problems('staff.view', ['admin', 'auditor']), 'it always keeps the people list');
+        self::assertSame([], Permissions::problems('staff.view', ['admin', 'auditor', 'people_manager']));
+        self::assertSame(['locked'], Permissions::problems('staff.manage', ['admin']));
+        // The guarded jobs (PM5): giving or resetting a People manager waits for a reviewer while those rules are on.
+        self::assertContains('staff.manage', Permissions::guardedPowers(), 'still a power the code keeps for the guarded jobs');
+        self::assertNotContains('staff.view', Permissions::guardedPowers());
     }
 
     /** The two report permissions (PE1): read only, never admin, the money one narrower. */

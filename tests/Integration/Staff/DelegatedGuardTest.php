@@ -59,16 +59,16 @@ final class DelegatedGuardTest extends KernelUiTestCase
 
     public function testTheGuardedJobsAreReadFromTheMapInForce(): void
     {
-        self::assertSame(['admin', 'reviewer'], ApprovalRules::guardedRoles(self::$db), 'the map as delivered: as before');
+        self::assertSame(['admin', 'reviewer', 'people_manager'], ApprovalRules::guardedRoles(self::$db), 'the map as delivered: as before, and the People manager (PM5)');
         $rev = $this->uiUser('reviewer');
         $this->delegate($rev, 'reorder.view', 'warehouse');
-        self::assertSame(['admin', 'reviewer'], ApprovalRules::guardedRoles(self::$db), 'a look-only power is not one of theirs');
+        self::assertSame(['admin', 'reviewer', 'people_manager'], ApprovalRules::guardedRoles(self::$db), 'a look-only power is not one of theirs');
         $this->delegate($rev, 'documents.approve', 'warehouse');
-        self::assertSame(['warehouse', 'admin', 'reviewer'], ApprovalRules::guardedRoles(self::$db));
+        self::assertSame(['warehouse', 'admin', 'reviewer', 'people_manager'], ApprovalRules::guardedRoles(self::$db));
         $this->delegate($rev, 'suppliers.approve', 'purchasing_manager');
-        self::assertSame(['warehouse', 'admin', 'purchasing_manager', 'reviewer'], ApprovalRules::guardedRoles(self::$db));
+        self::assertSame(['warehouse', 'admin', 'purchasing_manager', 'reviewer', 'people_manager'], ApprovalRules::guardedRoles(self::$db));
         foreach (Permissions::guardedPowers() as $perm) {
-            self::assertSame([], array_values(array_diff(Permissions::MAP[$perm], ApprovalRules::GUARDED_ROLES)), "{$perm}: a power the code keeps for Admin and Reviewer");
+            self::assertSame([], array_values(array_diff(Permissions::MAP[$perm], ApprovalRules::GUARDED_ROLES)), "{$perm}: a power the code keeps for the guarded jobs");
         }
         self::assertContains('documents.approve', Permissions::guardedPowers());
         self::assertContains('staff.manage', Permissions::guardedPowers());

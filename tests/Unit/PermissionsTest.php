@@ -6,6 +6,7 @@ namespace CW\Tests\Unit;
 
 use CW\Auth\Permissions;
 use CW\CwException;
+use CW\Documents\Documents;
 use CW\Mapping\DecisionService;
 use CW\Ui\Kernel;
 use CW\Ui\Words;
@@ -19,9 +20,9 @@ use PHPUnit\Framework\TestCase;
 final class PermissionsTest extends TestCase
 {
     private const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager'];
 
-    public function testTheFourteenRolesAndTheirDescriptionsAndGroups(): void
+    public function testTheFifteenRolesAndTheirDescriptionsAndGroups(): void
     {
         self::assertSame(self::ROLES, Permissions::ROLES);
         self::assertSame(Permissions::ROLES, DecisionService::ROLES, 'kept as an alias');
@@ -36,10 +37,15 @@ final class PermissionsTest extends TestCase
         self::assertSame($all, $grouped, 'every role in exactly one group of the People form');
         self::assertSame(['Linking', 'Purchasing and receiving', 'Stock', 'Review and finance', 'Admin'], array_keys(Permissions::ROLE_GROUPS));
 
-        // The ENUM of staff_role (0007) is exactly this list, in this order.
-        $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/0007_staff_roles.sql');
-        self::assertSame(1, preg_match("/\\brole\\s+ENUM\\(([^)]*)\\)/", $sql, $m));
-        self::assertSame(Permissions::ROLES, array_map(static fn (string $v): string => trim($v, " '\n"), explode(',', $m[1])));
+        // The ENUM of staff_role is exactly this list, in this order: 0007's fourteen, then 0069 added people_manager at the end.
+        $enum = static function (string $file): array {
+            $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/' . $file);
+            self::assertSame(1, preg_match("/\\brole\\s+ENUM\\(([^)]*)\\)/", $sql, $m), $file);
+            return array_map(static fn (string $v): string => trim($v, " '\n"), explode(',', $m[1]));
+        };
+        self::assertSame(array_slice(Permissions::ROLES, 0, 14), $enum('0007_staff_roles.sql'));
+        self::assertSame(Permissions::ROLES, $enum('0069_people_manager.sql'));
+        self::assertSame('people_manager', Permissions::ROLES[14], 'added at the end: the stored values keep their numbers');
     }
 
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void
@@ -174,6 +180,53 @@ final class PermissionsTest extends TestCase
         }
         self::assertTrue(Permissions::can(['auditor'], 'audit.view'));
         self::assertFalse(Permissions::can(['buyer'], 'audit.view'));
+    }
+
+    /**
+     * The People manager (0069; docs/decisions.md PM1-PM4; the owner, 16 Nov 2026: "i want you to build the option to create users, admin
+     * roles etc for my cw account"): it adds people, gives and takes their jobs, switches them on and off and resets their sign-in, and does
+     * nothing else; unlike Admin it may go with any working job, so the owner keeps posting and reviewing. It is not Admin: every "never
+     * admin" rule (mayPost, the read fail-closed of an admin set) stays as it was, and Admin still goes only with the look-only jobs.
+     */
+    public function testThePeopleManagerManagesPeopleAndNothingElse(): void
+    {
+        self::assertSame(['catalogue.view', 'staff.view', 'staff.manage', 'reference.view'], Permissions::permissionsOf(['people_manager']),
+            'the people screens, and what every job reads');
+        self::assertSame(Permissions::PEOPLE_MANAGER_TASKS, Permissions::permissionsOf(['people_manager']));
+        foreach (['staff.approve', 'settings.manage', 'audit.view', 'system.view', 'linking.view', 'documents.view', 'accounts.view', 'sales.view'] as $perm) {
+            self::assertFalse(Permissions::can(['people_manager'], $perm), "people_manager never holds {$perm}");
+        }
+        self::assertContains('people_manager', Permissions::ROLE_GROUPS['Admin'], 'on the People form next to Admin (Staff access)');
+        self::assertNotContains('people_manager', Permissions::ADMIN_COMPATIBLE, 'I12 unchanged: admin goes only with the look-only jobs');
+        self::assertSame(['viewer', 'accountant', 'auditor'], Permissions::ADMIN_COMPATIBLE);
+
+        // The owner's account on production: his five jobs, then People manager. Every job keeps working, and he manages people.
+        $owner = Permissions::checkRoleSet(['stock_controller', 'reviewer', 'purchasing_manager', 'mapping_lead', 'accountant', 'people_manager']);
+        self::assertSame(['accountant', 'mapping_lead', 'people_manager', 'purchasing_manager', 'reviewer', 'stock_controller'], $owner);
+        self::assertSame([], Permissions::switchedOff($owner), 'nothing is switched off: it is not Admin');
+        $without = Permissions::permissionsOf(['stock_controller', 'reviewer', 'purchasing_manager', 'mapping_lead', 'accountant']);
+        self::assertSame([], array_values(array_diff($without, Permissions::permissionsOf($owner))), 'he keeps every permission he had');
+        self::assertSame(['staff.view', 'staff.manage'], array_values(array_diff(Permissions::permissionsOf($owner), $without)), 'and gains the people screens');
+        foreach (['ADJ', 'PO', 'GRN', 'SINV', 'WO', 'CNT'] as $type) {
+            self::assertTrue(Documents::mayPost($owner, $type), "the owner still posts {$type}");
+            self::assertFalse(Documents::mayPost(['people_manager'], $type), "people_manager alone never posts {$type}");
+        }
+        foreach (['documents.review', 'documents.approve', 'staff.approve', 'mapping.approve', 'suppliers.approve', 'company.confirm'] as $perm) {
+            self::assertTrue(Permissions::can($owner, $perm), "the owner still holds {$perm}");
+        }
+        self::assertFalse(Permissions::blockedByAdmin($owner, 'documents.review'));
+
+        // With any working job; never with Admin (it would add nothing, and Admin goes only with the look-only jobs, I12).
+        foreach (array_diff(Permissions::ROLES, ['admin', 'people_manager']) as $role) {
+            self::assertSame(Permissions::ordered([$role, 'people_manager']), Permissions::ordered(Permissions::checkRoleSet([$role, 'people_manager'])), $role);
+        }
+        $e = self::refused(422, 'role_conflict', static fn () => Permissions::checkRoleSet(['admin', 'people_manager']));
+        self::assertSame(['people_manager'], $e->detail['conflict']);
+        self::assertSame(['people_manager'], Permissions::switchedOff(['admin', 'people_manager']), 'a set only admin SQL can write: read fail-closed as before');
+        self::assertTrue(Permissions::can(['admin', 'people_manager'], 'staff.manage'), 'a set only admin SQL can write still manages people (through Admin)');
+        self::assertTrue(Permissions::can(['admin'], 'staff.manage'), 'Admin keeps managing people');
+        self::assertSame(['admin', 'people_manager'], Permissions::MAP['staff.manage']);
+        self::assertSame(['admin', 'auditor', 'people_manager'], Permissions::MAP['staff.view']);
     }
 
     public function testCheckRoleSet(): void
