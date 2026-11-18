@@ -1528,3 +1528,24 @@ key `doubt:<id>`.
 
 - Tests: `tests/Unit/StockDoubtUnitTest.php`, `tests/Integration/Counts/StockDoubtTest.php`, `Migration0066Test.php`, `DoubtLoadCliTest.php`,
   `tests/Integration/UiKernel/DoubtfulStockScreensTest.php`. Runner: `/root/cw_work/runs/doubt_run.sh`, `doubt_full.sh <tag>`.
+
+### Who is here on a draft order, the server half (`docs/decisions.md` LV1-LV12; branch `live-presence`; migration 0070; 18 Nov 2026)
+
+The poll of an open draft order and the rule that it keeps no session alive. Nothing is drawn yet (step 3b); `live.mode` is off by default.
+
+| Path | What |
+|---|---|
+| `migrations/0070_live_presence.sql` | `document_line.uid` (UNIQUE with document_id), `document.next_line_uid`, `draft_presence`, the backfill of drafts' line ids, the settings `live.*` |
+| `src/Live/Presence.php` | `beat` (one poll), `input`, `settings` / `settingsFrom`, `needsWrite`, `isHere`, `goneAfter`, `pollMs`, `colours`, `forget`, `newTab`; the reads as constants (`DOCUMENT_SQL`, `ROWS_SQL`, `SETTINGS_SQL`) |
+| `src/Ui/Controller/LiveController.php` | `POST /ui/purchasing/orders/{id}/live` (purchasing.view, passive) |
+| `src/Ui/Route.php`, `Router.php`, `Kernel.php`, `src/Auth/Sessions.php` | `Route::$passive`, `Router::add(..., passive: true)`, `Sessions::resolve($token, $touch)`: a passive request touches the session only with `active=1` |
+| `src/Ui/Context.php` | `json()`: the only JSON answer of /ui |
+| `src/Documents/Documents.php` | `setLines()` carries a line's `uid` and gives new ones (`takeUids`, `giveUids`); `lineUids()` for the page |
+| `src/Ui/Controller/AuthController.php`, `src/Ops/Housekeeping.php` | the sign-out removes the session's rows; the nightly part `draft_presence` (rows older than a day) |
+| `src/Settings.php`, `src/Ui/Words.php`, `src/Schema/Grants.php` | the rules, words and topic ("Working together") of the four settings; `next_line_uid` in `UPDATE_COLUMNS['document']` |
+
+- Tests: `tests/Unit/PresenceUnitTest.php`, `UiUnitTest` (the passive flag, the route's access), `tests/Integration/Migration0070Test.php`,
+  `tests/Integration/Live/PresenceTest.php`, `tests/Integration/UiKernel/LivePresenceScreensTest.php`, `UiSecurityTest::testThePollOfADraftOrderOverHttp`
+  (slot ui), and the line ids through each type's service: `Documents/LineUidTest`, `PurchaseOrders/PoLineUidTest`, `Invoices/LineUidsInvoicesTest`,
+  `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
+  `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.

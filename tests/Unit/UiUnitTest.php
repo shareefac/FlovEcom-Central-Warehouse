@@ -497,6 +497,43 @@ final class UiUnitTest extends TestCase
         self::assertSame('audit.view', $byPath['GET /ui/system/audit.csv']);
         self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);
         self::assertArrayHasKey('POST /ui/people/{id}/active', $byPath);
+        // Who is here on a draft order (the live drafts plan, step 3; docs/decisions.md LV4): the poll is for everyone who looks at orders, as
+        // the order's page is; it is the only passive route (it never keeps a session alive by itself).
+        self::assertSame('purchasing.view', $byPath['POST /ui/purchasing/orders/{id}/live']);
+        self::assertSame($byPath['GET /ui/purchasing/orders/{id}'], $byPath['POST /ui/purchasing/orders/{id}/live'], 'whoever may open the order');
+        self::assertArrayNotHasKey('GET /ui/purchasing/orders/{id}/live', $byPath);
+        $passive = [];
+        foreach ($kernel->router()->routes() as $route) {
+            if ($route->passive) {
+                $passive[] = $route->method . ' ' . $route->pattern;
+            }
+        }
+        self::assertSame(['POST /ui/purchasing/orders/{id}/live'], $passive);
+    }
+
+    /**
+     * A passive route (the live drafts plan, step 3; docs/decisions.md LV4): marked when it is added, never by default. The kernel then leaves the
+     * session's last activity as it is unless the request says the person did something (active=1), so a page left open is still signed out.
+     */
+    public function testARouteIsPassiveOnlyWhenItIsAddedSo(): void
+    {
+        $h = static fn (): HtmlResponse => new HtmlResponse(200, '');
+        $r = new Router();
+        $r->add('POST', '/ui/things/{id}/live', 'purchasing.view', $h, passive: true)->add('POST', '/ui/things/{id}/lines', 'doc.PO.post', $h)
+            ->add('GET', '/ui/things/{id}', 'purchasing.view', $h);
+        [$live, $params] = $r->match('POST', '/ui/things/3/live');
+        self::assertSame([true, 'purchasing.view', ['id' => '3']], [$live->passive, $live->access, $params]);
+        [$lines] = $r->match('POST', '/ui/things/3/lines');
+        [$page] = $r->match('GET', '/ui/things/3');
+        self::assertSame([false, false], [$lines->passive, $page->passive]);
+        self::assertFalse((new Route('GET', '/ui/x', '#^/ui/x$#D', $h, Route::ANY))->passive, 'not passive unless said');
+        // The access rule is checked for a passive route as for any other.
+        try {
+            $r->add('POST', '/ui/things/{id}/other', 'purchasing.look', $h, passive: true);
+            self::fail('a typo accepted');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('access must be', $e->getMessage());
+        }
     }
 
     // ---- UiRequest, roles ------------------------------------------------------------------------------

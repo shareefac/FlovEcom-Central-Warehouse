@@ -271,6 +271,18 @@ final class Context
     }
 
     /**
+     * A JSON answer for app.js (the poll of who is here on a draft, docs/decisions.md LV3; the only JSON of /ui: everything that draws stays an
+     * HTML fragment, and the JSON carries no words, only names and numbers). The kernel adds the same headers as to a page (no-store, nosniff).
+     *
+     * @param array<string, mixed> $data
+     */
+    public function json(array $data, int $status = 200): HtmlResponse
+    {
+        return new HtmlResponse($status, json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG
+            | JSON_HEX_AMP), 'application/json; charset=utf-8');
+    }
+
+    /**
      * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
      * current section (`pagebar`: its specialist pages for the header's More), the current entry's Show choices (`segments`), the page's
      * create button (`actions`), whether the page is a list (`list`: no figure tiles), the phone's bottom bar (`tabs`), whether the find

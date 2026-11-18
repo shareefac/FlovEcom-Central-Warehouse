@@ -2735,6 +2735,11 @@ final class Words
         'counts.time_window_max_minutes' => 'Share a count time within this many minutes',
         // The adjustment page (0065; docs/decisions.md AJ9).
         'stock.adjust_opens_on' => 'Reason a new adjustment opens on',
+        // Who is here on a draft order (0070; docs/decisions.md LV9).
+        'live.mode' => 'Show who else has a draft order open',
+        'live.poll_seconds' => 'Seconds between two checks while others have the draft open',
+        'live.alone_seconds' => 'Seconds between two checks while nobody else has it open',
+        'live.gone_seconds' => 'Seconds before a person who left is no longer shown',
         'company.legal_name' => 'Company name (legal)',
         'company.trading_name' => 'Trading name',
         'company.address' => 'Registered address',
@@ -4058,6 +4063,7 @@ final class Words
         'duty' => 'Vaping duty',
         'rollback' => 'Way back to ERPNext', // Pack RB (0046)
         'erp_copy' => 'Invoices from ERPNext', // CW-917 (0060, EC2)
+        'live' => 'Working together', // who is here on a draft order (0070, LV9)
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -4078,6 +4084,17 @@ final class Words
         'stock.adjust_opens_on' => 'A new adjustment (Stock > Adjustments) opens with this reason chosen for every line. The person can still choose another. '
             . 'Only a reason offered on stock corrections can be chosen here (Settings > Reasons). None: the person chooses each time. If the reason is '
             . 'switched off later, or is no longer offered on stock corrections, the page opens on Data correction again.',
+        // Who is here on a draft order (0070; docs/decisions.md LV9).
+        'live.mode' => '"off": nobody sees who else has a draft order open, and the pages do not check. "presence": a draft order shows who else has it '
+            . 'open, and the line and box each person is in, in their own colour; a person who can only look is shown as looking. "on": the same for now; '
+            . 'saving each box by itself comes later.',
+        'live.poll_seconds' => 'While someone else has the same draft order open, each open page checks this often who is here. Fewer seconds: the marks '
+            . 'move sooner. More seconds: less work for the server.',
+        'live.alone_seconds' => 'While nobody else has the draft order open, the page checks this often instead, to save the server work. A person who '
+            . 'opens the same draft is seen by the first one within this time.',
+        'live.gone_seconds' => 'A person whose page stopped checking (closed without a word, or the network lost) is no longer shown after this many '
+            . 'seconds, and never before their next check could have come. A person who is away (no key or mouse for a while) is shown as away for up '
+            . 'to ten minutes.',
         'po.terms' => 'The text printed under every purchase order.',
         'po.default_vat_code' => 'Used on a new order line when the supplier has no VAT code.',
         'po.over_delivery_tolerance_pct' => 'How much more than ordered goods in may still accept on a delivery.',

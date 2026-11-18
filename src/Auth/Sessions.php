@@ -100,8 +100,12 @@ final class Sessions
         return $made === 1 ? ['token' => $token, 'id' => $id] : null;
     }
 
-    /** The live session behind a cookie token (and marks it seen), or null. */
-    public function resolve(?string $token): ?StaffIdentity
+    /**
+     * The live session behind a cookie token, or null; marks it seen (last_seen_at) unless $touch is false: a passive request (the poll of
+     * who is here on a draft, Ui\Route::$passive) that does not say the person did something leaves the last activity as it was, so the
+     * idle limit still ends a session whose page only polls (docs/decisions.md LV4). A session past a limit ends either way.
+     */
+    public function resolve(?string $token, bool $touch = true): ?StaffIdentity
     {
         $id = self::idOf($token);
         if ($id === null) {
@@ -122,7 +126,9 @@ final class Sessions
             $this->revoke($id); // expired or the person was switched off: the row can never come back
             return null;
         }
-        $this->db->exec('UPDATE staff_session SET last_seen_at = NOW(6) WHERE id = ? AND revoked = 0', [$id]);
+        if ($touch) {
+            $this->db->exec('UPDATE staff_session SET last_seen_at = NOW(6) WHERE id = ? AND revoked = 0', [$id]);
+        }
         $roles = $r['roles'] === null || $r['roles'] === '' ? [] : explode(',', (string) $r['roles']);
         return new StaffIdentity((int) $r['staff_user_id'], (string) $r['email'], (string) $r['display_name'], $roles,
             (int) $r['password_must_change'] === 1, $id);

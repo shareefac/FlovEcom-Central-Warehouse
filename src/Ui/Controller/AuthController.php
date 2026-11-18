@@ -103,6 +103,15 @@ final class AuthController
 
     public function logout(Context $ctx): HtmlResponse
     {
+        // Who is here on a draft (docs/decisions.md LV10): the session's open pages leave at once. Never in the way of signing out: before 0070
+        // there is no table yet (1146), and nothing else stops the sign-out.
+        try {
+            \CW\Live\Presence::forget($ctx->db, $ctx->me()->sessionId);
+        } catch (\PDOException $e) {
+            if (\CW\Db::driverCode($e) !== 1146) {
+                throw $e;
+            }
+        }
         $this->service($ctx)->logout($ctx->me(), $ctx->req->ip);
         return HtmlResponse::redirect('/ui/login')->withoutCookie(Kernel::SESSION_COOKIE, $ctx->req->secure);
     }

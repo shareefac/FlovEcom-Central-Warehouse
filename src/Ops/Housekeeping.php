@@ -21,6 +21,8 @@ use CW\Settings;
  *   audit_log      older than housekeeping.audit_keep_years (7 at the least: records are kept "year end + 6 years"). The app login has
  *                  no DELETE on audit_log (append-only, Grants), so with it this part is refused by the database and reported as
  *                  kept; only the admin login (bin/housekeeping.php --admin, a person's decision) removes audit rows.
+ *   draft_presence who had a draft open (0070, Live\Presence): rows not written for Live\Presence::KEEP_HOURS (a page closed without its
+ *                  goodbye, a session that ended without a sign-out). Nothing reads a row that old: it is never shown.
  *
  * In chunks of housekeeping.chunk_rows, each its own autocommit DELETE … ORDER BY … LIMIT on the table's time index, oldest first,
  * until nothing is left or housekeeping.max_seconds have passed (the rest goes the next night). The time is checked before EVERY chunk,
@@ -85,6 +87,10 @@ final class Housekeeping
             }
             $out['audit_log'] = ['cutoff' => $cut, 'removed' => 0, 'kept_reason' => 'this login may not delete audit rows (append-only); they are kept', 'done' => true];
         }
+
+        $cut = Clock::db($now->modify('-' . \CW\Live\Presence::KEEP_HOURS . ' hours'));
+        $out['draft_presence'] = $this->prune('draft_presence', 'DELETE FROM draft_presence WHERE seen_at < ? ORDER BY seen_at LIMIT ' . $chunk,
+            'SELECT COUNT(*) FROM draft_presence WHERE seen_at < ?', [$cut], $cut, $chunk, $deadline, $dryRun);
         return $out;
     }
 

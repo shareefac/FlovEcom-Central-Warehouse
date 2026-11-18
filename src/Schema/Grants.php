@@ -97,7 +97,7 @@ final class Grants
         'review_task' => ['state', 'decided_by', 'decided_at', 'decision_note'],
         'document' => ['number', 'status', 'version', 'external_ref', 'doc_date', 'warehouse_id', 'reason_code', 'note', 'updated_at',
             'submitted_by', 'submitted_at', 'posted_by', 'posted_actor', 'posted_at', 'posted_hash', 'cancelled_by', 'cancelled_at',
-            'cancel_reason', 'review_state'],
+            'cancel_reason', 'review_state', 'next_line_uid'],
         'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
         'incident' => ['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'],
         'reason_code' => ['label', 'applies_to', 'is_active', 'needs_given_to', 'below_zero'],

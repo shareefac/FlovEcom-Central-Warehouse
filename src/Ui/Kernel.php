@@ -76,7 +76,8 @@ use CW\Ui\Controller\RepackController;
  *      person gets that page in their own frame, with Home and the menu)
  *   2. connect as the app login (cw_app) and load `ui_secret_key` (CSRF); 503 page when either fails
  *   3. resolve the session cookie: live session (not revoked, MFA done, idle and age within the limits of the settings
- *      session.idle_minutes and session.absolute_hours, 30 minutes and 12 hours by default: Auth\Sessions::limits) or nobody
+ *      session.idle_minutes and session.absolute_hours, 30 minutes and 12 hours by default: Auth\Sessions::limits) or nobody;
+ *      it is marked seen, except by a passive route (Route::$passive: the poll of who is here) that does not say active=1
  *   4. access: public routes; otherwise sign-in (303 to /ui/login), forced password change,
  *      then the route's permission (Auth\Permissions::MAP, checked against the roles read for this
  *      request: a page a person cannot open is refused 403, not only left out of their menu, I11)
@@ -225,7 +226,8 @@ final class Kernel
 
         // One Sessions for the request: its limits (the settings session.*) are read once (SL2), here and by the controllers (Context).
         $sessions = new Sessions($db);
-        $who = $sessions->resolve($req->cookie(self::SESSION_COOKIE));
+        // A passive route (the poll of who is here on a draft) marks the session seen only when it says the person did something (LV4).
+        $who = $sessions->resolve($req->cookie(self::SESSION_COOKIE), !$route->passive || $req->field('active') === '1');
         $this->deadCookie = $who === null && $req->cookie(self::SESSION_COOKIE) !== null;
         $pre = $req->cookie(self::PRE_COOKIE);
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
@@ -698,6 +700,8 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/orders/{id}/close', 'doc.PO.post', $orders->close(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/reopen', 'doc.PO.post', $orders->reopen(...)); // pack PO (PO8)
         $r->add('POST', '/ui/purchasing/orders/{id}/withdraw', 'doc.PO.post', $orders->withdraw(...));
+        // Who is here on a draft order (the live drafts plan, step 3; docs/decisions.md LV3): the page's poll, for whoever may open the order; passive.
+        \CW\Ui\Controller\LiveController::routes($r);
         // The reorder list and the sales history (IM9 basic, I60-I71): reorder.view looks; reorder.manage changes settings and
         // recalculates (checked again by CW\Reorder\ReorderSettings); doc.PO.post makes the drafts (checked again by PurchaseOrders).
         $r->add('GET', '/ui/purchasing/reorder', 'reorder.view', $reorder->index(...));

@@ -75,6 +75,8 @@ final class Documents
      */
     public const REASON_USE = ['ADJ' => 'adjustment', 'WO' => 'write_off', 'CNT' => 'count', 'DN' => 'supplier_return', 'SIN' => 'stock_in', 'SOUT' => 'stock_out'];
     public const MAX_LINES = Movements::MAX_LINES;
+    /** The largest line id (document_line.uid, INT UNSIGNED; 0070). */
+    private const UID_MAX = 4294967295;
     public const MAX_QTY = 10_000_000;
     /** A reviewer's note: optional on an approval, 3-500 characters on a rejection (it is the reason). */
     public const NOTE_MIN = 3;
@@ -161,27 +163,33 @@ final class Documents
      * the item exists and is not merged (422 unknown_sku / merged_item), the warehouse is known (422 unknown_warehouse),
      * the reason code is active, applies to the type and is not CW's own (422), qty is an integer (400 bad_lines),
      * unit_cost passes Movements::normaliseCost (400 bad_cost), amount is a decimal (400 bad_amount).
+     * A line's own id (document_line.uid; 0070, docs/decisions.md LV8): a line may name the id it had (`uid`, a line of this draft now: 400
+     * bad_lines for another, or for one id twice); the line keeps it, wherever it is now. A line without one (absent or null) gets the
+     * draft's next free id (document.next_line_uid), never given before in this document. The ids are not in the posting fingerprint.
      *
      * @param list<array<string, mixed>> $lines
      */
     public function setLines(Caller $caller, int $id, int $expectedVersion, array $lines): Document
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $expectedVersion, $lines): Document {
+        [$lines, $uids] = self::takeUids($lines);
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $expectedVersion, $lines, $uids): Document {
             $me = $this->staff($caller);
             $row = $this->lockDraft($id, $expectedVersion);
             $type = (string) $row['doc_type'];
             $this->checkPoster($me, $type);
             $norm = $this->normaliseLines($type, $lines);
+            [$given, $next] = $this->giveUids($id, (int) ($row['next_line_uid'] ?? 1), $uids);
             $db->exec('DELETE FROM document_line WHERE document_id = ?', [$id]);
-            foreach (array_chunk($norm, 500) as $chunk) {
+            foreach (array_chunk($norm, 500, true) as $chunk) {
                 $params = [];
-                foreach ($chunk as $l) {
-                    array_push($params, $id, $l['line_no'], $l['sku_id'], $l['warehouse_id'], $l['qty'], $l['unit_cost'], $l['amount'], $l['reason_code'], $l['description']);
+                foreach ($chunk as $i => $l) {
+                    array_push($params, $id, $l['line_no'], $given[$i], $l['sku_id'], $l['warehouse_id'], $l['qty'], $l['unit_cost'], $l['amount'], $l['reason_code'],
+                        $l['description']);
                 }
-                $db->exec('INSERT INTO document_line (document_id, line_no, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) VALUES '
-                    . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+                $db->exec('INSERT INTO document_line (document_id, line_no, uid, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) VALUES '
+                    . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
             }
-            $db->exec('UPDATE document SET version = version + 1, updated_at = ? WHERE id = ?', [$this->nowDb(), $id]);
+            $db->exec('UPDATE document SET version = version + 1, next_line_uid = ?, updated_at = ? WHERE id = ?', [$next, $this->nowDb(), $id]);
             Audit::write($db, $caller, 'document.lines', 'document', (string) $id, null, ['version' => $expectedVersion + 1, 'lines' => count($norm)]);
             return $this->get($id);
         });
@@ -566,6 +574,21 @@ final class Documents
             'SELECT line_no, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description FROM document_line WHERE document_id = ? ORDER BY line_no',
             [$documentId],
         ));
+    }
+
+    /**
+     * Each line's own id (document_line.uid; 0070, docs/decisions.md LV8), by line number: what a page marks a line with (who is here). null:
+     * a line written before 0070, or a copied posted line (a reversal's).
+     *
+     * @return array<int, ?int> line_no => uid, line order
+     */
+    public function lineUids(int $documentId): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT line_no, uid FROM document_line WHERE document_id = ? ORDER BY line_no', [$documentId]) as $r) {
+            $out[(int) $r['line_no']] = $r['uid'] === null ? null : (int) $r['uid'];
+        }
+        return $out;
     }
 
     /** The handler of a live type, or null (I-1: none). */
@@ -1385,6 +1408,73 @@ final class Documents
             throw new CwException('bad_field', "{$field} is longer than {$max} characters", 400, ['field' => $field]);
         }
         return $v === '' ? null : $v;
+    }
+
+    /**
+     * setLines()' lines without their `uid`, and the uid each named (null: none; LV8). An id is a whole number from 1 to 4294967295, each
+     * once (400 bad_lines, naming the line); whether it is a line of the draft is giveUids()'. A $lines that is not a list is left to
+     * normaliseLines(), which refuses it.
+     *
+     * @param array<mixed> $lines
+     * @return array{0: array<mixed>, 1: list<?int>}
+     */
+    private static function takeUids(array $lines): array
+    {
+        if (!array_is_list($lines)) {
+            return [$lines, []];
+        }
+        $uids = [];
+        $seen = [];
+        foreach ($lines as $i => $line) {
+            $uid = null;
+            if (is_array($line) && array_key_exists('uid', $line)) {
+                $uid = $line['uid'];
+                $no = $i + 1;
+                if ($uid !== null && (!is_int($uid) || $uid < 1 || $uid > self::UID_MAX)) {
+                    throw new CwException('bad_lines', "line {$no}: uid must be the id of a line of this draft, or null for a new line", 400, ['line' => $no]);
+                }
+                if ($uid !== null && isset($seen[$uid])) {
+                    throw new CwException('bad_lines', "line {$no}: line id {$uid} is given twice", 400, ['line' => $no, 'uid' => $uid]);
+                }
+                if ($uid !== null) {
+                    $seen[$uid] = true;
+                }
+                unset($line['uid']);
+                $lines[$i] = $line;
+            }
+            $uids[] = $uid;
+        }
+        return [$lines, $uids];
+    }
+
+    /**
+     * The id of each line of a save (LV8), in its order: the id it named, when that is a line of the draft now (400 bad_lines otherwise:
+     * another draft's, or one removed since the page was drawn), else the next free one; and the next free id afterwards (never below an id
+     * the draft holds). The document row is locked by the caller, so its lines cannot change meanwhile.
+     *
+     * @param list<?int> $uids takeUids()
+     * @return array{0: list<int>, 1: int}
+     */
+    private function giveUids(int $documentId, int $next, array $uids): array
+    {
+        $have = array_flip(array_map('intval', $this->db->column('SELECT uid FROM document_line WHERE document_id = ? AND uid IS NOT NULL', [$documentId])));
+        if ($have !== []) {
+            $next = max($next, max(array_keys($have)) + 1);
+        }
+        $next = max($next, 1);
+        $out = [];
+        foreach ($uids as $i => $uid) {
+            if ($uid === null) {
+                $out[] = $next++;
+            } elseif (isset($have[$uid])) {
+                $out[] = $uid;
+            } else {
+                $no = $i + 1;
+                throw new CwException('bad_lines', "line {$no}: there is no line with id {$uid} on this draft (removed since the page was drawn?): reload it", 400,
+                    ['line' => $no, 'uid' => $uid]);
+            }
+        }
+        return [$out, $next];
     }
 
     /**

@@ -17856,3 +17856,72 @@ An export made by this code and imported by an older CW would be refused for unk
 **IL6. What points here.** Home's "Items" tile (the count of items not merged) and the sidebar's Items (Sections `cards`) still lead here and
 still say the right thing. The page's intro words (Words::PAGE_INTRO `cards`, not drawn: DC1) no longer say "Fix the ones marked with a
 warning first". The old words of the groups and pills (INV_LIST g_*, p_*, col_status, show_unconfirmed, show_blocked, needs_look) are gone.
+
+## Who is here on a draft order, the server half (branch `live-presence`, 18 Nov 2026; LV1-LV12; migration 0070)
+
+The owner, 18 Nov 2026: "we need to show each other if each others are in the same window as like in google sheets where we know which line
+they are pressed in". The plan (`/root/cw_work/live_drafts_20261118/PLAN_fable.md`, step 3) splits it: this branch is the server (step 3a);
+the page's script (the poll loop, the chips, the marks on the lines) is step 3b, after the page's look (step 2); saving each box is step 4.
+
+**LV1. Scope.** One table (`draft_presence`), one route (`POST /ui/purchasing/orders/{id}/live`), the passive session rule, a line's own id
+(`document_line.uid`, `document.next_line_uid`), four settings, the sign-out and the nightly clean-up. No view, no script: with live.mode off
+(the default) nothing on the site changes.
+
+**LV2. A small table, not APCu.** `draft_presence` (0070): one row per open page (tab) of a draft, keyed (kind, record_id, tab): who, their
+session's handle (LEFT(staff_session.id, 16)), the line (uid) and box they are in (`7:qty`, `h:note`), active or away, typing, whether they
+may change the draft (`edits`, written by their own poll from their roles of that request: no roles read for others), and `seen_at` (the
+database clock). No foreign keys (a heartbeat never fails on one), the app login's full rights, CHECKs on the tab and handle (16 hex).
+APCu would need a package on three machines and is per pool.
+
+**LV3. The poll.** `POST /ui/purchasing/orders/{id}/live` (Ui\Controller\LiveController, CW\Live\Presence::beat): purchasing.view (whoever may
+open the order), same origin and the session's token as every POST, no form-once key (a poll changes nothing but its own row). The request:
+`csrf`, `tab` (16 hex, 400 bad_tab otherwise), `focus` (`<uid>:<box>`, `h:<box>` or empty; anything else is no place, never a refusal),
+`state` (away, or active), `typing`, `active`, `bye`. The answer is JSON (Context::json, the only JSON of /ui; names and numbers, no words):
+`{"v", "status": "draft", "mode", "poll_ms", "here": [{"id", "name", "c", "state", "edits", "uid", "field", "typing"}]}`; for a document
+that is no longer a draft `{"v", "status", "mode", "number", "by", "to"}` ("by": who made it final, sent it for its OK or stopped it; "to":
+the order's page, without a notice yet: step 3b chooses one); for `bye=1` the tab's row goes and `{"v", "status", "mode", "bye": true}`;
+with live.mode off `{"mode": "off"}` and nothing read or written. Not a purchase order, or no document: 404 unknown_document.
+
+**LV4. Passive: a poll keeps no session alive.** `Router::add(..., passive: true)` sets `Route::$passive`; the kernel resolves the session with
+`touch: !passive || active=1` (Auth\Sessions::resolve). The page sends active=1 at most once a minute and only after a key or the mouse was
+used (step 3b). So a page left open is signed out after the idle limit although it polls (its next poll goes to the sign-in page), and the
+session row is written once a minute, not per poll. Everything else of the route (sign-in, access, origin, token) is as for any other.
+
+**LV5. Written only on a change.** Per poll: the settings (one read by primary key), the document (by primary key, the name of who posted or
+cancelled it by primary key), the draft's rows (the primary key's first two parts, each joined to staff_user by primary key, switched-off
+people left out); each read carries `MAX_EXECUTION_TIME(500)`. Then at most one write, the poll's own row, only when its place, state,
+typing or right to change differ from the row read, or the row is 10 seconds old (`Presence::needsWrite`, REFRESH_SECONDS). One upsert;
+a row of the same tab held by another session is never taken over (each assignment is guarded by the session handle).
+
+**LV6. Here, away, gone.** Shown: an active row seen within `goneAfter()` seconds (live.gone_seconds, 25; never before the person's next poll
+could have written the row: max(poll, alone) + 10 + 5), an away row within 10 minutes (AWAY_SECONDS; away rows have no place and no
+typing). The poller's own tabs are nobody; a person on two tabs is shown once (an active tab first, then the newest). `poll_ms`:
+live.poll_seconds while anyone else is here (active or away: my row stays fresh for them), live.alone_seconds when alone.
+
+**LV7. Colours.** 1-8, decided on the server over everyone here and the poller, so every screen agrees: in id order, id % 8 + 1 or the next
+free one; past eight people a colour is shared. The page draws them as classes (CSP: no inline style), step 3b.
+
+**LV8. A line's own id.** `document_line.uid` (UNIQUE (document_id, uid), NULL allowed) and `document.next_line_uid` (0070; added to
+Grants::UPDATE_COLUMNS['document']). `Documents::setLines()` carries the `uid` a line names (a line of the draft now; another, or one twice: 400
+bad_lines, nothing saved) and gives a line without one the next free id (never given before in that document). The services of every type
+(PO, delivery, supplier invoice, return, stock records, hand-over, count sheet, repack) send no ids yet: each whole save gives new ones, so a
+mark goes stale until the page is drawn again. Carrying them through a page's whole save (the form sends each line's id, PurchaseOrders
+passes it on) is step 3b's. `Documents::lineUids()` gives the page line number => id. Neither column is in `Documents::lineRow()`: posted_hash and
+document_posting are unchanged (tests pin it for every type). A reversal's and a system job's copied lines get no id (never a draft).
+0070 backfills uid = line_no for drafts and documents waiting for their OK (only where no line has an id), next_line_uid past the highest.
+
+**LV9. The settings** (Settings > Working together, provisional): `live.mode` off / presence / on, **off on deploy** (the undo of the whole step
+without a deploy; on = presence until step 4), `live.poll_seconds` 3 (2-10), `live.alone_seconds` 10 (5-60), `live.gone_seconds` 25 (25-300:
+never below the default, so an active person is never called gone between two polls). Read with the same defaults when a row is missing.
+
+**LV10. Leaving.** A page left sends `bye=1` (sendBeacon, step 3b): its row goes. Signing out (AuthController::logout) removes every row of the
+session (`Presence::forget`; a missing table before 0070 never stops a sign-out). A session ended otherwise (idle, a password change, Admin's
+sign-out) leaves its rows to the rules of LV6. The nightly clean-up (Ops\Housekeeping, part `draft_presence`) removes rows older than a day.
+
+**LV11. Cost** (plan 3.5): 10 people on one draft at the quick poll is about 200 polls a minute, each about 5 reads by primary key and at most
+one small write (steady about 60 writes a minute); a hidden or closed page costs nothing. No long poll (10 php-fpm workers on production).
+
+**LV12. Left for step 3b.** The view (`data-live`, `data-live-tab` from `Presence::newTab()`, each line's `data-uid` from `lineUids()`, the
+words of the chips from Words), the script (the timers of the plan's 3.4, active=1 once a minute after input, bye by sendBeacon, back-off, a
+303 stops polling), the colour classes, the whole-save carrying of line ids (LV8), a notice for "confirmed by someone else", and making
+the page's own fragment fetches passive too (a hidden page must not keep a session alive by fetching).

@@ -56,6 +56,7 @@ final class UiSecurityTest extends UiTestCase
         // --- end of Pack G
         '/ui/purchasing/orders', '/ui/purchasing/orders/1/lines', // PO on one page (docs/decisions.md PX2)
         '/ui/items/families/1/pick', // a family's picker (docs/decisions.md FP4)
+        '/ui/purchasing/orders/1/live', // who is here on a draft order: the poll (docs/decisions.md LV3)
         ];
 
     public function testEveryScreenNeedsASignIn(): void
@@ -377,6 +378,62 @@ final class UiSecurityTest extends UiTestCase
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame($r->header('location'), $web->post('/ui/purchasing/orders', $form)->header('location'), 'sent twice: one draft');
         self::assertSame(1, $orders());
+    }
+
+    /**
+     * The poll of a draft order over Apache + php-fpm (the live drafts plan, step 3; docs/decisions.md LV3, LV4): JSON with the hard headers for
+     * a person who may look at orders; refused without the session's token, from another site, or to a person who may not look at orders
+     * (nothing of the draft in the answer); passive: it leaves the session's last activity as it was unless it says active=1.
+     * Tests/Integration/UiKernel/LivePresenceScreensTest drives the same in every slot.
+     */
+    public function testThePollOfADraftOrderOverHttp(): void
+    {
+        $key = 'live.mode';
+        $was = (string) self::$db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [$key]);
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"presence\"' AS JSON) WHERE setting_key = ?", [$key]);
+        try {
+            $buyerUser = $this->uiUser('buyer');
+            $sup = new \CW\Suppliers\Suppliers(self::$db);
+            $buyer = \CW\Caller::staff($buyerUser['id']);
+            $s = $sup->create($buyer, ['name' => 'Http Live Supplies', 'address_line1' => '2 Mill Lane', 'postcode' => 'M1 1AA', 'email' => 'sales@live.example',
+                'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 7 * 86400), 'dd_checked_by' => (string) $buyerUser['id'],
+                'dd_next_review_on' => gmdate('Y-m-d', time() + 365 * 86400)]);
+            $s = $sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+            $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND subject_id = ? AND state = 'open'", [(int) $s['id']]);
+            $sup->approve(\CW\Caller::staff($this->uiUser('reviewer')['id']), $task, null);
+            $id = (new \CW\PurchaseOrders\PurchaseOrders(self::$db, new \CW\Documents\Documents(self::$db, \CW\Documents\DocumentHandlers::all(self::$db))))
+                ->createDraft($buyer, (int) $s['id'], [])->id;
+            $web = $this->signIn($buyerUser);
+            $csrf = $this->token($web);
+            $path = "/ui/purchasing/orders/{$id}/live";
+            $fields = ['csrf' => $csrf, 'tab' => 'abcdef0123456789', 'focus' => 'h:note', 'state' => 'active', 'typing' => '0'];
+            foreach (['no token' => array_diff_key($fields, ['csrf' => 1]), 'made-up token' => ['csrf' => 'x'] + $fields] as $what => $f) {
+                $r = $web->post($path, $f);
+                self::assertSame([403, 'csrf'], [$r->status, $r->errorCode()], $what);
+            }
+            $r = $web->post($path, $fields, ['Origin' => 'http://evil.example']);
+            self::assertSame([403, 'csrf'], [$r->status, $r->errorCode()], 'from another site');
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM draft_presence'));
+            $session = hash('sha256', (string) $web->cookies['cw_session']);
+            self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 600 SECOND WHERE id = ?', [$session]);
+            $seen = (string) self::$db->value('SELECT last_seen_at FROM staff_session WHERE id = ?', [$session]);
+            $r = $web->post($path, $fields);
+            self::assertSame(200, $r->status, $r->describe());
+            self::assertSame('application/json; charset=utf-8', $r->header('content-type'));
+            self::assertHardened($r, 'the poll');
+            self::assertSame(['draft', 'presence', []], array_values(array_intersect_key(json_decode($r->body, true, 8, JSON_THROW_ON_ERROR),
+                ['status' => 0, 'mode' => 0, 'here' => 0])));
+            self::assertSame($seen, (string) self::$db->value('SELECT last_seen_at FROM staff_session WHERE id = ?', [$session]), 'passive');
+            self::assertSame(200, $web->post($path, ['active' => '1'] + $fields)->status);
+            self::assertGreaterThan($seen, (string) self::$db->value('SELECT last_seen_at FROM staff_session WHERE id = ?', [$session]), 'active=1');
+            $mapper = $this->signIn($this->uiUser('mapper'));
+            $r = $mapper->post($path, ['csrf' => $this->token($mapper), 'tab' => '0123456789abcdef']);
+            self::assertSame(403, $r->status, $r->describe());
+            self::assertStringNotContainsString('"here"', $r->body);
+            self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM draft_presence'));
+        } finally {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$was, $key]);
+        }
     }
 
     public function testEveryAnswerCarriesTheHardHeaders(): void

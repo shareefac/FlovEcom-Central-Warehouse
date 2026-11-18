@@ -17,8 +17,9 @@ final class Router
      * @param string $access Route::PUBLIC, Route::ANY or a permission of Permissions::MAP; anything else is a
      *        programming error (a typo must not leave a page open or shut by accident)
      * @param \Closure(Context): HtmlResponse $handler
+     * @param bool $passive the page sends it by itself: it keeps no session alive (Route::$passive)
      */
-    public function add(string $method, string $pattern, string $access, \Closure $handler): self
+    public function add(string $method, string $pattern, string $access, \Closure $handler, bool $passive = false): self
     {
         if ($access !== Route::PUBLIC && $access !== Route::ANY && !isset(Permissions::MAP[$access])) {
             throw new \InvalidArgumentException("route {$method} {$pattern}: access must be public, any or a permission, not {$access}");
@@ -28,7 +29,7 @@ final class Router
             static fn (array $m): string => isset($m[1]) && $m[1] !== '' ? '(?P<' . $m[1] . '>[1-9][0-9]{0,17})' : preg_quote($m[0], '#'),
             $pattern,
         ) . '$#D';
-        $this->routes[] = new Route(strtoupper($method), $pattern, $regex, $handler, $access);
+        $this->routes[] = new Route(strtoupper($method), $pattern, $regex, $handler, $access, $passive);
         return $this;
     }
 
