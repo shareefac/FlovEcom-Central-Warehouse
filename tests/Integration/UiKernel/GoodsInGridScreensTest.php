@@ -336,6 +336,36 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
         self::assertSame($v, self::docVersion($id));
     }
 
+    /**
+     * The Codex review of the draft-anyone branch, round 5, finding 3: a save that found several items for the scan box saves nothing and draws
+     * the page again with the choices and what was typed; a line removed meanwhile (here between that and the page drawn) cannot show the
+     * checks typed on it, and the page says so at once.
+     */
+    public function testChoicesDrawnAgainSayWhichTypedChecksTheyCannotShow(): void
+    {
+        $x = $this->setUpDelivery('Choice Lost Ltd');
+        $id = $x['id'];
+        $f = self::onePage($x['web']->get("/ui/receiving/{$id}"), $id);
+        $svc = $this->receipts();
+        $done = false;
+        $colleague = function (string $sql) use (&$done, $svc, $x, $id): void {
+            if (!$done && str_contains($sql, 'RELEASE_LOCK')) {
+                $done = true; // the save rolled back and let go of its form key: line 3 is removed now, before the page is drawn again
+                $svc->saveDraft(Caller::staff($x['desk']['id']), $id, self::docVersion($id), [], array_slice(array_values($svc->lines($id)), 0, 2));
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($colleague)]]);
+        try {
+            $r = $x['web']->post("/ui/receiving/{$id}/lines", ['b_3_damaged' => '1', 'q' => 'Choice Lost Ltd coil', 'action' => 'add',
+                DocGrid::FIELD => self::grid([['si' => $x['siD'], 'q' => '1', 'p' => '']])] + $f);
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($done, 'the colleague removed line 3');
+        self::assertSame(200, $r->status, self::why($r));
+        self::assertStringContainsString(Words::say('DRAFT', 'lost_checks', 'line 3'), $r->text());
+    }
+
     /** A version conflict (the delivery changed in another tab) keeps the new lines (KG6): they name their item; nothing of them is saved. */
     public function testAVersionConflictKeepsTheNewLines(): void
     {

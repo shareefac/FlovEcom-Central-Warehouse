@@ -608,6 +608,93 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
     }
 
     /**
+     * Round 5, finding 1: a delivery that keeps changing while its page is drawn (three times here) is drawn with no desk stamp, so the form's
+     * next save is the conflict and never saves its values over the last change.
+     */
+    public function testAPageStillChangingAfterThreeDrawsHasNoStamp(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Still Moving Ltd');
+        $coil = self::makeSku('Still moving coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 2, 'units_per_pack' => 5, 'pack_price' => '3.00']], 'SM-1');
+        $svc = $this->receipts();
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $n = 0;
+        $colleague = function (string $sql) use (&$n, $svc, $deskUser, $id): void {
+            if ($n < 3 && str_contains($sql, 'SELECT external_ref, note FROM document WHERE id = ?')) {
+                $n++;
+                $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['note' => "note {$n}"], array_values($svc->lines($id)));
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($colleague)]]);
+        try {
+            $page = $gi->get("/ui/receiving/{$id}");
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertSame(3, $n, 'a save while each of the three draws');
+        $f = self::onePage($page, $id);
+        self::assertSame('', $f['stamp'], 'no stamp');
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['action' => 'save'] + $f);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertSame('note 3', self::$db->value('SELECT note FROM document WHERE id = ?', [$id]), 'the last change kept');
+    }
+
+    /**
+     * Round 5, finding 2: the bench's own conflict keeps what was typed, the keyer's part included, so it is drawn on the desk stamp and
+     * version it was typed against. An arrival corrected after the desk stamp was compared (between it and the bench's stamps) is therefore
+     * still caught at the next save, and "they arrived now" never overwrites it.
+     */
+    public function testTheBenchsConflictKeepsTheDeskStampItsValuesWereTypedAgainst(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Bench Race Ltd');
+        $coil = self::makeSku('Bench race coil');
+        $this->card($coil, false);
+        $uk = new \DateTimeZone('Europe/London');
+        $svc = $this->receipts();
+        $d = $svc->createDraft(Caller::staff($deskUser['id']), (int) $s['id'], ['invoice_number' => 'BR-1', 'backdate_reason' => 'keyed from the invoice',
+            'received_at' => (new \DateTimeImmutable('now', $uk))->modify('-2 days')->format('Y-m-d') . ' 09:00']);
+        $svc->saveDraft(Caller::staff($deskUser['id']), $d->id, $d->version, [], [['sku_id' => $coil, 'packs' => 1, 'units_per_pack' => 5, 'pack_price' => '3.00']]);
+        $id = $d->id;
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $f = self::onePage($gi->get("/ui/receiving/{$id}"), $id);
+        $corrected = (new \DateTimeImmutable('now', $uk))->modify('-3 days')->format('Y-m-d') . ' 10:00';
+        $done = false;
+        $armed = false;
+        $colleague = function (string $sql) use (&$done, &$armed, $svc, $deskUser, $id, $corrected): void {
+            if ($done) {
+                return;
+            }
+            if (str_contains($sql, 'SELECT external_ref, note FROM document WHERE id = ?')) {
+                $armed = true; // the save takes the desk stamp: its document, its header, then its lines
+            } elseif ($armed && str_contains($sql, 'SELECT g.*, dl.sku_id, dl.description FROM grn_line g')) {
+                $done = true; // the desk stamp is taken; the bench's stamps are read next
+                $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['received_at' => $corrected], array_values($svc->lines($id)));
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($colleague)]]);
+        try {
+            $r = $gi->post("/ui/receiving/{$id}/lines", ['arrived_now' => '1', 'action' => 'save'] + $f);
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($done);
+        self::assertSame(409, $r->status, $r->describe());
+        $stored = (string) self::$db->value('SELECT received_at FROM goods_receipt WHERE document_id = ?', [$id]);
+        $g = self::onePage($r, $id);
+        self::assertSame([$f['stamp'], $f['version']], [$g['stamp'], $g['version']], 'the stamp and version its typed values were typed against');
+        self::assertArrayNotHasKey('arrived_now', $g, 'never drawn back after a conflict');
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['action' => 'save'] + $g);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertSame($stored, (string) self::$db->value('SELECT received_at FROM goods_receipt WHERE document_id = ?', [$id]), 'the corrected arrival kept');
+        self::assertArrayNotHasKey('arrived_now', self::onePage($r, $id));
+    }
+
+    /**
      * Round 4, finding 2: "they arrived now" goes with the arrival details it was ticked against. A colleague corrects the arrival meanwhile:
      * the conflict draws their arrival and no tick, so the next save keeps their correction.
      */

@@ -1019,9 +1019,11 @@ final class ReceivingController
         if ($same) {
             return null;
         }
-        // What was typed stays, except on lines whose item or quantity changed (their answers are for other figures).
+        // What was typed stays, except on lines whose item or quantity changed (their answers are for other figures), and "they arrived now"
+        // (never drawn back after a conflict: the arrival may have moved since it was ticked; the Codex review, round 5). The keyer's part
+        // typed stays with the desk stamp and version it was typed against (onePage()'s $keepDrawn), so the next save checks it again.
         $typed = array_filter($typed, static function ($k) use ($moved): bool {
-            return preg_match('/^b_([0-9]+)_/', (string) $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
+            return $k !== 'arrived_now' && (preg_match('/^b_([0-9]+)_/', (string) $k, $m) !== 1 || !in_array((int) $m[1], $moved, true));
         }, ARRAY_FILTER_USE_KEY);
         return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::say('RECEIPT_ERROR', 'version_conflict_bench',
             $moved === [] ? Words::RECEIPT_ERROR['bench_the_delivery'] : ReceiptPlan::lineList($moved),
@@ -1608,7 +1610,10 @@ final class ReceivingController
         // what they changed keeps their words and, unless the refusal was the conflict itself (409, which they have now seen), the stamps of
         // the page they typed on, so someone else's check since is still a conflict at the next save.
         $conflict = (bool) ($extra['conflict'] ?? false);
-        $keepDrawn = !$conflict && is_string($typed['version'] ?? null) && UiRequest::id($typed['version']) !== null;
+        // Typed values of the keyer's part are drawn back only with the desk stamp and version they were typed against: after a refusal for
+        // another reason, and after the bench's own conflict, which keeps them (the Codex review, round 5); a conflict of the keyer's part drops
+        // them with the page's stamp and version (checksOnly), so its page is the one of now.
+        $keepDrawn = is_string($typed['version'] ?? null) && UiRequest::id($typed['version']) !== null;
         $benchWas = $stamps['checklist'] . '.' . (($gr['paperwork_ok'] ?? null) === null ? '' : (string) (int) $gr['paperwork_ok']) . '.'
             . self::answersFp([trim((string) ($gr['bench_note'] ?? ''))]);
         if (isset($typed['bench_was'])) {
@@ -1706,18 +1711,22 @@ final class ReceivingController
         // A refused form drawn again says at once which checks typed on it cannot be drawn again, their line removed meanwhile (the Codex review
         // of the draft-anyone branch, round 4): before this page's line count replaces the one it was typed on, so it is never lost unsaid.
         // (After the conflict itself, checksOnly() and conflict() have said it.)
-        if ($typed !== [] && !$conflict && $error !== null) {
+        // (Also a page drawn again with choices to pick from and no refusal: round 5.)
+        if ($typed !== [] && !$conflict) {
             $lost = self::lostChecks(self::withFine($typed, $ctx->req), $all);
             if ($lost !== []) {
-                $data['error'] = trim((string) $data['error'] . ' ' . Words::say('DRAFT', 'lost_checks', ReceiptPlan::lineList($lost)));
+                $data['error'] = trim((string) ($data['error'] ?? '') . ' ' . Words::say('DRAFT', 'lost_checks', ReceiptPlan::lineList($lost)));
             }
         }
         // The page's values, its version and its stamps are of one moment (round 4): page() read the delivery, its lines and its header, the
         // stamps were taken since; a save that landed meanwhile moved the version, and the page is drawn again (at most twice more), so a form
         // never carries older values under a newer stamp.
         $deskStamp = $keepDrawn ? (is_string($typed['stamp'] ?? null) ? $typed['stamp'] : '') : $svc->deskStamp($doc->id);
-        if ((int) $db->value('SELECT version FROM document WHERE id = ?', [$doc->id]) !== $doc->version && (int) ($extra['redrawn'] ?? 0) < 2) {
-            return $this->page($ctx, $doc->id, $status, $error, $notice, ['redrawn' => (int) ($extra['redrawn'] ?? 0) + 1] + $extra);
+        if ((int) $db->value('SELECT version FROM document WHERE id = ?', [$doc->id]) !== $doc->version) {
+            if ((int) ($extra['redrawn'] ?? 0) < 2) {
+                return $this->page($ctx, $doc->id, $status, $error, $notice, ['redrawn' => (int) ($extra['redrawn'] ?? 0) + 1] + $extra);
+            }
+            $deskStamp = ''; // still moving after three draws: no stamp, so this form's next save is the conflict, never saved over (round 5)
         }
         return $ctx->page('receipt_edit', $data + [
             'fixes' => $refusedPost && $plan !== null ? self::fixes($plan, $rows, $backdateField, $doc->id) : [],
