@@ -431,7 +431,9 @@ final class CountsScreensTest extends KernelUiTestCase
         $web->post($sheet . '/lines', ['csrf' => $token, 'q_2' => '4']);
         $r = $web->post($sheet . '/post', $stale);
         self::assertSame(409, $r->status);
-        self::assertStringContainsString(Words::COUNT_ERROR['version_conflict'], $r->text());
+        // Who changed it and when (docs/decisions.md DA3): here the same person, in another tab.
+        self::assertStringContainsString(Words::say('DRAFT', 'conflict_final_you', \CW\Ui\Html::clock((string) self::$db->value(
+            "SELECT MAX(created_at) FROM audit_log WHERE entity_type = 'document' AND entity_id = ?", [(string) basename($sheet)]))), $r->text());
         self::assertSame(10, $this->onHand($a));
         $web->post($sheet . '/lines', ['csrf' => $token, 'q_2' => '5']);
         $r = $this->submit($web, $sheet . '/differences', $sheet . '/post');

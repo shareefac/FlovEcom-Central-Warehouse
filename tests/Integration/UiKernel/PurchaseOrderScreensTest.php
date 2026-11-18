@@ -158,7 +158,9 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         self::assertSame('charge', self::$db->value('SELECT kind FROM po_line WHERE document_id = ? AND line_no = 3', [$id]));
         $stale = $buyer->post("/ui/purchasing/orders/{$id}/lines", ['action' => 'save'] + $f);
         self::assertSame(409, $stale->status);
-        self::assertStringContainsString(Words::BUY_ERROR['version_conflict'], $stale->text());
+        // Their own other tab (docs/decisions.md DA3): "You changed this draft at <time> in another tab or window. ..."
+        self::assertStringContainsString(Words::say('DRAFT', 'conflict_you', \CW\Ui\Html::clock((string) self::$db->value(
+            "SELECT MAX(created_at) FROM audit_log WHERE entity_type = 'document' AND entity_id = ?", [(string) $id]))), $stale->text());
         $f = $buyer->get("/ui/purchasing/orders/{$id}")->form('/lines');
         $cut = $f;
         unset($cut['line_3_packs'], $cut['line_3_price'], $cut['line_3_note']);

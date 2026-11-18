@@ -216,15 +216,13 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
         self::assertSame(['1', '2', '3'], self::texts($page, $prices . '/tbody/tr/td[contains(@class, "c-no")]'));
         self::assertSame(1, self::nodes($page, $prices . '//input[@name="line_1_price" and @data-kg-cell="price"]'));
 
-        // Someone who did not key it: the same look, no new lines, their keys (Ctrl+Enter: the scan box).
+        // Someone who did not key it: since DA1 (docs/decisions.md) the same grid as the keyer's, new lines and their key included.
         $bench = $this->signIn($this->uiUser('goods_in'))->get("/ui/receiving/{$id}");
         self::assertSame(['1', '2', '3'], self::texts($bench, $grid . '/tbody/tr[@data-kg-row]/td[contains(@class, "c-no")]'));
         $g = self::onePage($bench, $id);
-        self::assertArrayNotHasKey(DocGrid::FIELD, $g);
-        self::assertArrayNotHasKey('form_key', $g);
-        self::assertSame(0, self::nodes($bench, '//template[@data-kg-row]'));
-        self::assertSame(['Tab', 'Ctrl+Enter', 'Ctrl+S'], self::texts($bench, $hint . '//kbd'));
-        self::assertStringContainsString(Words::DOC_GRID['k_scan'], self::texts($bench, $hint)[0] ?? '');
+        self::assertArrayHasKey(DocGrid::FIELD, $g);
+        self::assertArrayHasKey('form_key', $g);
+        self::assertSame(1, self::nodes($bench, '//template[@data-kg-row]'));
 
         // The read-only page (someone who only looks): KG10's view look.
         $look = $this->signIn($this->uiUser('stock_controller'))->get("/ui/receiving/{$id}");
@@ -373,17 +371,21 @@ final class GoodsInGridScreensTest extends KernelUiTestCase
         self::assertSame(400, $nokey->status, self::why($nokey));
     }
 
-    /** Someone who did not key the delivery adds no line (the service's creator rule, as Add); the scan box's route is for who receives goods. */
-    public function testOnlyTheKeyerAddsLines(): void
+    /**
+     * Someone who did not key the delivery adds lines too since DA1 (docs/decisions.md; before, the service's creator rule refused them), once
+     * however often the form is sent (FormOnce); the scan box's route is for who receives goods.
+     */
+    public function testAnyoneWhoReceivesGoodsAddsLines(): void
     {
-        $x = $this->setUpDelivery('Keyer Only Ltd');
+        $x = $this->setUpDelivery('Anyone Adds Ltd');
         $id = $x['id'];
         $bench = $this->signIn($this->uiUser('goods_in'));
         $g = self::onePage($bench->get("/ui/receiving/{$id}"), $id);
-        $v = self::docVersion($id);
-        $r = $bench->post("/ui/receiving/{$id}/lines", ['action' => 'save', 'form_key' => str_repeat('a', 32), DocGrid::FIELD => self::grid([['si' => $x['siD'], 'q' => '1', 'p' => '']])] + $g);
-        self::assertSame(403, $r->status, self::why($r));
-        self::assertSame([$v, 3], [self::docVersion($id), count(self::stored($id))]);
+        $post = ['action' => 'save', DocGrid::FIELD => self::grid([['si' => $x['siD'], 'q' => '1', 'p' => '']])] + $g;
+        $r = $bench->post("/ui/receiving/{$id}/lines", $post);
+        self::assertSame(303, $r->status, self::why($r));
+        self::assertSame($r->location(), $bench->post("/ui/receiving/{$id}/lines", $post)->location(), 'sent twice: the first answer again');
+        self::assertSame(4, count(self::stored($id)), 'one new line, once');
         self::assertSame(403, $this->signIn($this->uiUser('stock_controller'))->get("/ui/receiving/{$id}/products", ['q' => 'A-5'])->status, 'who only looks');
         self::assertSame(0, self::nodes($bench->get("/ui/receiving/{$id}/products", ['q' => 'A-5']), '//li[@data-price]'), 'goods in: no price');
     }

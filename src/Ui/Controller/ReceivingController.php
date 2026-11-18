@@ -8,6 +8,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Documents\DraftChanges;
 use CW\OpResult;
 use CW\Output\CsvWriter;
 use CW\PurchaseOrders\PoLinesFile;
@@ -66,6 +67,10 @@ final class ReceivingController
      * add_si / add_sku, file_role, with room to spare (a file field, the papers' or a line's photo, is not one of max_input_vars).
      */
     public const ONE_FIXED_FIELDS = 40;
+    /** The delivery's details on the one page that are the keyer's part (saveDraft), drawn back after a refusal from what was typed. */
+    private const KEYER_HEADER_FIELDS = ['header_present', 'invoice_number', 'invoice_date', 'delivery_note', 'received_at', 'paper_sheet', 'backdate_reason', 'note',
+        'supplier_id', 'po_id'];
+
     /** A line's fields of its keyer: packs, items a pack, price, order line, selling mode, note. */
     public const ONE_DESK_FIELDS = 6;
     /** A line's check fields: present, was, checked, fine, duty, code, short, over, over right, damaged, wrong, no stamp, what to do, proof. */
@@ -697,6 +702,13 @@ final class ReceivingController
         $removed = 0;
         $merged = [];
         if ($deskSave) {
+            // The arrival time as the page draws it (to the minute, UK time) sent back unchanged is not written again: a save that changes
+            // nothing of the keyer's part leaves the desk stamp as it was, so another person's page drawn before it still saves (I175; since
+            // DA1 everyone on the page sends the keyer's part).
+            $storedAt = $svc->header($id)['received_at'] ?? null;
+            if (isset($header['received_at']) && $storedAt !== null && $header['received_at'] === self::local((string) $storedAt)) {
+                unset($header['received_at']);
+            }
             $lines = $editable ? self::editedLines($ctx->req, $current, $count, $from, $to) : $current;
             $keys = [];
             foreach ($lines as $l) {
@@ -846,11 +858,17 @@ final class ReceivingController
 
     /**
      * The refusal of the one form drawn before someone else's save of the keyer's part (409): who changed the delivery and when, when CW knows
-     * (docs/decisions.md DA3), else "this delivery was changed since you opened it"; the page is drawn again with what was typed.
+     * (docs/decisions.md DA3), else "this delivery was changed since you opened it"; the page is drawn again with what was typed ($kind kept;
+     * $moved: the lines whose typed values were not kept, their product or quantity changed), with only the line checks typed kept (checks:
+     * another person changed it), or as it is now (save: the sheet import).
+     *
+     * @param list<int> $moved
      */
-    private static function conflict(Context $ctx, int $id): CwException
+    private static function conflict(Context $ctx, int $id, string $kind = 'kept', array $moved = []): CwException
     {
-        return new CwException('version_conflict', DocumentsController::conflictText($ctx, $id, Words::RECEIPT_ERROR['version_conflict'], 'kept'), 409, ['said' => true]);
+        $text = DocumentsController::conflictText($ctx, $id, Words::RECEIPT_ERROR[$kind === 'save' ? 'version_conflict_choice' : 'version_conflict'], $kind);
+        return new CwException('version_conflict', $moved === [] ? $text : $text . ' ' . Words::say('DRAFT', 'kept_except', ReceiptPlan::lineList($moved)), 409,
+            ['said' => true]);
     }
 
     /**
@@ -870,9 +888,34 @@ final class ReceivingController
         $req = $ctx->req;
         $typed = $back['typed'];
         if ($deskSave && !hash_equals($svc->deskStamp($id), (string) ($req->field('stamp') ?? ''))) {
-            return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['typed' => count($svc->lines($id)) === $count
-                ? $typed : array_filter($typed, static fn ($k): bool => !str_starts_with((string) $k, 'line_') && !str_starts_with((string) $k, 'b_'), ARRAY_FILTER_USE_KEY),
-                'conflict' => true] + $back);
+            if (count($svc->lines($id)) !== $count) {
+                return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['typed' => array_filter($typed, static fn ($k): bool => !str_starts_with((string) $k, 'line_')
+                    && !str_starts_with((string) $k, 'b_'), ARRAY_FILTER_USE_KEY), 'conflict' => true] + $back);
+            }
+            // Since anyone who receives goods has the keyer's fields (DA1), another person's save may have changed what this form shows. What
+            // was typed on a line whose product or quantity changed is not drawn back (its packs and answers were for other figures); after
+            // another person's change no keyer's field typed here is drawn back at all (the details and each line's packs, price, order line,
+            // selling mode and note show their values now), so a second press never saves this page's old values over theirs: only the
+            // line checks, the paperwork and the bench note stay. The same person's other tab keeps what was typed, as before (GV16).
+            $identity = $svc->benchStamps($id)['identity'];
+            $moved = [];
+            foreach ($req->fieldsMatching('/^b_[1-9][0-9]{0,4}_present$/') as $name => $drawn) {
+                $no = (int) substr($name, 2, -8);
+                if (($identity[$no] ?? '') !== (string) $drawn) {
+                    $moved[] = $no;
+                }
+            }
+            sort($moved);
+            $last = DraftChanges::last($ctx->db, $id);
+            $other = $last !== null && $last['staff_user_id'] !== $ctx->me()->id;
+            $typed = array_filter($typed, static function ($k) use ($moved, $other): bool {
+                $k = (string) $k;
+                if ($other && (str_starts_with($k, 'line_') || in_array($k, self::KEYER_HEADER_FIELDS, true))) {
+                    return false;
+                }
+                return preg_match('/^(?:line|b)_([0-9]+)_/', $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
+            }, ARRAY_FILTER_USE_KEY);
+            return $this->page($ctx, $id, 409, self::conflict($ctx, $id, $other ? 'checks' : 'kept', $moved), null, ['typed' => $typed, 'conflict' => true] + $back);
         }
         if ($invoice !== null && $invoice['touched']) {
             $g = $svc->header($id) ?? [];
@@ -1109,7 +1152,7 @@ final class ReceivingController
             $file = self::upload($ctx);
             $r = $ctx->goodsReceipts()->importLines($ctx->caller(), $id, $version ?? 0, $file['path'], $file['name'], $ctx->req->field('mode') ?? '');
         } catch (CwException $e) {
-            return $this->page($ctx, $id, $e->errorCode === 'version_conflict' ? 409 : $e->httpStatus, $e);
+            return $e->errorCode === 'version_conflict' ? $this->page($ctx, $id, 409, self::conflict($ctx, $id, 'save')) : $this->page($ctx, $id, $e->httpStatus, $e);
         }
         if ($r['errors'] !== []) {
             return $this->page($ctx, $id, 422, new CwException('import_refused', count($r['errors']) === 1 ? Words::RECEIPT_ERROR['import_refused_one']

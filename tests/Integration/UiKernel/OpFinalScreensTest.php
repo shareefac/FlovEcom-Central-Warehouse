@@ -441,7 +441,9 @@ final class OpFinalScreensTest extends KernelUiTestCase
         self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $b, 'qty' => '2', 'cost' => '4.00'])->status);
         $r = $web->post($page . '/lines', ['u_1' => 'three', 'c_1' => '9.99', 'action' => 'post'] + $stale);
         self::assertSame(409, $r->status, $r->describe());
-        self::assertStringContainsString(Words::STOCK_ERROR['version_conflict'], $r->text());
+        // Who changed it and when (docs/decisions.md DA3): the same person, in another tab.
+        self::assertStringContainsString(Words::say('DRAFT', 'conflict_you', \CW\Ui\Html::clock((string) self::$db->value(
+            "SELECT MAX(created_at) FROM audit_log WHERE entity_type = 'document' AND entity_id = ?", [(string) $id]))), $r->text());
         $form = $r->form($page . '/lines', true);
         self::assertSame(['2', 0], [$form['u_1'] ?? null, bccomp('4', (string) ($form['c_1'] ?? ''), 6)], 'B as stored, never A\'s typed values');
         self::assertNull(self::xp($r)->query('//form[contains(@action, "/lines")]/@data-dirty')->item(0), 'nothing typed is drawn back, so nothing is unsaved');

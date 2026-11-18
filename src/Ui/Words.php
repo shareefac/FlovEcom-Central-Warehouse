@@ -3617,6 +3617,17 @@ final class Words
         // "Make it final" pressed on a page drawn before someone else's save: nothing is made final.
         'conflict_final' => '%s changed this draft at %s while you had it open. It was not made final: look at their changes, then make it final.',
         'conflict_final_you' => 'You changed this draft at %s in another tab or window. It was not made final: look at it again, then make it final.',
+        // The delivery's page after another person's change: drawn as it is now, only the line checks typed kept (DA3).
+        'conflict_checks' => '%s changed this draft at %s while you were editing. Nothing was saved: here it is with their changes, and your line checks '
+            . 'are kept. Make your other changes again, then save.',
+        'conflict_checks_you' => 'You changed this draft at %s in another tab or window. Nothing was saved: here it is as it is now, with your line checks '
+            . 'kept. Make your other changes again, then save.',
+        // The delivery's page drawn again with what was typed, except on the lines another person's save changed (%s: "line 3", "lines 2 and 5").
+        'kept_except' => 'What you typed on %s is not shown again: the product or quantity changed there.',
+        // A save went through, then "make it final" found the draft changed again by someone else in between: saved, not made final.
+        'conflict_saved' => 'Your changes were saved, but %s changed this draft again at %s before it was made final. Look at their changes, then make it final.',
+        'conflict_saved_you' => 'Your changes were saved, but this draft was changed again at %s in another tab or window before it was made final. Look at it '
+            . 'again, then make it final.',
     ];
 
     public const RECORD = [
@@ -8998,8 +9009,7 @@ final class Words
         'draft_ref' => 'delivery #%s (not booked in yet)',
         'title_plain' => 'Delivery from %s',
         'to_bench' => 'Check it',
-        'only_keyer' => 'Only %s, who keyed this delivery, changes its products. Anyone who receives goods can check it, set its supplier invoice and book it in.',
-        'only_keyer_look' => 'Only %s, who keyed this delivery, changes its products.',
+        'draft_look' => 'This delivery is not booked in yet. %s keyed it; anyone who receives goods can change it, check it and book it in.',
         'reversed_by' => 'Taken back by %s: its stock, what it received against the order and its incidents were taken back.',
         'open_reversal' => 'Open its record',
         'rejected' => 'A reviewer said this delivery is not OK.',

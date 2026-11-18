@@ -402,7 +402,7 @@ final class DocumentsController
      * who changed it and when, when CW knows ("Fazil changed this draft at 14:32 while you were editing. ..."; the same person's other tab
      * says "You changed this draft ..."), else $fallback (the page's own words; also for a record that is no longer a draft: its later
      * steps are not changes of a draft). $kind: `save` (the page drawn as it is now), `kept` (drawn again with what was typed), `final`
-     * (Make it final refused).
+     * (Make it final refused), `saved` (the save went through, then Make it final found it changed again).
      */
     public static function conflictText(Context $ctx, int $documentId, string $fallback, string $kind = 'save'): string
     {

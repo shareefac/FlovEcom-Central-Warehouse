@@ -259,7 +259,8 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $f = $desk->get("/ui/receiving/{$id}")->form('/lines');
         self::assertSame('2.4000', self::$db->value('SELECT pack_price FROM grn_line WHERE document_id = ?', [$id]), 'the price typed with the scan');
 
-        $bench = $this->signIn($this->uiUser('goods_in'));
+        $benchUser = $this->uiUser('goods_in');
+        $bench = $this->signIn($benchUser);
         $bf = $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true);
         $b = $bench->post("/ui/receiving/{$id}/lines", ['b_1_duty' => 'digital', 'action' => 'save'] + $bf);
         self::assertSame(303, $b->status, $b->describe());
@@ -277,17 +278,25 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('RECEIPT_ADDED', 'cleared_one', 'line 1'), $desk->follow($q)->text());
         $stale = $bench->post("/ui/receiving/{$id}/lines", ['bench_note' => 'pallet wrapped', 'b_1_damaged' => '1', 'action' => 'save'] + $bf);
         self::assertSame(409, $stale->status, $stale->describe());
-        self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'bench_except', 'line 1'), $stale->text());
+        // The bench person has the keyer's fields too since DA1, so the desk's change of them is a conflict naming the desk person (DA3); what
+        // was typed stays, but not on the changed line (its packs and answers were for other figures, never saved over the desk's change).
+        $deskName = (string) self::$db->value("SELECT u.display_name FROM audit_log a JOIN staff_user u ON u.id = a.staff_user_id WHERE a.entity_type = 'document' "
+            . 'AND a.entity_id = ? ORDER BY a.id DESC LIMIT 1', [(string) $id]);
+        self::assertStringContainsString($deskName . ' changed this draft at ', $stale->text());
+        self::assertStringContainsString(Words::say('DRAFT', 'kept_except', 'line 1'), $stale->text());
         $again = $stale->form("/ui/receiving/{$id}/lines", true);
-        self::assertSame(['pallet wrapped', '0'], [$again['bench_note'], $again['b_1_damaged']], 'what was typed stays, but not on the changed line');
+        self::assertSame(['pallet wrapped', '0', '2'], [$again['bench_note'], $again['b_1_damaged'], $again['line_1_packs']],
+            'what was typed stays, but not on the changed line');
 
-        // The invoice set by the bench person, who did not key the delivery: a field of their one page (GoodsReceipts::setInvoice, I172).
+        // The invoice set by the bench person, who did not key the delivery: a field of their one page, saved with the keyer's part since DA1
+        // (GoodsReceipts::saveDraft under their name; setInvoice, I172, stays the service's way for a form without the keyer's part).
         $page = $bench->get("/ui/receiving/{$id}");
         self::assertFalse($page->hasForm("/ui/receiving/{$id}/invoice"));
         $inv = $bench->post("/ui/receiving/{$id}/lines", ['invoice_number' => 'TOG-9', 'action' => 'save'] + $page->form("/ui/receiving/{$id}/lines", true));
         self::assertStringStartsWith("/ui/receiving/{$id}?notice=saved", (string) $inv->location(), $inv->describe());
         self::assertSame('TOG-9', self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$id]));
-        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'grn.invoice' AND entity_id = ?", [(string) $id]));
+        self::assertSame($benchUser['id'], (int) self::$db->value("SELECT staff_user_id FROM audit_log WHERE action = 'grn.save' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+            [(string) $id]));
         self::assertFalse($desk->get("/ui/receiving/{$id}")->hasForm("/ui/receiving/{$id}/invoice"), 'the keyer sets it in the editor');
     }
 

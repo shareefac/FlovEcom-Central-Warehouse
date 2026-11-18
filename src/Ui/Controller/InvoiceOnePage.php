@@ -328,8 +328,9 @@ final class InvoiceOnePage
             if ($now->status !== 'draft') {
                 return self::finalRedirect($id, $now); // the same form sent twice: the other one made it final
             }
-            return self::draftPage($ctx, $id, $e->httpStatus, new CwException('not_final', Words::say('PI_ONE', 'not_final', InvoicesController::plain($e)),
-                $e->httpStatus, $e->detail), []);
+            $notFinal = Words::say('PI_ONE', 'not_final', InvoicesController::plain($e));
+            return self::draftPage($ctx, $id, $e->httpStatus, new CwException('not_final', $e->errorCode === 'version_conflict'
+                ? DocumentsController::conflictText($ctx, $id, $notFinal, 'saved') : $notFinal, $e->httpStatus, $e->detail), []); // DA3
         }
         return self::finalRedirect($id, $doc);
     }

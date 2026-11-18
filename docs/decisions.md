@@ -2236,7 +2236,15 @@ draft at 14:32 while you were editing. Your changes were not saved: reload to se
 draft at 14:32 in another tab or window. ..." when it was the same person, the delivery's and the supplier invoice's page "... here it is
 as it is now, with what you typed. Check it and save again.", the count sheet's "Before it is final" "... It was not made final: look at
 their changes, then make it final.". Only while the record is a draft (a later step of a posted record keeps its own words); when CW
-knows no change, the page's old words. The goods-in bench's own conflict (GV4's stamps) keeps its words.
+knows no change, the page's old words. The goods-in bench's own conflict (GV4's stamps) keeps its words. On a delivery everyone on
+the page now sends the keyer's part, so a save after another person changed the keyer's fields (a quantity, a price, the details) is
+refused naming them, where before the bench's check and the desk's edit saved independently (I175). The page is then drawn as it is now
+with only the line checks, the paperwork and the bench note typed kept ("... Nothing was saved: here it is with their changes, and your line
+checks are kept. Make your other changes again, then save."), and not even those on a line whose product or quantity changed ("What you
+typed on line 3 is not shown again: ..."), so a second press never saves this page's old values over the other person's; the same person's
+other tab keeps what was typed, as before (GV16). An arrival time sent back as drawn is not written again (the desk stamp moves only when
+something of the keyer's part really changed). A save that went through before "make it final" found the draft changed
+again says so ("Your changes were saved, but Fazil changed this draft again at 14:32 before it was made final. ...").
 
 **DA4. Live presence is not built here.** Who has a draft open now (like Google Sheets) is a second step, designed separately. Nothing
 here makes it harder: it would read the same version and `DraftChanges`.
@@ -2245,7 +2253,9 @@ here makes it harder: it would read the same version and `DraftChanges`.
 - If reviews are ever switched on again: should a person who changed a draft (not only its creator, its submitter and its poster, and
   on a delivery its bench checker and the person who set its invoice) be barred from checking it? Today `refusalFor` reads `created_by`,
   `submitted_by`, `posted_by` (and a delivery's `grn.bench` / `grn.invoice` audit rows: I133, I172), so someone who only changed it may
-  review it; not changed here, as reviews are off. The same for the approval limit of "stock put back without a supplier document"
+  review it; not changed here, as reviews are off. Note: since everyone on a delivery's page saves the keyer's part, a supplier invoice
+  number set there is saved by `saveDraft` (`grn.save`), no longer by `setInvoice` (`grn.invoice`), so it no longer marks its person as
+  part of the delivery for its review. The same for the approval limit of "stock put back without a supplier document"
   (I37): it adds up the same person's day by `created_by`.
 - A delivery is cancelled by its keyer only (GV17, the owner's word of 29 Oct; GV22): with DA1 anyone who receives goods changes it and
   books it in, but only its keyer cancels it. Should anyone who receives goods cancel it too?

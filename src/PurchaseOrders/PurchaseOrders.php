@@ -1756,12 +1756,22 @@ final class PurchaseOrders
         return $row;
     }
 
-    /** @param array<string, mixed> $row the order's document row, X-locked */
+    /**
+     * The version the form was drawn with (409 version_conflict): a draft's refusal names who saved it last (DraftChanges::conflict, DA3); a
+     * later step of an order (cancel, send, close) keeps the plain refusal, as its last change is no draft's.
+     *
+     * @param array<string, mixed> $row the order's document row, X-locked
+     */
     private function checkVersion(array $row, int $version): void
     {
-        if ((int) $row['version'] !== $version) {
+        if ((int) $row['version'] === $version) {
+            return;
+        }
+        if ($row['status'] === 'draft') {
             throw DraftChanges::conflict($this->db, (int) $row['id'], 'purchase order', (int) $row['version'], $version);
         }
+        throw new CwException('version_conflict', 'the purchase order changed since this page was drawn: reload it and try again', 409,
+            ['version' => (int) $row['version'], 'expected_version' => $version]);
     }
 
     /** @return array<string, mixed> */

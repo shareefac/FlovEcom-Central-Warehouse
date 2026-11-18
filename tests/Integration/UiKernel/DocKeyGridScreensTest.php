@@ -321,7 +321,9 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $this->pos()->saveDraft(Caller::staff($bid), $d->id, (int) $f['version'], [], [['supplier_item_id' => (int) $siPod['id'], 'packs' => 3]]);
         $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['action' => 'save', DocGrid::FIELD => self::grid([['sku' => $cherry, 'q' => '2', 'p' => '4.00']])] + $f);
         self::assertSame(409, $r->status, self::why($r));
-        self::assertStringContainsString(Words::BUY_ERROR['version_conflict'], $r->text());
+        // Who changed it and when (docs/decisions.md DA3): the same person, in another tab.
+        self::assertStringContainsString(Words::say('DRAFT', 'conflict_you', \CW\Ui\Html::clock((string) self::$db->value(
+            "SELECT MAX(created_at) FROM audit_log WHERE entity_type = 'document' AND entity_id = ?", [(string) $d->id]))), $r->text());
         self::assertSame(1, self::nodes($r, '//form[@id="po-form"][@data-kg-conflict]'), 'the script posts it plainly, the head drawn again (KG32, Codex finding 6)');
         self::assertSame([['', (string) $cherry, '2', '4.00']], self::keptNew($r));
         self::assertSame([[(int) $siPod['id'], 3, '12.5000']], self::poLines($d->id));
@@ -1017,10 +1019,9 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         self::assertSame(0, self::nodes($page, '//p[contains(@class, "po-fixed")]'));
         $f = $page->form('/lines');
         $stale = $f;
-        // Another buyer: refused, nothing changed.
+        // Another buyer gets the same box on the draft (docs/decisions.md DA1: any buyer changes it); nothing changed by looking.
         $other = $this->signIn($this->uiUser('buyer'));
-        $r = $other->post("/ui/purchasing/orders/{$d->id}/lines", ['csrf' => $this->token($other), 'supplier_id' => (string) $b['id'], 'action' => 'save'] + $f);
-        self::assertSame(403, $r->status, self::why($r));
+        self::assertSame(1, self::nodes($other->get("/ui/purchasing/orders/{$d->id}"), '//form[@id="po-form"]//select[@name="supplier_id"][@data-po-supplier]'));
         self::assertSame((int) $a['id'], (int) self::$db->value('SELECT supplier_id FROM purchase_order WHERE document_id = ?', [$d->id]));
         // The buyer's change, with a new line picked from the old supplier's packs before the box changed.
         $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['supplier_id' => (string) $b['id'], 'action' => 'save', 'line_2_price' => '£1.80',

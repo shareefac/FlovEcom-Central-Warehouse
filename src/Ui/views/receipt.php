@@ -23,7 +23,7 @@
 <p class="error"><?= $word('RECEIPT', 'rejected') ?></p>
 <?php endif; ?>
 <?php if ($doc->status === 'draft'): ?>
-<p class="note read-only"><?php if ($canPost): ?><?= $say('RECEIPT', 'only_keyer', (string) $people['created']) ?><?php else: ?><?= $say('RECEIPT', 'only_keyer_look', (string) $people['created']) ?><?php endif; ?></p>
+<p class="note read-only"><?= $say('RECEIPT', 'draft_look', (string) $people['created']) ?></p>
 <?php endif; ?>
 
 <?php foreach ($decide as $d): ?>

@@ -434,6 +434,8 @@ final class HandoversController
             // Someone's save after this page was drawn: who and when (DA3).
             'error' => match (true) {
                 $error === null => null,
+                $error->errorCode === 'version_conflict' && ($extra['notFinal'] ?? false) === true
+                    => DocumentsController::conflictText($ctx, $id, Words::notFinal(self::plain($error)), 'saved'),
                 $error->errorCode === 'version_conflict' => DocumentsController::conflictText($ctx, $id, self::plain($error)),
                 ($extra['notFinal'] ?? false) === true => Words::notFinal(self::plain($error)),
                 default => self::plain($error),

@@ -759,16 +759,19 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame($before, self::invoices());
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM supplier WHERE name = 'Token Ltd'"));
         self::assertSame($d->version, (int) self::$db->value('SELECT version FROM document WHERE id = ?', [$d->id]), 'the draft unchanged');
-        // A draft belongs to its creator: another desk person sees it, never its form, and its POST is refused.
+        // A draft is anyone's who keeps invoices, not only its creator's (docs/decisions.md DA1): another desk person gets its form and saves it;
+        // a form without the token is still refused (above), and someone who keeps no invoices only looks.
         $other = $this->signIn($this->uiUser('purchasing_desk'));
-        $look = $other->get("/ui/purchasing/invoices/{$d->id}");
-        self::assertSame(200, $look->status, $look->describe());
-        self::assertFalse($look->hasForm("/ui/purchasing/invoices/{$d->id}/lines"));
-        $r = $other->post("/ui/purchasing/invoices/{$d->id}/lines", ['csrf' => $this->token($other), 'version' => (string) $d->version, 'line_count' => '0',
-            'form_key' => str_repeat('e', 32), 'invoice_number' => 'TAKEN', 'action' => 'save']);
-        self::assertSame(403, $r->status, $r->describe());
-        self::assertSame('TOK-1', self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$d->id]));
+        $theirs = $other->get("/ui/purchasing/invoices/{$d->id}");
+        self::assertSame(200, $theirs->status, $theirs->describe());
+        self::assertTrue($theirs->hasForm("/ui/purchasing/invoices/{$d->id}/lines"));
+        $r = $other->post("/ui/purchasing/invoices/{$d->id}/lines", ['invoice_number' => 'TAKEN', 'action' => 'save'] + $theirs->form("/ui/purchasing/invoices/{$d->id}/lines"));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(['TAKEN', $deskUser['id']], [self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$d->id]),
+            (int) self::$db->value('SELECT created_by FROM document WHERE id = ?', [$d->id])]);
         $buyer = $this->signIn($this->uiUser('buyer'));
+        self::assertSame(403, $buyer->post("/ui/purchasing/invoices/{$d->id}/lines", ['csrf' => $this->token($buyer), 'version' => '1', 'line_count' => '0',
+            'invoice_number' => 'BUYER', 'action' => 'save'])->status, 'someone who keeps no invoices changes no draft');
         self::assertSame(403, $buyer->post('/ui/purchasing/invoices', ['csrf' => $this->token($buyer), 'form_key' => str_repeat('f', 32), 'supplier_id' => (string) $s['id'],
             'action' => 'save'])->status);
     }
@@ -840,7 +843,9 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $r = $web->post('/ui/purchasing/invoices', $send);
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), 'the first form made final what it never saw: ' . $r->describe());
         self::assertSame(409, $r->status, $r->describe());
-        self::assertStringContainsString((string) strstr(Words::PI_ONE['not_final'], '%s', true), $r->text());
+        // Saved as the first answer, not made final: changed again since (docs/decisions.md DA3), here by the same person.
+        self::assertStringContainsString(Words::say('DRAFT', 'conflict_saved_you', \CW\Ui\Html::clock((string) self::$db->value(
+            "SELECT MAX(created_at) FROM audit_log WHERE entity_type = 'document' AND entity_id = ?", [(string) $id]))), $r->text());
     }
 
     /**

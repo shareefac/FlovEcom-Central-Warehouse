@@ -339,5 +339,7 @@ final class PurchaseOrderLifecycleTest extends PurchaseOrderTestCase
         self::refused(403, 'admin_cannot_post', fn () => $this->pos->createDraft($this->staffUser('admin'), (int) $s['id'], []));
         self::assertSame('posted', $this->pos->approve($other, $d2->id, $d3->version)->status, 'anyone allowed to post may approve another\'s draft');
         self::refused(409, 'not_draft', fn () => $this->pos->saveDraft($buyer, $d2->id, $d3->version + 1, [], []));
+        $e = self::refused(409, 'version_conflict', fn () => $this->pos->cancel($buyer, $d2->id, $d3->version, 'entered_in_error', null));
+        self::assertArrayNotHasKey('changed_by_id', $e->detail, 'a confirmed order\'s later step names no draft\'s editor');
     }
 }

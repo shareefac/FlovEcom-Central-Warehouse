@@ -417,10 +417,13 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('RECEIPT_ADDED', 'cleared_one', 'line 1'), $desk->follow($q)->text());
         $moved = $one->post("/ui/receiving/{$id}/lines", ['b_1_short' => '1', 'action' => 'save'] + $f1);
         self::assertSame(409, $moved->status, $moved->describe());
-        self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'bench_except', 'line 1'), $moved->text());
+        // The bench page carries the keyer's part too since DA1: the desk's change names the desk person, and line 1's typed values are dropped.
+        self::assertStringContainsString(Words::say('DRAFT', 'kept_except', 'line 1'), $moved->text());
         $late = $two->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + $f3);
         self::assertSame(409, $late->status, $late->describe());
-        self::assertStringContainsString(Words::RECEIPT_ERROR['saved_not_booked_changed'], $late->text());
+        // Its page carries the keyer's part too (DA1): refused as changed by the desk person, nothing saved, nothing booked in (DA3).
+        self::assertStringContainsString(' changed this draft at ', $late->text());
+        self::assertStringContainsString('Nothing was saved: here it is with their changes', $late->text());
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
     }
 
@@ -856,22 +859,23 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(['7.2500', 2], [self::$db->value('SELECT pack_price FROM grn_line WHERE document_id = ?', [$id]),
             (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ?', [$id])]);
 
-        // The buying desk (another person) sees the fold with the price, read only; its own delivery's prices are fields.
+        // The buying desk (another person) sees the fold with the price, and since DA1 changes it as on its own delivery (docs/decisions.md:
+        // anyone who receives goods has the keyer's fields; the price only with invoices.view).
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
         $other = $desk->get("/ui/receiving/{$id}");
         self::assertStringContainsString(Words::GI['prices'], $other->text());
-        self::assertStringContainsString('£7.25', $other->text());
-        self::assertArrayNotHasKey('line_1_price', self::onePage($other, $id));
+        self::assertSame('7.25', self::onePage($other, $id)['line_1_price'] ?? null);
         $own = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1, 'units_per_pack' => 10]]);
         self::assertSame('7.25', self::onePage($desk->get("/ui/receiving/{$own}"), $own)['line_1_price']);
     }
 
     /**
-     * Someone who did not key the delivery (the bench, or the desk on goods in's delivery) gets the same page: the lines' quantities are
-     * the keyer's (shown, not fields; a forged one is refused by the service), the check and the supplier invoice number are theirs.
+     * Someone who did not key the delivery (the bench, or the desk on goods in's delivery) gets the same page with the keyer's fields since
+     * DA1 (docs/decisions.md; the owner, 18 Nov 2026: "anyone who have access should be able to edit it"): the quantities and the details, the
+     * check and the supplier invoice number are theirs too; the delivery stays its keyer's, and only its keyer cancels it (GV17).
      */
-    public function testSomeoneWhoDidNotKeyItChecksSetsTheInvoiceAndBooksIn(): void
+    public function testSomeoneWhoDidNotKeyItChangesChecksSetsTheInvoiceAndBooksIn(): void
     {
         $buyer = $this->uiUser('buyer');
         $deskUser = $this->uiUser('purchasing_desk');
@@ -884,23 +888,20 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $page = $bench->get("/ui/receiving/{$id}");
         self::assertSame(200, $page->status, $page->describe());
         $f = self::onePage($page, $id);
-        self::assertSame('0', $f['lines_editable']);
-        foreach (['line_1_packs', 'header_present', 'supplier_id', 'po_id', 'received_at', 'q'] as $k) {
-            self::assertArrayNotHasKey($k, $f, "{$k}: the keyer's");
-        }
-        foreach (['invoice_number', 'delivery_note', 'paperwork_ok', 'b_1_duty', 'bench_note'] as $k) {
+        self::assertSame('1', $f['lines_editable']);
+        foreach (['line_1_packs', 'header_present', 'received_at', 'q', 'invoice_number', 'delivery_note', 'paperwork_ok', 'b_1_duty', 'bench_note'] as $k) {
             self::assertArrayHasKey($k, $f, $k);
         }
-        $r = $bench->postMultipart("/ui/receiving/{$id}/lines", ['invoice_number' => 'OH-77', 'delivery_note' => 'DN-5', 'paperwork_ok' => '1', 'b_1_duty' => 'digital',
-            'fine' => '1', 'bench_note' => 'pallet wrapped', 'file_role' => 'supplier_invoice'] + $f, ['file' => ['path' => $this->pdf(), 'name' => 'OH-77.pdf']]);
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//form[contains(@action, "/cancel")]')->length, 'cancel stays the keyer\'s (GV17)');
+        $r = $bench->postMultipart("/ui/receiving/{$id}/lines", ['line_1_packs' => '3', 'invoice_number' => 'OH-77', 'delivery_note' => 'DN-5', 'paperwork_ok' => '1',
+            'b_1_duty' => 'digital', 'fine' => '1', 'bench_note' => 'pallet wrapped', 'file_role' => 'supplier_invoice'] + $f, ['file' => ['path' => $this->pdf(), 'name' => 'OH-77.pdf']]);
         self::assertSame(303, $r->status, $r->describe());
-        self::assertSame(['OH-77', 'DN-5', 'pallet wrapped', $benchUser['id']], [self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$id]),
+        self::assertSame(['OH-77', 'DN-5', 'pallet wrapped', $benchUser['id'], 3, $deskUser['id']], [self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$id]),
             self::$db->value('SELECT delivery_note FROM goods_receipt WHERE document_id = ?', [$id]), self::$db->value('SELECT bench_note FROM goods_receipt WHERE document_id = ?', [$id]),
-            (int) self::$db->value('SELECT checked_by FROM goods_receipt WHERE document_id = ?', [$id])]);
-        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'grn.invoice' AND entity_id = ?", [(string) $id]), 'the invoice set by its service (I172)');
-        $forged = $bench->post("/ui/receiving/{$id}/lines", ['lines_editable' => '1', 'line_1_packs' => '9', 'page_count' => '1', 'action' => 'save'] + self::onePage($bench->follow($r), $id));
-        self::assertSame(403, $forged->status, $forged->describe());
-        self::assertSame(2, (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ?', [$id]));
+            (int) self::$db->value('SELECT checked_by FROM goods_receipt WHERE document_id = ?', [$id]), (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ?', [$id]),
+            (int) self::$db->value('SELECT created_by FROM document WHERE id = ?', [$id])]);
+        self::assertSame($benchUser['id'], (int) self::$db->value("SELECT staff_user_id FROM audit_log WHERE action = 'grn.save' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+            [(string) $id]), 'their save, under their name');
         $r = $bench->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + self::onePage($bench->get("/ui/receiving/{$id}"), $id));
         self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
         // Someone who only looks keeps the read-only page.
@@ -941,11 +942,11 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         $r = $desk->post("/ui/receiving/{$id}/lines", ['q' => 'CW-' . sprintf('%06d', $sku2), 'action' => 'add'] + self::onePage($page, $id));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM grn_line WHERE document_id = ?', [$id]));
-        // For someone who did not key it, Enter saves (they add no products).
+        // For someone who did not key it the same (DA1: they add products too).
         $bench = $this->signIn($this->uiUser('goods_in'));
         $first = (new \DOMXPath($bench->get("/ui/receiving/{$id}")->dom()))->query('//form[contains(@class, "gi-form")]//button[@type="submit"]')->item(0);
         self::assertInstanceOf(\DOMElement::class, $first);
-        self::assertSame('save', $first->getAttribute('value'));
+        self::assertSame('add', $first->getAttribute('value'));
         // The old bench address leads to the one page.
         $old = $bench->get("/ui/receiving/{$id}/bench");
         self::assertSame(303, $old->status, $old->describe());
