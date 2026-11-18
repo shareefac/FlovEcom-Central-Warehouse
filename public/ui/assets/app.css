@@ -3953,3 +3953,66 @@ table.gi-lines tr.gi-panel input[data-kg-cell] { background-color: var(--card); 
   table.gi-lines th.c-item .field-error, table.gi-lines th.c-item .kg-error { display: block; margin-left: 0; white-space: normal; }
 }
 /* ==== end gw ====================================================================================================================== */
+/* ==== lp: one look for a purchase order (live drafts step 2, branch look-paper; docs/decisions.md LP1-LP8) ==============================
+   The owner, 18 Nov 2026, of the read-only order page: "I liked how it looks on Shareef's window, the design". A draft and a new order are
+   that paper (.doc-view.po-paper) inside the one editor form (form.po-editor.kg-doc.kg-paper): the form's own card steps back, the lines'
+   grid takes the paper's table look (a grey head row, a line between rows, no cell edges) and every figure a person types is a real box
+   (input.kg-flat) that reads like the paper's words until the mouse is on it (the grey box) or the cursor is in it (the white box, the
+   accent edge and a 2 px ring that always shows). The facts keep the paper's grey boxes. A touch screen (no hover) shows every box grey;
+   a phone has 16 px boxes (no zoom on focus). Everything here is scoped to .kg-paper (and the bar's .po-edit-bar): the supplier invoice
+   (form.kg-doc, the same grid engine) is drawn as before. CW's tokens only, light and dark from them; no movement of its own. */
+form.kg-paper { padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
+form.kg-paper > .kg-look { margin: 0 0 12px; }
+form.kg-paper .po-paper-lines { min-width: 0; }
+/* The boxes: the words of the paper at rest. */
+form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper input.kg-flat {
+  border-color: transparent; background-color: transparent; color: var(--ink); box-shadow: none; }
+form.kg-paper input.kg-flat::placeholder, form.kg-paper input.po-box::placeholder { color: var(--ink-muted); opacity: 1; }
+form.kg-paper input.kg-flat:hover, form.kg-paper select.kg-flat:hover, form.kg-paper input.kg-item:hover, form.kg-paper .po-paper-head input.po-box:hover {
+  border-color: var(--hairline); background-color: var(--ui-bg); }
+form.kg-paper input.kg-flat:focus, form.kg-paper select.kg-flat:focus, form.kg-paper input.kg-item:focus, form.kg-paper .po-paper-head input.po-box:focus {
+  border-color: var(--accent); background-color: var(--card); outline: 2px solid var(--accent); outline-offset: 1px; }
+form.kg-paper input.kg-flat[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+form.kg-paper input.kg-flat[type="number"]::-webkit-inner-spin-button, form.kg-paper input.kg-flat[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+form.kg-paper input.kg-flat[aria-invalid="true"], form.kg-paper tr.kg-bad input.kg-flat { border-color: var(--st-red); }
+/* The head: the supplier box reads as the supplier's name; the facts keep the paper's grey boxes (the box is the dd's own). */
+form.kg-paper .po-paper-head .po-box-field { display: grid; gap: 4px; min-width: 0; }
+form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat { width: 100%; min-height: 34px; margin: 0 0 2px; padding: 4px 8px; color: var(--ink);
+  font: 600 15px/22px var(--font); }
+form.kg-paper .po-paper-head .po-party-lines p { margin: 0; font-size: 13px; }
+form.kg-paper .doc-facts dd.kg-in { padding: 0; background: none; }
+form.kg-paper .doc-facts dd.kg-in input.kg-flat { width: 100%; min-height: 32px; padding: 5px 10px; background-color: var(--ui-bg); color: var(--ink); font: 600 13px/20px var(--font); }
+form.kg-paper .doc-facts dd.kg-in input.kg-flat:focus { background-color: var(--card); }
+/* The lines: the paper's table (as table.kg-view) for the grid's boxes. */
+form.kg-paper table.kg-grid > thead th { border: 0; border-bottom: 1px solid var(--hairline); }
+form.kg-paper table.kg-grid > tbody > tr > th, form.kg-paper table.kg-grid > tbody > tr > td { border: 0; border-bottom: 1px solid var(--hairline); }
+form.kg-paper table.kg-grid td.num input.kg-flat { width: 6.5rem; max-width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+form.kg-paper table.kg-grid input.kg-item { font-weight: 600; }
+form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; }
+form.kg-paper table.kg-grid .kg-sub > span:not(:empty) + span:not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
+form.kg-paper table.kg-grid label.kg-upp { display: block; margin: 4px 0 0; }
+form.kg-paper table.kg-grid label.kg-upp input.kg-flat { width: 5rem; text-align: right; }
+form.kg-paper table.kg-grid th.c-x { width: 2.75rem; }
+form.kg-paper table.kg-grid tr.po-add-row .po-box-field input[type="search"] { width: 100%; }
+/* The foot: the note in place, the totals as the paper's, the delivery a box in its row. */
+form.kg-paper .doc-notes p.kg-in input.kg-flat { width: 100%; padding: 4px 8px; }
+form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32px; padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+/* The tick and the x of a line: there for the mouse and the keys, quiet until the line is pointed at or holds the cursor. */
+@media (hover: hover) and (min-width: 701px) {
+  form.kg-paper table.kg-grid tr .po-x, form.kg-paper table.kg-grid td.c-no input.kg-tick:not(:checked) { opacity: 0; }
+  form.kg-paper table.kg-grid tr:hover .po-x, form.kg-paper table.kg-grid tr:focus-within .po-x, form.kg-paper table.kg-grid .po-x:focus-visible,
+  form.kg-paper table.kg-grid tr:hover td.c-no input.kg-tick, form.kg-paper table.kg-grid tr:focus-within td.c-no input.kg-tick { opacity: 1; }
+}
+/* A touch screen has no hover: its boxes show. */
+@media (hover: none) {
+  form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper input.kg-flat { background-color: var(--ui-bg); }
+}
+@media (max-width: 700px) {
+  form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper input.kg-flat { font-size: 16px; }
+  form.kg-paper table.kg-grid td.num input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 100%; }
+  form.kg-paper .doc-facts dd.kg-in input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat, form.kg-paper .doc-notes p.kg-in input.kg-flat,
+  form.kg-paper .po-paper-head input.po-box { min-height: 44px; }
+}
+/* The bar of the paper's head (po_bar with the editor's Save and Confirm): its unseen Add (Enter is Add) takes no room. */
+.po-edit-bar > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+/* ==== end lp ====================================================================================================================== */

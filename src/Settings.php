@@ -44,6 +44,7 @@ final class Settings
         'po.default_vat_code' => ['vat_code' => true],
         'po.over_delivery_tolerance_pct' => ['min' => 0, 'max' => 200],
         'po.board_recent_days' => ['min' => 1, 'max' => 365], // 0053 (PV18): the board's "Received or closed" group
+        'po.draft_look' => ['in' => ['paper', 'form']], // 0071 (LP2): a draft and a new order on the paper, or on the old form (the way back)
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

@@ -1433,6 +1433,13 @@ empty line `tr[data-kg-empty]` holding the product box (`input[data-po-pick]`); 
 `input[data-kg-field]`; `[data-kg-swap-part]` parts the ajax save puts in place; the totals' `[data-kg-total]`, `[data-kg-vat-rows]`,
 `input[data-kg-delivery]`; the partials `doc_grid_tools`, `doc_grid_keys`, `doc_head_bar`. On the server: `DocGrid::read()` / `view()` /
 `order()` / `rowOf()`, and the page's own `gridLines()`.
+The purchase order's draft draws the same contract on its paper (`docs/decisions.md` LP1-LP8: `purchase_order.php` with `po_paper_head`,
+`po_paper_lines`, `po_paper_line`, `po_paper_foot`, `po_cards`; the form also `.kg-paper`, its boxes `input.kg-flat`, its head bar
+`po_bar` with `editor`): their code and the pack in the item's line (`[data-kg-their]`, `[data-kg-pack]` inside `.kg-sub`), the pack
+figures under the packs box (`[data-kg-units][data-words]`, `data-kg-pack-of` on a line without a supplier item), the totals a `dl`
+(`[data-kg-vat-rows]` on it, a VAT code a `div[data-kg-vat-row]` drawn before `[data-kg-vat-end]`; `[data-kg-total="vat"]`). The old
+one-page form stays while `po.draft_look = form`. JS: `run_kg.js` with `page({ kind: 'po', paper: true })` (lookpaper's copy of the harness,
+`/root/cw_work/lookpaper_20261118/js_harness/`).
 
 - Tests: `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (lines in one post, FormOnce, conflicts, the limit, refusals on their row,
   without the script, the head bar, "+ Add new item"'s route, a saved line's item changed in place, the posting time, the keys' pages, the

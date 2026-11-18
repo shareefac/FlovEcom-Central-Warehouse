@@ -2817,6 +2817,7 @@ final class Words
         'mapping.landing_rule_on_arrival' => 'Find landing pages by the rule when they arrive', // 0050 (LP4)
         'mapping.hide_unsold_days' => 'Hide website products not sold in a year', // 0051 (HU1, hide-unsold)
         'po.board_recent_days' => 'Days a delivered or closed order stays on the open orders board', // 0053 (PV18)
+        'po.draft_look' => 'How a draft order looks', // 0071 (LP2)
         // ---- Pack E
         'reports.low_stock_default' => 'Low stock: units left',
         'reports.slow_after_days' => 'Slow stock: days without a sale',
@@ -4196,6 +4197,9 @@ final class Words
         // 0053 (PV18): the open orders board's "Received or closed" group.
         'po.board_recent_days' => 'How many days a delivered or closed order still shows on the purchase orders board (its "Received or closed" '
             . 'group). Older ones are under "All orders" and "Closed and cancelled".',
+        // 0071 (LP2): one look for a purchase order, the old form kept as the way back for one release.
+        'po.draft_look' => '"paper": a draft or a new order looks like a saved order, and its figures are typed in place (a box shows when the mouse '
+            . 'is on it or the cursor is in it). "form": the grey one-page form as before. Saving is the same either way.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
         // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
@@ -6610,6 +6614,8 @@ final class Words
         'col_line_total' => 'Line total',
         'packs_of' => '%s × %s',
         'per' => 'per %s',
+        // A draft's paper (one look, docs/decisions.md LP4): under the packs box, worked out again as typed (app.js fills the three in order).
+        'packs_units' => '%s × %s = %s',
         'to_come_pill' => '%s to come',
         'related' => 'Related',
         'no_related' => 'Nothing yet.',

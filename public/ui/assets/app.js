@@ -1609,6 +1609,17 @@
         if (packs !== null && !tr.hasAttribute('data-kg-charge')) {
           units += packs * (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
         }
+        // The paper's pack figures under the packs box (one look, docs/decisions.md LP4): "3 × box of 10 = 30" in the page's words, as typed;
+        // an item not set up with the supplier: its items per pack as typed (its pack's words from data-kg-pack-of); single items: nothing.
+        var unitsEl = qty ? tr.querySelector('[data-kg-units]') : null;
+        if (unitsEl) {
+          var uppBox = cellIn(tr, 'upp');
+          var per = uppBox ? whole(uppBox.value) : (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
+          var packOf = tr.getAttribute('data-kg-pack-of') || '';
+          var packWords = uppBox && packOf !== '' && per !== null ? packOf.replace('%s', per.toLocaleString('en-GB')) : tr.getAttribute('data-pack') || '';
+          unitsEl.textContent = packs !== null && per !== null && per > 1 && packWords !== '' ? (unitsEl.getAttribute('data-words') || '')
+            .replace('%s', packs.toLocaleString('en-GB')).replace('%s', packWords).replace('%s', (packs * per).toLocaleString('en-GB')) : '';
+        }
         if (a !== null) {
           sum += a;
           var code = isNew(tr) ? newVat() : tr.getAttribute('data-kg-vat') || '';
@@ -1664,7 +1675,31 @@
       var rows = document.querySelector('[data-kg-vat-rows]');
       var seen = {};
       each(groups, function (g) { tax += g.vat; });
-      if (rows) {
+      var vatWords = function (g) {
+        var key = seen[g.code] ? g.code + ' ' + (g.rate / 100).toFixed(2) + '%' : g.code;
+        seen[g.code] = true;
+        var label = key === g.code && rates[g.code] && rates[g.code].label ? rates[g.code].label
+          : (g.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%';
+        return (rows.getAttribute('data-words') || '').replace('%s', key).replace('%s', label);
+      };
+      if (rows && rows.tagName === 'DL') {
+        // The paper's totals (one look, docs/decisions.md LP4): a row a VAT code (its words and its VAT, a dt and a dd), drawn again before the
+        // delivery's row (data-kg-vat-end).
+        var end = rows.querySelector('[data-kg-vat-end]');
+        each(rows.querySelectorAll('[data-kg-vat-row]'), function (r) { rows.removeChild(r); });
+        each(groups, function (g) {
+          var row = document.createElement('div');
+          row.className = 'kg-vat-row';
+          row.setAttribute('data-kg-vat-row', '');
+          var dt = document.createElement('dt');
+          dt.textContent = vatWords(g);
+          var dd = document.createElement('dd');
+          dd.textContent = money(g.vat);
+          row.appendChild(dt);
+          row.appendChild(dd);
+          rows.insertBefore(row, end);
+        });
+      } else if (rows) {
         // The taxes and charges table (ERPNext's): a row a VAT code (No., the code and its words, the rate, the net, the VAT, the total),
         // each cell named by its column's heading (a card on a phone).
         var heads = [];
@@ -1673,12 +1708,8 @@
           rows.removeChild(rows.firstChild);
         }
         each(groups, function (g, i) {
-          var key = seen[g.code] ? g.code + ' ' + (g.rate / 100).toFixed(2) + '%' : g.code;
-          seen[g.code] = true;
-          var label = key === g.code && rates[g.code] && rates[g.code].label ? rates[g.code].label
-            : (g.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%';
           var tr = document.createElement('tr');
-          each([String(i + 1), (rows.getAttribute('data-words') || '').replace('%s', key).replace('%s', label),
+          each([String(i + 1), vatWords(g),
             (g.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '%', money(g.net), money(g.vat), money(g.net + g.vat)], function (text, j) {
             var td = document.createElement(j === 1 ? 'th' : 'td');
             td.textContent = text;
@@ -5011,10 +5042,18 @@
   // ==== end search-match-ux ==========================================================================================================
 
   // Print (the PurchaseOrder and Reports boards; docs/decisions.md DG6): the button is hidden without the script; with it, the browser's print.
-  each(document.querySelectorAll('button[data-print]'), function (b) {
-    b.hidden = false;
-    b.addEventListener('click', function () { window.print(); });
-  });
+  // A save without leaving the page draws the head again (a draft's paper, docs/decisions.md LP3): its button is shown and wired again.
+  var showPrint = function () {
+    each(document.querySelectorAll('button[data-print]'), function (b) {
+      b.hidden = false;
+      if (!b.hasAttribute('data-print-on')) {
+        b.setAttribute('data-print-on', '1');
+        b.addEventListener('click', function () { window.print(); });
+      }
+    });
+  };
+  showPrint();
+  document.addEventListener('kg-swapped', showPrint);
 
   // New delivery: "receive all as ordered" follows the purchase order chosen.
   each(document.querySelectorAll('select[data-ticks]'), function (s) {

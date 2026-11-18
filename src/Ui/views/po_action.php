@@ -3,6 +3,7 @@
 // ($primary: the accent; a step that needs a reason or a choice opens under the bar), or as one of the others under More. $a: approve,
 // withdraw, send, pdf, pdf_items (the same order without prices, docs/decisions.md PL4), receive, invoice, copy, amend, close, reopen, cancel; the
 // forms, their fields and their routes are the order page's.
+// A draft's cancel says "Cancel draft" (its paper's More, docs/decisions.md LP3; was the one-page form's own step, PX11).
 ?>
 <?php if ($a === 'approve'): ?>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/approve') ?>">
@@ -120,7 +121,7 @@
 <?php endif; ?>
 <?php if ($a === 'cancel'): ?>
   <details class="doc-act"<?php if ($reasonError === 'cancel'): ?> open<?php endif; ?>>
-    <summary class="btn risky"><?= $word('ORDER', 'cancel') ?></summary>
+    <summary class="btn risky"><?php if ($doc->status === 'draft'): ?><?= $word('PO_ONE', 'cancel') ?><?php else: ?><?= $word('ORDER', 'cancel') ?><?php endif; ?></summary>
     <div class="doc-act-panel">
       <p class="hint"><?php if ($doc->status === 'draft'): ?><?= $word('ORDER', 'cancel_draft_does') ?><?php elseif ($doc->status === 'awaiting_approval'): ?><?= $word('ORDER', 'cancel_request_does') ?><?php else: ?><?= $word('ORDER', 'cancel_does') ?><?php endif; ?></p>
       <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/cancel') ?>">
@@ -135,7 +136,7 @@
           </select>
         </label>
         <label><?= $word('ORDER', 'cancel_note') ?> <input type="text" name="note" maxlength="400"></label>
-        <p class="actions"><button type="submit" class="btn risky"><?= $word('ORDER', 'cancel_button') ?></button></p>
+        <p class="actions"><button type="submit" class="btn risky"><?php if ($doc->status === 'draft'): ?><?= $word('ORDER', 'cancel_draft_button') ?><?php else: ?><?= $word('ORDER', 'cancel_button') ?><?php endif; ?></button></p>
       </form>
     </div>
   </details>

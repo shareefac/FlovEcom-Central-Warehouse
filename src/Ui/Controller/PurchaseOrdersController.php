@@ -676,7 +676,39 @@ final class PurchaseOrdersController
             'info' => ['doc_date' => (string) ($typed['doc_date'] ?? (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d')),
                 'expected_date' => (string) ($typed['expected_date'] ?? ''), 'external_ref' => (string) ($typed['external_ref'] ?? ''), 'note' => (string) ($typed['note'] ?? '')],
         ] + $this->oneData($ctx, null, $sid, 0, $extra);
-        return $ctx->page('purchase_order_edit', $data, $status, ['title' => Words::PO_ONE['title'], 'active' => 'orders', 'notice' => $notice]);
+        $layout = ['title' => Words::PO_ONE['title'], 'active' => 'orders', 'notice' => $notice];
+        if (self::draftLook($ctx) === 'form') {
+            return $ctx->page('purchase_order_edit', $data, $status, $layout);
+        }
+        // The paper (docs/decisions.md LP1): the saved order's page with nothing saved yet, its boxes in place; no Print, More, Related or History.
+        $head = self::paperHead($supplier, (string) ($supplier['name'] ?? ''), $ctx->settings()->company());
+        return $ctx->page('purchase_order', $data + [
+            'paperEdit' => true,
+            'editor' => 'po-form',
+            'party' => $head['party'],
+            'deliverTo' => $head['deliverTo'],
+            'orderDate' => Html::day($data['info']['doc_date']),
+            'terms' => $head['terms'] ?? Words::DOC_LIST['none'],
+            'supplierName' => (string) ($supplier['name'] ?? ''),
+            'state' => 'draft',
+            'factLine' => '',
+            'rejected' => null,
+            'companyNote' => null,
+            'changes' => null,
+            'errorCode' => $error?->errorCode,
+            'reasonError' => null,
+        ], $status, $layout);
+    }
+
+    /**
+     * How a draft or a new order is drawn (the setting po.draft_look, 0071; docs/decisions.md LP2): "paper", the saved order's page with its
+     * boxes in place (purchase_order.php), or "form", the one-page form as before (purchase_order_edit.php, kept for one release as the way
+     * back). "paper" while the setting's row is not there yet (the code a moment before its migration).
+     */
+    public static function draftLook(Context $ctx): string
+    {
+        $s = $ctx->settings();
+        return $s->has('po.draft_look') && $s->get('po.draft_look') === 'form' ? 'form' : 'paper';
     }
 
     /**
@@ -1297,7 +1329,26 @@ final class PurchaseOrdersController
                 'cancelReasons' => self::reasonChoices($db, 'draft_cancel'),
             ] + $this->oneData($ctx, $doc, UiRequest::id(is_string($extra['typed']['supplier_id'] ?? null) ? $extra['typed']['supplier_id'] : null) ?? (int) ($po['supplier_id'] ?? 0),
                 count($lines), $extra);
-            return $ctx->page('purchase_order_edit', $data, $status, $layout);
+            if (self::draftLook($ctx) === 'form') {
+                return $ctx->page('purchase_order_edit', $data, $status, $layout);
+            }
+            // One look (docs/decisions.md LP1-LP3; the owner, 18 Nov 2026: "I liked how it looks on Shareef's window, the design"): the draft
+            // drawn as the saved order's paper, its boxes in place, inside the same editor form; the head and its bar, Related and History as the
+            // read-only page has them; the editor's own form key stays the form's (viewData's is for the bar's Copy: barKey).
+            $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
+            [, $more] = self::actions($data['can'], $state, false, false);
+            $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
+            $view = self::docView($data, $doc, $po, $supplier, $supplierName, is_array($snapshot) ? $snapshot : $ctx->settings()->company(), null, $me);
+            return $ctx->page('purchase_order', $data + $view + [
+                'paperEdit' => true,
+                'editor' => 'po-form',
+                'barKey' => FormOnce::newKey(),
+                'mainAction' => null,
+                'moreActions' => $more,
+                'orderDate' => $data['info']['doc_date'] === '' ? Words::DOC_LIST['none'] : Html::day($data['info']['doc_date']),
+                'terms' => self::paperHead($supplier, $supplierName, [])['terms'] ?? Words::DOC_LIST['none'],
+                'steps' => null,
+            ], $status, $layout);
         }
         $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
         // The saved order read like a document (docs/decisions.md PV): the shared head and totals, and the next papers' ways in.
@@ -1311,6 +1362,7 @@ final class PurchaseOrdersController
         $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
         $company = is_array($snapshot) ? $snapshot : $ctx->settings()->company();
         return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName, $company, $progress, $me) + [
+            'paperEdit' => false,
             'canReceive' => $canReceive,
             'canInvoice' => $canInvoice,
             'mainAction' => $main,
@@ -1441,14 +1493,8 @@ final class PurchaseOrdersController
         \CW\Auth\StaffIdentity $me): array
     {
         $people = $data['people'];
-        $place = trim(implode(' ', array_filter([(string) ($supplier['city'] ?? ''), (string) ($supplier['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
-        $address = implode(' · ', array_filter([trim((string) ($supplier['address_line1'] ?? '')), trim((string) ($supplier['address_line2'] ?? '')), $place],
-            static fn (string $v): bool => $v !== ''));
-        $terms = ($supplier['payment_terms'] ?? null) === null || $supplier['payment_terms'] === '' ? null
-            : (($supplier['payment_terms_days'] ?? null) !== null ? Words::say('SUPPLIER', 'payment_days', (string) $supplier['payment_terms'], (int) $supplier['payment_terms_days'])
-                : (string) $supplier['payment_terms']);
-        // Where the goods go: the delivery address, or the registered address when none is given (docs/decisions.md CQ3).
-        $deliver = array_values(array_filter(array_map('trim', preg_split('/\R/', CompanyDetails::deliveryAddress($company)) ?: []), static fn (string $v): bool => $v !== ''));
+        $head = self::paperHead($supplier, $supplierName, $company);
+        $terms = $head['terms'];
         $posted = $doc->postedAt !== null && $doc->number !== null;
         $factLine = $posted && $doc->docDate !== null
             ? Words::say('ORDER', 'fact_ordered', $supplierName, Html::day($doc->docDate), (string) ($people['posted'] ?? $people['created']))
@@ -1519,10 +1565,8 @@ final class PurchaseOrdersController
         $rows[] = ['label' => Words::ORDER['gross'], 'value' => (string) $data['totals']['gross'], 'grand' => true];
         $none = Words::DOC_LIST['none'];
         return [
-            'party' => ['label' => Words::DOC['party'], 'name' => $supplierName, 'href' => '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0),
-                'lines' => $address === '' ? [] : [$address]],
-            'deliverTo' => ['label' => Words::ORDER['deliver_to'], 'name' => trim((string) ($company['trading_name'] ?? '')) !== '' ? (string) $company['trading_name']
-                : (string) ($company['legal_name'] ?? ''), 'lines' => $deliver === [] ? [Words::ORDER['deliver_tbc']] : [implode(' · ', $deliver)]],
+            'party' => $head['party'],
+            'deliverTo' => $head['deliverTo'],
             'dates' => [
                 ['label' => Words::ORDER['order_date'], 'value' => $doc->docDate === null ? $none : Html::day($doc->docDate)],
                 ['label' => Words::ORDER['expected_short'], 'value' => ($po['expected_date'] ?? null) === null ? $none : Html::day((string) $po['expected_date'])],
@@ -1533,6 +1577,34 @@ final class PurchaseOrdersController
             'events' => $events,
             'related' => $related,
             'totalRows' => $rows,
+        ];
+    }
+
+    /**
+     * The paper's head blocks (docs/decisions.md RD-B4; one look, LP1): the supplier (its name, a link to its page, its address on one line),
+     * where it delivers (the company's delivery address, or the registered address when none is given: CQ3) and the supplier's payment terms
+     * in words (null: none given). The read-only page and a draft's or a new order's paper draw the same.
+     *
+     * @param array<string, mixed> $supplier the supplier row ([] for none chosen yet)
+     * @param array<string, mixed> $company the company details the PDF prints (Settings::company or the order's snapshot)
+     * @return array{party: array{label: string, name: string, href: string, lines: list<string>}, deliverTo: array{label: string, name: string, lines: list<string>}, terms: ?string}
+     */
+    private static function paperHead(array $supplier, string $supplierName, array $company): array
+    {
+        $place = trim(implode(' ', array_filter([(string) ($supplier['city'] ?? ''), (string) ($supplier['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
+        $address = implode(' · ', array_filter([trim((string) ($supplier['address_line1'] ?? '')), trim((string) ($supplier['address_line2'] ?? '')), $place],
+            static fn (string $v): bool => $v !== ''));
+        $terms = ($supplier['payment_terms'] ?? null) === null || $supplier['payment_terms'] === '' ? null
+            : (($supplier['payment_terms_days'] ?? null) !== null ? Words::say('SUPPLIER', 'payment_days', (string) $supplier['payment_terms'], (int) $supplier['payment_terms_days'])
+                : (string) $supplier['payment_terms']);
+        // Where the goods go: the delivery address, or the registered address when none is given (docs/decisions.md CQ3).
+        $deliver = array_values(array_filter(array_map('trim', preg_split('/\R/', CompanyDetails::deliveryAddress($company)) ?: []), static fn (string $v): bool => $v !== ''));
+        return [
+            'party' => ['label' => Words::DOC['party'], 'name' => $supplierName, 'href' => '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0),
+                'lines' => $address === '' ? [] : [$address]],
+            'deliverTo' => ['label' => Words::ORDER['deliver_to'], 'name' => trim((string) ($company['trading_name'] ?? '')) !== '' ? (string) $company['trading_name']
+                : (string) ($company['legal_name'] ?? ''), 'lines' => $deliver === [] ? [Words::ORDER['deliver_tbc']] : [implode(' · ', $deliver)]],
+            'terms' => $terms,
         ];
     }
 

@@ -7,7 +7,160 @@
 // ordered, received with what is still to come, unit cost, line total), the note to the supplier and the totals. Then Related (its
 // deliveries and invoices, the orders it corrects or that correct it, its cancellation, its files) and History (what happened to it, and
 // its checks and OKs).
+// One look (live drafts step 2, docs/decisions.md LP1-LP8; the owner, 18 Nov 2026: "I liked how it looks on Shareef's window, the design"):
+// a new order and a draft, for anyone who writes orders, are the same paper with their boxes in place ($paperEdit): the paper's parts
+// (po_paper_head, po_paper_lines, po_paper_foot) inside the one editor form, which posts the whole page with its version as the one-page form
+// did (Save and Confirm in the head's bar, for the form; the grid's keys, Add multiple, + New item and the save without leaving the page by
+// app.js). A person who may only look gets the same parts with words instead of boxes. The old one-page form is purchase_order_edit.php
+// (po.draft_look = form, the way back for one release).
+$paperEdit = $paperEdit ?? false;
 ?>
+<?php if ($paperEdit): ?>
+<?php
+$bar = $partial('po_bar', ['editor' => $editor, 'moreActions' => $moreActions ?? [], 'mainAction' => null, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
+    'supplier' => $supplier ?? [], 'sendVia' => $sendVia ?? [], 'sendWarnings' => $sendWarnings ?? [], 'sendCompany' => $sendCompany ?? false, 'companyNote' => $companyNote,
+    'formKey' => $barKey ?? '', 'cancelReasons' => $cancelReasons ?? [], 'amendReasons' => $amendReasons ?? [], 'reasonError' => $reasonError ?? null, 'errorCode' => $errorCode ?? null]);
+$paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, 'deliverTo' => $deliverTo, 'orderDate' => $orderDate, 'terms' => $terms, 'info' => $info,
+    'supplierFixed' => $supplierFixed, 'supplierName' => $supplierName ?? '', 'supplierId' => $supplierId, 'supplierChoices' => $supplierChoices, 'canAddSupplier' => $canAddSupplier,
+    'askSupplier' => $askSupplier, 'supplierError' => $supplierError, 'newSupplier' => $newSupplier];
+?>
+<div class="doc-head">
+<?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']],
+    aside: $isNew ? $chip('waiting', \CW\Ui\Words::DOC_GRID['not_saved']) : '', meta: $isNew ? '' : $stateChip('PO_STATE', 'draft') . ' ' . $e($factLine)) ?>
+</div>
+<?php if ($error !== null): ?>
+<p class="error" role="alert"><?= $e($error) ?></p>
+<?php endif; ?>
+<?php if ($importErrors !== []): ?>
+<section class="error" aria-labelledby="import-errors-h">
+  <h2 id="import-errors-h"><?= $word('ORDER', 'import_failed') ?></h2>
+  <ul>
+<?php foreach ($importErrors as $ie): ?>
+    <li><?= $e($ie) ?></li>
+<?php endforeach; ?>
+  </ul>
+</section>
+<?php endif; ?>
+<?php if (($rejected ?? null) !== null): ?>
+<div class="error" role="status">
+  <p><?= $say('ORDER', 'rejected', (string) $rejected['decision_note'], (string) ($rejected['decided_by_name'] ?? ''), \CW\Ui\Html::day((string) $rejected['decided_at'])) ?></p>
+  <p><?= $word('ORDER', 'rejected_next') ?></p>
+</div>
+<?php endif; ?>
+<?php if ($warnings !== []): ?>
+<ul class="warnings">
+<?php foreach ($warnings as $w): ?>
+  <li><?= $e($w) ?></li>
+<?php endforeach; ?>
+</ul>
+<?php endif; ?>
+<?php if ($companyNote !== null): ?>
+<p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
+<?php endif; ?>
+<?php if ($supplierNeeds !== null): ?>
+<?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
+<?php endif; ?>
+
+<form id="po-form" class="po-editor kg-doc kg-paper" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+<?php if (!$isNew): ?>
+  <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
+  <input type="hidden" name="line_count" value="<?= $e($editable ? count($lines) : 0) ?>">
+  <input type="hidden" name="lines_editable" value="<?php if ($editable): ?>1<?php else: ?>0<?php endif; ?>">
+<?php endif; ?>
+  <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
+  <input type="hidden" name="<?= $e(\CW\Ui\DocGrid::FIELD) ?>" value="<?= $e($grid['newJson']) ?>" data-kg-field>
+  <button type="submit" name="action" value="add" class="po-default" tabindex="-1" aria-hidden="true"><?= $word('ORDER', 'add_button') ?></button>
+  <div class="kg-look" data-kg-look role="alert" hidden></div>
+  <article class="doc-view po-paper" aria-labelledby="lines-h">
+<?= $partial('po_paper_head', $paper) ?>
+  <section class="po-board po-paper-lines" id="scan" aria-labelledby="lines-h">
+    <h2 id="lines-h" class="visually-hidden"><?= $word('ORDER', 'lines') ?></h2>
+    <div data-kg-swap-part="notes">
+<?php if ($unpriced !== null): ?>
+    <p class="note kg-unpriced" role="status"><?= $e($unpriced) ?></p>
+<?php endif; ?>
+<?php if (!$editable): ?>
+    <p class="note"><?= $say('ORDER', 'too_many', $maxLines) ?></p>
+<?php endif; ?>
+    </div>
+<?= $partial('po_paper_lines', ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'lines' => $lines, 'stock' => $stock ?? [], 'state' => $state, 'editable' => $editable, 'grid' => $grid,
+    'gridVat' => $gridVat, 'typed' => $typed, 'q' => $q, 'packs' => $packs, 'pick' => $pick, 'productsUrl' => $productsUrl, 'canAddItem' => $canAddItem, 'askItem' => $askItem]) ?>
+<?php if ($canAddItem): ?>
+    <details class="card po-add" id="po-add-item" data-po-panel data-ni-url="<?= $e(\CW\Ui\Controller\PoAddNew::NEW_ITEM['po']) ?>"<?php if ($supplierFixed): ?> data-supplier="<?= $e($supplierId) ?>"<?php endif; ?><?php if ($itemOpen): ?> open<?php endif; ?>>
+      <summary><?= $word('PO_ADD', 'new_item') ?></summary>
+      <input type="hidden" name="new_item_key" value="<?= $e(\CW\Ui\FormOnce::newKey()) ?>" data-ni-key>
+<?php if ($itemError !== null): ?>
+      <p class="error" role="alert"><?= $e($itemError) ?></p>
+<?php endif; ?>
+<?php if ($itemOther !== null): ?>
+      <p class="note"><?= $say('PO_ADD', 'barcode_other', $itemOther['label']) ?> <button type="submit" name="add_sku" value="<?= $e($itemOther['id']) ?>" class="btn"><?= $word('PO_ADD', 'barcode_use') ?></button></p>
+<?php endif; ?>
+<?php if ($itemSame !== null): ?>
+      <div class="note same-items">
+        <p><strong><?= $word('PO_ADD', 'same_title') ?></strong> <?= $word('PO_ADD', 'same_text') ?></p>
+        <ul class="plain">
+<?php foreach ($itemSame as $s): ?>
+          <li><a href="<?= $u('/ui/items/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?> <button type="submit" name="add_sku" value="<?= $e($s['id']) ?>" class="btn"><?= $word('PO_ADD', 'same_use') ?></button></li>
+<?php endforeach; ?>
+        </ul>
+      </div>
+<?php endif; ?>
+      <label><?= $word('PO_ADD', 'item_name') ?> <input type="text" name="item_name" maxlength="255" autocomplete="off" value="<?= $e($item['name']) ?>"></label>
+      <label><?= $word('PO_ADD', 'item_brand') ?> <input type="text" name="item_brand" maxlength="100" value="<?= $e($item['brand']) ?>"></label>
+      <label><?= $word('PO_ADD', 'item_barcode') ?> <input type="text" name="item_barcode" maxlength="64" inputmode="numeric" autocomplete="off" value="<?= $e($item['barcode']) ?>"></label>
+<?php if ($itemSame !== null): ?>
+      <label class="choice"><input type="checkbox" name="item_anyway" value="1"<?php if ($item['anyway']): ?> checked<?php endif; ?>> <?= $word('PO_ADD', 'same_anyway') ?></label>
+<?php endif; ?>
+      <label><?= $word('PO_ADD', 'item_code') ?> <input type="text" name="item_code" maxlength="64" autocomplete="off" value="<?= $e($item['code']) ?>"></label>
+      <label><?= $word('PO_ADD', 'item_upp') ?> <input type="number" name="item_upp" min="1" max="100000" class="short" value="<?= $e($item['upp']) ?>"></label>
+      <label><?= $word('PO_ADD', 'item_price') ?> <input type="text" name="item_price" inputmode="decimal" class="short" value="<?= $e($item['price']) ?>"></label>
+      <button type="submit" name="action" value="new_item" class="btn"><?= $word('PO_ADD', 'item_button') ?></button>
+    </details>
+<?php else: ?>
+    <p class="hint po-ask"><?= $e($askItem) ?></p>
+<?php endif; ?>
+  </section>
+<?php if ($choices !== null): ?>
+  <section class="choices" aria-labelledby="choices-h">
+    <h2 id="choices-h"><?= $say('ORDER', 'choose', $q) ?></h2>
+    <ul class="plain">
+<?php foreach ($choices as $c): ?>
+      <li>
+<?php if ($c['supplier_item_id'] !== null): ?>
+        <button class="btn" type="submit" name="add_si" value="<?= $e($c['supplier_item_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
+<?php else: ?>
+        <button class="btn" type="submit" name="add_sku" value="<?= $e($c['sku_id']) ?>"><?= $word('ORDER', 'add_button') ?></button>
+<?php endif; ?>
+        <?= $e($c['name']) ?> <span class="muted"><?= $e($c['sku_code']) ?></span><?php if ($c['brand'] !== null): ?> <span class="muted"><?= $e($c['brand']) ?></span><?php endif; ?>
+<?php if ($c['supplier_item_id'] !== null): ?>
+        <span class="tag done"><?= $say('ORDER', 'choice_set_up', (string) ($c['supplier_code'] ?? \CW\Ui\Words::ORDER['choice_no_code']), \CW\Ui\Controller\PurchaseOrdersController::pack((string) $c['purchase_unit'], (int) $c['units_per_pack'])) ?></span>
+<?php else: ?>
+        <span class="tag needs"><?= $word('ORDER', 'choice_new') ?></span>
+<?php endif; ?>
+      </li>
+<?php endforeach; ?>
+    </ul>
+  </section>
+<?php endif; ?>
+<?= $partial('po_paper_foot', ['edit' => true, 'note' => $info['note'], 'lines' => $lines, 'units' => $units, 'totals' => $totals, 'vatLabels' => $vatLabels, 'typed' => $typed]) ?>
+  </article>
+</form>
+<?php if (!$isNew && !$editable): ?>
+
+<form class="upload" id="po-upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines/import') ?>">
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+  <input type="hidden" name="mode" value="replace">
+  <p><a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.xlsx') ?>" download><?= $word('ORDER', 'download_xlsx') ?></a></p>
+  <label><?= $say('ORDER', 'file_label', $maxMb, $maxRows) ?> <input type="file" name="file" required></label>
+  <p class="actions"><button type="submit" class="btn"><?= $word('ORDER', 'import') ?></button></p>
+</form>
+<?php endif; ?>
+<?php if (!$isNew): ?>
+<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'history' => $history]) ?>
+<?php endif; ?>
+<?php else: ?>
 <?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
     'supplier' => $supplier, 'sendVia' => $sendVia, 'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey,
     'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
@@ -89,122 +242,13 @@
 <?php endif; ?>
 
 <article class="doc-view po-paper" aria-labelledby="lines-h">
-  <div class="po-paper-head">
-    <section class="doc-party" aria-label="<?= $e($party['label']) ?>">
-      <p class="doc-label"><?= $e($party['label']) ?></p>
-      <p class="doc-party-name"><a href="<?= $u($party['href']) ?>"><?= $e($party['name']) ?></a></p>
-<?php foreach ($party['lines'] as $line): ?>
-      <p><?= $e($line) ?></p>
-<?php endforeach; ?>
-    </section>
-    <section class="doc-party po-deliver" aria-label="<?= $e($deliverTo['label']) ?>">
-      <p class="doc-label"><?= $e($deliverTo['label']) ?></p>
-      <p class="doc-party-name"><?= $e($deliverTo['name']) ?></p>
-<?php foreach ($deliverTo['lines'] as $line): ?>
-      <p><?= $e($line) ?></p>
-<?php endforeach; ?>
-    </section>
-    <dl class="doc-facts po-dates">
-<?php foreach ($dates as $d): ?>
-      <dt><?= $e($d['label']) ?></dt><dd><?= $e($d['value']) ?></dd>
-<?php endforeach; ?>
-    </dl>
-  </div>
+<?= $partial('po_paper_head', ['edit' => false, 'party' => $party, 'deliverTo' => $deliverTo, 'dates' => $dates]) ?>
   <h2 id="lines-h" class="visually-hidden"><?= $word('ORDER', 'lines') ?></h2>
-<?php if ($lines === []): ?>
-  <p class="muted"><?= $word('ORDER', 'no_lines') ?></p>
-<?php else: ?>
-  <div class="table-wrap">
-  <table class="stack po-lines doc-lines kg-view">
-    <thead>
-      <tr>
-        <th scope="col" class="c-no"><?= $word('DOC_GRID', 'no') ?></th>
-        <th scope="col"><?= $word('ORDER', 'col_item') ?></th>
-        <th scope="col" class="num c-stock"><?= $word('DOC_GRID', 'stock') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'col_ordered') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'col_received') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'col_cost') ?></th>
-        <th scope="col" class="num"><?= $word('ORDER', 'col_line_total') ?></th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($lines as $l): ?>
-      <tr>
-        <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"><?= $e($l['line_no']) ?></td>
-<?php if ($l['kind'] === 'charge'): ?>
-        <th scope="row" class="c-head"><span class="o-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span> <span class="o-sub"><?= $word('ORDER', 'charge') ?> · <?= $e($l['vat_code']) ?></span></th>
-<?= $partial('doc_stock', ['st' => null]) ?>
-        <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"></td>
-        <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"></td>
-<?php else: ?>
-<?php $toCome = in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, (int) $l['qty'] - (int) $l['received_units']) : 0; ?>
-        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span> <span class="o-sub"><?php if (($l['code'] ?? null) !== null && $l['code'] !== ''): ?><?= $e($l['code']) ?> · <?php endif; ?><?= $e($l['pack_label']) ?> · <?= $word('ORDER', 'vat') ?> <?= $e($l['vat_code']) ?></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
-<?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
-        <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"><?= $n($l['qty']) ?><?php if ((int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'packs_of', \CW\Ui\Html::int($l['packs']), (string) $l['pack_label']) ?></span><?php endif; ?></td>
-        <td class="num" data-label="<?= $word('ORDER', 'col_received') ?>"><span class="po-got<?php if ((int) $l['received_units'] >= (int) $l['qty']): ?> done<?php elseif ((int) $l['received_units'] > 0): ?> part<?php endif; ?>"><?= $n($l['received_units']) ?></span><?php if ($toCome > 0 && (int) $l['received_units'] > 0): ?> <?= $chip('needs', \CW\Ui\Words::say('ORDER', 'to_come_pill', \CW\Ui\Html::int($toCome))) ?><?php endif; ?></td>
-<?php endif; ?>
-        <td class="num" data-label="<?= $word('ORDER', 'col_cost') ?>">£<?= $e($l['price']) ?><?php if ($l['kind'] !== 'charge' && (int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'per', (string) $l['pack_label']) ?></span><?php endif; ?></td>
-        <td class="num strong" data-label="<?= $word('ORDER', 'col_line_total') ?>"><?= $e($l['net']) ?></td>
-      </tr>
-<?php endforeach; ?>
-    </tbody>
-  </table>
-  </div>
-<?php endif; ?>
-  <div class="doc-foot">
-    <div class="doc-notes">
-      <p class="doc-label"><?= $word('ORDER', 'note_title') ?></p>
-      <p><?php if ($doc->note !== null && $doc->note !== ''): ?><?= $e($doc->note) ?><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></p>
-    </div>
-<?= $partial('doc_totals', ['label' => \CW\Ui\Words::DOC['totals'], 'rows' => $totalRows]) ?>
-  </div>
+<?= $partial('po_paper_lines', ['edit' => false, 'doc' => $doc, 'lines' => $lines, 'stock' => $stock ?? [], 'state' => $state]) ?>
+<?= $partial('po_paper_foot', ['edit' => false, 'note' => $doc->note, 'totalRows' => $totalRows]) ?>
 </article>
 
-<div class="po-cards">
-<section class="card po-related" aria-labelledby="related-h">
-  <h2 id="related-h"><?= $word('ORDER', 'related') ?></h2>
-<?php if ($related === []): ?>
-  <p class="muted"><?= $word('ORDER', 'no_related') ?></p>
-<?php else: ?>
-  <ul class="plain po-rel-list">
-<?php foreach ($related as $rel): ?>
-<?php if ($rel['href'] === null): ?>
-    <li><span class="po-rel-item"><span class="po-rel-text"><?= $e($rel['text']) ?><?php if (($rel['sub'] ?? null) !== null): ?><span class="o-sub"><?= $e($rel['sub']) ?></span><?php endif; ?></span><?php if (($rel['pill'] ?? null) !== null): ?><?= $chip($rel['tone'], $rel['pill']) ?><?php endif; ?></span></li>
-<?php else: ?>
-    <li><a href="<?= $u($rel['href']) ?>"><span class="po-rel-text"><?= $e($rel['text']) ?><?php if (($rel['sub'] ?? null) !== null): ?><span class="o-sub"><?= $e($rel['sub']) ?></span><?php endif; ?></span><?php if (($rel['pill'] ?? null) !== null): ?><?= $chip($rel['tone'], $rel['pill']) ?><?php endif; ?></a></li>
+<?= $partial('po_cards', ['related' => $related, 'events' => $events, 'history' => $history]) ?>
 <?php endif; ?>
-<?php endforeach; ?>
-  </ul>
-<?php endif; ?>
-</section>
-
-<section class="card po-history" aria-labelledby="history-h">
-  <div class="head-help">
-    <h2 id="history-h"><?= $word('ORDER', 'history_title') ?></h2>
-    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-  </div>
-<?php if ($events === [] && $history === []): ?>
-  <p class="muted"><?= $word('ORDER', 'no_history') ?></p>
-<?php endif; ?>
-<?php if ($events !== []): ?>
-  <ol class="plain po-events">
-<?php foreach ($events as $ev): ?>
-    <li><strong><?= $e($ev['when']) ?></strong> · <?= $e($ev['text']) ?></li>
-<?php endforeach; ?>
-  </ol>
-<?php endif; ?>
-<?php if ($history !== []): ?>
-  <h3 class="doc-label"><?= $word('ORDER', 'history') ?></h3>
-  <ol class="plain checks-history">
-<?php foreach ($history as $h): ?>
-    <li>
-      <p><?= $e($h['asked']) ?> <?= $e($h['why']) ?><?php if ($h['about'] !== null): ?> <?= $e($h['about']) ?><?php endif; ?></p>
-      <p class="muted"><?= $e($h['outcome']) ?><?php if ($h['note'] !== null): ?> "<?= $e($h['note']) ?>"<?php endif; ?></p>
-    </li>
-<?php endforeach; ?>
-  </ol>
-<?php endif; ?>
-</section>
-</div>
 
 <?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

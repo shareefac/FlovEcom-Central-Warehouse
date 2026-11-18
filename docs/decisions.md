@@ -18021,3 +18021,64 @@ a hundred gone rows could hide an away person still shown. The cut-offs of both 
 Round 2's two fixes checked, and the change on top of "drafts anyone may change" (DA1-DA5: setLines without the creator check; the poll's
 `edits` = may post the type, not admin): 0 HIGH, 0 MEDIUM, 0 LOW. The full suite on the rebased branch: Unit 626 OK, UiKernel 678 OK, the
 rest 1,286 OK (83 skipped: the HTTP tests of slot ui, one more than before: `UiSecurityTest::testThePollOfADraftOrderOverHttp`).
+
+## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP8; live drafts step 2; migration 0071, two setting rows)
+
+The owner, 18 Nov 2026, of the read-only order page another buyer saw ("Shareef's window") beside the creator's grey form ("Fazil's"): "I liked
+how it looks on Shareef's window, the design". After DA1 everyone who writes orders gets the editor, so everyone would get the grey form;
+this step makes the editor the paper. The plan: `/root/cw_work/live_drafts_20261118/PLAN_fable.md` sections 2 and 7, step 2. Saving does not
+change (whole form, its version, 409 as DA3); presence (step 3) and saving per box (step 4) come later.
+
+**LP1. One template draws a new order, a draft and a confirmed order.** `purchase_order.php`, split into the paper's parts: `po_paper_head`
+(the supplier, where it delivers, the dates), `po_paper_lines` (the table, the "+ Add product" line, the new line's `<template>`, the grid's
+tools and key hints), `po_paper_line` (one row: read only, a saved line with boxes, or a new line), `po_paper_foot` (the note, the totals) and
+`po_cards` (Related, History). A person who may only look gets the parts as words (`$edit` false), as before; a draft or a new order for
+someone who may post (`doc.PO.post`, DA1) gets them as boxes inside the one editor form
+`form#po-form.po-editor.kg-doc.kg-paper[data-kg-editor]`, which posts the whole page with its version, as `purchase_order_edit.php` did.
+The confirmed page's HTML is the same as before (checked by drawing both from the same data). The order's other pages (the PDF, the lists)
+do not change.
+
+**LP2. The way back: the setting `po.draft_look`** (`paper`, the default, or `form`; migration 0071; `PurchaseOrdersController::draftLook`,
+"paper" while the row is not there). `form` draws drafts and new orders on the old one-page form again, with no deploy; it is kept for one
+release and deleted with the setting at the end of the live-drafts work (plan step 5).
+
+**LP3. The head is the read-only page's.** The title, the Draft chip and the line under it ("UNIVERSAL · started 18 Nov 2026 by Fazil"),
+the bar `po_bar` with the editor's form (`editor`, `.po-edit-bar`): the unseen Add first (Enter is Add, PX7), "Leave without saving", Print,
+Keys (?), More (the draft PDF, Copy, Cancel draft, the lines for Excel and CSV as downloads, the record), Save (Ctrl+S, saved without leaving
+the page) and the main button Confirm order, both sending the typed form (Confirm saves and confirms in one go, as before). Cancel draft
+moved from the summary card to More (`po_action` says "Cancel draft" / "Cancel the draft" for a draft). Related and History stay under the
+paper. A new order (nothing saved): no Print and no More. The supplier invoice keeps `doc_head_bar`.
+
+**LP4. Fazil's powers inside Shareef's columns.** The columns are the paper's: No. (the tick on hover or with the cursor), Item (the name,
+the CW code, then their code, the pack and the VAT on the line under it; a product changed by typing in the name, KG22; items per pack as a
+small box under it for an item not set up with the supplier), Stock, Ordered (the packs box with "3 × box of 10 = 30" under it, worked out
+again as typed: `data-kg-units`, `Words::ORDER['packs_units']`), Unit cost (the pack's price box, "per box of 10"), Line total, and a narrow
+x (on hover, with the cursor, always on a phone). The foot: the note to the supplier as a box, and the totals the grid works out as typed
+(the server's on every save): Total quantity, Products, Total before VAT, a row a VAT code (app.js draws them again in the `dl`, before
+`data-kg-vat-end`), Delivery £ (a charge line on Save, as before), VAT, Total with VAT. Kept unchanged: the product search with "+ New item"
+as its last line, Add row, Add multiple, + New item, Download, the keys (Tab, the arrows, Ctrl/Cmd+Enter, Alt/Option+R, Alt/Option+U,
+Ctrl/Cmd+D, Ctrl/Cmd+S), the key hint line, the supplier box with "+ Add new supplier" and the question when lines move, every
+`data-kg-*` of the grid's contract (docs/dev.md), the save without leaving the page (`[data-kg-swap-part]`: the head is kept for its
+supplier box, its address and the payment terms (`party`, `terms`) follow a supplier changed on Save; Print is shown again after a save
+draws the head).
+
+**LP5. Received is shown from the confirmation on.** A draft has received nothing, so its column is left out (open question 1 of the plan,
+the owner's "yes"); the confirmed page is as before.
+
+**LP6. The boxes (app.css, scoped to `.kg-paper`).** Every figure a person types is a real `<input>` (class `kg-flat`): no edge and no
+background at rest, so it reads like the paper's words; the grey box when the mouse is on it; the white box, the accent edge and a 2 px
+accent ring with the cursor in it. No script swaps text for a box, so the tab order, the labels ("Line 3: Packs"), the grid's contract and
+the form without the script stay. The facts (Expected, Their reference) keep the paper's grey boxes. A touch screen (no hover) shows every
+box grey; a phone has 16 px boxes and the cards of `table.stack`. Every rule is under `.kg-paper` (or the bar's `.po-edit-bar`): the supplier
+invoice (`form.kg-doc`, the same engine) is drawn byte for byte as before, whatever the setting (a test compares its page with
+`po.draft_look` paper and form). No inline style (CSP).
+
+**LP7. One engine still.** app.js has one `docGrid`; it gains the paper's VAT rows (a `dl`) and the pack figures under the packs box, and
+Print is wired again on `kg-swapped`. The JS harness (`run_kg.js`) runs its first part on the old form and on the paper.
+
+**LP8. Tests.** `PoPaperLookScreensTest` (new: another buyer gets the paper with every `data-kg-*`; a viewer gets words; the form without the
+script saves and Confirm takes what is typed; the 409 keeps the new lines typed; a new order is the paper and Cancel draft is under More;
+`po.draft_look = form` gives the old page; the invoice page is the same whatever the look), `UiTemplatesTest::testTheDraftIsThePaperWithItsBoxesInPlace`,
+`UiUnitTest::testThePapersBoxesAreScopedToThePaperAndTheEngineIsStillOne`, `WordsTest::testThePaperSaysItsPackFiguresAndItsSetting`; the
+order tests that pointed at the old form's head bar and summary card point at the paper's bar and More (`PoOnePageScreensTest`,
+`DocKeyGridScreensTest`, `BehaviourItemsTest`), `Migration0010Test` knows the new setting.
