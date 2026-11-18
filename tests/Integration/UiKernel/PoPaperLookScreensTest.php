@@ -185,9 +185,12 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         }
         self::assertSame(1, self::nodes($page, $form . '/input[@type="hidden"][@name="' . DocGrid::FIELD . '"][@data-kg-field]'));
         self::assertSame(1, self::nodes($page, $form . '/div[@data-kg-look][@hidden]'));
-        foreach (['data-kg-add-row', 'data-kg-several-open', 'data-kg-new-item', 'data-kg-delete'] as $tool) {
+        foreach (['data-kg-add-row', 'data-kg-several-open', 'data-kg-delete'] as $tool) {
             self::assertSame(1, self::nodes($page, $form . '//div[contains(@class, "kg-tools")]//button[@' . $tool . '][@hidden]'), $tool);
         }
+        // "+ New item" for who may add an item (items.create), else the line naming whom to ask (as on the old form).
+        self::assertSame(1, self::nodes($page, $form . '//div[contains(@class, "kg-tools")]//button[@data-kg-new-item][@hidden]')
+            + self::nodes($page, $form . '//section[@id="scan"]/p[contains(@class, "po-ask")]'), '+ New item, or whom to ask');
         self::assertSame(1, self::nodes($page, $form . '//p[contains(@class, "kg-keys")]'), 'the key hints');
         self::assertSame(1, self::nodes($page, $form . '//*[@aria-live="polite"]/*[@data-kg-undo-line][@hidden]'));
         self::assertSame(1, self::nodes($page, $form . '//section[@id="scan"]//table[@data-kg-grid]'), 'the save comes back to the lines (#scan)');
