@@ -17890,15 +17890,17 @@ used (step 3b). So a page left open is signed out after the idle limit although 
 session row is written once a minute, not per poll. Everything else of the route (sign-in, access, origin, token) is as for any other.
 
 **LV5. Written only on a change.** Per poll: the settings (one read by primary key), the document (by primary key, the name of who posted or
-cancelled it by primary key), the draft's rows that can still be shown (the index (kind, record_id, seen_at), newest first, at most
-`MAX_ROWS` = 100, each joined to staff_user and staff_session by primary key); each read carries `MAX_EXECUTION_TIME(500)`. Then at most one
+cancelled it by primary key), the draft's rows that can still be shown (the index (kind, record_id, seen_at); the cut-offs of an active
+and an away row applied in SQL before the limit; newest first, at most `MAX_ROWS` = 100; each joined to staff_user and staff_session by
+primary key; `Presence::rowsSql`); each read carries `MAX_EXECUTION_TIME(500)`. Then at most one
 write, the poll's own row, only when its place, state, typing or right to change differ from the row read, or the row is 10 seconds old
 (`Presence::needsWrite`, REFRESH_SECONDS), or it is not among the rows read. One upsert; a row of the same tab held by another session is
 never taken over (each assignment is guarded by the session id). The bound (the Codex review of 50fa425, MEDIUM 3): a page that sends many
 tab ids cannot make every poll of the draft heavy; past a hundred fresh rows the oldest are not seen.
 
-**LV6. Here, away, gone.** Only rows of a session that has not ended (`staff_session.revoked = 0`) and of a person not switched off: a
-session ended any way (a sign-out, a manager's sign-out, a password change, too long idle) leaves at once, and a poll still on its way when
+**LV6. Here, away, gone.** Only rows of a session that has not ended (`Auth\Sessions::liveSql`: not revoked, the second step done, within
+the idle and absolute limits of this request) and of a person not switched off: a session ended any way (a sign-out, a manager's sign-out, a
+password change, past a limit although nothing revoked it yet) leaves at once, and a poll still on its way when
 its session ended writes a row nobody is shown (the Codex review of 50fa425, MEDIUM 2). Shown: an active row seen within `goneAfter()` seconds (live.gone_seconds, 25; never before the person's next poll
 could have written the row: max(poll, alone) + 10 + 5), an away row within 10 minutes (AWAY_SECONDS; away rows have no place and no
 typing). The poller's own tabs are nobody; a person on two tabs is shown once (an active tab first, then the newest). `poll_ms`:
@@ -17946,3 +17948,14 @@ again (up to ten minutes when away). The row now names its session by its whole 
 
 **LV15 (MEDIUM 3).** The poll read every row of the draft. It now reads only the rows that can still be shown, newest first, at most 100,
 by the new index (kind, record_id, seen_at) (LV5). Test: `PresenceTest::testAPollReadsOnlyTheNewestRowsThatCanStillBeShown`.
+
+### The Codex re-check of c1d567d (`presence_20261118/codex_answer_r2.txt`): round 1's three fixed; 2 MEDIUM new, each shown failing first and fixed (LV16-LV17)
+
+**LV16 (MEDIUM 1).** Only a revoked session was left out, but a session past its idle or absolute limit is revoked only at its next request:
+a hidden page's away row stayed shown up to ten minutes after its session ended. The read now joins the session under the full rule of a live
+session (`Sessions::liveSql('s')`, the limits this request already read: no extra query). Test: `PresenceTest::testARowOfASessionPastItsLimitsIsNotShown`.
+
+**LV17 (MEDIUM 2).** The read took the newest hundred rows of the last ten minutes and only then dropped active rows past the gone time, so
+a hundred gone rows could hide an away person still shown. The cut-offs of both states are now in the SQL, before the limit. Test: the end of
+`PresenceTest::testAPollReadsOnlyTheNewestRowsThatCanStillBeShown`.
+

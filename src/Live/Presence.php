@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Live;
 
+use CW\Auth\Sessions;
 use CW\CwException;
 use CW\Db;
 use CW\Settings;
@@ -23,7 +24,7 @@ use CW\Settings;
  *              at most one write: the poll's own row, only when its place, state, typing or right to change the draft differs from the
  *              row read, or the row is REFRESH_SECONDS old or not among those read (needsWrite()).
  *   here       an active row seen within goneAfter() seconds, an away row within AWAY_SECONDS, of a session that has not ended (signed
- *              out, signed out by a manager, a password changed, too long idle) and a person not switched off; the poller's own tabs are
+ *              out, signed out by a manager, a password changed, past the idle or absolute limit) and a person not switched off; the poller's own tabs are
  *              nobody (no "you are here too"); a person on two tabs is shown once (an active tab first, then the newest). Only the
  *              place is shown, never what is typed; nothing personal beyond the display name.
  *   colours    1..COLOURS, decided here so every screen agrees (colours(): over everyone here, the poller too).
@@ -69,16 +70,28 @@ final class Presence
         . 'FROM document d LEFT JOIN staff_user u ON u.id = (CASE d.status WHEN \'cancelled\' THEN d.cancelled_by WHEN \'awaiting_approval\' THEN d.submitted_by '
         . 'ELSE d.posted_by END) WHERE d.id = ?';
     /**
-     * The rows of one draft written within the last ? seconds (the longest a row can still be shown), newest first, with their people and of
-     * sessions not ended (switched-off people and ended sessions left out), and the database's clock.
+     * The rows of one draft that can still be shown, newest first, at most MAX_ROWS (the index (kind, record_id, seen_at)), with their
+     * people and their sessions: switched-off people and ended sessions left out ($live: Auth\Sessions::liveSql('s'), the limits of this
+     * request: not revoked, within the idle and absolute limits), and the database's clock. The parameters: kind, record id, the longest a
+     * row is shown (max(goneAfter, AWAY_SECONDS)), AWAY_SECONDS for an away row, goneAfter for an active one: the cut-offs of isHere() are
+     * applied before the LIMIT, so rows no longer shown never take the place of one that is.
      */
-    public const ROWS_SQL = 'SELECT /*+ MAX_EXECUTION_TIME(' . self::QUERY_MS . ') JOIN_ORDER(p, u, s) INDEX(p ix_draft_presence_record_seen) */ p.tab, p.staff_user_id, p.session_id, p.focus_uid, '
-        . 'p.focus_field, p.state, p.typing, p.edits, p.seen_at, NOW(6) AS db_now, u.display_name FROM draft_presence p '
-        . 'JOIN staff_user u ON u.id = p.staff_user_id AND u.is_active = 1 JOIN staff_session s ON s.id = p.session_id AND s.revoked = 0 '
-        . 'WHERE p.kind = ? AND p.record_id = ? AND p.seen_at > NOW(6) - INTERVAL ? SECOND ORDER BY p.seen_at DESC LIMIT ' . self::MAX_ROWS;
-
-    public function __construct(private readonly Db $db)
+    public static function rowsSql(string $live): string
     {
+        return 'SELECT /*+ MAX_EXECUTION_TIME(' . self::QUERY_MS . ') JOIN_ORDER(p, u, s) INDEX(p ix_draft_presence_record_seen) */ p.tab, p.staff_user_id, '
+            . 'p.session_id, p.focus_uid, p.focus_field, p.state, p.typing, p.edits, p.seen_at, NOW(6) AS db_now, u.display_name FROM draft_presence p '
+            . 'JOIN staff_user u ON u.id = p.staff_user_id AND u.is_active = 1 JOIN staff_session s ON s.id = p.session_id AND ' . $live . ' '
+            . 'WHERE p.kind = ? AND p.record_id = ? AND p.seen_at > NOW(6) - INTERVAL ? SECOND '
+            . "AND (p.state = 'away' AND p.seen_at > NOW(6) - INTERVAL ? SECOND OR p.state = 'active' AND p.seen_at > NOW(6) - INTERVAL ? SECOND) "
+            . 'ORDER BY p.seen_at DESC LIMIT ' . self::MAX_ROWS;
+    }
+
+    private readonly Sessions $sessions;
+
+    /** @param Sessions|null $sessions the request's (Ui\Context::sessions(): the session limits read once), else a new one */
+    public function __construct(private readonly Db $db, ?Sessions $sessions = null)
+    {
+        $this->sessions = $sessions ?? new Sessions($db);
     }
 
     /** A new tab's id (printed in the page; the page sends it with every poll). */
@@ -271,7 +284,7 @@ final class Presence
                 'to' => self::pagePath($kind, $recordId)];
         }
         $gone = self::goneAfter($s);
-        $rows = $this->db->all(self::ROWS_SQL, [$kind, $recordId, max($gone, self::AWAY_SECONDS)]);
+        $rows = $this->db->all(self::rowsSql($this->sessions->liveSql('s')), [$kind, $recordId, max($gone, self::AWAY_SECONDS), self::AWAY_SECONDS, $gone]);
         $now = null;
         $mine = null;
         foreach ($rows as $r) {

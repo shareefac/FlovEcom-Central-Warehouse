@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\Live;
 
+use CW\Auth\Sessions;
 use CW\Caller;
 use CW\Clock;
 use CW\CwException;
@@ -61,6 +62,12 @@ final class PresenceTest extends PurchaseOrderTestCase
         $id = hash('sha256', random_bytes(16));
         self::$db->exec('INSERT INTO staff_session (id, staff_user_id, mfa_at) VALUES (?, ?, NOW(6))', [$id, $who->staffUserId]);
         return $id;
+    }
+
+    /** The read of a draft's rows under the session limits in force (Presence::rowsSql). */
+    private static function rowsSql(): string
+    {
+        return Presence::rowsSql((new Sessions(self::$db))->liveSql('s'));
     }
 
     /** A draft order of $buyer with two lines. */
@@ -333,7 +340,7 @@ final class PresenceTest extends PurchaseOrderTestCase
         $this->beat($a, self::session($a), $d->id, self::TAB_A);
         $this->beat($b, self::session($b), $d->id, self::TAB_B);
         foreach (['a draft' => [Presence::DOCUMENT_SQL, [$d->id]], 'a final order and its poster' => [Presence::DOCUMENT_SQL, [$p->id]],
-            'rows' => [Presence::ROWS_SQL, ['po', $d->id, Presence::AWAY_SECONDS]], 'settings' => [Presence::SETTINGS_SQL, array_keys(Presence::SETTINGS)]] as $what => [$sql, $params]) {
+            'rows' => [self::rowsSql(), ['po', $d->id, Presence::AWAY_SECONDS, Presence::AWAY_SECONDS, 25]], 'settings' => [Presence::SETTINGS_SQL, array_keys(Presence::SETTINGS)]] as $what => [$sql, $params]) {
             self::assertStringStartsWith('SELECT /*+ MAX_EXECUTION_TIME(' . Presence::QUERY_MS . ')', $sql, $what);
             $steps = self::$db->all('EXPLAIN ' . $sql, $params);
             self::assertNotSame([], $steps);
@@ -405,14 +412,54 @@ final class PresenceTest extends PurchaseOrderTestCase
         }
         self::$db->exec('INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_id, state, seen_at) VALUES ' . implode(', ', $values), $params);
         self::$db->exec("UPDATE draft_presence SET seen_at = NOW(6) - INTERVAL 2 SECOND WHERE tab IN (?, 'ccccccccccccccc2')", [self::TAB_A]);
-        self::assertStringEndsWith(' ORDER BY p.seen_at DESC LIMIT ' . Presence::MAX_ROWS, Presence::ROWS_SQL);
+        self::assertStringEndsWith(' ORDER BY p.seen_at DESC LIMIT ' . Presence::MAX_ROWS, self::rowsSql());
         self::assertSame(100, Presence::MAX_ROWS);
-        self::assertSame(100, count(self::$db->all(Presence::ROWS_SQL, ['po', $d->id, Presence::AWAY_SECONDS])), 'the newest hundred');
+        self::assertSame(100, count(self::$db->all(self::rowsSql(), ['po', $d->id, Presence::AWAY_SECONDS, Presence::AWAY_SECONDS, 25])), 'the newest hundred');
         // A's own row is not among them: written all the same (a new seen_at), B is shown once; C, past the hundred, is not seen this time.
         $before = self::row($d->id, self::TAB_A)['seen_at'];
         $answer = $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']);
         self::assertGreaterThan($before, self::row($d->id, self::TAB_A)['seen_at']);
         self::assertSame([$b->staffUserId], array_column($answer['here'], 'id'));
+
+        // The Codex re-check of c1d567d (MEDIUM 2): rows no longer shown never take the place of one that is. B's 150 active rows stopped 30
+        // seconds ago (gone); C is away since a minute: C is read and shown.
+        self::$db->exec("UPDATE draft_presence SET seen_at = NOW(6) - INTERVAL 30 SECOND WHERE staff_user_id = ? AND seen_at > NOW(6) - INTERVAL 100 SECOND",
+            [$b->staffUserId]);
+        self::$db->exec("UPDATE draft_presence SET state = 'away', seen_at = NOW(6) - INTERVAL 60 SECOND WHERE tab = 'ccccccccccccccc2'");
+        self::assertSame([['ccccccccccccccc2', 'away']], array_map(static fn (array $r): array => [$r['tab'], $r['state']],
+            array_values(array_filter(self::$db->all(self::rowsSql(), ['po', $d->id, Presence::AWAY_SECONDS, Presence::AWAY_SECONDS, 25]),
+                static fn (array $r): bool => $r['tab'] !== self::TAB_A))));
+        self::assertSame([[$c->staffUserId, 'away']], array_map(static fn (array $p): array => [$p['id'], $p['state']],
+            $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty'])['here']));
+    }
+
+    /**
+     * The Codex re-check of c1d567d (MEDIUM 1): a session past its idle or absolute limit is ended although nothing revoked it yet (it is
+     * revoked only when it sends its next request): its rows are not shown, an away row as much as an active one.
+     */
+    public function testARowOfASessionPastItsLimitsIsNotShown(): void
+    {
+        $a = $this->staffUser('buyer');
+        $b = $this->staffUser('buyer');
+        [$sa, $sb] = [self::session($a), self::session($b)];
+        $d = $this->draftOrder($a);
+        $this->beat($b, $sb, $d->id, self::TAB_B, ['state' => 'away']);
+        $here = fn (): array => array_column($this->beat($a, $sa, $d->id, self::TAB_A)['here'], 'id');
+        self::assertSame([$b->staffUserId], $here());
+        // B last did something 29 minutes ago (a passive poll since moves nothing): still in; 31 minutes: past the idle limit (30 by default).
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 29 MINUTE WHERE id = ?', [$sb]);
+        self::assertSame([$b->staffUserId], $here());
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE WHERE id = ?', [$sb]);
+        self::assertSame([], $here(), 'past the idle limit, not revoked yet: not shown');
+        self::assertSame(0, (int) self::$db->value('SELECT revoked FROM staff_session WHERE id = ?', [$sb]));
+        // Signed in more than 12 hours ago (the absolute limit by default), however active: not shown.
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6), created_at = NOW(6) - INTERVAL 13 HOUR WHERE id = ?', [$sb]);
+        self::assertSame([], $here());
+        self::$db->exec('UPDATE staff_session SET created_at = NOW(6) - INTERVAL 11 HOUR WHERE id = ?', [$sb]);
+        self::assertSame([$b->staffUserId], $here());
+        // A session whose second step was never done is not a session.
+        self::$db->exec('UPDATE staff_session SET mfa_at = NULL WHERE id = ?', [$sb]);
+        self::assertSame([], $here());
     }
 
     public function testHousekeepingRemovesRowsOlderThanADay(): void

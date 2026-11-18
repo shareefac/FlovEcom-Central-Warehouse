@@ -37,6 +37,6 @@ final class LiveController
         $me = $ctx->me();
         $in = Presence::input($ctx->req->post);
         $edits = Documents::mayPost($me->roles, Presence::KINDS[$kind]['type']);
-        return $ctx->json((new Presence($ctx->db))->beat($kind, $ctx->id(), $me->id, $me->sessionId, $edits, $in));
+        return $ctx->json((new Presence($ctx->db, $ctx->sessions()))->beat($kind, $ctx->id(), $me->id, $me->sessionId, $edits, $in));
     }
 }
