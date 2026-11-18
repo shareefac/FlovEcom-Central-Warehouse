@@ -381,8 +381,9 @@ final class Handovers
     /**
      * What the invoice PDF prints (HandoverPdf), or the refusal: a posted hand-over (or its cancellation) prints the details its posting
      * fixed; a draft prints the details in use now and its lines as they stand. While handovers.pdf_needs_confirmed_company is on, 409
-     * company_not_confirmed when our company's details (as printed) were not confirmed, and 409 vat_code_missing when our company is VAT
-     * registered and no VAT code applies. Off: `banner` says "do not send".
+     * company_not_confirmed when our company's details (as printed) were not confirmed, and 409 vat_code_missing when our company is, or
+     * may be, VAT registered (not "Not VAT registered": "Not known yet" may be confirmed since docs/decisions.md CQ1, and vatFor() charges
+     * VAT then too) and no VAT code applies. Off: `banner` says "do not send".
      *
      * @return array{record: array<string, mixed>, lines: list<array<string, mixed>>, company: array<string, mixed>, buyer: array<string, mixed>, totals: array{net: string, vat: string, gross: string}, vat_code: ?string, vat_rate: ?string, banner: bool, terms: string}
      */
@@ -416,7 +417,9 @@ final class Handovers
             $totals = HandoverMath::totals($lines, $rate);
         }
         $gate = $settings->has('handovers.pdf_needs_confirmed_company') ? (bool) $settings->get('handovers.pdf_needs_confirmed_company') : true;
-        $registered = ($company['vat_registered'] ?? null) === true;
+        // Is, or may be, VAT registered: as HandoverHandler::vatFor() (CQ6). A draft whose VAT code cannot be worked out would otherwise print
+        // "No VAT" for confirmed details whose VAT is "Not known yet" (Codex review of company-optional, round 1).
+        $registered = ($company['vat_registered'] ?? null) !== false;
         if ($gate && !$confirmed) {
             throw new CwException('company_not_confirmed', 'the company details printed on this invoice were not confirmed: the invoice is not printed', 409,
                 ['posted' => $posted]);

@@ -173,6 +173,31 @@ final class HandoversTest extends HandoversTestCase
         self::assertSame('5.00', $this->balances->recordPayment($this->staffUser('purchasing_manager'), $b, '1.00', '2026-10-01', 'X', null, $this->settings())['balance']);
     }
 
+    /**
+     * docs/decisions.md CQ1, CQ6 (Codex review of company-optional, round 1): company details confirmed with VAT "Not known yet" (allowed
+     * since 18 Nov 2026) charge VAT as before (vatFor: only "Not VAT registered" charges none). With no VAT code on the hand-over, the
+     * customer or the company details, a draft's invoice is refused (vat_code_missing), never printed as "No VAT", and it cannot be made
+     * final; with the company's VAT code it charges that VAT and prints no VAT number line (none given).
+     */
+    public function testConfirmedDetailsWithVatNotKnownYetStillNeedAVatCode(): void
+    {
+        $sku = $this->item('legacy', 100);
+        $desk = $this->staffUser('purchasing_desk');
+        $cp = $this->customer('Electrofag Ltd', 'sister');
+        $this->company(true, '', ['vat_registered' => '', 'vat_number' => '', 'company_number' => '']);
+        $company = (new \CW\Company\CompanyDetails(self::$db))->company();
+        self::assertSame([true, null, ''], [$company['confirmed'], $company['vat_registered'], $company['vat_code']]);
+        $draft = $this->draftTo($desk, $cp, [['sku_id' => $sku, 'qty' => 2, 'unit_cost' => '4.00']]);
+        $e = self::refusedWith('vat_code_missing', fn () => $this->handovers->invoice($draft->id, $this->settings()));
+        self::assertSame([409, false], [$e->httpStatus, $e->detail['posted']]);
+        self::refusedWith('vat_code_required', fn () => $this->handovers->post($desk, $draft->id, $draft->version));
+
+        $this->company(true, 'S', ['vat_registered' => '', 'vat_number' => '', 'company_number' => '']);
+        $inv = $this->handovers->invoice($draft->id, $this->settings());
+        self::assertSame([false, 'S', '9.60'], [$inv['banner'], $inv['vat_code'], $inv['totals']['gross']]);
+        self::assertStringStartsWith('%PDF-', HandoverPdf::build($inv));
+    }
+
     public function testTheInvoiceIsRefusedUntilTheCompanyDetailsAreConfirmed(): void
     {
         $sku = $this->item('legacy', 100);
