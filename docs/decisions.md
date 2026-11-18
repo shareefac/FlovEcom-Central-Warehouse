@@ -18082,3 +18082,15 @@ script saves and Confirm takes what is typed; the 409 keeps the new lines typed;
 `UiUnitTest::testThePapersBoxesAreScopedToThePaperAndTheEngineIsStillOne`, `WordsTest::testThePaperSaysItsPackFiguresAndItsSetting`; the
 order tests that pointed at the old form's head bar and summary card point at the paper's bar and More (`PoOnePageScreensTest`,
 `DocKeyGridScreensTest`, `BehaviourItemsTest`), `Migration0010Test` knows the new setting.
+
+### The Codex reviews of look-paper (`lookpaper_20261118/codex_round1.txt` to `codex_round3.txt`; three rounds, the cap)
+- Round 1 (1 HIGH, 3 MEDIUM, 1 LOW): More > Copy on the paper left typed values without the unsaved guard (Copy is a leaving form there;
+  `leaving()` wires a form once and again on `kg-swapped`); "per box of 10" did not follow an item changed in place (`data-kg-per`); OLD: the
+  boxes stayed 13 px / 34 px on a phone (form.kg-doc's 13 px rule is more specific; the paper's phone rule is as specific) and Keys (?) in a
+  head drawn again by a save opened nothing (wired again on `kg-swapped`); LOW: the facts' padding reset made more specific.
+- Round 2 (no HIGH, 4 MEDIUM): a line changed in place takes its new item's pack for its figures (the old items-per-pack box goes out of
+  sight) and says its VAT code again (`data-kg-vat-code`); the figures wrap in a phone's card; OLD: "Add several"'s search box on a phone.
+- Round 3 (no HIGH, 1 MEDIUM): the hidden old box was still one of the grid's boxes (the keys aimed at it): it leaves them. Fixed after the
+  last round; checked by UiUnitTest and the JS harness, not reviewed again (the cap).
+- Codex found no lost field or power of the old form, no nested form, no leak of the paper's CSS to the supplier invoice, no CSP,
+  escaping, permission or form-key problem.
