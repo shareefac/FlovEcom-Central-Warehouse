@@ -2793,8 +2793,8 @@ final class Words
         'approvals.match_multiple' => 'Matches where 1 sale is not 1 product need a second OK',
         'approvals.match_counted' => 'Joining counted products needs a second OK',
         'approvals.company_own_change' => 'Own change of the company details is checked',
-        'approvals.staff_grant' => 'Giving Admin or Reviewer needs a reviewer\'s OK',
-        'approvals.staff_reset' => 'Resetting an Admin\'s or a Reviewer\'s sign-in needs a reviewer\'s OK',
+        'approvals.staff_grant' => 'Giving Admin, Reviewer or People manager needs a reviewer\'s OK',
+        'approvals.staff_reset' => 'Resetting the sign-in of an Admin, a Reviewer or a People manager needs a reviewer\'s OK',
         'staff.setup_max_fails' => 'Wrong tries before a sign-in set-up closes',
         'staff.sign_in_address' => 'Sign-in address',
         'approvals.spot_check_size' => 'Matches in a spot check',
@@ -3447,7 +3447,7 @@ final class Words
         'staff_requests' => [
             'title' => 'Staff access waiting for your OK',
             'unit' => ['waits for you', 'wait for you'],
-            'line' => 'Admin or Reviewer jobs and sign-in resets',
+            'line' => 'Admin, Reviewer or People manager jobs and sign-in resets',
             'button' => 'Open the list',
         ],
         // Review finding I1 (Y45): what an admin did to staff access and the approval rules lately, for the reviewers to look at.
@@ -4084,10 +4084,10 @@ final class Words
         'approvals.match_counted' => 'Joining (or undoing a join of) products whose stock was counted waits for a second matching lead.',
         'approvals.company_own_change' => 'A reviewer who confirms their own change of our name, numbers, purchasing e-mail or delivery address gets another '
             . 'reviewer\'s check afterwards.',
-        'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job, or a job given one of their powers on the Roles and permissions page, '
-            . 'waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
-        'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin or Reviewer, or with a job given one of their '
-            . 'powers on the Roles and permissions page, waits for a reviewer\'s OK. Off: the admin makes it at once.',
+        'approvals.staff_grant' => 'Giving someone the Admin, Reviewer or People manager job, or a job given one of their powers on the Roles and '
+            . 'permissions page, waits for a reviewer\'s OK. Off: the change of an Admin or People manager works at once.',
+        'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin, Reviewer or People manager, or with a job given '
+            . 'one of their powers on the Roles and permissions page, waits for a reviewer\'s OK. Off: the Admin or People manager makes it at once.',
         'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and the Dashboard says so.',
         'staff.sign_in_address' => 'The address staff open to sign in, for example https://warehouse.example.com. The sign-up sheets print it. Leave it empty until you know it.',
         'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
@@ -9964,14 +9964,14 @@ final class Words
             'off' => 'Off: they work at once. Each ticked product is still checked on its own, and the other rules still apply.',
         ],
         'approvals.staff_grant' => [
-            'title' => 'Giving someone Admin or Reviewer',
-            'on' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Nothing changes until then. '
+            'title' => 'Giving someone Admin, Reviewer or People manager',
+            'on' => 'Giving someone the Admin, Reviewer or People manager job waits for a reviewer\'s OK. Nothing changes until then. '
                 . 'So does a job that was given one of their powers on the Roles and permissions page.',
             'off' => 'Off: the admin\'s change works at once.',
         ],
         'approvals.staff_reset' => [
-            'title' => 'Resetting the sign-in of an Admin or a Reviewer',
-            'on' => 'A new sign-in code, a new password or a new sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. '
+            'title' => 'Resetting the sign-in of an Admin, a Reviewer or a People manager',
+            'on' => 'A new sign-in code, a new password or a new sign-up sheet for someone with Admin, Reviewer or People manager waits for a reviewer\'s OK. '
                 . 'So does one for someone whose job was given one of their powers on the Roles and permissions page. '
                 . 'The admin then makes it, once. With only one Reviewer, a reset of that Reviewer is done on the server.',
             'off' => 'Off: the admin makes it at once. The admin still never holds both keys of anybody.',
@@ -10391,9 +10391,9 @@ final class Words
         'staff.sign_out' => 'Signed out by an admin',
         'staff.setup' => 'Set up their sign-in',
         'staff.setup_fail' => 'Sign-in set-up did not work',
-        'staff.role_request' => 'Asked for Admin or Reviewer',
-        'staff.role_request_reject' => 'Request for Admin or Reviewer refused',
-        'staff.role_request_withdraw' => 'Request for Admin or Reviewer withdrawn',
+        'staff.role_request' => 'Asked for Admin, Reviewer or People manager',
+        'staff.role_request_reject' => 'Request for Admin, Reviewer or People manager refused',
+        'staff.role_request_withdraw' => 'Request for Admin, Reviewer or People manager withdrawn',
         'login.ok' => 'Signed in',
         'login.fail' => 'Sign-in did not work',
         'logout' => 'Signed out',
@@ -10989,7 +10989,7 @@ final class Words
         'code_note' => 'This code works only together with their own password, and only once.',
         'account' => 'Account name: %s',
         'done' => 'Done: back to %s',
-        'requested' => 'Admin and Reviewer wait for a reviewer\'s OK. Until then they have these jobs: %s.',
+        'requested' => 'Admin, Reviewer and People manager wait for a reviewer\'s OK. Until then they have these jobs: %s.',
         'no_address' => 'the sign-in page of CW (ask %s for its address)',
         'address_missing' => 'The sign-in address is not set, so sheets cannot print it. Set it on the Settings page: "Sign-in address".',
     ];

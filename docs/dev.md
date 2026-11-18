@@ -245,11 +245,11 @@ Words that are provisional until the owner confirms them (band names, "website p
   never both). Roles: viewer, mapper, mapping_lead, warehouse, manager, admin, buyer, purchasing_manager, goods_in,
   purchasing_desk, stock_controller, reviewer, accountant, auditor, people_manager (`CW\Auth\Permissions`); admin only with viewer,
   accountant, auditor (I12); people_manager (manages people and nothing else, 0069) with any role but admin (PM1-PM7).
-- **Give one job to an existing person** (the People manager on production, PM6):
-  `php bin/grant_role.php --email=<address> --role=<role> [--revoke] [--apply]` (a dry run unless `--apply`; audited `staff.roles` as
-  `system:grant_role`; never takes the power to manage people from the last active person who has it, PM5).
   It prints `password=` (one-time) and `otpauth=` (the TOTP seed as a URI) ONCE on stdout; hand them over on different
   channels. Stored: argon2id hash, `password_must_change = 1`, the seed sealed with `ui_secret_key` (app.env).
+- **Give one job to an existing person** (the People manager on production, PM6):
+  `php bin/grant_role.php --email=<address> --role=<role> [--revoke] [--apply]` (a dry run unless `--apply`; audited `staff.roles` as
+  `system:grant_role`; prints no secret; never takes the power to manage people from the last active person who has it, PM5).
 - **Recover a person**: `php bin/reset_staff.php --email=<address> [--new-password] [--new-totp] [--deactivate | --activate] [--roles=<list>]`
   (never re-create or delete an account; decisions name it). New secrets are printed once; every reset ends the person's sessions.
   `--roles=a,b` replaces the person's roles (stderr `roles: x -> a,b`, audited `staff.roles`; the break-glass when no admin can

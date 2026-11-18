@@ -98,6 +98,33 @@ final class PeopleManagerTest extends KernelUiTestCase
         self::assertTrue(Permissions::can($roles, 'staff.approve'));
     }
 
+    /**
+     * PM4 (Y40-Y44 unchanged): a People manager never holds both sign-in factors of anybody, also not of another People manager, an Admin
+     * or a Reviewer. A new password gives them a set-up code: a new sign-in code waits until that window is over. A new sign-in code
+     * gives them the code app's secret: a new password waits until the person has used it with their own password. Someone who has
+     * set up their sign-in never gets a new sign-up sheet.
+     */
+    public function testAPeopleManagerNeverHoldsBothSignInFactorsOfAnybody(): void
+    {
+        $as = Caller::staff($this->uiUser(['people_manager', 'buyer'])['id']);
+        $svc = new StaffAdmin(self::$appDb);
+        foreach (['people_manager', 'admin', 'reviewer'] as $job) {
+            $a = $this->uiUser($job);
+            $pw = $svc->resetPassword($as, $a['id']);
+            self::assertSame('done', $pw['result'], $job);
+            self::assertNotNull($pw['setup_code']);
+            self::refused(409, 'setup_open', fn () => $svc->resetAuthenticator($as, $a['id'], self::$box));
+            self::refused(409, 'already_set_up', fn () => $svc->newSheet($as, $a['id'], self::$box));
+
+            $b = $this->uiUser($job);
+            $code = $svc->resetAuthenticator($as, $b['id'], self::$box);
+            self::assertSame('done', $code['result'], $job);
+            self::assertNotNull($code['secret']);
+            self::refused(409, 'code_reset_open', fn () => $svc->resetPassword($as, $b['id']));
+            self::refused(409, 'already_set_up', fn () => $svc->newSheet($as, $b['id'], self::$box));
+        }
+    }
+
     public function testOnlyAnAdminOrAPeopleManagerManagesPeople(): void
     {
         $svc = new StaffAdmin(self::$appDb);
