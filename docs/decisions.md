@@ -2247,7 +2247,10 @@ saves the page's old values over it; when lines were added or removed meanwhile 
 again. A form refused for another reason (a scan not added, a line refused) is drawn again on the desk stamp and version of the page it
 was typed on (a form made by hand without a stamp: none), so a change made meanwhile is still caught at the next save; the purchase
 order's and the supplier invoice's editors do the same with the version after a refusal that saved nothing (the Codex reviews, rounds 2
-and 3).
+and 3). Round 4: "they arrived now" is never drawn back after a conflict (it was ticked against the arrival drawn then); a refused form
+says at once which checks typed on it cannot be drawn again, their line removed meanwhile ("What you typed on line 2 is not shown again:
+that line was removed meanwhile."); the page's values, version and stamps are of one moment (a save landing while the page is drawn
+makes it draw itself again).
 An arrival time sent back as drawn is not written again (the desk stamp moves only when something of the keyer's part really changed). A save that went through before "make it final" found the draft changed
 again says so ("Your changes were saved, but Fazil changed this draft again at 14:32 before it was made final. ...").
 

@@ -571,6 +571,100 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
     }
 
     /**
+     * The Codex review of the draft-anyone branch, round 4, finding 1: the page's values, version and stamps are of one moment. A colleague's
+     * save landing while the page is being drawn (here: between reading the note and taking the desk stamp) makes the page draw itself again,
+     * so a form never carries old values under a newer stamp, and sending it back unchanged never saves them over the colleague's.
+     */
+    public function testThePageIsDrawnFromOneMomentWhenAColleagueSavesMeanwhile(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'One Moment Ltd');
+        $coil = self::makeSku('One moment coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 2, 'units_per_pack' => 5, 'pack_price' => '3.00']], 'OM-1');
+        $svc = $this->receipts();
+        $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['note' => 'note B'], array_values($svc->lines($id)));
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $done = false;
+        $colleague = function (string $sql) use (&$done, $svc, $deskUser, $id): void {
+            if (!$done && str_contains($sql, 'SELECT external_ref, note FROM document WHERE id = ?')) {
+                $done = true; // the desk stamp is about to be taken: the colleague's save lands now, on the test's own connection
+                $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['note' => 'note C'], array_values($svc->lines($id)));
+            }
+        };
+        self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\StatementHook::class, [\Closure::fromCallable($colleague)]]);
+        try {
+            $page = $gi->get("/ui/receiving/{$id}");
+        } finally {
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($done, 'the colleague saved while the page was drawn');
+        $f = self::onePage($page, $id);
+        self::assertSame(['note C', (string) self::docVersion($id)], [$f['note'] ?? null, $f['version']], 'the page as it is after the colleague\'s save');
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['action' => 'save'] + $f);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('note C', self::$db->value('SELECT note FROM document WHERE id = ?', [$id]), 'never note B over note C');
+    }
+
+    /**
+     * Round 4, finding 2: "they arrived now" goes with the arrival details it was ticked against. A colleague corrects the arrival meanwhile:
+     * the conflict draws their arrival and no tick, so the next save keeps their correction.
+     */
+    public function testTheyArrivedNowIsNotKeptOverAColleaguesArrival(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Arrived Now Ltd');
+        $coil = self::makeSku('Arrived now coil');
+        $this->card($coil, false);
+        $uk = new \DateTimeZone('Europe/London');
+        $svc = $this->receipts();
+        $d = $svc->createDraft(Caller::staff($deskUser['id']), (int) $s['id'], ['invoice_number' => 'AN-1', 'backdate_reason' => 'keyed from the invoice',
+            'received_at' => (new \DateTimeImmutable('now', $uk))->modify('-2 days')->format('Y-m-d') . ' 09:00']);
+        $svc->saveDraft(Caller::staff($deskUser['id']), $d->id, $d->version, [], [['sku_id' => $coil, 'packs' => 1, 'units_per_pack' => 5, 'pack_price' => '3.00']]);
+        $id = $d->id;
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $f = self::onePage($gi->get("/ui/receiving/{$id}"), $id);
+        // The colleague corrects the arrival to another past day.
+        $corrected = (new \DateTimeImmutable('now', $uk))->modify('-3 days')->format('Y-m-d') . ' 10:00';
+        $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['received_at' => $corrected], array_values($svc->lines($id)));
+        $stored = (string) self::$db->value('SELECT received_at FROM goods_receipt WHERE document_id = ?', [$id]);
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['arrived_now' => '1', 'action' => 'save'] + $f);
+        self::assertSame(409, $r->status, $r->describe());
+        $g = self::onePage($r, $id);
+        self::assertArrayNotHasKey('arrived_now', $g, 'the tick is not drawn back over the colleague\'s arrival');
+        self::assertSame(ReceivingController::local($stored), $g['received_at'] ?? null);
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['action' => 'save'] + $g);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame($stored, (string) self::$db->value('SELECT received_at FROM goods_receipt WHERE document_id = ?', [$id]), 'the colleague\'s arrival kept');
+    }
+
+    /**
+     * Round 4, finding 3: a refusal for another reason (here "Book in" with text still in the scan box) says which typed checks it cannot draw
+     * again because their line was removed meanwhile, at once, before the page's line count is the new one.
+     */
+    public function testARefusalSaysWhichTypedChecksItCannotDrawAgain(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Lost Check Ltd');
+        [$a, $b] = [self::makeSku('Lost check coil A'), self::makeSku('Lost check coil B')];
+        $this->card($a, false);
+        $this->card($b, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $a, 'packs' => 1, 'units_per_pack' => 5, 'pack_price' => '3.00'],
+            ['sku_id' => $b, 'packs' => 1, 'units_per_pack' => 5, 'pack_price' => '3.00']], 'LC-1');
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $f = self::onePage($gi->get("/ui/receiving/{$id}"), $id);
+        // The colleague removes line 2 meanwhile.
+        $svc = $this->receipts();
+        $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), [], array_slice(array_values($svc->lines($id)), 0, 1));
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['b_2_damaged' => '1', 'q' => 'still typed', 'action' => 'post'] + $f);
+        self::assertSame(422, $r->status, $r->describe());
+        self::assertStringContainsString(Words::say('DRAFT', 'lost_checks', 'line 2'), $r->text());
+    }
+
+    /**
      * Two older gaps the Codex review of d18e699 named, closed on the owner's word (GV17): only the person who keyed a delivery cancels it (the
      * screens offered it to them only; the service now refuses anyone else), and a booked-in delivery's page shows no price or value to
      * someone who does not read money (goods in).

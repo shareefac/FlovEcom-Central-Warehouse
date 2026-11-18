@@ -98,7 +98,8 @@ final class ReceivingController
 
     /**
      * What a form refused as changed meanwhile draws back (stale(), lines()): the line checks ("All fine" included), the paperwork and the bench
-     * note, the new lines typed in the grid (they name their item: KG6), never a keyer's field (the details, each line's packs, price, order line, selling mode, note) nor the stamp and version of the page,
+     * note, the new lines typed in the grid (they name their item: KG6), never a keyer's field (the details, each line's packs, price, order
+     * line, selling mode, note), "they arrived now" (it was ticked against the arrival drawn then) nor the stamp and version of the page,
      * and no check of a line whose product or quantity changed, nor any when lines were added or removed. Returns them and those lines.
      *
      * @param array<string, mixed> $typed
@@ -120,7 +121,8 @@ final class ReceivingController
         $sameLines = count($svc->lines($id)) === $count;
         $kept = array_filter($typed, static function ($k) use ($moved, $sameLines): bool {
             $k = (string) $k;
-            if (str_starts_with($k, 'line_') || in_array($k, self::KEYER_HEADER_FIELDS, true) || $k === 'stamp' || $k === 'version') {
+            // "They arrived now" goes with the arrival it was ticked against (the Codex review, round 4): never drawn back over another arrival.
+            if (str_starts_with($k, 'line_') || in_array($k, self::KEYER_HEADER_FIELDS, true) || $k === 'stamp' || $k === 'version' || $k === 'arrived_now') {
                 return false;
             }
             if (str_starts_with($k, 'b_') && !$sameLines) {
@@ -129,6 +131,31 @@ final class ReceivingController
             return preg_match('/^b_([0-9]+)_/', $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
         }, ARRAY_FILTER_USE_KEY);
         return [$kept, $sameLines ? $moved : [], !$sameLines];
+    }
+
+    /**
+     * The lines a refused form typed checks on that the delivery no longer has (removed meanwhile): a line's answers sent back other than as
+     * its row drew them, or "All fine" pressed on it (withFine() first). The page drawn again cannot show them (lostChecks: onePage()).
+     *
+     * @param array<string, mixed> $typed
+     * @param array<int, array<string, mixed>> $lines the delivery's lines now, by line number
+     * @return list<int>
+     */
+    private static function lostChecks(array $typed, array $lines): array
+    {
+        $lost = [];
+        foreach (array_keys($typed) as $k) {
+            if (preg_match('/^b_([1-9][0-9]{0,4})_present$/D', (string) $k, $m) !== 1 || isset($lines[(int) $m[1]])) {
+                continue;
+            }
+            $no = (int) $m[1];
+            [, $fp] = array_pad(explode('.', (string) ($typed["b_{$no}_was"] ?? ''), 2), 2, '');
+            if (!hash_equals(self::answersFp(self::answersFrom($typed, $no, array_key_exists("b_{$no}_duty", $typed))), $fp)) {
+                $lost[] = $no;
+            }
+        }
+        sort($lost);
+        return $lost;
     }
 
     /** The delivery's details on the one page that are the keyer's part (saveDraft), drawn back after a refusal from what was typed. */
@@ -1676,6 +1703,22 @@ final class ReceivingController
         $new = $keyer ? DocGrid::read($typed[DocGrid::FIELD] ?? null, GoodsReceipts::MAX_LINES, false) : [];
         $gridBad = is_string($extra['gridBad'] ?? null) ? (string) $extra['gridBad'] : null;
         $sentKey = (string) ($typed[FormOnce::FIELD] ?? '');
+        // A refused form drawn again says at once which checks typed on it cannot be drawn again, their line removed meanwhile (the Codex review
+        // of the draft-anyone branch, round 4): before this page's line count replaces the one it was typed on, so it is never lost unsaid.
+        // (After the conflict itself, checksOnly() and conflict() have said it.)
+        if ($typed !== [] && !$conflict && $error !== null) {
+            $lost = self::lostChecks(self::withFine($typed, $ctx->req), $all);
+            if ($lost !== []) {
+                $data['error'] = trim((string) $data['error'] . ' ' . Words::say('DRAFT', 'lost_checks', ReceiptPlan::lineList($lost)));
+            }
+        }
+        // The page's values, its version and its stamps are of one moment (round 4): page() read the delivery, its lines and its header, the
+        // stamps were taken since; a save that landed meanwhile moved the version, and the page is drawn again (at most twice more), so a form
+        // never carries older values under a newer stamp.
+        $deskStamp = $keepDrawn ? (is_string($typed['stamp'] ?? null) ? $typed['stamp'] : '') : $svc->deskStamp($doc->id);
+        if ((int) $db->value('SELECT version FROM document WHERE id = ?', [$doc->id]) !== $doc->version && (int) ($extra['redrawn'] ?? 0) < 2) {
+            return $this->page($ctx, $doc->id, $status, $error, $notice, ['redrawn' => (int) ($extra['redrawn'] ?? 0) + 1] + $extra);
+        }
         return $ctx->page('receipt_edit', $data + [
             'fixes' => $refusedPost && $plan !== null ? self::fixes($plan, $rows, $backdateField, $doc->id) : [],
             'keyer' => $keyer,
@@ -1698,7 +1741,7 @@ final class ReceivingController
             // typed on: its keyer's values are that page's, so a change by someone else since is still a conflict at the next save, never
             // saved over (the Codex review of the draft-anyone branch, round 2; DA3). After the conflict, the page as it is now.
             // (A form made by hand sent no stamp: none, so any change of the keyer's part since is a conflict: the Codex review, round 3.)
-            'stamp' => $keepDrawn ? (is_string($typed['stamp'] ?? null) ? $typed['stamp'] : '') : $svc->deskStamp($doc->id),
+            'stamp' => $deskStamp,
             'formVersion' => $keepDrawn ? (int) UiRequest::id((string) $typed['version']) : $doc->version,
             'benchWas' => $benchWas,
             'invWas' => $invWas,

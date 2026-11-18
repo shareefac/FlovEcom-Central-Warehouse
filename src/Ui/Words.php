@@ -3622,6 +3622,8 @@ final class Words
             . 'are kept. Make your other changes again, then save.',
         'conflict_checks_you' => 'You changed this draft at %s in another tab or window. Nothing was saved: here it is as it is now, with your line checks '
             . 'kept. Make your other changes again, then save.',
+        // A form refused for another reason, drawn again without the lines removed meanwhile that it typed checks on (%s: "line 2").
+        'lost_checks' => 'What you typed on %s is not shown again: that line was removed meanwhile.',
         // ... and when lines were added or removed meanwhile (then nothing typed on the lines is drawn back).
         'lines_changed' => 'Lines were added or removed meanwhile, so nothing you typed on the lines is shown again: check them again.',
         // The delivery's page drawn again with what was typed, except on the lines another person's save changed (%s: "line 3", "lines 2 and 5").
