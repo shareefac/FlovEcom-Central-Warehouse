@@ -161,14 +161,20 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertContains("/ui/receiving/{$id}", $bl->hrefs());
         $bv = $bench->get("/ui/receiving/{$id}");
         self::assertSame(200, $bv->status, $bv->describe());
-        // Received (GoodsReceived.dc.html, docs/decisions.md RD-B5): the packs, the items they make under them.
-        self::assertSame(['3', Words::say('GI', 'ordered_items', '15')], [trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/text()[1])')),
+        // Received (GoodsReceived.dc.html, docs/decisions.md RD-B5): the packs (a box for the bench person too since DA1), the items they make
+        // under them.
+        self::assertSame(['3', Words::say('GI', 'ordered_items', '15')], [(string) ($bv->form("/ui/receiving/{$id}/lines", true)['line_1_packs'] ?? ''),
             trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/span[@class="o-sub"])'))], '3 boxes of 5');
         $bf = $bv->form("/ui/receiving/{$id}/lines", true);
         self::assertArrayHasKey('b_1_duty', $bf);
-        $notMine = $bench->post("/ui/receiving/{$id}/lines", ['csrf' => $this->token($bench), 'action' => 'save'] + $page->form('/lines'));
-        self::assertSame(403, $notMine->status, 'only the desk person who keyed it changes its lines');
-        self::assertStringContainsString(Words::RECEIPT_ERROR['not_creator'], $notMine->text());
+        // Anyone who receives goods changes a keyed delivery's lines and details too (docs/decisions.md DA1; the owner, 18 Nov 2026): the bench
+        // person has the keyer's fields, and the desk's whole form sent by them is saved.
+        self::assertSame('3', $bf['line_1_packs'] ?? null, 'the keyer\'s fields for the bench person too');
+        $theirs = $bench->post("/ui/receiving/{$id}/lines", ['csrf' => $this->token($bench), 'action' => 'save'] + $page->form('/lines'));
+        self::assertSame(303, $theirs->status, $theirs->describe());
+        self::assertSame((int) self::$db->value('SELECT created_by FROM document WHERE id = ?', [$id]), (int) self::$db->value(
+            "SELECT staff_user_id FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'grn.create'", [(string) $id]), 'still its keyer\'s');
+        $bf = $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true);
         $saved = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '1', 'b_1_duty' => 'digital', 'b_1_damaged' => '2', 'action' => 'save'] + $bf);
         self::assertSame("/ui/receiving/{$id}?notice=saved#line-1", $saved->location(), $saved->describe());
         $stale = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '0', 'b_1_damaged' => '3', 'action' => 'save'] + $bf);

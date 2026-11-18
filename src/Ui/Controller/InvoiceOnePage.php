@@ -993,7 +993,10 @@ final class InvoiceOnePage
             'problems' => $problems,
             // How it would match if it were made final now (pack C's 3-way match, PC2), in one line above the lines.
             'match' => $doc !== null && $lines !== [] ? InvoicesController::matchView($si->matchOf($id), false) : null,
-            'error' => $error === null ? null : InvoicesController::plain($error),
+            'changes' => $id === null ? null : DocumentsController::changes($db, $id), // who started it and who changed it (DA2)
+            // Someone's save after this page was drawn: who and when (DA3); the new lines typed are kept (KG6).
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict' && $id !== null
+                ? DocumentsController::conflictText($ctx, $id, InvoicesController::plain($error), 'kept') : InvoicesController::plain($error)),
             'errorCode' => $error?->errorCode,
             'problemsOfError' => $error !== null && is_array($error->detail['problems'] ?? null) ? array_map(static fn (array $p): string => InvoicesController::problemText($p),
                 $error->detail['problems']) : [],
@@ -1134,9 +1137,12 @@ final class InvoiceOnePage
         return $choice['label'] === $q ? ['si' => $choice['si'], 'sku' => $choice['sku'], 'choice' => $choice] : $none;
     }
 
-    /** Whether this person is the draft's creator who may change it (the one page); others get the saved document's view. */
+    /**
+     * Whether this person may change the draft (the one page): anyone allowed to post its type, not only the person who started it
+     * (docs/decisions.md DA1); others get the saved document's view.
+     */
     public static function editable(Context $ctx, Document $doc): bool
     {
-        return $doc->status === 'draft' && Documents::mayPost($ctx->me()->roles, $doc->docType) && $doc->createdBy === $ctx->me()->id;
+        return $doc->status === 'draft' && Documents::mayPost($ctx->me()->roles, $doc->docType);
     }
 }

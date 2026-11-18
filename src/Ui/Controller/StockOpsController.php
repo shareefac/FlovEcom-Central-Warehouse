@@ -25,7 +25,7 @@ use CW\Ui\Words;
  * The stock records' screens (pack A1; docs/decisions.md SO10-SO11): Stock › Stock In, Stock Out, Adjustments, Transfers (and its
  * Releases segment). One controller for the five kinds; each kind has its list (a board grouped by status, v4: Search, Filter,
  * Export), its create form (FormOnce: one draft however often it is sent) and one page per record: the details and the products while
- * it is a draft (its creator changes it: a product by barcode, CW number or name, its units, a cost or the agreed price, a reason per
+ * it is a draft (anyone who may post its type changes it, DA1: a product by barcode, CW number or name, its units, a cost or the agreed price, a reason per
  * adjustment line), its files, "make it final" (Documents: a reviewer's OK first when a rule asks), stop it, cancel it once final (a
  * new record that puts everything back), take it back while it waits, the reviewer's decide box (the generic record page's), its
  * history, and the transfer note or release invoice as a PDF.
@@ -667,7 +667,7 @@ final class StockOpsController
     }
 
     /**
-     * The grid of the creator's draft: its stored lines, or what a refused form sent (drawn over the version it was drawn with, OV9). A line whose
+     * The grid of a draft (anyone's who may post it, DA1): its stored lines, or what a refused form sent (drawn over the version it was drawn with, OV9). A line whose
      * reason is the one for every line says "Same as above".
      *
      * @param list<array<string, mixed>> $lines
@@ -700,7 +700,7 @@ final class StockOpsController
     }
 
     /**
-     * What stock_adjust_grid draws. $docId: the creator's draft (null: a new adjustment): its editor's mark and address, for a save without leaving
+     * What stock_adjust_grid draws. $docId: the draft (null: a new adjustment): its editor's mark and address, for a save without leaving
      * the page (docs/decisions.md AJ4); page() adds the notice and whether the refusal was a version conflict.
      *
      * @param array<string, mixed> $form
@@ -830,7 +830,8 @@ final class StockOpsController
         $doc = Document::fromRow($rec);
         $type = $ctx->documents()->typeInfo($doc->docType);
         $canPost = Documents::mayPost($me->roles, $doc->docType);
-        $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Anyone who may post records of its type changes a draft, not only the person who started it (docs/decisions.md DA1).
+        $editable = $doc->status === 'draft' && $canPost;
         $lines = $ops->lines($id);
         $tasks = DocumentsController::tasks($ctx->db, $id);
         $open = null;
@@ -880,13 +881,13 @@ final class StockOpsController
             'totalRows' => array_merge([['label' => Words::STOCK_OPS['units'], 'value' => number_format($units)]],
                 $priced ? [['label' => Words::STOCK_OPS['total'], 'value' => Html::money($total), 'grand' => true]] : []),
             'editable' => $editable,
-            'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
             'form' => self::form($kind, $choices, $extra['header'] ?? null, $rec),
             'reasons' => $choices['reasons'],
             'version' => $doc->version,
             'decide' => DocumentsController::decideBox($ctx, $doc, $tasks, $type, null),
             'waiting' => $open !== null,
             'history' => DocumentsController::history($tasks),
+            'changes' => DocumentsController::changes($ctx->db, $id),
             'canWithdraw' => $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && !$doc->isReversal(),
             'reverse' => $doc->status === 'posted' && !$doc->isReversal() && $reversedBy === null && $canPost
                 ? ['reasons' => $ctx->db->all("SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 "
@@ -913,7 +914,13 @@ final class StockOpsController
             'editLines' => $page['lines'],
             'linesPager' => $page['pager'],
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $doc->docType . '.post'),
-            'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
+            // Someone's save after this page was drawn: who and when (DA3); the adjustment's grid keeps what it held (AJ6).
+            'error' => match (true) {
+                $error === null => null,
+                $error->errorCode === 'version_conflict' => DocumentsController::conflictText($ctx, $id, self::plain($error), $grid !== null ? 'kept' : 'save'),
+                ($extra['notFinal'] ?? false) === true => Words::notFinal(self::plain($error)),
+                default => self::plain($error),
+            },
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
     }

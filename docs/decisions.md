@@ -2130,7 +2130,8 @@ columns of the base. What a type does is its `DocumentHandler` (validate, approv
 - **Who may write a draft (not in the spec):** drafting, posting, cancelling and reversing need `doc.<TYPE>.post`; a
   caller holding admin is refused first (403 `admin_cannot_post`, I12; also for an admin set that only admin SQL can
   write); system and channel callers get 403 `staff_required`; roles are re-read inside the transaction (an inactive
-  person: 403 `staff_not_allowed`). **A draft's header and lines are changed only by its creator** (403 `not_creator`);
+  person: 403 `staff_not_allowed`). **A draft's header and lines are changed only by its creator** (403 `not_creator`;
+  **replaced by DA1, 18 Nov 2026**: anyone allowed to post the type changes it);
   anyone allowed to post the type may post or cancel it. The review rule excludes the creator, the submitter and the
   poster, so a third person who could edit the lines could otherwise write a document's content and then review it.
 - **Generic checks at posting** (again, a draft may be days old): at least one line (422 `no_lines`); header and line
@@ -2191,6 +2192,65 @@ the type's rule asks for one.
   not opened by them, not on a document they created, submitted or posted); the queue lists every open task, oldest
   first, with the due date and an overdue flag, and says why for the ones the person may not decide.
 - **Limits** (10 units for CNT/WO reviews and ADJ approvals; 3 review days, 7 for PO) are placeholders until decision 11.
+
+**DA1. A draft is changed by anyone allowed to work on that kind of record, not only by the person who started it** (the owner,
+18 Nov 2026, seeing a draft purchase order Fazil had started open read-only for him, "Only Fazil can change the products of this draft":
+"no that is not how should be. anyone who have access should be able to edit it."). It replaces the creator-only rule of a draft's
+content (I17's "who may write a draft", I52, I53, I126, GV3's keyer-only lines, CT's opener-only count sheet). Why: that rule existed for
+the review (I19 excludes the creator, the submitter and the poster, so a third person who could edit a draft could write its content and
+then review it); the owner has switched every second-person check off (every `document_type` review_rule and approval_rule is `none`, the
+`approvals.*` switches false; his standing rule: no second-person steps in CW, one person doing the work is enough), and a draft stuck with
+someone who is away stops the work.
+- **Who:** the permission needed to start or post that kind of draft (`doc.<TYPE>.post`; never admin, I12) is the permission to change
+  any draft of it and to make it final: its header and lines (`Documents::updateDraft` / `setLines` and every service on them: stock
+  records, supplier invoices and credit notes and their timed posting, returns, hand-overs), a purchase order (`PurchaseOrders`: save,
+  add, import, new supplier, new item), a keyed delivery's details and lines (`GoodsReceipts`: save, add, copy from the order, import), a
+  count sheet's quantities, items, "post as counted" and its posting (`CountSheets`). No job that could not touch a kind of record gets
+  anything new: each check is the one that starting it needs, read again in the same transaction; there is no `not_creator` any more.
+- **Kept:** `created_by` stays the person who started it ("Started by"; Home's "your drafts" counts still count the drafts the person
+  started); every save is audited under the person who saved (DA2); the version check (DA3); cancelling a delivery stays its keyer's
+  (GV17, GV22: DA5); withdrawing an approval request stays the requester's (I19; approvals are off); the reviewer's refusal
+  (`refusalFor`, reviews are off: DA5).
+- **The screens:** everyone allowed gets the edit page its starter gets (no "only the person who started it" note): the stock record's
+  and hand-over's one page, the return's, the supplier invoice's one page, the purchase order's editor, the count sheet's entry form and
+  its "Before it is final", the delivery's one page with the keyer's fields for everyone who receives goods (copy and import too; a
+  scanned code of a line still finds that line, the bench's way; "they arrived now" is offered beside the arrival time when it says an
+  earlier day, I170). Someone whose job does not keep that kind still only looks.
+- Tests (red first: `runs/draftany_red_main_code.log`): `DocumentLifecycleTest::testWhoMayDraftAndPostAndWhatADraftTakes`,
+  `DraftAnyoneScreensTest` (new), and the tests that asserted `not_creator`, changed to the new rule (the report names them).
+
+**DA2. The record says who changed it.** Each save already writes an audit row under the person who saved (`actor`,
+`staff_user_id`); `Documents\DraftChanges` reads them (its `STARTED` and `CHANGED` actions: a new action that changes a draft is added to
+`CHANGED`) for the record's **History of changes** (`doc_changes`, `DocumentsController::changes()`): "Started by Fazil, 14:30",
+"Changed by Shareef, 14:32" (UK time, `Html::clock`; one entry for a person's saves in the same minute; the newest 30, then "Earlier
+changes: N more."), on every draft's page and after it is final: stock records, hand-overs, returns, supplier invoices (both pages),
+purchase orders (the editor and the order's page), deliveries (the one page and the read-only page), count sheets, the generic record
+page. A count sheet's entries are audited now (`count.enter` with the lines changed and their quantities, at most 50 named; `count.add`;
+`count.as_counted`): before, a quantity named only the last person who entered it (`counted_by`), so a second person's count left no
+trace of the first.
+
+**DA3. A save drawn before someone else's is refused naming them.** The version check (409 `version_conflict`) on whole-draft saves is
+kept. The services add who saved the draft last and when (`changed_by_id`, `changed_by`, `changed_at` in UTC: `DraftChanges::conflict`,
+in `Documents`, `PurchaseOrders` and `GoodsReceipts`); the screens say it (`DocumentsController::conflictText()`): "Fazil changed this
+draft at 14:32 while you were editing. Your changes were not saved: reload to see theirs." (the coordinator's words), "You changed this
+draft at 14:32 in another tab or window. ..." when it was the same person, the delivery's and the supplier invoice's page "... here it is
+as it is now, with what you typed. Check it and save again.", the count sheet's "Before it is final" "... It was not made final: look at
+their changes, then make it final.". Only while the record is a draft (a later step of a posted record keeps its own words); when CW
+knows no change, the page's old words. The goods-in bench's own conflict (GV4's stamps) keeps its words.
+
+**DA4. Live presence is not built here.** Who has a draft open now (like Google Sheets) is a second step, designed separately. Nothing
+here makes it harder: it would read the same version and `DraftChanges`.
+
+**DA5. Open questions for the owner.**
+- If reviews are ever switched on again: should a person who changed a draft (not only its creator, its submitter and its poster, and
+  on a delivery its bench checker and the person who set its invoice) be barred from checking it? Today `refusalFor` reads `created_by`,
+  `submitted_by`, `posted_by` (and a delivery's `grn.bench` / `grn.invoice` audit rows: I133, I172), so someone who only changed it may
+  review it; not changed here, as reviews are off. The same for the approval limit of "stock put back without a supplier document"
+  (I37): it adds up the same person's day by `created_by`.
+- A delivery is cancelled by its keyer only (GV17, the owner's word of 29 Oct; GV22): with DA1 anyone who receives goods changes it and
+  books it in, but only its keyer cancels it. Should anyone who receives goods cancel it too?
+- A supplier invoice timed by one person (`submit_by`) and changed by another afterwards is made final by the job as the person who timed
+  it (their posting). Should a change by someone else take the time off, or move it to them?
 
 **I20. Number series: continuous per prefix, gapless.** `number_series(prefix, last_no, pad)`, one per type, no yearly
 reset: the year end is undecided (decision 13), a calendar reset would split a financial year anyway, there is no New Year
@@ -2786,7 +2846,7 @@ rounding to 8 decimals first turns 0.0499 / 99,999 = 0.000000499 into 0.000001 (
 **I52. The PurchaseOrders service as built (spec §6.3).**
 - Every write: a staff caller holding `doc.PO.post` (never admin), roles re-read inside the transaction, ONE
   `Db::transaction`, the document row locked first and its version checked and moved; a draft changed only by its creator
-  (403 `not_creator`); anyone allowed to post POs may approve or cancel another's draft (the document base's rule).
+  (403 `not_creator`; replaced by DA1: any buyer changes it); anyone allowed to post POs may approve or cancel another's draft (the document base's rule).
 - `saveDraft` moves the version by 2 (`updateDraft`, then `setLines`, as the spec says). The supplier changes only while the
   draft has no lines (409 `supplier_has_lines`). A line without a supplier item is linked automatically to the supplier's
   active supplier item of that item and pack when one exists; `save_item` creates it (needs `suppliers.manage`: buyers and
@@ -2821,7 +2881,7 @@ rounding to 8 decimals first turns 0.0499 / 99,999 = 0.000000499 into 0.000001 (
 
 **I53. The screens (spec §8.1, §8.3).** Purchase orders is a live menu item (`purchasing.view`). The list (filters state,
 supplier, number / supplier's reference, rejected at review; cancellation documents only with `show=all`; CSV) carries the
-"New purchase order" form (FormOnce). The **editor** (the draft's creator only; anyone else gets the read-only view) is one
+"New purchase order" form (FormOnce). The **editor** (the draft's creator only, until DA1 gave it to every buyer; anyone else gets the read-only view) is one
 form whose first fields are `version`, `line_count` and `lines_editable`; the first submit button is **Add**, so Enter in the
 scan box adds the line and saves every edit in the table in one transaction; packs 0 removes a line; a charge is added below
 the lines; fewer `line_<n>_packs` fields than `line_count` is 400 `form_truncated` (PHP drops fields past `max_input_vars`);
@@ -4823,7 +4883,8 @@ serves the editor and the bench view (what posting would do and every problem, b
 
 **I126. Who keys, who checks, who posts (provisional, owner to confirm with decision 3).** `doc.GRN.post` (goods_in,
 purchasing_desk, purchasing_manager: I16) drafts, does the bench check and posts. A draft's header and lines are changed only by
-its creator (the document base's rule, I17; 403 `not_creator`, the bench is told to use the bench view); the bench findings by
+its creator (the document base's rule, I17; 403 `not_creator`, the bench is told to use the bench view; replaced by DA1: anyone holding
+`doc.GRN.post` changes them); the bench findings by
 anyone holding `doc.GRN.post`, the creator included ("it can be the same person", plan IM6); posting by anyone holding it. Admin
 never (I12). The bench check is part of every receipt: posting needs "supplier and paperwork credible" answered, and refuses a
 "not credible" (the delivery is refused and the receipt cancelled). Who reads: `receiving.view` (I141).
@@ -13168,7 +13229,8 @@ once the keyer no longer holds `doc.GRN.post` (another job) or is switched off, 
 (the purchasing manager's permissions; no role name in the code, and never admin, who never drafts or posts) cancels the draft, with the
 required reason as always; the audit row `grn.cancel` records `for_keyer` (the keyer's staff id) beside the reason. While the keyer can still
 receive, the purchasing manager is refused like anyone else (403 `not_keyer_cancel`, whose words now say who else can). The page shows
-Cancel under More to them only then (`GoodsReceipts::mayCancel()`, the same rule; copy and import stay the keyer's).
+Cancel under More to them only then (`GoodsReceipts::mayCancel()`, the same rule; copy and import stay the keyer's: since DA1 anyone's
+who receives goods; cancel still the keyer's).
 `testAKeyerWhoCanNoLongerReceiveLeavesTheDraftToThePurchasingManager`.
 
 ### The coordinator's phone check of 349dc13 (Chrome, 400 px wide; branch `gi-fixes2`, its next commit, GV23-GV25)

@@ -32,7 +32,7 @@ use CW\StockOps\StockOps;
  * when the supplier's invoice of that delivery charged duty on its own line.
  *
  * Every write: a staff caller allowed to post DN (doc.DN.post, never admin), ONE transaction, the document row locked and its version
- * checked by Documents, a draft changed only by its creator.
+ * checked by Documents, a draft changed by anyone allowed to post DN, not only its creator (docs/decisions.md DA1).
  */
 final class SupplierReturns
 {

@@ -35,9 +35,11 @@ use DateTimeImmutable;
  * and only the counted lines.
  *
  * Every write: a staff caller allowed to post stock counts (doc.CNT.post, never admin; roles re-read inside the transaction), ONE
- * transaction (joining an open one), the document row locked first. A draft sheet is changed and posted only by the person who
- * opened it (the document base's rule for a draft, I19: its lines become the record's lines). Each change moves the document's
- * version, so the page "Before you post" is refused when a quantity changed after it was drawn (409 version_conflict).
+ * transaction (joining an open one), the document row locked first. A draft sheet is changed and posted by anyone who counts, not only
+ * the person who opened it (docs/decisions.md DA1; the owner, 18 Nov 2026: "anyone who have access should be able to edit it"): each
+ * quantity names who entered it (counted_by), each change is audited under its person (count.enter, count.add, count.as_counted: the
+ * sheet's history of changes, DraftChanges), and the sheet stays its opener's (created_by). Each change moves the document's version,
+ * so the page "Before you post" is refused when a quantity changed after it was drawn (409 version_conflict).
  *
  * "Warn first" (the module plan's decision 6): a line whose stock moved after it was counted is shown with what moved
  * (differences()), and the posting is refused until the person either counts it again (recount(): the line is empty again) or
@@ -54,6 +56,8 @@ final class CountSheets
     /** The largest quantity a line takes (the engine's own bound). */
     public const MAX_QTY = Documents::MAX_QTY;
     public const STATES = ['draft', 'posted', 'reversed', 'cancelled'];
+    /** The most lines one count.enter audit row names with their quantities (an upload enters up to MAX_LINES; `changed` says how many). */
+    public const AUDIT_LINES = 50;
     /** The columns an upload needs (any others are ignored). */
     public const UPLOAD_COLUMNS = ['cw_code', 'counted'];
     /** The most rows an upload's lists show of each kind (the counts are always whole). */
@@ -116,7 +120,7 @@ final class CountSheets
 
     /**
      * Puts one more item on a draft sheet (the scan box's offer), with what the system holds now. An item already on it is not
-     * added again (`added` false, its line). Opener only.
+     * added again (`added` false, its line). Anyone who counts (DA1); audit count.add.
      *
      * @return array{line_no: int, added: bool}
      */
@@ -138,6 +142,7 @@ final class CountSheets
             $db->exec('INSERT INTO count_sheet_line (document_id, line_no, sku_id, expected_qty, added_at) VALUES (?, ?, ?, ?, ?)',
                 [$id, $no, $skuId, $this->onHand((int) $row['warehouse_id'], [$skuId])[$skuId] ?? 0, $at]);
             $this->touch($id, $at);
+            Audit::write($db, $caller, 'count.add', 'document', (string) $id, null, ['line' => $no, 'sku_id' => $skuId]);
             return ['line_no' => $no, 'added' => true];
         });
     }
@@ -147,8 +152,8 @@ final class CountSheets
      * quantity is the one it already holds is left alone (it keeps the moment it was counted: a whole page saved again changes only
      * what changed). A changed line takes as the moment it was counted its own time in $times (the moment its box was filled in), else
      * $countedAt, else now; the caller as who entered it; and it loses its "post as counted" mark. A time of $times may not be after now
-     * nor before the line was put on the sheet (422 bad_count_time, nothing saved). Opener only. 422 bad_quantity, 422 unknown_line.
-     * Returns how many lines changed.
+     * nor before the line was put on the sheet (422 bad_count_time, nothing saved). Anyone who counts (DA1); audit count.enter (the lines
+     * changed, each with its quantity: at most AUDIT_LINES of them named). 422 bad_quantity, 422 unknown_line. Returns how many lines changed.
      *
      * @param array<int, ?int> $quantities
      * @param array<int, DateTimeImmutable> $times line number => the moment its box was filled in
@@ -179,6 +184,7 @@ final class CountSheets
                 $added[(int) $l['line_no']] = (string) $l['added_at'];
             }
             $changed = 0;
+            $entered = [];
             foreach ($quantities as $no => $qty) {
                 $no = (int) $no;
                 if (!array_key_exists($no, $have)) {
@@ -200,15 +206,19 @@ final class CountSheets
                         . 'WHERE document_id = ? AND line_no = ?', [$qty, $own === null ? $at : Clock::db($own), $caller->staffUserId, Clock::db($now), $how, $id, $no]);
                 }
                 $changed++;
+                if (count($entered) < self::AUDIT_LINES) {
+                    $entered[(string) $no] = $qty;
+                }
             }
             if ($changed > 0) {
                 $this->touch($id, Clock::db($now));
+                Audit::write($db, $caller, 'count.enter', 'document', (string) $id, null, ['how' => $how, 'changed' => $changed, 'lines' => $entered]);
             }
             return $changed;
         });
     }
 
-    /** "Count it again" (warn first): the line is empty again; the next quantity entered is a new count, made now. Opener only. */
+    /** "Count it again" (warn first): the line is empty again; the next quantity entered is a new count, made now. Anyone who counts. */
     public function recount(Caller $caller, int $id, int $lineNo): void
     {
         $this->setQuantities($caller, $id, [$lineNo => null]);
@@ -217,7 +227,7 @@ final class CountSheets
     /**
      * "Count the marked lines again" (too many count times; review M-2, 14 Oct 2026): every line the plan marks (CountPosting: the lines
      * that started the earliest count times) is empty again, worked out again inside the transaction. Counted again close together, they
-     * share one time and the sheet fits. Opener only. Returns how many lines were emptied (0: nothing is marked).
+     * share one time and the sheet fits. Anyone who counts. Returns how many lines were emptied (0: nothing is marked).
      */
     public function recountForTimes(Caller $caller, int $id): int
     {
@@ -237,7 +247,7 @@ final class CountSheets
      * "Post it as counted" (warn first): the person saw what moved after the line was counted and wants the count booked as it is
      * (the engine takes dispatches after the count off it, and overwrites anything else: its own review then says what). $seen is the
      * newest movement the page showed; when it is not the newest there is now (something moved since the page was drawn, or the form
-     * was made by hand), nothing is marked (409 moved_since: look again). Opener only.
+     * was made by hand), nothing is marked (409 moved_since: look again). Anyone who counts; audit count.as_counted.
      */
     public function postAsCounted(Caller $caller, int $id, int $lineNo, int $seen): void
     {
@@ -259,12 +269,13 @@ final class CountSheets
             $at = Clock::db($now);
             $db->exec('UPDATE count_sheet_line SET ack_ledger_id = ?, ack_at = ? WHERE document_id = ? AND line_no = ?', [$seen, $at, $id, $lineNo]);
             $this->touch($id, $at);
+            Audit::write($db, $caller, 'count.as_counted', 'document', (string) $id, null, ['line' => $lineNo, 'seen' => $seen]);
         });
     }
 
     /**
-     * Posts a draft sheet at the version the page was drawn with: its counted lines become the record's lines (Documents::setLines:
-     * opener only) and the record is posted (Documents::post; CountSheetHandler validates and books through the count engine), in one
+     * Posts a draft sheet at the version the page was drawn with: its counted lines become the record's lines (Documents::setLines: anyone
+     * who counts) and the record is posted (Documents::post; CountSheetHandler validates and books through the count engine), in one
      * transaction: a refusal leaves the sheet exactly as it was. 422 nothing_counted when every line is empty. An upload never posts.
      */
     public function post(Caller $caller, int $id, int $version): Document
@@ -461,7 +472,7 @@ final class CountSheets
      * lines only; nothing is added, nothing is posted). $countedAt: when the quantities were counted (default: now); not after now (not
      * even by a minute: review M-6, 14 Oct 2026, CT12) and not older than the engine takes (400 bad_counted_at). Rows that cannot be
      * read are skipped and reported, the rest is filled.
-     * Opener only. Audit count.upload.
+     * Anyone who counts (DA1). Audit count.upload.
      *
      * @return array<string, mixed> readUpload()'s report with applied true and `filled`
      */
@@ -671,8 +682,8 @@ final class CountSheets
     }
 
     /**
-     * lockSheet() for a change of a draft: the caller may count (doc.CNT.post, never admin), the sheet is still a draft (409
-     * not_draft) and the caller opened it (403 not_creator).
+     * lockSheet() for a change of a draft: the caller may count (doc.CNT.post, never admin) and the sheet is still a draft (409 not_draft).
+     * Anyone who counts, whoever opened it (DA1).
      *
      * @return array<string, mixed>
      */
@@ -683,9 +694,6 @@ final class CountSheets
         if ($row['status'] !== 'draft') {
             throw new CwException('not_draft', 'this sheet is ' . str_replace('_', ' ', (string) $row['status']) . ': only a sheet that is still open is changed', 409,
                 ['status' => $row['status']]);
-        }
-        if ($row['created_by'] === null || (int) $row['created_by'] !== $caller->staffUserId) {
-            throw new CwException('not_creator', 'only the person who opened a count sheet enters and posts it', 403);
         }
         return $row;
     }

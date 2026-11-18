@@ -91,9 +91,12 @@ final class ArrivalsTest extends ArrivalsTestCase
         $this->invoices->cancel($desk, $d->id, $d->version, 'Keyed twice');
         self::assertNull($this->invoices->record($d->id)['submit_at']);
         self::assertSame([], $this->job()->runDue($now->modify('+2 hours'))['posted']);
-        // Only the person who keys the draft times it.
+        // Anyone who keeps invoices times a draft someone else keyed (docs/decisions.md DA1): the timed posting is theirs (submit_by).
         $y = $this->invoiceOfOrder($desk, $buyer, (int) $s['id'], 2);
-        $this->refusedCode('not_creator', fn () => $this->invoices->schedule($this->staffUser('purchasing_desk'), $y['doc']->id, $y['doc']->version, $now->modify('+1 hour')));
+        $other = $this->staffUser('purchasing_desk');
+        $t = $this->invoices->schedule($other, $y['doc']->id, $y['doc']->version, $now->modify('+1 hour'));
+        self::assertSame([$desk->staffUserId, $other->staffUserId], [$t->createdBy, (int) self::$db->value('SELECT submit_by FROM supplier_invoice WHERE document_id = ?', [$t->id])]);
+        $this->refusedCode('role_not_allowed', fn () => $this->invoices->schedule($buyer, $y['doc']->id, $t->version, null));
     }
 
     public function testAFailedTimedPostingIsListedAlertedAndNotTriedAgain(): void

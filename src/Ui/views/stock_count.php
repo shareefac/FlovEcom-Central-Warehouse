@@ -1,6 +1,6 @@
 <?php
 // One count record (docs/decisions.md CT1-CT5, CT14; the approved design CT_Sheet and CT_Phone of 29 Oct 2026: CV5-CV8). An open sheet,
-// for the person who opened it: the status block in its heading (Counting), where and who on one line (a blind count says so), and
+// for anyone who counts (DA1; not only the person who opened it): the status block in its heading (Counting), where and who on one line (a blind count says so), and
 // "N of M counted" with its bar at the head's right; the big scan box; its lines 50 a page as a board (the shared .doc-board): the item,
 // what CW holds (never on a blind count, CV8), the big number box and "Saved hh:mm" (the line's own count time) or "Not yet". A
 // quantity is saved when Enter is pressed in its box (the form's first button is the hidden Save; only the lines changed on the page are
@@ -21,9 +21,6 @@
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
-<?php endif; ?>
-<?php if ($notOpener): ?>
-<p class="note read-only"><?= $word('COUNTS', 'not_opener') ?></p>
 <?php endif; ?>
 
 <?php if (!$editable): ?>
@@ -251,3 +248,5 @@
   </form>
 </details>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

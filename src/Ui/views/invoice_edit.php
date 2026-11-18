@@ -4,7 +4,7 @@
 // columns (the supplier, the supplier's number, the dates, "From"), the lines with their headings (each edited in place with its remove;
 // the last row adds a line: the order page's item box with "+ Add new item"), a charge, the notes and the file on the left and the totals
 // on the right, the bar at the bottom (leave, Save as draft, Save and make final). A new invoice ($isNew: nothing saved, the form posts to
-// the list's address with a FormOnce key) or its creator's draft (the form posts to /lines with its version and line count first). One
+// the list's address with a FormOnce key) or a draft, for anyone who keeps invoices: DA1 (the form posts to /lines with its version and line count first). One
 // form; Enter is Add (its first button). The supplier is the order page's plain select that app.js makes the site's one dropdown (SM11),
 // ending with "+ Add new supplier"; "From" is a plain select of every open delivery and order, each naming its supplier, that the script
 // narrows to the chosen supplier's. A draft's timed option, how its goods come in and "Stop" are forms of their own after this one (pack J,
@@ -389,3 +389,5 @@ $rowNo = 0;
   </form>
 </details>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

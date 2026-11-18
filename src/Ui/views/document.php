@@ -177,6 +177,8 @@
 <?php endif; ?>
 </section>
 
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>
+
 <section aria-labelledby="history-h">
   <h2 id="history-h"><?= $word('RECORD', 'history') ?></h2>
 <?php if ($history === []): ?>

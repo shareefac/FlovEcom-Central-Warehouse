@@ -29,7 +29,7 @@ use CW\Ui\Queries;
  *
  * Every write: a staff caller allowed to post that type (doc.<TYPE>.post, never admin; roles re-read inside the transaction by
  * Documents), ONE transaction (joining an open one), the document row locked and its version checked by Documents, a draft changed
- * only by its creator. The posting's rules are the handler's (StockOpHandler::validate): this service refuses early what it can see
+ * by anyone allowed to post its type, not only its creator (docs/decisions.md DA1). The posting's rules are the handler's (StockOpHandler::validate): this service refuses early what it can see
  * when a draft is saved, with the same codes.
  */
 final class StockOps
@@ -102,7 +102,7 @@ final class StockOps
     }
 
     /**
-     * Changes a draft's header (the keys given; '' or null clears an optional one). Creator only (Documents::updateDraft). Version + 1.
+     * Changes a draft's header (the keys given; '' or null clears an optional one). Anyone allowed to post its type (Documents::updateDraft, DA1). Version + 1.
      *
      * @param array<string, mixed> $header
      */
@@ -128,7 +128,7 @@ final class StockOps
     /**
      * Replaces every line of a draft: [{sku_id, qty, unit_cost?, reason_code?, description?}]. A quantity in units: above zero, but
      * signed on an adjustment (+ found, - lost); a unit cost only on a stock in or an adjustment's + line, the agreed price on a release;
-     * a reason only on an adjustment's lines (a stock in or out has the header's). At most MAX_LINES lines. Creator only. Version + 1.
+     * a reason only on an adjustment's lines (a stock in or out has the header's). At most MAX_LINES lines. Anyone allowed to post its type (DA1). Version + 1.
      *
      * @param list<array<string, mixed>> $lines
      */

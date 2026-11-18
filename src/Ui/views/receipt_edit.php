@@ -2,8 +2,9 @@
 // One delivery on ONE page as the approved GoodsReceived.dc.html draws it (docs/decisions.md RD-B5; before it GV2-GV7): the editor and
 // the goods-in bench together, for everyone who receives goods while it is not booked in. The head: the list's link above the title, the
 // delivery with its status pill, one line under it (the supplier, its order, how many lines are checked and how many have a problem),
-// More at its right (its keyer's: copy the order, import the sheet, cancel). The details (three columns, one on a phone): the keyer's
-// supplier, order and arrival time, then the delivery note, the supplier's invoice number and the paperwork answer for everyone; the
+// More at its right (copy the order, import the sheet; cancel: its keyer's, GV17). Everyone on it has the keyer's fields since 18 Nov 2026
+// (docs/decisions.md DA1: anyone who receives goods changes a delivery not booked in yet). The details (three columns, one on a phone): the
+// supplier, order and arrival time (with "they arrived now" when it says an earlier day), then the delivery note, the supplier's invoice number and the paperwork answer for everyone; the
 // rarely used fields in "More details". A big scan box over the lines (Enter adds, or with the script finds the line). The lines: item,
 // expected, received (the artboard's "Counted": the keyer's packs in, the items they make under it), the check as a pill, then the
 // line's own answers: the duty stamp (a select in its pill) and "All fine" (the counted tick with no problem: a submit button without
@@ -125,6 +126,10 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endif; ?>
 <?php if ($keyer): ?>
     <label class="doc-field"><?= $word('GI', 'arrived') ?> <input type="datetime-local" name="received_at" value="<?= $e($typed['received_at'] ?? $receivedLocal) ?>"></label>
+<?php if (!$receivedToday): ?>
+    <?php // The bench's "they arrived now" (I170), for everyone on this page since anyone who receives goods has these fields (DA1). ?>
+    <label class="choice doc-field"><input type="checkbox" name="arrived_now" value="1"<?php if (($typed['arrived_now'] ?? '') === '1'): ?> checked<?php endif; ?>> <?= $say('BENCH', 'arrived_now', $receivedDay) ?></label>
+<?php endif; ?>
 <?php else: ?>
     <div class="doc-field"><span class="gi-label"><?= $word('GI', 'arrived') ?></span><span class="gi-fixed"><?= $when($gr['received_at'] ?? null) ?></span>
 <?php if (!$receivedToday): ?>
@@ -411,3 +416,5 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?= $partial('doc_bar', ['back' => '/ui/receiving', 'note' => $left, 'noteData' => ['gi-left' => (string) ($count - $progress['checked']), 'one' => \CW\Ui\Words::GI['left_one'],
     'many' => \CW\Ui\Words::GI['left_many'], 'none' => \CW\Ui\Words::GI['left_none']], 'buttons' => $buttons]) ?>
 </form>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

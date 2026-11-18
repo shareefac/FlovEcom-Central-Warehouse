@@ -241,6 +241,25 @@ final class WordsTest extends TestCase
         }
     }
 
+    /** A draft anyone allowed may change (docs/decisions.md DA1-DA5): who changed it and when, in plain words; no "only its creator" left. */
+    public function testADraftSaysWhoChangedItAndWhen(): void
+    {
+        // The coordinator's sentence of 18 Nov 2026, word for word.
+        self::assertSame('Fazil changed this draft at 14:32 while you were editing. Your changes were not saved: reload to see theirs.',
+            Words::say('DRAFT', 'conflict', 'Fazil', '14:32'));
+        self::assertSame('Changed by Fazil, 14:32', Words::say('DRAFT', 'changed', 'Fazil', '14:32'));
+        self::assertSame('Started by Shareef, 17 Nov, 09:05', Words::say('DRAFT', 'started', 'Shareef', '17 Nov, 09:05'));
+        foreach (['conflict_you', 'conflict_kept', 'conflict_kept_you', 'conflict_final', 'conflict_final_you', 'changes', 'earlier'] as $code) {
+            self::assertTrue(Words::has('DRAFT', $code), $code);
+        }
+        foreach (['STOCK_OPS', 'STOCK_ERROR', 'BUY_ERROR', 'RECEIPT_ERROR', 'COUNT_ERROR', 'HANDOVER'] as $g) {
+            self::assertFalse(Words::has($g, 'not_creator'), "{$g}: a draft is no longer one person's");
+        }
+        self::assertFalse(Words::has('ORDER', 'only_creator'));
+        self::assertFalse(Words::has('ORDER', 'only_creator_look'));
+        self::assertFalse(Words::has('COUNTS', 'not_opener'));
+    }
+
     public function testJobsAndWhoMayOpenAPage(): void
     {
         self::assertSame('Admin · Matching lead (off) · Reviewer (off)', Words::roles(['admin', 'mapping_lead', 'reviewer']));

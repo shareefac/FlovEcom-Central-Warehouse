@@ -56,7 +56,9 @@ final class PoSelectOrAddTest extends PurchaseOrderTestCase
         $r = $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $d->version, ['name' => 'Switched To Ltd']);
         self::assertSame([(int) $r['supplier']['id'], 'draft'], [(int) $this->poRow($d->id)['supplier_id'], $r['supplier']['status']]);
         self::refused(409, 'version_conflict', fn () => $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $d->version, ['name' => 'Stale Ltd']));
-        self::refused(403, 'not_creator', fn () => $this->pos->setNewSupplier($this->staffUser('buyer'), $this->sup, $d->id, $r['document']->version, ['name' => 'Other Ltd']));
+        // Another buyer puts a new supplier on it too (docs/decisions.md DA1): the draft stays its creator's.
+        $r = $this->pos->setNewSupplier($this->staffUser('buyer'), $this->sup, $d->id, $r['document']->version, ['name' => 'Other Ltd']);
+        self::assertSame([(int) $r['supplier']['id'], $buyer->staffUserId], [(int) $this->poRow($d->id)['supplier_id'], $r['document']->createdBy]);
         // With products (the owner, 6 Nov 2026: "also in draft and new easily supplier change option"; docs/decisions.md KG30; before it,
         // this test said the supplier was fixed): the new supplier goes on it and its products stay, each a line of its item and price.
         $sku = self::makeSku('Kept supplier pod');

@@ -92,7 +92,7 @@ final class PoAddNew
     /** A refusal of "+ Add new supplier" in words: the order's own (the draft's rules), else the supplier's. */
     public static function plainSupplier(CwException $e): string
     {
-        return in_array($e->errorCode, ['supplier_has_lines', 'not_draft', 'not_creator', 'version_conflict', 'role_not_allowed', 'admin_cannot_post'], true)
+        return in_array($e->errorCode, ['supplier_has_lines', 'not_draft', 'version_conflict', 'role_not_allowed', 'admin_cannot_post'], true)
             ? PurchaseOrdersController::plain($e) : SuppliersController::plain($e);
     }
 

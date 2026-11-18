@@ -40,7 +40,7 @@
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
 <?php endif; ?>
 <?php if ($doc->status === 'draft'): ?>
-<p class="note read-only"><?php if ($canPost): ?><?= $say('ORDER', 'only_creator', (string) $people['created']) ?><?php else: ?><?= $say('ORDER', 'only_creator_look', (string) $people['created']) ?><?php endif; ?></p>
+<p class="note read-only"><?= $say('ORDER', 'draft_look', (string) $people['created']) ?></p>
 <?php endif; ?>
 
 <?php foreach ($decide as $d): ?>
@@ -206,3 +206,5 @@
 <?php endif; ?>
 </section>
 </div>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

@@ -1,7 +1,7 @@
 <?php
 // A return to a supplier (docs/decisions.md W9.6; the owner's approved designs of 29 Oct 2026). Its number with its status as a solid block
 // and the action bar at the head's right (return_bar), the decide box when a check waits, the figures strip (units going back, lines, the
-// claim, the credit). Its creator's draft is the one-page form (PI_New): the details in two columns, the lines board, the add row, the files
+// claim, the credit). A draft is the one-page form (PI_New) for anyone who keeps returns (DA1): the details in two columns, the lines board, the add row, the files
 // on the left and the claim on the right, the bar at the bottom ("Leave without saving", "Save the lines", "Make the return final"). Any
 // other return is the record page (PO_View): the paper card (the supplier's block beside the facts, the lines, the files and the claim),
 // its credit notes, its history. Every form posts what and where it did.
@@ -19,9 +19,6 @@
 <?= $partial('decide_box', ['decide' => $decide]) ?>
 <?php elseif ($waiting): ?>
 <p class="muted"><?= $word('RECORD', 'waiting') ?></p>
-<?php endif; ?>
-<?php if ($notCreator): ?>
-<p class="note read-only"><?= $word('STOCK_OPS', 'not_creator') ?></p>
 <?php endif; ?>
 <?php if ($problems !== []): ?>
 <ul class="warnings problems">
@@ -295,6 +292,8 @@
 <?php endif; ?>
 </section>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

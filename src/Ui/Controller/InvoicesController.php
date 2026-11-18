@@ -634,9 +634,10 @@ final class InvoicesController
         $doc = Document::fromRow($rec);
         $type = $ctx->documents()->typeInfo($doc->docType);
         $canPost = Documents::mayPost($me->roles, $doc->docType);
-        $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Anyone allowed to post its type changes a draft, not only the person who started it (docs/decisions.md DA1).
+        $editable = $doc->status === 'draft' && $canPost;
         if ($editable && $kind === 'invoice') {
-            // The supplier invoice on one page (docs/decisions.md PV3): its creator's draft is the same page as a new invoice; what a
+            // The supplier invoice on one page (docs/decisions.md PV3): a draft is the same page as a new invoice; what a
             // refused form of another route typed comes back in it.
             $typed = ($extra['typed'] ?? []) + ($extra['header'] ?? []) + ($extra['add'] ?? []);
             return (new InvoiceOnePage())->editPage($ctx, $id, $status, $error, $notice, ['typed' => $typed] + $extra);
@@ -720,7 +721,6 @@ final class InvoicesController
             'storedMatch' => $isInvoice && $doc->status === 'posted' && $original ? (string) $rec['match_state'] : null,
             'problems' => $editable ? $si->problems($id) : [],
             'editable' => $editable,
-            'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
             'version' => $doc->version,
             'form' => self::form($rec, $extra['header'] ?? null),
             'deliveries' => $editable && $isInvoice ? array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'label' => Words::say('INVOICES', 'delivery_choice',
@@ -734,6 +734,7 @@ final class InvoicesController
             'decide' => DocumentsController::decideBox($ctx, $doc, $tasks, $type, $rec['gross_total'] === null ? null : (string) $rec['gross_total']),
             'waiting' => $open !== null,
             'history' => DocumentsController::history($tasks),
+            'changes' => DocumentsController::changes($ctx->db, $id),
             'canWithdraw' => $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && $original,
             'reverse' => $doc->status === 'posted' && $original && $reversedBy === null && $canPost && !$erpCopy
                 ? ['reasons' => $ctx->db->all("SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 "
@@ -760,7 +761,8 @@ final class InvoicesController
             'typedStop' => (string) ($extra['stop'] ?? ''),
             'typedAccept' => (string) ($extra['typedAccept'] ?? ''),
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $doc->docType . '.post'),
-            'error' => $error === null ? null : self::plain($error),
+            // Someone's save after this page was drawn: who and when (DA3).
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict' ? DocumentsController::conflictText($ctx, $id, self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
             'problemsOfError' => $error !== null && is_array($error->detail['problems'] ?? null) ? array_map(static fn (array $p): string => self::problemText($p),
                 $error->detail['problems']) : [],

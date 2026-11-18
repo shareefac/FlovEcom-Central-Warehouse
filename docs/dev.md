@@ -439,7 +439,7 @@ another big page comes from disk), so compare runs made back to back, with no PH
 | `src/Ui/Controller/{ItemController,ItemCardsController,BarcodesController}.php`, `views/{item,item_card_form,item_cards,item_cards_import,barcode_reviews}.php` | the item page's Item card section (state, rules, suggestions with "Use this", confirm with the acknowledgement box, history) and Barcodes (add / units / remove); `/ui/items/{id}/card` (form), `/ui/items/cards` (+ `.csv`, `/import`), `/ui/items/barcodes` (queue, `/{id}/decide`) (I109) |
 | `tests/Unit/{ItemRules,Gtin,ItemCardCheck}Test.php`, `tests/Integration/Catalogue/`, `Migration0016Test`, `tests/Integration/Reorder/ReorderItemCardTest.php`, `tests/Integration/UiKernel/ItemCardScreensTest.php` | the rules at their edges, GTIN check digits, the parsers; the service (warn → block, who, versions, flavour status, suggestions, receiving, SQL = PHP, the invariants), the sync (dry run = real run, idempotent, decisions, removals, the CLI), the CSV (round trip, all or nothing, the CLI), races with two real connections (`CatalogueRaceTest` + `catalogue_worker.php`: two first saves, two saves, the sync against a person adding the barcode); the reorder list, draft POs and PO approval honouring the cards; the screens (roles, 403 on every POST, CSRF, stale and invalid forms, one effect per form, the queue, the list and CSV, the import, phone width, hostile text) |
 | `migrations/0017_receiving.sql` | IM6 Receive (+ invoice): `goods_receipt` (the GRN header extension: supplier, PO, `invoice_key` UNIQUE with the supplier while live, received at, the paper-sheet reason, the bench's checklist), `grn_line` (the line extension: pack, packs, provisional pack price, PO line, mode choice, the bench's stamp check and exceptions, the posting's split and mode; cascades with its draft line), `grn_posting` (write-once anchor), `incident` (the register; append-only but its resolution), `item_selling_mode` + `item_selling_mode_log`, four `receiving.*` settings (I125–I147) |
-| `src/Receiving/GoodsReceipts.php` | the receipt service: createDraft (FormOnce on the screen; a PO copied down), saveDraft (creator only; the bench findings carried with the lines), addLine (scan / supplier code / CW code / search: `PurchaseOrders::resolve`, a case barcode = a pack of its units), addChoice, copyFromPo ("receive all as ordered"), importLines (the supplier's sheet), bench (anyone holding doc.GRN.post), attach (FileStore; the invoice copy a PDF or a photo), post, cancel, the readers (lines, plan, receivableOrders, stockNow) (I125–I131, I138, I140, I145) |
+| `src/Receiving/GoodsReceipts.php` | the receipt service: createDraft (FormOnce on the screen; a PO copied down), saveDraft (anyone holding `doc.GRN.post`, DA1; the bench findings carried with the lines), addLine (scan / supplier code / CW code / search: `PurchaseOrders::resolve`, a case barcode = a pack of its units), addChoice, copyFromPo ("receive all as ordered"), importLines (the supplier's sheet), bench (anyone holding doc.GRN.post), attach (FileStore; the invoice copy a PDF or a photo), post, cancel, the readers (lines, plan, receivableOrders, stockNow) (I125–I131, I138, I140, I145) |
 | `src/Receiving/GoodsReceiptHandler.php` | the GRN `DocumentHandler` (registered in `DocumentHandlers::all`) and `ReviewInvolvement`: validate (formulas, the plan's problems), post (the PO's rows after the series, the plan again under locks, PO receipts, the lines' posting fields, incidents, selling modes, the anchor, audit, then ONE `bookForDocument` into MAIN / VERIFY / UNSTAMPED at the line cost), reverse (PO receipts back, incidents dismissed, the invoice key freed), `content()` (G3) (I128, I133, I143) |
 | `src/Receiving/{ReceiptPlan,ReceiptMath,ReceiptLinesFile,SellingModes,Incidents,ReceivingInvariants}.php`, `src/Documents/ReviewInvolvement.php` | what posting would do and what stops it (one computation for the screens, validate and post); the pure arithmetic (invoice key, the split, the expected duty, the tolerance cap); the supplier sheet reader; the selling mode on receipt; the incident register; G1–G8; the document-base hook that keeps a bench checker out of the review (I129–I137, I140, I142) |
 | `src/Ui/Controller/{Receiving,Incidents}Controller.php`, `views/{receipts,receipt,receipt_edit,receipt_bench,receipt_files,bench_list,incidents}.php` | `/ui/receiving…` (list + new delivery, the one-form editor and the read-only page, copy, import, files, post, cancel, reverse, the bench list and the bench check, `template.csv`), `/ui/receiving/incidents` (+ resolve); reviews of a GRN come back to its page (`ReviewsController`), the document page links it (I141). Plain words (U85-U90): every word from `Ui\Words` (`RECEIVING`, `RECEIPT`, `BENCH`, `INCIDENTS`, `RECEIPT_*`, …), refusals by code (`ReceivingController::plain`), the goods-in plan's sentences said again by `src/Ui/ReceiptWords.php` (pure; `tests/Unit/ReceivingWordsTest.php`) |
@@ -693,7 +693,7 @@ Document and file tests notes:
 | Path | What |
 |---|---|
 | `src/Ui/Controller/InvoiceOnePage.php` | `newPage` (`GET /ui/purchasing/invoices/new`, nothing written), `create` (`POST /ui/purchasing/invoices` for an invoice: FormOnce, the draft and the form applied in one transaction), `lines` (an invoice draft's `POST {id}/lines`: the one form), `makeFinal` ("Save and make final": after the save commits, `SupplierInvoices::submit` as pack C/J post, PV16), `products` (`GET /ui/purchasing/invoices/products`, the item box's choices: the order page's `po_products` fragment), `editPage`, `sources` ("From"), `linesFit` (the field budget from `max_input_vars`, PV17) |
-| `src/Ui/Controller/InvoicesController.php` | the routes; an invoice draft of its creator goes to `InvoiceOnePage::editPage`; the saved document's `party`, `docFacts`, `totalRows`; the list's due date and balance |
+| `src/Ui/Controller/InvoicesController.php` | the routes; an invoice draft goes to `InvoiceOnePage::editPage` for anyone allowed to post it (DA1); the saved document's `party`, `docFacts`, `totalRows`; the list's due date and balance |
 | `src/Invoices/SupplierInvoices.php` | header `due_date` (0052), `addItem(..., $supplierItemId, $unitsPerPack)`, `creditedOn()` |
 | `migrations/0052_invoice_due_date.sql` | `supplier_invoice.due_date` (DATE NULL, INSTANT) |
 | views `invoice_edit` (the one page), `invoices`, `supplier_invoice`, `purchase_orders`, `purchase_order`, `purchase_order_edit` | the lists, the new/edit pages and the saved documents in the shared look |
@@ -824,8 +824,10 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   then leaves the buttons alone.
 - A file is a supplier's invoice copy by `FilesController::isInvoiceCopy()` (its kind or any `supplier_invoice` attachment, GV18): use it
   wherever a file is linked to someone without `invoices.view`.
-- Cancel: the keyer, or, once the keyer cannot receive goods, the holder of `doc.GRN.post` + `doc.PO.post` (`GoodsReceipts::mayCancel()`,
-  GV22; the audit's `for_keyer`). A line not on this page is linked `?from=<n>#line-<n>` (GV21).
+- Everyone on the one page has the keyer's fields since DA1 (`onePage()`'s `$keyer` is true for every holder of `doc.GRN.post`: the
+  details, the lines, Add, copy and import, and "they arrived now" when the arrival says an earlier day); the template's other branch is no
+  longer drawn. Cancel stays the keyer's (GV17), or, once the keyer cannot receive goods, the holder of `doc.GRN.post` + `doc.PO.post`
+  (`GoodsReceipts::mayCancel()`, GV22; the audit's `for_keyer`). A line not on this page is linked `?from=<n>#line-<n>` (GV21).
 - A phone (GV23-GV25): the stacked list's `table.stack td { background: none }` wins over a solid status cell, so a card that shows a
   state says it itself (`td.gi-check` is a chip there; the duty select a white field with the answer's colour on its left edge). The
   delivery's "Leave without saving" is in the page head below 700 px (`.crumbs .gi-leave`) and hidden in the bar; `.flow` is hidden below
@@ -833,6 +835,19 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
 - Tests: `tests/Integration/UiKernel/GoodsInOnePageScreensTest.php`, `ReceivingScreensTest`, `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign`,
   `ReceivingWordsTest`. The script in node: `/root/cw_work/runs/gione_js_harness/` (outside the repo; copy into `tools/gione_js/` for a
   run through the slot runner with `/root/poone_js/node`, and remove it).
+
+### Drafts anyone allowed may change (`docs/decisions.md` DA1-DA5; the owner, 18 Nov 2026)
+
+- No draft is one person's: `Documents`, `PurchaseOrders`, `GoodsReceipts`, `CountSheets` (and the services on them) refuse a change
+  only by the permission to start or post that kind (`doc.<TYPE>.post`, never admin), the status and the version; `not_creator` is gone.
+  `created_by` is who started it. A screen's "may change it" is `draft && Documents::mayPost(roles, type)`, never `createdBy === me`
+  (kept only where it means "who asked" or "who may review": `refusalFor`, an approval's withdrawal, the delivery's cancel, GV17).
+- Who changed it: `CW\Documents\DraftChanges` reads `audit_log` (`STARTED`, `CHANGED`): a new action that changes a draft goes in
+  `CHANGED`, or the History of changes and the conflict message miss it. Pages show it with the `doc_changes` partial and
+  `DocumentsController::changes($db, $id)`. Count sheets audit `count.enter`, `count.add`, `count.as_counted`.
+- 409 `version_conflict`: the services' detail carries `changed_by_id`, `changed_by`, `changed_at` (UTC); a page says it with
+  `DocumentsController::conflictText($ctx, $id, $fallback, 'save' | 'kept' | 'final')` (Words `DRAFT`; the fallback once it is not a draft).
+- Tests: `DraftAnyoneScreensTest` (two people on one stock record and one purchase order: the edit form, the history, the conflict's words).
 
 ### Approvals › Waiting for you (`docs/decisions.md` AV1-AV14)
 
@@ -919,10 +934,10 @@ Every page keeps its address and its forms; only the layout follows the pattern 
 | Page | Template | Pattern |
 |---|---|---|
 | `/ui/stock/in`, `/out`, `/adjustments`, `/transfers`, `/releases` | `stock_ops` (+ `stock_op_fields` in the `#new` drawer) | 1 board; its new form's fields in two columns |
-| a stock record `/ui/stock/<kind>/{id}` | `stock_op` (+ `stock_op_bar`, `stock_op_files`) | 3 one-page form for its creator's draft (OV's one form kept); 2 record page otherwise |
+| a stock record `/ui/stock/<kind>/{id}` | `stock_op` (+ `stock_op_bar`, `stock_op_files`) | 3 one-page form for a draft, for anyone allowed to post its type (DA1; OV's one form kept); 2 record page otherwise |
 | `/ui/stock/repack` | `repacks` | 1 board; its booking form in two columns (a record opens on Approvals › History) |
 | `/ui/stock/handovers` | `handovers` (+ `handover_fields`) | 1 board; new form in two columns |
-| a hand-over `/ui/stock/handovers/{id}` | `handover` (+ `handover_bar`) | 3 for its creator's draft (OV kept); 2 otherwise |
+| a hand-over `/ui/stock/handovers/{id}` | `handover` (+ `handover_bar`) | 3 for a draft, for anyone who keeps hand-overs (DA1; OV kept); 2 otherwise |
 | `/ui/stock/handovers/customers` | `handover_customers` (+ `handover_customer_fields`) | 1 board (in use, switched off); add form in two columns |
 | a customer `/ui/stock/handovers/customers/{id}` | `handover_customer` (+ `customer_bar`) | 2 record page (its prices and hand-overs as related boards) |
 | `/ui/stock/handovers/balances` | `handover_balances` | 5 report (+ each customer's part at `#customer-<id>`) |
@@ -961,7 +976,7 @@ on main's shared parts above (`.doc-group`, `.doc-board`, `td.doc-st`, `.doc-hea
 | `/ui/purchasing/suppliers/new`, `/{id}/edit` | `supplier_form` (+ `supplier_field`, `doc_bar`) | 3 one-page form: Details, Terms, Background check (`fieldset.doc-grid`), the country a picker (`Words::COUNTRY`), one Save |
 | `/ui/purchasing/suppliers/{id}/items` | `supplier_items` (+ `supplier_items_bar`, `supplier_items_board`) | 1 board (the tab's board, whole) |
 | `/ui/purchasing/returns` | `supplier_returns` | 1 board (draft, waiting, final: credit to come, credited, cancelled); the new return's drawer in two columns |
-| a return `/ui/purchasing/returns/{id}` | `supplier_return` (+ `return_bar`, `return_files`) | 3 for its creator's draft (the details form, the lines form `#ret-lines`, the bar: Leave, Save the lines, Make final = `form="ret-post"`); 2 otherwise |
+| a return `/ui/purchasing/returns/{id}` | `supplier_return` (+ `return_bar`, `return_files`) | 3 for a draft, for anyone who keeps returns (DA1; the details form, the lines form `#ret-lines`, the bar: Leave, Save the lines, Make final = `form="ret-post"`); 2 otherwise |
 | `/ui/purchasing/credit-notes` | `invoices` (credit note) | 1 board (already PV18) + "+ New credit note" at the end of Draft (`#new`); the drawer in two columns |
 | a credit note | `supplier_invoice` | 2 (PV19, unchanged) |
 | `/ui/purchasing/invoices/to-match`, `/not-invoiced`, `/timed` | `invoices_to_match` (+ `recheck_bar`), `invoices_not_invoiced`, `invoices_timed` | 1 boards |

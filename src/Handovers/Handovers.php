@@ -27,7 +27,7 @@ use CW\StockOps\StockOps;
  * the price of a unit before VAT in document_line.unit_cost). HandoverHandler books it (trade_sale) and fixes the invoice's sums.
  *
  * Every write: a staff caller allowed to keep hand-overs (doc.TRD.post, never admin; roles re-read inside the transaction by
- * Documents), ONE transaction (joining an open one), a draft changed only by its creator (Documents), the version the form was drawn
+ * Documents), ONE transaction (joining an open one), a draft changed by anyone who keeps hand-overs (Documents, DA1), the version the form was drawn
  * with (409 when stale). A new line's price is the customer's remembered price, else (handovers.price_fallback = cost) the cost hint,
  * else the person types it.
  *
@@ -82,7 +82,7 @@ final class Handovers
     }
 
     /**
-     * Changes a draft's header (the keys given; '' clears an optional one). Creator only (Documents::updateDraft). Version + 1.
+     * Changes a draft's header (the keys given; '' clears an optional one). Anyone who keeps hand-overs (Documents::updateDraft, DA1). Version + 1.
      *
      * @param array<string, mixed> $header
      */
@@ -106,7 +106,7 @@ final class Handovers
 
     /**
      * Replaces every line of a draft: [{sku_id, qty (units above 0), unit_cost (the price of a unit before VAT, optional on a
-     * draft)}]. At most MAX_LINES lines. Creator only. Version + 1.
+     * draft)}]. At most MAX_LINES lines. Anyone who keeps hand-overs (DA1). Version + 1.
      *
      * @param list<array<string, mixed>> $lines
      */

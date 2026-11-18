@@ -8,6 +8,7 @@ use CW\Counts\CountSheets;
 use CW\CwException;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Documents\DraftChanges;
 use CW\Output\PdfWriter;
 use CW\StockOps\StockOps;
 use CW\Ui\Context;
@@ -261,6 +262,7 @@ final class DocumentsController
             'reverse' => $reverse,
             'cols' => $cols,
             'history' => self::history($data['tasks']),
+            'changes' => self::changes($ctx->db, $doc->id),
             'error' => $message,
             'errorCode' => $error?->errorCode,
             'waiting' => $open !== null,
@@ -380,6 +382,37 @@ final class DocumentsController
             ];
         }
         return $out;
+    }
+
+    /**
+     * A record's history of changes in words (docs/decisions.md DA2; doc_changes): "Started by Fazil, 14:30", "Changed by Shareef, 14:32",
+     * oldest first (the newest DraftChanges::SHOWN), and how many earlier entries are not listed.
+     *
+     * @return array{rows: list<string>, earlier: ?string}
+     */
+    public static function changes(\CW\Db $db, int $documentId): array
+    {
+        $l = DraftChanges::list($db, $documentId);
+        return ['rows' => array_map(static fn (array $c): string => Words::say('DRAFT', $c['kind'], $c['name'], Html::clock($c['at'])), $l['entries']),
+            'earlier' => $l['more'] > 0 ? Words::say('DRAFT', 'earlier', $l['more']) : null];
+    }
+
+    /**
+     * The words of a save refused because someone saved the draft after the page was drawn (409 version_conflict; docs/decisions.md DA3):
+     * who changed it and when, when CW knows ("Fazil changed this draft at 14:32 while you were editing. ..."; the same person's other tab
+     * says "You changed this draft ..."), else $fallback (the page's own words; also for a record that is no longer a draft: its later
+     * steps are not changes of a draft). $kind: `save` (the page drawn as it is now), `kept` (drawn again with what was typed), `final`
+     * (Make it final refused).
+     */
+    public static function conflictText(Context $ctx, int $documentId, string $fallback, string $kind = 'save'): string
+    {
+        $last = $ctx->db->value('SELECT status FROM document WHERE id = ?', [$documentId]) === 'draft' ? DraftChanges::last($ctx->db, $documentId) : null;
+        if ($last === null) {
+            return $fallback;
+        }
+        $key = $kind === 'save' ? 'conflict' : 'conflict_' . $kind;
+        $at = Html::clock($last['at']);
+        return $last['staff_user_id'] === $ctx->me()->id ? Words::say('DRAFT', $key . '_you', $at) : Words::say('DRAFT', $key, $last['name'], $at);
     }
 
     /** 403 for a purchase order shown to someone without purchasing.view (I85), else null. */

@@ -24,10 +24,12 @@ use CW\Staff\StaffRoles;
  * (CW-917, docs/decisions.md EC4): postBySystem() / reverseBySystem() let the named job keep the named types (the copies of ERPNext
  * purchase invoices, which move no stock) with no person and nothing for Approvals. Drafting, posting and
  * reversing need `doc.<TYPE>.post`; a caller holding admin is refused (403 admin_cannot_post, I12) before anything else.
- * A draft's header and lines are changed only by the person who created it (the review rule names the creator, the
- * submitter and the poster, so nobody else may have written a document's content: I19). Every write locks the
- * document row FOR UPDATE first, checks its status (409 not_draft, ...) and the version the form was drawn with
- * (409 version_conflict), and moves `version` and `updated_at`.
+ * A draft's header and lines are changed by anyone allowed to post its type, not only by the person who created it
+ * (docs/decisions.md DA1; the owner, 18 Nov 2026: "anyone who have access should be able to edit it"; until then I19 kept a
+ * draft its creator's). created_by stays the person who started it; each save is audited under the person who made it
+ * (DraftChanges reads who changed what). Every write locks the document row FOR UPDATE first, checks its status (409
+ * not_draft, ...) and the version the form was drawn with (409 version_conflict, naming who saved it last when CW knows:
+ * DraftChanges::conflict), and moves `version` and `updated_at`.
  *
  * Posting, in this order (I21: nothing with a foreign key is written after the stock locks):
  *   1. the document row FOR UPDATE; permission, status, version
@@ -129,7 +131,7 @@ final class Documents
     }
 
     /**
-     * Changes header fields of a draft (the keys given; null clears one). Creator only (403 not_creator).
+     * Changes header fields of a draft (the keys given; null clears one). Anyone allowed to post the type (DA1).
      *
      * @param array<string, mixed> $header
      */
@@ -139,7 +141,6 @@ final class Documents
             $me = $this->staff($caller);
             $row = $this->lockDraft($id, $expectedVersion);
             $this->checkPoster($me, (string) $row['doc_type']);
-            $this->checkCreator($me, $row);
             $h = $this->header((string) $row['doc_type'], $header, $row);
             $db->exec('UPDATE document SET external_ref = ?, doc_date = ?, warehouse_id = ?, reason_code = ?, note = ?, version = version + 1, '
                 . 'updated_at = ? WHERE id = ?',
@@ -156,7 +157,7 @@ final class Documents
     }
 
     /**
-     * Replaces every line of a draft (line_no 1..N in list order; [] clears them). Creator only. Each line is checked:
+     * Replaces every line of a draft (line_no 1..N in list order; [] clears them). Anyone allowed to post the type (DA1). Each line is checked:
      * the item exists and is not merged (422 unknown_sku / merged_item), the warehouse is known (422 unknown_warehouse),
      * the reason code is active, applies to the type and is not CW's own (422), qty is an integer (400 bad_lines),
      * unit_cost passes Movements::normaliseCost (400 bad_cost), amount is a decimal (400 bad_amount).
@@ -170,7 +171,6 @@ final class Documents
             $row = $this->lockDraft($id, $expectedVersion);
             $type = (string) $row['doc_type'];
             $this->checkPoster($me, $type);
-            $this->checkCreator($me, $row);
             $norm = $this->normaliseLines($type, $lines);
             $db->exec('DELETE FROM document_line WHERE document_id = ?', [$id]);
             foreach (array_chunk($norm, 500) as $chunk) {
@@ -988,8 +988,7 @@ final class Documents
                 . ': only a draft is changed or posted', 409, ['status' => $row['status']]);
         }
         if ((int) $row['version'] !== $expectedVersion) {
-            throw new CwException('version_conflict', 'the document changed since this page was drawn: reload it and try again', 409,
-                ['version' => (int) $row['version'], 'expected_version' => $expectedVersion]);
+            throw DraftChanges::conflict($this->db, $id, 'document', (int) $row['version'], $expectedVersion);
         }
         return $row;
     }
@@ -1052,14 +1051,6 @@ final class Documents
         }
         if (!Permissions::can($me['roles'], "doc.{$type}.post")) {
             throw new CwException('role_not_allowed', self::rolesPhrase($me['roles']) . " cannot post {$type} documents", 403, ['type' => $type]);
-        }
-    }
-
-    /** @param array{id: int, roles: list<string>} $me @param array<string, mixed> $row */
-    private function checkCreator(array $me, array $row): void
-    {
-        if ($row['created_by'] === null || (int) $row['created_by'] !== $me['id']) {
-            throw new CwException('not_creator', 'only the person who created a draft changes it (the review rule names its creator, I19)', 403);
         }
     }
 

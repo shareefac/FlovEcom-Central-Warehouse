@@ -1,7 +1,7 @@
 <?php
-// A delivery's other steps on its one page (docs/decisions.md GV2): under More (the one More, DS4), its keyer's: copy the order's lines
-// still to come, import the supplier's sheet (with a sample sheet), cancel the delivery (last, in red); Cancel also for the purchasing
-// manager once the keyer no longer receives goods (GV22). Each is its own form after the page's one form leaves it (data-leaves: the page
+// A delivery's other steps on its one page (docs/decisions.md GV2): under More (the one More, DS4), for everyone on the page since DA1
+// ($keyer: the keyer's fields): copy the order's lines still to come, import the supplier's sheet (with a sample sheet); cancel the delivery
+// (last, in red) for its keyer only (GV17), and for the purchasing manager once the keyer no longer receives goods (GV22). Each is its own form after the page's one form leaves it (data-leaves: the page
 // asks first when something typed is not saved); none needs the script.
 ?>
 <?php if ($keyer || $canCancel): ?>

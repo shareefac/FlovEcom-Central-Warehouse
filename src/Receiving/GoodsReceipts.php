@@ -12,6 +12,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Documents\DraftChanges;
 use CW\Files\FileStore;
 use CW\PurchaseOrders\PoLinesFile;
 use CW\PurchaseOrders\PoMath;
@@ -27,9 +28,9 @@ use CW\Suppliers\SupplierItems;
  * A receipt is a `document` (type GRN, warehouse MAIN, doc_date = the day the goods arrived, external_ref = the supplier's invoice
  * number) with a `goods_receipt` header extension and one `grn_line` per `document_line`. Who does what:
  *
- *  - the purchasing desk keys it (its creator, doc.GRN.post): the supplier, the PO it is against (optional), the invoice number
- *    (compulsory; one live receipt per supplier and number), when the goods arrived (backdated with a reason for a paper receiving
- *    sheet), the lines: "receive all as ordered" from the PO (copyFromPo), the supplier's invoice or packing-list spreadsheet
+ *  - the purchasing desk keys it (its creator, doc.GRN.post; anyone who receives goods may change it too, DA1): the supplier, the PO it
+ *    is against (optional), the invoice number (compulsory; one live receipt per supplier and number), when the goods arrived
+ *    (backdated with a reason for a paper receiving sheet), the lines: "receive all as ordered" from the PO (copyFromPo), the supplier's invoice or packing-list spreadsheet
  *    (importLines, CSV / XLSX), a supplier code, a barcode (a barcode counts the units it stands for, never the supplier's pack
  *    instead: I173) or a search (addLine); each line in packs x units per pack at a provisional cost, with the selling mode on
  *    receipt ("default" or a chosen mode). The invoice copy (a PDF or a photo) is attached (attach(); one copy, one live receipt
@@ -47,8 +48,10 @@ use CW\Suppliers\SupplierItems;
  *    it).
  *
  * Every public write: a staff caller holding doc.GRN.post (never admin), roles re-read inside the transaction; ONE Db::transaction
- * (joining an open one); the document row locked first (FOR UPDATE), its version checked (409 version_conflict) and moved; a
- * draft's header and lines changed only by its creator (403 not_creator); the bench findings by anyone allowed to post receipts.
+ * (joining an open one); the document row locked first (FOR UPDATE), its version checked (409 version_conflict, naming who saved it last:
+ * DraftChanges::conflict) and moved; a draft's header and lines changed by anyone allowed to post receipts, not only the person who keyed
+ * it (docs/decisions.md DA1; the owner, 18 Nov 2026: "anyone who have access should be able to edit it"), created_by kept and each save
+ * audited under its person; the bench findings by anyone allowed to post receipts; a draft cancelled by its keyer (GV17, GV22: unchanged).
  * Lock order: document row -> supplier (FOR SHARE) -> goods_receipt -> grn_line / document_line -> (posting: number_series -> the
  * PO document and its rows -> grn rows -> item_selling_mode -> incident -> stock, GoodsReceiptHandler).
  */
@@ -153,7 +156,7 @@ final class GoodsReceipts
     /**
      * Saves a draft: the header (HEADER_FIELDS; the supplier changes only while the receipt has no lines, the PO only while no
      * line is received against it: 409 receipt_has_lines) and EVERY line (the list replaces the draft's lines; [] clears them).
-     * Creator only. Version + 2 (Documents::updateDraft, then Documents::setLines, whose cascade removes the old grn_line rows),
+     * Anyone allowed to post receipts (DA1). Version + 2 (Documents::updateDraft, then Documents::setLines, whose cascade removes the old grn_line rows),
      * then the grn_line rows.
      *
      * The bench's findings are never taken from the caller (only bench() writes them, audited grn.bench; I168): a line keeps the
@@ -174,8 +177,8 @@ final class GoodsReceipts
     public function saveDraft(Caller $caller, int $id, int $version, array $header, array $lines): Document
     {
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $header, $lines): Document {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $h = $this->headerFields($header);
             $gr = $db->one('SELECT * FROM goods_receipt WHERE document_id = ? FOR UPDATE', [$id]) ?? throw new \LogicException("receipt {$id} has no header");
             $hasLines = (int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0;
@@ -283,8 +286,8 @@ final class GoodsReceipts
     {
         $q = trim($q);
         return $this->db->transaction(function () use ($caller, $id, $version, $q, $packs, $price): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $r = $this->resolveScan($id, $q);
             if ($r['status'] !== 'found') {
                 return ['status' => $r['status'], 'document' => $this->docs->get($id), 'choices' => $r['choices']] + ($r['note'] === null ? [] : ['choice_note' => $r['note']])
@@ -332,8 +335,8 @@ final class GoodsReceipts
     public function addChoice(Caller $caller, int $id, int $version, ?int $supplierItemId, ?int $skuId, int $packs = 1, ?string $price = null): array
     {
         return $this->db->transaction(function () use ($caller, $id, $version, $supplierItemId, $skuId, $packs, $price): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             return $this->addResolved($caller, $id, $version, $this->newLine($id, $supplierItemId, $skuId), $packs, 'manual', $price);
         });
     }
@@ -398,8 +401,8 @@ final class GoodsReceipts
     public function copyFromPo(Caller $caller, int $id, int $version): Document
     {
         return $this->db->transaction(function () use ($caller, $id, $version): Document {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $gr = $this->header($id) ?? throw new \LogicException("receipt {$id} has no header");
             if ($gr['po_document_id'] === null) {
                 throw new CwException('no_purchase_order', 'this receipt is not against a purchase order: choose the order first', 409);
@@ -456,8 +459,8 @@ final class GoodsReceipts
         $file = ReceiptLinesFile::read($path);
         $sha = (string) hash_file('sha256', $path);
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $file, $sha, $name, $mode): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $supplierId = (int) ($this->header($id)['supplier_id'] ?? 0);
             $parsed = ReceiptLinesFile::parse($file, fn (string $type, string $value): array|string => $this->resolveForFile($supplierId, $type, $value));
             if ($parsed['errors'] !== []) {
@@ -583,7 +586,7 @@ final class GoodsReceipts
     /**
      * The supplier invoice of a draft, set by anyone allowed to receive goods (I172): the invoice number (compulsory at posting,
      * one live receipt per supplier and number: 409 duplicate_invoice), its date and the delivery note. A receipt started at the
-     * bench from the delivery note is completed by the desk this way; its lines stay with the person who keyed them. Version + 1;
+     * bench from the delivery note is completed by the desk this way (or by saveDraft(), which anyone allowed may use too: DA1). Version + 1;
      * audit grn.invoice (a person who set the invoice of a receipt they did not key never reviews it, I133).
      *
      * @param array<string, mixed> $fields invoice_number, invoice_date, delivery_note (only the keys given)
@@ -1504,12 +1507,12 @@ final class GoodsReceipts
     }
 
     /**
-     * A draft's row, X-locked, of this version and created by $me.
+     * A draft's row, X-locked, of this version: its header and lines changed by anyone allowed to post receipts (the caller checked by
+     * poster() first), not only the person who keyed it (DA1).
      *
-     * @param array{id: int, roles: list<string>} $me
      * @return array<string, mixed>
      */
-    private function lockDraft(int $id, int $version, array $me): array
+    private function lockDraft(int $id, int $version): array
     {
         $row = $this->lockGrn($id);
         if ($row['status'] !== 'draft') {
@@ -1517,19 +1520,14 @@ final class GoodsReceipts
                 ['status' => $row['status']]);
         }
         $this->checkVersion($row, $version);
-        if ((int) ($row['created_by'] ?? 0) !== $me['id']) {
-            throw new CwException('not_creator', 'only the person who keyed a receipt changes its lines; the bench records its findings on the bench view, '
-                . 'and anyone who receives goods can set the supplier invoice on the receipt\'s page', 403);
-        }
         return $row;
     }
 
-    /** @param array<string, mixed> $row */
+    /** @param array<string, mixed> $row the receipt's document row, X-locked */
     private function checkVersion(array $row, int $version): void
     {
         if ((int) $row['version'] !== $version) {
-            throw new CwException('version_conflict', 'the receipt changed since this page was drawn: reload it and try again', 409,
-                ['version' => (int) $row['version'], 'expected_version' => $version]);
+            throw DraftChanges::conflict($this->db, (int) $row['id'], 'receipt', (int) $row['version'], $version);
         }
     }
 

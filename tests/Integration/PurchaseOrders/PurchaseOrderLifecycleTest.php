@@ -306,7 +306,7 @@ final class PurchaseOrderLifecycleTest extends PurchaseOrderTestCase
         self::assertSame('reversed', $c->status);
     }
 
-    public function testPackInUseAndCreatorOnly(): void
+    public function testPackInUseAndAnyBuyerChangesADraft(): void
     {
         $buyer = $this->staffUser('buyer');
         ['doc' => $p, 'si' => $si, 'supplier' => $s] = $this->approvedPo($buyer, 1, '6.0000', 6);
@@ -325,10 +325,19 @@ final class PurchaseOrderLifecycleTest extends PurchaseOrderTestCase
 
         $d2 = $this->draftPo($buyer, (int) $s['id'], [['sku_id' => (int) $si['sku_id'], 'packs' => 1]]);
         $other = $this->staffUser('buyer');
-        self::refused(403, 'not_creator', fn () => $this->pos->saveDraft($other, $d2->id, $d2->version, [], []));
-        self::refused(403, 'not_creator', fn () => $this->pos->addLine($other, $d2->id, $d2->version, 'x1'));
+        // Another buyer changes the draft (docs/decisions.md DA1; the owner, 18 Nov 2026): it stays its creator's, the save is audited under
+        // them, and a page drawn before their save is refused naming them. Someone without doc.PO.post still cannot; admin never.
+        $d3 = $this->pos->saveDraft($other, $d2->id, $d2->version, [], [['sku_id' => (int) $si['sku_id'], 'packs' => 2]]);
+        self::assertSame([$buyer->staffUserId, $d2->version + 2], [$d3->createdBy, $d3->version]);
+        $e = self::refused(409, 'version_conflict', fn () => $this->pos->saveDraft($buyer, $d2->id, $d2->version, [], []));
+        self::assertSame($other->staffUserId, $e->detail['changed_by_id']);
+        self::assertSame($other->staffUserId, (int) self::$db->value("SELECT staff_user_id FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'po.save' "
+            . 'ORDER BY id DESC LIMIT 1', [(string) $d2->id]));
+        self::refused(403, 'role_not_allowed', fn () => $this->pos->saveDraft($this->staffUser('purchasing_desk'), $d2->id, $d3->version, [], []));
+        self::refused(403, 'admin_cannot_post', fn () => $this->pos->addLine($this->staffUser(['admin', 'buyer']), $d2->id, $d3->version, 'x1'));
         self::refused(403, 'role_not_allowed', fn () => $this->pos->createDraft($this->staffUser('reviewer'), (int) $s['id'], []));
         self::refused(403, 'admin_cannot_post', fn () => $this->pos->createDraft($this->staffUser('admin'), (int) $s['id'], []));
-        self::assertSame('posted', $this->pos->approve($other, $d2->id, $d2->version)->status, 'anyone allowed to post may approve another\'s draft');
+        self::assertSame('posted', $this->pos->approve($other, $d2->id, $d3->version)->status, 'anyone allowed to post may approve another\'s draft');
+        self::refused(409, 'not_draft', fn () => $this->pos->saveDraft($buyer, $d2->id, $d3->version + 1, [], []));
     }
 }

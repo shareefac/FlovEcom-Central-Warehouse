@@ -1,5 +1,5 @@
 <?php
-// One stock record (pack A1) on the approved patterns (docs/decisions.md W8). Its creator's draft is the one-page form (pattern 3, PI_New):
+// One stock record (pack A1) on the approved patterns (docs/decisions.md W8). A draft is the one-page form (pattern 3, PI_New) for anyone who may post it (DA1):
 // the details in two columns (their own form, as before), the products as a board under the add box, the totals on the right under them,
 // and the bar at the bottom of the lines form: Leave without saving, what it holds, Save, then the record's final button (the one form of
 // OV1-OV12, kept as it is: Save and the final button send the lines on the screen); its files after. Any other record is the record page
@@ -20,9 +20,6 @@ $bar = $partial('stock_op_bar', ['doc' => $doc, 'base' => $base, 'k' => $k, 'ver
 <?= $partial('decide_box', ['decide' => $decide]) ?>
 <?php elseif ($waiting): ?>
 <p class="muted"><?= $word('RECORD', 'waiting') ?></p>
-<?php endif; ?>
-<?php if ($notCreator): ?>
-<p class="note read-only"><?= $word('STOCK_OPS', 'not_creator') ?></p>
 <?php endif; ?>
 
 <?php if ($grid !== null): ?>
@@ -263,6 +260,8 @@ $bar = $partial('stock_op_bar', ['doc' => $doc, 'base' => $base, 'k' => $k, 'ver
   </div>
 </article>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

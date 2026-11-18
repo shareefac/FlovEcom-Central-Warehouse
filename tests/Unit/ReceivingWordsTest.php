@@ -231,7 +231,6 @@ final class ReceivingWordsTest extends TestCase
     {
         // Refusals by code; the services' own messages are unchanged and shown only when a code has no words.
         $e = static fn (string $code, array $detail = [], string $msg = 'the service text'): CwException => new CwException($code, $msg, 409, $detail);
-        self::assertSame(Words::RECEIPT_ERROR['not_creator'], ReceivingController::plain($e('not_creator')));
         self::assertSame(Words::RECEIPT_ERROR['not_ready_one'], ReceivingController::plain($e('invoice_file_required', ['problems' => [['code' => 'x']]])));
         self::assertSame(Words::say('RECEIPT_ERROR', 'not_ready', 3), ReceivingController::plain($e('no_lines', ['problems' => [[], [], []]])));
         self::assertSame(Words::RECEIPT_ERROR['version_conflict_choice'], ReceivingController::plain($e('version_conflict')));

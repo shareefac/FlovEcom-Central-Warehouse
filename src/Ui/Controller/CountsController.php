@@ -572,7 +572,8 @@ final class CountsController
         }
         $me = $ctx->me();
         $doc = Document::fromRow($sheet);
-        $mine = Documents::mayPost($me->roles, CountSheets::TYPE) && $doc->createdBy === $me->id;
+        // Anyone who counts finishes a sheet, not only the person who opened it (docs/decisions.md DA1).
+        $mine = Documents::mayPost($me->roles, CountSheets::TYPE);
         $diff = $sheets->differences($id);
         $n = $ctx->req->param('notice');
         $lines = [];
@@ -629,8 +630,10 @@ final class CountsController
             'retimeWords' => $retime,
             'retime_n' => $diff['retime'],
             'version' => $doc->version,
-            'lookOnly' => $mine ? null : Words::COUNTS['not_opener'],
-            'error' => $error === null ? null : self::plain($error),
+            'lookOnly' => $mine ? null : Words::whoCan('doc.' . CountSheets::TYPE . '.post'),
+            // Someone's change after this page was drawn: who and when (DA3); nothing is made final.
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict'
+                ? DocumentsController::conflictText($ctx, $id, self::plain($error), 'final') : self::plain($error)),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::title('count_before'), 'notice' => $n !== null && isset(Words::COUNT_NOTICE[$n])
             ? Words::say('COUNT_NOTICE', $n, (int) ($ctx->req->param('n') ?? 0)) : null]);
@@ -748,7 +751,8 @@ final class CountsController
         $doc = Document::fromRow($sheet);
         $kind = (string) $sheet['kind'];
         $canCount = Documents::mayPost($me->roles, CountSheets::TYPE);
-        $editable = $kind === 'sheet' && $doc->status === 'draft' && $canCount && $doc->createdBy === $me->id;
+        // Anyone who counts enters a sheet another person opened (docs/decisions.md DA1; the owner, 18 Nov 2026).
+        $editable = $kind === 'sheet' && $doc->status === 'draft' && $canCount;
         $show = self::showOf($ctx->req, 'param');
         $page = $sheets->lines($id, ['show' => $editable ? $show : 'all', 'page' => self::pageNo($ctx->req, 'param') ?? 1, 'size' => self::LINES]);
         $modes = $page['rows'] === [] ? [] : (new SellingModes($ctx->db))->current(array_column($page['rows'], 'sku_id'));
@@ -815,7 +819,6 @@ final class CountsController
             'editable' => $editable,
             // When the page was drawn (milliseconds since 1970 UTC): app.js adds how long ago a box was filled in (M-7).
             'drawnMs' => (int) Clock::now()->format('Uv'),
-            'notOpener' => $kind === 'sheet' && $doc->status === 'draft' && $canCount && $doc->createdBy !== $me->id,
             'hasMarked' => $marked !== null && in_array($marked, array_column($lines, 'line_no'), true),
             'version' => $doc->version,
             'scan' => $scan === null ? null : ['status' => (string) $scan['status'], 'typed' => (string) $scan['typed'], 'sku_id' => $scan['sku_id'] ?? null,
@@ -835,7 +838,9 @@ final class CountsController
                     . "AND code NOT IN ('po_amended', 'supplier_cannot_supply', 'not_needed') ORDER BY sort_order, code")] : null,
             'open_n' => (int) $ctx->db->value("SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ? AND review = 'open'", [$id]),
             'lookOnly' => $canCount ? null : Words::whoCan('doc.' . CountSheets::TYPE . '.post'),
-            'error' => $error === null ? null : self::plain($error),
+            'changes' => DocumentsController::changes($ctx->db, $id), // who opened it and who entered or changed what (DA2)
+            // Someone's change after this page was drawn: who and when (DA3).
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict' ? DocumentsController::conflictText($ctx, $id, self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => self::title($sheet, $doc), 'notice' => $notice]);
     }

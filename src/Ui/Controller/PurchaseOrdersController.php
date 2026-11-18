@@ -36,8 +36,8 @@ use CW\Ui\Words;
  * posted order's page (its state, review and history, the decide box, send / cancel / amend / copy / close), the lines file (CSV, XLSX:
  * export and an all-or-nothing import) and the PDF.
  *
- * Everyone with purchasing.view looks; buyers (doc.PO.post, checked again by CW\PurchaseOrders\PurchaseOrders) act; the
- * creator alone edits a draft (others see it read-only); reviewers decide on the order's page (the forms post to
+ * Everyone with purchasing.view looks; buyers (doc.PO.post, checked again by CW\PurchaseOrders\PurchaseOrders) act; any of them
+ * edits a draft, not only its creator (docs/decisions.md DA1; the page names who changed it: DA2); reviewers decide on the order's page (the forms post to
  * /ui/documents/reviews/{task}/..., which come back here). Creating forms (new, copy, amend) carry a FormOnce key; every
  * other form carries the version it was drawn with (409: the page is redrawn with the current data). The editor carries
  * `version`, `line_count` and `lines_editable` FIRST and refuses a form with fewer line rows than it says (400
@@ -1169,7 +1169,7 @@ final class PurchaseOrdersController
     // ------------------------------------------------------------------------------------------
 
     /**
-     * The order's page: the one page (the editor) for its creator while it is a draft, else the read-only view with the actions the
+     * The order's page: the one page (the editor) for anyone who writes orders while it is a draft (DA1), else the read-only view with the actions the
      * person may use; also after a refused form (the error shown, answered under its status). $extra: typed (the posted
      * values to show again), choices + q + packs (an ambiguous search), importErrors, and oneData()'s (a "+ Add new" form's refusal,
      * the form key to draw again).
@@ -1193,7 +1193,9 @@ final class PurchaseOrdersController
         $supplier = $db->one('SELECT * FROM supplier WHERE id = ?', [(int) ($po['supplier_id'] ?? 0)]) ?? [];
         $supplierName = (string) ($supplier['name'] ?? Words::ORDER['some_supplier']);
         $canPost = Documents::mayPost($me->roles, 'PO');
-        $editor = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Anyone who writes orders opens a draft in the editor, not only the person who started it (docs/decisions.md DA1; the owner, 18 Nov
+        // 2026: "anyone who have access should be able to edit it").
+        $editor = $doc->status === 'draft' && $canPost;
         $lines = $db->all(
             'SELECT pl.*, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, s.code AS sku_code, s.name AS sku_name, s.merged_into_sku_id, '
             . 'si.supplier_code AS si_code, si.last_pack_price, si.last_po_pack_price, si.is_active AS si_active FROM po_line pl '
@@ -1257,8 +1259,10 @@ final class PurchaseOrdersController
             'companyNote' => self::companyNote($ctx, $po),
             'limit' => $okFirst ? Html::money($limit) : null,
             'overLimit' => $okFirst && $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
-            'error' => $error === null ? null : self::plain($error),
+            // Someone's save after this page was drawn: who and when (DA3).
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict' ? DocumentsController::conflictText($ctx, $doc->id, self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
+            'changes' => DocumentsController::changes($db, $doc->id), // who started it and who changed it (DA2)
             // A cancel or correct sent without a reason (behaviour item 6), or with a reason that needs a note and none (the Codex review of
             // 8f6fbb7, L3; PV32): that form opens again at its list, the action that was sent.
             'reasonError' => in_array($error?->errorCode, ['bad_reason', 'note_required'], true)

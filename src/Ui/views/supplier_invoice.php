@@ -6,7 +6,7 @@
 // three ways side by side, the cells that differ tinted), then the paper: the supplier's block, its facts (dates, what it is for, who did
 // what), its balance large on the right, the lines, its files and its totals; then its goods on their way, its credit notes, what it records
 // for the stock value, and its history. An invoice's draft is the
-// one page for its creator (invoice_edit); a credit note's draft keeps its forms here (pack C), for its creator.
+// one page for anyone who keeps invoices (invoice_edit, DA1); a credit note's draft keeps its forms here (pack C), for them too.
 ?>
 <?php
 // The status block says what the list says (PV31): a final invoice whose match needs review "Needs a look" (amber), "Final" a quiet line
@@ -43,9 +43,6 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
 <?= $partial('decide_box', ['decide' => $decide]) ?>
 <?php elseif ($waiting): ?>
 <p class="muted"><?= $word('RECORD', 'waiting') ?></p>
-<?php endif; ?>
-<?php if ($notCreator): ?>
-<p class="note read-only"><?= $word('STOCK_OPS', 'not_creator') ?></p>
 <?php endif; ?>
 
 <?php if ($editable): ?>
@@ -613,6 +610,8 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
 <?php endif; ?>
 </section>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

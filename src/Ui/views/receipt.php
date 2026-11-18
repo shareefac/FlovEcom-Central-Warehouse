@@ -298,3 +298,5 @@
 <?php endif; ?>
 
 <?= $partial('receipt_files', ['doc' => $doc, 'files' => $files, 'fileRoles' => $fileRoles, 'csrf' => $csrf, 'canAttach' => $canAttach, 'back' => '', 'maxMb' => $maxMb]) ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

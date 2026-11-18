@@ -39,8 +39,8 @@ use CW\StockOps\StockOps;
  * 409 duplicate_invoice naming the earlier one); the number is free again once the record is cancelled or reversed.
  *
  * Every write: a staff caller allowed to post the type (doc.SINV.post / doc.SCN.post, never admin; Documents re-reads the roles), ONE
- * transaction (joining an open one), the document row locked and its version checked by Documents, a draft changed only by its
- * creator. accept() needs invoices.accept.
+ * transaction (joining an open one), the document row locked and its version checked by Documents, a draft changed by anyone allowed
+ * to post its type, not only its creator (docs/decisions.md DA1). accept() needs invoices.accept.
  *
  * CW-917 (docs/decisions.md EC3-EC8): createCopy() is the copy job's (system:erp_copy) copy of an ERPNext purchase invoice or debit note,
  * made and posted at once with origin 'erpnext'; nothing of a copy is changed, received, timed, made final, stopped, cancelled or credited
@@ -294,7 +294,7 @@ final class SupplierInvoices
     }
 
     /**
-     * Changes a draft's header (the keys given; '' clears an optional one). Creator only (Documents::updateDraft). The invoice a credit
+     * Changes a draft's header (the keys given; '' clears an optional one). Anyone allowed to post its type (Documents::updateDraft, DA1). The invoice a credit
      * note reduces changes only while none of its lines credits that invoice's lines (409 has_credit_lines).
      *
      * @param array<string, mixed> $header
@@ -328,7 +328,7 @@ final class SupplierInvoices
      * Replaces every line of a draft (line_no 1..N in list order). A line: kind (goods | freight | duty | service | other); a goods line
      * names its item (sku_id), packs, units_per_pack and pack_price (GBP excl. VAT, as on the paper), and optionally the delivery line
      * (grn_document_id + grn_line_no), the order line (po_document_id + po_line_no) and, on a credit note, the invoice line it credits
-     * (credit_of_line_no); any other line names an amount (GBP excl. VAT) and a description. At most MAX_LINES lines. Creator only.
+     * (credit_of_line_no); any other line names an amount (GBP excl. VAT) and a description. At most MAX_LINES lines. Anyone allowed to post its type (DA1).
      *
      * @param list<array<string, mixed>> $lines
      */
@@ -553,7 +553,7 @@ final class SupplierInvoices
 
     /**
      * A draft invoice moved to another supplier, in the caller's save (the owner, 6 Nov 2026: "also in draft and new easily supplier change
-     * option"; docs/decisions.md KG30). Creator only, at $version (Documents::updateDraft, first); an invoice only (a credit note's supplier
+     * option"; docs/decisions.md KG30). Anyone allowed (DA1), at $version (Documents::updateDraft, first); an invoice only (a credit note's supplier
      * is its invoice's or its return's: 409 supplier_fixed); any supplier there is, as a new invoice takes it (createDraft). Its number is
      * checked against the new supplier's invoices (409 duplicate_invoice). The due date and the way its goods come in follow the new
      * supplier only while they are still the old one's own (the date on the paper plus the old terms; the old supplier's way): one the
@@ -693,7 +693,7 @@ final class SupplierInvoices
 
     /**
      * Adds lines after a draft's own (the lines' grid's new lines, docs/decisions.md KG4: goodsLine()'s, each checked again by saveLines):
-     * one save, its version + 1. Creator only (saveLines).
+     * one save, its version + 1. Anyone allowed (saveLines, DA1).
      *
      * @param list<array<string, mixed>> $lines
      */
@@ -779,7 +779,7 @@ final class SupplierInvoices
     /**
      * How a draft invoice's goods not received yet come in when it is made final (count: "count on arrival", they wait in Arriving and
      * Goods In receives them; received: "book as received", a receipt is booked at once) and, for "book as received", the duty stamp on
-     * the pack of each goods line ($stamps line_no => digital | transitional | '' for none given). Creator only (Documents::updateDraft:
+     * the pack of each goods line ($stamps line_no => digital | transitional | '' for none given). Anyone allowed (Documents::updateDraft, DA1:
      * version + 1); audit invoice.receiving.
      *
      * @param array<int, string> $stamps
@@ -819,7 +819,7 @@ final class SupplierInvoices
      * Sets (or, with null, takes off) the time a draft invoice is made final by the job (bin/submit_invoices.php, every minute), as the
      * person who sets it (their posting: their roles are checked again then). The time is in the future (422 bad_submit_at); there is no
      * fixed time, each invoice gets its own. Until then the draft is changed, re-timed or stopped as any draft; a failed attempt is kept
-     * and not tried again until the time is set again. Creator only (version + 1); audit invoice.schedule.
+     * and not tried again until the time is set again. Anyone allowed (DA1; the timed posting is then theirs: submit_by) (version + 1); audit invoice.schedule.
      */
     public function schedule(Caller $caller, int $id, int $version, ?\DateTimeImmutable $at): Document
     {

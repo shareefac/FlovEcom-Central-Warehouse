@@ -354,8 +354,10 @@ final class GoodsReceiptRulesTest extends ReceivingTestCase
         $deskReviewer = $this->staffUser(['purchasing_desk', 'reviewer']);
         $d = $this->grns->createDraft($goodsIn, (int) $s['id'], ['delivery_note' => 'DN-55']);
         $d = $this->grns->saveDraft($goodsIn, $d->id, $d->version, [], [['sku_id' => $sku, 'packs' => 2]]);
-        $e = $this->refusedCode('not_creator', fn () => $this->grns->saveDraft($desk, $d->id, $d->version, ['invoice_number' => 'X-1'], $this->grns->lines($d->id)));
-        self::assertStringContainsString('anyone who receives goods can set the supplier invoice', $e->getMessage());
+        // The desk may also change the lines and the details of a delivery it did not key (docs/decisions.md DA1): it stays its keyer's.
+        $d = $this->grns->saveDraft($desk, $d->id, $d->version, ['invoice_number' => 'X-1'], [['sku_id' => $sku, 'packs' => 3]]);
+        self::assertSame([$goodsIn->staffUserId, 'X-1', 3], [$d->createdBy, $d->externalRef,
+            (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ? AND line_no = 1', [$d->id])]);
         $this->grns->setInvoice($deskReviewer, $d->id, $this->docs->get($d->id)->version, ['invoice_number' => 'bench 77', 'invoice_date' => self::day('-1 day')]);
         self::assertSame(['bench 77', 'BENCH77', 'DN-55'], [$this->docs->get($d->id)->externalRef, self::$db->value('SELECT invoice_key FROM goods_receipt WHERE document_id = ?', [$d->id]),
             self::$db->value('SELECT delivery_note FROM goods_receipt WHERE document_id = ?', [$d->id])]);
@@ -398,7 +400,16 @@ final class GoodsReceiptRulesTest extends ReceivingTestCase
         $sku = self::makeSku('Who item');
         $this->dry($sku);
         $d = $this->receipt($desk, (int) $s['id'], [['sku_id' => $sku, 'packs' => 1]]);
-        $this->refusedCode('not_creator', fn () => $this->grns->saveDraft($this->staffUser('purchasing_desk'), $d->id, $this->docs->get($d->id)->version, [], []));
+        // Anyone who receives goods changes a delivery someone else keyed, its lines too (docs/decisions.md DA1); a page drawn before their save
+        // is refused naming them; only its keyer cancels it (GV17, unchanged).
+        $otherDesk = $this->staffUser('purchasing_desk');
+        $was = $this->docs->get($d->id)->version;
+        $saved = $this->grns->saveDraft($otherDesk, $d->id, $was, [], [['sku_id' => $sku, 'packs' => 2]]);
+        self::assertSame([$desk->staffUserId, 2], [$saved->createdBy, (int) self::$db->value('SELECT packs FROM grn_line WHERE document_id = ? AND line_no = 1', [$d->id])]);
+        $e = $this->refusedCode('version_conflict', fn () => $this->grns->saveDraft($desk, $d->id, $was, [], [['sku_id' => $sku, 'packs' => 1]]));
+        self::assertSame($otherDesk->staffUserId, $e->detail['changed_by_id']);
+        $this->refusedCode('not_keyer_cancel', fn () => $this->grns->cancel($otherDesk, $d->id, $saved->version, 'keyed twice'));
+        $this->refusedCode('role_not_allowed', fn () => $this->grns->saveDraft($buyer, $d->id, $saved->version, [], []));
         $this->refusedCode('role_not_allowed', fn () => $this->grns->createDraft($buyer, (int) $s['id']));
         $this->refusedCode('admin_cannot_post', fn () => $this->grns->createDraft($this->staffUser('admin'), (int) $s['id']));
         $this->refusedCode('role_not_allowed', fn () => $this->grns->bench($this->staffUser('reviewer'), $d->id, $this->docs->get($d->id)->version, ['paperwork_ok' => '1'], []));

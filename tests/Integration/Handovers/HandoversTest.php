@@ -245,8 +245,10 @@ final class HandoversTest extends HandoversTestCase
         self::assertSame('draft', $this->handovers->createDraft($this->staffUser('purchasing_manager'), ['counterparty' => $cp])->status);
         $desk = $this->staffUser('purchasing_desk');
         $d = $this->handovers->createDraft($desk, ['counterparty' => $cp]);
-        // A draft is changed by its creator only (the document base's rule).
-        self::refusedWith('not_creator', fn () => $this->handovers->saveLines($this->staffUser('purchasing_desk'), $d->id, $d->version, []));
+        // A draft is changed by anyone who keeps hand-overs, not only its creator (docs/decisions.md DA1); it stays its creator's.
+        $d = $this->handovers->saveLines($this->staffUser('purchasing_desk'), $d->id, $d->version, []);
+        self::assertSame([2, $desk->staffUserId], [$d->version, $d->createdBy]);
+        self::refusedWith('role_not_allowed', fn () => $this->handovers->saveLines($this->staffUser('buyer'), $d->id, $d->version, []));
         self::refusedWith('staff_required', fn () => $this->customers->add(\CW\Caller::system('test'), ['kind' => 'trade', 'name' => 'System']));
     }
 

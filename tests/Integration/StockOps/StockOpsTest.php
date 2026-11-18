@@ -336,8 +336,16 @@ final class StockOpsTest extends StockOpsTestCase
         $this->warehouse('SHOP');
         self::assertSame('posted', $this->posted('transfer', $this->staffUser('warehouse'), ['to_warehouse' => 'SHOP'], [['sku_id' => $sku, 'qty' => 1]])->status);
         self::refusedWith('role_not_allowed', fn () => $this->draft('release', $this->staffUser('warehouse'), [], []));
-        $mine = $this->draft('in', $this->staffUser('stock_controller'), ['reason_code' => 'found'], []);
-        self::refusedWith('not_creator', fn () => $this->ops->saveLines($this->staffUser('stock_controller'), $mine->id, $mine->version, [['sku_id' => $sku, 'qty' => 1]]));
+        // Another person who keeps the kind changes someone else's draft and makes it final (docs/decisions.md DA1); the draft stays its
+        // starter's. Someone whose job does not keep that kind still cannot (the same permission as starting one).
+        $starter = $this->staffUser('stock_controller');
+        $mine = $this->draft('in', $starter, ['reason_code' => 'found'], []);
+        $other = $this->staffUser('purchasing_desk');
+        $mine = $this->ops->saveLines($other, $mine->id, $mine->version, [['sku_id' => $sku, 'qty' => 1, 'unit_cost' => '1.00']]);
+        $mine = $this->ops->saveHeader($other, $mine->id, $mine->version, ['warehouse' => self::warehouseId('MAIN'), 'reason_code' => 'found', 'note' => 'seen on shelf C']);
+        self::refusedWith('role_not_allowed', fn () => $this->ops->saveLines($this->staffUser('warehouse'), $mine->id, $mine->version, []));
+        $p = $this->ops->post($other, $mine->id, $mine->version);
+        self::assertSame(['posted', $starter->staffUserId, $other->staffUserId], [$p->status, $p->createdBy, $p->postedBy]);
     }
 
     public function testTheMigrationSeedsTheKindsReasonsAndTheirHistory(): void

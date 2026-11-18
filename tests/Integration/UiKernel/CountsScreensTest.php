@@ -862,20 +862,24 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertFalse($read->hasForm($sheet . '/lines'));
         self::assertFalse($read->hasForm($sheet . '/scan'));
         self::assertSame(403, $admin->get($sheet)->status);
-        // Someone else who counts sees the sheet, is told whose it is, and can neither enter nor finish it.
+        // Someone else who counts gets the same entry form as its opener (docs/decisions.md DA1; the owner, 18 Nov 2026: "anyone who have access
+        // should be able to edit it"), enters a quantity and makes it final; the sheet stays its opener's, each count names who entered it.
         $theirs = $other->get($sheet);
         self::assertSame(200, $theirs->status);
-        self::assertStringContainsString(Words::COUNTS['not_opener'], $theirs->text());
-        self::assertFalse($theirs->hasForm($sheet . '/lines'));
-        $token = $this->token($other);
-        $r = $other->post($sheet . '/lines', ['csrf' => $token, 'q_1' => '3']);
-        self::assertSame(403, $r->status);
-        self::assertStringContainsString(Words::COUNT_ERROR['not_creator'], $r->text());
-        $opener->post($sheet . '/lines', ['csrf' => $this->token($opener), 'q_1' => '9']);
-        $version = (string) self::$db->value('SELECT version FROM document WHERE id = ?', [$id]);
-        $r = $other->post($sheet . '/post', ['csrf' => $token, 'version' => $version]);
-        self::assertSame(403, $r->status, 'a hand-made form by someone who did not open the sheet');
-        self::assertSame(['draft', 10], [self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), $this->onHand($a)]);
+        self::assertTrue($theirs->hasForm($sheet . '/lines'), 'the entry form, as its opener has it');
+        self::assertSame(0, (new \DOMXPath($theirs->dom()))->query('//p[contains(@class, "read-only")]')->length, 'no "only the person who opened it" note');
+        $r = $other->post($sheet . '/lines', ['q_1' => '3'] + $theirs->form($sheet . '/lines'));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(3, (int) self::$db->value('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$id]));
+        $opener->post($sheet . '/lines', ['q_1' => '9'] + $opener->get($sheet)->form($sheet . '/lines'));
+        self::assertSame(9, (int) self::$db->value('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$id]));
+        $done = $this->submit($other, $sheet . '/differences', $sheet . '/post');
+        self::assertSame(303, $done->status, $done->describe());
+        self::assertSame(['posted', 9], [self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), $this->onHand($a)]);
+        $doc = self::$db->one('SELECT created_by, posted_by FROM document WHERE id = ?', [$id]);
+        self::assertSame((int) self::$db->value("SELECT staff_user_id FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'count.open'", [(string) $id]),
+            (int) $doc['created_by'], 'the sheet stays its opener\'s');
+        self::assertNotSame((int) $doc['created_by'], (int) $doc['posted_by'], 'made final by the other person');
         // A record of another kind, or none, is not a count sheet; a GET of a form's address is not a page.
         self::assertSame(404, $opener->get(self::PATH . '/999999')->status);
         self::assertSame(404, $opener->post(self::PATH . '/999999/lines', ['csrf' => $this->token($opener), 'q_1' => '1'])->status);

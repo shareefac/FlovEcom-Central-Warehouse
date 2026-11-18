@@ -1,5 +1,5 @@
 <?php
-// One hand-over (pack H) on the approved patterns (docs/decisions.md W8). Its creator's draft is the one-page form (pattern 3, PI_New): the
+// One hand-over (pack H) on the approved patterns (docs/decisions.md W8). A draft is the one-page form (pattern 3, PI_New) for anyone who keeps hand-overs (DA1): the
 // customer, warehouse, VAT code, their reference, date and note in two columns (their own form, as before), the items as a board under the
 // add box, the totals on the right under them, and the bar at the bottom of the lines form: Leave without saving, what it holds, Save, then
 // "Make it final" (the one form of OV1-OV12, kept as it is). Any other hand-over is the record page (pattern 2, PO_View): the status block in
@@ -17,9 +17,6 @@ $bar = $partial('handover_bar', ['doc' => $doc, 'version' => $version, 'pdf' => 
 <?php endif; ?>
 <?php if ($decide !== null): ?>
 <?= $partial('decide_box', ['decide' => $decide]) ?>
-<?php endif; ?>
-<?php if ($notCreator): ?>
-<p class="note read-only"><?= $word('HANDOVER', 'not_creator') ?></p>
 <?php endif; ?>
 <?php if ($pdf !== null && $pdfBlocked !== null): ?>
 <p class="note"><?= $e($pdfBlocked) ?> <a href="<?= $e($companyHref) ?>"><?= $word('HANDOVER', 'company_link') ?></a></p>
@@ -214,6 +211,8 @@ $bar = $partial('handover_bar', ['doc' => $doc, 'version' => $version, 'pdf' => 
   </div>
 </article>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

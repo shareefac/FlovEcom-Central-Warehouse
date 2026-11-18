@@ -350,7 +350,8 @@ final class HandoversController
         $doc = Document::fromRow($rec);
         $type = $ctx->documents()->typeInfo($doc->docType);
         $canPost = Documents::mayPost($me->roles, $doc->docType);
-        $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Anyone who keeps hand-overs changes a draft, not only the person who started it (docs/decisions.md DA1).
+        $editable = $doc->status === 'draft' && $canPost;
         $lines = $svc->lines($id);
         $tasks = DocumentsController::tasks($ctx->db, $id);
         $reversedBy = $rec['reversed_by_id'] === null ? null : ['id' => (int) $rec['reversed_by_id'], 'number' => $rec['reversed_by_number'],
@@ -402,11 +403,11 @@ final class HandoversController
             ],
             'missingPrices' => count($missing),
             'editable' => $editable,
-            'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
             'form' => self::form($choices, $extra['header'] ?? null, $rec),
             'version' => $doc->version,
             'decide' => DocumentsController::decideBox($ctx, $doc, $tasks, $type, null),
             'history' => DocumentsController::history($tasks),
+            'changes' => DocumentsController::changes($ctx->db, $id),
             'reverse' => $doc->status === 'posted' && !$doc->isReversal() && $reversedBy === null && $canPost
                 ? ['reasons' => $ctx->db->all("SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 "
                     . "AND is_active = 1 AND code NOT IN ('po_amended', 'supplier_cannot_supply', 'not_needed') ORDER BY sort_order, code")] : null,
@@ -430,7 +431,13 @@ final class HandoversController
             'editLines' => $page['lines'],
             'linesPager' => $page['pager'],
             'lookOnly' => $canPost ? null : Words::whoCan('doc.TRD.post'),
-            'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
+            // Someone's save after this page was drawn: who and when (DA3).
+            'error' => match (true) {
+                $error === null => null,
+                $error->errorCode === 'version_conflict' => DocumentsController::conflictText($ctx, $id, self::plain($error)),
+                ($extra['notFinal'] ?? false) === true => Words::notFinal(self::plain($error)),
+                default => self::plain($error),
+            },
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
     }

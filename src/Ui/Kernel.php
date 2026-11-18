@@ -672,7 +672,7 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/supplier-items/{id}', 'suppliers.manage', $supplierItems->update(...));
         $r->add('POST', '/ui/purchasing/supplier-items/{id}/price', 'suppliers.manage', $supplierItems->price(...));
         // Purchase orders (IM5, I48-I59): purchasing.view looks; doc.PO.post (buyers) acts, checked again by CW\PurchaseOrders\PurchaseOrders
-        // (and the creator-only rule of drafts); reviewers decide on the order's page through /ui/documents/reviews/{id}/*.
+        // (a draft is any buyer's to change: docs/decisions.md DA1); reviewers decide on the order's page through /ui/documents/reviews/{id}/*.
         $r->add('GET', '/ui/purchasing/orders', 'purchasing.view', $orders->index(...));
         $r->add('GET', '/ui/purchasing/orders.csv', 'purchasing.view', $orders->csv(...));
         // PO on one page (docs/decisions.md PX1-PX9): "New purchase order" is the page itself (no draft until its first real action); its one
@@ -723,7 +723,7 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/reorder/refresh', 'reorder.manage', $reorderEngine->refresh(...));
         // --- end of Pack G
         // Receiving (IM6, I-3; I125-I147): receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) keys,
-        // checks at the bench and posts, checked again by CW\Receiving\GoodsReceipts (the creator-only rule of a draft's lines);
+        // checks at the bench and posts, checked again by CW\Receiving\GoodsReceipts (a draft's lines anyone's who receives goods, DA1);
         // reviewers decide on the receipt's page through /ui/documents/reviews/{id}/*; incidents.view / incidents.resolve the register.
         $recv = new ReceivingController();
         $incidents = new IncidentsController();

@@ -1097,7 +1097,10 @@ any type) is a request too: "Reversal requested", no number and no stock until a
 the document cannot be reversed again. Rejecting the review of a reversal records the rejection and books nothing (a
 reversal is never reversed, I31): if the original was right, its poster posts it again as a new document. Downloads (PDF,
 CSV, stored files) are attachments, never shown inline; a stored file is saved with the extension of the type CW sniffed
-(a text file named `duty.hta` downloads as `duty.hta.txt`, I36).
+(a text file named `duty.hta` downloads as `duty.hta.txt`, I36). A draft (any type, a count sheet, a delivery not booked in) is
+changed and made final by anyone whose job keeps that kind of record, not only the person who started it (DA1, the owner 18 Nov
+2026); its page lists who started it and who changed it ("History of changes", DA2), and a save made on a page drawn before
+someone else's is refused naming who changed it and when (DA3). Cancelling a delivery not booked in stays its keyer's (GV17).
 
 ### Switching on the public HTTPS vhost (NOT done; needs the DNS record)
 
@@ -1413,7 +1416,7 @@ act). The list filters by state, supplier, number / supplier's reference and "re
 buyer starts a draft there ("New purchase order": pick the supplier — a draft or pending supplier is allowed, the approval
 then waits for the supplier's own approval).
 
-- **The editor** (the draft's creator only; others see it read-only) is one form: order date, expected delivery, the
+- **The editor** (any buyer's, not only the draft's creator: DA1; someone without `doc.PO.post` sees it read-only) is one form: order date, expected delivery, the
   supplier's quote reference, notes to the supplier (printed), then the **scan box**: a barcode (a case barcode takes the
   supplier item of that pack), this supplier's code, a CW code or words of the name. Enter adds the line **and saves every
   change made in the table** (packs, pack price, VAT code, note; packs 0 removes a line); scanning the same item again adds
@@ -2037,7 +2040,7 @@ needs migration 0017 and the code together ("Deploying IM6" below), after the ow
 | Screen | Permission | Roles |
 |---|---|---|
 | Deliveries › **Receive + invoice** (`/ui/receiving`), a delivery's page (`/ui/receiving/{id}`) | `receiving.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, accountant, auditor, manager |
-| "Start a new delivery", the editor (its keyer), "Copy the order", the sheet import, files, book in, cancel, take back; Deliveries › **Goods-in bench** (`/ui/receiving/bench`) and the bench check of a delivery | `doc.GRN.post` | goods_in, purchasing_desk, purchasing_manager (never admin) |
+| "Start a new delivery", the editor (anyone of them, not only its keyer: DA1), "Copy the order", the sheet import, files, book in, cancel (its keyer: GV17), take back; Deliveries › **Goods-in bench** (`/ui/receiving/bench`) and the bench check of a delivery | `doc.GRN.post` | goods_in, purchasing_desk, purchasing_manager (never admin) |
 | Deliveries › **Incidents** (`/ui/receiving/incidents`) | `incidents.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, auditor, manager |
 | closing an incident (resolved / dismissed, with a note) | `incidents.resolve` | purchasing_desk, purchasing_manager, stock_controller |
 | the check of a delivery (on its page; Waiting for me, or Home's "Deliveries booked in to check") | `documents.review` | reviewer, never the person who keyed, posted or **checked it at the bench** |

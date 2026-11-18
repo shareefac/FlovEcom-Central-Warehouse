@@ -396,14 +396,22 @@ final class CountSheetsTest extends CountsTestCase
         self::refusedWith('role_not_allowed', fn () => $this->sheet($this->staffUser('reviewer'), [$a]));
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet'));
         $sheet = $this->sheet($wh, [$a]);
-        // The person who opened a sheet enters and posts it (the document base's rule for a draft).
-        self::refusedWith('not_creator', fn () => $this->enter($sc, $sheet, $a, 3));
-        self::refusedWith('not_creator', fn () => $this->sheets->addItem($sc, $sheet->id, $this->item('strict', 1)));
+        // Anyone who counts enters a sheet another person opened, adds to it and posts it (docs/decisions.md DA1; the owner, 18 Nov 2026):
+        // each quantity names who entered it, each change is audited under them, and the sheet stays its opener's.
+        $this->enter($sc, $sheet, $a, 2);
+        self::assertSame(['line_no' => 2, 'added' => true], $this->sheets->addItem($sc, $sheet->id, $b = $this->item('strict', 1)));
         $this->enter($wh, $sheet, $a, 3);
-        self::refusedWith('not_creator', fn () => $this->post($sc, $sheet));
+        self::assertSame([3, $wh->staffUserId], [(int) $this->sheetLine($sheet->id, $a)['counted_qty'], (int) $this->sheetLine($sheet->id, $a)['counted_by']]);
+        $this->enter($sc, $sheet, $b, 1);
+        self::assertSame([$sc->staffUserId, $sc->staffUserId, $wh->staffUserId, $sc->staffUserId], array_map('intval', self::$db->column("SELECT staff_user_id FROM audit_log "
+            . "WHERE entity_type = 'document' AND entity_id = ? AND action IN ('count.enter', 'count.add') ORDER BY id", [(string) $sheet->id])),
+            'who entered what: the audit rows (count.enter, count.add)');
+        self::refusedWith('role_not_allowed', fn () => $this->enter($this->staffUser('buyer'), $sheet, $a, 4));
         self::refusedWith('role_not_allowed', fn () => $this->post($this->staffUser('buyer'), $sheet));
         self::assertSame('draft', $this->docs->get($sheet->id)->status);
-        self::assertSame('posted', $this->post($wh, $sheet)->status);
+        $p = $this->post($sc, $sheet);
+        self::assertSame(['posted', $wh->staffUserId, $sc->staffUserId], [$p->status, $p->createdBy, $p->postedBy]);
+        self::refusedWith('not_draft', fn () => $this->enter($wh, $sheet, $a, 5));
         // A sheet names a warehouse that is switched on, and items that exist, each once.
         self::refusedWith('warehouse_required', fn () => $this->sheets->open($sc, [], [$a]));
         self::refusedWith('unknown_sku', fn () => $this->sheet($sc, [999_999]));
@@ -453,7 +461,7 @@ final class CountSheetsTest extends CountsTestCase
         $this->setting('counts.time_window_max_minutes', 10);
 
         // "Count the marked lines again" empties exactly them; counted again one minute apart they share the newest line's time.
-        self::refusedWith('not_creator', fn () => $this->sheets->recountForTimes($this->staffUser('warehouse'), $sheet->id));
+        self::refusedWith('role_not_allowed', fn () => $this->sheets->recountForTimes($this->staffUser('buyer'), $sheet->id));
         self::assertSame(2, $this->sheets->recountForTimes($sc, $sheet->id));
         self::assertSame([null, null, 1], [$this->sheetLine($sheet->id, $items[0])['counted_qty'], $this->sheetLine($sheet->id, $items[1])['counted_qty'],
             (int) $this->sheetLine($sheet->id, $items[2])['counted_qty']]);

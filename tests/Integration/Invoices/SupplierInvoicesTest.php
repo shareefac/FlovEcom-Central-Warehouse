@@ -463,8 +463,12 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         $this->refusedCode('role_not_allowed', fn () => $this->invoices->createDraft($this->staffUser('goods_in'), 'invoice', (int) $s['id']));
         $this->refusedCode('admin_cannot_post', fn () => $this->invoices->createDraft($this->staffUser(['admin', 'auditor']), 'invoice', (int) $s['id']));
         $this->refusedCode('role_not_allowed', fn () => $this->invoices->createDraft($this->staffUser('reviewer'), 'credit_note', (int) $s['id']));
-        $d = $this->invoices->createDraft($this->staffUser('purchasing_manager'), 'invoice', (int) $s['id']);
-        $this->refusedCode('not_creator', fn () => $this->invoices->saveHeader($desk, $d->id, $d->version, ['invoice_number' => 'X-1']), 'a draft is its creator\'s');
+        $manager = $this->staffUser('purchasing_manager');
+        $d = $this->invoices->createDraft($manager, 'invoice', (int) $s['id']);
+        // Anyone who keeps invoices changes a draft someone else started (docs/decisions.md DA1): it stays its creator's.
+        $d = $this->invoices->saveHeader($desk, $d->id, $d->version, ['invoice_number' => 'X-1']);
+        self::assertSame(['X-1', $manager->staffUserId], [$d->externalRef, $d->createdBy]);
+        $this->refusedCode('role_not_allowed', fn () => $this->invoices->saveHeader($buyer, $d->id, $d->version, ['invoice_number' => 'X-2']));
     }
 
     /**

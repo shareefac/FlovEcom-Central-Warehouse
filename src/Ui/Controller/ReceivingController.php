@@ -35,8 +35,8 @@ use CW\Ui\Words;
  * in (what was booked where, the incidents, the review and reversal) and of a draft for someone who only looks; the bench list.
  *
  * receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) acts, checked again by CW\Receiving\GoodsReceipts:
- * a draft's header and lines are its creator's (saveDraft); the check is anyone's who receives goods (bench()), so is a draft's supplier
- * invoice (setInvoice) and booking it in (post()); reviewers decide on the delivery's page (the forms post to /ui/documents/reviews/{task}/...,
+ * a draft's header and lines are anyone's who receives goods, not only its keyer's (saveDraft, docs/decisions.md DA1); so is the check
+ * (bench()), a draft's supplier invoice (setInvoice) and booking it in (post()); reviewers decide on the delivery's page (the forms post to /ui/documents/reviews/{task}/...,
  * which come back here). The "new delivery" form and each Arriving "Receive" carry a FormOnce key; every other form the version it was drawn
  * with, and the one page the stamps of what it shows (a save drawn before someone else's is saved while what it changes was not changed
  * meanwhile, else drawn again with what was typed: GV4). The one page sends `version`, `page`, `line_count` and `lines_editable` first and
@@ -407,7 +407,7 @@ final class ReceivingController
 
     /**
      * POST /ui/receiving/{id}/lines: the delivery's one form (docs/decisions.md GV3, GV4). In ONE transaction: its keyer's save (the
-     * header and every line of the page as edited: GoodsReceipts::saveDraft, the creator's only), the supplier invoice of someone who did
+     * header and every line of the page as edited: GoodsReceipts::saveDraft, anyone's who receives goods: DA1), the supplier invoice of someone who did
      * not key it (setInvoice, I172), the check of the lines this person touched (bench(): an answer changed, "All fine", the tick; the
      * lines at their numbers after the save), the file, then what was scanned or chosen. "Book in" (action=post) books in after that
      * commit, with the version the save left, in the posting's own transaction (GoodsReceipts::post: no outer transaction around it); a
@@ -461,8 +461,8 @@ final class ReceivingController
         } catch (CwException $e) {
             return $ctx->error(400, $e->errorCode, $e->getMessage());
         }
-        // The keyer's part: the header and the lines (a person who did not key it sends neither; sent anyway, the service refuses it). New
-        // lines are the keyer's too: sent by anyone else, the service refuses the save (403 not_creator).
+        // The keyer's part: the header and the lines, sent by anyone on the one page (DA1: not only the person who keyed it). A form without
+        // them (made by hand) sends the supplier invoice through setInvoice instead (I172).
         $deskSave = $editable || $req->field('header_present') === '1' || $new !== [];
         $header = [];
         if ($deskSave) {
@@ -577,7 +577,7 @@ final class ReceivingController
                     continue; // changed between the look and the save: look again
                 }
                 if ($e->errorCode === 'version_conflict') {
-                    return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['conflict' => true] + $back);
+                    return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['conflict' => true] + $back);
                 }
                 if ($e->errorCode === 'grid_choices') {
                     // Nothing was saved with it (FormOnce rolled the save back): the choices, with everything typed kept (the new lines too).
@@ -845,6 +845,15 @@ final class ReceivingController
     }
 
     /**
+     * The refusal of the one form drawn before someone else's save of the keyer's part (409): who changed the delivery and when, when CW knows
+     * (docs/decisions.md DA3), else "this delivery was changed since you opened it"; the page is drawn again with what was typed.
+     */
+    private static function conflict(Context $ctx, int $id): CwException
+    {
+        return new CwException('version_conflict', DocumentsController::conflictText($ctx, $id, Words::RECEIPT_ERROR['version_conflict'], 'kept'), 409, ['said' => true]);
+    }
+
+    /**
      * A form drawn before someone else's save: null when what it changes was not changed meanwhile (it is saved on the current version),
      * else the page again (409) with what was typed: the keyer's part (the desk stamp, I175: drawn again without the line rows when the
      * lines were added or removed), the supplier invoice of someone else, or the check (the checklist's stamp and each touched line's;
@@ -861,7 +870,7 @@ final class ReceivingController
         $req = $ctx->req;
         $typed = $back['typed'];
         if ($deskSave && !hash_equals($svc->deskStamp($id), (string) ($req->field('stamp') ?? ''))) {
-            return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['typed' => count($svc->lines($id)) === $count
+            return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['typed' => count($svc->lines($id)) === $count
                 ? $typed : array_filter($typed, static fn ($k): bool => !str_starts_with((string) $k, 'line_') && !str_starts_with((string) $k, 'b_'), ARRAY_FILTER_USE_KEY),
                 'conflict' => true] + $back);
         }
@@ -870,7 +879,7 @@ final class ReceivingController
             $drawn = (string) ($req->field('inv_was') ?? '');
             if (!hash_equals(self::answersFp(self::invoiceAnswers(['invoice_number' => $now->externalRef, 'invoice_date' => $g['invoice_date'] ?? null,
                 'delivery_note' => $g['delivery_note'] ?? null])), $drawn)) {
-                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['conflict' => true] + $back);
+                return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['conflict' => true] + $back);
             }
         }
         $stamps = $svc->benchStamps($id);
@@ -1397,6 +1406,7 @@ final class ReceivingController
                 self::fileRows($db->all('SELECT f.id, f.original_name, f.mime, f.size_bytes, f.kind AS kind_code, df.role, df.attached_at FROM document_file df '
                 . 'JOIN stored_file f ON f.id = df.file_id WHERE df.document_id = ? ORDER BY df.attached_at, f.id', [$doc->id]))),
             'incidents' => (new Incidents($db))->list(null, null, $doc->id),
+            'changes' => DocumentsController::changes($db, $doc->id), // who keyed it and who changed or checked it (DA2)
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
             'problems' => is_array($error?->detail['problems'] ?? null)
@@ -1425,7 +1435,7 @@ final class ReceivingController
         if ($onePage) {
             return $this->onePage($ctx, $doc, $data, $status, $error, $notice, $extra);
         }
-        $data['canSetInvoice'] = $canPost && $doc->status === 'draft' && $doc->createdBy !== $me->id;
+        $data['canSetInvoice'] = $canPost && $doc->status === 'draft'; // anyone who receives goods (I172, DA1); a draft for them is the one page
         // Prices and values only for someone who reads money (invoices.view; goods in does not: GV17).
         $data['prices'] = $me->can('invoices.view');
         // --- Pack C: the invoices that bill this delivery, and "Book its invoice" (the quick way) while units are left to invoice.
@@ -1454,7 +1464,10 @@ final class ReceivingController
         $gr = $data['gr'];
         $plan = $data['plan'];
         $all = $data['lines'];
-        $keyer = $doc->createdBy === $me->id;
+        // Everyone on the one page (a draft, someone who receives goods) has the keyer's fields: the details, the lines, Add, copy and import,
+        // not only the person who keyed it (docs/decisions.md DA1; the owner, 18 Nov 2026: "anyone who have access should be able to edit it").
+        // A scanned code of a line still finds that line (the bench's way); cancelling stays the keyer's (GV17, GV22: canCancel).
+        $keyer = true;
         $prices = $me->can('invoices.view');
         if (!$prices && $plan !== null) {
             // Goods in never sees a price (GV6): the warnings about one (a line at £0) are the buying desk's.
@@ -1606,7 +1619,7 @@ final class ReceivingController
             'postMax' => UiRequest::postMaxBytes(),
             'postMaxMb' => intdiv(UiRequest::postMaxBytes(), 1_048_576),
             'maxFiles' => UiRequest::maxFileUploads(),
-            'canCancel' => $keyer || $svc->mayCancel($me->id, $me->roles, $doc->id),
+            'canCancel' => $svc->mayCancel($me->id, $me->roles, $doc->id),
             'arrival' => $arrival,
             'canCopy' => $keyer && $data['po'] !== null,
             // The grid (docs/decisions.md GW): the new lines typed, drawn again; their one field; the save's FormOnce key (a refused save stored
@@ -1822,7 +1835,8 @@ final class ReceivingController
             in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required', 'fine_needs_stamp', 'fine_no_stamp', 'not_booked',
                 'too_many_files', 'files_too_big', 'grid_packs'], true)
                 => $e->getMessage(),
-            $code === 'version_conflict' && (in_array($e->getMessage(), [Words::RECEIPT_ERROR['version_conflict'], Words::RECEIPT_ERROR['version_conflict_choice']], true)
+            $code === 'version_conflict' && (($e->detail['said'] ?? false) === true
+                || in_array($e->getMessage(), [Words::RECEIPT_ERROR['version_conflict'], Words::RECEIPT_ERROR['version_conflict_choice']], true)
                 || str_starts_with($e->getMessage(), (string) strstr(Words::RECEIPT_ERROR['version_conflict_bench'], '(', true))) => $e->getMessage(),
             $code === 'version_conflict' => Words::RECEIPT_ERROR['version_conflict_choice'],
             $problems === 1 => Words::RECEIPT_ERROR['not_ready_one'],

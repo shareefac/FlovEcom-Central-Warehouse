@@ -1,7 +1,7 @@
 <?php
 // The purchase order on ONE page (docs/decisions.md PX1-PX10; the owner, 26 Oct 2026: one view, "add new" in the dropdowns, monday.com's
-// look, nothing over complicated). A new order (no draft yet: $isNew, the form posts to the list's address with a FormOnce key) or its
-// creator's draft (the form posts to /lines with its version first). One form: the supplier, the board of products (each row edited in
+// look, nothing over complicated). A new order (no draft yet: $isNew, the form posts to the list's address with a FormOnce key) or a
+// draft, for anyone who writes orders (DA1; the form posts to /lines with its version first). One form: the supplier, the board of products (each row edited in
 // place with its remove; the last row is "+ Add product", the scan box), the delivery charge and the totals in one summary, Save and Confirm.
 // Enter is Add (the form's first button). The supplier is a plain select that app.js makes a box with the site's one dropdown (SM11),
 // ending with "+ Add new supplier"; the scan box gets the same dropdown, ending with "+ Add new item". Both small forms are fields of this
@@ -308,3 +308,5 @@ $rowNo = 0;
   <p class="actions"><button type="submit" class="btn"><?= $word('ORDER', 'import') ?></button></p>
 </form>
 <?php endif; ?>
+
+<?= $partial('doc_changes', ['changes' => $changes ?? null]) ?>

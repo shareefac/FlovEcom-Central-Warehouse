@@ -34,7 +34,7 @@ final class Words
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
-        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
+        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'DRAFT', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
         'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'DOC_GRID', 'KEYS', 'REORDER', 'WHY',
@@ -653,7 +653,7 @@ final class Words
         'receiving' => ['Each delivery from a supplier, booked in against its supplier invoice.', 'Receive an order when it arrives, or open a delivery to check it.'],
         // Goods in on one page (GV12): one plain sentence each.
         'receipt_draft' => ['One delivery: check each line, attach the supplier\'s invoice, then book it in.', ''],
-        'receipt_other' => ['A delivery someone else started: check each line, then book it in.', ''],
+        'receipt_other' => ['A delivery not booked in yet: anyone who receives goods checks each line, then books it in.', ''],
         'receipt_new' => ['One delivery for each supplier invoice: choose its order, or only the supplier.', ''],
         'receipt' => ['One delivery: what arrived, where it went, and who checked it.', ''],
         'bench' => ['Every delivery not booked in yet, the earliest first, with how far its check got.', 'Open one and check each line.'],
@@ -1656,7 +1656,6 @@ final class Words
         'cancels' => 'It cancels %s',
         'cancelled_by' => 'Cancelled by',
         'cancel_waiting' => 'a cancellation that waits for a reviewer\'s OK',
-        'not_opener' => 'Only the person who opened this sheet enters its quantities and makes it final.',
         'open_one' => '1 difference of this sheet waits for an answer:',
         'open_many' => '%s differences of this sheet wait for an answer:',
         'counting' => 'Counting',
@@ -1852,7 +1851,6 @@ final class Words
         'unknown_line' => 'This sheet has no line %s. Nothing was saved. Reload the page.',
         'line_put_back' => 'Line %s of this sheet was already put back on its own, so the sheet cannot be cancelled as a whole. Nothing was changed. '
             . 'Reject its other differences one by one instead.',
-        'not_creator' => 'Only the person who opened this sheet enters its quantities and makes it final. Nothing was saved.',
         'not_draft' => 'This sheet is not open any more, so it cannot be changed. Nothing was saved.',
         'version_conflict' => 'The sheet changed after this page was drawn (a quantity was entered, perhaps in another tab). Nothing was booked. '
             . 'Look at the differences again.',
@@ -2064,7 +2062,6 @@ final class Words
         'file_role' => 'What it is',
         'file_button' => 'Add the file',
         'file_hint' => 'A PDF or a photo, at most %s MB. Files are kept, never deleted.',
-        'not_creator' => 'Only the person who started this draft changes it.',
         'value_note' => 'Values at the average cost so far are an estimate: stock values for the accounts come later.',
         'booked_none' => 'A move between two places of one warehouse changes no figure.',
         'back' => 'Back to %s',
@@ -2187,7 +2184,6 @@ final class Words
         'bad_field' => 'Something typed is not right: check the fields. Nothing was saved.',
         'not_draft' => 'This record is not a draft any more, so it cannot be changed. Nothing was saved.',
         'version_conflict' => 'Someone changed this record while you had the page open. Nothing was saved. Look at it again, then try again.',
-        'not_creator' => 'Only the person who started this draft changes it. Nothing was saved.',
         'not_reversible' => 'This record cannot be cancelled: it is not final, it is cancelled already, or it is itself a cancellation.',
         'reversal_pending' => 'A cancellation of this record already waits for a reviewer\'s OK.',
         'not_withdrawable' => 'Only a record waiting for a reviewer\'s OK can be taken back.',
@@ -3600,6 +3596,29 @@ final class Words
     ];
 
     /** One record (/ui/documents/{id}, plan §6.32). */
+    /**
+     * A draft anyone allowed may change (docs/decisions.md DA1-DA5; the owner, 18 Nov 2026: "anyone who have access should be able to edit it"):
+     * the record's history of changes (who started it, who changed it, when: DraftChanges), and a save refused because someone saved the
+     * draft after the page was drawn (409), naming who and when instead of "perhaps in another tab". %1$s a name, %2$s a time as
+     * Html::clock says it ("14:32" today, else "17 Nov, 09:05").
+     */
+    public const DRAFT = [
+        'changes' => 'History of changes',
+        'started' => 'Started by %s, %s',
+        'changed' => 'Changed by %s, %s',
+        'earlier' => 'Earlier changes: %s more.',
+        'conflict' => '%s changed this draft at %s while you were editing. Your changes were not saved: reload to see theirs.',
+        'conflict_you' => 'You changed this draft at %s in another tab or window. The changes on this page were not saved: reload to see the newer version.',
+        // The page drawn again with what was typed kept (a delivery's one page).
+        'conflict_kept' => '%s changed this draft at %s while you were editing. Your changes were not saved: here it is as it is now, with what you typed. '
+            . 'Check it and save again.',
+        'conflict_kept_you' => 'You changed this draft at %s in another tab or window. The changes on this page were not saved: here it is as it is now, with '
+            . 'what you typed. Check it and save again.',
+        // "Make it final" pressed on a page drawn before someone else's save: nothing is made final.
+        'conflict_final' => '%s changed this draft at %s while you had it open. It was not made final: look at their changes, then make it final.',
+        'conflict_final_you' => 'You changed this draft at %s in another tab or window. It was not made final: look at it again, then make it final.',
+    ];
+
     public const RECORD = [
         'later' => 'The screens for %s are coming later.',
         'open_order' => 'Open the order',
@@ -6440,8 +6459,7 @@ final class Words
         'csv' => 'Lines (CSV)',
         'record' => 'Record and check history',
         // Notes at the top
-        'only_creator' => 'Only %s can change the products of this draft. You can still confirm it (it gets a PO number) or cancel it.',
-        'only_creator_look' => 'Only %s can change this draft. It is not ordered yet.',
+        'draft_look' => 'This order is a draft that %s started: it is not ordered yet.',
         'rejected' => 'A reviewer said this order is not right: "%s" (%s, %s). The order is still live.',
         'rejected_next' => 'Next: cancel it, or correct it to make a new copy.',
         'company_not_confirmed' => 'Do not send this order yet: our company details are not confirmed, so the PDF says DO NOT SEND. A reviewer must confirm them first.',
@@ -6704,7 +6722,6 @@ final class Words
         'item_blocked' => 'Not confirmed: a product on this order is blocked by its product card (see the warnings above). Remove it, or ask for its card to be corrected.',
         'merged_item' => 'Not saved: a product on this order was joined into another product. Replace the line with the product it was joined into.',
         'not_draft' => 'Nothing was changed: this order is not a draft any more (someone confirmed or cancelled it meanwhile).',
-        'not_creator' => 'Only the person who started this draft can change its products. Nothing was changed.',
         'not_sendable' => 'Nothing was recorded: only a confirmed order is sent.',
         'send_warnings' => 'Nothing was recorded: this PDF says DO NOT SEND. Tick "I sent it anyway – record it" if you sent it all the same.',
         'bad_reason' => 'Choose why from the list. Nothing was changed.',
@@ -9128,7 +9145,7 @@ final class Words
         'refused_see' => 'What stops it is listed under "Before it can be booked in".',
         'book_in' => 'Book this delivery in',
         'book_in_does' => 'The stock is added at once. A reviewer checks it within 3 days.',
-        'book_in_rule' => 'Only the person who keyed a delivery changes its products. Anyone who receives goods can check it, set its supplier invoice and book it in.',
+        'book_in_rule' => 'Anyone who receives goods can change a delivery not booked in yet, check it and book it in.',
         // The supplier invoice, set by someone who did not key the delivery.
         'set_invoice' => 'The supplier invoice',
         'invoice_number' => 'Supplier invoice number (needed before booking in)',
@@ -9136,8 +9153,7 @@ final class Words
         'delivery_note_no' => 'Delivery note number',
         'set_invoice_button' => 'Save the supplier invoice',
         'set_invoice_hint' => 'Anyone who receives goods can set the supplier invoice of a delivery someone else started (from the delivery note). '
-            . 'Attach the invoice copy under Files. The products stay with the person who keyed them. Whoever sets the invoice of a delivery they did not key '
-            . 'does not check it as a reviewer.',
+            . 'Attach the invoice copy under Files. Whoever sets the invoice of a delivery they did not key does not check it as a reviewer.',
         // The editor.
         'delivery' => 'The delivery',
         'supplier' => 'Supplier',
@@ -9622,8 +9638,6 @@ final class Words
         // The Codex review of 5c070f8 (GV19): one save's files too big together, or too many.
         'files_too_big' => 'Not saved: the photos and papers were too big together (at most %s MB in one save). Attach them one or two at a time.',
         'too_many_files' => 'Not saved: at most %s photos and papers go in one save. Attach the others after saving.',
-        'not_creator' => 'Only the person who keyed this delivery changes its products and its details. Anyone who receives goods checks it on its page. Nothing '
-            . 'was changed.',
         'not_draft' => 'Nothing was changed: this delivery is not being keyed any more (it was booked in or cancelled meanwhile).',
         'receipt_has_lines' => 'Not saved: the supplier changes only while the delivery has no products, and the purchase order only while no line is against it. '
             . 'Change the lines first, or start a new delivery.',
@@ -12687,7 +12701,6 @@ final class Words
         'balance_link' => 'What this customer owes',
         'pdf' => 'Invoice (PDF)',
         'company_link' => 'Open the company details',
-        'not_creator' => 'Only the person who started this draft changes it. You can look.',
         'facts' => 'About this hand-over',
         'warehouse' => 'Stock leaves from',
         'vat_code' => 'VAT code',

@@ -152,7 +152,6 @@ final class CountWordsTest extends TestCase
         self::assertSame(Words::say('COUNT_ERROR', 'count_too_old', '3', 90), CountsController::plain($e('count_too_old', ['lines' => [3], 'days' => 90], 422)));
         self::assertSame(Words::say('COUNT_ERROR', 'bad_quantity', 4), CountsController::plain($e('bad_quantity', ['line' => 4], 422)));
         self::assertSame(Words::say('COUNT_ERROR', 'too_many_lines', 500), CountsController::plain($e('too_many_lines', ['max' => 500], 422)));
-        self::assertSame(Words::COUNT_ERROR['not_creator'], CountsController::plain($e('not_creator', [], 403)));
         self::assertSame(Words::COUNT_ERROR['own_count'], CountsController::plain($e('own_count', [], 403)));
         // Review fixes of 14 Oct 2026 (C-1, M-1, M-7, I-1, M-2).
         self::assertSame(Words::COUNT_ERROR['counted_again'], CountsController::plain($e('counted_again')));

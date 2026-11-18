@@ -128,19 +128,37 @@ final class DocumentLifecycleTest extends DocumentTestCase
         }
         self::assertSame(1, $this->docs->get($d->id)->version, 'a refused change changes nothing');
 
-        // Only the creator changes a draft; anyone allowed to post the type may post or cancel it.
-        self::refused(403, 'not_creator', fn () => $this->docs->setLines($other, $d->id, 1, [['sku_id' => $a, 'qty' => 1]]));
-        self::refused(403, 'not_creator', fn () => $this->docs->updateDraft($other, $d->id, 1, ['note' => 'mine now']));
-        $d = $this->docs->updateDraft($sc, $d->id, 1, ['note' => 'counted twice', 'reason_code' => 'data_correction']);
-        self::assertSame(['SUP-2', 'counted twice', 'data_correction', 2], [$d->externalRef, $d->note, $d->reasonCode, $d->version]);
-        self::refused(422, 'no_lines', fn () => $this->docs->post($other, $d->id, 2));
-        $d = $this->docs->setLines($sc, $d->id, 2, [['sku_id' => $a, 'qty' => -1]]);
-        $d = $this->docs->updateDraft($sc, $d->id, 3, ['note' => null]);
-        self::refused(422, 'note_required', fn () => $this->docs->post($other, $d->id, 4), 'data_correction needs a note');
-        $d = $this->docs->updateDraft($sc, $d->id, 4, ['note' => 'typed 10 instead of 1']);
-        $p = $this->docs->post($other, $d->id, 5);
+        // Anyone allowed to post the type changes a draft, posts it or cancels it, not only its creator (docs/decisions.md DA1; the owner,
+        // 18 Nov 2026: "anyone who have access should be able to edit it"). The draft stays its creator's (created_by: who started it); each
+        // save is audited under the person who made it; a save drawn before someone else's is refused (409) naming who saved and when.
+        $d = $this->docs->updateDraft($other, $d->id, 1, ['note' => 'theirs too']);
+        self::assertSame(['theirs too', 2, $sc->staffUserId], [$d->note, $d->version, $d->createdBy]);
+        $e = self::refused(409, 'version_conflict', fn () => $this->docs->setLines($sc, $d->id, 1, [['sku_id' => $a, 'qty' => 1]]));
+        $otherName = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$other->staffUserId]);
+        self::assertSame([2, 1, $other->staffUserId, $otherName], [$e->detail['version'], $e->detail['expected_version'], $e->detail['changed_by_id'],
+            $e->detail['changed_by']]);
+        self::assertMatchesRegularExpression('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/', (string) $e->detail['changed_at']);
+        self::assertStringContainsString("last saved by {$otherName}", $e->getMessage());
+        $d = $this->docs->setLines($other, $d->id, 2, [['sku_id' => $a, 'qty' => 1]]);
+        self::assertSame([[$other->staffUserId, 'document.lines'], [$other->staffUserId, 'document.update'], [$sc->staffUserId, 'document.create']],
+            array_map(static fn (array $r): array => [(int) $r['staff_user_id'], (string) $r['action']], self::$db->all("SELECT staff_user_id, action FROM audit_log "
+                . "WHERE entity_type = 'document' AND entity_id = ? ORDER BY id DESC", [(string) $d->id])), 'who saved it: the audit rows');
+        $d = $this->docs->setLines($sc, $d->id, 3, []);
+        $d = $this->docs->updateDraft($sc, $d->id, 4, ['note' => 'counted twice', 'reason_code' => 'data_correction']);
+        self::assertSame(['SUP-2', 'counted twice', 'data_correction', 5], [$d->externalRef, $d->note, $d->reasonCode, $d->version]);
+        self::refused(422, 'no_lines', fn () => $this->docs->post($other, $d->id, 5));
+        $d = $this->docs->setLines($sc, $d->id, 5, [['sku_id' => $a, 'qty' => -1]]);
+        $d = $this->docs->updateDraft($sc, $d->id, 6, ['note' => null]);
+        self::refused(422, 'note_required', fn () => $this->docs->post($other, $d->id, 7), 'data_correction needs a note');
+        $d = $this->docs->updateDraft($sc, $d->id, 7, ['note' => 'typed 10 instead of 1']);
+        // Someone without the job still changes nothing (role_not_allowed); admin never.
+        self::refused(403, 'role_not_allowed', fn () => $this->docs->setLines($this->staffUser('buyer'), $d->id, 8, []));
+        self::refused(403, 'admin_cannot_post', fn () => $this->docs->updateDraft($this->staffUser(['admin', 'stock_controller']), $d->id, 8, ['note' => 'x']));
+        $p = $this->docs->post($other, $d->id, 8);
         self::assertSame(['posted', $sc->staffUserId, $other->staffUserId], [$p->status, $p->createdBy, $p->postedBy]);
         $this->assertBal(9, 0, 0, $a);
+        // A draft another person made final meanwhile is refused as no longer a draft, whoever sends the old page.
+        self::refused(409, 'not_draft', fn () => $this->docs->setLines($sc, $p->id, 8, []));
     }
 
     public function testABlockingApprovalIsApprovedRejectedOrWithdrawn(): void

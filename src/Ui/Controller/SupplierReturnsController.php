@@ -303,7 +303,8 @@ final class SupplierReturnsController
         $doc = Document::fromRow($rec);
         $type = $ctx->documents()->typeInfo('DN');
         $canPost = Documents::mayPost($me->roles, 'DN');
-        $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Anyone who keeps returns changes a draft, not only the person who started it (docs/decisions.md DA1).
+        $editable = $doc->status === 'draft' && $canPost;
         $lines = $sr->lines($id);
         $claimOnly = $lines !== [] && array_filter($lines, static fn (array $l): bool => ($l['sku_id'] ?? null) !== null) === [];
         $tasks = DocumentsController::tasks($ctx->db, $id);
@@ -357,7 +358,6 @@ final class SupplierReturnsController
             'total' => $total,
             'problems' => $editable ? array_map(static fn (array $p): string => InvoicesController::problemText($p), $sr->problems($id)) : [],
             'editable' => $editable,
-            'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
             'version' => $doc->version,
             'warehouses' => $choices['warehouses'],
             'reasons' => $choices['reasons'],
@@ -370,6 +370,7 @@ final class SupplierReturnsController
             'decide' => DocumentsController::decideBox($ctx, $doc, $tasks, $type, null),
             'waiting' => $open !== null,
             'history' => DocumentsController::history($tasks),
+            'changes' => DocumentsController::changes($ctx->db, $id),
             'canWithdraw' => $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && !$doc->isReversal(),
             'reverse' => $doc->status === 'posted' && !$doc->isReversal() && $reversedBy === null && $canPost
                 ? ['reasons' => $ctx->db->all("SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 "
@@ -391,7 +392,9 @@ final class SupplierReturnsController
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'typedStop' => (string) ($extra['stop'] ?? ''),
             'lookOnly' => $canPost ? null : Words::whoCan('doc.DN.post'),
-            'error' => $error === null ? null : InvoicesController::plain($error),
+            // Someone's save after this page was drawn: who and when (DA3).
+            'error' => $error === null ? null : ($error->errorCode === 'version_conflict'
+                ? DocumentsController::conflictText($ctx, $id, InvoicesController::plain($error)) : InvoicesController::plain($error)),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::docTitle('DN', $doc->number), 'notice' => $notice]);
     }

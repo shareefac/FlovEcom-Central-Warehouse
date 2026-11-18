@@ -15,6 +15,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Documents\DraftChanges;
 use CW\Files\FileStore;
 use CW\Items\HandMade;
 use CW\Matching\Gtin;
@@ -29,7 +30,7 @@ use CW\Ui\Queries;
  * document base (Documents) and its handler (PurchaseOrderHandler).
  *
  * A PO is a `document` (type PO) with a `purchase_order` header extension and one `po_line` per `document_line`:
- *   draft (its creator edits it freely) --approve = Documents::post--> posted: numbered, content fixed (posted_hash +
+ *   draft (anyone who writes orders edits it freely, DA1) --approve = Documents::post--> posted: numbered, content fixed (posted_hash +
  *   po_posting), reviewed by a second person within 7 days; over the value limit it first waits in awaiting_approval for a
  *   reviewer (blocking). After approval the PO's own state moves: approved -> sent (markSent; re-sending allowed) ->
  *   part_received / received (applyReceipt, from the I-3 GRN) -> closed (close, from part_received: the rest is not
@@ -40,7 +41,8 @@ use CW\Ui\Queries;
  *
  * Every public write: a staff caller holding doc.PO.post (never admin: 403 admin_cannot_post), roles re-read inside the
  * transaction; ONE Db::transaction (joining an open one); the document row locked first (FOR UPDATE), its version checked
- * (409 version_conflict) and moved; a draft changed only by its creator (403 not_creator). Money: integers only (PoMath).
+ * (409 version_conflict, naming who saved it last: DraftChanges::conflict) and moved; a draft changed by anyone who writes orders, not only
+ * its creator (docs/decisions.md DA1; the owner, 18 Nov 2026), created_by kept and each save audited under its person. Money: integers only (PoMath).
  * Nothing here books stock (spec §0.4). Lock order (§6.9): document row(s) -> review task -> supplier FOR SHARE ->
  * number_series -> purchase_order -> po_line -> supplier_item -> supplier_item_price -> po_posting.
  */
@@ -132,7 +134,7 @@ final class PurchaseOrders
 
     /**
      * Saves a draft: the header (expected_date, external_ref, note, doc_date, supplier_id) and EVERY line (the list replaces the draft's
-     * lines; [] clears them). Creator only. Version + 2 (Documents::updateDraft, then Documents::setLines, whose cascade removes the old
+     * lines; [] clears them). Anyone who writes orders (DA1). Version + 2 (Documents::updateDraft, then Documents::setLines, whose cascade removes the old
      * po_line rows), then the po_line rows and the totals. A new supplier (the owner, 6 Nov 2026: "also in draft and new easily supplier
      * change option"; docs/decisions.md KG30) is checked as a new order's (never an inactive one) and the lines given, in the old supplier's
      * terms, are moved to it in the same save (repoint()): never one dropped.
@@ -150,8 +152,8 @@ final class PurchaseOrders
     public function saveDraft(Caller $caller, int $id, int $version, array $header, array $lines): Document
     {
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $header, $lines): Document {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $h = $this->headerFields($header, true);
             $current = $this->poRow($id);
             $supplierId = (int) $current['supplier_id'];
@@ -299,8 +301,8 @@ final class PurchaseOrders
     {
         $q = trim($q);
         return $this->db->transaction(function () use ($caller, $id, $version, $q, $packs): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $supplierId = (int) $this->poRow($id)['supplier_id'];
             $r = $this->resolve($supplierId, $q);
             if ($r['status'] !== 'found') {
@@ -318,8 +320,8 @@ final class PurchaseOrders
     public function addSupplierItem(Caller $caller, int $id, int $version, int $supplierItemId, int $packs = 1): array
     {
         return $this->db->transaction(function () use ($caller, $id, $version, $supplierItemId, $packs): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $supplierId = (int) $this->poRow($id)['supplier_id'];
             $si = $this->db->one('SELECT * FROM supplier_item WHERE id = ? AND supplier_id = ? AND is_active = 1', [$supplierItemId, $supplierId])
                 ?? throw new CwException('unknown_supplier_item', 'this supplier has no such active supplier item', 422);
@@ -342,8 +344,8 @@ final class PurchaseOrders
         $file = PoLinesFile::read($path);
         $sha = (string) hash_file('sha256', $path);
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $file, $sha, $name, $mode): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $supplier = $db->one('SELECT * FROM supplier WHERE id = ?', [(int) $this->poRow($id)['supplier_id']]) ?? throw new \LogicException('PO without supplier');
             $vat = array_map(static fn (array $v): bool => $v['active'], $this->vatCodes());
             $parsed = PoLinesFile::parse($file['header'], $file['rows'], fn (string $type, string $value, ?array $within = null): array|string
@@ -417,7 +419,7 @@ final class PurchaseOrders
 
     /**
      * "Add a new supplier" on a draft: the supplier is made as the supplier screens make one (a DRAFT supplier) and put on this draft at
-     * once, in ONE transaction. Creator only, at $version (the draft's row is locked first, then the supplier is written: the order of
+     * once, in ONE transaction. Anyone who writes orders, at $version (the draft's row is locked first, then the supplier is written: the order of
      * saveDraft). The draft is saved with $header and $lines as typed on the page with it (PO on one page, PX3); its lines move to the new
      * supplier as any change of supplier moves them (saveDraft, docs/decisions.md KG30: a new supplier sells none of them yet, so each
      * stays a line of its item, its price kept).
@@ -430,8 +432,8 @@ final class PurchaseOrders
     public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields, array $header = [], ?array $lines = null): array
     {
         return $this->db->transaction(function (Db $db) use ($caller, $suppliers, $id, $version, $fields, $header, $lines): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $s = $suppliers->create($caller, $fields);
             return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']] + $header, $lines ?? $this->lines($id))];
         });
@@ -469,7 +471,7 @@ final class PurchaseOrders
     }
 
     /**
-     * "Add a new item" on a draft's line, in ONE transaction: the draft locked first (creator, $version), then the item made by hand
+     * "Add a new item" on a draft's line, in ONE transaction: the draft locked first (at $version), then the item made by hand
      * with Pack B's rules (HandMade::create: items.create; a barcode on another item refused, 409 barcode_on_other_item; the same name
      * and identity refused unless `anyway`, 409 same_item_exists), then, when a supplier code, a price or a pack of more than 1 is
      * given, this supplier's supplier item for it (SupplierItems::create: suppliers.manage; preferred when the item has no main
@@ -486,8 +488,8 @@ final class PurchaseOrders
             throw new CwException('bad_field', 'packs: a whole number from 1 to ' . PoMath::MAX_PACKS, 422, ['field' => 'packs']);
         }
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $hand, $item, $supply, $packs): array {
-            $me = $this->poster($caller);
-            $this->lockDraft($id, $version, $me);
+            $this->poster($caller);
+            $this->lockDraft($id, $version);
             $supplierId = (int) $this->poRow($id)['supplier_id'];
             $x = $this->makeItem($caller, $supplierId, $hand, $item, $supply);
             $made = $x['made'];
@@ -1738,12 +1740,12 @@ final class PurchaseOrders
     }
 
     /**
-     * A draft's row, X-locked, of this version and created by $me.
+     * A draft's row, X-locked, of this version: changed by anyone who writes orders (the caller checked by poster() first), not only its
+     * creator (DA1).
      *
-     * @param array{id: int, roles: list<string>} $me
      * @return array<string, mixed>
      */
-    private function lockDraft(int $id, int $version, array $me): array
+    private function lockDraft(int $id, int $version): array
     {
         $row = $this->lockPo($id);
         if ($row['status'] !== 'draft') {
@@ -1751,18 +1753,14 @@ final class PurchaseOrders
                 ['status' => $row['status']]);
         }
         $this->checkVersion($row, $version);
-        if ((int) ($row['created_by'] ?? 0) !== $me['id']) {
-            throw new CwException('not_creator', 'only the person who created a draft changes it (the review rule names its creator, I19)', 403);
-        }
         return $row;
     }
 
-    /** @param array<string, mixed> $row */
+    /** @param array<string, mixed> $row the order's document row, X-locked */
     private function checkVersion(array $row, int $version): void
     {
         if ((int) $row['version'] !== $version) {
-            throw new CwException('version_conflict', 'the purchase order changed since this page was drawn: reload it and try again', 409,
-                ['version' => (int) $row['version'], 'expected_version' => $version]);
+            throw DraftChanges::conflict($this->db, (int) $row['id'], 'purchase order', (int) $row['version'], $version);
         }
     }
 
