@@ -17959,3 +17959,9 @@ session (`Sessions::liveSql('s')`, the limits this request already read: no extr
 a hundred gone rows could hide an away person still shown. The cut-offs of both states are now in the SQL, before the limit. Test: the end of
 `PresenceTest::testAPollReadsOnlyTheNewestRowsThatCanStillBeShown`.
 
+
+### The Codex re-check of 4afbd44, rebased onto 4b9705e (`presence_20261118/codex_answer_r3.txt`): no finding
+
+Round 2's two fixes checked, and the change on top of "drafts anyone may change" (DA1-DA5: setLines without the creator check; the poll's
+`edits` = may post the type, not admin): 0 HIGH, 0 MEDIUM, 0 LOW. The full suite on the rebased branch: Unit 626 OK, UiKernel 678 OK, the
+rest 1,286 OK (83 skipped: the HTTP tests of slot ui, one more than before: `UiSecurityTest::testThePollOfADraftOrderOverHttp`).
