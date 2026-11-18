@@ -6470,6 +6470,7 @@ final class Words
         'cancel_record' => 'Cancellation record %s',
         'cancel_waiting' => 'A cancellation waits for a reviewer\'s OK',
         'cancel_pdf' => 'Cancellation PDF',
+        'cancel_pdf_items' => 'Cancellation PDF – items only, no prices',
         // The saved order's action bar (docs/decisions.md PV): the next papers' ways in
         'receive' => 'Receive the goods',
         'record_invoice' => 'Record its invoice',

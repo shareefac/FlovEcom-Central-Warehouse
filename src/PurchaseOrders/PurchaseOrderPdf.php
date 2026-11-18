@@ -42,7 +42,8 @@ use CW\Output\PdfWriter;
  * CW code, item name, qty, no amount details, no VAT details, nothing"; docs/decisions.md PL1-PL5): the same banners, letterhead,
  * order details, boxes, notes, terms and footer, from the same data; the lines table is No. · Supplier code · CW code · Item name
  * (wrapped, never cut) · Qty ("5 boxes of 10 = 50", "24": quantity()), item lines only (a charge is money), its header repeated on
- * every page; no totals.
+ * every page; no totals. Text typed for the supplier (the notes, a line's note, the terms, a cancellation's note) prints as typed on
+ * both PDFs (PL3).
  */
 final class PurchaseOrderPdf
 {
@@ -69,9 +70,13 @@ final class PurchaseOrderPdf
         ['title' => 'Item name', 'w' => 78, 'align' => 'L'],
         ['title' => 'Qty', 'w' => 38, 'align' => 'R'],
     ];
-    /** An item name's lines on the items-only PDF: their height (mm) and how many at most (the last one cut with "…" past that). */
+    /**
+     * An item name's lines on the items-only PDF: their height (mm), and at most as many as one page holds under the header (the
+     * last one cut with "…" past that). The cell is the item's name (255 characters at most) and the line's note to the supplier
+     * (255): about 19 lines of wide capitals, so every word is printed (the Codex review, round 1, M2).
+     */
     private const NAME_LH = 4.0;
-    private const NAME_LINES = 4;
+    private const NAME_LINES = 40;
 
     /** @param bool $itemsOnly the order without prices (PL1): No., Supplier code, CW code, Item name, Qty; no money anywhere */
     public function __construct(private readonly bool $compress = true, private readonly bool $itemsOnly = false)
@@ -352,7 +357,8 @@ final class PurchaseOrderPdf
 
     /**
      * The items-only table (PL2): one row per item line (a charge is only money: left out), its line number as on the order, the
-     * supplier's code (empty when there is none), the CW code, the item name wrapped over up to NAME_LINES lines, the quantity.
+     * supplier's code (empty when there is none), the CW code, the item name (and the line's note to the supplier, as the PDF with
+     * prices prints them) wrapped over as many lines as it needs, the quantity.
      *
      * @param list<array<string, mixed>> $lines
      */

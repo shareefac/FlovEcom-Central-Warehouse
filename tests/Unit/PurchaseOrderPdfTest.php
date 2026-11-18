@@ -413,6 +413,28 @@ final class PurchaseOrderPdfTest extends TestCase
         self::assertNoMoney($pdf);
     }
 
+    /**
+     * The Codex review, round 1 (M2): an item name at its longest (255 characters of capitals) with a line's note to the supplier at its
+     * longest (255) is printed whole, every word in order, in one row on the page, never cut with "…".
+     */
+    public function testTheLongestItemNameAndNoteArePrintedWhole(): void
+    {
+        $description = str_repeat('WIDE ', 48) . 'CHERRY — ' . rtrim(str_repeat('NOTE ', 51));
+        self::assertGreaterThan(500, mb_strlen($description));
+        $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['lines' => [['line_no' => 1, 'kind' => 'item', 'supplier_code' => 'W-1',
+            'sku_code' => 'CW-000001', 'description' => $description, 'purchase_unit' => 'box', 'units_per_pack' => 10, 'packs' => 2, 'units' => 20,
+            'pack_price' => '1.0000', 'vat_code' => 'S', 'amount_e2' => 200]]]));
+        $rows = array_slice(self::tableTexts(self::texts($pdf)), 5);
+        self::assertSame(['1', 'W-1', 'CW-000001'], array_slice($rows, 0, 3));
+        self::assertSame('2 boxes of 10 = 20', $rows[count($rows) - 1]);
+        $name = array_slice($rows, 3, -1);
+        self::assertGreaterThan(4, count($name), 'more than four lines');
+        self::assertSame(str_replace('—', "\x97", $description), implode(' ', $name), 'every word, in order');
+        self::assertStringNotContainsString("\x85", $pdf, 'nothing cut');
+        self::assertSame(1, self::pages($pdf));
+        self::assertNoMoney($pdf);
+    }
+
     /** The banners of the PDF with prices (PL3): DRAFT, COMPANY DETAILS NOT CONFIRMED / REJECTED — DO NOT SEND, CANCELLED, the cancellation. */
     public function testTheItemsOnlyPdfKeepsTheBannersAndTheCancellation(): void
     {

@@ -3996,8 +3996,9 @@ renderer with a switch (only the lines table differs), not a copy.
 **PL2. Its table: No. · Supplier code · CW code · Item name · Qty** (180 mm, the header repeated on every page the table runs onto).
 No. is the line's number on the order: the same numbers as the order PDF and the order's page, so "line 3" is the same line on both (a
 gap where a charge line sits). Supplier code is the line's own (`po_line.supplier_code`, what the order PDF prints), an empty cell when
-there is none. Item name is the order PDF's Description (the item's name, then " — " and the line's note), wrapped over up to four
-lines with every word kept (the order PDF's 50 mm Description cuts a long name with "…"). Qty is the order PDF's Pack, Packs and Units in
+there is none. Item name is the order PDF's Description (the item's name, then " — " and the line's "Note to the supplier"), wrapped
+over as many lines as it needs, every word kept (the order PDF's 50 mm Description cuts a long name with "…"; at the longest the
+database allows, 255 + 255 characters, about 19 lines; the Codex review, round 1, M2). Qty is the order PDF's Pack, Packs and Units in
 words: "5 boxes of 10 = 50"; "24" for single items (each, unit); "3 cases" for packs of one; "2 packs of 6 = 12" for single items bought
 6 to a pack (the plural as the goods-in page's "2 boxes of 10"). A quantity too long for its 38 mm cell is printed smaller (down to
 5 pt), and past that as its units alone: never cut; a supplier code too long is printed smaller (down to 6 pt) before it is cut. A
@@ -4009,14 +4010,18 @@ order date, expected delivery, "Your ref", "Amends", the Supplier and Deliver-to
 notes to the supplier, the terms and the footer are the order PDF's own code and `PurchaseOrders::pdfData()`: an approved order prints
 its snapshots (company, supplier, terms) exactly as the order PDF does, a draft the details in use. "No VAT details" is read as the
 table's (the owner's sentence is about the table): the letterhead's and the footer's "VAT no." and the supplier's VAT number say who
-the parties are, not an amount, and stay as on the order PDF (open: the owner may want them off this one too). Its title (the PDF's
-properties) ends "(items only)".
+the parties are, not an amount, and stay as on the order PDF (open: the owner may want them off this one too). Text typed for the
+supplier prints as typed, on both PDFs: the order's note to the supplier, a line's note to the supplier, the terms and a
+cancellation's reason and note. CW does not scan free text for amounts (it could not tell a price from a pack size, and would change
+what the buyer wrote): a buyer who types a price there sees it on both PDFs (the Codex review, round 1, M1: kept on purpose, as the
+request keeps the note and the terms). Its title (the PDF's properties) ends "(items only)".
 
 **PL4. Where, in what words, for whom.** Under the order page's More, right after the order PDF (`actions()`: `pdf`, then `pdf_items`;
 neither is ever the main step), in the order PDF's three words with "– items only, no prices": "PDF to send – items only, no prices",
 "Order PDF – items only, no prices (says DO NOT SEND for now)", "Draft PDF – items only, no prices (to check, not to send)". The order
-PDF is offered nowhere else (the draft's own editor offers neither, as before); the cancellation's link under Related and the Company
-details' sample stay the PDF with prices. Route `GET /ui/purchasing/orders/{id}/items.pdf` with the order
+PDF is offered nowhere else (the draft's own editor offers neither, as before), except the cancellation's under Related: a cancelled
+order's Related lists "Cancellation PDF" and, right after it, "Cancellation PDF – items only, no prices" (the Codex review, round 1,
+L3). The Company details' sample stays the PDF with prices. Route `GET /ui/purchasing/orders/{id}/items.pdf` with the order
 PDF's access (`purchasing.view`: warehouse and stock control never see a purchase order, I85) and rules (a PO document of any status, a
 cancellation document included; 404 otherwise); `.pdf` at the end, like `lines.csv`, so the sign-in's "back" never lands on a download
 (`AuthController::NO_BACK`). File name: the order PDF's with "-items" (`PO-000123-items.pdf`, `PO-draft-42-items.pdf`). Ctrl+P stays

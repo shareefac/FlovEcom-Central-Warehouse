@@ -165,6 +165,16 @@ final class PurchaseOrderItemsPdfScreensTest extends KernelUiTestCase
         $cancelled = self::download($buyer->get("/ui/purchasing/orders/{$id}/items.pdf"), 'PO-000001-items.pdf');
         self::assertContains("CANCELLED \x97 see PO-000002", $cancelled);
         $reversal = (int) self::$db->value('SELECT id FROM document WHERE reverses_id = ?', [$id]);
+        // The order's Related offers the cancellation's PDF and, right after it, the same without prices (the Codex review, round 1, L3).
+        $rel = [];
+        foreach ((new \DOMXPath($buyer->get("/ui/purchasing/orders/{$id}")->dom()))->query('//section[contains(@class, "po-related")]//a') ?: [] as $a) {
+            if ($a instanceof \DOMElement) {
+                $rel[] = [$a->getAttribute('href'), trim((string) $a->getElementsByTagName('span')->item(1)?->textContent)];
+            }
+        }
+        $at = array_search(["/ui/purchasing/orders/{$reversal}/pdf", Words::ORDER['cancel_pdf']], $rel, true);
+        self::assertIsInt($at, 'the cancellation PDF under Related');
+        self::assertSame(["/ui/purchasing/orders/{$reversal}/items.pdf", Words::ORDER['cancel_pdf_items']], $rel[$at + 1]);
         $note = self::download($buyer->get("/ui/purchasing/orders/{$reversal}/items.pdf"), 'PO-000002-items.pdf');
         self::assertContains('CANCELLATION', $note);
         self::assertContains('Order PO-000001 is cancelled. Please do not deliver it.', $note);

@@ -1500,8 +1500,10 @@ final class PurchaseOrdersController
             $related[] = ['text' => Words::say('ORDER', 'rel_corrected_by', (string) $a['label']), 'href' => '/ui/purchasing/orders/' . (int) $a['id']];
         }
         if ($data['reversal'] !== null) {
-            $related[] = ['text' => $data['reversal']->number === null ? Words::ORDER['cancel_waiting'] : Words::say('ORDER', 'cancel_record', (string) $data['reversal']->number),
-                'href' => '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf', 'sub' => Words::ORDER['cancel_pdf']];
+            $cancelText = $data['reversal']->number === null ? Words::ORDER['cancel_waiting'] : Words::say('ORDER', 'cancel_record', (string) $data['reversal']->number);
+            $related[] = ['text' => $cancelText, 'href' => '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf', 'sub' => Words::ORDER['cancel_pdf']];
+            // The same without prices, right after it (docs/decisions.md PL4; the Codex review, round 1, L3).
+            $related[] = ['text' => $cancelText, 'href' => '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/items.pdf', 'sub' => Words::ORDER['cancel_pdf_items']];
         }
         foreach ($data['files'] as $f) {
             $related[] = ['text' => (string) $f['original_name'], 'href' => $may('documents.view', '/ui/files/' . (int) $f['id']),
