@@ -179,7 +179,7 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         // The empty line last (the product box), the new line's template, the one field for new lines, the tools, the keys and Undo.
         self::assertSame(1, self::nodes($page, $grid . '/tbody/tr[last()][@data-kg-empty]//input[@name="q"][@data-po-pick]'));
         $tpl = $form . '//template[@data-kg-row]/tr[@data-kg-row][@data-kg-new]';
-        foreach (['[@data-kg-no]', '//*[@data-kg-name]', '//*[@data-kg-code]', '//*[@data-kg-their]', '//*[@data-kg-pack]', '//*[@data-kg-stock]', '//input[@data-kg-cell="qty"][contains(@class, "kg-flat")]',
+        foreach (['/td[@data-kg-no]', '//*[@data-kg-name]', '//*[@data-kg-code]', '//*[@data-kg-their]', '//*[@data-kg-pack]', '//*[@data-kg-stock]', '//input[@data-kg-cell="qty"][contains(@class, "kg-flat")]',
             '//input[@data-kg-cell="price"][contains(@class, "kg-flat")]', '//*[@data-kg-amount]', '//button[@data-kg-x]', '//*[@data-kg-units]'] as $part) {
             self::assertSame(1, self::nodes($page, $tpl . $part), 'the template: ' . $part);
         }

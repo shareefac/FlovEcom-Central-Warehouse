@@ -1272,12 +1272,13 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $web = $this->signIn($buyerUser);
         $page = $web->get('/ui/purchasing/orders/new');
         $one = '//form[@action="/ui/purchasing/orders"]';
-        self::assertSame(1, self::nodes($page, $one . '//fieldset[contains(@class, "po-header")][contains(@class, "doc-grid")]'));
+        // One look (docs/decisions.md LP1, LP3): a new order is the order's paper: its head blocks, its lines, its foot with the totals; Save and
+        // Confirm on the head's right in the saved order's bar, its link back.
+        self::assertSame(1, self::nodes($page, $one . '//article[contains(@class, "po-paper")]/div[contains(@class, "po-paper-head")]'));
         self::assertSame(1, self::nodes($page, $one . '//table[contains(@class, "po-lines")][contains(@class, "doc-lines")]'));
-        self::assertSame(1, self::nodes($page, $one . '//section[contains(@class, "po-summary")]//*[contains(@class, "doc-totals")]'));
-        // ERPNext's head (docs/decisions.md KG26; the summary card's bar before it): Save and Confirm on the head's right, its link back.
-        self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], self::texts($page, '//div[contains(@class, "kg-head-bar")]/button[not(contains(@class, "po-default"))][not(@data-kg-jsonly)][@form="po-form"]'));
-        self::assertContains('/ui/purchasing/orders', self::hrefsIn($page, '//div[contains(@class, "kg-head-bar")]//a'));
+        self::assertSame(1, self::nodes($page, $one . '//div[contains(@class, "doc-foot")]//*[contains(@class, "doc-totals")]'));
+        self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], self::texts($page, '//div[contains(@class, "po-edit-bar")]/button[not(contains(@class, "po-default"))][not(@data-kg-jsonly)][@form="po-form"]'));
+        self::assertContains('/ui/purchasing/orders', self::hrefsIn($page, '//div[contains(@class, "po-edit-bar")]//a'));
 
         $o = $this->order((int) $s['id'], 3);
         $old = $this->order((int) $s['id'], 1);

@@ -1130,10 +1130,11 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
         $web = $this->signIn($buyer);
         $ed = $web->get("/ui/purchasing/orders/{$d->id}");
         $grid = '//table[@data-kg-grid]';
-        self::assertSame([Words::ORDER['product'], Words::DOC_GRID['stock']], array_slice(self::texts($ed, $grid . '/thead/tr/th'), 1, 2), 'Stock right after the item');
+        // The draft is the order's paper since one look (docs/decisions.md LP1): its Item column, Stock right after it.
+        self::assertSame([Words::ORDER['col_item'], Words::DOC_GRID['stock']], array_slice(self::texts($ed, $grid . '/thead/tr/th'), 1, 2), 'Stock right after the item');
         self::assertSame(['14' . Words::say('DOC_GRID', 'coming', '12'), '0'], self::texts($ed, $grid . '/tbody/tr[@data-kg-line]/td[@data-kg-stock]'), 'on hand, what is coming under it; 0 as 0');
         self::assertSame(1, self::nodes($ed, $grid . '/tbody/tr[@data-kg-line="1"][@data-stock="14"][@data-coming="12"]'));
-        self::assertSame(1, self::nodes($ed, $grid . '/tbody/tr[@data-kg-empty]/td[@colspan="4"]'), 'the empty line\'s item box over Stock too');
+        self::assertSame(1, self::nodes($ed, $grid . '/tbody/tr[@data-kg-empty]/td[@colspan="2"]'), 'the empty line\'s item box over Stock too (the paper: Item and Stock)');
         // The item box's choices.
         $frag = $web->get('/ui/purchasing/orders/products', ['supplier' => (string) $s['id'], 'q' => 'Stock shown pod']);
         $xp = new \DOMXPath($frag->dom());

@@ -55,12 +55,10 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?php endforeach; ?>
 </ul>
 <?php endif; ?>
-<?php if ($companyNote !== null): ?>
-<p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
-<?php endif; ?>
 <?php if ($supplierNeeds !== null): ?>
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
 <?php endif; ?>
+<?php // No company note on the page that makes the order (PX10): the confirmed order's page says it. ?>
 
 <form id="po-form" class="po-editor kg-doc kg-paper" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

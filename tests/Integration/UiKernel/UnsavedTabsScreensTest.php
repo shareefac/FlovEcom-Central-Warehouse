@@ -88,7 +88,8 @@ final class UnsavedTabsScreensTest extends KernelUiTestCase
             $xp = new \DOMXPath($page->dom());
             self::assertSame(1, $xp->query('//form[contains(@class, "po-editor") and @data-unsaved="1" and @data-unsaved-text="' . Words::DOC['unsaved'] . '"]')->length,
                 "{$path}: the page's form is guarded like a delivery's");
-            self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, "{$path}: \"Leave without saving\" never asks");
+            // The order's paper has it in the saved order's bar (po_bar's editor mode, docs/decisions.md LP3); the invoice in doc_head_bar.
+            self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar") or contains(@class, "po-edit-bar")]/a[@data-leave]')->length, "{$path}: \"Leave without saving\" never asks");
             // The section's tab leads to the list (another page): a link, which asks first while the form holds typed values.
             $current = array_values(array_filter(self::sectionTabs($page), static fn (array $t): bool => $t['current']));
             self::assertCount(1, $current);
