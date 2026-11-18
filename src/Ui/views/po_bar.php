@@ -3,9 +3,9 @@
 // right beside the title; More first (the other actions, po_action, then the lines' downloads and the record), then the next step in the
 // accent; the paper-copy button before More (DG6). An action under More refused for its reason opens More too (PV26).
 // On a draft or a new order drawn as the paper (one look, docs/decisions.md LP3; $editor: the editor form's id) the same bar for that form:
-// its unseen Add first (Enter is Add, PX7), "Leave without saving", Print, Keys (?), More (a draft's other steps: its PDF, Copy, Cancel
+// its unseen Add first (Enter is Add, PX7), "Leave without saving", the paper copy, Keys (?), More (a draft's other steps: its PDF, Copy, Cancel
 // draft), then Save (Ctrl+S, the save without leaving the page) and the main button Confirm, both sending the typed form. A new order has
-// nothing saved yet: no Print and no More.
+// nothing saved yet: no paper copy and no More.
 $editor = $editor ?? null;
 ?>
 <div class="doc-actions<?php if ($editor !== null): ?> po-edit-bar<?php endif; ?>" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
@@ -30,7 +30,7 @@ $moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') 
 <?php foreach ($moreActions as $a): ?>
 <?= $partial('po_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
     'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
-    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
+    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode, 'leaves' => $editor !== null]) ?>
 <?php endforeach; ?>
 <?php // The lines' downloads and the record (RD-B4: they stood under the lines; the approved PurchaseOrder.dc.html keeps them under More); on the
 // paper a download, so a typed page is never left (W9.15). ?>

@@ -212,8 +212,13 @@
       }, 0);
     });
   });
-  // (A form put in place by a save without reload is wired the same way: leaving(), docs/decisions.md AJ5.)
+  // (A form put in place by a save without reload is wired the same way: leaving(), docs/decisions.md AJ5; once a form. The head an order's
+  // save draws again (its Copy under More, docs/decisions.md LP3) is wired again on kg-swapped.)
   var leaving = function (form) {
+    if (form.hasAttribute('data-leaves-on')) {
+      return;
+    }
+    form.setAttribute('data-leaves-on', '1');
     form.addEventListener('submit', function (ev) {
       var dirty = null;
       each(document.querySelectorAll('form[data-unsaved][data-dirty]'), function (f) {
@@ -235,6 +240,7 @@
     });
   };
   each(document.querySelectorAll('form[data-leaves]'), leaving);
+  document.addEventListener('kg-swapped', function () { each(document.querySelectorAll('form[data-leaves]'), leaving); });
   // A link that leaves the page while a form holds typed values says so first too (docs/decisions.md CV14; Codex's review of 7cfcc89: a
   // tab or a filter link lost a typed count), in the page and never in a browser dialog (GV11): the first press goes nowhere and a red
   // note at the bottom of the screen says why (role="alert"; the words: the page's data-unsaved-link, Words::UI unsaved_link); the same
@@ -983,7 +989,17 @@
         kbShut(); // a press on the backdrop
       }
     });
-    each(document.querySelectorAll('[data-kb-open]'), function (b) { b.addEventListener('click', kbOpen); });
+    // Once a button; again after a save without reload draws the head again (its Keys (?): the Codex review of look-paper, round 1).
+    var kbWire = function () {
+      each(document.querySelectorAll('[data-kb-open]'), function (b) {
+        if (!b.hasAttribute('data-kb-on')) {
+          b.setAttribute('data-kb-on', '1');
+          b.addEventListener('click', kbOpen);
+        }
+      });
+    };
+    kbWire();
+    document.addEventListener('kg-swapped', kbWire);
   }
   // A list's rows (the orders, the invoices): Up / Down mark one (in sight), Enter opens it (its link: the unsaved-changes guard asks first).
   var kbMark = function (by) {
@@ -1611,14 +1627,22 @@
         }
         // The paper's pack figures under the packs box (one look, docs/decisions.md LP4): "3 × box of 10 = 30" in the page's words, as typed;
         // an item not set up with the supplier: its items per pack as typed (its pack's words from data-kg-pack-of); single items: nothing.
+        // The pack's price says its pack ("per box of 10", data-kg-per) as the item or its items per pack change (the Codex review, round 1).
         var unitsEl = qty ? tr.querySelector('[data-kg-units]') : null;
-        if (unitsEl) {
+        var perEl = tr.querySelector('[data-kg-per]');
+        if (unitsEl || perEl) {
           var uppBox = cellIn(tr, 'upp');
           var per = uppBox ? whole(uppBox.value) : (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
           var packOf = tr.getAttribute('data-kg-pack-of') || '';
           var packWords = uppBox && packOf !== '' && per !== null ? packOf.replace('%s', per.toLocaleString('en-GB')) : tr.getAttribute('data-pack') || '';
-          unitsEl.textContent = packs !== null && per !== null && per > 1 && packWords !== '' ? (unitsEl.getAttribute('data-words') || '')
-            .replace('%s', packs.toLocaleString('en-GB')).replace('%s', packWords).replace('%s', (packs * per).toLocaleString('en-GB')) : '';
+          var several = per !== null && per > 1 && packWords !== '';
+          if (unitsEl) {
+            unitsEl.textContent = packs !== null && several ? (unitsEl.getAttribute('data-words') || '')
+              .replace('%s', packs.toLocaleString('en-GB')).replace('%s', packWords).replace('%s', (packs * per).toLocaleString('en-GB')) : '';
+          }
+          if (perEl) {
+            perEl.textContent = several ? (perEl.getAttribute('data-words') || '').replace('%s', packWords) : '';
+          }
         }
         if (a !== null) {
           sum += a;

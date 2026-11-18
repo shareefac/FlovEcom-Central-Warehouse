@@ -3980,7 +3980,7 @@ form.kg-paper .po-paper-head .po-box-field { display: grid; gap: 4px; min-width:
 form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat { width: 100%; min-height: 34px; margin: 0 0 2px; padding: 4px 8px; color: var(--ink);
   font: 600 15px/22px var(--font); }
 form.kg-paper .po-paper-head .po-party-lines p { margin: 0; font-size: 13px; }
-form.kg-paper .doc-facts dd.kg-in { padding: 0; background: none; }
+form.kg-paper .po-paper-head > dl.doc-facts > dd.kg-in { padding: 0; background: none; }
 form.kg-paper .doc-facts dd.kg-in input.kg-flat { width: 100%; min-height: 32px; padding: 5px 10px; background-color: var(--ui-bg); color: var(--ink); font: 600 13px/20px var(--font); }
 form.kg-paper .doc-facts dd.kg-in input.kg-flat:focus { background-color: var(--card); }
 /* The lines: the paper's table (as table.kg-view) for the grid's boxes. */
@@ -3988,6 +3988,8 @@ form.kg-paper table.kg-grid > thead th { border: 0; border-bottom: 1px solid var
 form.kg-paper table.kg-grid > tbody > tr > th, form.kg-paper table.kg-grid > tbody > tr > td { border: 0; border-bottom: 1px solid var(--hairline); }
 form.kg-paper table.kg-grid td.num input.kg-flat { width: 6.5rem; max-width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
 form.kg-paper table.kg-grid input.kg-item { font-weight: 600; }
+/* The paper's words are 14 px: so are its boxes (form.kg-doc's 13 px rule is more specific than a box's own class). */
+form.kg-paper table.kg-grid input.kg-flat, form.kg-paper table.kg-grid input.kg-item { font-size: 14px; }
 form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; }
 form.kg-paper table.kg-grid .kg-sub > span:not(:empty) + span:not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
 form.kg-paper table.kg-grid label.kg-upp { display: block; margin: 4px 0 0; }
@@ -4008,10 +4010,10 @@ form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32
   form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper input.kg-flat { background-color: var(--ui-bg); }
 }
 @media (max-width: 700px) {
-  form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper input.kg-flat { font-size: 16px; }
+  /* As specific as the rules they follow (form.kg-doc's 13 px and 34 px; the Codex review, round 1): 16 px text and 44 px boxes on a phone. */
+  form.kg-paper table.kg-grid input.kg-flat, form.kg-paper table.kg-grid input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat,
+  form.kg-paper .doc-facts dd.kg-in input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat, form.kg-paper .doc-notes p.kg-in input.kg-flat { min-height: 44px; font-size: 16px; }
   form.kg-paper table.kg-grid td.num input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 100%; }
-  form.kg-paper .doc-facts dd.kg-in input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat, form.kg-paper .doc-notes p.kg-in input.kg-flat,
-  form.kg-paper .po-paper-head input.po-box { min-height: 44px; }
 }
 /* The bar of the paper's head (po_bar with the editor's Save and Confirm): its unseen Add (Enter is Add) takes no room. */
 .po-edit-bar > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }

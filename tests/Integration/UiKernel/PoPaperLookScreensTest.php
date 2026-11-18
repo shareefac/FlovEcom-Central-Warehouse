@@ -155,7 +155,9 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         $pack = Words::say('SUPPLIER_ITEMS', 'pack_of', 'each', 10);
         self::assertSame([Words::say('ORDER', 'packs_units', '3', $pack, '30')], self::texts($page, $row . '//*[@data-kg-units]'));
         self::assertSame(Words::ORDER['packs_units'], (string) (new \DOMXPath($page->dom()))->evaluate('string(' . $row . '//*[@data-kg-units]/@data-words)'));
-        self::assertContains(Words::say('ORDER', 'per', $pack), self::texts($page, $row . '/td//span[contains(@class, "o-sub")]'));
+        self::assertSame([Words::say('ORDER', 'per', $pack)], self::texts($page, $row . '/td//*[@data-kg-per][@data-words="' . Words::ORDER['per'] . '"]'),
+            'the pack\'s price says its pack, again as the item changes (Codex round 1)');
+        self::assertSame(1, self::nodes($page, $form . '//template[@data-kg-row]/tr//*[@data-kg-per]'), 'a new line\'s too');
         // Their code and the pack in the item's line (the paper has no columns for them); a line of single items says nothing more under its packs.
         self::assertSame(['HPMP-6K-SW'], self::texts($page, $row . '/th//*[@data-kg-their]'));
         self::assertSame([$pack], self::texts($page, $row . '/th//*[@data-kg-pack]'));
@@ -200,7 +202,7 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         $more = $bar . '/details[contains(@class, "more")]//div[contains(@class, "more-menu")]';
         self::assertSame(1, self::nodes($page, $more . '//form[@action="' . $path . '/cancel"]//select[@name="reason_code"][@required]'), 'Cancel draft under More');
         self::assertSame(1, self::nodes($page, $more . '//a[@href="' . $path . '/pdf"]'), 'the draft PDF');
-        self::assertSame(1, self::nodes($page, $more . '//form[@action="' . $path . '/copy"]'), 'Copy');
+        self::assertSame(1, self::nodes($page, $more . '//form[@action="' . $path . '/copy"][@data-leaves]'), 'Copy: it leaves the typed page, the guard asks first (Codex round 1)');
         foreach (['lines.xlsx', 'lines.csv'] as $file) {
             self::assertSame(1, self::nodes($page, $more . '//a[@href="' . $path . '/' . $file . '"][@download]'), $file . ': a download, never leaving the typed page');
         }

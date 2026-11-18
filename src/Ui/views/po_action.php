@@ -3,7 +3,8 @@
 // ($primary: the accent; a step that needs a reason or a choice opens under the bar), or as one of the others under More. $a: approve,
 // withdraw, send, pdf, pdf_items (the same order without prices, docs/decisions.md PL4), receive, invoice, copy, amend, close, reopen, cancel; the
 // forms, their fields and their routes are the order page's.
-// A draft's cancel says "Cancel draft" (its paper's More, docs/decisions.md LP3; was the one-page form's own step, PX11).
+// A draft's cancel says "Cancel draft" (its paper's More, docs/decisions.md LP3; was the one-page form's own step, PX11). $leaves: Copy
+// leaves a page that may hold typed values (the paper's editor): the unsaved guard asks first (data-leaves; the Codex review, round 1).
 ?>
 <?php if ($a === 'approve'): ?>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/approve') ?>">
@@ -63,7 +64,7 @@
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/invoices/new', ['supplier' => (int) ($supplier['id'] ?? 0), 'from' => 'po:' . $doc->id]) ?>"><?= $word('ORDER', 'record_invoice') ?></a>
 <?php endif; ?>
 <?php if ($a === 'copy'): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/copy') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/copy') ?>"<?php if ($leaves ?? false): ?> data-leaves<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
     <button type="submit" class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('ORDER', 'copy') ?></button>

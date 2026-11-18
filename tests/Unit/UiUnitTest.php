@@ -1784,7 +1784,10 @@ final class UiUnitTest extends TestCase
         self::assertSame(1, preg_match('/\.kg-paper input\.kg-flat:hover[^{]*\{[^}]*background-color: var\(--ui-bg\)/', $plain), 'the grey box on hover');
         self::assertSame(1, preg_match('/\.kg-paper input\.kg-flat:focus[^{]*\{[^}]*border-color: var\(--accent\)[^}]*outline: 2px solid var\(--accent\)/', $plain), 'a 2 px focus ring, the accent');
         self::assertSame(1, preg_match('/@media \(hover: none\) \{[^@]*\.kg-paper input\.kg-flat[^{]*\{[^}]*background-color: var\(--ui-bg\)/s', $plain), 'a touch screen shows its boxes');
-        self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*\.kg-paper input\.kg-flat[^{]*\{[^}]*font-size: 16px/s', $plain), 'a phone: 16 px (no zoom on focus)');
+        // A phone: 16 px (no zoom on focus) and 44 px boxes, in rules at least as specific as form.kg-doc's 13 px one (the Codex review, round 1).
+        self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*form\.kg-paper table\.kg-grid input\.kg-flat,[^{]*form\.kg-paper \.doc-facts dd\.kg-in input\.kg-flat[^{]*\{ min-height: 44px; font-size: 16px; \}/s', $plain),
+            'a phone: 16 px and 44 px');
+        self::assertStringContainsString('form.kg-doc :is(input, select):not([type="checkbox"]):not([type="radio"]) { font-size: 13px; }', $plain, 'the rule they must beat (0,3,2)');
         self::assertStringNotContainsString('kg-paper', (string) preg_replace('/\.kg-paper\b/', '', $plain), 'only as a class');
         // One engine, and its two small parts for the paper.
         self::assertSame(1, substr_count($js, 'var docGrid = function (table, box) {'), 'one engine');
@@ -1794,6 +1797,11 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("querySelector('[data-kg-vat-end]')", $grid);
         self::assertStringContainsString("querySelector('[data-kg-units]')", $grid, 'the pack figures under the packs, as typed');
         self::assertStringContainsString("document.addEventListener('kg-swapped', showPrint)", $js, 'Print shown again after a save draws the head');
+        // The head a save draws again keeps working (the Codex review, round 1): Keys (?) and the unsaved guard of Copy are wired again, once.
+        self::assertStringContainsString("document.addEventListener('kg-swapped', kbWire)", $js);
+        self::assertStringContainsString("if (form.hasAttribute('data-leaves-on')) {", $js);
+        self::assertStringContainsString("document.addEventListener('kg-swapped', function () { each(document.querySelectorAll('form[data-leaves]'), leaving); });", $js);
+        self::assertStringContainsString("querySelector('[data-kg-per]')", $grid, 'the pack\'s price says its pack as the item changes');
     }
 
     /**

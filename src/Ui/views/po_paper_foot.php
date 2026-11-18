@@ -18,7 +18,7 @@
   <div class="doc-foot" data-kg-swap-part="summary">
     <div class="doc-notes">
       <p class="doc-label"><label for="po-note"><?= $word('ORDER', 'note_title') ?></label></p>
-      <p class="kg-in"><input id="po-note" type="text" name="note" maxlength="1000" autocomplete="off" value="<?= $e($note) ?>" class="kg-flat"></p>
+      <p class="kg-in"><input id="po-note" type="text" name="note" maxlength="1000" autocomplete="off" value="<?= $e($note) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"></p>
     </div>
     <section class="doc-totals" aria-label="<?= $word('DOC', 'totals') ?>">
       <dl data-kg-vat-rows data-words="<?= $word('ORDER', 'vat_line') ?>">
@@ -28,7 +28,7 @@
 <?php foreach ($totals['by_code'] as $code => $v): ?>
         <div class="kg-vat-row" data-kg-vat-row><dt><?= $say('ORDER', 'vat_line', (string) $code, $vatLabels[$code] ?? $v['rate'] . '%') ?></dt><dd><?= $e($v['vat']) ?></dd></div>
 <?php endforeach; ?>
-        <dt data-kg-vat-end><label for="po-delivery"><?= $word('PO_ONE', 'delivery') ?></label></dt><dd class="kg-in"><input id="po-delivery" type="text" name="charge_amount" inputmode="decimal" maxlength="16" autocomplete="off" value="<?= $e($typed['charge_amount'] ?? '') ?>" class="short kg-flat" data-kg-delivery></dd>
+        <dt data-kg-vat-end><label for="po-delivery"><?= $word('PO_ONE', 'delivery') ?></label></dt><dd class="kg-in"><input id="po-delivery" type="text" name="charge_amount" inputmode="decimal" maxlength="16" autocomplete="off" value="<?= $e($typed['charge_amount'] ?? '') ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="short kg-flat" data-kg-delivery></dd>
         <dt><?= $word('ORDER', 'vat') ?></dt><dd data-kg-total="vat"><?= $e($totals['vat']) ?></dd>
         <dt class="grand"><?= $word('ORDER', 'gross') ?></dt><dd class="grand" data-kg-total="gross"><?= $e($totals['gross']) ?></dd>
       </dl>

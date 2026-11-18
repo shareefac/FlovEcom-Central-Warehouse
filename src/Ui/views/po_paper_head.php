@@ -5,7 +5,7 @@
 // Read only ($edit false): $dates, each a label and a value in words.
 // On a draft or a new order ($edit, inside the editor form): the supplier is the site's one dropdown (the plain select app.js makes a box,
 // ending with "+ Add new supplier", or the line naming whom to ask), Expected and Their reference are boxes in place (kg-flat: plain text
-// until the mouse is on one or the cursor is in it). The head is the save's part "header": kept as it is by a save without leaving the page
+// until the mouse is on one or the cursor is in it). The head is the save's part named for the head: kept as it is by a save without leaving the page
 // (its supplier box), but the supplier's address and terms ("party", "terms") follow a supplier changed on Save. $orderDate, $terms: words.
 ?>
 <?php if (!$edit): ?>
@@ -78,7 +78,7 @@
       <dt><?= $word('ORDER', 'order_date') ?></dt><dd><?= $e($orderDate) ?></dd>
       <dt><label for="po-expected"><?= $word('ORDER', 'expected_short') ?></label></dt><dd class="kg-in"><input id="po-expected" type="date" name="expected_date" value="<?= $e($info['expected_date']) ?>" class="kg-flat"></dd>
       <dt><?= $word('ORDER', 'terms') ?></dt><dd data-kg-swap-part="terms"><?= $e($terms) ?></dd>
-      <dt><label for="po-ref"><?= $word('ORDER', 'their_ref') ?></label></dt><dd class="kg-in"><input id="po-ref" type="text" name="external_ref" maxlength="191" autocomplete="off" value="<?= $e($info['external_ref']) ?>" class="kg-flat"></dd>
+      <dt><label for="po-ref"><?= $word('ORDER', 'their_ref') ?></label></dt><dd class="kg-in"><input id="po-ref" type="text" name="external_ref" maxlength="191" autocomplete="off" value="<?= $e($info['external_ref']) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"></dd>
     </dl>
   </div>
 <?php endif; ?>
