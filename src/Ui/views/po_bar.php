@@ -43,6 +43,9 @@ $moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') 
 <?php if ($editor !== null): ?>
   <button type="submit" form="<?= $e($editor) ?>" name="action" value="save" class="btn" aria-keyshortcuts="Control+S"><?= $word('PO_ONE', 'save') ?></button>
   <button type="submit" form="<?= $e($editor) ?>" name="action" value="approve" class="btn primary"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('PO_ONE', 'confirm') ?><?php endif; ?></button>
+<?php elseif ($mainAction === 'send' && ($sendBelow ?? false)): ?>
+<?php // Confirmed, not sent (LP11): the next step's button leads to its form, a card under the head (open in the bar, it pushed the title down). ?>
+  <a class="btn primary" href="#po-send"><?= $word('ORDER', 'send') ?></a>
 <?php elseif ($mainAction !== null): ?>
 <?= $partial('po_action', ['a' => $mainAction, 'primary' => true, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
     'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,

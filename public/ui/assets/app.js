@@ -1624,7 +1624,9 @@
         var qty = cellIn(tr, 'qty');
         var packs = qty ? whole(qty.value) : null;
         if (packs !== null && !tr.hasAttribute('data-kg-charge')) {
-          units += packs * (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
+          var uppNow = tr.hasAttribute('data-kg-swap') ? null : cellIn(tr, 'upp'); // items per pack as typed (LP11)
+          var perNow = uppNow ? whole(uppNow.value) : null;
+          units += packs * (perNow !== null && perNow > 0 ? perNow : (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1));
         }
         // The paper's pack figures under the packs box (one look, docs/decisions.md LP4): "3 × box of 10 = 30" in the page's words, as typed;
         // an item not set up with the supplier: its items per pack as typed (its pack's words from data-kg-pack-of); single items: nothing.
@@ -1945,6 +1947,19 @@
       tr.setAttribute('data-u', it.si !== '' ? '' : it.u);
       tr.setAttribute('data-kg-upp', it.upp || '1');
       each(['name', 'code', 'pack', 'their'], function (k) { tr.setAttribute('data-' + k, it[k]); });
+      // A new line's items per pack on the paper (LP11): shown at once for an item not set up with the supplier (its box one of the line's,
+      // the item's figure in it, sent as the line's `u`); out of sight and out of the keys' boxes for a supplier's pack.
+      var uppLine = tr.querySelector('[data-kg-upp-line]');
+      if (uppLine) {
+        var uppIn = uppLine.querySelector('input');
+        uppLine.hidden = it.si !== '';
+        if (uppIn && it.si === '') {
+          uppIn.setAttribute('data-kg-cell', 'upp');
+          uppIn.value = it.upp || '1';
+        } else if (uppIn) {
+          uppIn.removeAttribute('data-kg-cell');
+        }
+      }
       var item = cellIn(tr, 'item');
       if (item) {
         item.value = it.name;
@@ -2645,6 +2660,10 @@
         var si = tr.getAttribute('data-si') || '';
         var o = si !== '' ? { si: parseInt(si, 10) } : { sku: parseInt(tr.getAttribute('data-sku') || '0', 10) };
         var u = tr.getAttribute('data-u') || '';
+        var newUpp = tr.hasAttribute('data-kg-new') ? cellIn(tr, 'upp') : null;
+        if (si === '' && newUpp && whole(newUpp.value) !== null) {
+          u = String(whole(newUpp.value)); // the items per pack typed on a new line (LP11)
+        }
         if (si === '' && /^[1-9][0-9]*$/.test(u) && u !== '1') {
           o.u = parseInt(u, 10);
         }

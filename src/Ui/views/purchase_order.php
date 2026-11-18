@@ -160,9 +160,10 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?= $partial('po_cards', ['related' => $related, 'events' => $events, 'eventsMore' => $eventsMore ?? null, 'history' => $history]) ?>
 <?php endif; ?>
 <?php else: ?>
-<?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
+<?php $sendBelow = $mainAction === 'send' && $state === 'approved'; // confirmed, not sent: the send form a card under the head (LP11)
+$bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
     'supplier' => $supplier, 'sendVia' => $sendVia, 'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey,
-    'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
+    'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode, 'sendBelow' => $sendBelow]); ?>
 <div class="doc-head">
 <?php // PO_View (DC22): the heading is the order's number with its status beside it (a draft without a number keeps its title, its status in the line under it). ?>
 <?= $head((string) ($doc->number ?? $title), intro: 'order', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']], chips: $doc->number !== null ? $stateChip('PO_STATE', $state) : '',
@@ -193,6 +194,13 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?php endif; ?>
 <?php if ($doc->status === 'draft'): ?>
 <p class="note read-only"><?= $say('ORDER', 'draft_look', (string) $people['created']) ?></p>
+<?php endif; ?>
+<?php if ($sendBelow): ?>
+<section class="po-send" id="po-send" aria-label="<?= $word('ORDER', 'send_title') ?>">
+<?= $partial('po_action', ['a' => 'send_panel', 'primary' => true, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
+    'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
+    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
+</section>
 <?php endif; ?>
 
 <?php foreach ($decide as $d): ?>

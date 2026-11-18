@@ -1856,6 +1856,13 @@ final class UiUnitTest extends TestCase
         }
         self::assertGreaterThan(10, $seenHead, 'the head\'s rules were read');
         self::assertStringContainsString("item.title = it.name;", $grid, 'the whole name on hover');
+        // A new line of an item not set up with the supplier: its items per pack shown at once and sent as its `u` (LP11); an empty box of the
+        // lines shows a faint edge at rest, its placeholder said.
+        self::assertStringContainsString("var uppLine = tr.querySelector('[data-kg-upp-line]');", $grid);
+        self::assertStringContainsString("var newUpp = tr.hasAttribute('data-kg-new') ? cellIn(tr, 'upp') : null;", $grid);
+        self::assertStringContainsString('form.kg-paper table.kg-grid td.num input.kg-flat:placeholder-shown, form.kg-paper table.kg-grid label.kg-upp input.kg-flat:placeholder-shown { border-color: var(--hairline); }', $plain);
+        // The open "I have sent it…" form is a card under the head, never beside the title (LP11).
+        self::assertStringContainsString('.po-send { margin: 0 0 20px; }', $plain);
     }
 
     /**

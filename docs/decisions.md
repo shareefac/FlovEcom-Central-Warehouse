@@ -18022,7 +18022,7 @@ Round 2's two fixes checked, and the change on top of "drafts anyone may change"
 `edits` = may post the type, not admin): 0 HIGH, 0 MEDIUM, 0 LOW. The full suite on the rebased branch: Unit 626 OK, UiKernel 678 OK, the
 rest 1,286 OK (83 skipped: the HTTP tests of slot ui, one more than before: `UiSecurityTest::testThePollOfADraftOrderOverHttp`).
 
-## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP10; live drafts step 2; migration 0071, two setting rows)
+## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP11; live drafts step 2; migration 0071, two setting rows)
 
 The owner, 18 Nov 2026, of the read-only order page another buyer saw ("Shareef's window") beside the creator's grey form ("Fazil's"): "I liked
 how it looks on Shareef's window, the design". After DA1 everyone who writes orders gets the editor, so everyone would get the grey form;
@@ -18104,6 +18104,14 @@ content and only the last part takes what the row has left (the one-page form's 
 first row about 270 px tall in a block that is a column); a test reads every head rule for a height or a flex-basis of its own.
 The confirmed order's lines draw the same ONE sub-line as a draft's ("CW-007523 · their code · each · VAT S", under the name; it read
 "CW-007523  each · VAT S"), its dots app.css's (`.po-paper table.kg-view .kg-sub`).
+
+**LP11. The coordinator's walkthrough on staging** (a new order to PO-000002). A confirmed order not sent yet opened its "I have sent it…"
+form inside the head's bar (main draws it so too: PV27's "a step that needs a choice opens under the bar"), which pushed the title down and
+squeezed it: on the order's page it is now the bar's main button, a link to the form, and the form is a card under the head (`po_action`'s
+`send_panel`); a later sending ("Record another sending…") is the fold as before. On the paper an empty price box says "0.00" and an empty packs
+box "0" (placeholders, never values), and an empty box of the lines shows a faint edge at rest. A new line of an item not set up with the
+supplier shows its items per pack at once (before, only after the first save): a box of the line, sent as its `u` (DocGrid's), its figures
+as typed; hidden, and out of the keys' boxes, for a supplier's pack.
 
 ### The Codex reviews of look-paper (`lookpaper_20261118/codex_round1.txt` to `codex_round3.txt`; three rounds, the cap)
 - Round 1 (1 HIGH, 3 MEDIUM, 1 LOW): More > Copy on the paper left typed values without the unsaved guard (Copy is a leaving form there;

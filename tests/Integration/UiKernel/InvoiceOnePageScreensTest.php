@@ -1326,9 +1326,11 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//h1/span[contains(@class, "chip")]'), 'beside the title (PO_View, DC22)');
         self::assertSame('PO-000001', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//main//h1/span[@class="stmt"])')), 'the heading is the order\'s number');
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'));
-        self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")][@open]/summary[contains(@class, "primary")]'),
+        // Confirmed, not sent: Send is the next step, the bar's main button; its form a card under the head (docs/decisions.md LP11: it opened in
+        // the bar and pushed the title down).
+        self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-actions")]/a[contains(@class, "primary")][@href="#po-send"]'),
             'confirmed, not sent: Send is the next step');
-        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]//form[contains(@action, "/send")]'), 'send, in the bar');
+        self::assertSame(1, self::nodes($view, '//section[@id="po-send"]//form[contains(@action, "/send")]'), 'send, under the head');
         self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(concat(" ", @class, " "), " more ")]//form[contains(@action, "/copy")]'), 'the rest under More');
         self::assertContains('/ui/purchasing/orders/' . $o['po'] . '/pdf', self::hrefsIn($view, '//div[contains(@class, "doc-actions")]//a'));
         self::assertSame([Words::PO_STEP['approved'], Words::PO_STEP['sent'], Words::PO_STEP['received'], Words::PO_STEP['invoiced']],

@@ -4057,4 +4057,9 @@ form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32
 }
 /* The bar of the paper's head (po_bar with the editor's Save and Confirm): its unseen Add (Enter is Add) takes no room. */
 .po-edit-bar > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+/* The coordinator's walkthrough (LP11): an empty box of the lines shows a faint edge at rest (its placeholder says "0.00" or "0"), so staff
+   see where to type; the "I have sent it…" form, open by itself on a confirmed order, is a card under the head (never beside the title). */
+form.kg-paper table.kg-grid td.num input.kg-flat:placeholder-shown, form.kg-paper table.kg-grid label.kg-upp input.kg-flat:placeholder-shown { border-color: var(--hairline); }
+.po-send { margin: 0 0 20px; }
+.po-send > .doc-act-panel { margin: 0; }
 /* ==== end lp ====================================================================================================================== */

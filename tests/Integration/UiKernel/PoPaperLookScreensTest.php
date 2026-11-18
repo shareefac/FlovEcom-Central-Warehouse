@@ -183,6 +183,14 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
             '//input[@data-kg-cell="price"][contains(@class, "kg-flat")]', '//*[@data-kg-amount]', '//button[@data-kg-x]', '//*[@data-kg-units]'] as $part) {
             self::assertSame(1, self::nodes($page, $tpl . $part), 'the template: ' . $part);
         }
+        // The coordinator's walkthrough (LP11): an empty price box shows "0.00", an empty packs box "0", so staff see where to type; a new line
+        // of an item not set up with the supplier shows its items per pack at once (the template's row: hidden until such an item is chosen,
+        // out of the keys' boxes while hidden).
+        self::assertSame(1, self::nodes($page, $row . '//input[@data-kg-cell="price"][@placeholder="0.00"]'));
+        self::assertSame(1, self::nodes($page, $row . '//input[@data-kg-cell="qty"][@placeholder="0"]'));
+        self::assertSame(1, self::nodes($page, $tpl . '//input[@data-kg-cell="price"][@placeholder="0.00"]'));
+        self::assertSame(1, self::nodes($page, $tpl . '//label[@data-kg-upp-line][@hidden]/input[@type="number"][not(@data-kg-cell)][not(@name)]'));
+        self::assertStringContainsString('%s', (string) (new \DOMXPath($page->dom()))->evaluate('string(' . $tpl . '/@data-kg-pack-of)'));
         self::assertSame(1, self::nodes($page, $form . '/input[@type="hidden"][@name="' . DocGrid::FIELD . '"][@data-kg-field]'));
         self::assertSame(1, self::nodes($page, $form . '/div[@data-kg-look][@hidden]'));
         foreach (['data-kg-add-row', 'data-kg-several-open', 'data-kg-delete'] as $tool) {
@@ -304,6 +312,11 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
             self::texts($view, $sub));
         self::assertSame(0, self::nodes($view, '//table[contains(@class, "doc-lines")]/tbody/tr/th/span[contains(@class, "kg-code")]'), 'never beside the name');
         self::assertSame(0, self::nodes($view, '//main//input[contains(@class, "kg-flat")]'));
+        // Confirmed, not sent (the coordinator's walkthrough, LP11): "I have sent it…" is the head's main button, a link to its form, which is a
+        // card under the head (it opened in the head's bar and pushed the title down).
+        self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-head")]//div[contains(@class, "doc-actions")]/a[contains(concat(" ", @class, " "), " primary ")][@href="#po-send"]'));
+        self::assertSame(0, self::nodes($view, '//div[contains(@class, "doc-head")]//form[contains(@action, "/send")]'), 'no form in the head');
+        self::assertSame(1, self::nodes($view, '//section[@id="po-send"][preceding-sibling::div[contains(@class, "doc-head")]]//form[contains(@action, "/send")]//select[@name="via"]'));
     }
 
     public function testAPageDrawnBeforeSomeoneElsesSaveIsRefusedWithTheNewLinesKept(): void

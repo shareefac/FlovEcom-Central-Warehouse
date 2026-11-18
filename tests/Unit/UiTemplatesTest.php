@@ -2017,6 +2017,10 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('data-kg-swap-part="terms"', $t['po_paper_head.php']);
         // The bar: the saved order's (po_bar), with the editor's Save and Confirm for the form when there is one.
         self::assertStringContainsString("\$partial('po_bar', ", $page);
+        // "I have sent it…" when it opens by itself (confirmed, not sent): a link in the bar, its form a card under the head (LP11).
+        self::assertStringContainsString('<section class="po-send" id="po-send" aria-label="<?= $word(\'ORDER\', \'send_title\') ?>">', $page);
+        self::assertStringContainsString("\$a === 'send_panel'", $t['po_action.php']);
+        self::assertStringContainsString('href="#po-send"', $t['po_bar.php']);
         self::assertStringContainsString('form="<?= $e($editor) ?>" name="action" value="save"', $t['po_bar.php']);
         self::assertStringContainsString('form="<?= $e($editor) ?>" name="action" value="approve"', $t['po_bar.php']);
         // The old form is kept for one release, as the setting's way back.

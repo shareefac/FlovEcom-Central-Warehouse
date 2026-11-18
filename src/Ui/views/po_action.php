@@ -5,6 +5,7 @@
 // forms, their fields and their routes are the order page's.
 // A draft's cancel says "Cancel draft" (its paper's More, docs/decisions.md LP3; was the one-page form's own step, PX11). $leaves: Copy
 // leaves a page that may hold typed values (the paper's editor): the unsaved guard asks first (data-leaves; the Codex review, round 1).
+// send_panel: the send form alone, for the card under the head when it opens by itself (confirmed, not sent: LP11).
 ?>
 <?php if ($a === 'approve'): ?>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/approve') ?>">
@@ -20,9 +21,11 @@
     <button type="submit" class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('ORDER', 'withdraw') ?></button>
   </form>
 <?php endif; ?>
+<?php if ($a === 'send' || $a === 'send_panel'): ?>
 <?php if ($a === 'send'): ?>
   <details class="doc-act"<?php if ($primary && $state === 'approved'): ?> open<?php endif; ?>>
     <summary class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?php if ($state === 'sent'): ?><?= $word('ORDER', 'send_again_open') ?><?php else: ?><?= $word('ORDER', 'send') ?><?php endif; ?></summary>
+<?php endif; ?>
     <div class="doc-act-panel">
       <p class="hint"><?= $word('PO', 'no_email') ?></p>
       <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/send') ?>">
@@ -49,7 +52,9 @@
         <p class="actions"><button type="submit" class="btn primary"><?php if ($state === 'sent'): ?><?= $word('PO', 'send_again') ?><?php else: ?><?= $word('PO', 'sent') ?><?php endif; ?></button></p>
       </form>
     </div>
+<?php if ($a === 'send'): ?>
   </details>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ($a === 'pdf'): ?>
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>" data-key-print aria-keyshortcuts="Control+P"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
