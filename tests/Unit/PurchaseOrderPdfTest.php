@@ -435,6 +435,50 @@ final class PurchaseOrderPdfTest extends TestCase
         self::assertNoMoney($pdf);
     }
 
+    /**
+     * The Codex review, round 2 (L1): a tall row (an item name over six lines) that does not fit under the rows before it moves whole to
+     * the next page, under the repeated header; no row of any page reaches into the footer. Tried with 20 to 50 short rows before it,
+     * so that it falls at every height of the page's foot.
+     */
+    public function testATallRowNearThePageBottomMovesWholeToTheNextPage(): void
+    {
+        $line = static fn (int $no, string $code, string $name): array => ['line_no' => $no, 'kind' => 'item', 'supplier_code' => null, 'sku_code' => $code,
+            'description' => $name, 'purchase_unit' => 'box', 'units_per_pack' => 10, 'packs' => 1, 'units' => 10, 'pack_price' => '1.0000', 'vat_code' => 'S',
+            'amount_e2' => 100];
+        $k = 72 / 25.4;
+        $moved = 0;
+        for ($n = 20; $n <= 50; $n++) {
+            $lines = [];
+            for ($i = 1; $i <= $n; $i++) {
+                $lines[] = $line($i, sprintf('CW-%06d', $i), "Short item {$i}");
+            }
+            $lines[] = $line($n + 1, 'CW-LONG01', str_repeat('WIDE ', 48) . 'CHERRY');
+            $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['lines' => $lines]));
+            $pages = self::pageStreams($pdf);
+            $at = null;
+            foreach ($pages as $i => $c) {
+                if (str_contains($c, '(CW-LONG01) Tj')) {
+                    $at = $i;
+                }
+                // Every cell's box ends above the footer (18 mm from the bottom edge, the page break).
+                preg_match_all('/([\d.]+) ([\d.]+) ([\d.]+) (-[\d.]+) re S/', $c, $r, PREG_SET_ORDER);
+                foreach ($r as $box) {
+                    self::assertGreaterThanOrEqual(18 * $k - 0.05, (float) $box[2] + (float) $box[4], "{$n} rows: page {$i}, a box ends above the footer");
+                }
+            }
+            self::assertIsInt($at, "{$n} rows");
+            $c = $pages[$at];
+            self::assertSame(48, substr_count(implode(' ', self::texts($c)), 'WIDE'), "{$n} rows: the whole name on the row's page");
+            self::assertStringContainsString('CHERRY', $c);
+            self::assertLessThan(strpos($c, '(CW-LONG01) Tj'), strpos($c, '(Item name) Tj'), "{$n} rows: under the header");
+            if ($at > 0 && str_contains($pages[$at - 1], sprintf('(CW-%06d) Tj', $n))) {
+                $moved++; // the rows before it ended the page before: it moved to a page of its own
+                self::assertStringNotContainsString('WIDE', $pages[$at - 1]);
+            }
+        }
+        self::assertGreaterThan(0, $moved, 'at least one case moved the tall row to the next page');
+    }
+
     /** The banners of the PDF with prices (PL3): DRAFT, COMPANY DETAILS NOT CONFIRMED / REJECTED — DO NOT SEND, CANCELLED, the cancellation. */
     public function testTheItemsOnlyPdfKeepsTheBannersAndTheCancellation(): void
     {

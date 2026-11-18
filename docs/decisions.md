@@ -4030,7 +4030,8 @@ the order PDF's.
 **PL5. Not changed, and why.** No migration, no setting, no permission. "Mark as sent" still archives the order PDF with prices: the
 owner asked for a second download, not a change to what is kept as sent. Tests: `PurchaseOrderPdfTest` (the same head and the five
 columns, the quantity, codes and wrapped names, the banners and the cancellation, the snapshot given, a long order's header on every
-page; each asserts no £, no amount, no total, price or VAT column), `UiUnitTest` (the route's access; More's order; the words),
+page, the longest name and note printed whole, a tall row near the page's foot moved whole under the repeated header; each asserts no
+£, no amount, no total, price or VAT column), `UiUnitTest` (the route's access; More's order; the words),
 `PurchaseOrderItemsPdfScreensTest` (new: the menu for a draft and a confirmed order, the downloads, the supplier as approved after a
 rename, who may, a cancelled order and its cancellation).
 
