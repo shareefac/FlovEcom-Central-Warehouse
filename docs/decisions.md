@@ -2052,7 +2052,9 @@ made-up accounts, one to post and one to check) and of root on the server; with 
 account is enough. It is not prevented in code; it is seen: the audit row `staff.create` names who added each account, the person's
 page names who gave each job, and the reviewers' request cards show when an account was made and whether it set up its sign-in.
 `approvals.staff_grant` (Approval rules page) makes Admin, Reviewer and People manager wait for a second person's OK, but not the
-working jobs. A rule "a reviewer never checks the work of an account they added" would close it; it is not built (open for the owner).
+working jobs. Closing it would need a rule in both directions: an account never checks the work of the person who added it, and a
+person never checks the work of an account they added (manager A adds Reviewer B and uses B to check A's work; or adds Stock controller
+B, posts as B and checks as A). It is not built (open for the owner); the audit names who added whom, so it is found afterwards.
 
 **I14. Menus and the home page (amends U13).** The navigation is `Permissions::menu($roles)`: grouped sections (Linking,
 Items, Purchasing, Receiving, Stock control, Trade, Document reviews, Documents, Accounts, Reference, Admin), only the items

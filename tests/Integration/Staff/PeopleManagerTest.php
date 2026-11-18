@@ -17,11 +17,11 @@ use CW\Tests\Support\TestDb;
 
 /**
  * The People manager (0069; docs/decisions.md PM1-PM7; the owner, 16 Nov 2026: "i want you to build the option to create users, admin roles
- * etc for my cw account. so i can create users there"; 18 Nov 2026: "build it in so Fazil can create [staff] himself"): a job that adds people, gives and takes their jobs (Admin and People manager too),
- * switches them on and off and resets their sign-in, held together with the owner's working jobs, so he keeps posting and reviewing. It is
- * guarded like Admin and Reviewer (the staff-grant and staff-reset rules), never changes its holder's own access, and bin/grant_role.php
- * gives it to an existing account on the server: a dry run unless --apply, audited, never taking the power to manage people from the last
- * person who has it.
+ * etc for my cw account. so i can create users there"; 18 Nov 2026: "build it in so Fazil can create [staff] himself"): a job that adds
+ * people, gives and takes their jobs (Admin and People manager too), switches them on and off and resets their sign-in, held together
+ * with the owner's working jobs, so he keeps posting and reviewing. It is guarded like Admin and Reviewer (the staff-grant and
+ * staff-reset rules), never changes its holder's own access, and bin/grant_role.php gives it to an existing account on the server: a dry
+ * run unless --apply, audited, never taking the power to manage people from the last person who has it.
  */
 final class PeopleManagerTest extends KernelUiTestCase
 {
@@ -211,6 +211,15 @@ final class PeopleManagerTest extends KernelUiTestCase
         self::assertStringContainsString('unchanged', $none['out']);
         $last = $this->uiUser('viewer');
         self::assertSame(1, self::tool('grant_role', '--email=' . $last['email'], '--role=viewer', '--revoke', '--apply')['code'], 'no jobs left: refused (switch the account off instead)');
+        // A person with no job yet (set up while their only job waits for a reviewer's OK): taking one they lack is `unchanged`, not a refusal.
+        self::$db->exec('UPDATE staff_role SET revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked_at IS NULL', [$last['id']]);
+        $lack = self::tool('grant_role', '--email=' . $last['email'], '--role=people_manager', '--revoke', '--apply');
+        self::assertSame(0, $lack['code'], $lack['err']);
+        self::assertStringContainsString('roles (none): unchanged', $lack['out']);
+        $give = self::tool('grant_role', '--email=' . $last['email'], '--role=buyer');
+        self::assertSame(0, $give['code'], $give['err']);
+        self::assertStringContainsString('roles (none) -> buyer', $give['out']);
+        self::assertSame([], StaffRoles::of(self::$db, $last['id']), 'a dry run');
     }
 
     /** PM5: someone must always be able to manage people. The tool never takes that from the last active person who can. */

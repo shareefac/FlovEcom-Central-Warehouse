@@ -57,13 +57,15 @@ exit(Cli::main('grant_role', ['email:', 'role:', 'revoke', 'apply'],
             $id = (int) $u['id'];
             $active = (int) $u['is_active'] === 1;
             $before = StaffRoles::of($cli->db, $id);
-            $after = Permissions::checkRoleSet($revoke ? array_values(array_diff($before, [$role])) : [...$before, $role]);
-            $what = sprintf('%s (id %d%s): roles %s -> %s', $email, $id, $active ? '' : ', switched off', $before === [] ? '(none)' : implode(',', $before),
-                implode(',', $after));
-            if ($after === $before) {
-                $cli->log("{$what}: unchanged (" . ($revoke ? 'they do not have' : 'they already have') . " {$role}; nothing written)");
+            $list = static fn (array $roles): string => $roles === [] ? '(none)' : implode(',', $roles);
+            if (in_array($role, $before, true) !== $revoke) {
+                // Nothing to do (checked before the set's rules: a person with no job yet, waiting for a reviewer's OK, can be asked to lose one they lack).
+                $cli->log(sprintf('%s (id %d%s): roles %s: unchanged (%s %s; nothing written)', $email, $id, $active ? '' : ', switched off', $list($before),
+                    $revoke ? 'they do not have' : 'they already have', $role));
                 return Cli::OK;
             }
+            $after = Permissions::checkRoleSet($revoke ? array_values(array_diff($before, [$role])) : [...$before, $role]);
+            $what = sprintf('%s (id %d%s): roles %s -> %s', $email, $id, $active ? '' : ', switched off', $list($before), $list($after));
             if (!$apply) {
                 if (StaffRoles::takesTheLastManager($cli->db, $id, $after, $active, false)) {
                     throw StaffRoles::lastManagerRefusal();
@@ -73,8 +75,7 @@ exit(Cli::main('grant_role', ['email:', 'role:', 'revoke', 'apply'],
                 return Cli::OK;
             }
             $r = (new StaffAdmin($cli->db))->setRoles(Caller::system('grant_role'), $id, $after, $before, true);
-            $cli->log(sprintf('%s (id %d): roles %s -> %s: %s', $email, $id, $r['before'] === [] ? '(none)' : implode(',', $r['before']), implode(',', $r['after']),
-                $r['result']));
+            $cli->log(sprintf('%s (id %d): roles %s -> %s: %s', $email, $id, $list($r['before']), $list($r['after']), $r['result']));
             return Cli::OK;
         } catch (CwException $e) {
             fwrite(STDERR, "grant_role: {$e->getMessage()}\n");

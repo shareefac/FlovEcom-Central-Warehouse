@@ -4306,8 +4306,8 @@ final class Words
         'yours' => 'This is you. Nobody can change their own access. Ask another Admin or People manager (if there is none: ask the developer).',
         'auditor' => 'You can look but not change anything here (only an Admin or a People manager can).',
         'code' => 'code: %s',
-        'rule' => 'Admin can only go with %s, so the person who gives access never also approves work. People manager goes with any job '
-            . 'but Admin. A change works the next time the person opens a page. Every change is kept in the history below.',
+        'rule' => 'Admin can only go with %s, so an Admin never also approves work. A People manager also gives access, and can go with any job '
+            . 'but Admin, including Reviewer. A change works the next time the person opens a page. Every change is kept in the history below.',
         'save' => 'Save the jobs',
         'account' => 'Signing in',
         'stop' => 'Stop this person signing in',

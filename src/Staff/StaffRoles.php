@@ -79,8 +79,8 @@ final class StaffRoles
 
     /**
      * The ACTIVE people who can manage people now (staff.manage: an Admin or a People manager, docs/decisions.md PM5), by id. staff.manage
-     * is LOCKED (the code's map, whatever role_permission says), so this needs no map read; after a failed map read (RoleMap: nothing
-     * allowed) it is empty, and the protection below then refuses (fail-closed).
+     * is LOCKED (the code's map, whatever role_permission says), so this needs no map read. (After a failed map read, RoleMap's "nothing
+     * allowed", it is empty; a person at a screen is then refused before any change anyway: StaffAdmin::authorise.)
      *
      * @return list<int>
      */
