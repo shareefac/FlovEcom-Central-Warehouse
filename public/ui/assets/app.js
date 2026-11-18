@@ -2078,11 +2078,13 @@
         pack: a('data-pack'), their: a('data-their'), stock: a('data-stock'), coming: a('data-coming') }); // its stock too (KG34, KG35)
       if (!tr.hasAttribute('data-kg-new')) {
         tr.setAttribute('data-kg-swap', '1');
-        // The old item's "items per pack" box no longer says anything about this line (its pack is the new item's): out of sight, as the
-        // saved line it belonged to goes on the save (the Codex review of look-paper, round 2).
+        // The old item's "items per pack" box no longer says anything about this line (its pack is the new item's): out of sight and out of
+        // the grid's boxes (the keys never stop on it), as the saved line it belonged to goes on the save (the Codex review of look-paper,
+        // rounds 2 and 3).
         var oldUpp = cellIn(tr, 'upp');
         if (oldUpp) {
           (oldUpp.closest('label') || oldUpp).hidden = true;
+          oldUpp.removeAttribute('data-kg-cell');
         }
         var no = tr.getAttribute('data-kg-line') || '';
         if (!tr.querySelector('input[data-kg-flag]') && removeName !== '' && /^[1-9][0-9]*$/.test(no)) {

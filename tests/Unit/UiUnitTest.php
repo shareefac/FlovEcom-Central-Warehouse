@@ -1806,6 +1806,7 @@ final class UiUnitTest extends TestCase
         // VAT words of the code it is worked out with; a long figure wraps in a phone's card; "Add several"'s search box 16 px on a phone.
         self::assertStringContainsString("var uppBox = tr.hasAttribute('data-kg-swap') ? null : cellIn(tr, 'upp');", $grid);
         self::assertStringContainsString("(oldUpp.closest('label') || oldUpp).hidden = true;", $grid);
+        self::assertStringContainsString("oldUpp.removeAttribute('data-kg-cell');", $grid, 'and out of the keys\' boxes (round 3)');
         self::assertStringContainsString("var vatEl = tr.querySelector('[data-kg-vat-code]');", $grid);
         self::assertSame(1, preg_match('/form\.kg-paper table\.kg-grid td\.num \.o-sub \{[^}]*white-space: normal; overflow-wrap: anywhere;/', $plain));
         self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*form\.kg-paper \.kg-several input\[type="search"\] \{ min-height: 44px; font-size: 16px; \}/s', $plain));
