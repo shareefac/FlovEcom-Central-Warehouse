@@ -37,6 +37,12 @@ use CW\Output\PdfWriter;
  * (PurchaseOrders::pdfData); a cancellation document prints "CANCELLATION OF PO-x" with the original's lines and the reason;
  * sampleData() is the made-up order of "See how a purchase order will look". Pure: it draws what it is given, no database
  * (PurchaseOrderPdfTest).
+ *
+ * Items only ($itemsOnly; the owner, 18 Nov 2026: "the table I only need number, supplier code if there is any else leave it empty,
+ * CW code, item name, qty, no amount details, no VAT details, nothing"; docs/decisions.md PL1-PL5): the same banners, letterhead,
+ * order details, boxes, notes, terms and footer, from the same data; the lines table is No. · Supplier code · CW code · Item name
+ * (wrapped, never cut) · Qty ("5 boxes of 10 = 50", "24": quantity()), item lines only (a charge is money), its header repeated on
+ * every page; no totals.
  */
 final class PurchaseOrderPdf
 {
@@ -55,8 +61,20 @@ final class PurchaseOrderPdf
         ['title' => 'VAT', 'w' => 9, 'align' => 'L'],
         ['title' => 'Net', 'w' => 16, 'align' => 'R'],
     ];
+    /** @var list<array{title: string, w: float, align: string}> the items-only table (PL2): 180 mm, as COLS */
+    private const ITEM_COLS = [
+        ['title' => 'No.', 'w' => 10, 'align' => 'R'],
+        ['title' => 'Supplier code', 'w' => 32, 'align' => 'L'],
+        ['title' => 'CW code', 'w' => 22, 'align' => 'L'],
+        ['title' => 'Item name', 'w' => 78, 'align' => 'L'],
+        ['title' => 'Qty', 'w' => 38, 'align' => 'R'],
+    ];
+    /** An item name's lines on the items-only PDF: their height (mm) and how many at most (the last one cut with "…" past that). */
+    private const NAME_LH = 4.0;
+    private const NAME_LINES = 4;
 
-    public function __construct(private readonly bool $compress = true)
+    /** @param bool $itemsOnly the order without prices (PL1): No., Supplier code, CW code, Item name, Qty; no money anywhere */
+    public function __construct(private readonly bool $compress = true, private readonly bool $itemsOnly = false)
     {
     }
 
@@ -84,7 +102,7 @@ final class PurchaseOrderPdf
         $pdf->SetAutoPageBreak(true, 18);
         $pdf->AliasNbPages();
         $pdf->SetCreator('Central Warehouse', true);
-        $pdf->SetTitle(($cancel !== null ? 'Cancellation of ' : ($sample ? 'Sample purchase order ' : 'Purchase order ')) . $label, true);
+        $pdf->SetTitle(($cancel !== null ? 'Cancellation of ' : ($sample ? 'Sample purchase order ' : 'Purchase order ')) . $label . ($this->itemsOnly ? ' (items only)' : ''), true);
         $pdf->AddPage();
 
         // Banners
@@ -221,54 +239,11 @@ final class PurchaseOrderPdf
             $pdf->Ln(2);
         }
 
-        // Lines
-        $this->tableHeader($pdf);
-        $units = 0;
-        foreach ($d['lines'] as $l) {
-            if ($pdf->GetY() + self::ROW_H > $pdf->breakAt()) {
-                $pdf->AddPage();
-                $this->tableHeader($pdf);
-            }
-            $charge = $l['kind'] === 'charge';
-            $units += (int) ($l['units'] ?? 0);
-            $cells = [
-                (string) $l['line_no'],
-                $charge ? '' : (string) ($l['supplier_code'] ?? ''),
-                $charge ? '' : (string) ($l['sku_code'] ?? ''),
-                (string) $l['description'],
-                $charge ? '' : ($l['units_per_pack'] === 1 && $l['purchase_unit'] === 'each' ? 'each' : $l['purchase_unit'] . ' ×' . $l['units_per_pack']),
-                $charge ? '' : number_format((int) $l['packs']),
-                $charge ? '' : number_format((int) $l['units']),
-                $charge ? '' : '£' . PoMath::price((string) $l['pack_price']),
-                (string) $l['vat_code'],
-                PoMath::money((int) $l['amount_e2']),
-            ];
-            $pdf->SetFont('Helvetica', '', 8);
-            foreach (self::COLS as $i => $c) {
-                $pdf->Cell($c['w'], self::ROW_H, $this->fit($pdf, PdfWriter::text($cells[$i]), $c['w']), 1, 0, $c['align']);
-            }
-            $pdf->Ln(self::ROW_H);
+        if ($this->itemsOnly) {
+            $this->itemsTable($pdf, $d['lines']);
+        } else {
+            $this->pricedTable($pdf, $d);
         }
-
-        // Totals
-        $t = $d['totals'];
-        $rows = [['Lines / units', number_format(count($d['lines'])) . ' / ' . number_format($units)], ['Net', PoMath::money((int) $t['net_e2'])]];
-        foreach ($t['by_code'] as $code => $v) {
-            $rows[] = ['VAT ' . $code . ' ' . self::rate((int) $v['rate_e2']) . '%', PoMath::money((int) $v['vat_e2'])];
-        }
-        $rows[] = ['Total', PoMath::money((int) $t['gross_e2'])];
-        if ($pdf->GetY() + 5 * count($rows) + 4 > $pdf->breakAt()) {
-            $pdf->AddPage();
-        }
-        $pdf->Ln(2);
-        foreach ($rows as $i => [$k, $v]) {
-            $last = $i === count($rows) - 1;
-            $pdf->SetX(115);
-            $pdf->SetFont('Helvetica', $last ? 'B' : '', $last ? 10 : 9);
-            $pdf->Cell(45, 5.5, PdfWriter::text($k), $last ? 'T' : 0, 0, 'L');
-            $pdf->Cell(35, 5.5, PdfWriter::text($v), $last ? 'T' : 0, 1, 'R');
-        }
-        $pdf->Ln(4);
 
         // Notes and terms
         if (($d['note'] ?? null) !== null && $d['note'] !== '') {
@@ -318,11 +293,157 @@ final class PurchaseOrderPdf
         ];
     }
 
-    private function tableHeader(Fpdf $pdf): void
+    /**
+     * The lines with their prices and the totals (the PDF to send, I48-I59).
+     *
+     * @param array<string, mixed> $d
+     */
+    private function pricedTable(Fpdf $pdf, array $d): void
+    {
+        // Lines
+        $this->tableHeader($pdf);
+        $units = 0;
+        foreach ($d['lines'] as $l) {
+            if ($pdf->GetY() + self::ROW_H > $pdf->breakAt()) {
+                $pdf->AddPage();
+                $this->tableHeader($pdf);
+            }
+            $charge = $l['kind'] === 'charge';
+            $units += (int) ($l['units'] ?? 0);
+            $cells = [
+                (string) $l['line_no'],
+                $charge ? '' : (string) ($l['supplier_code'] ?? ''),
+                $charge ? '' : (string) ($l['sku_code'] ?? ''),
+                (string) $l['description'],
+                $charge ? '' : ($l['units_per_pack'] === 1 && $l['purchase_unit'] === 'each' ? 'each' : $l['purchase_unit'] . ' ×' . $l['units_per_pack']),
+                $charge ? '' : number_format((int) $l['packs']),
+                $charge ? '' : number_format((int) $l['units']),
+                $charge ? '' : '£' . PoMath::price((string) $l['pack_price']),
+                (string) $l['vat_code'],
+                PoMath::money((int) $l['amount_e2']),
+            ];
+            $pdf->SetFont('Helvetica', '', 8);
+            foreach (self::COLS as $i => $c) {
+                $pdf->Cell($c['w'], self::ROW_H, $this->fit($pdf, PdfWriter::text($cells[$i]), $c['w']), 1, 0, $c['align']);
+            }
+            $pdf->Ln(self::ROW_H);
+        }
+
+        // Totals
+        $t = $d['totals'];
+        $rows = [['Lines / units', number_format(count($d['lines'])) . ' / ' . number_format($units)], ['Net', PoMath::money((int) $t['net_e2'])]];
+        foreach ($t['by_code'] as $code => $v) {
+            $rows[] = ['VAT ' . $code . ' ' . self::rate((int) $v['rate_e2']) . '%', PoMath::money((int) $v['vat_e2'])];
+        }
+        $rows[] = ['Total', PoMath::money((int) $t['gross_e2'])];
+        if ($pdf->GetY() + 5 * count($rows) + 4 > $pdf->breakAt()) {
+            $pdf->AddPage();
+        }
+        $pdf->Ln(2);
+        foreach ($rows as $i => [$k, $v]) {
+            $last = $i === count($rows) - 1;
+            $pdf->SetX(115);
+            $pdf->SetFont('Helvetica', $last ? 'B' : '', $last ? 10 : 9);
+            $pdf->Cell(45, 5.5, PdfWriter::text($k), $last ? 'T' : 0, 0, 'L');
+            $pdf->Cell(35, 5.5, PdfWriter::text($v), $last ? 'T' : 0, 1, 'R');
+        }
+        $pdf->Ln(4);
+    }
+
+    /**
+     * The items-only table (PL2): one row per item line (a charge is only money: left out), its line number as on the order, the
+     * supplier's code (empty when there is none), the CW code, the item name wrapped over up to NAME_LINES lines, the quantity.
+     *
+     * @param list<array<string, mixed>> $lines
+     */
+    private function itemsTable(Fpdf $pdf, array $lines): void
+    {
+        $this->tableHeader($pdf, self::ITEM_COLS);
+        foreach ($lines as $l) {
+            if ($l['kind'] === 'charge') {
+                continue;
+            }
+            $pdf->SetFont('Helvetica', '', 8);
+            $nameW = self::ITEM_COLS[3]['w'];
+            $name = $this->wrap($pdf, PdfWriter::text((string) $l['description']), $nameW);
+            if (count($name) > self::NAME_LINES) {
+                $name = [...array_slice($name, 0, self::NAME_LINES - 1), $this->fit($pdf, implode(' ', array_slice($name, self::NAME_LINES - 1)), $nameW)];
+            }
+            $h = max(self::ROW_H, count($name) * self::NAME_LH + 1.5);
+            if ($pdf->GetY() + $h > $pdf->breakAt()) {
+                $pdf->AddPage();
+                $this->tableHeader($pdf, self::ITEM_COLS);
+            }
+            $units = $l['units'] === null ? (int) $l['packs'] * (int) $l['units_per_pack'] : (int) $l['units'];
+            $cells = [(string) $l['line_no'], (string) ($l['supplier_code'] ?? ''), (string) ($l['sku_code'] ?? ''), '',
+                self::quantity((string) $l['purchase_unit'], (int) $l['units_per_pack'], (int) $l['packs'], $units)];
+            $y = $pdf->GetY();
+            $x = 15.0;
+            foreach (self::ITEM_COLS as $i => $c) {
+                $pdf->Rect($x, $y, $c['w'], $h);
+                if ($i === 3) {
+                    foreach ($name as $k => $line) {
+                        $pdf->SetXY($x, $y + 0.75 + $k * self::NAME_LH);
+                        $pdf->Cell($c['w'], self::NAME_LH, $line, 0, 0, 'L');
+                    }
+                } else {
+                    // A code or a quantity is never cut while it can be read: smaller type first; a quantity too long even so prints its units.
+                    $pdf->SetXY($x, $y);
+                    $this->whole($pdf, PdfWriter::text($cells[$i]), $c['w'], $c['align'], $i === 4 ? 5.0 : 6.0, $i === 4 ? number_format($units) : null);
+                }
+                $x += $c['w'];
+            }
+            $pdf->SetXY(15, $y + $h);
+        }
+        $pdf->Ln(4);
+    }
+
+    /**
+     * A line's quantity in words, as the PDF with prices prints it in Pack, Packs and Units: "5 boxes of 10 = 50"; "24" for single
+     * items (each, unit); "3 cases" for packs of one; "2 packs of 6 = 12" for single items bought 6 to a pack.
+     */
+    public static function quantity(string $unit, int $unitsPerPack, int $packs, int $units): string
+    {
+        $unit = trim($unit);
+        $single = in_array(strtolower($unit), ['each', 'unit', ''], true);
+        if ($unitsPerPack === 1 && $single) {
+            return number_format($units);
+        }
+        if ($single) {
+            $unit = 'pack'; // "2 eaches of 6" reads as nonsense
+        }
+        $word = $packs === 1 ? $unit : (preg_match('/(s|x|z|ch|sh)$/i', $unit) === 1 ? $unit . 'es'
+            : (preg_match('/[^aeiou]y$/i', $unit) === 1 ? substr($unit, 0, -1) . 'ies' : $unit . 's'));
+        return number_format($packs) . ' ' . $word . ($unitsPerPack === 1 ? '' : ' of ' . number_format($unitsPerPack) . ' = ' . number_format($units));
+    }
+
+    /**
+     * $s (Windows-1252) on one line of a cell of $w mm without cutting it: the type made smaller, down to $min pt, until it fits; then
+     * $short in its place (the same way); only then cut with "…" (fit()). The type is 8 pt again after it.
+     */
+    private function whole(Fpdf $pdf, string $s, float $w, string $align, float $min, ?string $short = null): void
+    {
+        $room = $w - 2 * $pdf->cellPadding();
+        $size = 8.0;
+        $pdf->SetFontSize($size);
+        while ($pdf->GetStringWidth($s) > $room && $size > $min) {
+            $size -= 0.5;
+            $pdf->SetFontSize($size);
+        }
+        if ($pdf->GetStringWidth($s) > $room && $short !== null) {
+            $this->whole($pdf, $short, $w, $align, $min);
+            return;
+        }
+        $pdf->Cell($w, self::ROW_H, $this->fit($pdf, $s, $w), 0, 0, $align);
+        $pdf->SetFontSize(8);
+    }
+
+    /** @param list<array{title: string, w: float, align: string}> $cols */
+    private function tableHeader(Fpdf $pdf, array $cols = self::COLS): void
     {
         $pdf->SetFont('Helvetica', 'B', 7.5);
         $pdf->SetFillColor(232, 232, 232);
-        foreach (self::COLS as $c) {
+        foreach ($cols as $c) {
             $pdf->Cell($c['w'], self::ROW_H, $this->fit($pdf, PdfWriter::text($c['title']), $c['w']), 1, 0, $c['align'] === 'R' ? 'R' : 'L', true);
         }
         $pdf->Ln(self::ROW_H);

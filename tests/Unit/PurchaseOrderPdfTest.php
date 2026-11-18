@@ -307,4 +307,181 @@ final class PurchaseOrderPdfTest extends TestCase
         self::assertStringContainsString("(COMPANY DETAILS REJECTED AT REVIEW \x97 DO NOT SEND) Tj", $pdf);
         self::assertStringNotContainsString('REJECTED AT REVIEW', (new PurchaseOrderPdf(false))->render(self::data()));
     }
+
+
+    // ---- The same order without prices (the owner, 18 Nov 2026; docs/decisions.md PL1-PL5) ------------------------------------------
+
+    /**
+     * Nothing about money on the items-only PDF: no £, no amount, no "Total" / "Net" / "Pack price", no VAT column, code or rate;
+     * "VAT" only in the VAT numbers the letterhead, the supplier box and the footer print (the head is the PDF's own, PL3).
+     */
+    private static function assertNoMoney(string $pdf): void
+    {
+        self::assertStringNotContainsString("\xA3", $pdf, 'no £ anywhere in the file');
+        $texts = self::texts($pdf);
+        $all = implode("\n", $texts);
+        foreach (['/\btotal/i', '/\bnet\b/i', '/\bprice/i', '/\bamount/i', '/lines \//i', '/%/'] as $absent) {
+            self::assertDoesNotMatchRegularExpression($absent, $all, $absent);
+        }
+        foreach (['Pack', 'Packs', 'Units', 'VAT', 'Net', 'Pack price'] as $column) {
+            self::assertNotContains($column, $texts, "no {$column} column");
+        }
+        self::assertSame(0, preg_match('/\d\.\d\d(?!\d)/', $all), 'no amount anywhere');
+        self::assertSame(0, preg_match_all('/VAT(?! no\. )/', $all), 'no VAT column, code or amount: "VAT" only in "VAT no. ..."');
+    }
+
+    /** The strings of the items table: from its header ("No.") to the notes ("Notes to supplier"), or the end. @return list<string> */
+    private static function tableTexts(array $texts): array
+    {
+        $at = array_search('No.', $texts, true);
+        self::assertIsInt($at, 'the items table');
+        $end = array_search('Notes to supplier', $texts, true);
+        return array_slice($texts, $at, $end === false ? null : $end - $at);
+    }
+
+    /**
+     * The owner, 18 Nov 2026: "the table I only need number, supplier code if there is any else leave it empty, CW code, item name, qty,
+     * no amount details, no VAT details, nothing" (PL1, PL2). The head is the PDF with prices' own, string for string (PL3); the table
+     * has those five columns; a charge (delivery), which is only money, is left out; no totals; the notes and the terms follow.
+     */
+    public function testTheItemsOnlyPdfHasTheSameHeadAndOnlyFiveColumns(): void
+    {
+        $d = self::data([], 3);
+        $priced = self::texts((new PurchaseOrderPdf(false))->render($d));
+        $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render($d);
+        self::assertStringStartsWith('%PDF-1.', $pdf);
+        $texts = self::texts($pdf);
+        $at = array_search('No.', $texts, true);
+        self::assertIsInt($at);
+        self::assertSame(array_slice($priced, 0, (int) array_search('#', $priced, true)), array_slice($texts, 0, $at),
+            'the same banners, letterhead, order details, Supplier and Deliver to as the PDF with prices');
+        self::assertContains('PURCHASE ORDER', $texts);
+        self::assertContains('Goods In, Unit 4', $texts);
+        self::assertSame(['No.', 'Supplier code', 'CW code', 'Item name', 'Qty',
+            '1', 'SUP-1', 'CW-000001', 'Elux Legend 3500 Blueberry Ice 1', '1 box of 24 = 24',
+            '2', 'SUP-2', 'CW-000002', 'Elux Legend 3500 Blueberry Ice 2', '1 box of 24 = 24',
+            'Notes to supplier', 'Deliver to bay 2 before noon', 'Terms', 'Please quote our order number. Every duty-liable vaping liquid must carry a UK duty stamp.',
+            "Vape Wholesale Ltd \xB7 Company no. 01234567 \xB7 VAT no. GB 123 4567 89 \xB7 PO-000007 \xB7 page 1/1"], array_slice($texts, $at),
+            'five columns, the two item lines (not the delivery charge), the notes, the terms and the footer: no totals');
+        self::assertNotContains('Delivery', $texts);
+        self::assertNoMoney($pdf);
+        self::assertSame(1, self::pages($pdf));
+        // The PDF with prices is unchanged: its columns, its totals.
+        self::assertSame(['#', 'Supplier code', 'CW code', 'Description', 'Pack', 'Packs', 'Units', 'Pack price', 'VAT', 'Net'],
+            array_slice($priced, (int) array_search('#', $priced, true), 10));
+        self::assertContains('Total', $priced);
+    }
+
+    /**
+     * Qty is the quantity the PDF with prices prints (its Pack, Packs and Units columns) in words: "5 boxes of 10 = 50", "1,200" for
+     * single items, "3 cases" for packs of one; an empty supplier code leaves the cell empty; a long item name wraps (every word
+     * kept); a quantity too long for its cell is printed smaller, never cut.
+     */
+    public function testTheItemsOnlyQuantityCodesAndNames(): void
+    {
+        $line = static fn (int $no, ?string $code, string $name, string $unit, int $upp, int $packs, string $kind = 'item'): array => ['line_no' => $no,
+            'kind' => $kind, 'supplier_code' => $code, 'sku_code' => $kind === 'charge' ? null : sprintf('CW-%06d', 10 + $no), 'description' => $name,
+            'purchase_unit' => $unit, 'units_per_pack' => $upp, 'packs' => $packs, 'units' => $kind === 'charge' ? null : $packs * $upp,
+            'pack_price' => '1.0000', 'vat_code' => 'S', 'amount_e2' => 100];
+        $long = 'Elf Bar 600 Disposable Vape 20mg Nic Salt Blueberry Sour Raspberry Limited Edition Pack With A Very Long Name Indeed';
+        $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['lines' => [
+            $line(1, 'POD-10', 'Pod 2ml', 'box', 10, 5),
+            $line(2, null, 'Delivery', 'each', 1, 1, 'charge'),
+            $line(3, null, 'Liquid cherry', 'each', 1, 1200),
+            $line(4, '', 'Coil 0.8', 'each', 6, 2),
+            $line(5, 'CS-1', 'Tank', 'case', 1, 3),
+            $line(6, 'BT-1', 'Battery', 'battery', 2, 3),
+            $line(7, 'LN-1', $long, 'box', 24, 1),
+            $line(8, 'CT-1', 'Big', 'carton', 100000, 1000000),
+        ]]));
+        $rows = array_slice(self::tableTexts(self::texts($pdf)), 5);
+        self::assertSame([
+            '1', 'POD-10', 'CW-000011', 'Pod 2ml', '5 boxes of 10 = 50',
+            '3', 'CW-000013', 'Liquid cherry', '1,200',
+            '4', 'CW-000014', 'Coil 0.8', '2 packs of 6 = 12',
+            '5', 'CS-1', 'CW-000015', 'Tank', '3 cases',
+            '6', 'BT-1', 'CW-000016', 'Battery', '3 batteries of 2 = 6',
+        ], array_slice($rows, 0, 23), 'no supplier code (null or empty): nothing in that cell; the charge (line 2) left out');
+        self::assertSame(['7', 'LN-1', 'CW-000017'], array_slice($rows, 23, 3));
+        $name = array_slice($rows, 26, -6);
+        self::assertGreaterThanOrEqual(2, count($name), 'the long name wraps');
+        self::assertSame($long, implode(' ', $name), 'every word of it kept, in order');
+        self::assertSame('1 box of 24 = 24', $rows[count($rows) - 6]);
+        self::assertSame(['8', 'CT-1', 'CW-000018', 'Big'], array_slice($rows, -5, 4));
+        self::assertStringEndsWith('100,000,000,000', $rows[count($rows) - 1], 'the units are always printed');
+        self::assertStringNotContainsString("\x85", $pdf, 'nothing cut');
+        self::assertNoMoney($pdf);
+    }
+
+    /** The banners of the PDF with prices (PL3): DRAFT, COMPANY DETAILS NOT CONFIRMED / REJECTED — DO NOT SEND, CANCELLED, the cancellation. */
+    public function testTheItemsOnlyPdfKeepsTheBannersAndTheCancellation(): void
+    {
+        $empty = ['legal_name' => '', 'trading_name' => '', 'address' => '', 'company_number' => '', 'vat_number' => '', 'phone' => '', 'email' => '',
+            'delivery_address' => '', 'confirmed' => false];
+        $draft = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['number' => null, 'label' => 'draft #42', 'status' => 'draft', 'state' => null,
+            'posted' => false, 'company' => $empty, 'amends' => 'PO-000003']));
+        foreach (["(DRAFT \x97 NOT AN ORDER) Tj", "(COMPANY DETAILS NOT CONFIRMED \x97 DO NOT SEND) Tj", '(draft #42) Tj', '(Amends) Tj', '(PO-000003) Tj',
+            "([to be confirmed] \xB7 draft #42 \xB7 page 1/1) Tj", '(Item name) Tj'] as $text) {
+            self::assertStringContainsString($text, $draft, $text);
+        }
+        self::assertNoMoney($draft);
+
+        $cancelled = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['status' => 'reversed', 'state' => 'cancelled', 'cancelled_by' => 'PO-000008']));
+        self::assertStringContainsString("(CANCELLED \x97 see PO-000008) Tj", $cancelled);
+        self::assertStringNotContainsString('DRAFT', $cancelled);
+        self::assertNoMoney($cancelled);
+
+        $rejected = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['company_rejected' => true]));
+        self::assertStringContainsString("(COMPANY DETAILS REJECTED AT REVIEW \x97 DO NOT SEND) Tj", $rejected);
+        self::assertNoMoney($rejected);
+
+        $cancellation = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data(['status' => 'reversed', 'cancelled_by' => 'PO-000008',
+            'cancellation' => ['number' => 'PO-000008', 'reason' => 'Supplier cannot supply', 'note' => 'discontinued', 'date' => '2026-10-03']]));
+        foreach (['(CANCELLATION) Tj', '(Order PO-000007 is cancelled. Please do not deliver it.) Tj', "(Reason: Supplier cannot supply \x97 discontinued) Tj",
+            "\xB7 PO-000008 \xB7 page 1/1) Tj", '(CW-000001) Tj'] as $text) {
+            self::assertStringContainsString($text, $cancellation, $text);
+        }
+        self::assertNoMoney($cancellation);
+    }
+
+    /** A posted order's snapshots are what it prints (PL3: pdfData gives both PDFs the same company and supplier): the head follows $d. */
+    public function testTheItemsOnlyPdfPrintsTheCompanyAndSupplierItIsGiven(): void
+    {
+        $snap = self::data(['company' => ['legal_name' => 'Snapshot Vapes Ltd', 'address' => "9 Old Road\nYork", 'confirmed' => true],
+            'supplier' => ['code' => 'OLD', 'name' => 'Old Name Supplies', 'legal_name' => null, 'address_line1' => '3 Old Street']]);
+        $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render($snap);
+        foreach (['(Snapshot Vapes Ltd) Tj', '(9 Old Road) Tj', '(Old Name Supplies) Tj', '(Supplier code OLD) Tj', '(3 Old Street) Tj',
+            "(Snapshot Vapes Ltd \xB7 PO-000007 \xB7 page 1/1) Tj"] as $text) {
+            self::assertStringContainsString($text, $pdf, $text);
+        }
+        foreach (['Vape Wholesale', 'Acme', 'NOT CONFIRMED'] as $absent) {
+            self::assertStringNotContainsString($absent, $pdf, $absent);
+        }
+    }
+
+    /** A long order runs over pages with the items header on top of every page that has items, as the PDF with prices does (PL2). */
+    public function testALongItemsOnlyOrderRepeatsItsHeaderOnEveryPage(): void
+    {
+        $pdf = (new PurchaseOrderPdf(false, itemsOnly: true))->render(self::data([], 120));
+        $pages = self::pages($pdf);
+        self::assertGreaterThanOrEqual(2, $pages);
+        $streams = self::pageStreams($pdf);
+        self::assertCount($pages, $streams);
+        $withItems = 0;
+        foreach ($streams as $i => $c) {
+            $first = strpos($c, '(CW-0');
+            if ($first === false) {
+                continue;
+            }
+            $withItems++;
+            self::assertSame(1, substr_count($c, '(Item name) Tj'), "page {$i}: one header");
+            self::assertLessThan($first, strpos($c, '(Item name) Tj'), "page {$i}: the header above the first item");
+        }
+        self::assertGreaterThanOrEqual(2, $withItems);
+        self::assertSame($withItems, substr_count($pdf, '(Item name) Tj'));
+        self::assertStringContainsString('(CW-000119) Tj', $pdf);
+        self::assertSame(119, preg_match_all('/\(CW-\d{6}\) Tj/', $pdf), 'every item line once; the charge left out');
+        self::assertStringContainsString("PO-000007 \xB7 page {$pages}/{$pages}) Tj", $pdf);
+        self::assertNoMoney($pdf);
+    }
 }

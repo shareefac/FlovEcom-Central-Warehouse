@@ -1,7 +1,8 @@
 <?php
 // One action of a saved purchase order (docs/decisions.md PV19, the approved design): in the document's action bar as its next step
 // ($primary: the accent; a step that needs a reason or a choice opens under the bar), or as one of the others under More. $a: approve,
-// withdraw, send, pdf, receive, invoice, copy, amend, close, reopen, cancel; the forms, their fields and their routes are the order page's.
+// withdraw, send, pdf, pdf_items (the same order without prices, docs/decisions.md PL4), receive, invoice, copy, amend, close, reopen, cancel; the
+// forms, their fields and their routes are the order page's.
 ?>
 <?php if ($a === 'approve'): ?>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/approve') ?>">
@@ -50,6 +51,9 @@
 <?php endif; ?>
 <?php if ($a === 'pdf'): ?>
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>" data-key-print aria-keyshortcuts="Control+P"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
+<?php endif; ?>
+<?php if ($a === 'pdf_items'): ?>
+  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/items.pdf') ?>"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_items_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf_items') ?><?php else: ?><?= $word('ORDER', 'pdf_items_draft') ?><?php endif; ?></a>
 <?php endif; ?>
 <?php if ($a === 'receive'): ?>
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/receiving/new', ['po' => $doc->id]) ?>"><?= $word('ORDER', 'receive') ?></a>

@@ -436,6 +436,10 @@ final class UiUnitTest extends TestCase
         self::assertSame('doc.SINV.post', $byPath['GET /ui/purchasing/invoices/products']);
         self::assertSame('doc.SINV.post', $byPath['POST /ui/purchasing/invoices']);
         self::assertSame('doc.SINV.post', $byPath['POST /ui/purchasing/invoices/{id}/lines']);
+        // The order PDF and the same order without prices (the owner, 18 Nov 2026; docs/decisions.md PL4): whoever reads purchase orders, read only.
+        self::assertSame('purchasing.view', $byPath['GET /ui/purchasing/orders/{id}/pdf']);
+        self::assertSame('purchasing.view', $byPath['GET /ui/purchasing/orders/{id}/items.pdf']);
+        self::assertArrayNotHasKey('POST /ui/purchasing/orders/{id}/items.pdf', $byPath);
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");
@@ -1792,5 +1796,24 @@ final class UiUnitTest extends TestCase
             }
         }
         self::assertGreaterThan(10, $fields, 'the field rules were found');
+    }
+
+    /**
+     * The saved order's More (PV19): the order PDF, then right after it the same order without prices (the owner, 18 Nov 2026: "I can
+     * choose which I need from the drop down"; docs/decisions.md PL4), for everyone who sees the order; neither is ever the main step.
+     */
+    public function testTheOrderPdfWithoutPricesIsUnderMoreRightAfterTheOrderPdf(): void
+    {
+        $none = ['approve' => false, 'withdraw' => false, 'send' => false, 'copy' => false, 'amend' => false, 'close' => false, 'reopen' => false, 'cancel' => false];
+        self::assertSame([null, ['pdf', 'pdf_items']], \CW\Ui\Controller\PurchaseOrdersController::actions($none, 'draft', false, false), 'who only looks');
+        [$main, $more] = \CW\Ui\Controller\PurchaseOrdersController::actions(['send' => true, 'copy' => true, 'amend' => true, 'cancel' => true] + $none, 'approved', true, true);
+        self::assertSame('send', $main);
+        self::assertSame(['receive', 'invoice', 'pdf', 'pdf_items', 'copy', 'amend', 'cancel'], $more);
+        foreach (['pdf_items', 'pdf_items_hold', 'pdf_items_draft'] as $key) {
+            self::assertStringContainsString('items only, no prices', Words::ORDER[$key], $key);
+        }
+        $action = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Ui/views/po_action.php');
+        self::assertStringContainsString("/ui/purchasing/orders/' . \$doc->id . '/items.pdf'", $action);
+        self::assertSame(1, substr_count($action, 'data-key-print'), 'Ctrl+P stays the order PDF\'s');
     }
 }

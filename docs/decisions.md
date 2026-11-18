@@ -3980,6 +3980,56 @@ known yet" could not be confirmed); otherwise a draft of confirmed "Not known ye
 (`testConfirmedDetailsWithVatNotKnownYetStillNeedAVatCode`), `CompanyScreensTest`
 (`testTheNameAndAddressAreEnoughAndOnlyWhatIsGivenShows`, the "Still missing" lines).
 
+## Purchase order PDF without prices (branch `po-items-pdf`, 18 Nov 2026; PL1-PL5; no migration)
+
+The owner, 18 Nov 2026: **"on the printing pdf keeping the existing one, I need another one to download, so there will be two formats; I
+can choose which I need from the drop down. First one you keep the existing one. Second one the format is little different: the table I
+only need number, supplier code if there is any else leave it empty, CW code, item name, qty, no amount details, no VAT details,
+nothing."** Code: `src/PurchaseOrders/PurchaseOrderPdf.php` (`itemsOnly`, `itemsTable()`, `quantity()`), `src/Ui/Controller/PurchaseOrdersController.php`
+(`itemsPdf()`, `actions()`), `src/Ui/Kernel.php` (the route), `src/Ui/views/po_action.php`, `src/Ui/Words.php` (ORDER `pdf_items*`).
+
+**PL1. Two formats; the first unchanged.** The order PDF (I48-I59, I96, CQ2) is drawn by the same code as before (its lines and totals
+moved into `pricedTable()` as they were; its tests unchanged) and stays the one Ctrl+P opens, the one "Mark as sent" archives and the
+one the Company details' sample shows. The second is the same order without prices: `new PurchaseOrderPdf(itemsOnly: true)`, one
+renderer with a switch (only the lines table differs), not a copy.
+
+**PL2. Its table: No. · Supplier code · CW code · Item name · Qty** (180 mm, the header repeated on every page the table runs onto).
+No. is the line's number on the order: the same numbers as the order PDF and the order's page, so "line 3" is the same line on both (a
+gap where a charge line sits). Supplier code is the line's own (`po_line.supplier_code`, what the order PDF prints), an empty cell when
+there is none. Item name is the order PDF's Description (the item's name, then " — " and the line's note), wrapped over up to four
+lines with every word kept (the order PDF's 50 mm Description cuts a long name with "…"). Qty is the order PDF's Pack, Packs and Units in
+words: "5 boxes of 10 = 50"; "24" for single items (each, unit); "3 cases" for packs of one; "2 packs of 6 = 12" for single items bought
+6 to a pack (the plural as the goods-in page's "2 boxes of 10"). A quantity too long for its 38 mm cell is printed smaller (down to
+5 pt), and past that as its units alone: never cut; a supplier code too long is printed smaller (down to 6 pt) before it is cut. A
+charge line (delivery, ...) is nothing but an amount: left out. No totals, no "Lines / units".
+
+**PL3. The same head, from the same data.** The banners (DRAFT — NOT AN ORDER, CANCELLED — see PO-x, COMPANY DETAILS NOT CONFIRMED /
+REJECTED AT REVIEW — DO NOT SEND), the letterhead (only the details given, CQ2), PURCHASE ORDER with the number or "draft #id", the
+order date, expected delivery, "Your ref", "Amends", the Supplier and Deliver-to boxes, a cancellation's "CANCELLATION" and reason, the
+notes to the supplier, the terms and the footer are the order PDF's own code and `PurchaseOrders::pdfData()`: an approved order prints
+its snapshots (company, supplier, terms) exactly as the order PDF does, a draft the details in use. "No VAT details" is read as the
+table's (the owner's sentence is about the table): the letterhead's and the footer's "VAT no." and the supplier's VAT number say who
+the parties are, not an amount, and stay as on the order PDF (open: the owner may want them off this one too). Its title (the PDF's
+properties) ends "(items only)".
+
+**PL4. Where, in what words, for whom.** Under the order page's More, right after the order PDF (`actions()`: `pdf`, then `pdf_items`;
+neither is ever the main step), in the order PDF's three words with "– items only, no prices": "PDF to send – items only, no prices",
+"Order PDF – items only, no prices (says DO NOT SEND for now)", "Draft PDF – items only, no prices (to check, not to send)". The order
+PDF is offered nowhere else (the draft's own editor offers neither, as before); the cancellation's link under Related and the Company
+details' sample stay the PDF with prices. Route `GET /ui/purchasing/orders/{id}/items.pdf` with the order
+PDF's access (`purchasing.view`: warehouse and stock control never see a purchase order, I85) and rules (a PO document of any status, a
+cancellation document included; 404 otherwise); `.pdf` at the end, like `lines.csv`, so the sign-in's "back" never lands on a download
+(`AuthController::NO_BACK`). File name: the order PDF's with "-items" (`PO-000123-items.pdf`, `PO-draft-42-items.pdf`). Ctrl+P stays
+the order PDF's.
+
+**PL5. Not changed, and why.** No migration, no setting, no permission. "Mark as sent" still archives the order PDF with prices: the
+owner asked for a second download, not a change to what is kept as sent. Tests: `PurchaseOrderPdfTest` (the same head and the five
+columns, the quantity, codes and wrapped names, the banners and the cancellation, the snapshot given, a long order's header on every
+page; each asserts no £, no amount, no total, price or VAT column), `UiUnitTest` (the route's access; More's order; the words),
+`PurchaseOrderItemsPdfScreensTest` (new: the menu for a draft and a confirmed order, the downloads, the supplier as approved after a
+rename, who may, a cancelled order and its cancellation).
+
+
 ## Holding screened listings back from the Key bulk confirm (slots `ksa1`, `ksa3`, 6 Oct 2026)
 
 Before the bulk confirm runs, someone screens its dry-run report (`--report`) and finds proposals that a person should decide

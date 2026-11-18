@@ -692,6 +692,7 @@ final class Kernel
         $r->add('GET', '/ui/purchasing/orders/{id}/lines.csv', 'purchasing.view', $orders->linesCsv(...));
         $r->add('GET', '/ui/purchasing/orders/{id}/lines.xlsx', 'purchasing.view', $orders->linesXlsx(...));
         $r->add('GET', '/ui/purchasing/orders/{id}/pdf', 'purchasing.view', $orders->pdf(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}/items.pdf', 'purchasing.view', $orders->itemsPdf(...)); // the same order without prices (PL4)
         $r->add('POST', '/ui/purchasing/orders/{id}/approve', 'doc.PO.post', $orders->approve(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/send', 'doc.PO.post', $orders->send(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/cancel', 'doc.PO.post', $orders->cancel(...));

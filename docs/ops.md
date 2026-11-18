@@ -1443,7 +1443,9 @@ then waits for the supplier's own approval).
   is not active, an overseas supplier whose import route is not approved, or a supplier whose change of route / overseas
   status waits for a second person. The order date is at most 31 days ahead and 731 days back (I81).
 - **After approval** the order's page offers: the PDF (letterhead from the company details it was approved with; "COMPANY
-  DETAILS NOT CONFIRMED — DO NOT SEND" when they were not confirmed then: see "Company details" above), **Mark as sent** (e-mail, portal, phone, ...; again allowed; the PDF as
+  DETAILS NOT CONFIRMED — DO NOT SEND" when they were not confirmed then: see "Company details" above), right after it under More the
+  same PDF **without prices** ("PDF to send – items only, no prices": No., supplier code, CW code, item name, quantity; no amounts, no
+  VAT, no totals; `PO-000123-items.pdf`, route `/ui/purchasing/orders/{id}/items.pdf`, the same people; docs/decisions.md PL1-PL5), **Mark as sent** (e-mail, portal, phone, ...; again allowed; the PDF as
   sent is kept in the document store `/srv/cw-docs` when the server has one; while the company details are not confirmed
   or the order's review was rejected the form says so and needs "Send anyway" ticked, which the audit row keeps, I86), **Cancel** (posts a cancellation in the PO
   series, reviewed like an order; refused once goods were received: close it instead), **Amend** (cancels it and copies it

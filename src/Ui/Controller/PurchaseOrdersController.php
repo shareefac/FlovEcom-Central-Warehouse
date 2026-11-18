@@ -1076,14 +1076,23 @@ final class PurchaseOrdersController
         return FilesController::download(PoLinesFile::xlsx($this->service($ctx)->exportRows($doc->id), self::fileName($doc)), self::XLSX, self::fileName($doc) . '-lines.xlsx');
     }
 
-    public function pdf(Context $ctx): HtmlResponse
+    public function pdf(Context $ctx, bool $itemsOnly = false): HtmlResponse
     {
         $doc = $ctx->documents()->find($ctx->id());
         if ($doc === null || $doc->docType !== 'PO') {
             return self::notFound($ctx);
         }
-        $bytes = (new PurchaseOrderPdf())->render($this->service($ctx)->pdfData($doc->id));
-        return FilesController::download($bytes, 'application/pdf', self::fileName($doc) . '.pdf');
+        $bytes = (new PurchaseOrderPdf(itemsOnly: $itemsOnly))->render($this->service($ctx)->pdfData($doc->id));
+        return FilesController::download($bytes, 'application/pdf', self::fileName($doc) . ($itemsOnly ? '-items' : '') . '.pdf');
+    }
+
+    /**
+     * GET {id}/items.pdf: the same order without prices (the owner, 18 Nov 2026: "two formats; I can choose which I need from the drop
+     * down"; docs/decisions.md PL1-PL5): pdf()'s order, data and rules, "-items" in the file name.
+     */
+    public function itemsPdf(Context $ctx): HtmlResponse
+    {
+        return $this->pdf($ctx, true);
     }
 
     public function approve(Context $ctx): HtmlResponse
@@ -1313,7 +1322,8 @@ final class PurchaseOrdersController
 
     /**
      * The saved order's action bar (PV19, the approved design): the next step in the accent (confirm, send while not sent, receive the goods,
-     * record its invoice, take it back, copy), the others under More in a fixed order. The keys are po_action's.
+     * record its invoice, take it back, copy), the others under More in a fixed order (the order PDF, then the same order without prices,
+     * PL4). The keys are po_action's.
      *
      * @param array<string, bool> $can viewData()'s
      * @return array{0: ?string, 1: list<string>}
@@ -1321,7 +1331,7 @@ final class PurchaseOrdersController
     public static function actions(array $can, string $state, bool $canReceive, bool $canInvoice): array
     {
         $has = ['approve' => $can['approve'], 'withdraw' => $can['withdraw'], 'send' => $can['send'], 'receive' => $canReceive, 'invoice' => $canInvoice,
-            'pdf' => true, 'copy' => $can['copy'], 'amend' => $can['amend'], 'close' => $can['close'], 'reopen' => $can['reopen'], 'cancel' => $can['cancel']];
+            'pdf' => true, 'pdf_items' => true, 'copy' => $can['copy'], 'amend' => $can['amend'], 'close' => $can['close'], 'reopen' => $can['reopen'], 'cancel' => $can['cancel']];
         $main = match (true) {
             $has['approve'] => 'approve',
             $has['send'] && $state === 'approved' => 'send',

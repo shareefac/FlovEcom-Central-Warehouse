@@ -6487,6 +6487,10 @@ final class Words
         // A confirmed order whose company details are not confirmed yet: its PDF says DO NOT SEND (not one "to send").
         'pdf_hold' => 'Order PDF (says DO NOT SEND for now)',
         'pdf_draft' => 'Draft PDF (to check, not to send)',
+        // The same PDF without prices, right after it under More (the owner, 18 Nov 2026: "no amount details, no VAT details, nothing"; PL4).
+        'pdf_items' => 'PDF to send – items only, no prices',
+        'pdf_items_hold' => 'Order PDF – items only, no prices (says DO NOT SEND for now)',
+        'pdf_items_draft' => 'Draft PDF – items only, no prices (to check, not to send)',
         'xlsx' => 'Lines for Excel',
         'csv' => 'Lines (CSV)',
         'record' => 'Record and check history',
