@@ -177,7 +177,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertNull(self::currentSection($buyer->get('/ui/review', ['queue' => 'Key'])), 'a page of a section the person does not have marks none');
         self::assertSame([Words::MENU['stock_by_store'], Words::MENU['low_stock'], Words::MENU['slow_stock'], Words::MENU['sales_by_store']],
             array_column(self::sectionTabs($buyer->get('/ui/reports/low-stock')), 'label'), 'pack E: a buyer has Reports, without the money');
-        self::assertSame('This page is for Admins and Auditors. You work as: Buyer. If you need it for your work, ask Fazil (the admin).',
+        self::assertSame('This page is for Admins, Auditors and People managers. You work as: Buyer. If you need it for your work, ask Fazil (the admin).',
             \CW\Ui\Kernel::refusal('staff.view', new \CW\Auth\StaffIdentity($u['id'], $u['email'], 'Buyer', ['buyer'], false, 'x')), 'the words, once in full');
         self::assertSame(200, $buyer->get('/ui/search', ['q' => 'Menu'])->status);
         $decide = $buyer->post("/ui/review/listing/{$l}/decide", ['csrf' => $this->token($buyer), 'action' => 'ignore', 'reason' => 'x']);
