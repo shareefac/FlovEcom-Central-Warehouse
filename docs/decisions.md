@@ -2239,11 +2239,16 @@ their changes, then make it final.". Only while the record is a draft (a later s
 knows no change, the page's old words. The goods-in bench's own conflict (GV4's stamps) keeps its words. On a delivery everyone on
 the page now sends the keyer's part, so a save after another person changed the keyer's fields (a quantity, a price, the details) is
 refused naming them, where before the bench's check and the desk's edit saved independently (I175). The page is then drawn as it is now
-with only the line checks, the paperwork and the bench note typed kept ("... Nothing was saved: here it is with their changes, and your line
-checks are kept. Make your other changes again, then save."), and not even those on a line whose product or quantity changed ("What you
-typed on line 3 is not shown again: ..."), so a second press never saves this page's old values over the other person's; the same person's
-other tab keeps what was typed, as before (GV16). An arrival time sent back as drawn is not written again (the desk stamp moves only when
-something of the keyer's part really changed). A save that went through before "make it final" found the draft changed
+with only the line checks ("All fine" included), the paperwork, the bench note and the new lines typed kept ("... Nothing was saved: here
+it is with their changes, and your line checks are kept. Make your other changes again, then save."), and not even the checks of a line
+whose product or quantity changed ("What you typed on line 3 is not shown again: ...") or when lines were added or removed; whoever made
+the change, the same person's other tab included (the newest audit row does not say whose change the page missed), so a second press never
+saves the page's old values over it; when lines were added or removed meanwhile the words say that nothing typed on the lines is shown
+again. A form refused for another reason (a scan not added, a line refused) is drawn again on the desk stamp and version of the page it
+was typed on (a form made by hand without a stamp: none), so a change made meanwhile is still caught at the next save; the purchase
+order's and the supplier invoice's editors do the same with the version after a refusal that saved nothing (the Codex reviews, rounds 2
+and 3).
+An arrival time sent back as drawn is not written again (the desk stamp moves only when something of the keyer's part really changed). A save that went through before "make it final" found the draft changed
 again says so ("Your changes were saved, but Fazil changed this draft again at 14:32 before it was made final. ...").
 
 **DA4. Live presence is not built here.** Who has a draft open now (like Google Sheets) is a second step, designed separately. Nothing

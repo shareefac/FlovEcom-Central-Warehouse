@@ -52,7 +52,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <form id="po-form" class="po-editor kg-doc" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
-  <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+  <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
   <input type="hidden" name="line_count" value="<?= $e($editable ? count($lines) : 0) ?>">
   <input type="hidden" name="lines_editable" value="<?php if ($editable): ?>1<?php else: ?>0<?php endif; ?>">
 <?php endif; ?>

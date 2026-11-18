@@ -67,6 +67,70 @@ final class ReceivingController
      * add_si / add_sku, file_role, with room to spare (a file field, the papers' or a line's photo, is not one of max_input_vars).
      */
     public const ONE_FIXED_FIELDS = 40;
+    /**
+     * "All fine" pressed (`fine=<n>`, the button without the script) or marked (`b_<n>_fine`, the script's) on a refused form: drawn back as
+     * the answers it stands for (answers()), so the page drawn again keeps that check.
+     *
+     * @param array<string, mixed> $typed
+     * @return array<string, mixed>
+     */
+    private static function withFine(array $typed, UiRequest $req): array
+    {
+        $nos = [];
+        $fine = UiRequest::id($req->field('fine'));
+        if ($fine !== null) {
+            $nos[] = $fine;
+        }
+        foreach ($req->fieldsMatching('/^b_[1-9][0-9]{0,4}_fine$/') as $name => $v) {
+            if ($v === '1') {
+                $nos[] = (int) substr($name, 2, -5);
+            }
+        }
+        foreach (array_unique($nos) as $no) {
+            if (isset($typed["b_{$no}_present"])) {
+                $typed = array_replace($typed, ["b_{$no}_ok" => '1', "b_{$no}_short" => '0', "b_{$no}_over" => '0', "b_{$no}_damaged" => '0', "b_{$no}_wrong" => '0']
+                    + (array_key_exists("b_{$no}_duty", $typed) ? ["b_{$no}_unstamped" => '0', "b_{$no}_action" => '', "b_{$no}_evidence" => ''] : []));
+            }
+        }
+        unset($typed['fine']);
+        return $typed;
+    }
+
+    /**
+     * What a form refused as changed meanwhile draws back (stale(), lines()): the line checks ("All fine" included), the paperwork and the bench
+     * note, the new lines typed in the grid (they name their item: KG6), never a keyer's field (the details, each line's packs, price, order line, selling mode, note) nor the stamp and version of the page,
+     * and no check of a line whose product or quantity changed, nor any when lines were added or removed. Returns them and those lines.
+     *
+     * @param array<string, mixed> $typed
+     * @return array{0: array<string, mixed>, 1: list<int>, 2: bool} what is drawn back, the lines whose checks are not, whether lines were added
+     *   or removed (then no check is drawn back)
+     */
+    private static function checksOnly(array $typed, UiRequest $req, GoodsReceipts $svc, int $id, int $count): array
+    {
+        $typed = self::withFine($typed, $req);
+        $identity = $svc->benchStamps($id)['identity'];
+        $moved = [];
+        foreach ($req->fieldsMatching('/^b_[1-9][0-9]{0,4}_present$/') as $name => $drawn) {
+            $no = (int) substr($name, 2, -8);
+            if (($identity[$no] ?? '') !== (string) $drawn) {
+                $moved[] = $no;
+            }
+        }
+        sort($moved);
+        $sameLines = count($svc->lines($id)) === $count;
+        $kept = array_filter($typed, static function ($k) use ($moved, $sameLines): bool {
+            $k = (string) $k;
+            if (str_starts_with($k, 'line_') || in_array($k, self::KEYER_HEADER_FIELDS, true) || $k === 'stamp' || $k === 'version') {
+                return false;
+            }
+            if (str_starts_with($k, 'b_') && !$sameLines) {
+                return false;
+            }
+            return preg_match('/^b_([0-9]+)_/', $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
+        }, ARRAY_FILTER_USE_KEY);
+        return [$kept, $sameLines ? $moved : [], !$sameLines];
+    }
+
     /** The delivery's details on the one page that are the keyer's part (saveDraft), drawn back after a refusal from what was typed. */
     private const KEYER_HEADER_FIELDS = ['header_present', 'invoice_number', 'invoice_date', 'delivery_note', 'received_at', 'paper_sheet', 'backdate_reason', 'note',
         'supplier_id', 'po_id'];
@@ -582,7 +646,9 @@ final class ReceivingController
                     continue; // changed between the look and the save: look again
                 }
                 if ($e->errorCode === 'version_conflict') {
-                    return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['conflict' => true] + $back);
+                    // Changed between the look and the save, three times: drawn as it is now with the checks typed (checksOnly, DA3).
+                    [$kept, $movedLines, $linesChanged] = self::checksOnly($typed, $req, $svc, $id, $count);
+                    return $this->page($ctx, $id, 409, self::conflict($ctx, $id, 'checks', $movedLines, $linesChanged), null, ['typed' => $kept, 'conflict' => true] + $back);
                 }
                 if ($e->errorCode === 'grid_choices') {
                     // Nothing was saved with it (FormOnce rolled the save back): the choices, with everything typed kept (the new lines too).
@@ -864,8 +930,13 @@ final class ReceivingController
      *
      * @param list<int> $moved
      */
-    private static function conflict(Context $ctx, int $id, string $kind = 'kept', array $moved = []): CwException
+    private static function conflict(Context $ctx, int $id, string $kind = 'kept', array $moved = [], bool $linesChanged = false): CwException
     {
+        if ($linesChanged) {
+            // Lines were added or removed meanwhile: nothing typed on the lines is drawn back, and the words say so (the Codex review, round 3).
+            return new CwException('version_conflict', DocumentsController::conflictText($ctx, $id, Words::RECEIPT_ERROR['version_conflict_choice'], 'save') . ' '
+                . Words::DRAFT['lines_changed'], 409, ['said' => true]);
+        }
         $text = DocumentsController::conflictText($ctx, $id, Words::RECEIPT_ERROR[$kind === 'save' ? 'version_conflict_choice' : 'version_conflict'], $kind);
         return new CwException('version_conflict', $moved === [] ? $text : $text . ' ' . Words::say('DRAFT', 'kept_except', ReceiptPlan::lineList($moved)), 409,
             ['said' => true]);
@@ -886,43 +957,25 @@ final class ReceivingController
     {
         $svc = $ctx->goodsReceipts();
         $req = $ctx->req;
-        $typed = $back['typed'];
+        $typed = self::withFine($back['typed'], $req); // "All fine" pressed without the script: drawn back as its answers, whichever conflict
+        $back['typed'] = $typed;
         if ($deskSave && !hash_equals($svc->deskStamp($id), (string) ($req->field('stamp') ?? ''))) {
-            if (count($svc->lines($id)) !== $count) {
-                return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['typed' => array_filter($typed, static fn ($k): bool => !str_starts_with((string) $k, 'line_')
-                    && !str_starts_with((string) $k, 'b_'), ARRAY_FILTER_USE_KEY), 'conflict' => true] + $back);
-            }
-            // Since anyone who receives goods has the keyer's fields (DA1), another person's save may have changed what this form shows. What
-            // was typed on a line whose product or quantity changed is not drawn back (its packs and answers were for other figures); after
-            // another person's change no keyer's field typed here is drawn back at all (the details and each line's packs, price, order line,
-            // selling mode and note show their values now), so a second press never saves this page's old values over theirs: only the
-            // line checks, the paperwork and the bench note stay. The same person's other tab keeps what was typed, as before (GV16).
-            $identity = $svc->benchStamps($id)['identity'];
-            $moved = [];
-            foreach ($req->fieldsMatching('/^b_[1-9][0-9]{0,4}_present$/') as $name => $drawn) {
-                $no = (int) substr($name, 2, -8);
-                if (($identity[$no] ?? '') !== (string) $drawn) {
-                    $moved[] = $no;
-                }
-            }
-            sort($moved);
-            $last = DraftChanges::last($ctx->db, $id);
-            $other = $last !== null && $last['staff_user_id'] !== $ctx->me()->id;
-            $typed = array_filter($typed, static function ($k) use ($moved, $other): bool {
-                $k = (string) $k;
-                if ($other && (str_starts_with($k, 'line_') || in_array($k, self::KEYER_HEADER_FIELDS, true))) {
-                    return false;
-                }
-                return preg_match('/^(?:line|b)_([0-9]+)_/', $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
-            }, ARRAY_FILTER_USE_KEY);
-            return $this->page($ctx, $id, 409, self::conflict($ctx, $id, $other ? 'checks' : 'kept', $moved), null, ['typed' => $typed, 'conflict' => true] + $back);
+            // The keyer's part changed since this page was drawn, and since DA1 anyone who receives goods sends it. The page is drawn as it is
+            // now: no keyer's field typed here is drawn back (the details and each line's packs, price, order line, selling mode and note
+            // show their values now), whoever changed it (the newest audit row does not say whose change this page missed), so a second
+            // press never saves this page's old values over the change (the Codex reviews of the draft-anyone branch). Only the line checks,
+            // "All fine" included, the paperwork and the bench note stay, and not even those on a line whose product or quantity changed
+            // (their answers were for other figures) or when lines were added or removed.
+            [$kept, $moved, $linesChanged] = self::checksOnly($typed, $req, $svc, $id, $count);
+            return $this->page($ctx, $id, 409, self::conflict($ctx, $id, 'checks', $moved, $linesChanged), null, ['typed' => $kept, 'conflict' => true] + $back);
         }
         if ($invoice !== null && $invoice['touched']) {
             $g = $svc->header($id) ?? [];
             $drawn = (string) ($req->field('inv_was') ?? '');
             if (!hash_equals(self::answersFp(self::invoiceAnswers(['invoice_number' => $now->externalRef, 'invoice_date' => $g['invoice_date'] ?? null,
                 'delivery_note' => $g['delivery_note'] ?? null])), $drawn)) {
-                return $this->page($ctx, $id, 409, self::conflict($ctx, $id), null, ['conflict' => true] + $back);
+                [$kept, $moved, $linesChanged] = self::checksOnly($back['typed'], $req, $svc, $id, $count);
+                return $this->page($ctx, $id, 409, self::conflict($ctx, $id, 'checks', $moved, $linesChanged), null, ['typed' => $kept, 'conflict' => true] + $back);
             }
         }
         $stamps = $svc->benchStamps($id);
@@ -1528,6 +1581,7 @@ final class ReceivingController
         // what they changed keeps their words and, unless the refusal was the conflict itself (409, which they have now seen), the stamps of
         // the page they typed on, so someone else's check since is still a conflict at the next save.
         $conflict = (bool) ($extra['conflict'] ?? false);
+        $keepDrawn = !$conflict && is_string($typed['version'] ?? null) && UiRequest::id($typed['version']) !== null;
         $benchWas = $stamps['checklist'] . '.' . (($gr['paperwork_ok'] ?? null) === null ? '' : (string) (int) $gr['paperwork_ok']) . '.'
             . self::answersFp([trim((string) ($gr['bench_note'] ?? ''))]);
         if (isset($typed['bench_was'])) {
@@ -1640,7 +1694,12 @@ final class ReceivingController
             'q' => $extra['q'] ?? '',
             'packs' => (int) ($extra['packs'] ?? 1),
             'price' => (string) ($extra['price'] ?? ''),
-            'stamp' => $svc->deskStamp($doc->id),
+            // A form refused for another reason (not the conflict itself) is drawn again on the desk stamp and the version of the page it was
+            // typed on: its keyer's values are that page's, so a change by someone else since is still a conflict at the next save, never
+            // saved over (the Codex review of the draft-anyone branch, round 2; DA3). After the conflict, the page as it is now.
+            // (A form made by hand sent no stamp: none, so any change of the keyer's part since is a conflict: the Codex review, round 3.)
+            'stamp' => $keepDrawn ? (is_string($typed['stamp'] ?? null) ? $typed['stamp'] : '') : $svc->deskStamp($doc->id),
+            'formVersion' => $keepDrawn ? (int) UiRequest::id((string) $typed['version']) : $doc->version,
             'benchWas' => $benchWas,
             'invWas' => $invWas,
             'refusedPost' => $refusedPost,

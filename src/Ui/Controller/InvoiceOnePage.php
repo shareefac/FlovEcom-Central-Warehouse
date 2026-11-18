@@ -284,7 +284,8 @@ final class InvoiceOnePage
                     // finalises now for want of the time.
                     ['typed' => array_intersect_key($typed, array_flip([DocGrid::FIELD, ...self::POSTING, 'submit_at']))]);
             }
-            return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys),
+            // Nothing saved: drawn again on the version the form was typed on (DA3; the Codex review of the draft-anyone branch, round 3).
+            return $this->refused($ctx, $id, $e, $ask, ['typed' => $typed, 'formVersion' => $version, 'formKey' => PoAddNew::keyAgain($ctx, $e), 'gridBad' => DocGrid::rowOf($e, $keys),
                 'gridBadText' => InvoicesController::plain($e)]);
         }
         // An Add that found several items or none saved the rest of the form; the "+ Add new" form was not saved: it comes back as typed, and
@@ -995,6 +996,7 @@ final class InvoiceOnePage
             // How it would match if it were made final now (pack C's 3-way match, PC2), in one line above the lines.
             'match' => $doc !== null && $lines !== [] ? InvoicesController::matchView($si->matchOf($id), false) : null,
             'changes' => $id === null ? null : DocumentsController::changes($db, $id), // who started it and who changed it (DA2)
+            'formVersion' => is_int($extra['formVersion'] ?? null) && $error?->errorCode !== 'version_conflict' ? $extra['formVersion'] : $doc?->version,
             // Someone's save after this page was drawn: who and when (DA3); the new lines typed are kept (KG6).
             'error' => $error === null ? null : ($error->errorCode === 'version_conflict' && $id !== null
                 ? DocumentsController::conflictText($ctx, $id, InvoicesController::plain($error), 'kept') : InvoicesController::plain($error)),

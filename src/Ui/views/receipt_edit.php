@@ -82,7 +82,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 
 <form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-kg-editor="grn:<?= $e($doc->id) ?>" data-gi-notice="<?= $e($pageNotice ?? '') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($postMax) ?>" data-max-files="<?= $e($maxFiles) ?>" data-total-words="<?= $say('GI', 'files_too_big', $postMaxMb) ?>" data-files-words="<?= $say('GI', 'files_too_many', $maxFiles - 1) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-  <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+  <input type="hidden" name="version" value="<?= $e($formVersion) ?>">
   <input type="hidden" name="page" value="one">
   <input type="hidden" name="line_count" value="<?= $e($count) ?>">
   <input type="hidden" name="lines_editable" value="<?php if ($keyer): ?>1<?php else: ?>0<?php endif; ?>">

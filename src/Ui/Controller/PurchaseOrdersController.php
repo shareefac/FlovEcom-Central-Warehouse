@@ -946,7 +946,9 @@ final class PurchaseOrdersController
         $svc = $this->service($ctx);
         $typed = $req->post;
         $q = $ask['q'];
-        $kept = ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1'];
+        // A refusal that saved nothing draws the editor again on the version the form was typed on, so a change by someone else since is still
+        // a conflict at the next save, never saved over (docs/decisions.md DA3; the Codex review of the draft-anyone branch, round 3).
+        $kept = ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1', 'formVersion' => $version];
         $remove = UiRequest::id($req->field('remove_line'));
         $keys = []; // each line's row on the page, in the order the lines go to the service (DocGrid::rowOf)
         $new = [];
@@ -1275,6 +1277,7 @@ final class PurchaseOrdersController
             // PO on one page (PX1-PX9): the draft is the same page as a new order, now with its products.
             $data += [
                 'editable' => self::editorFits($lines),
+                'formVersion' => is_int($extra['formVersion'] ?? null) && $error?->errorCode !== 'version_conflict' ? $extra['formVersion'] : $doc->version,
                 'maxLines' => self::editorMaxLines(),
                 'vatCodes' => $db->all('SELECT code, label FROM vat_code WHERE is_active = 1 ORDER BY sort_order, code'),
                 'info' => ['doc_date' => (string) ($extra['typed']['doc_date'] ?? $doc->docDate), 'expected_date' => (string) ($extra['typed']['expected_date'] ?? ($po['expected_date'] ?? '')),

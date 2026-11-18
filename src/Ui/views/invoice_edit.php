@@ -51,7 +51,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
 <form id="pi-form" class="po-editor doc-form pi-editor kg-doc" method="post" enctype="multipart/form-data" action="<?= $u($formAction) ?>" data-kg-editor="pi:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/invoices/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
-  <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+  <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
 <?php if ($linesFit): ?>
   <input type="hidden" name="line_count" value="<?= $e(count($lines)) ?>">
 <?php endif; ?>

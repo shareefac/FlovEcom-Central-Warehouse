@@ -533,6 +533,44 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
     }
 
     /**
+     * Everyone on the page sends the keyer's part since DA1 (docs/decisions.md DA3; the Codex review of the draft-anyone branch, round 2): a form
+     * refused for another reason (a scan not added) is drawn again on the desk stamp and version of the page it was typed on, so another person's
+     * change made meanwhile is still caught at the next save and never saved over; after that conflict the page is drawn as it is now, with only
+     * the line checks ("All fine" without the script included) kept, and the next save keeps the other person's change.
+     */
+    public function testARefusedFormKeepsItsStampAndAConflictKeepsOnlyTheChecks(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Kept Stamp Ltd');
+        $coil = self::makeSku('Kept stamp coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 2, 'units_per_pack' => 5, 'pack_price' => '3.00']], 'KS-1');
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $f = self::onePage($gi->get("/ui/receiving/{$id}"), $id);
+        // The desk changes the note meanwhile (a keyer's field the goods-in page shows too).
+        $svc = $this->receipts();
+        $svc->saveDraft(Caller::staff($deskUser['id']), $id, self::docVersion($id), ['note' => 'per the invoice'], array_values($svc->lines($id)));
+        // Refused for another reason: drawn again on the stamp and version it was typed on.
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['q' => 'not added', 'action' => 'post'] + $f);
+        self::assertSame(422, $r->status, $r->describe());
+        $g = self::onePage($r, $id);
+        self::assertSame([$f['version'], $f['stamp']], [$g['version'], $g['stamp']]);
+        // Its next save is the conflict: nothing saved over the desk's note, the "All fine" press kept as its answers.
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['q' => '', 'fine' => '1'] + $g);
+        self::assertSame(409, $r->status, $r->describe());
+        $deskName = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$deskUser['id']]);
+        self::assertStringContainsString($deskName . ' changed this draft at ', $r->text());
+        self::assertSame('per the invoice', self::$db->value('SELECT note FROM document WHERE id = ?', [$id]));
+        $h = self::onePage($r, $id);
+        self::assertSame(['per the invoice', '1'], [$h['note'] ?? null, $h['b_1_ok'] ?? null], 'the note as it is now, the check kept');
+        $r = $gi->post("/ui/receiving/{$id}/lines", ['action' => 'save'] + $h);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('per the invoice', self::$db->value('SELECT note FROM document WHERE id = ?', [$id]));
+        self::assertNotNull(self::$db->value('SELECT checked_at FROM grn_line WHERE document_id = ? AND line_no = 1', [$id]));
+    }
+
+    /**
      * Two older gaps the Codex review of d18e699 named, closed on the owner's word (GV17): only the person who keyed a delivery cancels it (the
      * screens offered it to them only; the service now refuses anyone else), and a booked-in delivery's page shows no price or value to
      * someone who does not read money (goods in).

@@ -250,7 +250,7 @@ final class WordsTest extends TestCase
         self::assertSame('Changed by Fazil, 14:32', Words::say('DRAFT', 'changed', 'Fazil', '14:32'));
         self::assertSame('Started by Shareef, 17 Nov, 09:05', Words::say('DRAFT', 'started', 'Shareef', '17 Nov, 09:05'));
         foreach (['conflict_you', 'conflict_kept', 'conflict_kept_you', 'conflict_final', 'conflict_final_you', 'conflict_saved', 'conflict_saved_you',
-            'conflict_checks', 'conflict_checks_you', 'kept_except', 'changes', 'earlier'] as $code) {
+            'conflict_checks', 'conflict_checks_you', 'kept_except', 'lines_changed', 'changes', 'earlier'] as $code) {
             self::assertTrue(Words::has('DRAFT', $code), $code);
         }
         foreach (['STOCK_OPS', 'STOCK_ERROR', 'BUY_ERROR', 'RECEIPT_ERROR', 'COUNT_ERROR', 'HANDOVER'] as $g) {
