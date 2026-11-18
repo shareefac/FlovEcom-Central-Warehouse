@@ -7,7 +7,6 @@ namespace CW\Live;
 use CW\CwException;
 use CW\Db;
 use CW\Settings;
-use CW\Staff\StaffSessions;
 
 /**
  * Who is here on a draft (the live drafts plan, step 3; the owner, 18 Nov 2026: "we need to show each other if each others are in the same
@@ -19,12 +18,14 @@ use CW\Staff\StaffSessions;
  * poll again; or, when the document is no longer a draft, what it became. One small table (draft_presence, 0070), no APCu, no long poll:
  *
  *   per poll   the settings (one read by primary key), the document (by primary key; its poster's or canceller's name by primary key),
- *              the draft's rows (by the primary key's first two parts, each joined to its person by primary key); every read carries
- *              MAX_EXECUTION_TIME(QUERY_MS). Then at most one write: the poll's own row, only when its place, state, typing or right to
- *              change the draft differs from the row read, or the row is REFRESH_SECONDS old (needsWrite()).
- *   here       an active row seen within goneAfter() seconds, an away row within AWAY_SECONDS; a person switched off is never shown; the
- *              poller's own tabs are nobody (no "you are here too"); a person on two tabs is shown once (an active tab first, then the
- *              newest). Only the place is shown, never what is typed; nothing personal beyond the display name.
+ *              the draft's recent rows (the index (kind, record_id, seen_at): those that can still be shown, newest first, at most
+ *              MAX_ROWS; each joined to its person and its session by primary key); every read carries MAX_EXECUTION_TIME(QUERY_MS). Then
+ *              at most one write: the poll's own row, only when its place, state, typing or right to change the draft differs from the
+ *              row read, or the row is REFRESH_SECONDS old or not among those read (needsWrite()).
+ *   here       an active row seen within goneAfter() seconds, an away row within AWAY_SECONDS, of a session that has not ended (signed
+ *              out, signed out by a manager, a password changed, too long idle) and a person not switched off; the poller's own tabs are
+ *              nobody (no "you are here too"); a person on two tabs is shown once (an active tab first, then the newest). Only the
+ *              place is shown, never what is typed; nothing personal beyond the display name.
  *   colours    1..COLOURS, decided here so every screen agrees (colours(): over everyone here, the poller too).
  *   leaving    a page left sends bye (its row goes); signing out removes the session's rows (forget(), from the sign-out); the nightly
  *              clean-up removes rows older than KEEP_HOURS (Ops\Housekeeping).
@@ -51,6 +52,8 @@ final class Presence
     public const COLOURS = 8;
     /** The time limit of each read of a poll, in milliseconds. */
     public const QUERY_MS = 500;
+    /** The most rows of one draft a poll reads (the newest): a page that sends many tabs cannot make every poll of the draft heavy. */
+    public const MAX_ROWS = 100;
     /**
      * A place: "<line id>:<box>" (a line's box: qty, price, upp, item, ...) or "h:<box>" (a header box: h:note, h:expected_date, ...); a box is
      * lower-case letters and _, 24 characters at most with its "h:" (draft_presence.focus_field).
@@ -65,10 +68,14 @@ final class Presence
     public const DOCUMENT_SQL = 'SELECT /*+ MAX_EXECUTION_TIME(' . self::QUERY_MS . ') */ d.doc_type, d.status, d.version, d.number, u.display_name AS by_name '
         . 'FROM document d LEFT JOIN staff_user u ON u.id = (CASE d.status WHEN \'cancelled\' THEN d.cancelled_by WHEN \'awaiting_approval\' THEN d.submitted_by '
         . 'ELSE d.posted_by END) WHERE d.id = ?';
-    /** The rows of one draft with their people (switched-off people left out), and the database's clock. */
-    public const ROWS_SQL = 'SELECT /*+ MAX_EXECUTION_TIME(' . self::QUERY_MS . ') JOIN_ORDER(p, u) */ p.tab, p.staff_user_id, p.session_handle, p.focus_uid, '
+    /**
+     * The rows of one draft written within the last ? seconds (the longest a row can still be shown), newest first, with their people and of
+     * sessions not ended (switched-off people and ended sessions left out), and the database's clock.
+     */
+    public const ROWS_SQL = 'SELECT /*+ MAX_EXECUTION_TIME(' . self::QUERY_MS . ') JOIN_ORDER(p, u, s) INDEX(p ix_draft_presence_record_seen) */ p.tab, p.staff_user_id, p.session_id, p.focus_uid, '
         . 'p.focus_field, p.state, p.typing, p.edits, p.seen_at, NOW(6) AS db_now, u.display_name FROM draft_presence p '
-        . 'JOIN staff_user u ON u.id = p.staff_user_id AND u.is_active = 1 WHERE p.kind = ? AND p.record_id = ?';
+        . 'JOIN staff_user u ON u.id = p.staff_user_id AND u.is_active = 1 JOIN staff_session s ON s.id = p.session_id AND s.revoked = 0 '
+        . 'WHERE p.kind = ? AND p.record_id = ? AND p.seen_at > NOW(6) - INTERVAL ? SECOND ORDER BY p.seen_at DESC LIMIT ' . self::MAX_ROWS;
 
     public function __construct(private readonly Db $db)
     {
@@ -250,21 +257,21 @@ final class Presence
         if ($s['mode'] === 'off') {
             return ['mode' => 'off'];
         }
-        $handle = substr($sessionId, 0, StaffSessions::HANDLE);
         $doc = $this->db->one(self::DOCUMENT_SQL, [$recordId]);
         if ($doc === null || $doc['doc_type'] !== $type) {
             throw new CwException('unknown_document', 'there is no such document', 404);
         }
         $head = ['v' => (int) $doc['version'], 'status' => (string) $doc['status'], 'mode' => $s['mode']];
         if ($in['bye']) {
-            $this->db->exec('DELETE FROM draft_presence WHERE kind = ? AND record_id = ? AND tab = ? AND session_handle = ?', [$kind, $recordId, $in['tab'], $handle]);
+            $this->db->exec('DELETE FROM draft_presence WHERE kind = ? AND record_id = ? AND tab = ? AND session_id = ?', [$kind, $recordId, $in['tab'], $sessionId]);
             return $head + ['bye' => true];
         }
         if ($doc['status'] !== 'draft') {
             return $head + ['number' => $doc['number'] === null ? null : (string) $doc['number'], 'by' => $doc['by_name'] === null ? null : (string) $doc['by_name'],
                 'to' => self::pagePath($kind, $recordId)];
         }
-        $rows = $this->db->all(self::ROWS_SQL, [$kind, $recordId]);
+        $gone = self::goneAfter($s);
+        $rows = $this->db->all(self::ROWS_SQL, [$kind, $recordId, max($gone, self::AWAY_SECONDS)]);
         $now = null;
         $mine = null;
         foreach ($rows as $r) {
@@ -273,12 +280,12 @@ final class Presence
                 $mine = $r;
             }
         }
-        // A tab of another session is never taken over (a tab id never leaves its page; still).
-        if ($mine === null || ($mine['session_handle'] === $handle && self::needsWrite($mine, $in, $edits, (string) $now))) {
-            $this->write($kind, $recordId, $staffUserId, $handle, $edits, $in);
+        // My row when it is not among those read (none yet, too old, or past the newest MAX_ROWS) is written; a tab of another session is never
+        // taken over (a tab id never leaves its page; still): write() guards each column by the session.
+        if ($mine === null || ($mine['session_id'] === $sessionId && self::needsWrite($mine, $in, $edits, (string) $now))) {
+            $this->write($kind, $recordId, $staffUserId, $sessionId, $edits, $in);
         }
         // Who is here: everyone but me, once a person (an active tab first, then the newest), shown by the rules of isHere().
-        $gone = self::goneAfter($s);
         $people = [];
         foreach ($rows as $r) {
             $id = (int) $r['staff_user_id'];
@@ -304,15 +311,14 @@ final class Presence
     }
 
     /**
-     * Removes every row of a session (signing out; Ui\Controller\AuthController::logout). Returns how many went.
+     * Removes every row of a session (signing out; Ui\Controller\AuthController::logout, after the session ended). Returns how many went.
      */
     public static function forget(Db $db, string $sessionId): int
     {
-        $handle = substr($sessionId, 0, StaffSessions::HANDLE);
-        if (!StaffSessions::isHandle($handle)) {
+        if (preg_match('/^[0-9a-f]{64}$/D', $sessionId) !== 1) {
             return 0;
         }
-        return $db->exec('DELETE FROM draft_presence WHERE session_handle = ?', [$handle]);
+        return $db->exec('DELETE FROM draft_presence WHERE session_id = ?', [$sessionId]);
     }
 
     /**
@@ -321,16 +327,16 @@ final class Presence
      *
      * @param array{tab: string, uid: ?int, field: ?string, state: string, typing: int, bye: bool} $in
      */
-    private function write(string $kind, int $recordId, int $staffUserId, string $handle, bool $edits, array $in): void
+    private function write(string $kind, int $recordId, int $staffUserId, string $sessionId, bool $edits, array $in): void
     {
         $set = [];
         foreach (['focus_uid', 'focus_field', 'state', 'typing', 'edits', 'seen_at'] as $c) {
-            $set[] = "{$c} = IF(draft_presence.session_handle = new.session_handle, new.{$c}, draft_presence.{$c})";
+            $set[] = "{$c} = IF(draft_presence.session_id = new.session_id, new.{$c}, draft_presence.{$c})";
         }
         $this->db->exec(
-            'INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_handle, focus_uid, focus_field, state, typing, edits, seen_at) '
+            'INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_id, focus_uid, focus_field, state, typing, edits, seen_at) '
             . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6)) AS new ON DUPLICATE KEY UPDATE ' . implode(', ', $set),
-            [$kind, $recordId, $in['tab'], $staffUserId, $handle, $in['uid'], $in['field'], $in['state'], $in['typing'], $edits ? 1 : 0],
+            [$kind, $recordId, $in['tab'], $staffUserId, $sessionId, $in['uid'], $in['field'], $in['state'], $in['typing'], $edits ? 1 : 0],
         );
     }
 

@@ -131,19 +131,23 @@ final class Migration0070Test extends IntegrationTestCase
         // Who is here: one new, empty table, no foreign keys, the app login's full rights.
         self::assertSame(['draft_presence'], array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables)));
         self::assertSame(0, (int) $db->value('SELECT COUNT(*) FROM draft_presence'));
-        self::assertSame(['kind', 'record_id', 'tab', 'staff_user_id', 'session_handle', 'focus_uid', 'focus_field', 'state', 'typing', 'edits', 'seen_at'],
+        self::assertSame(['kind', 'record_id', 'tab', 'staff_user_id', 'session_id', 'focus_uid', 'focus_field', 'state', 'typing', 'edits', 'seen_at'],
             $db->column("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'draft_presence' ORDER BY ORDINAL_POSITION"));
-        self::assertSame(['kind', 'record_id', 'tab'], $db->column("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
-            . "AND TABLE_NAME = 'draft_presence' AND INDEX_NAME = 'PRIMARY' ORDER BY SEQ_IN_INDEX"));
+        $indexes = array_column($db->all("SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols FROM information_schema.STATISTICS "
+            . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'draft_presence' GROUP BY INDEX_NAME"), 'cols', 'INDEX_NAME');
+        ksort($indexes);
+        self::assertSame(['PRIMARY' => 'kind,record_id,tab', 'ix_draft_presence_record_seen' => 'kind,record_id,seen_at', 'ix_draft_presence_seen' => 'seen_at',
+            'ix_draft_presence_session' => 'session_id'], $indexes, 'a poll reads a draft\'s newest rows by (kind, record_id, seen_at); a sign-out by the session; the clean-up by the time');
         self::assertSame(0, (int) $db->value("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() "
             . "AND TABLE_NAME = 'draft_presence'"), 'a heartbeat never fails on a foreign key');
         self::assertSame(Grants::FULL, Grants::desired('draft_presence'));
         self::assertSame(Grants::FULL, Grants::desired('document_line'), 'a draft\'s lines are still replaced');
         self::assertArrayHasKey('next_line_uid', Grants::desiredColumns('document'), 'the app login moves the next free line id');
-        $row = static fn (array $over): mixed => $db->exec('INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_handle, state, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            array_values(array_replace(['kind' => 'po', 'record_id' => 1, 'tab' => 'abcdef0123456789', 'staff_user_id' => 1, 'session_handle' => '0123456789abcdef',
+        $row = static fn (array $over): mixed => $db->exec('INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_id, state, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            array_values(array_replace(['kind' => 'po', 'record_id' => 1, 'tab' => 'abcdef0123456789', 'staff_user_id' => 1, 'session_id' => str_repeat('0123456789abcdef', 4),
                 'state' => 'active', 'seen_at' => '2026-11-18 10:00:00'], $over)));
-        foreach ([['tab' => 'ABCDEF0123456789'], ['tab' => 'abcdef012345678'], ['session_handle' => 'xyz'], ['session_handle' => '0123456789ABCDEF']] as $bad) {
+        foreach ([['tab' => 'ABCDEF0123456789'], ['tab' => 'abcdef012345678'], ['session_id' => 'xyz'], ['session_id' => str_repeat('0123456789ABCDEF', 4)],
+            ['session_id' => '0123456789abcdef']] as $bad) {
             self::assertSame(self::CHECK_VIOLATED, self::mysqlError(static fn () => $row($bad)), json_encode($bad));
         }
         $row([]);

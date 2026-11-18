@@ -55,10 +55,12 @@ final class PresenceTest extends PurchaseOrderTestCase
         self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$json, $key]);
     }
 
-    /** A session id as Auth\Sessions makes them (the sha256 of a cookie token). */
-    private static function session(): string
+    /** A live session of $who, as Auth\Sessions makes them (its id: the sha256 of a cookie token). */
+    private static function session(Caller $who): string
     {
-        return hash('sha256', random_bytes(16));
+        $id = hash('sha256', random_bytes(16));
+        self::$db->exec('INSERT INTO staff_session (id, staff_user_id, mfa_at) VALUES (?, ?, NOW(6))', [$id, $who->staffUserId]);
+        return $id;
     }
 
     /** A draft order of $buyer with two lines. */
@@ -105,7 +107,7 @@ final class PresenceTest extends PurchaseOrderTestCase
         $a = $this->staffUser('buyer');
         $b = $this->staffUser('purchasing_manager');
         $v = $this->staffUser('reviewer');
-        [$sa, $sb, $sv] = [self::session(), self::session(), self::session()];
+        [$sa, $sb, $sv] = [self::session($a), self::session($b), self::session($v)];
         $d = $this->draftOrder($a);
 
         $alone = $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty', 'state' => 'active']);
@@ -151,13 +153,13 @@ final class PresenceTest extends PurchaseOrderTestCase
     public function testTheRowIsWrittenOnlyWhenSomethingChangedOrItIsTenSecondsOld(): void
     {
         $a = $this->staffUser('buyer');
-        $sa = self::session();
+        $sa = self::session($a);
         $d = $this->draftOrder($a);
         $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']);
         $first = self::row($d->id, self::TAB_A);
         self::assertNotNull($first);
-        self::assertSame(['po', $d->id, $a->staffUserId, substr($sa, 0, 16), 1, 'qty', 'active', 0, 1], [$first['kind'], (int) $first['record_id'],
-            (int) $first['staff_user_id'], $first['session_handle'], (int) $first['focus_uid'], $first['focus_field'], $first['state'], (int) $first['typing'],
+        self::assertSame(['po', $d->id, $a->staffUserId, $sa, 1, 'qty', 'active', 0, 1], [$first['kind'], (int) $first['record_id'],
+            (int) $first['staff_user_id'], $first['session_id'], (int) $first['focus_uid'], $first['focus_field'], $first['state'], (int) $first['typing'],
             (int) $first['edits']]);
         $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']);
         self::assertSame($first, self::row($d->id, self::TAB_A), 'the same place, a moment later: no write');
@@ -185,7 +187,7 @@ final class PresenceTest extends PurchaseOrderTestCase
     {
         $a = $this->staffUser('buyer');
         $b = $this->staffUser('buyer');
-        [$sa, $sb] = [self::session(), self::session()];
+        [$sa, $sb] = [self::session($a), self::session($b)];
         $d = $this->draftOrder($a);
         $e = $this->draftOrder($b);
         $this->beat($a, $sa, $d->id, self::TAB_A);
@@ -214,7 +216,7 @@ final class PresenceTest extends PurchaseOrderTestCase
     {
         $a = $this->staffUser('buyer');
         $b = $this->staffUser('buyer');
-        [$sa, $sb] = [self::session(), self::session()];
+        [$sa, $sb] = [self::session($a), self::session($b)];
         $d = $this->draftOrder($a);
         $this->beat($b, $sb, $d->id, self::TAB_B, ['focus' => '2:qty']);
         $here = fn (): array => array_map(static fn (array $p): array => [$p['state'], $p['uid'], $p['field']],
@@ -250,7 +252,7 @@ final class PresenceTest extends PurchaseOrderTestCase
     {
         $a = $this->staffUser('buyer');
         $b = $this->staffUser('buyer');
-        [$sa, $sb] = [self::session(), self::session()];
+        [$sa, $sb] = [self::session($a), self::session($b)];
         $d = $this->draftOrder($a);
         $this->beat($b, $sb, $d->id, self::TAB_B, ['focus' => '1:qty']);
         self::assertCount(1, $this->beat($a, $sa, $d->id, self::TAB_A)['here']);
@@ -276,7 +278,7 @@ final class PresenceTest extends PurchaseOrderTestCase
     {
         $a = $this->staffUser('buyer');
         $b = $this->staffUser('buyer');
-        $sa = self::session();
+        $sa = self::session($a);
         $d = $this->draftOrder($a);
         $this->beat($a, $sa, $d->id, self::TAB_A);
         $p = $this->pos->approve($a, $d->id, $this->docs->get($d->id)->version);
@@ -310,7 +312,7 @@ final class PresenceTest extends PurchaseOrderTestCase
     public function testWithLiveModeOffNothingIsReadOrWritten(): void
     {
         $a = $this->staffUser('buyer');
-        $sa = self::session();
+        $sa = self::session($a);
         $d = $this->draftOrder($a);
         $this->setting('live.mode', '"off"');
         self::assertSame(['mode' => 'off'], $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']));
@@ -328,10 +330,10 @@ final class PresenceTest extends PurchaseOrderTestCase
         $d = $this->draftOrder($a);
         $p = $this->draftOrder($a);
         $p = $this->pos->approve($a, $p->id, $p->version);
-        $this->beat($a, self::session(), $d->id, self::TAB_A);
-        $this->beat($b, self::session(), $d->id, self::TAB_B);
+        $this->beat($a, self::session($a), $d->id, self::TAB_A);
+        $this->beat($b, self::session($b), $d->id, self::TAB_B);
         foreach (['a draft' => [Presence::DOCUMENT_SQL, [$d->id]], 'a final order and its poster' => [Presence::DOCUMENT_SQL, [$p->id]],
-            'rows' => [Presence::ROWS_SQL, ['po', $d->id]], 'settings' => [Presence::SETTINGS_SQL, array_keys(Presence::SETTINGS)]] as $what => [$sql, $params]) {
+            'rows' => [Presence::ROWS_SQL, ['po', $d->id, Presence::AWAY_SECONDS]], 'settings' => [Presence::SETTINGS_SQL, array_keys(Presence::SETTINGS)]] as $what => [$sql, $params]) {
             self::assertStringStartsWith('SELECT /*+ MAX_EXECUTION_TIME(' . Presence::QUERY_MS . ')', $sql, $what);
             $steps = self::$db->all('EXPLAIN ' . $sql, $params);
             self::assertNotSame([], $steps);
@@ -342,17 +344,81 @@ final class PresenceTest extends PurchaseOrderTestCase
                 if ($step['key'] === null && preg_match('/Impossible ON condition|no matching row in const table/', (string) $step['Extra']) === 1) {
                     continue; // a draft has no poster: nothing is read for the name
                 }
-                self::assertSame('PRIMARY', $step['key'], "{$what}: {$step['table']} by its primary key (" . json_encode($step) . ')');
+                // A draft's rows: by the index of their draft and time (the newest that can still be shown), or the primary key's first parts.
+                self::assertContains($step['key'], $step['table'] === 'p' ? ['PRIMARY', 'ix_draft_presence_record_seen'] : ['PRIMARY'],
+                    "{$what}: {$step['table']} by its primary key (" . json_encode($step) . ')');
+                self::assertStringNotContainsString('filesort', (string) $step['Extra'], "{$what}: {$step['table']}");
                 self::assertContains($step['type'], ['system', 'const', 'eq_ref', 'ref', 'range'], "{$what}: {$step['table']}");
             }
         }
         self::assertSame(500, Presence::QUERY_MS);
     }
 
+    /**
+     * The Codex review of 50fa425 (MEDIUM 2): a row is shown only while its session has not ended, so a session ended any way (signed out, by a
+     * manager's sign-out, a password change, too long idle) leaves at once, and a poll that was on its way when its session ended (it passed
+     * the sign-in check, then wrote after the sign-out removed the rows) writes a row nobody is shown.
+     */
+    public function testARowIsShownOnlyWhileItsSessionHasNotEnded(): void
+    {
+        $a = $this->staffUser('buyer');
+        $b = $this->staffUser('buyer');
+        [$sa, $sb] = [self::session($a), self::session($b)];
+        $d = $this->draftOrder($a);
+        $this->beat($b, $sb, $d->id, self::TAB_B, ['focus' => '1:qty']);
+        self::assertSame([$b->staffUserId], array_column($this->beat($a, $sa, $d->id, self::TAB_A)['here'], 'id'));
+        // Ended without a sign-out (a manager's sign-out, a password change: Auth\Sessions revokes it): gone at once, the row still there.
+        self::$db->exec('UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE id = ?', [$sb]);
+        self::assertSame([], $this->beat($a, $sa, $d->id, self::TAB_A)['here']);
+        self::assertNotNull(self::row($d->id, self::TAB_B));
+        // The sign-out removed the rows (Presence::forget after the session ended), then B's poll that was already on its way writes: not shown.
+        self::assertSame(1, Presence::forget(self::$db, $sb));
+        $this->beat($b, $sb, $d->id, self::TAB_B, ['focus' => '2:qty', 'state' => 'away']);
+        self::assertNotNull(self::row($d->id, self::TAB_B), 'the late write');
+        self::assertSame([], $this->beat($a, $sa, $d->id, self::TAB_A)['here'], 'nobody is shown for an ended session');
+        // A new session of B (signed in again) is shown as before.
+        $sb2 = self::session($b);
+        $this->beat($b, $sb2, $d->id, 'bbbbbbbbbbbbbbb2', ['focus' => '1:price']);
+        self::assertSame([[$b->staffUserId, 1, 'price']], array_map(static fn (array $p): array => [$p['id'], $p['uid'], $p['field']],
+            $this->beat($a, $sa, $d->id, self::TAB_A)['here']));
+    }
+
+    /**
+     * The Codex review of 50fa425 (MEDIUM 3): a poll reads at most MAX_ROWS rows of a draft, the newest, and only those that can still be
+     * shown; a page that made many tabs cannot make every poll heavy, and the poller's own row is written although it is not among them.
+     */
+    public function testAPollReadsOnlyTheNewestRowsThatCanStillBeShown(): void
+    {
+        $a = $this->staffUser('buyer');
+        $b = $this->staffUser('buyer');
+        $c = $this->staffUser('buyer');
+        [$sa, $sb, $sc] = [self::session($a), self::session($b), self::session($c)];
+        $d = $this->draftOrder($a);
+        $this->beat($c, $sc, $d->id, 'ccccccccccccccc2', ['focus' => '2:qty']);
+        $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']);
+        // 150 tabs of B written a moment later than A's and C's rows, and 50 rows of B too old to be shown.
+        $values = [];
+        $params = [];
+        for ($i = 0; $i < 200; $i++) {
+            $values[] = "('po', ?, ?, ?, ?, 'active', NOW(6) - INTERVAL ? SECOND)";
+            array_push($params, $d->id, sprintf('%016x', 0xb000 + $i), $b->staffUserId, $sb, $i < 150 ? 0 : 700);
+        }
+        self::$db->exec('INSERT INTO draft_presence (kind, record_id, tab, staff_user_id, session_id, state, seen_at) VALUES ' . implode(', ', $values), $params);
+        self::$db->exec("UPDATE draft_presence SET seen_at = NOW(6) - INTERVAL 2 SECOND WHERE tab IN (?, 'ccccccccccccccc2')", [self::TAB_A]);
+        self::assertStringEndsWith(' ORDER BY p.seen_at DESC LIMIT ' . Presence::MAX_ROWS, Presence::ROWS_SQL);
+        self::assertSame(100, Presence::MAX_ROWS);
+        self::assertSame(100, count(self::$db->all(Presence::ROWS_SQL, ['po', $d->id, Presence::AWAY_SECONDS])), 'the newest hundred');
+        // A's own row is not among them: written all the same (a new seen_at), B is shown once; C, past the hundred, is not seen this time.
+        $before = self::row($d->id, self::TAB_A)['seen_at'];
+        $answer = $this->beat($a, $sa, $d->id, self::TAB_A, ['focus' => '1:qty']);
+        self::assertGreaterThan($before, self::row($d->id, self::TAB_A)['seen_at']);
+        self::assertSame([$b->staffUserId], array_column($answer['here'], 'id'));
+    }
+
     public function testHousekeepingRemovesRowsOlderThanADay(): void
     {
         $a = $this->staffUser('buyer');
-        $sa = self::session();
+        $sa = self::session($a);
         $d = $this->draftOrder($a);
         $this->beat($a, $sa, $d->id, self::TAB_A);
         $this->beat($a, $sa, $d->id, self::TAB_A2);

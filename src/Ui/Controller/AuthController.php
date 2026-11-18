@@ -103,16 +103,15 @@ final class AuthController
 
     public function logout(Context $ctx): HtmlResponse
     {
-        // Who is here on a draft (docs/decisions.md LV10): the session's open pages leave at once. Never in the way of signing out: before 0070
-        // there is no table yet (1146), and nothing else stops the sign-out.
+        $this->service($ctx)->logout($ctx->me(), $ctx->req->ip);
+        // Who is here on a draft (docs/decisions.md LV10): the session's open pages leave at once. After the session ended (a poll still on its
+        // way writes a row nobody is shown: Live\Presence reads only rows of sessions not ended), and never in the way of signing out: a
+        // failure here (no table before 0070, a deadlock) is logged and the sign-out goes on; the rows go by the nightly clean-up.
         try {
             \CW\Live\Presence::forget($ctx->db, $ctx->me()->sessionId);
-        } catch (\PDOException $e) {
-            if (\CW\Db::driverCode($e) !== 1146) {
-                throw $e;
-            }
+        } catch (\Throwable $e) {
+            $ctx->log('sign-out: the presence rows of the session were left (' . get_class($e) . ': ' . $e->getMessage() . ')');
         }
-        $this->service($ctx)->logout($ctx->me(), $ctx->req->ip);
         return HtmlResponse::redirect('/ui/login')->withoutCookie(Kernel::SESSION_COOKIE, $ctx->req->secure);
     }
 

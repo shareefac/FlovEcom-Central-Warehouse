@@ -17868,10 +17868,12 @@ the page's script (the poll loop, the chips, the marks on the lines) is step 3b,
 (the default) nothing on the site changes.
 
 **LV2. A small table, not APCu.** `draft_presence` (0070): one row per open page (tab) of a draft, keyed (kind, record_id, tab): who, their
-session's handle (LEFT(staff_session.id, 16)), the line (uid) and box they are in (`7:qty`, `h:note`), active or away, typing, whether they
-may change the draft (`edits`, written by their own poll from their roles of that request: no roles read for others), and `seen_at` (the
-database clock). No foreign keys (a heartbeat never fails on one), the app login's full rights, CHECKs on the tab and handle (16 hex).
-APCu would need a package on three machines and is per pool.
+session (`session_id` = staff_session.id, the sha256 of the cookie token, never the token: the plan's 16-character handle became the whole id
+so a row can be joined to its session by primary key, LV6), the line (uid) and box they are in (`7:qty`, `h:note`), active or away, typing,
+whether they may change the draft (`edits`, written by their own poll from their roles of that request: no roles read for others), and
+`seen_at` (the database clock). Indexes: (kind, record_id, seen_at) for the poll, session_id for the sign-out, seen_at for the clean-up. No
+foreign keys (a heartbeat never fails on one), the app login's full rights, CHECKs on the tab (16 hex) and the session id (64 hex). APCu would
+need a package on three machines and is per pool.
 
 **LV3. The poll.** `POST /ui/purchasing/orders/{id}/live` (Ui\Controller\LiveController, CW\Live\Presence::beat): purchasing.view (whoever may
 open the order), same origin and the session's token as every POST, no form-once key (a poll changes nothing but its own row). The request:
@@ -17888,12 +17890,16 @@ used (step 3b). So a page left open is signed out after the idle limit although 
 session row is written once a minute, not per poll. Everything else of the route (sign-in, access, origin, token) is as for any other.
 
 **LV5. Written only on a change.** Per poll: the settings (one read by primary key), the document (by primary key, the name of who posted or
-cancelled it by primary key), the draft's rows (the primary key's first two parts, each joined to staff_user by primary key, switched-off
-people left out); each read carries `MAX_EXECUTION_TIME(500)`. Then at most one write, the poll's own row, only when its place, state,
-typing or right to change differ from the row read, or the row is 10 seconds old (`Presence::needsWrite`, REFRESH_SECONDS). One upsert;
-a row of the same tab held by another session is never taken over (each assignment is guarded by the session handle).
+cancelled it by primary key), the draft's rows that can still be shown (the index (kind, record_id, seen_at), newest first, at most
+`MAX_ROWS` = 100, each joined to staff_user and staff_session by primary key); each read carries `MAX_EXECUTION_TIME(500)`. Then at most one
+write, the poll's own row, only when its place, state, typing or right to change differ from the row read, or the row is 10 seconds old
+(`Presence::needsWrite`, REFRESH_SECONDS), or it is not among the rows read. One upsert; a row of the same tab held by another session is
+never taken over (each assignment is guarded by the session id). The bound (the Codex review of 50fa425, MEDIUM 3): a page that sends many
+tab ids cannot make every poll of the draft heavy; past a hundred fresh rows the oldest are not seen.
 
-**LV6. Here, away, gone.** Shown: an active row seen within `goneAfter()` seconds (live.gone_seconds, 25; never before the person's next poll
+**LV6. Here, away, gone.** Only rows of a session that has not ended (`staff_session.revoked = 0`) and of a person not switched off: a
+session ended any way (a sign-out, a manager's sign-out, a password change, too long idle) leaves at once, and a poll still on its way when
+its session ended writes a row nobody is shown (the Codex review of 50fa425, MEDIUM 2). Shown: an active row seen within `goneAfter()` seconds (live.gone_seconds, 25; never before the person's next poll
 could have written the row: max(poll, alone) + 10 + 5), an away row within 10 minutes (AWAY_SECONDS; away rows have no place and no
 typing). The poller's own tabs are nobody; a person on two tabs is shown once (an active tab first, then the newest). `poll_ms`:
 live.poll_seconds while anyone else is here (active or away: my row stays fresh for them), live.alone_seconds when alone.
@@ -17914,9 +17920,10 @@ document_posting are unchanged (tests pin it for every type). A reversal's and a
 without a deploy; on = presence until step 4), `live.poll_seconds` 3 (2-10), `live.alone_seconds` 10 (5-60), `live.gone_seconds` 25 (25-300:
 never below the default, so an active person is never called gone between two polls). Read with the same defaults when a row is missing.
 
-**LV10. Leaving.** A page left sends `bye=1` (sendBeacon, step 3b): its row goes. Signing out (AuthController::logout) removes every row of the
-session (`Presence::forget`; a missing table before 0070 never stops a sign-out). A session ended otherwise (idle, a password change, Admin's
-sign-out) leaves its rows to the rules of LV6. The nightly clean-up (Ops\Housekeeping, part `draft_presence`) removes rows older than a day.
+**LV10. Leaving.** A page left sends `bye=1` (sendBeacon, step 3b): its row goes. Signing out (AuthController::logout) ends the session
+first, then removes every row of the session (`Presence::forget`); a failure there (a deadlock, no table before 0070) is logged and never
+stops the sign-out (the Codex review of 50fa425, HIGH 1): the rows left are not shown (LV6). A session ended otherwise leaves its rows
+unseen (LV6). The nightly clean-up (Ops\Housekeeping, part `draft_presence`) removes rows older than a day.
 
 **LV11. Cost** (plan 3.5): 10 people on one draft at the quick poll is about 200 polls a minute, each about 5 reads by primary key and at most
 one small write (steady about 60 writes a minute); a hidden or closed page costs nothing. No long poll (10 php-fpm workers on production).
@@ -17925,3 +17932,17 @@ one small write (steady about 60 writes a minute); a hidden or closed page costs
 words of the chips from Words), the script (the timers of the plan's 3.4, active=1 once a minute after input, bye by sendBeacon, back-off, a
 303 stops polling), the colour classes, the whole-save carrying of line ids (LV8), a notice for "confirmed by someone else", and making
 the page's own fragment fetches passive too (a hidden page must not keep a session alive by fetching).
+
+### The Codex review of 50fa425 (`presence_20261118/codex_answer_r1.txt`): 1 HIGH, 2 MEDIUM, each shown failing first and fixed (LV13-LV15)
+
+**LV13 (HIGH 1).** The sign-out removed the presence rows before it ended the session and rethrew any failure but a missing table: a deadlock
+there gave a 500 and left the session live. Now the session ends first; the removal comes after and a failure is logged (`Context::log`),
+never stopping the sign-out (LV10). Test: `LivePresenceScreensTest::testASignOutGoesOnWhenThePresenceRowsCannotBeRemoved` (a deadlock thrown
+on the DELETE).
+
+**LV14 (MEDIUM 2).** A poll that passed the sign-in check could write its row after the sign-out removed the rows, and others saw the person
+again (up to ten minutes when away). The row now names its session by its whole id and the poll reads only rows of sessions not ended
+(LV2, LV6); a session ended without a sign-out leaves at once too. Test: `PresenceTest::testARowIsShownOnlyWhileItsSessionHasNotEnded`.
+
+**LV15 (MEDIUM 3).** The poll read every row of the draft. It now reads only the rows that can still be shown, newest first, at most 100,
+by the new index (kind, record_id, seen_at) (LV5). Test: `PresenceTest::testAPollReadsOnlyTheNewestRowsThatCanStillBeShown`.

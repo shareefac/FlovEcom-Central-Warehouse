@@ -10,10 +10,12 @@
 --    (Schema\Grants::UPDATE_COLUMNS['document']). Neither column is in the posting fingerprint (Documents::lineRow, posted_hash).
 --  * The lines of every draft and of every document waiting for its OK (it may come back as a draft) get uid = line_no, and the document
 --    next_line_uid = its last line number + 1. A final, reversed or cancelled document's lines keep none: posted content is never rewritten.
---  * draft_presence: one row per open page (tab) of a draft: who, their session's handle (signing out removes the rows), the line and box
---    they are in, active or away, typing or not, whether they may change it, and when the database last wrote the row. No foreign keys (a
---    heartbeat never fails on one); the app login's full rights (rows are written in place and removed: a closed page, a sign-out, the
---    nightly clean-up of rows older than a day, Ops\Housekeeping).
+--  * draft_presence: one row per open page (tab) of a draft: who, their session (staff_session.id, the sha256 of the cookie token, never the
+--    token: a row is shown only while its session has not ended, and signing out removes the session's rows), the line and box they are
+--    in, active or away, typing or not, whether they may change it, and when the database last wrote the row. No foreign keys (a heartbeat
+--    never fails on one); the app login's full rights (rows are written in place and removed: a closed page, a sign-out, the nightly
+--    clean-up of rows older than a day, Ops\Housekeeping). A poll reads a draft's recent rows by (kind, record_id, seen_at), newest first,
+--    at most a hundred.
 --  * Four settings (Settings > Working together), provisional as every new one, each with its baseline: live.mode "off" (nothing is shown
 --    and nothing polls on the day of the deploy: the owner switches it to "presence"), live.poll_seconds 3, live.alone_seconds 10,
 --    live.gone_seconds 25. The code reads them with the same defaults, so it may run a moment before this file.
@@ -47,7 +49,7 @@ CREATE TABLE IF NOT EXISTS draft_presence (
   record_id       BIGINT UNSIGNED  NOT NULL COMMENT 'the document',
   tab             CHAR(16)         NOT NULL COMMENT 'one open page: random per page load',
   staff_user_id   INT UNSIGNED     NOT NULL,
-  session_handle  CHAR(16)         NOT NULL COMMENT 'LEFT(staff_session.id, 16) (Staff\\StaffSessions::HANDLE): signing out removes the session''s rows',
+  session_id      CHAR(64)         NOT NULL COMMENT 'staff_session.id (never the token): shown only while that session has not ended; signing out removes them',
   focus_uid       INT UNSIGNED     NULL COMMENT 'the line (document_line.uid) the person is in; NULL: none',
   focus_field     VARCHAR(24)      NULL COMMENT 'the box: qty, price, ... or a header box h:note, ...; NULL: none',
   state           ENUM('active','away') NOT NULL,
@@ -55,9 +57,10 @@ CREATE TABLE IF NOT EXISTS draft_presence (
   edits           TINYINT(1)       NOT NULL DEFAULT 0 COMMENT '1: the person may change the draft (doc.<TYPE>.post, not admin) as of their last poll',
   seen_at         DATETIME(6)      NOT NULL COMMENT 'the database clock when the row was last written',
   PRIMARY KEY (kind, record_id, tab),
+  KEY ix_draft_presence_record_seen (kind, record_id, seen_at),
   KEY ix_draft_presence_seen (seen_at),
-  KEY ix_draft_presence_session (session_handle),
-  CONSTRAINT ck_draft_presence_tab CHECK (REGEXP_LIKE(tab, '^[0-9a-f]{16}$', 'c') AND REGEXP_LIKE(session_handle, '^[0-9a-f]{16}$', 'c')),
+  KEY ix_draft_presence_session (session_id),
+  CONSTRAINT ck_draft_presence_tab CHECK (REGEXP_LIKE(tab, '^[0-9a-f]{16}$', 'c') AND REGEXP_LIKE(session_id, '^[0-9a-f]{64}$', 'c')),
   CONSTRAINT ck_draft_presence_flags CHECK (typing IN (0, 1) AND edits IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='who has a draft open, and where (0070, Live\\Presence); no foreign keys: a heartbeat never fails on one';

@@ -10,8 +10,12 @@ use CW\Documents\DocumentHandlers;
 use CW\Live\Presence;
 use CW\PurchaseOrders\PurchaseOrders;
 use CW\Suppliers\Suppliers;
+use CW\Db;
+use CW\Tests\Support\HookedStatement;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\TestDb;
+use CW\Ui\Kernel;
 
 /**
  * The poll of a draft order (POST /ui/purchasing/orders/{id}/live; the live drafts plan, step 3; docs/decisions.md LV3, LV4, LV10) through the
@@ -250,6 +254,44 @@ final class LivePresenceScreensTest extends KernelUiTestCase
         self::assertSame(['fedcba9876543210'], self::$db->column('SELECT tab FROM draft_presence'), 'the other person\'s row stays');
         $seen = self::json(self::poll($theirs, $id, $this->token($theirs), ['tab' => 'fedcba9876543210']));
         self::assertSame([], $seen['here'], 'gone at once');
+    }
+
+    /**
+     * The Codex review of 50fa425 (HIGH 1): removing the presence rows never stands in the way of signing out. The session ends first; when the
+     * rows cannot be removed (a deadlock here, or no table before 0070), the failure is logged, the person is signed out all the same, and
+     * the rows left are not shown (their session ended); the nightly clean-up removes them.
+     */
+    public function testASignOutGoesOnWhenThePresenceRowsCannotBeRemoved(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $id = $this->draftOrder($buyer['id']);
+        $db = Db::connect(TestDb::config()->dbApp()->withDatabase(TestDb::name()));
+        $db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        $logged = [];
+        $key = self::$uiKey;
+        $web = $this->signIn($buyer, new KernelBrowser(new Kernel(static fn (): Db => $db, static fn (): string => $key, static function (string $m) use (&$logged): void {
+            $logged[] = $m;
+        }, fn (Db $d): array => $this->handlers($d))));
+        $csrf = $this->token($web);
+        self::json(self::poll($web, $id, $csrf, ['focus' => 'h:note']));
+        $token = (string) $web->cookies['cw_session'];
+        $other = $this->signIn($this->uiUser('buyer'));
+        self::assertSame([$buyer['id']], array_column(self::json(self::poll($other, $id, $this->token($other), ['tab' => self::TAB2]))['here'], 'id'));
+
+        HookedStatement::$before['DELETE FROM draft_presence WHERE session_id'] = static function (): void {
+            throw new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+        };
+        try {
+            $r = $web->post('/ui/logout', ['csrf' => $csrf]);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertSame([303, '/ui/login'], [$r->status, $r->location()], $r->describe());
+        self::assertStringContainsString('cw_session=;', (string) $r->setCookie('cw_session'));
+        self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session WHERE id = ?', [hash('sha256', $token)]), 'signed out');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM draft_presence WHERE session_id = ?', [hash('sha256', $token)]), 'the row was left');
+        self::assertCount(1, array_filter($logged, static fn (string $m): bool => str_contains($m, 'presence rows of the session were left')));
+        self::assertSame([], self::json(self::poll($other, $id, $this->token($other), ['tab' => self::TAB2]))['here'], 'and nobody is shown for it');
     }
 
     public function testWithLiveModeOffThePollSaysOnlyThat(): void

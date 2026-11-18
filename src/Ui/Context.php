@@ -270,6 +270,15 @@ final class Context
         return new HtmlResponse($status, (new View(View::defaultDir(), ['csrf' => $this->token(), 'who' => $this->who]))->render($template, $vars));
     }
 
+    /** A line in the kernel's error log under this request's id (the server's log only: never shown on a page). */
+    public function log(string $message): void
+    {
+        $log = $this->log ?? static function (string $m): void {
+            error_log('[cw-ui] ' . $m);
+        };
+        $log("{$this->rid} {$message}");
+    }
+
     /**
      * A JSON answer for app.js (the poll of who is here on a draft, docs/decisions.md LV3; the only JSON of /ui: everything that draws stays an
      * HTML fragment, and the JSON carries no words, only names and numbers). The kernel adds the same headers as to a page (no-store, nosniff).
