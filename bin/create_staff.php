@@ -12,8 +12,9 @@ declare(strict_types=1);
  *   php bin/create_staff.php --email=<address> --roles=<role>[,<role>...] [--name="Display Name"] [--db=<schema>] [--admin]
  *
  * Roles (CW\Auth\Permissions::ROLES): viewer, mapper, mapping_lead, warehouse, manager, admin, buyer,
- * purchasing_manager, goods_in, purchasing_desk, stock_controller, reviewer, accountant, auditor. A person may hold
- * several (`--roles=buyer,reviewer`); admin may be combined only with viewer, accountant and auditor (I12).
+ * purchasing_manager, goods_in, purchasing_desk, stock_controller, reviewer, accountant, auditor, people_manager. A person may
+ * hold several (`--roles=buyer,reviewer`); admin may be combined only with viewer, accountant and auditor (I12); people_manager
+ * (manages people, nothing else: 0069, PM1-PM7) with any role but admin. To give a job to an EXISTING account: bin/grant_role.php.
  * `--role=<one>` is kept as an alias of `--roles` with one role; give exactly one of the two (I15).
  *
  * STDOUT gets the two secrets and nothing else; messages go to STDERR. Run on the CW server as

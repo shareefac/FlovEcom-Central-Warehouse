@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Staff;
 
+use CW\Auth\Permissions;
 use CW\CwException;
 use CW\Db;
 
@@ -74,6 +75,56 @@ final class StaffRoles
             . 'WHERE r.role = ? AND r.revoked_at IS NULL AND u.is_active = 1',
             [$role],
         );
+    }
+
+    /**
+     * The ACTIVE people who can manage people now (staff.manage: an Admin or a People manager, docs/decisions.md PM5), by id. staff.manage
+     * is LOCKED (the code's map, whatever role_permission says), so this needs no map read; after a failed map read (RoleMap: nothing
+     * allowed) it is empty, and the protection below then refuses (fail-closed).
+     *
+     * @return list<int>
+     */
+    public static function managers(Db $db): array
+    {
+        $out = [];
+        foreach ($db->all('SELECT u.id, (SELECT GROUP_CONCAT(r.role ORDER BY r.role) FROM staff_role r WHERE r.staff_user_id = u.id AND r.revoked_at IS NULL) AS roles '
+            . 'FROM staff_user u WHERE u.is_active = 1 ORDER BY u.id') as $r) {
+            if (Permissions::can(self::split($r['roles']), 'staff.manage')) {
+                $out[] = (int) $r['id'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * PM5, someone must always be able to manage people: whether giving the person $rolesAfter, with their account on ($activeAfter) or
+     * off, takes the power to manage people from the last ACTIVE person who has it. Only a person who can manage people now and could
+     * not afterwards counts; when nobody can now (production before bin/grant_role.php), nothing is taken and nothing is refused.
+     *
+     * With $lock (inside the change's transaction, the person's staff_user row locked FOR UPDATE first, as StaffAdmin and RoleRequests
+     * do) the other active accounts are locked FOR SHARE before their jobs are read: a change of another manager's jobs or account at
+     * the same moment (it locks that person's row FOR UPDATE first) waits for this one, or one of the two is rolled back as a deadlock;
+     * both never pass. Without it (bin/grant_role.php's dry run) it only reads.
+     *
+     * @param list<string> $rolesAfter
+     */
+    public static function takesTheLastManager(Db $db, int $staffUserId, array $rolesAfter, bool $activeAfter, bool $lock): bool
+    {
+        $active = (int) ($db->value('SELECT is_active FROM staff_user WHERE id = ?', [$staffUserId]) ?? 0) === 1;
+        if (!$active || !Permissions::can(self::of($db, $staffUserId), 'staff.manage') || ($activeAfter && Permissions::can($rolesAfter, 'staff.manage'))) {
+            return false;
+        }
+        if ($lock) {
+            $db->all('SELECT id FROM staff_user WHERE is_active = 1 AND id <> ? ORDER BY id FOR SHARE', [$staffUserId]);
+        }
+        return array_values(array_diff(self::managers($db), [$staffUserId])) === [];
+    }
+
+    /** 409 last_manager (PM5): the message the server's tools print and the screens translate by its code. */
+    public static function lastManagerRefusal(): CwException
+    {
+        return new CwException('last_manager', 'nobody else can manage people: this would leave nobody who can add people or change their jobs. '
+            . 'Give another person Admin or People manager first', 409);
     }
 
     /**

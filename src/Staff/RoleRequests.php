@@ -12,7 +12,7 @@ use CW\CwException;
 use CW\Db;
 
 /**
- * Giving someone Admin or Reviewer, when the owner switches that rule on (approvals.staff_grant, the Approval rules page; OFF by
+ * Giving someone Admin, Reviewer or People manager (0069, PM5), when the owner switches that rule on (approvals.staff_grant, the Approval rules page; OFF by
  * default, the owner's Q8 answer; docs/decisions.md Y25): the admin's change of the person's jobs is not applied, it waits as a
  * staff_role_request until a reviewer who neither asked for it nor is the person says OK (the change is then applied as it was
  * asked, if the person's jobs are still what they were) or Not OK (with a note). The admin who asked, or another admin, may
@@ -23,6 +23,9 @@ use CW\Db;
  * (off by default): `kind` reset_code (a new sign-in code or sign-up sheet) or reset_password. A reviewer's OK applies nothing by
  * itself (no secret is made for somebody who is not there to hand it over): it lets an admin carry the reset out ONCE within
  * staff.setup_hours (`used_at`, StaffAdmin). Audit staff.reset_request, staff.reset_request_approve.
+ *
+ * "An admin" above is anyone who can manage people (staff.manage): an Admin or a People manager (PM1-PM7). Applying an approved change of
+ * jobs never takes the power to manage people from the last active person who has it (409 last_manager, PM5).
  */
 final class RoleRequests
 {
@@ -199,6 +202,9 @@ final class RoleRequests
             }
             $added = array_values(array_diff($after, $live));
             $removed = array_values(array_diff($live, $after));
+            if (StaffRoles::takesTheLastManager($db, $staffId, $after, true, true)) {
+                throw StaffRoles::lastManagerRefusal();
+            }
             $grantedBy = $r['requested_by'] === null ? null : (int) $r['requested_by'];
             foreach ($removed as $role) {
                 $db->exec('UPDATE staff_role SET revoked_at = NOW(6), revoked_by = ? WHERE staff_user_id = ? AND role = ? AND revoked_at IS NULL', [$grantedBy, $staffId, $role]);
@@ -215,7 +221,8 @@ final class RoleRequests
     }
 
     /**
-     * Withdraws an open request: the admin who asked, or another admin (staff.manage). 404 unknown_request, 409 request_closed.
+     * Withdraws an open request: the admin or People manager who asked, or another (staff.manage). 404 unknown_request, 409
+     * request_closed.
      *
      * @return array{staff_user_id: int}
      */
@@ -223,7 +230,7 @@ final class RoleRequests
     {
         return $this->db->transaction(function (Db $db) use ($caller, $requestId): array {
             if ($caller->staffUserId !== null && !Permissions::can(StaffRoles::active($db, $caller->staffUserId), 'staff.manage')) {
-                throw new CwException('role_not_allowed', 'only an admin withdraws a change of staff access', 403);
+                throw new CwException('role_not_allowed', 'only an admin or a people manager withdraws a change of staff access', 403);
             }
             $r = $db->one('SELECT id, staff_user_id, state FROM staff_role_request WHERE id = ? FOR UPDATE', [$requestId])
                 ?? throw new CwException('unknown_request', 'there is no such request', 404);

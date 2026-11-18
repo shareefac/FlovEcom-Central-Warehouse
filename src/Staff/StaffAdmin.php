@@ -54,6 +54,15 @@ use CW\Settings;
  * Placeholder accounts (an e-mail under `.invalid`, such as the mapping_lead the first load ran as) are never switched on, given a
  * role or given a sign-in by a staff caller (409 placeholder_account, I35): an active placeholder is a working second identity
  * that defeats the two-person rule (U23). The CLI (a system caller, root on the server) remains the break-glass.
+ *
+ * The People manager (0069; docs/decisions.md PM1-PM7; the owner, 16 and 18 Nov 2026): wherever "an admin" acts above, a People
+ * manager does the same (both hold staff.manage, re-read inside each transaction: authorise()), with the same rules: never on their
+ * own account, never both sign-in factors of anybody, the job sets of checkRoleSet (Admin only with the look-only jobs; People
+ * manager with any job but Admin), and the approval rules (People manager is a guarded job like Admin and Reviewer, PM5). Someone must
+ * always be able to manage people (PM5): a change by a person at a screen, and bin/grant_role.php (setRoles' $keepAManager), never
+ * takes that power from the last active person who has it (409 last_manager, StaffRoles::takesTheLastManager). A screen's change
+ * never can by itself (its caller is an active manager who keeps the power: they never change their own account); the check is there
+ * for every path all the same. bin/reset_staff.php stays the break-glass and may change anyone.
  */
 final class StaffAdmin
 {
@@ -125,14 +134,15 @@ final class StaffAdmin
      *
      * @param array<mixed> $roles
      * @param array<mixed>|null $rolesSeen
-     * While the owner has the staff-grant rule on (approvals.staff_grant, Y25) a person at a screen adding Admin or Reviewer gets
-     * result `requested` (with `request`): nothing is applied until a reviewer says OK (RoleRequests).
+     * @param bool $keepAManager a server tool asks for the PM5 protection too (bin/grant_role.php); a person at a screen always gets it
+     * While the owner has the staff-grant rule on (approvals.staff_grant, Y25) a person at a screen adding Admin, Reviewer or People
+     * manager gets result `requested` (with `request`): nothing is applied until a reviewer says OK (RoleRequests).
      *
      * @return array{before: list<string>, after: list<string>, added: list<string>, removed: list<string>, result: string, request?: int}
      */
-    public function setRoles(Caller $caller, int $staffUserId, array $roles, ?array $rolesSeen): array
+    public function setRoles(Caller $caller, int $staffUserId, array $roles, ?array $rolesSeen, bool $keepAManager = false): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $roles, $rolesSeen): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $roles, $rolesSeen, $keepAManager): array {
             $u = $this->authorise($db, $caller, $staffUserId);
             $live = $db->all('SELECT id, CAST(role AS CHAR) AS role FROM staff_role WHERE staff_user_id = ? AND revoked_at IS NULL', [$staffUserId]);
             $before = array_map(static fn (array $r): string => (string) $r['role'], $live);
@@ -154,6 +164,9 @@ final class StaffAdmin
                 // Admin or Reviewer waits for a reviewer's OK while the owner has that rule on (approvals.staff_grant, Y25).
                 $request = RoleRequests::open($db, $caller, $staffUserId, $u['email'] === null ? null : (string) $u['email'], $before, $after);
                 return ['before' => $before, 'after' => $after, 'added' => $added, 'removed' => $removed, 'result' => 'requested', 'request' => $request];
+            }
+            if (($caller->staffUserId !== null || $keepAManager) && StaffRoles::takesTheLastManager($db, $staffUserId, $after, (int) $u['is_active'] === 1, true)) {
+                throw StaffRoles::lastManagerRefusal();
             }
             foreach ($live as $r) {
                 if (in_array((string) $r['role'], $removed, true)) {
@@ -188,6 +201,9 @@ final class StaffAdmin
             $was = (int) $u['is_active'] === 1;
             if ($active && !$was) {
                 self::refusePlaceholder($caller, $u['email'], 'switched on');
+            }
+            if (!$active && $was && $caller->staffUserId !== null && StaffRoles::takesTheLastManager($db, $staffUserId, StaffRoles::of($db, $staffUserId), false, true)) {
+                throw StaffRoles::lastManagerRefusal();
             }
             $closed = 0;
             if ($was !== $active) {
@@ -243,6 +259,9 @@ final class StaffAdmin
             $id = (int) $u['id'];
             if ($active === true && (int) $u['is_active'] !== 1) {
                 self::refusePlaceholder($caller, $u['email'], 'switched on');
+            }
+            if ($active === false && $caller->staffUserId !== null && StaffRoles::takesTheLastManager($db, $id, StaffRoles::of($db, $id), false, true)) {
+                throw StaffRoles::lastManagerRefusal();
             }
             $state = (string) $db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$id]);
             if ($hash !== null && $enc === null && $state === 'signup') {
@@ -516,15 +535,16 @@ final class StaffAdmin
     }
 
     /**
-     * Who may change staff accounts: a CLI tool (system caller), or a staff caller who holds admin now (re-read
-     * after the lock), never on their own account. Locks the caller's and the person's staff_user rows in id order.
+     * Who may change staff accounts: a CLI tool (system caller), or a staff caller who can manage people now (staff.manage: an Admin or
+     * a People manager, re-read after the lock), never on their own account. Locks the caller's and the person's staff_user rows in id
+     * order.
      *
      * @return array{id: int, email: mixed, is_active: mixed}|array{} the person's row ([] when $staffUserId is null)
      */
     private function authorise(Db $db, Caller $caller, ?int $staffUserId): array
     {
         if ($caller->isChannel()) {
-            throw new CwException('staff_required', 'staff accounts are managed by an admin or on the server', 403);
+            throw new CwException('staff_required', 'staff accounts are managed by an admin or a people manager, or on the server', 403);
         }
         $ids = array_values(array_unique(array_filter([$caller->staffUserId, $staffUserId], static fn (?int $i): bool => $i !== null)));
         sort($ids);
@@ -535,13 +555,13 @@ final class StaffAdmin
             }
         }
         if ($caller->staffUserId !== null && !Permissions::can(StaffRoles::active($db, $caller->staffUserId), 'staff.manage')) {
-            throw new CwException('role_not_allowed', 'only an admin manages people and roles', 403);
+            throw new CwException('role_not_allowed', 'only an admin or a people manager manages people and roles', 403);
         }
         if ($staffUserId === null) {
             return [];
         }
         if ($caller->staffUserId !== null && $caller->staffUserId === $staffUserId) {
-            throw new CwException('own_account', 'nobody changes their own roles or switches their own account off: ask another admin', 403);
+            throw new CwException('own_account', 'nobody changes their own roles or switches their own account off: ask another admin or people manager', 403);
         }
         return $rows[$staffUserId] ?? throw new CwException('unknown_staff', "no staff user {$staffUserId}", 404);
     }

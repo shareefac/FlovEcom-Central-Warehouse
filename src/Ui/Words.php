@@ -143,11 +143,12 @@ final class Words
         'reviewer' => 'Reviewer',
         'accountant' => 'Accountant',
         'auditor' => 'Auditor (look only)',
+        'people_manager' => 'People manager', // 0069, docs/decisions.md PM1-PM7
     ];
 
     /** The order jobs are named in a sentence: the jobs that check and decide first. */
     public const JOB_ORDER = ['reviewer', 'mapping_lead', 'mapper', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller',
-        'warehouse', 'manager', 'admin', 'viewer', 'accountant', 'auditor'];
+        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor'];
 
     /** "This page is for <these>". */
     public const ROLE_PLURAL = [
@@ -165,6 +166,7 @@ final class Words
         'reviewer' => 'Reviewers',
         'accountant' => 'Accountants',
         'auditor' => 'Auditors',
+        'people_manager' => 'People managers',
     ];
 
     /** One line per job (People page, help). Permissions::DESCRIPTIONS keeps the short technical ones. */
@@ -183,6 +185,8 @@ final class Words
         'reviewer' => 'Checks and approves other people\'s work. Never their own.',
         'accountant' => 'Stock values and files for the accounts (coming later).',
         'auditor' => 'Can look at everything, including staff. Changes nothing.',
+        'people_manager' => 'Adds staff, gives and takes their jobs, stops or lets them sign in and resets their sign-in. Goes with any other job, '
+            . 'never with Admin. Never changes their own access.',
     ];
 
     /** Permissions::ROLE_GROUPS label => the heading on the People form. */
@@ -4276,7 +4280,7 @@ final class Words
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
     public const STAFF = [
         'add' => 'To add a staff member, use "Add a staff member" below. You then show them a QR code to scan with the code app on their phone.',
-        'look_only' => 'You can look; only the Admin changes things.',
+        'look_only' => 'You can look; only an Admin or a People manager changes things.',
         'download' => 'Download as a spreadsheet (CSV, opens in Excel)',
         'name' => 'Name',
         'email' => 'E-mail',
@@ -4291,17 +4295,19 @@ final class Words
         'reviewers_one' => 'Only 1 person can approve work (Reviewer). You need at least %s, so approvals do not stop when someone is on holiday.',
         'reviewers_none' => 'Nobody can approve work (Reviewer). You need at least %s, so approvals do not stop when someone is on holiday.',
         'reviewers_admin' => 'A Reviewer who also has Admin cannot approve.',
-        'no_admin' => 'Nobody is Admin, so nobody can change staff access here. Ask the developer to make someone Admin (not a Reviewer).',
+        'no_admin' => 'Nobody is Admin or People manager, so nobody can change staff access here. Ask the developer to make someone People manager.',
+        // PM5: someone must always be able to manage people.
+        'last_manager' => 'Nobody else can add people or change their jobs. Nothing was changed. First give someone else the People manager job.',
         'test_account' => '%s is a test account and it can still sign in. Switch it off: open it and press "Stop this person signing in". '
             . 'A test account could be used to give a second OK to your own work.',
         'clash' => '%s has Admin, so these jobs do nothing: %s. Open their page, untick Admin and save.',
         'off_note' => '"(off)" after a job means Admin switches it off for that person.',
         'clash_person' => 'These jobs do not fit together: while Admin is ticked, %s do nothing. Untick Admin, then save. Their other jobs then work again.',
-        'yours' => 'This is you. Nobody can change their own access. Ask another admin (if you are the only admin: ask the developer).',
-        'auditor' => 'You can look but not change anything here (only the Admin can).',
+        'yours' => 'This is you. Nobody can change their own access. Ask another Admin or People manager (if there is none: ask the developer).',
+        'auditor' => 'You can look but not change anything here (only an Admin or a People manager can).',
         'code' => 'code: %s',
-        'rule' => 'Admin can only go with %s, so the person who gives access never also approves work. '
-            . 'A change works the next time the person opens a page. Every change is kept in the history below.',
+        'rule' => 'Admin can only go with %s, so the person who gives access never also approves work. People manager goes with any job '
+            . 'but Admin. A change works the next time the person opens a page. Every change is kept in the history below.',
         'save' => 'Save the jobs',
         'account' => 'Signing in',
         'stop' => 'Stop this person signing in',
@@ -4327,10 +4333,10 @@ final class Words
         'no_roles' => 'Tick at least one job. Nothing was saved. To stop someone using the system, use "Stop this person signing in" below.',
         'roles_changed' => 'Someone else changed this person\'s jobs while you had the page open. Nothing was saved. Their jobs now: %s. '
             . 'Your ticks are kept below. Check them and press Save again.',
-        'own_account' => 'Nobody can change their own access. Nothing was changed. Ask another admin.',
+        'own_account' => 'Nobody can change their own access. Nothing was changed. Ask another Admin or People manager.',
         'placeholder' => 'A test account is never switched on or given a job here: it could be used to give a second OK to your own work. '
             . 'Nothing was changed. For a real person, ask the developer to create a proper account.',
-        'not_admin' => 'Only the Admin changes staff access. Nothing was changed.',
+        'not_admin' => 'Only an Admin or a People manager changes staff access. Nothing was changed.',
         // The set-it-yourself pack (G06): adding people, their sign-in, their devices, requests for Admin or Reviewer
         'add_title' => 'Add a staff member',
         'add_text' => 'Fill in their name, e-mail and jobs. The next page shows their sign-up sheet once: a QR code and a set-up code. They use it once, '
@@ -4416,7 +4422,7 @@ final class Words
         'roles_unchanged' => 'Nothing changed: the person already had exactly these jobs.',
         'deactivated' => 'Done: this person can no longer sign in. They were signed out everywhere.',
         'activated' => 'Done: this person can sign in again.',
-        'requested' => 'Saved as a request: Admin and Reviewer need a reviewer\'s OK first. Nothing changes until a reviewer says OK.',
+        'requested' => 'Saved as a request: Admin, Reviewer and People manager need a reviewer\'s OK first. Nothing changes until a reviewer says OK.',
         'password_reset' => 'Done: their old password no longer works and they were signed out everywhere. Give them the set-up code: they choose a new password on the "Set up my sign-in" page.',
         'signed_out' => 'Done: they were signed out of that device.',
         'signed_out_all' => 'Done: they were signed out everywhere.',
@@ -4427,7 +4433,7 @@ final class Words
         'request_stale' => 'Nothing changed: their jobs had changed since the request was made, so the request was withdrawn.',
         'sheet_shown' => 'This form was sent already: its sheet was shown once and is not shown again. If it was lost, make a new one.',
         'reset_requested' => 'Saved as a request: a reviewer must say OK first. Nothing changed yet. Once they say OK, come back here and make it.',
-        'reset_approved' => 'Done: you said OK. An admin can now make the reset, once.',
+        'reset_approved' => 'Done: you said OK. An Admin or People manager can now make the reset, once.',
         'reset_rejected' => 'Done: you said Not OK. Their sign-in was not reset.',
     ];
 
@@ -10515,7 +10521,7 @@ final class Words
         'settings.manage' => 'Change settings, approval rules, reasons and warehouses',
         'audit.view' => 'Read the audit log',
         'system.view' => 'Look at the websites\' link and the system checks',
-        'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
+        'staff.approve' => 'Give the OK when someone is given Admin, Reviewer or People manager',
         'sales.view' => 'Look at each store\'s orders, dispatch and returns (Sales)', // pack D (PD2)
         // Pack B
         'items.create' => 'Add items by hand (Add item)',
@@ -10547,6 +10553,8 @@ final class Words
         'rules' => 'Rules that always apply',
         'rule_own' => 'Nobody approves or checks their own work.',
         'rule_admin' => 'Admin can only go with %s. While an account has Admin, its other jobs are switched off.',
+        'rule_people' => 'A People manager adds staff and looks after their jobs and sign-in, and does nothing else. It goes with any other job '
+            . 'but Admin, and nobody changes their own access.',
         'rule_settings' => 'Admins and Reviewers change settings, approval rules, reasons and warehouses. Admin still never makes, checks or approves stock records or matches.',
         'rule_approvals' => 'Which work waits for a second person is on the Approval rules page.',
         'by_job' => 'What each job may do',
@@ -10572,6 +10580,7 @@ final class Words
         'jobs' => 'Jobs that can do this',
         'jobs_hint' => 'Tick every job that should be able to do this.',
         'admin_never' => 'Admin never does other work.',
+        'people_manager_never' => 'A People manager only looks after staff access.',
         'looks_only' => 'This job can only look.',
         'always' => 'This job always keeps it.',
         'yours' => 'You have this job.',
@@ -10594,6 +10603,7 @@ final class Words
         'loosen_needs_reviewer' => 'Only a Reviewer gives a job something new to do. Nothing was saved. You can take things away.',
         'permission_locked' => 'This never changes on this page. Nothing was saved.',
         'acting_job' => 'Admin and the look-only jobs can never do this. Nothing was saved.',
+        'people_manager_job' => 'A People manager only looks after staff access: it can never do this. Nothing was saved.',
         'required_job' => '%s always keep this. Nothing was saved.',
         'no_holders' => 'At least one job must be able to do this. Nothing was saved.',
         'bad_role' => 'Choose jobs from the list. Nothing was saved.',
@@ -11001,6 +11011,7 @@ final class Words
         'request_closed' => 'This request was decided or withdrawn already. Nothing was changed.',
         'note_required' => 'Say why not in 3 to 500 characters. Nothing was changed.',
         'role_not_allowed' => 'Only a Reviewer whose job works decides this. Nothing was changed.',
+        'last_manager' => 'This would leave nobody who can add people or change their jobs. Nothing was changed. First give someone else the People manager job.',
         // Who the person is and how they set up their sign-in (review finding I1), and resets (Y44).
         'what' => 'What is asked',
         'email' => 'Their e-mail',
@@ -11010,7 +11021,7 @@ final class Words
         'set_up_not_yet' => 'not yet',
         'set_up_server' => 'on the server',
         'not_set_up_note' => 'They have not set up their sign-in yet. Check with the person that this is really them before you say OK.',
-        'ok_reset' => 'OK: the admin may make it, once',
+        'ok_reset' => 'OK: an Admin or People manager may make it, once',
         'not_ok_reset' => 'Not OK: no reset',
         // The page as an inbox (docs/decisions.md W12.9): its groups and the list's name.
         'group_roles' => 'Changes of jobs',

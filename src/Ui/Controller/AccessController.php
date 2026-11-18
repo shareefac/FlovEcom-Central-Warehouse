@@ -18,8 +18,9 @@ use CW\Ui\Words;
  * "Roles and permissions" (G37, docs/decisions.md Y35; pack E, PE2-PE8): the permission map in force (Auth\Permissions::map(), read
  * from role_permission on every request) in plain words, by job and by task, with the rules that always apply. Everyone looks
  * (reference.view). An admin or a reviewer (settings.manage) opens one task (`?perm=`) and changes which jobs can do it, with a reason,
- * through Admin\RolePermissions (which re-checks everything: the locked tasks, admin and the look-only jobs, the guarded jobs' own
- * tasks, "only a Reviewer gives", "never to a job you have"). Refusals are shown in words by their code, with the ticks kept.
+ * through Admin\RolePermissions (which re-checks everything: the locked tasks, admin and the look-only jobs, the People manager's own
+ * tasks only (PM3), the guarded jobs' own tasks, "only a Reviewer gives", "never to a job you have"). Refusals are shown in words by
+ * their code, with the ticks kept.
  */
 final class AccessController
 {
@@ -93,7 +94,7 @@ final class AccessController
         return match ($e->errorCode) {
             'own_job' => sprintf(Words::ROLES_ERROR['own_job'], $jobs($e->detail['roles'] ?? [])),
             'required_job' => sprintf(Words::ROLES_ERROR['required_job'], $jobs($e->detail['required'] ?? [])),
-            'loosen_needs_reviewer', 'permission_locked', 'acting_job', 'no_holders', 'bad_role', 'unknown_permission' => Words::ROLES_ERROR[$e->errorCode],
+            'loosen_needs_reviewer', 'permission_locked', 'acting_job', 'people_manager_job', 'no_holders', 'bad_role', 'unknown_permission' => Words::ROLES_ERROR[$e->errorCode],
             'changed_meanwhile' => Words::say('CONFIG_ERROR', 'changed_meanwhile', ConfigWords::who((string) ($e->detail['by'] ?? ''), null),
                 Html::when(is_string($e->detail['at'] ?? null) ? $e->detail['at'] : null)),
             'bad_reason', 'role_not_allowed', 'staff_not_allowed' => Words::CONFIG_ERROR[$e->errorCode],
@@ -123,12 +124,15 @@ final class AccessController
         $boxes = [];
         foreach (Words::JOB_ORDER as $role) {
             $blocked = !$row['read_only'] && ($role === 'admin' || in_array($role, Permissions::ADMIN_COMPATIBLE, true));
+            // The People manager manages people and nothing else (PM3): its box is off on every other task.
+            $pmNever = $role === 'people_manager' && !in_array($perm, Permissions::PEOPLE_MANAGER_TASKS, true);
             $always = in_array($role, $row['required'], true);
             $boxes[] = ['role' => $role, 'name' => Words::of('ROLE', $role), 'checked' => $always || in_array($role, $ticked, true),
-                'disabled' => $blocked || $always, 'always' => $always,
+                'disabled' => $blocked || $pmNever || $always, 'always' => $always,
                 'why' => match (true) {
                     $always => Words::ROLES_EDIT['always'],
                     $blocked && $role === 'admin' => Words::ROLES_EDIT['admin_never'],
+                    $pmNever => Words::ROLES_EDIT['people_manager_never'],
                     $blocked => Words::ROLES_EDIT['looks_only'],
                     in_array($role, $me->roles, true) => Words::ROLES_EDIT['yours'],
                     default => null,

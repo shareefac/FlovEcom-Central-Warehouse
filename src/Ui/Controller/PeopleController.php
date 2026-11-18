@@ -43,6 +43,11 @@ use CW\Ui\Words;
  * (FormOnce, M4): sent again, it shows no new secret. Signing people out of one device or all (signOut); every live session is
  * listed. While the owner has the staff-grant / staff-reset rules on, giving Admin or Reviewer, or resetting the sign-in of someone
  * who has them, becomes a request a reviewer decides first (RoleRequests).
+ *
+ * Since 0069 (docs/decisions.md PM1-PM7; the owner, 16 and 18 Nov 2026) a People manager does all of it as the Admin does (staff.view,
+ * staff.manage), beside their working jobs; "the admin" above means either. The People manager is guarded like Admin and Reviewer
+ * (PM5). The list warns when no active person can manage people (StaffRoles::managers), and a change that would take that power from
+ * the last person who has it is refused in words (409 last_manager).
  */
 final class PeopleController
 {
@@ -67,21 +72,22 @@ final class PeopleController
         $warnings = [];
         // How many people can really approve work: a Reviewer whose job Admin does not switch off (plan F429: effective jobs).
         $reviewers = 0;
-        $admins = 0;
+        // How many can manage people: an Admin or a People manager (PM5), active.
+        $managers = 0;
         foreach ($people as $p) {
             if (!$p['is_active']) {
                 continue;
             }
             $off = Permissions::switchedOff($p['roles']);
             $reviewers += in_array('reviewer', $p['roles'], true) && !in_array('reviewer', $off, true) ? 1 : 0;
-            $admins += in_array('admin', $p['roles'], true) ? 1 : 0;
+            $managers += Permissions::can($p['roles'], 'staff.manage') ? 1 : 0;
         }
         $min = self::minReviewers($db);
         if ($reviewers < $min) {
             $warnings[] = Words::say('STAFF', $reviewers === 0 ? 'reviewers_none' : 'reviewers_one', $min)
                 . (StaffRoles::activeCount($db, 'reviewer') > $reviewers ? ' ' . Words::STAFF['reviewers_admin'] : '');
         }
-        if ($admins === 0) {
+        if ($managers === 0) {
             $warnings[] = Words::STAFF['no_admin'];
         }
         $me = $ctx->me();
@@ -443,6 +449,7 @@ final class PeopleController
             'own_account' => Words::STAFF['own_account'],
             'placeholder_account' => Words::STAFF['placeholder'],
             'role_not_allowed' => Words::STAFF['not_admin'],
+            'last_manager' => Words::STAFF['last_manager'],
             'request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session', 'not_set_up', 'code_reset_open', 'already_set_up' => Words::STAFF[$e->errorCode],
             'setup_open' => Words::STAFF['code_refused_open'],
             'request_closed', 'unknown_request' => Words::STAFF_REQUESTS['request_closed'],

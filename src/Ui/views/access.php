@@ -3,7 +3,8 @@
 // W13.14): the heading (its "?": the rules that always apply); a card of who may do each thing, a row a task: what it is, the jobs that may,
 // and at the right "Change who can" (its own page, saved on its own with its History), its History for whoever only looks, or "Fixed"; then
 // a card of what each job may do, a row a job.
-$help = \CW\Ui\Words::ACCESS['rule_own'] . ' ' . \CW\Ui\Words::say('ACCESS', 'rule_admin', $adminCompatible) . ' ' . \CW\Ui\Words::ACCESS['rule_settings'] . ' '
+$help = \CW\Ui\Words::ACCESS['rule_own'] . ' ' . \CW\Ui\Words::say('ACCESS', 'rule_admin', $adminCompatible) . ' ' . \CW\Ui\Words::ACCESS['rule_people'] . ' '
+    . \CW\Ui\Words::ACCESS['rule_settings'] . ' '
     . \CW\Ui\Words::ACCESS['rule_approvals'] . ' ' . \CW\Ui\Words::ACCESS['rule_give'];
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['access'], intro: 'access', more: $help) ?>

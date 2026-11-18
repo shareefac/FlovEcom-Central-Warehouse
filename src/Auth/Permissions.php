@@ -25,12 +25,18 @@ use CW\CwException;
  * item card's (catalogue.edit, I109), receiving's (receiving.view, incidents.*, I141) and the selling-mode switch's
  * (modes.set, I158). settings.manage (admin AND reviewer) is the owner's decision of 8 Oct 2026 (Y1): it overrides I12 for the
  * settings, rules and lists only.
+ *
+ * The People manager (0069; docs/decisions.md PM1-PM7; the owner, 16 Nov 2026: "i want you to build the option to create users, admin
+ * roles etc for my cw account. so i can create users there"; 18 Nov 2026: "build it in so Fazil can create [staff] himself"): a job that
+ * manages people (staff.view, staff.manage) and does nothing else, whatever the Roles and permissions page says (PEOPLE_MANAGER_TASKS,
+ * sanitise(), problems()). It is NOT Admin: it may go with any working job, so the owner keeps posting and reviewing, and every "never
+ * admin" rule (Documents::mayPost, the read fail-closed of an admin set) is unchanged; Admin still goes only with the look-only jobs (I12).
  */
 final class Permissions
 {
-    /** Every role, in the order of the staff_role ENUM (0007). */
+    /** Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end). */
     public const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager'];
 
     /** Shown on the People and roles screen. */
     public const DESCRIPTIONS = [
@@ -48,6 +54,7 @@ final class Permissions
         'reviewer' => 'reviews documents posted by others, gives the blocking approvals',
         'accountant' => 'reads stock values, exports (I-5)',
         'auditor' => 'read-only everywhere, people and roles list',
+        'people_manager' => 'adds people, sets their jobs, switches them on/off and resets their sign-in; may be combined with any job',
     ];
 
     /** The roles' groups on the People and roles form (every role in exactly one). */
@@ -56,11 +63,25 @@ final class Permissions
         'Purchasing and receiving' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk'],
         'Stock' => ['warehouse', 'manager', 'stock_controller'],
         'Review and finance' => ['reviewer', 'accountant', 'auditor'],
-        'Admin' => ['admin'],
+        'Admin' => ['admin', 'people_manager'],
     ];
 
     /** The only roles admin may be combined with: they read, they never act (I12). */
     public const ADMIN_COMPATIBLE = ['viewer', 'accountant', 'auditor'];
+
+    /**
+     * Everything the People manager does (PM3): the people screens and what every job reads, and nothing else, whatever the Roles and
+     * permissions page says: the read drops it from any other task (sanitise()), the page refuses to give it one (problems():
+     * `people_manager_job`), and it keeps these four (three are LOCKED, staff.view REQUIRED).
+     */
+    public const PEOPLE_MANAGER_TASKS = ['catalogue.view', 'staff.view', 'staff.manage', 'reference.view'];
+
+    /**
+     * The guarded jobs (Admin\ApprovalRules::GUARDED_ROLES): giving one, setting a person up with one and resetting the sign-in of a
+     * person who holds one wait for a reviewer's OK while the owner has approvals.staff_grant / approvals.staff_reset on. Admin and
+     * Reviewer, and the People manager (PM5: it gives access like Admin).
+     */
+    public const GUARDED = ['admin', 'reviewer', 'people_manager'];
 
     /** permission => the roles that hold it. */
     public const MAP = [
@@ -68,8 +89,9 @@ final class Permissions
         'linking.view' => ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'auditor'],
         'mapping.decide' => ['mapper', 'mapping_lead'],
         'mapping.approve' => ['mapping_lead'],
-        'staff.view' => ['admin', 'auditor'],
-        'staff.manage' => ['admin'],
+        // The people screens (IM1, I13): the Admin, and the People manager (PM1-PM7) who adds and manages people beside their other jobs.
+        'staff.view' => ['admin', 'auditor', 'people_manager'],
+        'staff.manage' => ['admin', 'people_manager'],
         'reference.view' => self::ROLES,
         'documents.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant',
             'auditor', 'manager', 'warehouse'],
@@ -309,8 +331,11 @@ final class Permissions
      */
     public const LOCKED = ['catalogue.view', 'reference.view', 'staff.manage', 'settings.manage', 'staff.approve', 'mapping.decide', 'mapping.approve',
         'company.edit', 'company.confirm'];
-    /** The guarded jobs keep these whatever the screen says: an admin sees the people; a reviewer can give the checks and the OKs. */
-    public const REQUIRED = ['staff.view' => ['admin'], 'documents.review' => ['reviewer'], 'documents.approve' => ['reviewer'],
+    /**
+     * The guarded jobs keep these whatever the screen says: an admin and a People manager see the people (production's row of 0034 for
+     * staff.view names admin and auditor only: the People manager is added on the read, PM3); a reviewer can give the checks and the OKs.
+     */
+    public const REQUIRED = ['staff.view' => ['admin', 'people_manager'], 'documents.review' => ['reviewer'], 'documents.approve' => ['reviewer'],
         'suppliers.approve' => ['reviewer']];
 
     /** @var array<string, list<string>>|null the map read from the database (null: MAP) */
@@ -378,21 +403,22 @@ final class Permissions
     }
 
     /**
-     * The powers the code keeps for the guarded jobs (Admin and Reviewer, Admin\ApprovalRules::GUARDED_ROLES): every permission whose
-     * holders in MAP are among them only (managing people and settings, the reviewer's OKs and checks). A job given one of these on
-     * the screen is guarded like them (ApprovalRules::guardedRoles, review finding 1, PE16).
+     * The powers the code keeps for the guarded jobs (Admin, Reviewer and People manager: GUARDED, Admin\ApprovalRules::GUARDED_ROLES):
+     * every permission whose holders in MAP are among them only (managing people and settings, the reviewer's OKs and checks). A job
+     * given one of these on the screen is guarded like them (ApprovalRules::guardedRoles, review finding 1, PE16).
      *
      * @return list<string>
      */
     public static function guardedPowers(): array
     {
-        return array_keys(array_filter(self::MAP, static fn (array $holders): bool => array_diff($holders, ['admin', 'reviewer']) === []));
+        return array_keys(array_filter(self::MAP, static fn (array $holders): bool => array_diff($holders, self::GUARDED) === []));
     }
 
     /**
      * The holders a permission may have, fail-closed (what the table says is never more than the screen allows): unknown jobs are
      * dropped; a LOCKED permission is held as MAP says; a permission that acts is never held by admin or by the look-only jobs admin
-     * may be combined with (I12); the REQUIRED holders are always there.
+     * may be combined with (I12); the People manager holds nothing outside PEOPLE_MANAGER_TASKS (PM3); the REQUIRED holders are always
+     * there.
      *
      * @param list<mixed> $holders
      * @return list<string> in ROLES order
@@ -406,14 +432,18 @@ final class Permissions
         if (!self::isReadOnly($perm)) {
             $set = array_values(array_diff($set, ['admin'], self::ADMIN_COMPATIBLE));
         }
+        if (!in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {
+            $set = array_values(array_diff($set, ['people_manager']));
+        }
         return self::ordered([...$set, ...(self::REQUIRED[$perm] ?? [])]);
     }
 
     /**
      * What is wrong with giving $perm to exactly $holders (the screen's refusals, Admin\RolePermissions), as codes in this order:
      * `unknown_permission`, `locked` (never changed on the screen), `bad_role` (not a job), `no_holders` (every task needs a job that
-     * does it), `acting_job` (admin or a look-only job given a permission that changes something: I12), `required` (a guarded job's
-     * own permission taken away). [] when it is allowed.
+     * does it), `acting_job` (admin or a look-only job given a permission that changes something: I12), `people_manager_job` (the
+     * People manager given a task outside PEOPLE_MANAGER_TASKS: PM3), `required` (a guarded job's own permission taken away). [] when
+     * it is allowed.
      *
      * @param list<mixed> $holders
      * @return list<string>
@@ -437,6 +467,9 @@ final class Permissions
         }
         if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::ADMIN_COMPATIBLE]) !== []) {
             $out[] = 'acting_job';
+        }
+        if (in_array('people_manager', $holders, true) && !in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {
+            $out[] = 'people_manager_job';
         }
         if (array_diff(self::REQUIRED[$perm] ?? [], $holders) !== []) {
             $out[] = 'required';

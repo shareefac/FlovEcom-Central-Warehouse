@@ -24,9 +24,9 @@ use CW\Settings;
  *                                     a second matching lead (DecisionService, Mapping\BulkDecisions; OFF by default, M50)
  *      approvals.spot_check_size      how many matches a spot check holds; smaller ones never unlock a bulk confirm (KeySample)
  *      approvals.company_own_change   a reviewer confirming their own change of the company details gets another's check
- *      approvals.staff_grant          giving Admin or Reviewer waits for a reviewer's OK (StaffAdmin; OFF by default)
- *      approvals.staff_reset          a new sign-in code, a new password or a new sign-up sheet for someone holding Admin or Reviewer
- *                                     waits for a reviewer's OK (StaffAdmin, RoleRequests; OFF by default, Y44)
+ *      approvals.staff_grant          giving Admin, Reviewer or People manager waits for a reviewer's OK (StaffAdmin; OFF by default)
+ *      approvals.staff_reset          a new sign-in code, a new password or a new sign-up sheet for someone holding Admin, Reviewer or
+ *                                     People manager waits for a reviewer's OK (StaffAdmin, RoleRequests; OFF by default, Y44, PM5)
  *      approvals.invoice_accept_other accepting the differences of an invoice that does not match is done by someone other than the
  *                                     person who posted it (Invoices\SupplierInvoices::accept; OFF by default, pack C PC6)
  *
@@ -81,15 +81,18 @@ final class ApprovalRules
     public const LOWER_IS_LOOSER = ['approvals.spot_check_size'];
     /** The permission that loosens a rule (I1): a Reviewer's. */
     public const LOOSEN_PERMISSION = 'staff.approve';
-    /** The jobs whose grant waits for a reviewer's OK while approvals.staff_grant is on, at the least (guardedRoles() adds to them). */
-    public const GUARDED_ROLES = ['admin', 'reviewer'];
+    /**
+     * The jobs whose grant waits for a reviewer's OK while approvals.staff_grant is on, at the least (guardedRoles() adds to them): Admin,
+     * Reviewer and, since 0069, the People manager (PM5: it gives access like Admin).
+     */
+    public const GUARDED_ROLES = \CW\Auth\Permissions::GUARDED;
 
     /**
-     * The jobs guarded now (review finding 1, PE16): Admin and Reviewer, and every job that holds, in the map in force (re-read here),
-     * one of the powers the code keeps for them (Permissions::guardedPowers: managing people and settings, the reviewer's OKs and
-     * checks). A Reviewer who gives such a power to another job on the Roles and permissions page makes that job guarded too, so giving
+     * The jobs guarded now (review finding 1, PE16): Admin, Reviewer and People manager, and every job that holds, in the map in force
+     * (re-read here), one of the powers the code keeps for them (Permissions::guardedPowers: managing people and settings, the reviewer's
+     * OKs and checks). A Reviewer who gives such a power to another job on the Roles and permissions page makes that job guarded too, so giving
      * it to a person, setting a person up with it and resetting the sign-in of a person who holds it wait for a reviewer's OK while
-     * approvals.staff_grant / approvals.staff_reset are on. With the map as delivered: Admin and Reviewer only, as before. In
+     * approvals.staff_grant / approvals.staff_reset are on. With the map as delivered: Admin, Reviewer and People manager only. In
      * Permissions::ROLES order.
      *
      * @return list<string>

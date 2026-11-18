@@ -1933,7 +1933,7 @@ instead of trusting a stale column. Forward-only (D25): deploy 0007 together wit
 old code on the new schema and new code on the old schema both fail at once, on the sign-in, rather than silently.
 
 **I11. One permission map; routes are guarded by permission; roles are read per request.** `CW\Auth\Permissions` (pure, no
-database) is the single place that says what a role may do: `ROLES` (14), `DESCRIPTIONS`, `MAP` (permission → roles),
+database) is the single place that says what a role may do: `ROLES` (14; 15 since 0069, PM1), `DESCRIPTIONS`, `MAP` (permission → roles),
 `MENU`, `can()`, `permissionsOf()`, `checkRoleSet()`, `menu()`. What a person may do is the union of their roles'
 permissions. A UI route's access is `public`, `any` or a permission (`Router::add` throws `InvalidArgumentException` on
 anything else, so a typo cannot leave a page open); `Kernel::guarded` refuses 403 when `$who->can($access)` is false, so a
@@ -1987,6 +1987,72 @@ account off or on. Rules, all enforced again by `StaffAdmin` inside its transact
   seed is never shown in a browser (the list says so). `StaffAdmin::create` called by a staff caller needs admin too.
   **Replaced on 8 Oct 2026 by Y20-Y22 (and Y40-Y44):** an admin adds people and resets sign-ins on the screen; a sheet's secret is shown
   once and is never the person's for good.
+
+**PM1. The People manager job (0069; the owner, 16 Nov 2026: "i want you to build the option to create users, admin roles etc for my cw
+account. so i can create users there"; 18 Nov 2026: "build it in so Fazil can create [staff] himself").** Production has two people:
+the owner (accountant, mapping_lead, purchasing_manager, reviewer, stock_controller) and Fazil (every job but admin); nobody holds
+admin. Giving them `admin` is not the answer: I12 lets admin go only with the look-only jobs (their working jobs would be refused, or
+switched off by the read) and `Documents::mayPost` refuses anyone holding admin. So a new job, `people_manager` ("People manager"),
+added at the END of the `staff_role.role` ENUM by `0069_people_manager.sql` (every stored grant keeps its number; no row written; one
+`ALTER ... ALGORITHM = COPY, LOCK = SHARED` on a table of a few dozen rows). It holds `staff.view` and `staff.manage` (and
+`catalogue.view`, `reference.view`, which every job reads) and nothing else. It is **not** admin: `mayPost`, the read fail-closed
+of an admin set (`Permissions::effective`) and every "never admin" check are unchanged, and I12 itself is unchanged. It amends
+I12's "consequence for the owner": the owner (and Fazil) manage people through this job while keeping their work.
+
+**PM2. With any job, never with Admin.** `checkRoleSet` is unchanged: `people_manager` is not in `ADMIN_COMPATIBLE`, so admin +
+people_manager is 422 `role_conflict` (it would add nothing: admin manages people already); people_manager goes with every other
+job. The owner's set with it passes and keeps every permission he had (`PermissionsTest`). On the People form it sits in the
+"Staff access" group next to Admin (`ROLE_GROUPS['Admin']`), named "People manager" (`Words::ROLE`, `ROLE_PLURAL`, `ROLE_HELP`,
+`JOB_ORDER` after Admin).
+
+**PM3. Its tasks are fixed, whatever the Roles and permissions page says.** `Permissions::PEOPLE_MANAGER_TASKS` = catalogue.view,
+staff.view, staff.manage, reference.view. The read drops people_manager from every other permission's row (`sanitise`: fail-closed),
+and the page refuses to give it one (`problems()` code `people_manager_job`: its box is greyed out on every other task with "A People
+manager only looks after staff access", a POST naming it anyway is 422 in words). Three of its tasks are LOCKED; staff.view keeps it
+through REQUIRED (`['admin', 'people_manager']`), so production's 0034 row for staff.view ("admin,auditor") needs no change: the
+migration writes no row of `role_permission`.
+
+**PM4. On the screens, a People manager does what the Admin does.** Settings › People: the list, add a person (the sign-up sheet),
+give and take jobs (Admin and People manager too), switch an account off or on, a new sign-up sheet, a new sign-in code, a new
+password, sign a device out, withdraw a request; the routes are guarded by `staff.view` / `staff.manage`, never by a job name, and
+`StaffAdmin` re-reads the caller's jobs inside each transaction as before. Every Admin rule holds for it unchanged: never their own
+account (403 `own_account`: "ask another admin or people manager"), **never both sign-in factors of anybody** (Y40-Y44: the sheet's
+secret and set-up code die at their first use, the person confirms a fresh secret on their own page that the manager never sees; a
+new sign-in code works only with the person's own password; the two resets refuse each other), never a placeholder account, every
+form with the CSRF token and the resets once (FormOnce). Their own work pages (reviews, staff requests, purchasing, ...) stay open:
+it adds, it never takes away. The words say "an Admin or a People manager" where they said "the Admin".
+
+**PM5. Guarded like Admin and Reviewer; someone can always manage people.** `Permissions::GUARDED` (= `ApprovalRules::GUARDED_ROLES`)
+is admin, reviewer, people_manager, and `guardedPowers()` reads it (staff.manage is one of them). So while the owner has
+`approvals.staff_grant` on, giving People manager on the screen waits for a reviewer's OK (an added person gets their other jobs at
+once), and while `approvals.staff_reset` is on, resetting a People manager's sign-in waits too; the person who asked never decides
+(403 `own_request`), so the owner as People manager and Reviewer never OKs his own request. **The last manager:** a change that
+would take the power to manage people (staff.manage: an Admin or a People manager) from the last ACTIVE person who has it is
+refused 409 `last_manager` ("nobody else can manage people"), for every change made by a person at a screen (`setRoles`,
+`setActive`, `reset`, and a reviewer's OK that applies a change of jobs, `RoleRequests::decide`) and by `bin/grant_role.php`
+(its dry run too). On a screen it can only happen through a reviewer's OK (the caller of the People screen is an active manager who
+never changes their own account), but the rule is in every path. The other active accounts are locked FOR SHARE before their jobs
+are read, so two changes at the same moment never both pass. When nobody can manage people (production today), nothing is taken and
+nothing is refused. `bin/reset_staff.php` stays the break-glass and may change anyone (I15, I35). The People list warns when no
+active person can manage people (it warned when nobody was Admin).
+
+**PM6. `bin/grant_role.php` gives one job to an existing account on the server.** `php bin/grant_role.php --email=<address>
+--role=<role> [--revoke] [--apply] --db=<schema>`: a dry run unless `--apply` ("DRY RUN: <email> (id n): roles a,b -> a,b,c: would
+be changed"); with `--apply` the change goes through `StaffAdmin::setRoles` as a system caller (`system:grant_role`, `granted_by`
+empty, audit `staff.roles {email, before, after, added, removed}`, the jobs as the tool read them or 409 `roles_changed`), never
+waiting for the staff-grant rule. Refused, writing nothing (exit 1): an unknown e-mail or job, Admin with a working job (I12),
+People manager with Admin, taking a person's last job (switch the account off instead), taking the last manager's power (PM5).
+Giving a job the person has, or taking one they lack: `unchanged`, nothing written. Its command line is read whole or not at all
+(exit 2). Go-live: after the code and 0069 are live, the owner's and Fazil's accounts get `--role=people_manager --apply`; from then
+on they add people on the screen. `bin/create_staff.php --roles=...` accepts people_manager too.
+
+**PM7. What this does not prevent (said out loud).** Whoever can add people can make a second identity (an e-mail they control,
+finish its sign-up themselves) and use it to give a second OK to their own work. That was already true of an Admin (who needed two
+made-up accounts, one to post and one to check) and of root on the server; with People manager held beside working jobs, one made-up
+account is enough. It is not prevented in code; it is seen: the audit row `staff.create` names who added each account, the person's
+page names who gave each job, and the reviewers' request cards show when an account was made and whether it set up its sign-in.
+`approvals.staff_grant` (Approval rules page) makes Admin, Reviewer and People manager wait for a second person's OK, but not the
+working jobs. A rule "a reviewer never checks the work of an account they added" would close it; it is not built (open for the owner).
 
 **I14. Menus and the home page (amends U13).** The navigation is `Permissions::menu($roles)`: grouped sections (Linking,
 Items, Purchasing, Receiving, Stock control, Trade, Document reviews, Documents, Accounts, Reference, Admin), only the items

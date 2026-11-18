@@ -410,6 +410,7 @@ The `--channel` defaults of `mint_vpg` and `import_proposals` are `vpg` and `alt
 | `seed_barcodes` | usable GTINs of each item's origin listing -> `sku_barcode` (GTIN key); a key already on another item is marked unusable, not moved (M25) | rows already there are `already` | never (clashes are counted) |
 | `create_staff` | a staff user; adds `ui_secret_key` to app.env if missing (never printed) | refuses an existing e-mail | refused |
 | `reset_staff` | an existing account: `--new-password`, `--new-totp`, `--deactivate`, `--activate`; ends its sessions (U23) | each run issues new secrets | unknown account |
+| `grant_role` | one job given to (or with `--revoke` taken from) an existing account; a dry run unless `--apply`; audited `staff.roles` (PM6) | `unchanged`, nothing written | unknown account or job, a job set the rules refuse, the last person who can manage people (PM5) |
 
 Measured on `cw_staging` (30 Sep 2026): `mint_vpg` 14,856 mints (one transaction each) in 7 min 9 s (about
 2,300 per minute, one connection); `import_proposals` run3, 2,623 proposals, in 59 s; the idempotent re-run
@@ -1020,8 +1021,16 @@ cd /opt/cw-staging && php bin/create_staff.php --email=<address> --roles=<role>[
 ```
 
 Roles: viewer, mapper, mapping_lead, warehouse, manager, admin, buyer, purchasing_manager, goods_in, purchasing_desk,
-stock_controller, reviewer, accountant, auditor (what each may do: `/ui/people/<id>` lists them with a description).
-`--role=<one>` still works as an alias of `--roles` (never both). After that an admin gives and takes roles and switches
+stock_controller, reviewer, accountant, auditor, people_manager (what each may do: `/ui/people/<id>` lists them with a description).
+To give one job to an existing account (the owner's and Fazil's People manager job, PM6), as root in the release directory:
+
+```bash
+php bin/grant_role.php --email=<address> --role=people_manager --db=<schema>            # dry run: says roles a,b -> a,b,people_manager
+php bin/grant_role.php --email=<address> --role=people_manager --apply --db=<schema>    # makes it (audited staff.roles, system:grant_role)
+php bin/grant_role.php --email=<address> --role=people_manager --revoke --apply --db=<schema>   # takes it away (never from the last manager)
+```
+
+`--role=<one>` still works as an alias of `--roles` (never both). After that an admin or a People manager gives and takes roles and switches
 accounts off on **People and roles** (`/ui/people`); the role history and `audit_log` (`staff.roles`, `staff.deactivate`,
 `staff.activate`) keep who changed what.
 

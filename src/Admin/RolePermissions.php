@@ -19,6 +19,7 @@ use CW\Staff\StaffRoles;
  *
  *  - a LOCKED permission (what everyone needs, the security core, the ones other code reads by job name) is never changed here;
  *  - admin, and the look-only jobs admin may be combined with, never get a permission that changes anything (I12);
+ *  - the People manager never gets any task but its own (Permissions::PEOPLE_MANAGER_TASKS, PM3);
  *  - a guarded job keeps its REQUIRED permissions (an admin sees the people; a reviewer gives the checks and the OKs);
  *  - every permission keeps at least one job.
  *
@@ -121,6 +122,7 @@ final class RolePermissions
             'no_holders' => new CwException('no_holders', 'at least one job must hold a permission (to stop a task, give it to the fewest jobs)', 422),
             'acting_job' => new CwException('acting_job', 'admin and the look-only jobs (' . implode(', ', Permissions::ADMIN_COMPATIBLE)
                 . ') never get a permission that changes anything', 422),
+            'people_manager_job' => new CwException('people_manager_job', 'people_manager only manages people: it never gets another task', 422),
             'required' => new CwException('required_job', "{$perm} always stays with " . implode(', ', Permissions::REQUIRED[$perm] ?? []), 422,
                 ['required' => Permissions::REQUIRED[$perm] ?? []]),
             default => new CwException($code, $code, 422),
