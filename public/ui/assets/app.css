@@ -4012,6 +4012,10 @@ form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; whi
 form.kg-paper table.kg-grid .kg-sub > :not(:empty) ~ :not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
 form.kg-paper table.kg-grid .kg-sub > * { white-space: nowrap; }
 form.kg-paper table.kg-grid .kg-sub > .kg-code { display: inline; max-width: none; margin: 0; overflow: visible; }
+/* The confirmed (read-only) order draws the same sub-line, under the name (the coordinator's third look: it read "CW-007523  each · VAT S"). */
+.po-paper table.kg-view .kg-sub { display: block; margin: 2px 0 0; }
+.po-paper table.kg-view .kg-sub > :not(:empty) ~ :not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
+.po-paper table.kg-view .kg-sub > * { white-space: nowrap; }
 form.kg-paper table.kg-grid label.kg-upp { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--ink-muted); font: 400 12px/18px var(--font); white-space: nowrap; }
 form.kg-paper table.kg-grid label.kg-upp input.kg-flat { flex: 0 0 auto; width: 5rem; height: 28px; min-height: 28px; padding: 2px 7px; text-align: right; }
 form.kg-paper table.kg-grid th.c-x { width: 2.75rem; }

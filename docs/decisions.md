@@ -18102,6 +18102,8 @@ card with the other events, newest first ("18 Nov 2026, 18:15 · Changed by Shar
 the separate "History of changes" (`doc_changes`) under the cards; the other records keep theirs. The head's blocks: each part as tall as its
 content and only the last part takes what the row has left (the one-page form's `.po-box-field` had a flex-basis of 18rem, which made the
 first row about 270 px tall in a block that is a column); a test reads every head rule for a height or a flex-basis of its own.
+The confirmed order's lines draw the same ONE sub-line as a draft's ("CW-007523 · their code · each · VAT S", under the name; it read
+"CW-007523  each · VAT S"), its dots app.css's (`.po-paper table.kg-view .kg-sub`).
 
 ### The Codex reviews of look-paper (`lookpaper_20261118/codex_round1.txt` to `codex_round3.txt`; three rounds, the cap)
 - Round 1 (1 HIGH, 3 MEDIUM, 1 LOW): More > Copy on the paper left typed values without the unsaved guard (Copy is a leaving form there;

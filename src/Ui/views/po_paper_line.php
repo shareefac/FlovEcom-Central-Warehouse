@@ -3,7 +3,8 @@
 // their code, the pack and the VAT under it; on a draft: the name on its own line, then ONE sub-line "CW-014280 · their code · box of 10 ·
 // VAT S", then items per pack: LP9), its current stock (doc_stock), Ordered, Received (shown from the confirmation on), the unit
 // cost and the line total.
-// Read only ($edit false; $l: the line, $showReceived): as words; Ordered in items with "3 × box of 10" under it, the unit cost per pack.
+// Read only ($edit false; $l: the line, $showReceived): as words, the item's ONE sub-line as on a draft ("CW-007523 · their code · each ·
+// VAT S": the dots are app.css's, LP10); Ordered in items with "3 × box of 10" under it, the unit cost per pack.
 // On a draft or a new order ($edit): a row of the lines' grid (docs/decisions.md KG; app.js's contract: data-kg-*), its figures in boxes in
 // place (kg-flat: plain text until the mouse is on one or the cursor is in it), each with its label ("Line 3: Packs"):
 //  - a saved line ($l; $no, $rowNo, $gone: removed and not sent yet, $bad: its refusal, $editable, $typed): packs ("3 × box of 10 = 30"
@@ -28,7 +29,7 @@ $replace = $replace ?? null;
 <?php endif; ?>
 <?php else: ?>
 <?php $toCome = in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, (int) $l['qty'] - (int) $l['received_units']) : 0; ?>
-        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span> <span class="o-sub"><?php if (($l['code'] ?? null) !== null && $l['code'] !== ''): ?><?= $e($l['code']) ?> · <?php endif; ?><?= $e($l['pack_label']) ?> · <?= $word('ORDER', 'vat') ?> <?= $e($l['vat_code']) ?></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
+        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['sku_name']) ?></a><span class="o-sub kg-sub"><span class="kg-code"><?= $e($l['sku_code']) ?></span><span><?= $e($l['code'] ?? '') ?></span><span><?= $e($l['pack_label']) ?></span><span><?= $say('ORDER', 'vat_code', (string) $l['vat_code']) ?></span></span><?php if (($l['description'] ?? null) !== null && $l['description'] !== ''): ?><span class="o-sub"><?= $e($l['description']) ?></span><?php endif; ?></th>
 <?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
         <td class="num" data-label="<?= $word('ORDER', 'col_ordered') ?>"><?= $n($l['qty']) ?><?php if ((int) $l['units_per_pack'] > 1): ?><span class="o-sub"><?= $say('ORDER', 'packs_of', \CW\Ui\Html::int($l['packs']), (string) $l['pack_label']) ?></span><?php endif; ?></td>
 <?php if ($showReceived): ?>

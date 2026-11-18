@@ -295,6 +295,11 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         // The confirmed order: the read-only paper with its Received column.
         $view = $shareef->get($path);
         self::assertContains(Words::ORDER['col_received'], self::texts($view, '//table[contains(@class, "doc-lines")]/thead/tr/th'));
+        // The same ONE sub-line under the name as on the draft (the coordinator's third look: "CW-007523  each · VAT S" had no dot after the code).
+        $sub = '//table[contains(@class, "doc-lines")]/tbody/tr[2]/th/span[contains(@class, "kg-sub")]/span';
+        self::assertSame([sprintf('CW-%06d', $d['skus'][1]), 'HPMP-6K-SW', \CW\Ui\Controller\PurchaseOrdersController::pack('each', 10), Words::say('ORDER', 'vat_code', 'S')],
+            self::texts($view, $sub));
+        self::assertSame(0, self::nodes($view, '//table[contains(@class, "doc-lines")]/tbody/tr/th/span[contains(@class, "kg-code")]'), 'never beside the name');
         self::assertSame(0, self::nodes($view, '//main//input[contains(@class, "kg-flat")]'));
     }
 

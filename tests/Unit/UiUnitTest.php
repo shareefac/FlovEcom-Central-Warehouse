@@ -1824,6 +1824,10 @@ final class UiUnitTest extends TestCase
             'form.kg-paper .po-paper-head > dl.doc-facts > dd.kg-in { display: flex; padding: 0; background: none; }',
             'form.kg-paper table.kg-grid .kg-sub > :not(:empty) ~ :not(:empty)::before {',
             'form.kg-paper table.kg-grid .kg-sub > * { white-space: nowrap; }',
+            // The confirmed (read-only) order draws the same sub-line with the same dots, under the name (the coordinator's third look).
+            '.po-paper table.kg-view .kg-sub > :not(:empty) ~ :not(:empty)::before {',
+            '.po-paper table.kg-view .kg-sub > * { white-space: nowrap; }',
+            '.po-paper table.kg-view .kg-sub { display: block; margin: 2px 0 0; }',
             'form.kg-paper table.kg-grid input.kg-item { font-weight: 600; text-overflow: ellipsis; }',
             '  form.kg-paper table.kg-grid th.c-item > input.kg-item { display: block; width: calc(100% + 8px); max-width: none; min-width: 0; margin: 0 0 0 -8px; padding: 2px 7px; }',
             '  form.kg-paper table.kg-grid td.num input.kg-flat { margin-right: -8px; padding: 2px 7px; }',
