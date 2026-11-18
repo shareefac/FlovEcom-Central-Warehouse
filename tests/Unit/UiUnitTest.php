@@ -1758,6 +1758,45 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * One look for a purchase order (docs/decisions.md LP1-LP8): the paper's boxes (input.kg-flat) are plain text until the mouse is on one or
+     * the cursor is in it, and every rule of that look is scoped to .kg-paper, so the supplier invoice (the same grid engine, its own
+     * form.kg-doc) is drawn as before; the focus ring always shows; a touch screen (no hover) shows the boxes; no movement when reduced motion is
+     * asked for. One grid engine still: app.js draws the paper's VAT rows and its pack figures, and shows Print again after a save.
+     */
+    public function testThePapersBoxesAreScopedToThePaperAndTheEngineIsStillOne(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $plain = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        preg_match_all('/([^{}@]+)\{([^{}]*)\}/', $plain, $rules, PREG_SET_ORDER);
+        $scoped = 0;
+        foreach ($rules as [, $selector, $body]) {
+            if (!str_contains($selector, 'kg-flat') && !str_contains($selector, 'kg-paper') && !str_contains($selector, 'po-edit-bar')) {
+                continue;
+            }
+            foreach (explode(',', $selector) as $one) {
+                $scoped++;
+                self::assertMatchesRegularExpression('/(?:^|\s)(?:form)?\.(?:kg-paper|po-edit-bar)\b/', trim($one), 'scoped to the order\'s paper: ' . trim($one));
+            }
+        }
+        self::assertGreaterThan(15, $scoped, 'the paper\'s rules were read');
+        self::assertSame(1, preg_match('/\.kg-paper input\.kg-flat \{[^}]*border-color: transparent;[^}]*background-color: transparent;/', $plain), 'plain text at rest');
+        self::assertSame(1, preg_match('/\.kg-paper input\.kg-flat:hover[^{]*\{[^}]*background-color: var\(--ui-bg\)/', $plain), 'the grey box on hover');
+        self::assertSame(1, preg_match('/\.kg-paper input\.kg-flat:focus[^{]*\{[^}]*border-color: var\(--accent\)[^}]*outline: 2px solid var\(--accent\)/', $plain), 'a 2 px focus ring, the accent');
+        self::assertSame(1, preg_match('/@media \(hover: none\) \{[^@]*\.kg-paper input\.kg-flat[^{]*\{[^}]*background-color: var\(--ui-bg\)/s', $plain), 'a touch screen shows its boxes');
+        self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*\.kg-paper input\.kg-flat[^{]*\{[^}]*font-size: 16px/s', $plain), 'a phone: 16 px (no zoom on focus)');
+        self::assertStringNotContainsString('kg-paper', (string) preg_replace('/\.kg-paper\b/', '', $plain), 'only as a class');
+        // One engine, and its two small parts for the paper.
+        self::assertSame(1, substr_count($js, 'var docGrid = function (table, box) {'), 'one engine');
+        $from = (int) strpos($js, 'var docGrid = function (table, box) {');
+        $grid = substr($js, $from, (int) strpos($js, '// (the lines\' grid ends here)') - $from);
+        self::assertStringContainsString("rows.tagName === 'DL'", $grid, 'the paper\'s VAT rows: a dt and a dd a code');
+        self::assertStringContainsString("querySelector('[data-kg-vat-end]')", $grid);
+        self::assertStringContainsString("querySelector('[data-kg-units]')", $grid, 'the pack figures under the packs, as typed');
+        self::assertStringContainsString("document.addEventListener('kg-swapped', showPrint)", $js, 'Print shown again after a save draws the head');
+    }
+
+    /**
      * The owner, 6 Nov 2026, on the invoice screens: "this all shape more oval shape dont need this" (docs/decisions.md KG12): every corner of
      * every page small and square-ish. The radius tokens are small, and no rule keeps an oval of its own; a true circle (50%) stays.
      */

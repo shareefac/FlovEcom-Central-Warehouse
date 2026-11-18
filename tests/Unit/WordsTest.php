@@ -261,6 +261,17 @@ final class WordsTest extends TestCase
         self::assertFalse(Words::has('COUNTS', 'not_opener'));
     }
 
+    /** One look for a purchase order (docs/decisions.md LP1-LP8): the paper's pack figures under the packs box, and the setting's words. */
+    public function testThePaperSaysItsPackFiguresAndItsSetting(): void
+    {
+        self::assertSame('3 × each of 10 = 30', Words::say('ORDER', 'packs_units', '3', Words::say('SUPPLIER_ITEMS', 'pack_of', 'each', 10), '30'));
+        self::assertSame(3, substr_count(Words::ORDER['packs_units'], '%s'), 'app.js fills the three in the same order');
+        self::assertSame('How a draft order looks', Words::SETTING['po.draft_look']);
+        self::assertStringContainsString('"paper"', Words::SETTING_HELP['po.draft_look']);
+        self::assertStringContainsString('"form"', Words::SETTING_HELP['po.draft_look']);
+        self::assertSame(Words::SETTING_TOPIC['po'], Words::settingTopic('po.draft_look'));
+    }
+
     public function testJobsAndWhoMayOpenAPage(): void
     {
         self::assertSame('Admin · Matching lead (off) · Reviewer (off)', Words::roles(['admin', 'mapping_lead', 'reviewer']));

@@ -209,7 +209,7 @@ final class BehaviourItemsTest extends KernelUiTestCase
         $ed = $buyer->get('/ui/purchasing/orders/' . $draft);
         self::assertSame('', $ed->form('/ui/purchasing/orders/' . $draft . '/cancel')['reason_code']);
         self::assertSame(Words::ORDER['choose_reason'], trim((string) (new \DOMXPath($ed->dom()))->evaluate(
-            'string(//select[@name="reason_code"][@form="po-cancel"]/option[1])')));
+            'string(//form[contains(@action, "/' . $draft . '/cancel")]//select[@name="reason_code"]/option[1])'))); // under More in the paper's head (LP3)
         $r = $buyer->post('/ui/purchasing/orders/' . $draft . '/cancel', $ed->form('/ui/purchasing/orders/' . $draft . '/cancel'));
         self::assertSame(400, $r->status, $r->describe());
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$draft]));

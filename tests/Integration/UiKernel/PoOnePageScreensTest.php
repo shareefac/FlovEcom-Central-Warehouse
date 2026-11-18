@@ -607,9 +607,10 @@ final class PoOnePageScreensTest extends KernelUiTestCase
     }
 
     /**
-     * The owner, 26 Oct 2026: "yes add cancel draft button" (PX11). A saved draft's page has one small plain "Cancel draft" next to Save and
-     * Confirm, opening one short step on the same page (a reason, an optional note, "Cancel the draft"): the existing cancel route, its reason
-     * list (none chosen for the person), its checks (CSRF, doc.PO.post, the version) and its audit. The new page, with nothing saved, has none.
+     * The owner, 26 Oct 2026: "yes add cancel draft button" (PX11). A saved draft's page has one small plain "Cancel draft" (under More in the
+     * paper's head since one look, docs/decisions.md LP3), opening one short step on the same page (a reason, an optional note, "Cancel the
+     * draft"): the existing cancel route, its reason list (none chosen for the person), its checks (CSRF, doc.PO.post, the version) and its
+     * audit. The new page, with nothing saved, has none.
      */
     public function testADraftIsCancelledFromItsPage(): void
     {
@@ -624,13 +625,15 @@ final class PoOnePageScreensTest extends KernelUiTestCase
 
         $ed = $web->get("/ui/purchasing/orders/{$d->id}");
         $xp = new \DOMXPath($ed->dom());
-        // In the summary card, beside Save and Confirm: a small plain control, never the primary one; its step holds the reason and the button.
-        $summary = $xp->query('//form[contains(@action, "/lines")]//section[contains(@class, "po-summary")]//details[contains(@class, "po-cancel")][not(@open)]/summary');
+        // Under More in the head, beside Save and Confirm: a small plain control, never the primary one; its step holds the reason and the button.
+        $fold = '//div[contains(@class, "po-edit-bar")]/details[contains(@class, "more")][not(@open)]//details[contains(@class, "doc-act")][not(@open)]';
+        $summary = $xp->query($fold . '/summary');
         self::assertSame(1, $summary->length);
         self::assertSame(Words::PO_ONE['cancel'], trim((string) $summary->item(0)?->textContent));
         self::assertStringNotContainsString('primary', (string) $summary->item(0)?->attributes?->getNamedItem('class')?->nodeValue);
-        self::assertSame(1, $xp->query('//details[contains(@class, "po-cancel")]//button[@type="submit"][@form="po-cancel"][not(contains(@class, "primary"))]')->length);
-        self::assertSame(Words::ORDER['choose_reason'], trim((string) $xp->evaluate('string(//select[@name="reason_code"][@form="po-cancel"]/option[1])')));
+        self::assertSame([Words::ORDER['cancel_draft_button']], array_map(static fn (\DOMElement $b): string => trim($b->textContent),
+            iterator_to_array($xp->query($fold . '//form[contains(@action, "/cancel")]//button[@type="submit"][not(contains(@class, "primary"))]'))));
+        self::assertSame(Words::ORDER['choose_reason'], trim((string) $xp->evaluate('string(' . $fold . '//form[contains(@action, "/cancel")]//select[@name="reason_code"]/option[1])')));
         $c = $ed->form('/cancel');
         self::assertEqualsCanonicalizing(['csrf', 'version', 'note', 'reason_code'], array_keys($c), 'its own form, not the order\'s');
         self::assertSame('', $c['reason_code'], 'no reason chosen for the person');
@@ -647,7 +650,7 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         // No reason: refused, the step open again, nothing cancelled.
         $bad = $web->post("/ui/purchasing/orders/{$d->id}/cancel", $c);
         self::assertSame(400, $bad->status, $bad->describe());
-        self::assertSame(1, self::nodes($bad, '//details[contains(@class, "po-cancel")][@open]'));
+        self::assertSame(1, self::nodes($bad, '//div[contains(@class, "po-edit-bar")]/details[contains(@class, "more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/cancel")]'));
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$d->id]));
         // An old version: refused.
         self::assertSame(409, $web->post("/ui/purchasing/orders/{$d->id}/cancel", ['reason_code' => 'not_needed', 'version' => (string) ((int) $c['version'] - 1)] + $c)->status);
@@ -782,7 +785,7 @@ final class PoOnePageScreensTest extends KernelUiTestCase
         self::assertSame(['approve'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
             iterator_to_array((new \DOMXPath($page->dom()))->query('(' . $one . '//button | //button[@form="po-form"])[contains(concat(" ", @class, " "), " primary ")]'))));
         self::assertSame([Words::PO_ONE['save'], Words::PO_ONE['confirm']], array_map(static fn (\DOMElement $b): string => trim($b->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//div[contains(@class, "kg-head-bar")]/button[@form="po-form"][not(contains(@class, "po-default"))][not(@data-kg-jsonly)]'))), 'in the head (KG26)');
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//div[contains(@class, "po-edit-bar")]/button[@form="po-form"][not(contains(@class, "po-default"))][not(@data-kg-jsonly)]'))), 'in the head (KG26; the paper\'s bar, LP3)');
         self::assertSame(0, self::nodes($page, '//main//p[contains(@class, "hint") and not(contains(@class, "po-ask"))]'), 'no help under the fields');
         self::assertFalse($page->hasForm('/lines/import'));
         self::assertFalse($page->hasForm('/cancel'));

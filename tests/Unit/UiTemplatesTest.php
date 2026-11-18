@@ -48,6 +48,7 @@ final class UiTemplatesTest extends TestCase
             'by_item_preview', 'new_variants', 'one_at_a_time',
             'simple_match', 'simple_match_options', // Products › Simple matching and its cell's choices (docs/decisions.md SM1-SM9)
             'po_products', // the purchase order's product box: its choices (docs/decisions.md PX8)
+            'po_paper_head', 'po_paper_lines', 'po_paper_line', 'po_paper_foot', 'po_cards', // the order's paper, a draft's boxes in place (docs/decisions.md LP1)
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page and the shared document pieces (docs/decisions.md PV)
             'po_action', 'si_action', // the approved design: one action of a saved order or invoice, in its bar or under More (docs/decisions.md PV19)
             'store_new_preview', // Store Products' "Create new warehouse products for these" (docs/decisions.md NF7)
@@ -242,6 +243,7 @@ final class UiTemplatesTest extends TestCase
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
             'sales_order_bar', 'report_sales', // wave w10: an order's bar; Sales by Store on the report pattern (docs/decisions.md W10)
             'po_supplier_needs', 'po_products', // pack PO (PO3); PO on one page (PX8): the product box's choices
+            'po_paper_head', 'po_paper_lines', 'po_paper_line', 'po_paper_foot', 'po_cards', // one look (LP1): the paper's parts
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page, the shared document pieces (PV)
             'po_action', 'si_action', // the approved design: a saved order's or invoice's actions (PV19)
             // Suppliers and buying on the approved patterns (docs/decisions.md W9)
@@ -1593,7 +1595,7 @@ final class UiTemplatesTest extends TestCase
             . 'the matching pages\' store, state, period and show tabs, W12.5-W12.8, the last store and count-sheet rows, DC33, DC35, and the item\'s, RD-A4: the supplier\'s '
             . 'record tabs are left)');
         $templates = self::templates();
-        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
+        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'purchase_order', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
             self::assertStringContainsString('data-unsaved="1"', $src, "{$name}: its form keeps typed values, so a link asks first");
             preg_match_all('/<a\b(?:<\?(?:php|=).*?\?>|[^>])*>/s', $src, $links);
@@ -1929,7 +1931,8 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString("\$word('SALE', 'download_short')", $t['sales_orders.php']);
         self::assertSame(1, substr_count($t['sales_orders.php'], '<select id="tb-show" name="channel"'), 'one Show: the stores');
         // The order's page.
-        $order = $t['purchase_order.php'];
+        // The order's page and the paper's parts it draws (docs/decisions.md LP1: one paper for a new order, a draft and a confirmed order).
+        $order = $t['purchase_order.php'] . $t['po_paper_head.php'] . $t['po_paper_lines.php'] . $t['po_paper_line.php'] . $t['po_paper_foot.php'] . $t['po_cards.php'];
         foreach (['<ol class="po-steps"', '<div class="po-paper-head">', '<section class="doc-party po-deliver"', '<dl class="doc-facts po-dates">',
             "\$word('ORDER', 'col_item')", "\$word('ORDER', 'col_ordered')", "\$word('ORDER', 'col_received')", "\$word('ORDER', 'col_cost')",
             "\$word('ORDER', 'col_line_total')", "\$partial('doc_totals'", '<section class="card po-related"', '<section class="card po-history"', 'back: [',
@@ -1937,11 +1940,12 @@ final class UiTemplatesTest extends TestCase
             self::assertStringContainsString($part, $order, "the order's page: {$part}");
         }
         // Six line columns after the No. column of the standard grid (docs/decisions.md KG10, KG34: the item's current stock after it).
-        self::assertSame(7, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines kg-view">(.*?)</thead>.*$#s', '$1', $order), '<th scope="col"'), 'the No. column and six line columns');
+        self::assertSame(7, substr_count((string) preg_replace('#^.*<table class="stack po-lines doc-lines kg-view">(.*?)</thead>.*$#s', '$1', $t['po_paper_lines.php']), '<th scope="col"'),
+            'the No. column and six line columns (Received from the confirmation on: LP5)');
         self::assertStringNotContainsString('doc-progress', $order, 'the steps, not the figures strip');
         foreach (['lines.xlsx', 'lines.csv', "'/ui/documents/' . \$doc->id"] as $link) {
             self::assertStringContainsString($link, $t['po_bar.php'], "under More: {$link}");
-            self::assertStringNotContainsString($link, $order, "not on the paper: {$link}");
+            self::assertStringNotContainsString($link, $t['po_paper_head.php'] . $t['po_paper_line.php'] . $t['po_paper_foot.php'], "not on the paper: {$link}");
         }
         // The delivery's page.
         $gr = $t['receipt_edit.php'];
@@ -1953,6 +1957,65 @@ final class UiTemplatesTest extends TestCase
         self::assertMatchesRegularExpression('#<td class="c-next gi-acts"><\?php if \(\$l\[\'stamp_req\'\]\): \?><label class="gi-duty #', $gr, 'the duty stamp in the line\'s answers');
         self::assertStringContainsString('data-gi-duty="1"', $gr);
         self::assertStringContainsString('data-gi-fine=', $gr);
+    }
+
+    /**
+     * One look for a purchase order (live drafts step 2; docs/decisions.md LP1-LP8; the owner, 18 Nov 2026: "I liked how it looks on Shareef's
+     * window, the design"): purchase_order.php draws a new order, a draft and a confirmed order from the same paper partials; on a draft for
+     * someone who may write orders they hold real boxes (class kg-flat, a box only on hover and focus: app.css, scoped to .kg-paper) inside
+     * the one editor form, so the form still saves without the script; the old one-page form stays as the way back (po.draft_look = form).
+     */
+    public function testTheDraftIsThePaperWithItsBoxesInPlace(): void
+    {
+        $t = self::templates();
+        $page = $t['purchase_order.php'];
+        foreach (["\$partial('po_paper_head'", "\$partial('po_paper_lines'", "\$partial('po_paper_foot'"] as $call) {
+            self::assertSame(2, substr_count($page, $call), "{$call}: the editor's paper and the read-only one");
+        }
+        self::assertStringContainsString("\$partial('po_paper_line'", $t['po_paper_lines.php']);
+        self::assertSame(1, preg_match('/<form id="po-form" class="po-editor kg-doc kg-paper" method="post" action="<\?= \$u\(\$formAction\) \?>" data-kg-editor="po:/', $page),
+            'the paper inside the one editor form');
+        self::assertStringContainsString('data-unsaved="1"', $page, 'typed values are guarded as on the old form');
+        // The boxes of the paper: every figure a person types carries kg-flat (and never one outside the paper's templates).
+        $paper = $t['po_paper_head.php'] . $t['po_paper_lines.php'] . $t['po_paper_line.php'] . $t['po_paper_foot.php'];
+        preg_match_all('/<input\b(?:<\?(?:php|=).*?\?>|[^>])*>/s', $paper, $inputs);
+        $boxes = 0;
+        foreach ($inputs[0] as $in) {
+            if (preg_match('/data-kg-cell=|name="(?:expected_date|external_ref|note|charge_amount)"/', $in) === 1) {
+                $boxes++;
+                self::assertMatchesRegularExpression('/class="[^"]*\bkg-flat\b/', $in, "a box in place: {$in}");
+            }
+        }
+        self::assertGreaterThanOrEqual(10, $boxes, 'the boxes were read');
+        foreach ($t as $name => $src) {
+            if (!in_array($name, ['purchase_order.php', 'po_paper_head.php', 'po_paper_lines.php', 'po_paper_line.php', 'po_paper_foot.php'], true)) {
+                self::assertStringNotContainsString('kg-flat', $src, "{$name}: the paper's boxes are the order's alone");
+                self::assertStringNotContainsString('kg-paper', $src, "{$name}: the paper's scope is the order's alone");
+            }
+        }
+        // The labels a screen reader says, as on the old form ("Line 3: Packs"); the grid's contract on the editor's table.
+        self::assertStringContainsString("aria-label=\"<?= \$say('ORDER', 'line', \$no) ?>: <?= \$word('ORDER', 'packs') ?>\"", $t['po_paper_line.php']);
+        foreach (['data-kg-grid', 'data-kg-max=', 'data-kg-remove="line_%d_remove"', 'data-kg-vat=', 'data-kg-rates=', 'data-kg-max-qty=', 'data-kg-min-qty="0"',
+            "\$partial('doc_grid_words'", 'data-kg-empty', 'data-po-pick', '<template data-kg-row>', "\$partial('doc_grid_tools'", "\$partial('doc_grid_keys'"] as $part) {
+            self::assertStringContainsString($part, $t['po_paper_lines.php'], $part);
+        }
+        foreach (['data-kg-row', 'data-kg-line=', 'data-kg-new', 'data-kg-upp=', 'data-kg-vat=', 'data-kg-rate=', 'data-kg-e2=', 'data-kg-no', 'data-kg-amount', 'data-kg-x',
+            'data-kg-name', 'data-kg-code', 'data-kg-their', 'data-kg-pack', 'data-kg-units', "data-kg-cell=\"qty\"", "data-kg-cell=\"price\"", "data-kg-cell=\"upp\""] as $part) {
+            self::assertStringContainsString($part, $t['po_paper_line.php'], $part);
+        }
+        foreach (['data-kg-total="units"', 'data-kg-total="count"', 'data-kg-total="net"', 'data-kg-total="vat"', 'data-kg-total="gross"', 'data-kg-vat-rows', 'data-kg-vat-row',
+            'data-kg-vat-end', 'data-kg-delivery', 'data-kg-swap-part="summary"', "\$partial('doc_totals'"] as $part) {
+            self::assertStringContainsString($part, $t['po_paper_foot.php'], $part);
+        }
+        self::assertStringContainsString('data-kg-swap-part="header"', $t['po_paper_head.php']);
+        self::assertStringContainsString('data-kg-swap-part="party"', $t['po_paper_head.php']);
+        self::assertStringContainsString('data-kg-swap-part="terms"', $t['po_paper_head.php']);
+        // The bar: the saved order's (po_bar), with the editor's Save and Confirm for the form when there is one.
+        self::assertStringContainsString("\$partial('po_bar', ", $page);
+        self::assertStringContainsString('form="<?= $e($editor) ?>" name="action" value="save"', $t['po_bar.php']);
+        self::assertStringContainsString('form="<?= $e($editor) ?>" name="action" value="approve"', $t['po_bar.php']);
+        // The old form is kept for one release, as the setting's way back.
+        self::assertArrayHasKey('purchase_order_edit.php', $t);
     }
 
     /**

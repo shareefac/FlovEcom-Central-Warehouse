@@ -374,12 +374,12 @@ final class DocKeyGridScreensTest extends KernelUiTestCase
                 self::assertStringContainsString(Words::DOC_GRID[$w], implode(' ', self::texts($page, $keys)), $w);
             }
             self::assertSame(5, self::nodes($page, $keys . '//kbd[@data-mac]'), 'Cmd and Option on a Mac');
-            self::assertSame(1, self::nodes($page, '//div[contains(@class, "kg-head-bar")]/button[@data-kb-open][@data-kg-jsonly]'), 'the head\'s Keys (?)');
+            self::assertSame(1, self::nodes($page, '//div[contains(@class, "po-edit-bar")]/button[@data-kb-open][@data-kg-jsonly]'), 'the head\'s Keys (?) (the paper\'s bar, LP3)');
             self::assertSame([Words::DOC_GRID['all_keys']], self::texts($page, $keys . '//button[@data-kb-open][@aria-controls="kb-panel"]'));
             self::assertSame(1, self::nodes($page, '//div[@id="kb-panel"][@data-kb-panel][@hidden][@role="dialog"]'), 'the panel of every key, in the layout');
             // ERPNext's head as the demo the owner approved (KG26, KG31): the actions on the right of the title, for the editor form; Confirm the main one.
             self::assertSame(['approve'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'),
-                iterator_to_array((new \DOMXPath($page->dom()))->query('//div[contains(@class, "kg-head-bar")]/button[contains(concat(" ", @class, " "), " primary ")][@form="po-form"]'))), $path);
+                iterator_to_array((new \DOMXPath($page->dom()))->query('//div[contains(@class, "po-edit-bar")]/button[contains(concat(" ", @class, " "), " primary ")][@form="po-form"]'))), $path);
             self::assertSame(1, self::nodes($page, '//form[@id="po-form"][starts-with(@data-kg-editor, "po:")]'), $path);
             foreach (['data-kg-add-row', 'data-kg-several-open', 'data-kg-delete'] as $tool) {
                 self::assertSame(1, self::nodes($page, '//div[contains(@class, "kg-tools")]//button[@' . $tool . '][@hidden]'), $tool . ': drawn hidden, the script shows it');
