@@ -3990,7 +3990,7 @@ form.kg-paper table.kg-grid td.num input.kg-flat { width: 6.5rem; max-width: 100
 form.kg-paper table.kg-grid input.kg-item { font-weight: 600; }
 /* The paper's words are 14 px: so are its boxes (form.kg-doc's 13 px rule is more specific than a box's own class). */
 form.kg-paper table.kg-grid input.kg-flat, form.kg-paper table.kg-grid input.kg-item { font-size: 14px; }
-form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; }
+form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; white-space: normal; overflow-wrap: anywhere; } /* a long figure wraps in a phone's card (round 2) */
 form.kg-paper table.kg-grid .kg-sub > span:not(:empty) + span:not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
 form.kg-paper table.kg-grid label.kg-upp { display: block; margin: 4px 0 0; }
 form.kg-paper table.kg-grid label.kg-upp input.kg-flat { width: 5rem; text-align: right; }
@@ -4012,7 +4012,8 @@ form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32
 @media (max-width: 700px) {
   /* As specific as the rules they follow (form.kg-doc's 13 px and 34 px; the Codex review, round 1): 16 px text and 44 px boxes on a phone. */
   form.kg-paper table.kg-grid input.kg-flat, form.kg-paper table.kg-grid input.kg-item, form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat,
-  form.kg-paper .doc-facts dd.kg-in input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat, form.kg-paper .doc-notes p.kg-in input.kg-flat { min-height: 44px; font-size: 16px; }
+  form.kg-paper .doc-facts dd.kg-in input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat, form.kg-paper .doc-notes p.kg-in input.kg-flat,
+  form.kg-paper .kg-several input[type="search"] { min-height: 44px; font-size: 16px; }
   form.kg-paper table.kg-grid td.num input.kg-flat, form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 100%; }
 }
 /* The bar of the paper's head (po_bar with the editor's Save and Confirm): its unseen Add (Enter is Add) takes no room. */

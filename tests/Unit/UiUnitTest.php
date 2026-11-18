@@ -1802,6 +1802,13 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("if (form.hasAttribute('data-leaves-on')) {", $js);
         self::assertStringContainsString("document.addEventListener('kg-swapped', function () { each(document.querySelectorAll('form[data-leaves]'), leaving); });", $js);
         self::assertStringContainsString("querySelector('[data-kg-per]')", $grid, 'the pack\'s price says its pack as the item changes');
+        // An item changed in place (the Codex review, round 2): its own pack (not the old item's items-per-pack box, put out of sight), the
+        // VAT words of the code it is worked out with; a long figure wraps in a phone's card; "Add several"'s search box 16 px on a phone.
+        self::assertStringContainsString("var uppBox = tr.hasAttribute('data-kg-swap') ? null : cellIn(tr, 'upp');", $grid);
+        self::assertStringContainsString("(oldUpp.closest('label') || oldUpp).hidden = true;", $grid);
+        self::assertStringContainsString("var vatEl = tr.querySelector('[data-kg-vat-code]');", $grid);
+        self::assertSame(1, preg_match('/form\.kg-paper table\.kg-grid td\.num \.o-sub \{[^}]*white-space: normal; overflow-wrap: anywhere;/', $plain));
+        self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*form\.kg-paper \.kg-several input\[type="search"\] \{ min-height: 44px; font-size: 16px; \}/s', $plain));
     }
 
     /**

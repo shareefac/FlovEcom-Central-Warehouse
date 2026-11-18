@@ -1631,7 +1631,7 @@
         var unitsEl = qty ? tr.querySelector('[data-kg-units]') : null;
         var perEl = tr.querySelector('[data-kg-per]');
         if (unitsEl || perEl) {
-          var uppBox = cellIn(tr, 'upp');
+          var uppBox = tr.hasAttribute('data-kg-swap') ? null : cellIn(tr, 'upp'); // an item changed in place: its own pack (round 2)
           var per = uppBox ? whole(uppBox.value) : (parseInt(tr.getAttribute('data-kg-upp') || '1', 10) || 1);
           var packOf = tr.getAttribute('data-kg-pack-of') || '';
           var packWords = uppBox && packOf !== '' && per !== null ? packOf.replace('%s', per.toLocaleString('en-GB')) : tr.getAttribute('data-pack') || '';
@@ -1644,10 +1644,16 @@
             perEl.textContent = several ? (perEl.getAttribute('data-words') || '').replace('%s', packWords) : '';
           }
         }
+        var code = isNew(tr) ? newVat() : tr.getAttribute('data-kg-vat') || '';
         if (a !== null) {
           sum += a;
-          var code = isNew(tr) ? newVat() : tr.getAttribute('data-kg-vat') || '';
           vat(code, isNew(tr) ? rateOf(code) : e2(tr.getAttribute('data-kg-rate') || '', false), a);
+        }
+        // The paper's VAT words on the item's line ("VAT S") say the code the line is worked out with: a new one's (the supplier's) once its
+        // item changed in place (the Codex review of look-paper, round 2).
+        var vatEl = tr.querySelector('[data-kg-vat-code]');
+        if (vatEl && isNew(tr)) {
+          vatEl.textContent = code !== '' ? (vatEl.getAttribute('data-words') || '').replace('%s', code) : '';
         }
       });
       // The delivery typed: its own row of the taxes table (the demo the owner approved, KG31), at the supplier's VAT; in the grand total.
@@ -2072,6 +2078,12 @@
         pack: a('data-pack'), their: a('data-their'), stock: a('data-stock'), coming: a('data-coming') }); // its stock too (KG34, KG35)
       if (!tr.hasAttribute('data-kg-new')) {
         tr.setAttribute('data-kg-swap', '1');
+        // The old item's "items per pack" box no longer says anything about this line (its pack is the new item's): out of sight, as the
+        // saved line it belonged to goes on the save (the Codex review of look-paper, round 2).
+        var oldUpp = cellIn(tr, 'upp');
+        if (oldUpp) {
+          (oldUpp.closest('label') || oldUpp).hidden = true;
+        }
         var no = tr.getAttribute('data-kg-line') || '';
         if (!tr.querySelector('input[data-kg-flag]') && removeName !== '' && /^[1-9][0-9]*$/.test(no)) {
           var flag = document.createElement('input');

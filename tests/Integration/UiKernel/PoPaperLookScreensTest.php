@@ -161,6 +161,8 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         // Their code and the pack in the item's line (the paper has no columns for them); a line of single items says nothing more under its packs.
         self::assertSame(['HPMP-6K-SW'], self::texts($page, $row . '/th//*[@data-kg-their]'));
         self::assertSame([$pack], self::texts($page, $row . '/th//*[@data-kg-pack]'));
+        self::assertSame([Words::say('ORDER', 'vat_code', 'S')], self::texts($page, $row . '/th//*[@data-kg-vat-code][@data-words="' . Words::ORDER['vat_code'] . '"]'),
+            'the VAT words app.js says again when the item changes (Codex round 2)');
         self::assertSame([''], self::texts($page, $grid . '/tbody/tr[@data-kg-line="1"]//*[@data-kg-units]'));
         // The empty line last (the product box), the new line's template, the one field for new lines, the tools, the keys and Undo.
         self::assertSame(1, self::nodes($page, $grid . '/tbody/tr[last()][@data-kg-empty]//input[@name="q"][@data-po-pick]'));

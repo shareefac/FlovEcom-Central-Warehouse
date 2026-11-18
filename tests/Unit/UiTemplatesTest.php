@@ -2000,7 +2000,8 @@ final class UiTemplatesTest extends TestCase
             self::assertStringContainsString($part, $t['po_paper_lines.php'], $part);
         }
         foreach (['data-kg-row', 'data-kg-line=', 'data-kg-new', 'data-kg-upp=', 'data-kg-vat=', 'data-kg-rate=', 'data-kg-e2=', 'data-kg-no', 'data-kg-amount', 'data-kg-x',
-            'data-kg-name', 'data-kg-code', 'data-kg-their', 'data-kg-pack', 'data-kg-units', "data-kg-cell=\"qty\"", "data-kg-cell=\"price\"", "data-kg-cell=\"upp\""] as $part) {
+            'data-kg-name', 'data-kg-code', 'data-kg-their', 'data-kg-pack', 'data-kg-units', 'data-kg-per', 'data-kg-vat-code', "data-kg-cell=\"qty\"", "data-kg-cell=\"price\"",
+            "data-kg-cell=\"upp\""] as $part) {
             self::assertStringContainsString($part, $t['po_paper_line.php'], $part);
         }
         foreach (['data-kg-total="units"', 'data-kg-total="count"', 'data-kg-total="net"', 'data-kg-total="vat"', 'data-kg-total="gross"', 'data-kg-vat-rows', 'data-kg-vat-row',

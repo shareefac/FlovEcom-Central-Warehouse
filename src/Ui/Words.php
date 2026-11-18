@@ -6616,6 +6616,7 @@ final class Words
         'per' => 'per %s',
         // A draft's paper (one look, docs/decisions.md LP4): under the packs box, worked out again as typed (app.js fills the three in order).
         'packs_units' => '%s × %s = %s',
+        'vat_code' => 'VAT %s', // the item's line on a draft's paper (LP4): the code app.js says again when the line's item changes
         'to_come_pill' => '%s to come',
         'related' => 'Related',
         'no_related' => 'Nothing yet.',
