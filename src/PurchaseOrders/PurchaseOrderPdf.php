@@ -20,16 +20,18 @@ use CW\Output\PdfWriter;
  *                      reviewer rejected, I98)
  *   top left           the buying company (decision 9; CW\Company\CompanyDetails since 0013, I96): legal name, trading name,
  *                      address, phone, e-mail, company and VAT numbers ("GB 123 4567 89"; no VAT line for a company that
- *                      said it is not VAT registered); an empty value prints [to be confirmed]
+ *                      said it is not VAT registered). Only what is given is printed (the owner, 18 Nov 2026; CQ2): an
+ *                      empty legal name or registered address (the two details a confirmation needs) prints [to be confirmed],
+ *                      any other empty detail prints no line at all, never a label with nothing after it
  *   top right          PURCHASE ORDER, the number (or "draft #id", or SAMPLE), order date, expected delivery, the supplier's
  *                      quote reference, "Amends PO-x"
- *   two boxes          Supplier (name, code, address, VAT no., contact, e-mail) and Deliver to (the delivery address, long
- *                      lines wrapped, never cut), both on one page (a new page when the letterhead leaves too little room)
+ *   two boxes          Supplier (name, code, address, VAT no., contact, e-mail) and Deliver to (the delivery address, or the
+ *                      registered address when none is given, CQ3; long lines wrapped, never cut), both on one page (a new page when the letterhead leaves too little room)
  *   lines (180 mm)     # · Supplier code · CW code · Description · Pack ("box ×24") · Packs · Units · Pack price · VAT · Net;
  *                      the header repeats on every page; a charge line leaves the codes and pack columns blank
  *   totals             lines / units; Net; VAT per code ("VAT S 20%  £x"); Total
  *   notes              the PO's note ("Notes to supplier"), then po.terms
- *   footer             "<legal name> · Company no. · VAT no. · <number> · page n/{nb}"
+ *   footer             "<legal name> · Company no. · VAT no. · <number> · page n/{nb}" (the numbers only when given)
  *
  * A posted PO prints its snapshots (what was approved), a draft the current company details and supplier
  * (PurchaseOrders::pdfData); a cancellation document prints "CANCELLATION OF PO-x" with the original's lines and the reason;
@@ -69,9 +71,12 @@ final class PurchaseOrderPdf
         $label = (string) $d['label'];
         $cancel = $d['cancellation'] ?? null;
         $sample = ($d['sample'] ?? false) === true;
-        // "Not VAT registered" (said explicitly, I92) prints no VAT number at all; not said yet prints [to be confirmed].
-        $vat = ($company['vat_registered'] ?? null) === false ? null : self::val(CompanyDetails::formatVat(trim((string) ($company['vat_number'] ?? ''))));
-        $footer = self::val($company['legal_name'] ?? '') . ' · Company no. ' . self::val($company['company_number'] ?? '')
+        // Only the details given are printed (CQ2): no VAT number given, or "Not VAT registered" (said explicitly, I92), prints no
+        // VAT line at all; no company number, phone or e-mail prints no line either. Only the two details a confirmation needs (the
+        // legal name, the registered address) say [to be confirmed] while missing: only unconfirmed details lack them (DO NOT SEND).
+        $vat = ($company['vat_registered'] ?? null) === false ? null : self::given(CompanyDetails::formatVat(trim((string) ($company['vat_number'] ?? ''))));
+        $companyNo = self::given($company['company_number'] ?? '');
+        $footer = self::val($company['legal_name'] ?? '') . ($companyNo !== null ? ' · Company no. ' . $companyNo : '')
             . ($vat !== null ? ' · VAT no. ' . $vat : '') . ' · ' . ($cancel !== null ? (string) $cancel['number'] : $label);
         $pdf = new Fpdf($footer);
         $pdf->SetCompression($this->compress);
@@ -120,11 +125,11 @@ final class PurchaseOrderPdf
         }
         $addr = self::lines((string) ($company['address'] ?? ''));
         array_push($left, ...($addr === [] ? [self::TBC] : $addr));
-        $left[] = 'Phone: ' . self::val($company['phone'] ?? '');
-        $left[] = 'E-mail: ' . self::val($company['email'] ?? '');
-        $left[] = 'Company no. ' . self::val($company['company_number'] ?? '');
-        if ($vat !== null) {
-            $left[] = 'VAT no. ' . $vat;
+        foreach (['Phone: ' => self::given($company['phone'] ?? ''), 'E-mail: ' => self::given($company['email'] ?? ''), 'Company no. ' => $companyNo,
+            'VAT no. ' => $vat] as $what => $value) {
+            if ($value !== null) {
+                $left[] = $what . $value;
+            }
         }
         foreach ($left as $l) {
             $pdf->SetX(15);
@@ -174,10 +179,11 @@ final class PurchaseOrderPdf
             ($s['contact_name'] ?? null) !== null ? 'Contact: ' . $s['contact_name'] : null,
             ($s['email'] ?? null) !== null ? 'E-mail: ' . $s['email'] : null,
         ], static fn (?string $v): bool => $v !== null && trim($v) !== ''));
-        // The delivery address is wrapped to the box, never cut: a driver must be able to read all of it (I96).
+        // The delivery address is wrapped to the box, never cut: a driver must be able to read all of it (I96). None given: the
+        // registered address (CQ3).
         $pdf->SetFont('Helvetica', '', 9);
         $deliver = [];
-        foreach (self::lines((string) ($company['delivery_address'] ?? '')) as $line) {
+        foreach (self::lines(CompanyDetails::deliveryAddress($company)) as $line) {
             array_push($deliver, ...$this->wrap($pdf, PdfWriter::text($line), 84));
         }
         $h = 6 + 4.5 * max(count($supplierLines), max(1, count($deliver))) + 2;
@@ -376,10 +382,18 @@ final class PurchaseOrderPdf
         return $s . "\x85";
     }
 
+    /** A needed detail (the legal name): [to be confirmed] while it is empty. */
     private static function val(mixed $v): string
     {
         $v = trim((string) $v);
         return $v === '' ? self::TBC : $v;
+    }
+
+    /** An optional detail: null (nothing printed) while it is empty (CQ2). */
+    private static function given(mixed $v): ?string
+    {
+        $v = trim((string) $v);
+        return $v === '' ? null : $v;
     }
 
     /** @return list<string> the non-empty lines of a multi-line setting */

@@ -16,7 +16,10 @@ use CW\Staff\StaffRoles;
 /**
  * The company that buys and owns the warehouse stock, as every purchase order prints it (decision 9; docs/decisions.md
  * I90-I99): legal and trading name, company number, VAT (a number, or "not VAT registered"), registered address, purchasing
- * phone and e-mail, delivery address, and whether a person confirmed them.
+ * phone and e-mail, delivery address, and whether a person confirmed them. Only the legal name and the registered address are
+ * needed to confirm them (the owner, 18 Nov 2026: "i only need those right now. in future if i want i will add the rest then
+ * can show"; docs/decisions.md CQ1-CQ6): every other detail is printed only when it is given, and with no delivery address the
+ * goods go to the registered address (deliveryAddress()).
  *
  * company_profile (0013) holds one row per version and is append-only for the app login: saving changed details adds a
  * version (kind `change`, unconfirmed), confirming adds one (kind `confirm`), a rejected review whose change the details in
@@ -63,6 +66,8 @@ final class CompanyDetails
      * and where the goods and the replies go (a changed delivery address on a PO is the classic way to divert goods).
      */
     public const WATCHED = ['legal_name', 'company_number', 'vat_registered', 'vat_number', 'email', 'delivery_address'];
+    /** What a confirmation needs (CQ1, the owner 18 Nov 2026); every other field is optional. */
+    public const NEEDED = ['legal_name', 'address'];
     /** Approved orders still going to or coming from the supplier: flagged when they carry a rejected change (I98). */
     public const OPEN_ORDER_STATES = ['approved', 'sent', 'part_received'];
     /** 8 digits, 2 letters + 6 digits (SC, NI, OC ...), R + 7 digits (old Northern Ireland), IP/SP/NP + 5 digits + R (societies). */
@@ -113,7 +118,8 @@ final class CompanyDetails
 
     /**
      * What a PO prints and its posting snapshots (Settings::company(), PurchaseOrderHandler::post): the fields of the version in
-     * use, `confirmed` and `version`. Empty strings are printed as "[to be confirmed]".
+     * use, `confirmed` and `version`. An empty legal name or registered address is printed as "[to be confirmed]"; any other empty
+     * detail is not printed at all, and an empty delivery address prints the registered address (CQ2, CQ3).
      *
      * @return array{legal_name: string, trading_name: string, address: string, company_number: string, vat_number: string, phone: string, email: string, delivery_address: string, confirmed: bool, vat_registered: ?bool, version: int}
      */
@@ -171,7 +177,7 @@ final class CompanyDetails
 
     /**
      * "These details are correct": confirms the version the page showed ($expectedVersion) by adding a `confirm` version with
-     * the same details. Needs everything missing() lists, and details that pass check() as stored (a seeded value that is
+     * the same details. Needs what missing() lists (the legal name and the registered address, CQ1), and details that pass check() as stored (a seeded value that is
      * not yet in its tidy form must be saved once first). Compared with the baseline (I94): a watched field that differs from
      * it, confirmed by a person who saved a change of a watched field since it, opens a review for another reviewer. Result
      * `confirmed` (with review_task, baseline_version, watched_changed), or `already` (nothing written).
@@ -373,8 +379,9 @@ final class CompanyDetails
                 $then = self::tidy($base ?? self::EMPTY);
                 foreach (self::FIELDS as $k => $label) {
                     if ($then[$k] !== $row[$k]) {
+                        // With no delivery address of its own, the registered address is where the goods go (CQ4): watched too.
                         $changes[] = ['field' => $k, 'label' => $label, 'before' => self::shown($k, $then[$k]), 'after' => self::shown($k, $row[$k]),
-                            'watched' => in_array($k, self::WATCHED, true)];
+                            'watched' => in_array($k, self::WATCHED, true) || ($k === 'address' && trim($row['delivery_address']) === '')];
                     }
                 }
             }
@@ -632,8 +639,10 @@ final class CompanyDetails
     }
 
     /**
-     * What a confirmation still needs, in the words people read: legal name, company number, registered address, a VAT number
-     * or the explicit "not VAT registered", purchasing e-mail, delivery address (trading name and phone are optional).
+     * What a confirmation still needs, in the words people read: the legal name and the registered address (NEEDED; the owner,
+     * 18 Nov 2026, docs/decisions.md CQ1). Everything else is optional and may be added later: company number, VAT ("Not known
+     * yet" included), phone, e-mail, delivery address, trading name, the VAT code of our invoices. A detail that IS given must
+     * still pass check() (I92): confirm() refuses one that does not (company_invalid).
      *
      * @param array<string, mixed> $p
      * @return list<string>
@@ -641,20 +650,25 @@ final class CompanyDetails
     public static function missing(array $p): array
     {
         $out = [];
-        foreach (['legal_name', 'company_number', 'address'] as $k) {
-            if (trim((string) ($p[$k] ?? '')) === '') {
-                $out[] = self::FIELDS[$k];
-            }
-        }
-        if (($p['vat_registered'] ?? null) === null || (($p['vat_registered'] ?? null) === true && trim((string) ($p['vat_number'] ?? '')) === '')) {
-            $out[] = 'VAT number (or "not VAT registered")';
-        }
-        foreach (['email', 'delivery_address'] as $k) {
+        foreach (self::NEEDED as $k) {
             if (trim((string) ($p[$k] ?? '')) === '') {
                 $out[] = self::FIELDS[$k];
             }
         }
         return $out;
+    }
+
+    /**
+     * Where the goods go (CQ3): the delivery address, or the registered address when none is given ('' when neither is). What the
+     * PO PDF's Deliver-to box and the order page's "Deliver to" print, worked out from the details in use (a draft) or the order's
+     * snapshot (an approved order: the snapshot keeps both addresses as they were, so it prints what it was approved with).
+     *
+     * @param array<string, mixed> $p a version, CompanyDetails::company() or a PO's company snapshot
+     */
+    public static function deliveryAddress(array $p): string
+    {
+        $delivery = (string) ($p['delivery_address'] ?? '');
+        return trim($delivery) !== '' ? $delivery : (trim((string) ($p['address'] ?? '')) !== '' ? (string) $p['address'] : '');
     }
 
     /**
@@ -737,7 +751,9 @@ final class CompanyDetails
 
     /**
      * The WATCHED fields of $p (a version, or a PO's company snapshot) as check() tidies them; a snapshot from before 0013
-     * has no vat_registered: a VAT number says registered.
+     * has no vat_registered: a VAT number says registered. The delivery address is where the goods go (CQ4): with none of its
+     * own, the registered address (deliveryAddress()), so clearing it, or changing the registered address while it is empty,
+     * is a change of the delivery address.
      *
      * @param array<string, mixed> $p
      * @return array<string, mixed>
@@ -747,7 +763,9 @@ final class CompanyDetails
         if (!array_key_exists('vat_registered', $p)) {
             $p['vat_registered'] = trim((string) ($p['vat_number'] ?? '')) !== '' ? true : null;
         }
-        return array_intersect_key(self::tidy($p), array_flip(self::WATCHED));
+        $tidy = self::tidy($p);
+        $tidy['delivery_address'] = self::deliveryAddress($tidy);
+        return array_intersect_key($tidy, array_flip(self::WATCHED));
     }
 
     /** A field's value as the history shows it. */
@@ -823,7 +841,8 @@ final class CompanyDetails
     /**
      * The rejected checks still in force (I98), oldest first: task, version (the confirmation checked), note, decided_by_name,
      * decided_at, values (field => the rejected value: each watched field the confirmation changed against its baseline, empty
-     * values left out), involved. A rejection is lifted by a later confirmation, by someone not involved in it, of details that
+     * values left out: clearing a detail sends nothing anywhere else, and an empty delivery address is compared as the registered
+     * address, CQ4), involved. A rejection is lifted by a later confirmation, by someone not involved in it, of details that
      * carry its values (another reviewer decided they are right after all).
      *
      * @param array<int, array<string, mixed>> $rows versions()

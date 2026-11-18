@@ -57,7 +57,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(200, $settings->status, $settings->describe());
         $xp = new \DOMXPath($settings->dom());
         self::assertSame('Add or change the company details', trim((string) $xp->query('//section[contains(@class, "company-summary")]//a')->item(0)?->textContent));
-        self::assertStringContainsString('Not confirmed Every purchase order PDF says DO NOT SEND until they are confirmed. Still missing: legal name, company number',
+        self::assertStringContainsString('Not confirmed Every purchase order PDF says DO NOT SEND until they are confirmed. Still missing: legal name, registered address.',
             $settings->text());
         $page = $owner->get('/ui/reference/company');
         self::assertSame(200, $page->status, $page->describe());
@@ -67,8 +67,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::PAGE_INTRO['company'][0], $page->text(), 'no sentence under the heading (DC1)');
         self::assertSame([], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
             iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs" or contains(@class, "ph-back")]/a'))), 'a tab of Settings: no way back needed');
-        self::assertStringContainsString('Still missing: legal name, company number, registered address, VAT number (or "not VAT registered"), purchasing e-mail, '
-            . 'delivery address.', $page->text());
+        self::assertStringContainsString('Still missing: legal name, registered address.', $page->text());
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'), 'nothing to confirm yet');
         self::assertContains('/ui/reference/company/edit', $page->hrefs());
         self::assertContains('/ui/reference/company/sample.pdf', $page->hrefs());
@@ -215,14 +214,97 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(400, $a->post('/ui/reference/company', ['version' => 'x'] + $f)->status, 'a form without a version');
         self::assertSame(400, $a->post('/ui/reference/company', ['form_key' => 'nope'] + $f)->status, 'a form without a valid form key');
 
-        // Confirming before every required detail is there: no form on the page, a forced POST says what is missing.
-        $b->post('/ui/reference/company', self::editForm($b, ['delivery_address' => '', 'vat_registered' => '', 'vat_number' => '']));
+        // Confirming before every required detail is there (the legal name and the registered address, CQ1): no form on the page, a
+        // forced POST says what is missing.
+        $b->post('/ui/reference/company', self::editForm($b, ['address' => '', 'delivery_address' => '', 'vat_registered' => '', 'vat_number' => '']));
         $page = $a->get('/ui/reference/company');
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'));
-        self::assertStringContainsString('Still missing: VAT number (or "not VAT registered"), delivery address.', $page->text());
+        self::assertStringContainsString('Still missing: registered address.', $page->text());
         $r = $a->post('/ui/reference/company/confirm', ['csrf' => $this->token($a), 'version' => '4', 'form_key' => str_repeat('c', 32)]);
         self::assertSame(422, $r->status, $r->describe());
-        self::assertStringContainsString('Before the details can be confirmed, fill in: VAT number (or "not VAT registered"), delivery address.', $r->text());
+        self::assertStringContainsString('Before the details can be confirmed, fill in: registered address.', $r->text());
+    }
+
+    /** @return string every string a compressed PDF draws, joined by a line break (its page streams opened) */
+    private static function pdfText(string $pdf): string
+    {
+        preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf, $m);
+        $out = [];
+        foreach ($m[1] as $stream) {
+            $plain = @gzuncompress($stream);
+            if (is_string($plain) && preg_match_all('/\(((?:[^()\\\\\n]|\\\\.)*)\) Tj/', $plain, $t) > 0) {
+                array_push($out, ...array_map(static fn (string $x): string => str_replace(['\\(', '\\)', '\\\\'], ['(', ')', '\\'], $x), $t[1]));
+            }
+        }
+        return implode("\n", $out);
+    }
+
+    /**
+     * The owner, 18 Nov 2026: "i only need those right now. in future if i want i will add the rest then can show" (CQ1-CQ5). He types
+     * the legal and trading name, the registered address and the purchasing e-mail, no company number, VAT "Not known yet", no phone, no
+     * delivery address; the page offers the confirm button and confirms them; the details card shows only what is given and names, in
+     * one sentence, what may be added later; the sample PDF prints no empty "Company no." / "VAT no." / "Phone:" and delivers to the
+     * registered address; an order's page delivers there too. The form and the help say which two details are needed.
+     */
+    public function testTheNameAndAddressAreEnoughAndOnlyWhatIsGivenShows(): void
+    {
+        $ownerUser = $this->uiUser(['reviewer', 'mapping_lead']);
+        $owner = $this->signIn($ownerUser);
+        $edit = $owner->get('/ui/reference/company/edit');
+        self::assertStringContainsString(Words::COMPANY['needed_line'], $edit->text(), 'the form says which details are needed');
+        $f = self::editForm($owner, self::typed(['company_number' => '', 'vat_registered' => '', 'vat_number' => '', 'phone' => '', 'delivery_address' => '']));
+        self::assertSame('/ui/reference/company?notice=saved', $owner->post('/ui/reference/company', $f)->location());
+        $page = $owner->get('/ui/reference/company');
+        self::assertStringNotContainsString('Still missing', $page->text());
+        self::assertTrue($page->hasForm('/ui/reference/company/confirm'), 'nothing else is needed');
+
+        // The details card: a row for each detail given, none for one not given; one sentence names what may be added later.
+        $xp = new \DOMXPath($page->dom());
+        $rows = array_map(static fn (\DOMElement $d): string => $d->getAttribute('data-field'),
+            iterator_to_array($xp->query('//section[@aria-labelledby="details-h"]//div[@data-field]')));
+        self::assertSame(['legal_name', 'trading_name', 'address', 'email', 'delivery_address', 'currency', 'saved'], $rows);
+        $deliver = trim((string) $xp->query('//section[@aria-labelledby="details-h"]//div[@data-field="delivery_address"]/div[contains(@class, "set-v")]')->item(0)?->textContent);
+        self::assertSame(Words::say('COMPANY', 'delivery_same'), $deliver, 'no delivery address: the registered address, said so');
+        $later = trim((string) $xp->evaluate('string(//section[@aria-labelledby="details-h"]//p[contains(@class, "company-later")])'));
+        self::assertSame(Words::say('COMPANY', 'later', 'company number, VAT, purchasing phone, VAT code of our invoices'), $later);
+        self::assertStringNotContainsString('[to be confirmed]', $page->text());
+        self::assertStringNotContainsString(Words::COMPANY['not_given'], $page->text());
+
+        $c = $owner->post('/ui/reference/company/confirm', $page->form('/ui/reference/company/confirm'));
+        self::assertSame('/ui/reference/company?notice=confirmed', $c->location(), $c->describe());
+        self::assertTrue((new CompanyDetails(self::$db))->company()['confirmed']);
+
+        // The sample PDF: no banner, no empty label, the registered address in the Deliver-to box.
+        $pdf = $owner->get('/ui/reference/company/sample.pdf');
+        self::assertSame(200, $pdf->status, $pdf->describe());
+        $text = self::pdfText($pdf->body);
+        self::assertStringContainsString("Example Vapes Ltd\nVape and Go\n1 High Street\nLeeds\nLS1 1AA\nE-mail: buying@example.co.uk\n", $text);
+        self::assertStringContainsString("Deliver to\n1 High Street\nLeeds\nLS1 1AA\n", $text);
+        foreach (['Company no.', 'VAT no.', 'Phone:', '[to be confirmed]', 'NOT CONFIRMED'] as $absent) {
+            self::assertStringNotContainsString($absent, $text, $absent);
+        }
+
+        // An order's page: "Deliver to" is the registered address (not "to be confirmed").
+        $buyerUser = $this->uiUser('buyer');
+        $sup = new Suppliers(self::$db);
+        $s = $sup->create(Caller::staff($buyerUser['id']), ['name' => 'Plain Supplies', 'address_line1' => '2 Mill Lane', 'postcode' => 'M1 1AA', 'email' => 'sales@plain.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 7 * 86400), 'dd_checked_by' => (string) $buyerUser['id'],
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 365 * 86400), 'min_order_value' => '100.00']);
+        $s = $sup->requestActivation(Caller::staff($buyerUser['id']), (int) $s['id'], (int) $s['version']);
+        $task = self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND subject_id = ? AND state = 'open'", [(int) $s['id']]);
+        if ($task !== null) {
+            $sup->approve(Caller::staff($this->uiUser('reviewer')['id']), (int) $task, null);
+        }
+        $pos = new PurchaseOrders(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)));
+        $d = $pos->createDraft(Caller::staff($buyerUser['id']), (int) $s['id'], []);
+        $d = $pos->saveDraft(Caller::staff($buyerUser['id']), $d->id, $d->version, [], [['kind' => 'item', 'sku_id' => self::makeSku('Plain item'), 'units_per_pack' => 1,
+            'packs' => 10, 'pack_price' => '12.00']]);
+        $d = $pos->approve(Caller::staff($buyerUser['id']), $d->id, $d->version);
+        $view = $this->signIn($buyerUser)->get("/ui/purchasing/orders/{$d->id}");
+        self::assertSame(200, $view->status, $view->describe());
+        $box = trim((string) preg_replace('/\s+/', ' ', (string) (new \DOMXPath($view->dom()))->evaluate('string(//section[contains(@class, "po-deliver")])')));
+        self::assertSame(Words::ORDER['deliver_to'] . ' Vape and Go 1 High Street · Leeds · LS1 1AA', $box);
+        self::assertStringNotContainsString(Words::ORDER['deliver_tbc'], $view->text());
     }
 
     public function testConfirmingYourOwnChangeGoesToAnotherReviewer(): void

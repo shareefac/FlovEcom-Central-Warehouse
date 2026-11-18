@@ -11,7 +11,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The PO PDF (spec §6.7; I48-I59), uncompressed so the page text can be read: the letterhead from the company details or
- * the posting snapshot, [to be confirmed] for empty values, the three banners, "Amends PO-x", a long order over several
+ * the posting snapshot, [to be confirmed] for an empty legal name or registered address and no line at all for an optional detail
+ * not given (CQ2), the Deliver-to box falling back to the registered address (CQ3), the three banners, "Amends PO-x", a long order over several
  * pages with the table header repeated, the totals and VAT per code, £ in Windows-1252, the footer, the cancellation; since
  * the Company details screen (I96): the VAT number formatted, no VAT line for "not VAT registered", accented letters, a long
  * delivery address wrapped (never cut), a long legal name cut in the footer (the page number stays), the SAMPLE order.
@@ -88,8 +89,13 @@ final class PurchaseOrderPdfTest extends TestCase
         self::assertStringContainsString('(draft #42) Tj', $pdf);
         self::assertStringContainsString('(Amends) Tj', $pdf);
         self::assertStringContainsString('(PO-000003) Tj', $pdf);
-        self::assertGreaterThanOrEqual(5, substr_count($pdf, '[to be confirmed]'), 'name, address, numbers, delivery address');
-        self::assertStringContainsString("([to be confirmed] \xB7 Company no. [to be confirmed]", $pdf);
+        // Only the two details a confirmation needs say [to be confirmed] (the legal name, also in the footer, and the registered
+        // address, also in the Deliver-to box); an optional detail not given prints no line at all (CQ2).
+        self::assertSame(4, substr_count($pdf, '[to be confirmed]'), 'name, address, delivery address (the registered one), footer');
+        self::assertStringContainsString("([to be confirmed] \xB7 draft #42 \xB7 page 1/1) Tj", $pdf);
+        foreach (['Company no.', 'Phone:', 'E-mail: [', 'VAT no. ['] as $absent) {
+            self::assertStringNotContainsString($absent, $pdf, $absent);
+        }
 
         $cancelled = (new PurchaseOrderPdf(false))->render(self::data(['status' => 'reversed', 'state' => 'cancelled', 'cancelled_by' => 'PO-000008']));
         self::assertStringContainsString("(CANCELLED \x97 see PO-000008) Tj", $cancelled);
@@ -156,8 +162,11 @@ final class PurchaseOrderPdfTest extends TestCase
         self::assertStringNotContainsString('VAT no. ', substr($none, 0, (int) strpos($none, '(Supplier) Tj')), 'no VAT line in the letterhead');
         self::assertStringContainsString("(Caf\xE9 Zo\xEB Vapes Ltd \xB7 Company no. SC123456 \xB7 PO-000007 \xB7 page 1/1) Tj", $none);
         self::assertStringContainsString('(VAT no. GB999) Tj', $none, "the supplier's VAT number still prints");
+        // Not said yet (CQ2): no VAT line either, nothing "[to be confirmed]" (it may be added later and then prints).
         $unknown = (new PurchaseOrderPdf(false))->render(self::data(['company' => ['vat_registered' => null, 'vat_number' => ''] + $company]));
-        self::assertStringContainsString('(VAT no. [to be confirmed]) Tj', $unknown);
+        self::assertStringNotContainsString('VAT no. ', substr($unknown, 0, (int) strpos($unknown, '(Supplier) Tj')), 'no VAT line in the letterhead');
+        self::assertStringContainsString("(Caf\xE9 Zo\xEB Vapes Ltd \xB7 Company no. SC123456 \xB7 PO-000007 \xB7 page 1/1) Tj", $unknown);
+        self::assertStringNotContainsString('[to be confirmed]', $unknown);
 
         // A legal name too long for the footer is cut there with "..." (0x85); the page number always shows.
         $long = (new PurchaseOrderPdf(false))->render(self::data(['company' => ['legal_name' => str_repeat('Very Long Name ', 10) . 'Ltd'] + $company]));
@@ -171,10 +180,10 @@ final class PurchaseOrderPdfTest extends TestCase
             'phone' => '', 'email' => 'buying@example.co.uk', 'delivery_address' => "Unit 4\nLeeds", 'confirmed' => true, 'vat_registered' => true, 'version' => 2];
         $pdf = (new PurchaseOrderPdf(false))->render(PurchaseOrderPdf::sampleData($company, '2026-10-02', 'Please quote our order number.'));
         foreach (["(SAMPLE \x97 NOT AN ORDER) Tj", '(Order no.) Tj', '(SAMPLE) Tj', '(Example Vapes Ltd) Tj', '(VAT no. GB 123 4567 82) Tj', '(Example Supplier \(Example Supplier Ltd\)) Tj',
-            '(Unit 4) Tj', '(2026-10-02) Tj', '(Please quote our order number.) Tj', "\xB7 SAMPLE \xB7 page 1/1) Tj", '(Phone: [to be confirmed]) Tj'] as $text) {
+            '(Unit 4) Tj', '(2026-10-02) Tj', '(Please quote our order number.) Tj', "\xB7 SAMPLE \xB7 page 1/1) Tj", '(E-mail: buying@example.co.uk) Tj'] as $text) {
             self::assertStringContainsString($text, $pdf, $text);
         }
-        foreach (['DRAFT', 'NOT CONFIRMED', 'PO-0'] as $absent) {
+        foreach (['DRAFT', 'NOT CONFIRMED', 'PO-0', 'Phone:', '[to be confirmed]'] as $absent) {
             self::assertStringNotContainsString($absent, $pdf, $absent);
         }
         $unconfirmed = (new PurchaseOrderPdf(false))->render(PurchaseOrderPdf::sampleData(['confirmed' => false] + $company, '2026-10-02', ''));
@@ -235,6 +244,60 @@ final class PurchaseOrderPdfTest extends TestCase
                 self::assertSame(substr_count($lines('K'), "K{$n}W"), substr_count($text, "K{$n}W"), "delivery line {$n}");
             }
         }
+    }
+
+    /**
+     * The owner, 18 Nov 2026: only the legal name and the registered address are needed, "in future if i want i will add the rest
+     * then can show" (CQ2, CQ3). What production holds (legal and trading name, registered address, purchasing e-mail, delivery
+     * address) prints those and nothing else: no "Company no.", "VAT no." or "Phone:" with nothing after it, in the letterhead or the
+     * footer. With no delivery address the Deliver-to box prints the registered address. A detail added later prints again.
+     */
+    public function testOnlyTheDetailsGivenArePrinted(): void
+    {
+        $company = CompanyDetails::check(['legal_name' => 'Example Vapes Ltd', 'trading_name' => 'Vape and Go', 'address' => "1 High Street\nLeeds\nLS1 1AA",
+            'email' => 'buying@example.co.uk', 'delivery_address' => "Unit 4, Example Park\nLeeds LS2 2BB"])['values'] + ['confirmed' => true, 'version' => 4];
+        self::assertSame([null, '', '', ''], [$company['vat_registered'], $company['vat_number'], $company['company_number'], $company['phone']]);
+        $pdf = (new PurchaseOrderPdf(false))->render(self::data(['company' => $company]));
+        $letterhead = substr($pdf, 0, (int) strpos($pdf, '(Supplier) Tj'));
+        foreach (['(Example Vapes Ltd) Tj', '(Vape and Go) Tj', '(1 High Street) Tj', '(LS1 1AA) Tj', '(E-mail: buying@example.co.uk) Tj'] as $text) {
+            self::assertStringContainsString($text, $letterhead, $text);
+        }
+        foreach (['Company no.', 'VAT no.', 'Phone:', '[to be confirmed]', 'NOT CONFIRMED'] as $absent) {
+            self::assertStringNotContainsString($absent, $letterhead, $absent);
+        }
+        self::assertStringNotContainsString('[to be confirmed]', $pdf);
+        self::assertStringContainsString("(Example Vapes Ltd \xB7 PO-000007 \xB7 page 1/1) Tj", $pdf, 'the footer: the name and the order, no empty numbers');
+        $texts = self::texts($pdf);
+        $at = array_search('Deliver to', $texts, true);
+        self::assertIsInt($at);
+        self::assertSame(['Unit 4, Example Park', 'Leeds LS2 2BB'], [$texts[$at + 1], $texts[$at + 2]]);
+
+        // No delivery address: the goods go to the registered address, printed in the Deliver-to box.
+        $texts = self::texts((new PurchaseOrderPdf(false))->render(self::data(['company' => ['delivery_address' => ''] + $company])));
+        $at = array_search('Deliver to', $texts, true);
+        self::assertIsInt($at);
+        self::assertSame(['1 High Street', 'Leeds', 'LS1 1AA'], [$texts[$at + 1], $texts[$at + 2], $texts[$at + 3]]);
+        self::assertNotContains('[to be confirmed]', $texts);
+
+        // Name and address alone (no e-mail either): no "E-mail:" line.
+        $bare = (new PurchaseOrderPdf(false))->render(self::data(['company' => ['email' => '', 'trading_name' => '', 'delivery_address' => ''] + $company]));
+        foreach (['E-mail:', 'Company no.', 'Phone:', '[to be confirmed]'] as $absent) {
+            self::assertStringNotContainsString($absent, substr($bare, 0, (int) strpos($bare, '(Supplier) Tj')), $absent);
+        }
+
+        // Added later, they print again.
+        $more = (new PurchaseOrderPdf(false))->render(self::data(['company' => ['company_number' => '01234567', 'vat_registered' => true, 'vat_number' => 'GB123456782',
+            'phone' => '0113 496 0000'] + $company]));
+        foreach (['(Company no. 01234567) Tj', '(VAT no. GB 123 4567 82) Tj', '(Phone: 0113 496 0000) Tj',
+            "(Example Vapes Ltd \xB7 Company no. 01234567 \xB7 VAT no. GB 123 4567 82 \xB7 PO-000007 \xB7 page 1/1) Tj"] as $text) {
+            self::assertStringContainsString($text, $more, $text);
+        }
+
+        // An approved order's snapshot from before (every key there, some empty) prints the same way; a very old one without the
+        // optional keys at all does not fail.
+        $old = (new PurchaseOrderPdf(false))->render(self::data(['company' => ['legal_name' => 'Example Vapes Ltd', 'address' => "1 High Street\nLeeds", 'confirmed' => true]]));
+        self::assertStringContainsString("(Example Vapes Ltd \xB7 PO-000007 \xB7 page 1/1) Tj", $old);
+        self::assertStringNotContainsString('[to be confirmed]', $old);
     }
 
     /** I98: an approved order whose company snapshot carries a change a reviewer rejected says so in red. */

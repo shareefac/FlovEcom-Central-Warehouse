@@ -140,15 +140,51 @@ final class CompanyDetailsCheckTest extends TestCase
         self::assertSame('ł', CompanyDetails::unprintable('Wrocław'));
     }
 
+    /**
+     * The owner, 18 Nov 2026 ("i only need those right now. in future if i want i will add the rest then can show"): a confirmation
+     * needs the legal name and the registered address only (CQ1).
+     */
     public function testWhatAConfirmationNeeds(): void
     {
         $all = CompanyDetails::check(self::good())['values'];
         self::assertSame([], CompanyDetails::missing($all));
         self::assertSame([], CompanyDetails::missing(['trading_name' => '', 'phone' => ''] + $all), 'trading name and phone are optional');
         self::assertSame([], CompanyDetails::missing(['vat_registered' => false, 'vat_number' => ''] + $all), '"not VAT registered" is an answer');
-        self::assertSame(['legal name', 'company number', 'registered address', 'VAT number (or "not VAT registered")', 'purchasing e-mail', 'delivery address'],
-            CompanyDetails::missing(CompanyDetails::check([])['values']));
-        self::assertSame(['VAT number (or "not VAT registered")'], CompanyDetails::missing(['vat_registered' => null, 'vat_number' => ''] + $all));
+        self::assertSame(['legal name', 'registered address'], CompanyDetails::missing(CompanyDetails::check([])['values']));
+        self::assertSame([], CompanyDetails::missing(['vat_registered' => null, 'vat_number' => ''] + $all), '"Not known yet" may be confirmed');
+        // What the owner filled in on production (version 3): legal and trading name, registered address, purchasing e-mail, delivery address.
+        $owner = CompanyDetails::check(['legal_name' => 'Example Vapes Ltd', 'trading_name' => 'Vape and Go', 'address' => "1 High Street\nLeeds\nLS1 1AA",
+            'email' => 'buying@example.co.uk', 'delivery_address' => "Unit 4, Example Park\nLeeds LS2 2BB"])['values'];
+        self::assertSame([], CompanyDetails::missing($owner), 'no company number, VAT not known yet, no phone: complete');
+        self::assertSame([], CompanyDetails::missing(['email' => '', 'delivery_address' => '', 'trading_name' => ''] + $owner), 'name and address alone are enough');
+        self::assertSame(['registered address'], CompanyDetails::missing(['address' => " \n "] + $owner));
+        self::assertSame(['legal name'], CompanyDetails::missing(['legal_name' => ''] + $owner));
+        // Every format check stays for a field that IS filled.
+        self::assertSame(CompanyDetails::VAT_HELP, self::errors(['vat_number' => 'GB 12'] + $owner)['vat_number']);
+        self::assertSame(CompanyDetails::COMPANY_NUMBER_HELP, self::errors(['company_number' => '123'] + $owner)['company_number']);
+        self::assertSame('This is not an e-mail address (for example buying@example.co.uk).', self::errors(['email' => 'buying'] + $owner)['email']);
+        self::assertSame(CompanyDetails::PHONE_HELP, self::errors(['phone' => '12'] + $owner)['phone']);
+    }
+
+    /** Where the goods go (CQ3): the delivery address, or the registered address when none is given. */
+    public function testTheDeliveryAddressFallsBackToTheRegisteredAddress(): void
+    {
+        $all = CompanyDetails::check(self::good())['values'];
+        self::assertSame("Unit 4, Example Park\nLeeds LS2 2BB", CompanyDetails::deliveryAddress($all));
+        self::assertSame("1 High Street\nLeeds\nLS1 1AA", CompanyDetails::deliveryAddress(['delivery_address' => ''] + $all));
+        self::assertSame("1 High Street\nLeeds\nLS1 1AA", CompanyDetails::deliveryAddress(['delivery_address' => " \n "] + $all), 'blank is empty');
+        self::assertSame('', CompanyDetails::deliveryAddress(['delivery_address' => '', 'address' => ''] + $all));
+        self::assertSame('', CompanyDetails::deliveryAddress([]), 'a snapshot without either');
+
+        // The watched delivery address is where the goods go (I94, CQ4): clearing it, or changing the registered address while it is
+        // empty, changes where they go and is compared as such; clearing it to the same address is no change.
+        $none = ['delivery_address' => ''] + $all;
+        self::assertSame("1 High Street\nLeeds\nLS1 1AA", CompanyDetails::watched($none)['delivery_address']);
+        self::assertNotSame(CompanyDetails::watched($all)['delivery_address'], CompanyDetails::watched($none)['delivery_address']);
+        self::assertNotSame(CompanyDetails::watched($none), CompanyDetails::watched(['address' => "9 Other Road\nHull HU1 1AA"] + $none));
+        self::assertSame(CompanyDetails::watched(['delivery_address' => $all['address']] + $all), CompanyDetails::watched($none));
+        self::assertSame(CompanyDetails::watched($all), CompanyDetails::watched(['address' => "9 Other Road\nHull HU1 1AA"] + $all),
+            'with a delivery address of its own, the registered address is not watched');
     }
 
     /** What a save would store (tidy), whether stored details still need one save before a confirmation, and the watched fields. */

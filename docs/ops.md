@@ -1207,23 +1207,27 @@ address, purchasing phone and e-mail, delivery address), lives in `company_profi
 
 1. Reference › **Company details** (`/ui/reference/company`; also the card at the top of Reference › Settings, and the link on
    any purchase order whose PDF says "do not send").
-2. **Add or change the details** → one form → **Save**. Empty fields may be filled in later. The form refuses, with a sentence at
+2. **Add or change the details** → one form → **Save**. Empty fields may be filled in later (only the legal name and the
+   registered address are needed to confirm them). The form refuses, with a sentence at
    the field: a company number that is not 8 characters (8 digits with the leading zeros, or 2 letters + 6 digits; the rarer R +
    7 digits and IP/SP/NP + 5 digits + R pass too); a VAT number that is not GB/XI + 9 or 12 digits (spaces and a missing GB are
    fine); a VAT choice that disagrees with the number ("VAT registered" needs a number, "Not VAT registered" none); an address over
    8 lines or a line over 100 characters; a character the PDF cannot print (letters outside Western European ones, emoji). A save
    makes the details **not confirmed**.
 3. Check every detail against Companies House and the VAT certificate, then **These details are correct** (the button appears
-   once legal name, company number, registered address, VAT number or "Not VAT registered", purchasing e-mail and delivery
-   address are all there; details copied from the old settings that still need tidying say "Save once, then confirm"). New
-   drafts' PDFs lose the "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" banner.
+   once the **legal name and the registered address** are there: everything else is optional since 18 Nov 2026, `docs/decisions.md`
+   CQ1; a detail that is given must still pass the form's checks; details copied from the old settings that still need tidying say
+   "Save once, then confirm"). New drafts' PDFs lose the "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" banner. Only the details
+   given are printed (no "Company no." or "VAT no." with nothing after it, CQ2); with no delivery address the "Deliver to" box
+   prints the registered address (CQ3). A detail added later is a change: confirm the details again, and it then prints.
 4. **See how a purchase order will look (PDF)**: a SAMPLE order (no number, fictional supplier) with the details in use.
 
 - Orders **approved before** the details were confirmed keep the details they were approved with, and their PDF keeps saying
   "do not send" (the Company details page counts those approved and not sent yet): amend them (cancel + copy) to print the
   confirmed details; sending one anyway needs "Send anyway" ticked (I86).
 - A person who **confirms their own change** of the legal name, company number, VAT, purchasing e-mail or delivery address
-  (compared with the last confirmed details, however many saves it took) asks **another reviewer** to check it (Document reviews,
+  (where the goods go: with no delivery address, the registered address, CQ4; compared with the last confirmed details, however
+  many saves it took) asks **another reviewer** to check it while Settings › Approval rules has that check on (Document reviews,
   type "Company details"; decided on the Company details page by a reviewer who neither made nor confirmed the change). It stops
   nothing. A change confirmed by someone else needs no check. With one reviewer the check stays open, calmly ("Nobody else holds
   the reviewer role yet"): name a second reviewer (decision 3) to close it.

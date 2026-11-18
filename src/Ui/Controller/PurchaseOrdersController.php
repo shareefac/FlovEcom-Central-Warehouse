@@ -1430,7 +1430,8 @@ final class PurchaseOrdersController
         $terms = ($supplier['payment_terms'] ?? null) === null || $supplier['payment_terms'] === '' ? null
             : (($supplier['payment_terms_days'] ?? null) !== null ? Words::say('SUPPLIER', 'payment_days', (string) $supplier['payment_terms'], (int) $supplier['payment_terms_days'])
                 : (string) $supplier['payment_terms']);
-        $deliver = array_values(array_filter(array_map('trim', preg_split('/\R/', (string) ($company['delivery_address'] ?? '')) ?: []), static fn (string $v): bool => $v !== ''));
+        // Where the goods go: the delivery address, or the registered address when none is given (docs/decisions.md CQ3).
+        $deliver = array_values(array_filter(array_map('trim', preg_split('/\R/', CompanyDetails::deliveryAddress($company)) ?: []), static fn (string $v): bool => $v !== ''));
         $posted = $doc->postedAt !== null && $doc->number !== null;
         $factLine = $posted && $doc->docDate !== null
             ? Words::say('ORDER', 'fact_ordered', $supplierName, Html::day($doc->docDate), (string) ($people['posted'] ?? $people['created']))

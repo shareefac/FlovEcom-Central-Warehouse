@@ -50,13 +50,15 @@ final class HandoverPdf
             return $n === '' ? null : CompanyDetails::formatVat($n);
         };
         $lines = static fn (string $s): string => implode(', ', array_filter(array_map('trim', explode("\n", $s)), static fn (string $x): bool => $x !== ''));
+        // Our company: only what is given is printed (docs/decisions.md CQ2). The legal name and the registered address (the two details
+        // a confirmation needs) say [to be confirmed] while missing; no company number or VAT number given prints no row at all.
         $pdf->heading($w['seller']);
         $pdf->keyValues(array_filter([
             $w['name'] => trim((string) ($company['legal_name'] ?? '')) === '' ? $w['tbc'] : (string) $company['legal_name'],
             $w['trading_as'] => trim((string) ($company['trading_name'] ?? '')) === '' ? null : (string) $company['trading_name'],
             $w['address'] => trim((string) ($company['address'] ?? '')) === '' ? $w['tbc'] : $lines((string) $company['address']),
-            $w['company_number'] => trim((string) ($company['company_number'] ?? '')) === '' ? $w['tbc'] : (string) $company['company_number'],
-            $w['vat_number'] => ($company['vat_registered'] ?? null) === false ? null : ($vat($company) ?? $w['tbc']),
+            $w['company_number'] => trim((string) ($company['company_number'] ?? '')) === '' ? null : (string) $company['company_number'],
+            $w['vat_number'] => $vat($company),
         ], static fn (mixed $v): bool => $v !== null && $v !== ''));
         $pdf->heading($w['buyer']);
         $pdf->keyValues(array_filter([

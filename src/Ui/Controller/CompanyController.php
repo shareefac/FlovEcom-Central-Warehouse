@@ -20,6 +20,9 @@ use CW\Ui\Words;
  * The Company details screen (Settings > Company details; linked from Settings and lists and from a PO whose PDF says "do not send";
  * docs/decisions.md I90-I99): the details every purchase order prints, whether they are confirmed, what is still missing,
  * the checks of a confirmation, the orders that carry a rejected change, every version with what changed, and a sample PDF.
+ * Only the legal name and the registered address are needed (CQ1): the details card shows a row for each of those two and for
+ * each other detail given, and names in one sentence what may be added later (CQ2); no delivery address reads "same as the
+ * registered address" (CQ3).
  *
  * Everyone with reference.view reads. A person with company.edit opens the form (one form, every field) and saves; a person
  * with company.confirm confirms ("These details are correct") and decides another reviewer's check. Both are reviewer today
@@ -37,6 +40,10 @@ final class CompanyController
     public const FORM_FIELDS = ['legal_name', 'trading_name', 'company_number', 'address', 'vat_registered', 'vat_number', 'phone', 'email', 'delivery_address',
         // Pack H (0038, docs/decisions.md PH3): the VAT code of our own invoices (the currency is pounds only: shown, never typed).
         'vat_code'];
+    /** The details card's rows in order (`show` keys); the needed ones (CompanyDetails::NEEDED) always show, the others only when given. */
+    public const SHOWN = ['legal_name', 'trading_name', 'company_number', 'vat', 'address', 'phone', 'email', 'delivery_address', 'vat_code', 'currency'];
+    /** The optional rows of SHOWN a person may add later (the currency is always pounds). */
+    private const OPTIONAL_SHOWN = ['trading_name', 'company_number', 'vat', 'phone', 'email', 'delivery_address', 'vat_code'];
     /** How the history names the set-up's actors (people never see system:*). */
     private const ACTORS = ['system:migrate' => Words::COMPANY['set_up'], 'system:settings' => Words::COMPANY['old_settings']];
 
@@ -209,9 +216,18 @@ final class CompanyController
         }
         // Who may change them: a reviewer; for an account whose Reviewer job Admin switches off, say so (plan F034, F141).
         $lookOnly = $canEdit ? null : Words::COMPANY[Permissions::blockedByAdmin($me->roles, 'company.edit') ? 'look_admin' : 'look_reviewer'];
+        $show = self::shownValues($p, array_column((new \CW\Handovers\Counterparties($ctx->db))->vatCodes(), 'label', 'code'));
+        // The optional details not given yet, in the card's order: not shown as empty rows, named in one sentence (CQ2).
+        $later = [];
+        foreach (self::OPTIONAL_SHOWN as $f) {
+            if ($show[$f] === '') {
+                $later[] = Words::COMPANY['l_' . $f];
+            }
+        }
         return $ctx->page('company', [
             'p' => $p,
-            'show' => self::shownValues($p, array_column((new \CW\Handovers\Counterparties($ctx->db))->vatCodes(), 'label', 'code')),
+            'show' => $show,
+            'later' => $later,
             'savedLabel' => self::actor($p['saved_by_name'], $p['saved_actor']),
             'confirmedLabel' => self::actor($p['confirmed_by_name'], $p['confirmed_actor']),
             'missing' => $missing,
@@ -302,7 +318,8 @@ final class CompanyController
     /**
      * @param array<string, mixed> $p
      * @param array<string, string> $vatLabels VAT code => its name (pack H)
-     * @return array<string, string> the details as the page shows them ('' = not given)
+     * @return array<string, string> the details as the page shows them ('' = not given; no delivery address of its own: "same as the
+     *     registered address", CQ3)
      */
     private static function shownValues(array $p, array $vatLabels = []): array
     {
@@ -313,7 +330,8 @@ final class CompanyController
                 $p['vat_number'] !== '' => CompanyDetails::formatVat($p['vat_number']),
                 default => '',
             },
-            'address' => $p['address'], 'phone' => $p['phone'], 'email' => $p['email'], 'delivery_address' => $p['delivery_address'],
+            'address' => $p['address'], 'phone' => $p['phone'], 'email' => $p['email'],
+            'delivery_address' => trim($p['delivery_address']) === '' && trim($p['address']) !== '' ? Words::COMPANY['delivery_same'] : $p['delivery_address'],
             // Pack H (PH3).
             'vat_code' => $p['vat_code'] === '' ? '' : $p['vat_code'] . (isset($vatLabels[$p['vat_code']]) ? ' · ' . $vatLabels[$p['vat_code']] : ''),
             'currency' => Words::COMPANY['currency_gbp'],

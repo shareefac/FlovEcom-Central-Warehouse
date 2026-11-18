@@ -158,21 +158,35 @@ final class CompanyDetailsTest extends PurchaseOrderTestCase
     {
         $owner = $this->staffUser('reviewer');
         $svc = new CompanyDetails(self::$db);
+        // The owner, 18 Nov 2026 (CQ1): only the legal name and the registered address are needed.
         $e = self::refused(422, 'company_incomplete', fn () => $svc->confirm($owner, 0));
-        self::assertSame(['legal name', 'company number', 'registered address', 'VAT number (or "not VAT registered")', 'purchasing e-mail', 'delivery address'],
-            $e->detail['missing']);
-        self::assertSame('Before the details can be confirmed, fill in: legal name, company number, registered address, VAT number (or "not VAT registered"), '
-            . 'purchasing e-mail, delivery address.', $e->getMessage());
-        $svc->save($owner, 0, self::details(['vat_registered' => '', 'vat_number' => '', 'trading_name' => '', 'phone' => '']));
-        self::assertSame(['VAT number (or "not VAT registered")'], self::refused(422, 'company_incomplete', fn () => $svc->confirm($owner, 1))->detail['missing']);
-        $svc->save($owner, 1, self::details(['vat_registered' => 'no', 'vat_number' => '', 'trading_name' => '', 'phone' => '']));
-        self::assertSame('confirmed', $svc->confirm($owner, 2)['result'], 'not VAT registered, no trading name, no phone: complete');
+        self::assertSame(['legal name', 'registered address'], $e->detail['missing']);
+        self::assertSame('Before the details can be confirmed, fill in: legal name, registered address.', $e->getMessage());
+        $svc->save($owner, 0, ['legal_name' => 'Example Vapes Ltd', 'address' => '']);
+        self::assertSame(['registered address'], self::refused(422, 'company_incomplete', fn () => $svc->confirm($owner, 1))->detail['missing']);
+        $audits = count(self::companyAudits('company.confirm'));
+        // What production holds: no company number, VAT not known yet, no phone.
+        $svc->save($owner, 1, self::details(['company_number' => '', 'vat_registered' => '', 'vat_number' => '', 'phone' => '']));
+        $c = $svc->confirm($owner, 2);
+        self::assertSame(['confirmed', null], [$c['result'], $c['review_task']], 'no company number, VAT not known yet, no phone: complete');
+        self::assertSame([true, null, '', ''], [$svc->company()['confirmed'], $svc->company()['vat_registered'], $svc->company()['vat_number'], $svc->company()['company_number']]);
+        self::assertCount($audits + 1, self::companyAudits('company.confirm'), 'audited as every confirmation');
+        // The name and the address alone may be confirmed too (by another reviewer here: no check of an own change is opened); a later
+        // save of the rest unconfirms them as any change does.
+        $other = $this->staffUser('reviewer');
+        $svc->save($owner, 3, ['legal_name' => 'Example Vapes Ltd', 'address' => "1 High Street\nLeeds\nLS1 1AA"]);
+        self::assertSame(['confirmed', null], array_values(array_intersect_key($svc->confirm($other, 4), ['result' => 1, 'review_task' => 1])), 'name and address alone');
+        self::assertSame(['', '', ''], [$svc->company()['email'], $svc->company()['delivery_address'], $svc->company()['trading_name']]);
+        $svc->save($owner, 5, self::details(['vat_registered' => 'no', 'vat_number' => '', 'trading_name' => '', 'phone' => '']));
+        self::assertFalse($svc->company()['confirmed'], 'adding details later is a change: confirmed again before orders stop saying DO NOT SEND');
+        self::assertSame('confirmed', $svc->confirm($other, 6)['result'], 'not VAT registered, no trading name, no phone: complete');
         self::assertSame([false, ''], [$svc->company()['vat_registered'], $svc->company()['vat_number']]);
+        self::assertSame(0, self::openChecks());
 
-        // A save with a problem writes nothing and lists every problem.
-        $e = self::refused(422, 'company_invalid', fn () => $svc->save($owner, 3, self::details(['company_number' => '123', 'email' => 'x'])));
-        self::assertSame(['company_number', 'email'], array_keys($e->detail['errors']));
-        self::assertSame(3, $svc->current()['version']);
+        // A save with a problem writes nothing and lists every problem: a format check still holds for a detail that is given.
+        $e = self::refused(422, 'company_invalid', fn () => $svc->save($owner, 7, self::details(['company_number' => '123', 'email' => 'x', 'vat_number' => 'GB 12'])));
+        self::assertSame(['company_number', 'vat_number', 'email'], array_keys($e->detail['errors']));
+        self::assertSame(7, $svc->current()['version']);
 
         // A seed copied from the old settings that breaks today's rules (or is not tidy yet) is corrected by a save before it is
         // confirmed (the seed is written as 0013 writes it: its own audit row).
@@ -280,6 +294,55 @@ final class CompanyDetailsTest extends PurchaseOrderTestCase
 
         // The documents' decide paths refuse a company task.
         self::refused(409, 'company_task', fn () => $this->docs->approve($second, (int) $c['review_task'], null));
+    }
+
+    /**
+     * CQ3, CQ4: with no delivery address of their own the goods go to the registered address, so where the goods go is what the check
+     * of an own change watches: clearing the delivery address, or changing the registered address while it is empty, is a change of the
+     * delivery address (I94: "a changed delivery address on POs is the classic way to divert goods"); a rejected one is flagged as before.
+     */
+    public function testWithNoDeliveryAddressTheRegisteredAddressIsWhereTheGoodsGo(): void
+    {
+        $owner = $this->staffUser('reviewer');
+        $second = $this->staffUser('reviewer');
+        $svc = new CompanyDetails(self::$db);
+        $svc->save($owner, 0, self::details());
+        $svc->confirm($owner, 1);
+
+        // Clearing the delivery address sends the goods to the registered address: a watched change, checked.
+        $svc->save($owner, 2, self::details(['delivery_address' => '']));
+        $c = $svc->confirm($owner, 3);
+        self::assertSame([['delivery_address'], 2], [$c['watched_changed'], $c['baseline_version']]);
+        self::assertNotNull($c['review_task']);
+        self::assertSame(['delivery_address' => true], array_column($svc->reviews()[0]['changes'], 'watched', 'field'));
+        $svc->decideReview($second, (int) $c['review_task'], true, null);
+
+        // The registered address changes while there is no delivery address: the goods go somewhere else, checked; the check's card
+        // marks the registered address as watched.
+        $svc->save($owner, 4, self::details(['delivery_address' => '', 'address' => "99 Diversion Lane\nHull HU9 9ZZ"]));
+        $c = $svc->confirm($owner, 5);
+        self::assertSame([['delivery_address'], 4], [$c['watched_changed'], $c['baseline_version']]);
+        self::assertNotNull($c['review_task']);
+        self::assertSame(['address' => true], array_column($svc->reviews()[0]['changes'], 'watched', 'field'));
+
+        // Rejected: the details in use are unconfirmed, an order approved meanwhile is flagged, and the owner may not confirm them again.
+        $buyer = $this->staffUser('buyer');
+        $po = $this->approvedPo($buyer)['doc'];
+        $d = $svc->decideReview($second, (int) $c['review_task'], false, 'that is not our address');
+        self::assertSame([7, 1], [$d['unconfirmed_version'], $d['orders']]);
+        self::assertSame([$po->id], array_column($svc->ordersWithRejectedDetails(), 'document_id'));
+        self::assertTrue($this->pos->pdfData($po->id)['company_rejected']);
+        self::refused(403, 'rejected_change', fn () => $svc->confirm($owner, 7));
+        // Putting the same place back as the delivery address is still the rejected place.
+        $svc->save($owner, 7, self::details(['delivery_address' => "99 Diversion Lane\nHull HU9 9ZZ", 'address' => "99 Diversion Lane\nHull HU9 9ZZ"]));
+        self::refused(403, 'rejected_change', fn () => $svc->confirm($owner, 8));
+
+        // The goods keep going where they went (the old registered address, now typed as the delivery address) while the registered
+        // address moves: with a delivery address of its own, a change of the registered address alone is not watched (as before).
+        $svc->save($owner, 8, self::details(['delivery_address' => "1 High Street\nLeeds\nLS1 1AA", 'address' => "2 New Street\nLeeds LS1 2AA"]));
+        $c = $svc->confirm($owner, 9);
+        self::assertSame([[], null, 4], [$c['watched_changed'], $c['review_task'], $c['baseline_version']],
+            'compared with version 4, the last confirmed without a rejected value');
     }
 
     /**

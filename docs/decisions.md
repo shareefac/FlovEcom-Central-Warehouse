@@ -3702,7 +3702,8 @@ come back stale and fail a second time).
 confirm).**
 - "These details are correct" is a separate form on the details page (a reviewer, the version shown). It adds a `confirm`
   version with the same details. It needs: legal name, company number, registered address, a VAT number or the explicit "not VAT
-  registered", purchasing e-mail and delivery address (trading name and phone are optional); else 422 `company_incomplete` naming
+  registered", purchasing e-mail and delivery address (trading name and phone are optional) — **since 18 Nov 2026 the legal name and
+  the registered address only (CQ1)**; else 422 `company_incomplete` naming
   what is missing (and no form on the page). A seeded value that breaks today's rules is 422 `company_invalid` (the page lists the
   problems, confirmed or not); one that is valid but not yet in its tidy form is 422 `company_unsaved`, and the page offers no
   button but says "Press "Change the details" and Save once (spaces and line breaks are tidied), then confirm them here".
@@ -3750,7 +3751,8 @@ version (C3 checks one per version). The FormOnce rows add `ui.company.save` / `
   not sent yet that carry unconfirmed details (for people with `purchasing.view`). An order approved with details a reviewer later
   rejected prints "COMPANY DETAILS REJECTED AT REVIEW — DO NOT SEND" (I98).
 - The VAT number prints as "GB 123 4567 82" (an older snapshot prints as stored); "not VAT registered" prints **no VAT line**
-  in the letterhead or footer; not said yet prints "VAT no. [to be confirmed]" as before. A long delivery-address line is
+  in the letterhead or footer; not said yet prints "VAT no. [to be confirmed]" as before (since 18 Nov 2026 no line at all: only the
+  details given are printed, and no delivery address prints the registered address, CQ2, CQ3). A long delivery-address line is
   **wrapped** in its box, never cut with "…" (a driver must read all of it); a footer too wide for the page (a long legal name) is
   cut with "…" so that the page number always shows (`Fpdf::Footer`). The Supplier and Deliver-to boxes are drawn **whole on one
   page**: when the letterhead leaves too little room for them, they start the next page (review finding: at the largest values
@@ -3824,6 +3826,79 @@ together (I93, I94, I97). Rejected, with reasons:
 - *Refuse the rejecting reviewer too:* no. A rejection needs a second reviewer; refusing them as well would leave nobody able to
   confirm the change if it was right after all. Their confirmation is recorded and lifts the rejection (I98).
 
+
+## Company details: only the legal name and the registered address are needed (branch `company-optional`, 18 Nov 2026; CQ1-CQ6; no migration)
+
+The owner, 18 Nov 2026. Every purchase order PDF printed "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" and the order's page showed the
+"do not send" note, because the details in use (production `company_profile` version 3: legal and trading name, registered address,
+purchasing e-mail, delivery address) could not be confirmed: "These details are correct" answered 422 `company_incomplete` for the
+company number and a VAT answer (I94 needed both). His words: **"i only need those right now. in future if i want i will add the rest
+then can show."** His standing rule: no unnecessary steps for staff. This amends I94 (what a confirmation needs) and I96 (what the PDF
+prints); everything else of I90-I99 stands. Code: `src/Company/CompanyDetails.php` (`NEEDED`, `missing`, `deliveryAddress`,
+`watched`, `reviews`), `src/PurchaseOrders/PurchaseOrderPdf.php`, `src/Handovers/HandoverPdf.php`, `src/Ui/Controller/CompanyController.php`,
+`src/Ui/views/{company,company_form}.php`, `src/Ui/Controller/PurchaseOrdersController.php` (the "Deliver to" box, one line),
+`src/Handovers/Handovers.php` (the VAT code guard, CQ6), `src/Ui/Words.php`.
+
+**CQ1. A confirmation needs the legal name and the registered address only** (`CompanyDetails::NEEDED`, `missing()`). The company
+number, VAT (a number, "Not VAT registered" or "Not known yet"), purchasing phone and e-mail, delivery address, trading name and the
+VAT code of our invoices are optional; "Not known yet" may be confirmed. Every format check of `check()` (I92) stays for a detail that
+**is** given: a VAT number must still be GB/XI + 9 or 12 digits, "VAT registered" still needs its number and "Not VAT registered" none,
+an e-mail must be an e-mail, a company number a company number, a phone a phone (a save refuses them, 422 `company_invalid`; a stored
+one that breaks them still blocks the confirmation). The rest of the confirm path is unchanged: the separate "These details are
+correct" (a reviewer, the version shown, one effect per form), 409 `company_changed`, 422 `company_unsaved`, 403 `rejected_change`,
+the versions, the audit rows, the check of an own change (switch `approvals.company_own_change`, off on production) and the "do not
+send" banner while the details are not confirmed. Adding a detail later is a change like any other (I94): the details are not
+confirmed again until someone confirms them, and the detail then prints.
+
+**CQ2. Only what is given is printed.** The PO PDF's letterhead prints the legal name, the trading name and the registered address,
+then "Phone:", "E-mail:", "Company no." and "VAT no." only when given; the footer is "<legal name> · [Company no. x · ][VAT no. y · ]
+<number> · page n/N". No label is printed with nothing, or "[to be confirmed]", after it (before: an empty value printed "[to be
+confirmed]"; a VAT not said yet printed "VAT no. [to be confirmed]"). "[to be confirmed]" is kept for the two needed details only:
+only details that are not confirmed can lack them, and their PDF says DO NOT SEND. The same rule on a hand-over's invoice
+(`HandoverPdf`: "Company number" and "VAT number" rows only when given) and on the Company details screen (a row for the legal name,
+the registered address and each other detail given; one sentence, "Not given yet: company number, VAT, ... They are not needed: they
+can be added later with "Change the details", and they then show on the PDFs too", names the optional details not given). The sample
+PDF (`/ui/reference/company/sample.pdf`) is the PO PDF and follows. The release PDF (`StockOpPdf`) already printed only the name and
+address given; the stock value report prints the legal name only when given; no e-mail uses the details.
+
+**CQ3. No delivery address: the registered address** (`CompanyDetails::deliveryAddress()`). The PO PDF's Deliver-to box (the sample
+included) and the order page's "Deliver to" box print it, and the details card says "Same as the registered address (no delivery
+address given)". It is worked out when printed, from the details in use (a draft) or the order's snapshot (an approved order). The
+snapshot is unchanged (`company()` as before, both addresses as they were), so an approved order still prints what it was approved
+with, and the approval's anchor is unchanged. Before this an empty delivery address printed "[to be confirmed]" (and could not be
+confirmed); both empty (only possible unconfirmed) still prints "[to be confirmed]".
+
+**CQ4. The check of an own change watches where the goods go.** I94 watches the delivery address because "a changed delivery address
+on POs is the classic way to divert goods". With CQ3 the goods go to the registered address when there is no delivery address, so
+`watched()` compares the delivery address as CQ3 prints it: clearing the delivery address, or changing the registered address while it
+is empty, is a change of the delivery address (`watched_changed`, the audit row; the check's card marks the registered address as
+watched); a rejected one unconfirms the details and flags the approved orders that carry it as before (I98, compared the same way, so
+typing the rejected place as the delivery address does not get round it). With a delivery address of its own the registered address is
+not watched, as before. Without this an empty delivery address, now confirmable, would have let a change of the registered address move
+the goods unchecked. A rejected value is still never empty (I98): clearing the company number, the VAT number or the e-mail sends
+nothing anywhere else. Old snapshots and versions compare the same way (a delivery address was required before, so a confirmed one
+always had its own: nothing confirmed before changes its meaning).
+
+**CQ5. Words.** The edit form says first "Only the legal name and the registered address are needed. Everything else is optional: add
+it now or later, and once it is given it shows on the purchase orders."; each optional field's hint starts "optional:" (company
+number, e-mail, delivery address, VAT code; trading name and phone already did); the VAT choices say "with "Not known yet" no VAT
+number is printed"; the delivery address's hint says an empty one prints the registered address. The Company details page has the
+same sentence under the heading's "?", and `Words::PAGE_INTRO` company / company_edit say it too. "Still missing:" (the status card,
+the Settings card, Home's "Fill in and confirm") now lists at most the legal name and the registered address.
+
+**CQ6. Not changed, and why.** No migration: `company_profile` already allows every detail empty (0013). `CompanyInvariants` (C1-C4)
+never assumed which details are filled (they check the version sequence, that a confirmation copies its version, the audit rows and
+the people), so they are unchanged. The PO's VAT never came from the company's VAT number: each line's VAT code and rate
+(`PoMath::totals`), so an order's VAT is the same whether or not the number is given. A hand-over invoice charges VAT unless the
+company said "Not VAT registered" (`HandoverHandler::vatFor`, PH3), as before: with "Not known yet" it charges its VAT code and prints
+no VAT number (open: the owner or the accountant to say whether such an invoice may go out; hand-overs need confirmed details to
+print, as before). One guard follows (Codex review, round 1): `Handovers::invoice()` refuses a PDF with 409 `vat_code_missing` when
+no VAT code applies and the company is, or may be, VAT registered (it said only "VAT registered" before, which was the same while "Not
+known yet" could not be confirmed); otherwise a draft of confirmed "Not known yet" details with no code anywhere printed "No VAT". Tests: `CompanyDetailsCheckTest` (`testWhatAConfirmationNeeds`, `testTheDeliveryAddressFallsBackToTheRegisteredAddress`),
+`PurchaseOrderPdfTest` (`testOnlyTheDetailsGivenArePrinted`, placeholders), `HandoverPdfCompanyTest` (new), `CompanyDetailsTest`
+(`testConfirmingNeedsTheRequiredDetails`, `testWithNoDeliveryAddressTheRegisteredAddressIsWhereTheGoodsGo`), `HandoversTest`
+(`testConfirmedDetailsWithVatNotKnownYetStillNeedAVatCode`), `CompanyScreensTest`
+(`testTheNameAndAddressAreEnoughAndOnlyWhatIsGivenShows`, the "Still missing" lines).
 
 ## Holding screened listings back from the Key bulk confirm (slots `ksa1`, `ksa3`, 6 Oct 2026)
 

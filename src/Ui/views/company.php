@@ -2,9 +2,10 @@
 // Settings › Company, on the settings shell (the approved TP_Settings of 29 Oct 2026, pattern 6; docs/decisions.md W13.15): the heading; a
 // card of where the details stand (confirmed or not, what is missing or looks wrong, the orders it touches) with its Change at the right and
 // the confirm form under it for whoever may confirm; the checks of a change (a row each, with its answers); a card of the details, a row
-// each; then the History, a version each.
+// each for the legal name, the registered address and every other detail given, then one sentence naming what may be added later
+// (docs/decisions.md CQ2); then the History, a version each.
 ?>
-<?= $head(\CW\Ui\Words::MENU['company'], intro: 'company') ?>
+<?= $head(\CW\Ui\Words::MENU['company'], intro: 'company', more: \CW\Ui\Words::COMPANY['needed_line']) ?>
 <div class="set-shell">
 <?= $partial('settings_nav', ['current' => 'company']) ?>
 <div class="set-main">
@@ -150,11 +151,16 @@
 
 <section class="set-card company-details" aria-labelledby="details-h">
   <h2 id="details-h"><?= $word('COMPANY', 'details') ?></h2>
-<?php foreach (['legal_name', 'trading_name', 'company_number', 'vat', 'address', 'phone', 'email', 'delivery_address', 'vat_code', 'currency'] as $f): ?>
-  <div class="set-row set-fact" data-field="<?= $e($f) ?>"><div class="set-k"><p class="set-kt"><?= $word('COMPANY', $f) ?></p></div><div class="set-v<?php if ($f === 'address' || $f === 'delivery_address'): ?> pre<?php endif; ?>"><?php if ($show[$f] === ''): ?><span class="muted"><?php if ($f === 'trading_name'): ?><?= $word('COMPANY', 'none') ?><?php else: ?><?= $word('COMPANY', 'not_given') ?><?php endif; ?></span><?php else: ?><?= $e($show[$f]) ?><?php endif; ?></div></div>
+<?php foreach (\CW\Ui\Controller\CompanyController::SHOWN as $f): ?>
+<?php if ($show[$f] !== '' || in_array($f, \CW\Company\CompanyDetails::NEEDED, true)): ?>
+  <div class="set-row set-fact" data-field="<?= $e($f) ?>"><div class="set-k"><p class="set-kt"><?= $word('COMPANY', $f) ?></p></div><div class="set-v<?php if ($f === 'address' || $f === 'delivery_address'): ?> pre<?php endif; ?>"><?php if ($show[$f] === ''): ?><span class="muted"><?= $word('COMPANY', 'not_given') ?></span><?php else: ?><?= $e($show[$f]) ?><?php endif; ?></div></div>
+<?php endif; ?>
 <?php endforeach; ?>
 <?php if ($p['version'] > 0): ?>
   <div class="set-row set-fact" data-field="saved"><div class="set-k"><p class="set-kt"><?= $word('COMPANY', 'last_saved') ?></p></div><div class="set-v"><?= $say('COMPANY', 'by', \CW\Ui\Html::when($p['saved_at']), $savedLabel) ?></div></div>
+<?php endif; ?>
+<?php if ($later !== []): ?>
+  <p class="set-kd company-later"><?= $say('COMPANY', 'later', implode(', ', $later)) ?></p>
 <?php endif; ?>
   <p class="set-kd"><?= $word('COMPANY', 'no_bank') ?></p>
 </section>

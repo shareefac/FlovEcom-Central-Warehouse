@@ -1,6 +1,6 @@
 <?php
 // Settings › Company › Change the company details (docs/decisions.md W13.15): Company as the eyebrow (DC3), what a change does under the
-// heading's "?", then the one form as before.
+// heading's "?", which details are needed (the legal name and the registered address; the rest optional: CQ5), then the one form as before.
 ?>
 <?= $head(\CW\Ui\Words::PAGE_TITLE['company_edit'], intro: 'company_edit', more: \CW\Ui\Words::COMPANY['until_confirmed'], back: ['/ui/reference/company', \CW\Ui\Words::MENU['company']]) ?>
 <div class="set-shell">
@@ -28,6 +28,7 @@
 <?php if ($confirmed): ?>
 <p class="note"><?= $word('COMPANY', 'is_confirmed') ?></p>
 <?php endif; ?>
+<p class="muted needed-line"><?= $word('COMPANY', 'needed_line') ?></p>
 <form class="record company" method="post" action="/ui/reference/company" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
@@ -57,6 +58,7 @@
   </fieldset>
   <fieldset<?php if (isset($errors['vat_number'])): ?> aria-describedby="e-vat_number"<?php endif; ?>>
     <legend><?= $word('COMPANY', 'vat') ?></legend>
+    <p class="muted"><?= $word('COMPANY', 'vat_optional') ?></p>
     <label class="choice"><input type="radio" name="vat_registered" value="yes"<?php if ($v['vat_registered'] === 'yes'): ?> checked<?php endif; ?>> <?= $word('COMPANY', 'vat_registered') ?></label>
     <label class="choice"><input type="radio" name="vat_registered" value="no"<?php if ($v['vat_registered'] === 'no'): ?> checked<?php endif; ?>> <?= $word('COMPANY', 'vat_not') ?> <span class="muted"><?= $word('COMPANY', 'vat_not_hint') ?></span></label>
     <label class="choice"><input type="radio" name="vat_registered" value=""<?php if ($v['vat_registered'] !== 'yes' && $v['vat_registered'] !== 'no'): ?> checked<?php endif; ?>> <?= $word('COMPANY', 'vat_unknown') ?></label>
