@@ -3961,7 +3961,7 @@ table.gi-lines tr.gi-panel input[data-kg-cell] { background-color: var(--card); 
    accent edge and a 2 px ring that always shows). The facts keep the paper's grey boxes. A touch screen (no hover) shows every box grey;
    a phone has 16 px boxes (no zoom on focus). Everything here is scoped to .kg-paper (and the bar's .po-edit-bar): the supplier invoice
    (form.kg-doc, the same grid engine) is drawn as before. CW's tokens only, light and dark from them; no movement of its own. */
-form.kg-paper { padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
+form.kg-paper { margin: 0; padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
 form.kg-paper > .kg-look { margin: 0 0 12px; }
 form.kg-paper .po-paper-lines { min-width: 0; }
 /* The boxes: the words of the paper at rest. */
@@ -3969,36 +3969,68 @@ form.kg-paper select.kg-flat, form.kg-paper input.kg-item, form.kg-paper .po-pap
   border-color: transparent; background-color: transparent; color: var(--ink); box-shadow: none; }
 form.kg-paper input.kg-flat::placeholder, form.kg-paper input.po-box::placeholder { color: var(--ink-muted); opacity: 1; }
 form.kg-paper input.kg-flat:hover, form.kg-paper select.kg-flat:hover, form.kg-paper input.kg-item:hover, form.kg-paper .po-paper-head input.po-box:hover {
-  border-color: var(--hairline); background-color: var(--ui-bg); }
+  border-color: var(--field); background-color: var(--ui-bg); }
 form.kg-paper input.kg-flat:focus, form.kg-paper select.kg-flat:focus, form.kg-paper input.kg-item:focus, form.kg-paper .po-paper-head input.po-box:focus {
   border-color: var(--accent); background-color: var(--card); outline: 2px solid var(--accent); outline-offset: 1px; }
 form.kg-paper input.kg-flat[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 form.kg-paper input.kg-flat[type="number"]::-webkit-inner-spin-button, form.kg-paper input.kg-flat[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 form.kg-paper input.kg-flat[aria-invalid="true"], form.kg-paper tr.kg-bad input.kg-flat { border-color: var(--st-red); }
-/* The head: the supplier box reads as the supplier's name; the facts keep the paper's grey boxes (the box is the dd's own). */
-form.kg-paper .po-paper-head .po-box-field { display: grid; gap: 4px; min-width: 0; }
-form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat { width: 100%; min-height: 34px; margin: 0 0 2px; padding: 4px 8px; color: var(--ink);
-  font: 600 15px/22px var(--font); }
+/* The order's head, read only and on a draft (the alignment pass, LP9; the owner, 18 Nov 2026: "just make sure all aligned"): the blocks of
+   a row share their top line and their height (a block is a column whose last part grows; a block's label is as high as a fact's words), so
+   Supplier, Deliver to and Order date line up; a label in the head or the foot reads as the paper's words (not a form's 500 13 px label). */
+.doc-view .po-paper-head > .doc-party { display: flex; flex-direction: column; }
+.doc-view .po-paper-head > .doc-party > :last-child { flex: 1 1 auto; }
+.doc-view .po-paper-head > .doc-party > .doc-label { line-height: 18px; }
+/* The first row is the labels' (18 px words + 4 px), never more: a block taller than the Order date's box (a supplier box, an address of
+   two lines) makes the second row taller, never the labels' row, so the three boxes keep one top line. One column (a phone): no rows to share. */
+@container (min-width: 641px) { .doc-view .po-paper-head { grid-template-rows: 22px auto; } }
+form.kg-paper .po-paper-head .doc-label > label, form.kg-paper .po-paper-head dt > label, form.kg-paper .doc-foot .doc-label > label, form.kg-paper .doc-foot dt > label {
+  display: inline; margin: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+/* The supplier box reads as the supplier's name, its words where the name's are (the box reaches into the block's padding). */
+form.kg-paper .po-paper-head > .doc-party > .po-box-field { display: grid; gap: 4px; min-width: 0; padding: 8px 8px 0; border-radius: var(--r-10) var(--r-10) 0 0; }
+form.kg-paper .po-paper-head input.po-box, form.kg-paper .po-paper-head select.kg-flat { width: calc(100% + 16px); min-height: 32px; margin: -4px -8px 0; padding: 4px 7px;
+  color: var(--ink); font: 600 15px/22px var(--font); text-overflow: ellipsis; }
 form.kg-paper .po-paper-head .po-party-lines p { margin: 0; font-size: 13px; }
-form.kg-paper .po-paper-head > dl.doc-facts > dd.kg-in { padding: 0; background: none; }
-form.kg-paper .doc-facts dd.kg-in input.kg-flat { width: 100%; min-height: 32px; padding: 5px 10px; background-color: var(--ui-bg); color: var(--ink); font: 600 13px/20px var(--font); }
+/* The facts keep the paper's grey boxes: the box is the input, as high as a fact's (36 px), its words where a fact's are. */
+form.kg-paper .po-paper-head > dl.doc-facts > dd.kg-in { display: flex; padding: 0; background: none; }
+form.kg-paper .doc-facts dd.kg-in input.kg-flat { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 36px; padding: 7px; background-color: var(--ui-bg); color: var(--ink);
+  font: 600 13px/20px var(--font); text-overflow: ellipsis; }
 form.kg-paper .doc-facts dd.kg-in input.kg-flat:focus { background-color: var(--card); }
 /* The lines: the paper's table (as table.kg-view) for the grid's boxes. */
 form.kg-paper table.kg-grid > thead th { border: 0; border-bottom: 1px solid var(--hairline); }
 form.kg-paper table.kg-grid > tbody > tr > th, form.kg-paper table.kg-grid > tbody > tr > td { border: 0; border-bottom: 1px solid var(--hairline); }
 form.kg-paper table.kg-grid td.num input.kg-flat { width: 6.5rem; max-width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
-form.kg-paper table.kg-grid input.kg-item { font-weight: 600; }
+form.kg-paper table.kg-grid input.kg-item { font-weight: 600; text-overflow: ellipsis; }
 /* The paper's words are 14 px: so are its boxes (form.kg-doc's 13 px rule is more specific than a box's own class). */
 form.kg-paper table.kg-grid input.kg-flat, form.kg-paper table.kg-grid input.kg-item { font-size: 14px; }
 form.kg-paper table.kg-grid td.num .o-sub { display: block; margin: 2px 0 0; white-space: normal; overflow-wrap: anywhere; } /* a long figure wraps in a phone's card (round 2) */
-form.kg-paper table.kg-grid .kg-sub > span:not(:empty) + span:not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
-form.kg-paper table.kg-grid label.kg-upp { display: block; margin: 4px 0 0; }
-form.kg-paper table.kg-grid label.kg-upp input.kg-flat { width: 5rem; text-align: right; }
+/* The item's ONE sub-line under its name: "CW-014280 · their code · box of 10 · VAT S" (a part never broken inside; the dots between the
+   parts there are, so an empty part leaves none). */
+form.kg-paper table.kg-grid .kg-sub > :not(:empty) ~ :not(:empty)::before { content: " \00B7  "; content: " \00B7  " / ""; }
+form.kg-paper table.kg-grid .kg-sub > * { white-space: nowrap; }
+form.kg-paper table.kg-grid .kg-sub > .kg-code { display: inline; max-width: none; margin: 0; overflow: visible; }
+form.kg-paper table.kg-grid label.kg-upp { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--ink-muted); font: 400 12px/18px var(--font); white-space: nowrap; }
+form.kg-paper table.kg-grid label.kg-upp input.kg-flat { flex: 0 0 auto; width: 5rem; height: 28px; min-height: 28px; padding: 2px 7px; text-align: right; }
 form.kg-paper table.kg-grid th.c-x { width: 2.75rem; }
 form.kg-paper table.kg-grid tr.po-add-row .po-box-field input[type="search"] { width: 100%; }
 /* The foot: the note in place, the totals as the paper's, the delivery a box in its row. */
-form.kg-paper .doc-notes p.kg-in input.kg-flat { width: 100%; padding: 4px 8px; }
-form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32px; padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+form.kg-paper .doc-notes p.kg-in input.kg-flat { width: 100%; padding: 4px 7px; text-overflow: ellipsis; }
+form.kg-paper .doc-totals dd.kg-in input.kg-flat { width: 8.5rem; min-height: 32px; padding: 4px 7px; text-align: right; font-variant-numeric: tabular-nums; }
+/* On a computer a box's words stand where the paper's words stand: the name and the "+ Add product" box under the Item heading, the figures
+   under their headings' right edge, the note under its label, the delivery under the totals' figures (the box reaches 8 px into the cell's
+   padding: 1 px edge + 7 px inside). The item's name on its own line, its sub-line under it, its items per pack under that (LP9). */
+@container (min-width: 641px) {
+  form.kg-paper table.kg-grid th.c-item { white-space: normal; }
+  form.kg-paper table.kg-grid th.c-item > input.kg-item { display: block; width: calc(100% + 8px); max-width: none; min-width: 0; margin: 0 0 0 -8px; padding: 2px 7px; }
+  form.kg-paper table.kg-grid th.c-item > .kg-name { display: block; }
+  form.kg-paper table.kg-grid th.c-item > .kg-sub, form.kg-paper table.kg-grid th.c-item > .kg-error { display: block; margin: 2px 0 0; white-space: normal; }
+  form.kg-paper table.kg-grid td.num input.kg-flat { margin-right: -8px; padding: 2px 7px; }
+  form.kg-paper table.kg-grid tr.po-add-row .po-box-field input[type="search"] { width: calc(100% + 8px); margin-left: -8px; padding-left: 7px; }
+}
+@media (min-width: 701px) {
+  form.kg-paper .doc-notes p.kg-in input.kg-flat { width: calc(100% + 8px); margin-left: -8px; }
+  form.kg-paper .doc-totals dd.kg-in input.kg-flat { margin-right: -8px; }
+}
 /* The tick and the x of a line: there for the mouse and the keys, quiet until the line is pointed at or holds the cursor. */
 @media (hover: hover) and (min-width: 701px) {
   form.kg-paper table.kg-grid tr .po-x, form.kg-paper table.kg-grid td.c-no input.kg-tick:not(:checked) { opacity: 0; }

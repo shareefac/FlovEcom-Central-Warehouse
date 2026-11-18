@@ -2008,6 +2008,9 @@ final class UiTemplatesTest extends TestCase
             'data-kg-vat-end', 'data-kg-delivery', 'data-kg-swap-part="summary"', "\$partial('doc_totals'"] as $part) {
             self::assertStringContainsString($part, $t['po_paper_foot.php'], $part);
         }
+        // The item's ONE sub-line (LP9): the CW code first in it, then their code, the pack, the VAT (a saved line and a new line alike).
+        self::assertSame(2, substr_count($t['po_paper_line.php'], '<span class="o-sub kg-sub"><span class="kg-code"'), 'the code in the sub-line');
+        self::assertStringContainsString('<span data-kg-their><?= $e($l[\'code\'] ?? \'\') ?></span><span data-kg-pack><?= $e($l[\'pack_label\']) ?></span><span class="kg-vat-code"', $t['po_paper_line.php']);
         self::assertStringContainsString('data-kg-swap-part="header"', $t['po_paper_head.php']);
         self::assertStringContainsString('data-kg-swap-part="party"', $t['po_paper_head.php']);
         self::assertStringContainsString('data-kg-swap-part="terms"', $t['po_paper_head.php']);

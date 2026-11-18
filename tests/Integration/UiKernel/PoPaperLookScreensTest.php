@@ -163,6 +163,18 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         self::assertSame([$pack], self::texts($page, $row . '/th//*[@data-kg-pack]'));
         self::assertSame([Words::say('ORDER', 'vat_code', 'S')], self::texts($page, $row . '/th//*[@data-kg-vat-code][@data-words="' . Words::ORDER['vat_code'] . '"]'),
             'the VAT words app.js says again when the item changes (Codex round 2)');
+        // The item's cell (LP9; the coordinator's look on staging): the name on its own line with its whole name as its title, then ONE sub-line
+        // "CW-… · their code · pack · VAT S".
+        $item = self::texts($page, $row . '/th/a[contains(@class, "kg-name")]');
+        self::assertSame(1, count($item));
+        self::assertSame($item[0], (string) (new \DOMXPath($page->dom()))->evaluate('string(' . $row . '/th/a[contains(@class, "kg-name")]/@title)'));
+        self::assertSame([sprintf('CW-%06d', $d['skus'][1]), 'HPMP-6K-SW', $pack, Words::say('ORDER', 'vat_code', 'S')],
+            self::texts($page, $row . '/th/span[contains(@class, "kg-sub")]/span'), 'one sub-line, the code first');
+        self::assertSame(0, self::nodes($page, $row . '/th/span[contains(@class, "kg-code")]'), 'never beside the name');
+        // The empty boxes are real boxes; their "—" only a placeholder, never a value (nothing is saved for them).
+        foreach (['external_ref', 'note', 'charge_amount'] as $name) {
+            self::assertSame(1, self::nodes($page, $form . '//input[@name="' . $name . '"][@value=""][@placeholder="' . Words::DOC_LIST['none'] . '"][contains(@class, "kg-flat")][not(@readonly)][not(@disabled)]'), $name);
+        }
         self::assertSame([''], self::texts($page, $grid . '/tbody/tr[@data-kg-line="1"]//*[@data-kg-units]'));
         // The empty line last (the product box), the new line's template, the one field for new lines, the tools, the keys and Undo.
         self::assertSame(1, self::nodes($page, $grid . '/tbody/tr[last()][@data-kg-empty]//input[@name="q"][@data-po-pick]'));
@@ -249,6 +261,11 @@ final class PoPaperLookScreensTest extends KernelUiTestCase
         self::assertSame([[1, 50, '0.9200'], [2, 5, '29.1000'], [3, 10, '2.7500'], [4, 1, '7.5000']], array_map(static fn (array $l): array => [(int) $l['line_no'], (int) $l['packs'],
             (string) $l['pack_price']], self::$db->all('SELECT line_no, packs, pack_price FROM po_line WHERE document_id = ? ORDER BY line_no', [$d['id']])), 'the delivery: a charge line');
         self::assertSame(['Q-77', 'Deliver before noon'], array_values(array_map('strval', (array) self::$db->one('SELECT external_ref, note FROM document WHERE id = ?', [$d['id']]))));
+        // Saved again as drawn with the reference and the note emptied: nothing stored for them, never the "—" the empty boxes show.
+        $r = $shareef->post("{$path}/lines", ['external_ref' => '', 'note' => '', 'action' => 'save'] + $shareef->get($path)->form('/lines'));
+        self::assertSame(303, $r->status, self::why($r));
+        self::assertSame(['', ''], array_values(array_map('strval', (array) self::$db->one('SELECT external_ref, note FROM document WHERE id = ?', [$d['id']]))));
+        self::assertSame(1, self::nodes($shareef->get($path), '//input[@name="external_ref"][@value=""][@placeholder="' . Words::DOC_LIST['none'] . '"]'));
         self::assertSame('2026-12-01', (string) self::$db->value('SELECT expected_date FROM purchase_order WHERE document_id = ?', [$d['id']]));
 
         // A product added without the script: the product box, its packs and Add (Enter).

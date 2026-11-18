@@ -1810,6 +1810,27 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("var vatEl = tr.querySelector('[data-kg-vat-code]');", $grid);
         self::assertSame(1, preg_match('/form\.kg-paper table\.kg-grid td\.num \.o-sub \{[^}]*white-space: normal; overflow-wrap: anywhere;/', $plain));
         self::assertSame(1, preg_match('/@media \(max-width: 700px\) \{[^@]*form\.kg-paper \.kg-several input\[type="search"\] \{ min-height: 44px; font-size: 16px; \}/s', $plain));
+        // The alignment pass (docs/decisions.md LP9; the owner, 18 Nov 2026: "just make sure all aligned"). The head's blocks of a row share
+        // their top line and height (the labels' row 22 px; a block a column whose last part grows; a label as high as a fact's words); the
+        // head's and foot's labels read as the paper's words; a fact's box is 36 px like a fact; the item's name on its own line (a long one
+        // ends with "…"), its ONE sub-line under it (a dot before each part after the first, no part broken inside); a box's words stand
+        // where the paper's words stand (the box reaches 8 px into the cell's padding: the name under Item, the figures under their headings).
+        foreach (['@container (min-width: 641px) { .doc-view .po-paper-head { grid-template-rows: 22px auto; } }',
+            '.doc-view .po-paper-head > .doc-party { display: flex; flex-direction: column; }',
+            '.doc-view .po-paper-head > .doc-party > :last-child { flex: 1 1 auto; }',
+            '.doc-view .po-paper-head > .doc-party > .doc-label { line-height: 18px; }',
+            'form.kg-paper .po-paper-head .doc-label > label, form.kg-paper .po-paper-head dt > label, form.kg-paper .doc-foot .doc-label > label, form.kg-paper .doc-foot dt > label {',
+            'form.kg-paper .po-paper-head > dl.doc-facts > dd.kg-in { display: flex; padding: 0; background: none; }',
+            'form.kg-paper table.kg-grid .kg-sub > :not(:empty) ~ :not(:empty)::before {',
+            'form.kg-paper table.kg-grid .kg-sub > * { white-space: nowrap; }',
+            'form.kg-paper table.kg-grid input.kg-item { font-weight: 600; text-overflow: ellipsis; }',
+            '  form.kg-paper table.kg-grid th.c-item > input.kg-item { display: block; width: calc(100% + 8px); max-width: none; min-width: 0; margin: 0 0 0 -8px; padding: 2px 7px; }',
+            '  form.kg-paper table.kg-grid td.num input.kg-flat { margin-right: -8px; padding: 2px 7px; }',
+            '  form.kg-paper .doc-totals dd.kg-in input.kg-flat { margin-right: -8px; }'] as $rule) {
+            self::assertStringContainsString($rule, $plain, $rule);
+        }
+        self::assertSame(1, preg_match('/form\.kg-paper \.doc-facts dd\.kg-in input\.kg-flat \{[^}]*min-height: 36px; padding: 7px;/', $plain), 'a fact\'s box: 7 + 20 + 7 + 2 = 36 px');
+        self::assertStringContainsString("item.title = it.name;", $grid, 'the whole name on hover');
     }
 
     /**

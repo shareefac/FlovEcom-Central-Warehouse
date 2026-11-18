@@ -1520,6 +1520,7 @@
     // The page's other parts, read when needed (a save puts the server's answer in their place).
     var q = function (sel) { return form.querySelector(sel) || document.querySelector(sel); };
     var supplier = function () { return document.getElementById('po-supplier'); };
+    var paperLook = form.classList.contains('kg-paper'); // the order's paper (docs/decisions.md LP1, LP9)
     var motion = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     // The lines on show, in order (a saved line removed is hidden until it is sent; a line fading out is gone already; not the empty line).
     var lines = function () {
@@ -1947,6 +1948,9 @@
       var item = cellIn(tr, 'item');
       if (item) {
         item.value = it.name;
+        if (paperLook) {
+          item.title = it.name; // a name too long for its box ends with "…" on the paper: the whole name on hover (LP9)
+        }
       }
       var put = function (sel, text) {
         var el = tr.querySelector(sel);
@@ -2148,6 +2152,9 @@
         input.setAttribute('data-kg-cell', 'item');
         input.setAttribute('aria-label', word('item-label'));
         input.setAttribute('aria-keyshortcuts', 'Control+D Alt+C');
+        if (paperLook) {
+          input.title = input.value; // the whole name on hover when the box ends it with "…" (LP9)
+        }
         var href = name.getAttribute('href');
         var code = tr.querySelector('.kg-code');
         if (href && code && code.tagName !== 'A') {

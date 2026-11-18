@@ -18022,7 +18022,7 @@ Round 2's two fixes checked, and the change on top of "drafts anyone may change"
 `edits` = may post the type, not admin): 0 HIGH, 0 MEDIUM, 0 LOW. The full suite on the rebased branch: Unit 626 OK, UiKernel 678 OK, the
 rest 1,286 OK (83 skipped: the HTTP tests of slot ui, one more than before: `UiSecurityTest::testThePollOfADraftOrderOverHttp`).
 
-## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP8; live drafts step 2; migration 0071, two setting rows)
+## One look for a purchase order: a draft is the saved order's paper with its boxes in place (branch `look-paper`, 18 Nov 2026; LP1-LP9; live drafts step 2; migration 0071, two setting rows)
 
 The owner, 18 Nov 2026, of the read-only order page another buyer saw ("Shareef's window") beside the creator's grey form ("Fazil's"): "I liked
 how it looks on Shareef's window, the design". After DA1 everyone who writes orders gets the editor, so everyone would get the grey form;
@@ -18082,6 +18082,18 @@ script saves and Confirm takes what is typed; the 409 keeps the new lines typed;
 `UiUnitTest::testThePapersBoxesAreScopedToThePaperAndTheEngineIsStillOne`, `WordsTest::testThePaperSaysItsPackFiguresAndItsSetting`; the
 order tests that pointed at the old form's head bar and summary card point at the paper's bar and More (`PoOnePageScreensTest`,
 `DocKeyGridScreensTest`, `BehaviourItemsTest`), `Migration0010Test` knows the new setting.
+
+**LP9. The alignment pass** (the coordinator's look at draft PO 72 on staging, 1440 px, and the owner, 18 Nov 2026: no change to the
+design, "just make sure all aligned and all"). The item's cell: the name on its own line (a name too long for its box ends with "…", the
+whole name its title), then ONE sub-line "CW-014280 · their code · box of 10 · VAT S" (the CW code moved into it; a dot before each part
+after the first, so an empty part leaves none; a part never broken inside: it broke as "ea" / "ch" beside the name under KG32's one-row
+rule), then items per pack. The head (read only and on a draft): the blocks of a row share their top line and height (the labels' row
+22 px; a block a column whose last part grows; a block's label as high as a fact's words), so Supplier, Deliver to and Order date line up
+at every width; a label in the head and the foot reads as the paper's words (the site's label is 500 13 px and a grid); a fact's box is
+36 px like a fact; the supplier box's words stand where the name's stand. On a computer a box's words stand where the paper's words stand:
+the name and "+ Add product" under the Item heading, the packs and prices under their headings' right edge, the note under its label, the
+delivery under the totals' figures (the box reaches 8 px into the cell's padding). A box's edge on hover is the field's edge (clearly a box).
+The empty Their reference, Note and Delivery are real boxes; their "—" is a placeholder, never a value (a test saves them empty).
 
 ### The Codex reviews of look-paper (`lookpaper_20261118/codex_round1.txt` to `codex_round3.txt`; three rounds, the cap)
 - Round 1 (1 HIGH, 3 MEDIUM, 1 LOW): More > Copy on the paper left typed values without the unsaved guard (Copy is a leaving form there;
