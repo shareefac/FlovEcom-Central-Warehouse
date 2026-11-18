@@ -73,7 +73,8 @@ final class RolePermissionsTest extends MappingTestCase
     {
         self::assertSame(array_keys(Permissions::MAP), array_values(array_intersect(array_keys(Permissions::MAP), array_keys($this->saved))));
         foreach (Permissions::MAP as $perm => $holders) {
-            self::assertSame(implode(',', Permissions::ordered($holders)), $this->saved[$perm], $perm);
+            // 0069 added people_manager after 0034 (PM3): its rows are left as they were; the code gives it its four tasks on the read.
+            self::assertSame(implode(',', Permissions::ordered(array_diff($holders, ['people_manager']))), $this->saved[$perm], $perm);
             $v1 = ConfigHistory::latest(self::$db, 'permission', $perm);
             self::assertSame([1, 'baseline', 'system:migrate', ['roles' => $this->saved[$perm]]], [$v1['version'], $v1['action'], $v1['actor'], $v1['state']], $perm);
         }
@@ -211,7 +212,7 @@ final class RolePermissionsTest extends MappingTestCase
         self::assertSame([], $this->audits());
     }
 
-    /** The guarded jobs keep their own permissions: an admin sees the people; a reviewer gives the checks and the OKs. */
+    /** The guarded jobs keep their own permissions: an admin and a People manager see the people; a reviewer gives the checks and the OKs. */
     public function testTheGuardedJobsCannotBeEditedIntoAnUnsafeState(): void
     {
         $admin = $this->staffUser('admin');
@@ -228,11 +229,14 @@ final class RolePermissionsTest extends MappingTestCase
         RoleMap::load(self::$db);
         self::assertTrue(Permissions::can(['reviewer'], 'documents.review'));
         self::assertTrue(Permissions::can(['admin'], 'staff.view'));
+        self::assertTrue(Permissions::can(['people_manager'], 'staff.view'), 'the People manager keeps the people list too (PM3)');
         // What may change around them does: an admin takes the auditors off the staff list (tightening, settings.manage).
         self::$db->exec('UPDATE role_permission SET roles = ? WHERE permission = ?', [$this->saved['staff.view'], 'staff.view']);
         self::$db->exec('UPDATE role_permission SET roles = ? WHERE permission = ?', [$this->saved['documents.review'], 'documents.review']);
-        $r = $this->change($admin, 'staff.view', ['admin']);
+        self::refused(422, 'required_job', fn () => $this->change($admin, 'staff.view', ['admin']));
+        $r = $this->change($admin, 'staff.view', ['admin', 'people_manager']);
         self::assertSame(['auditor'], $r['removed']);
+        self::assertSame([], $r['added'], 'the People manager had it already (on the read of 0034\'s row)');
         self::assertSame([], ConfigInvariants::check(self::$db));
     }
 
