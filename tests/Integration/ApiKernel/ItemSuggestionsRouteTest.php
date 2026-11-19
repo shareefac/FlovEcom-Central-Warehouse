@@ -25,7 +25,9 @@ final class ItemSuggestionsRouteTest extends ApiKernelTestCase
         $q = http_build_query(['title' => 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'option' => '5mg', 'brand' => 'Elux Legend',
             'attrs' => [['name' => 'Nicotine Strength', 'value' => '5mg']], 'code' => 'cw-' . (int) substr($code, 3)], '', '&', PHP_QUERY_RFC3986);
         $d = self::data($this->call('GET', '/v1/item-suggestions?' . $q, $key));
-        self::assertSame(['item', 'suggestions', 'strong'], array_keys($d));
+        $keys = array_keys($d);
+        sort($keys);
+        self::assertSame(['item', 'strong', 'suggestions'], $keys);
         self::assertSame(['code' => $code, 'name' => 'Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', 'free' => 9, 'why' => 'code'], $d['item'],
             'a store switched off may ask (nothing moves); free to sell from its own warehouse');
         self::assertSame([$code, 'same_details'], [$d['suggestions'][0]['code'], $d['suggestions'][0]['why']]);

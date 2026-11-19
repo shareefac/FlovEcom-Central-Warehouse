@@ -69,7 +69,8 @@ final class ItemSuggestionsTest extends MappingTestCase
         $plain = (new ItemSuggestions(self::$db))->suggest($site->channelId, ['title' => 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg', 'brand' => 'Elux']);
         self::assertSame([$this->code($item), 'same_details'], [$plain['suggestions'][0]['code'], $plain['suggestions'][0]['why']]);
         // Free to sell is the store's: a store selling from another warehouse sees 0.
-        $elsewhere = $this->site('otherwh', 'live', 'VERIFY');
+        self::$db->exec("INSERT INTO warehouse (code, name, is_sellable) VALUES ('SX2', 'Another shop warehouse', 1)");
+        $elsewhere = $this->site('otherwh', 'live', 'SX2');
         self::assertSame(0, (new ItemSuggestions(self::$db))->suggest($elsewhere->channelId, self::cw1138())['suggestions'][0]['free']);
     }
 
