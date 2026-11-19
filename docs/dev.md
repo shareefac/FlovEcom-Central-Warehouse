@@ -1565,7 +1565,8 @@ key `doubt:<id>`.
 
 - Tests: `tests/Integration/PurchaseOrders/LiveLinesTest.php` (section 5's table, in place vs whole save, the audit hour, the clean-up),
   `LiveLinesRaceTest.php` (two workers, `po_worker.php` ops `live_*`), `tests/Integration/UiKernel/PoLiveScreensTest.php`,
-  `tests/Integration/Migration0072Test.php`, `UiUnitTest`, `WordsTest`. Runner: `/root/cw_work/runs/livesave_run.sh`.
+  `tests/Integration/Migration0072Test.php`, `tests/Unit/LiveSaveUnitTest.php`, `UiUnitTest`, `WordsTest`. Runner: `/root/cw_work/runs/livesave_run.sh`,
+  `livesave_full.sh <tag>` (the parts one after another); JS `runs/livesave_js.sh`.
 
 ### Who is here on a draft order, the server half (`docs/decisions.md` LV1-LV12; branch `live-presence`; migration 0070; 18 Nov 2026)
 

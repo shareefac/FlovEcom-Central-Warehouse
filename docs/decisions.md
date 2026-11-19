@@ -18327,7 +18327,8 @@ the block's two timers.
 **LS13. Tests.** Red first on main's code (`runs/livesave_red_all.log`: 26 tests): `LiveLinesTest` (every row of section 5's table, in place vs
 whole save over 60 random steps, the pack conversion of one line, a retried add, a final order, a stale Confirm, the jobs on every op and admin
 refused, the audit hour, the clean-up), `LiveLinesRaceTest`, `PoLiveScreensTest`, `Migration0072Test`, `UiUnitTest` (routes, passive, the
-block's pins), `WordsTest`. The script: `run_save.js` (queue, merge, rebase, retry rhythm, the patch around typing, out-of-order answers, new
+block's pins), `WordsTest`, `LiveSaveUnitTest` (the totals over every line after one changed, the audit's clock hour, the History's groups and
+words, a line's values in words). The script: `run_save.js` (queue, merge, rebase, retry rhythm, the patch around typing, out-of-order answers, new
 and gone lines and their names, each choice, Undo, Confirm, the lock, signed out, presence again, the delivery, Cmd+S) and `run_kg.js`'s
 section "live" (the grid's hand-over) in `/root/cw_work/livesave_20261119/js_harness/` (`runs/livesave_js.sh`); `run_live.js` and the
 others unchanged and green.
@@ -18369,3 +18370,11 @@ too (b6). A save out too long is given up also when a poll fails (b7, c8). Refus
 A new line taken out before its add went comes back with Undo and is added (c9). `live.mode` off straight from on: the Save button again (c11).
 Checked by `PoLiveScreensTest`, `LiveLinesTest` and `run_save.js` section 11 (red on c84b4bb's app.js: `runs/livesave_js_r2red.log`); not
 reviewed again (the one re-check round).
+
+### The full suite (sequential, one part at a time)
+
+On be061fd: Unit 640 OK; UiKernel 702 OK; the rest 1,308 OK (83 skipped: the HTTP tests of slot ui, as before). `LiveSaveUnitTest` (added
+after it) 4 OK alone. The script: `run_save.js` 118, `run_live.js` 122, `run_kg.js` all (its section "live" included), `run_gw.js` 71;
+`run_aj.js` keeps its one failure that main has too (`presence2_20261119/js_harness/README.txt`). Not walked through in two browsers on
+staging yet (the plan's written script of step 4: different lines for two minutes, the same line at once, remove against change, the same
+product, confirm while the other types, cancel, the network off for 20 s, a phone and a laptop).
