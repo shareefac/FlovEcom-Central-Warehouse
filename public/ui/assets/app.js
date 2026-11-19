@@ -315,8 +315,14 @@
   // the order's, the supplier invoice's, a delivery's (docs/decisions.md GW7: its one form, /ui/receiving/<id>/lines) and a quick adjustment's
   // (docs/decisions.md AJ4: a new one's /ui/stock/adjustments/new, a draft's /ui/stock/adjustments/<id>/grid). A delivery's scan box reads its
   // own choices (GW3: data-gi-fragment, /ui/receiving/<id>/products?…).
-  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/(purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?|receiving\/[1-9][0-9]{0,17}\/lines|stock\/adjustments\/(new|[1-9][0-9]{0,17}\/grid))$/ };
+  // Each box of a draft order saved by itself (docs/decisions.md LS10, LS12): the third kind sent, a line or a head box to the order's own
+  // /live/line and /live/header (the session's token in the body), and the draft's own fragment read from its /live/doc (a GET the page
+  // sends by itself, passive); each answers the fragment po_live (data-live-fragment), a refusal (400, 409, 422) as well; a redirect or a
+  // 401 (the session ended) is never followed: the caller is told (`out`).
+  var SENT = { '[data-ni-fragment]': /^\/ui\/purchasing\/(orders|invoices)\/new-item$/, '[data-kg-editor]': /^\/ui\/(purchasing\/(orders|invoices)(\/[1-9][0-9]{0,17}\/lines)?|receiving\/[1-9][0-9]{0,17}\/lines|stock\/adjustments\/(new|[1-9][0-9]{0,17}\/grid))$/,
+    '[data-live-fragment]': /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}\/live\/(line|header)$/ };
   var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };
+  var LIVE_DOC = /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}\/live\/doc\?since=[0-9]{1,18}&tab=[0-9a-f]{16}$/;
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker, body) {
@@ -324,16 +330,26 @@
     if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {
       path = ALSO[marker];
     }
+    var live = marker === '[data-live-fragment]';
     var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);
+    if (live && body === undefined && LIVE_DOC.test(url)) {
+      path = url; // the draft's own fragment (GET): only this address
+    }
     if ((!sent && (!path || url.indexOf(path) !== 0 || body !== undefined)) || !window.fetch || !window.DOMParser) {
       return Promise.reject(new Error('not a fragment of this site'));
     }
     var editor = marker === '[data-kg-editor]';
-    return window.fetch(url, sent ? { credentials: 'same-origin', method: 'POST', headers: { Accept: 'text/html' }, body: body, redirect: 'follow' }
-      : { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
+    return window.fetch(url, sent ? { credentials: 'same-origin', method: 'POST', headers: { Accept: 'text/html' }, body: body, redirect: live ? 'manual' : 'follow' }
+      : { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' }, redirect: live ? 'manual' : 'follow', cache: live ? 'no-store' : 'default' })
       .then(function (r) {
-        // The editor's Save lands on the editor's page (303, followed) or answers a refusal (409, 422) with it; nothing else is an answer.
-        if (editor ? (r.status !== 200 && r.status !== 409 && r.status !== 422) : (!r.ok || r.redirected)) {
+        if (live && (r.type === 'opaqueredirect' || r.status === 401 || Math.floor(r.status / 100) === 3)) {
+          var gone = new Error('signed out');
+          gone.out = true;
+          throw gone;
+        }
+        // The editor's Save lands on the editor's page (303, followed) or answers a refusal (409, 422) with it; a box saved by itself answers
+        // its refusal (400, 409, 422) with the draft's fragment too; nothing else is an answer.
+        if (editor || live ? (r.status !== 200 && r.status !== 409 && r.status !== 422 && !(live && r.status === 400)) : (!r.ok || r.redirected)) {
           throw new Error('not the fragment');
         }
         return r.text();
@@ -1537,8 +1553,11 @@
         el.select();
       }
     };
+    // Each box saved by itself (live.mode on; docs/decisions.md LS12): the block "live" saves the lines one by one (kb.live, while it runs
+    // on this form); the grid then hands it each change instead of keeping it for Save, and the leave guard is the block's.
+    var liveSave = function () { return !!kb.live && kb.live.on(form); };
     var dirty = function () {
-      if (form.hasAttribute('data-unsaved')) {
+      if (form.hasAttribute('data-unsaved') && !liveSave()) {
         form.setAttribute('data-dirty', '1');
       }
     };
@@ -1876,6 +1895,9 @@
         each(undo.items, function (u) { if (u.timer) { window.clearTimeout(u.timer); } }); // the earlier removal stays done
       }
       undo = { items: gone.map(takeOut) };
+      if (liveSave()) {
+        kb.live.removed(gone); // sent at once, one line at a time (LS8: Undo puts my own removed lines back)
+      }
       undoText.textContent = gone.length === 1 ? word('removed').replace('%s', String(at + 1)) : word('removed-many').replace('%s', String(gone.length));
       undoLine.hidden = false;
       dirty();
@@ -1890,7 +1912,10 @@
       }
       var u = undo;
       undo = null;
-      each(u.items, putBack);
+      // Saved by itself: a removal already sent comes back from the server (my own line, a new id); one not sent yet is put back here.
+      each(liveSave() ? kb.live.undo(u.items.map(function (x) { return x.tr; })).map(function (tr) {
+        return u.items.filter(function (x) { return x.tr === tr; })[0];
+      }) : u.items, putBack);
       hideUndo();
       renumber();
       totals();
@@ -2123,6 +2148,9 @@
       dirty();
       totals();
       check(tr);
+      if (liveSave()) {
+        kb.live.product(tr); // the line's product changed in place (or a new line's before it is added): saved by itself
+      }
       goTo(cellIn(tr, 'qty') || price);
     };
     var flash = function (tr) {
@@ -2294,6 +2322,9 @@
       if (tr && ev.target.hasAttribute('data-kg-cell')) {
         check(tr);
         twice();
+        if (liveSave() && ev.target.getAttribute('data-kg-cell') !== 'item') {
+          kb.live.left(tr, ev.target); // a box left (Tab, Enter, the arrows, a click elsewhere): its line saved by itself
+        }
       }
     });
     // The details: the supplier (needed: need_supplier), a real date (bad_date), the due date not before the invoice's (due_before_date);
@@ -2403,6 +2434,9 @@
       renumber();
       totals();
       twice();
+      if (liveSave()) {
+        kb.live.added(tr); // a new line: added by itself (its key makes a retry add nothing twice)
+      }
       if (!stay) {
         goTo(qty || price || box.input);
       }
@@ -2888,8 +2922,8 @@
         });
     };
     form.addEventListener('submit', function (ev) {
-      if (ev.defaultPrevented) {
-        return; // stopped before it (the posting time half typed, KG35): nothing sent
+      if (ev.defaultPrevented || liveSave()) {
+        return; // stopped before it (the posting time half typed, KG35): nothing sent; saved by itself: the block "live" answers it
       }
       serialise();
       var by = ev.submitter;
@@ -2910,6 +2944,12 @@
     each(body.querySelectorAll('tr[data-kg-line][hidden]'), offBoxes);
     renumber();
     tick();
+    // What the block "live" needs of the grid when the lines are saved one by one (docs/decisions.md LS12): its rows wired again after a
+    // patch, the numbers, the totals, the ticks, the checks, a whole save (the supplier changed: its lines move, KG30), and the empty line.
+    if (form.hasAttribute('data-live-save')) {
+      kb.liveGrid = { form: form, table: table, body: body, empty: empty, wire: wire, offBoxes: offBoxes, renumber: renumber, totals: totals, tick: tick,
+        check: check, hideUndo: function () { undo = null; hideUndo(); }, save: function (then) { if (canSend()) { ajaxSave(null, then); return true; } return false; } };
+    }
     // What the site's keys do in the lines (kb, KEYS): docGrid is their one place.
     kb.grid = {
       table: table,
@@ -2978,6 +3018,9 @@
         }
         dirty();
         totals();
+        if (liveSave()) {
+          kb.live.changed(tr); // its boxes filled by the key, not typed: saved by itself
+        }
         goTo(qty || price || from);
       },
       // The draft saved first when it holds anything not saved (or is not made yet), then $fn (the timed route of the posting time, KG27).
@@ -3027,6 +3070,9 @@
           flash(same);
           dirty();
           totals();
+          if (liveSave()) {
+            kb.live.changed(same);
+          }
           box.clear();
           box.input.focus();
           return;
@@ -6407,6 +6453,7 @@
     var queue = [];
     var lastSaid = 0;
     var note = null;
+    var saver = null; // each box saved by itself (data-live-save): saving() below
 
     // The one timer: set again only after it fired or was cleared.
     var cancel = function () {
@@ -6655,6 +6702,26 @@
       el.appendChild(b);
     };
 
+    // A change in words said by the polite region (one at a time, at its rate); a note of the save's own (Confirm, a lock, a choice).
+    var told = function (words) {
+      queue.push(words);
+      tell();
+    };
+    var setNote = function (key, fill) {
+      note = fill === null ? null : { key: key + ' ' + Date.now() + ' ' + Math.random(), fill: fill };
+      drawNote();
+    };
+    var signedOut = function () {
+      note = { key: 'out', fill: function (el) {
+        el.appendChild(make('span', [], say('signed-out')));
+        if (login.indexOf('/ui/login') === 0) {
+          el.appendChild(link(say('sign-in'), login));
+        }
+      } };
+      stop();
+    };
+    var meId = function () { return num(root.getAttribute('data-live-me')); };
+
     // The poll.
     var stop = function () {
       stopped = true;
@@ -6731,7 +6798,7 @@
         }
         var field = typeof p.field === 'string' && /^(h:[a-z][a-z_]{0,21}|[a-z][a-z_]{0,23})$/.test(p.field) ? p.field : null;
         var uid = typeof p.uid === 'number' && p.uid >= 1 && Math.floor(p.uid) === p.uid ? p.uid : null;
-        out.push({ id: p.id, name: p.name, c: p.c, state: p.state === 'away' ? 'away' : 'active', edits: p.edits === true, uid: uid, field: field });
+        out.push({ id: p.id, name: p.name, c: p.c, state: p.state === 'away' ? 'away' : 'active', edits: p.edits === true, uid: uid, field: field, typing: p.typing === true });
       });
       return out;
     };
@@ -6744,12 +6811,17 @@
         stop();
         return;
       }
+      if (saver && saver.on() && j.mode !== 'on') {
+        saver.off(); // live.mode taken back to presence: the Save button again
+      }
       if (j.status !== 'draft') {
         var by = typeof j.by === 'string' && j.by !== '' ? j.by : say('someone');
         var words = j.status === 'posted' ? text(say('confirmed'), [by, typeof j.number === 'string' ? j.number : ''])
           : (j.status === 'awaiting_approval' ? text(say('sent-ok'), [by]) : (j.status === 'cancelled' ? text(say('cancelled'), [by]) : ''));
+        // Saved box by box: every box locked, and the page names my box that was not saved (the plan's section 5).
+        var lost = saver && saver.on() ? saver.lock(null) : '';
         note = words === '' ? null : { key: 'done ' + words, fill: function (el) {
-          el.appendChild(make('span', [], words));
+          el.appendChild(make('span', [], words + (lost === '' ? '' : ' ' + lost)));
           el.appendChild(link(say('open'), page));
         } };
         stop();
@@ -6759,7 +6831,11 @@
       people = valid(j.here);
       tell();
       var v = pageV();
-      if (typeof j.v === 'number' && j.v > v && sentV === v && root.getAttribute('aria-busy') !== 'true') {
+      if (saver && saver.on()) {
+        if (typeof j.v === 'number') {
+          saver.moved(j.v); // the draft moved: its fragment fetched and patched in (never the box I am typing in)
+        }
+      } else if (typeof j.v === 'number' && j.v > v && sentV === v && root.getAttribute('aria-busy') !== 'true') {
         var ch = j.changed && typeof j.changed === 'object' ? j.changed : null;
         if (ch && typeof ch.by === 'string' && typeof ch.at === 'string') {
           var said = ch.you === true ? text(say('saved-you'), [ch.at]) : text(say('saved'), [ch.by, ch.at]);
@@ -6828,13 +6904,7 @@
             return;
           }
           if (j && j.out === true) {
-            note = { key: 'out', fill: function (el) {
-              el.appendChild(make('span', [], say('signed-out')));
-              if (login.indexOf('/ui/login') === 0) {
-                el.appendChild(link(say('sign-in'), login));
-              }
-            } };
-            stop();
+            signedOut();
             return;
           }
           if (j && j.refused === true) {
@@ -6859,6 +6929,1091 @@
           backoff = Math.min(maxMs, backoff > 0 ? backoff * 2 : pace() * 2);
           next();
         });
+    };
+
+    // ---- Each box saved by itself (live.mode on, the live drafts plan step 4: 4.4, 4.5 and section 5; docs/decisions.md LS12) ----------------
+    // Started on the paper's editor form when it carries data-live-save (the line's address), data-live-head, data-live-doc, data-live-confirm,
+    // data-live-e (the newest line-by-line change the page shows) and data-live-retry-ms. The grid (docGrid, kb.liveGrid) hands over each
+    // change (kb.live): a box left (Tab, Enter, the arrows, a click elsewhere), a line removed (x, Alt/Option+R, ticked Delete), a product
+    // picked (a new line), a product changed in place, Undo (my own removed lines, put back by the server with a new id), a box filled by a
+    // key. Here:
+    //  - liveQueue: my saves, ONE on its way, in order; two waiting saves of the same line become one (the version of the first: the version
+    //    the line had at my first key in it); my own new version is carried to the next save of that line; no answer: tried again after each
+    //    of data-live-retry-ms (then the last again), the bar saying so (data-live-offline); every request is the same
+    //    when sent twice (the server: a stored value is no change, an add and an undo carry their key, a line gone is removed once);
+    //  - liveApply: the draft's own fragment (po_live: the answer of each save, or fetched when the poll says the draft moved) patched in: an
+    //    answer older than what the page shows is not drawn; each line by its id: the same version is kept, another version replaces it,
+    //    UNLESS I have typing not saved yet on it, a save of it on its way, or a choice open there (then my boxes stay and the line says who
+    //    changed it); a line gone is taken out (or marked gone when I was typing in it); a new one is put in its place with a short flash in
+    //    its author's colour; my new lines on their way stay; the head's boxes the same; the totals, the notes and the History card the
+    //    server's; the names of the boxes follow their line's number (the whole form, without the script, is the server's); the cursor kept;
+    //  - liveConflict: a refusal on its line or box (the server's words and buttons, live_conflict): "Keep Fazil's" / "Use mine", "Put it
+    //    back with my change" / "Leave it removed", "Add 5 more" / "Leave it", "Remove it anyway" / "Keep it"; the cursor moves into it, Esc
+    //    takes the safe one (data-live-safe); the line's other saves wait for it;
+    //  - the bar: Save becomes the status (saving, all saved at 14:02, not saved yet: data-live-saving, -all-saved, -not-saved); Cmd/Ctrl+S saves
+    //    the box the cursor is in;
+    //    Confirm waits for my saves, is refused while a choice is open, says first when someone is typing, then sends the version the page
+    //    shows (to data-live-confirm: changed since, the server says who changed which line);
+    //  - the draft confirmed or cancelled by someone: every box locked, the page says who and which box of mine was not saved.
+    // Every word is the page's; names go in as text; nothing is drawn from a string of markup; the fragment is read inert (fragment()).
+    var saving = function () {
+      var saveUrl = root.getAttribute('data-live-save') || '';
+      var headUrl = root.getAttribute('data-live-head') || '';
+      var docUrl = root.getAttribute('data-live-doc') || '';
+      var confirmUrl = root.getAttribute('data-live-confirm') || '';
+      var retries = (root.getAttribute('data-live-retry-ms') || '').split(' ').map(num).filter(function (n) { return n > 0; });
+      if (!form || saveUrl !== page + '/live/line' || headUrl !== page + '/live/header' || docUrl !== page + '/live/doc' || confirmUrl !== page + '/approve'
+        || retries.length === 0 || !kb.liveGrid || kb.liveGrid.form !== form) {
+        return null;
+      }
+      var g = kb.liveGrid;
+      var id = page.split('/').pop();
+      var queue = [];
+      var flying = null;
+      var later = null; // the retry's one timer
+      var tries = 0;
+      var on = true;
+      var locked = false;
+      var shownE = num(root.getAttribute('data-live-e'));
+      var docBusy = false;
+      var docAgain = false;
+      var wholeAfter = false; // the supplier changed: its whole save goes once my saves are done
+      var lastAt = '';
+      var removedLast = [];
+      var confirming = false;
+      var askedTyping = false;
+      var cmdS = false;
+      var seq = 0;
+      var key = function () {
+        var out = '';
+        var bytes = window.crypto && window.crypto.getRandomValues ? window.crypto.getRandomValues(new window.Uint8Array(8)) : null;
+        for (var i = 0; i < 8; i++) {
+          out += ('0' + ((bytes ? bytes[i] : Math.floor(Math.random() * 256)) & 255).toString(16)).slice(-2);
+        }
+        return out;
+      };
+      var rows = function () { return Array.prototype.slice.call(g.body.querySelectorAll('tr[data-kg-row]')); };
+      var rowOf = function (uid) { return g.body.querySelector('tr[data-kg-row][data-uid="' + uid + '"]'); };
+      var cells = function (tr) { return Array.prototype.slice.call(tr.querySelectorAll('input[data-kg-cell]')); };
+      var was = function (el) { return el.getAttribute('data-live-was'); };
+      // A box holds typing not saved yet: its value is not the one last saved or drawn, or its save was refused (data-live-bad).
+      var typed = function (el) { return was(el) !== null && (el.value !== was(el) || el.hasAttribute('data-live-bad')); };
+      var keep = function (tr) { each(cells(tr), function (el) { el.setAttribute('data-live-was', el.value); }); };
+      var hasChoice = function (tr) { return !!tr && !!tr.nextSibling && tr.nextSibling.hasAttribute && tr.nextSibling.hasAttribute('data-live-choice-row'); };
+      var pendingFor = function (tr) {
+        return queue.concat(flying ? [flying] : []).some(function (it) { return it.tr === tr; });
+      };
+      var busyRow = function (tr) {
+        if (tr.hasAttribute('data-live-take')) {
+          return false; // "Keep theirs": the server's line, whatever the boxes hold
+        }
+        return cells(tr).some(typed) || pendingFor(tr) || hasChoice(tr) || tr.hasAttribute('data-live-hold') || tr.hasAttribute('data-kg-new');
+      };
+      var heads = function () { return Array.prototype.slice.call(form.querySelectorAll('input[data-live-field]')); };
+      var statusEl = function () { return document.querySelector('[data-live-status]'); };
+      var saveButton = function () { return document.querySelector('button[form="' + form.id + '"][name="action"][value="save"]'); };
+      // The bar: Save hidden, the status in its place, in the page's words.
+      var status = function (code, part) {
+        var el = statusEl();
+        var b = saveButton();
+        if (!el) {
+          return;
+        }
+        if (b) {
+          b.hidden = on;
+        }
+        el.hidden = !on;
+        el.textContent = code === '' ? '' : (part !== undefined ? text(say(code), [part]) : say(code));
+        el.classList.toggle('live-unsaved', code === 'not-saved' || code === 'offline');
+      };
+      var dirty = function () {
+        var any = queue.length > 0 || flying !== null || rows().some(function (tr) { return cells(tr).some(typed) || hasChoice(tr); })
+          || heads().some(function (h) { return h.value !== (h.getAttribute('data-live-base') || ''); });
+        if (any) {
+          form.setAttribute('data-dirty', '1');
+        } else {
+          form.removeAttribute('data-dirty');
+        }
+        return any;
+      };
+      var idle = function () {
+        if (wholeAfter && queue.length === 0 && !flying) {
+          wholeAfter = false;
+          g.save(null);
+          return;
+        }
+        if (queue.length > 0 || flying) {
+          status('saving');
+        } else if (!dirty()) {
+          status(cmdS ? 'box-saved' : (lastAt !== '' ? 'all-saved' : ''), lastAt);
+          cmdS = false;
+        }
+      };
+
+      // liveQueue: enqueue (merging an unsent save of the same line or box), then send the first that may go.
+      var unmarkBad = function (el) {
+        if (el && el.hasAttribute('data-live-bad')) {
+          el.removeAttribute('data-live-bad');
+          el.removeAttribute('aria-invalid');
+          if (el.nextSibling && el.nextSibling.classList && el.nextSibling.classList.contains('live-refused')) {
+            el.parentNode.removeChild(el.nextSibling);
+          }
+        }
+      };
+      var enqueue = function (it, front) {
+        if (locked || !on) {
+          return;
+        }
+        if (it.op === 'set' || it.op === 'header') {
+          for (var i = 0; i < queue.length; i++) {
+            var q = queue[i];
+            if (q.op === it.op && q.tr === it.tr && q.field === it.field && !q.parked) {
+              each(Object.keys(it.f), function (k) { q.f[k] = it.f[k]; });
+              send();
+              return;
+            }
+          }
+        }
+        if (front) {
+          queue.unshift(it);
+        } else {
+          queue.push(it);
+        }
+        status('saving');
+        dirty();
+        send();
+      };
+      var uidOf = function (tr) { return tr ? num(tr.getAttribute('data-uid')) : 0; };
+      var send = function () {
+        if (flying || locked || !on || later !== null) {
+          return;
+        }
+        var it = null;
+        for (var i = 0; i < queue.length && !it; i++) {
+          var q = queue[i];
+          if (q.parked) {
+            continue;
+          }
+          if ((q.op === 'set' || q.op === 'remove') && !uidOf(q.tr)) {
+            var adding = queue.concat(flying ? [flying] : []).some(function (x) { return x.op === 'add' && x.tr === q.tr; });
+            if (!adding) {
+              queue.splice(i, 1); // a new line taken out before it was ever added: nothing to send
+              i--;
+            }
+            continue; // its line is still being added: after the add's answer
+          }
+          it = q;
+          queue.splice(i, 1);
+        }
+        if (!it) {
+          idle();
+          return;
+        }
+        flying = it;
+        var body = new window.URLSearchParams();
+        body.append('csrf', token());
+        body.append('tab', tab);
+        body.append('since', String(shownE));
+        var url = saveUrl;
+        if (it.op === 'header') {
+          url = headUrl;
+          body.append('field', it.field);
+          body.append('base', it.base);
+          body.append('value', it.f.value);
+        } else {
+          body.append('op', it.op);
+          if (it.op !== 'add') {
+            body.append('uid', String(uidOf(it.tr) || it.uid || ''));
+          }
+          if (it.op === 'set' || it.op === 'remove') {
+            body.append('rev', String(it.rev || num(it.tr.getAttribute('data-live-at')) || num(it.tr.getAttribute('data-rev'))));
+          }
+          if (it.op === 'add' && it.tr) {
+            // A new line: what its boxes hold now (typed after it was picked, before it went).
+            var qty = it.tr.querySelector('input[data-kg-cell="qty"]');
+            var price = it.tr.querySelector('input[data-kg-cell="price"]');
+            var upp = it.tr.querySelector('input[data-kg-cell="upp"]');
+            it.f.packs = qty ? qty.value.trim() : (it.f.packs || '1');
+            it.f.price = price ? price.value.trim() : (it.f.price || '');
+            if (upp && !(it.tr.getAttribute('data-si') || '')) {
+              it.f.u = upp.value.trim();
+            }
+            each(['si', 'sku'], function (k) {
+              var v = it.tr.getAttribute('data-' + k) || '';
+              if (v !== '' && it.f.si === undefined && it.f.sku === undefined) {
+                it.f[k] = v;
+              }
+            });
+            if (it.f.u === undefined && (it.tr.getAttribute('data-u') || '') !== '') {
+              it.f.u = it.tr.getAttribute('data-u');
+            }
+            if (qty) {
+              qty.setAttribute('data-live-was', qty.value);
+            }
+            if (price) {
+              price.setAttribute('data-live-was', price.value);
+            }
+          }
+          each(Object.keys(it.f || {}), function (k) { body.append(k, String(it.f[k])); });
+          if (it.after) {
+            body.append('after', String(it.after));
+          }
+          if (it.key) {
+            body.append('k', it.key);
+          }
+          if (it.more) {
+            body.append('more', '1');
+          }
+        }
+        status('saving');
+        fragment(url, '[data-live-fragment]', body)
+          .then(function (node) {
+            flying = null;
+            tries = 0;
+            answered(it, node);
+            send();
+          })
+          .catch(function (e) {
+            flying = null;
+            if (e && e.out) {
+              out();
+              return;
+            }
+            // No answer (no network, a server error): the same save again a little later (the server takes it twice as once).
+            queue.unshift(it);
+            tries += 1;
+            status(tries > 1 ? 'offline' : 'not-saved');
+            var wait = retries[Math.min(tries - 1, retries.length - 1)];
+            if (later !== null) {
+              window.clearTimeout(later);
+            }
+            later = window.setTimeout(function () {
+              later = null;
+              send();
+            }, wait);
+          });
+      };
+      window.addEventListener('online', function () {
+        if (later !== null) {
+          window.clearTimeout(later);
+          later = null;
+          send();
+        }
+      });
+      var out = function () {
+        on = false;
+        locked = true;
+        if (later !== null) {
+          window.clearTimeout(later);
+          later = null;
+        }
+        status('not-saved');
+        signedOut();
+      };
+
+      // An answer of my own save: what it did, a refusal on its line or box, then the draft as it is now.
+      var answered = function (it, node) {
+        if (!node || node.getAttribute('data-live-fragment') !== 'po:' + id) {
+          throw new Error('draft');
+        }
+        var done = node.getAttribute('data-op-status') || '';
+        var clash = node.querySelector('[data-live-part="conflict"]');
+        var code = clash ? clash.getAttribute('data-code') || '' : '';
+        if (code === 'not_draft') {
+          apply(node);
+          lock(clash);
+          return;
+        }
+        if (code === 'live_off') {
+          off();
+          return;
+        }
+        if (clash && it.tr) {
+          it.tr.setAttribute('data-live-hold', '1'); // my values stay on the line while I choose
+        }
+        if (done !== 'refused' && done !== '') {
+          var uid = num(node.getAttribute('data-op-uid'));
+          if ((it.op === 'add' || it.op === 'restore') && it.tr && uid) {
+            var made = node.querySelector('[data-live-part="lines"] tr[data-uid="' + uid + '"]');
+            it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it)
+            if (done === 'added' && made && cells(it.tr).some(typed)) {
+              // Typed in since it went: kept with its typing (saved when the box is left), as the server's new line of its own version.
+              it.tr.removeAttribute('data-kg-new');
+              it.tr.removeAttribute('data-live-at');
+              each(['data-rev', 'data-by', 'data-by-name', 'data-kg-line', 'data-kg-vat', 'data-kg-rate', 'data-kg-upp'], function (a) {
+                if (made.getAttribute(a) !== null) {
+                  it.tr.setAttribute(a, made.getAttribute(a));
+                }
+              });
+            } else {
+              it.tr.setAttribute('data-live-drop', '1'); // drawn by the server's row now (added to a line already there: that line)
+            }
+          }
+          if (it.op === 'set' && it.tr) {
+            var srow = node.querySelector('[data-live-part="lines"] tr[data-uid="' + uidOf(it.tr) + '"]');
+            var rev = srow ? num(srow.getAttribute('data-rev')) : 0;
+            // My own new version: the next save of this line is based on it, never refused by my own change.
+            each(queue, function (q) {
+              if (q.tr === it.tr && (q.op === 'set' || q.op === 'remove')) {
+                q.rev = rev;
+              }
+            });
+            it.tr.setAttribute('data-live-at', String(rev));
+          }
+          if (it.op === 'header' && it.el) {
+            it.el.setAttribute('data-live-base', it.f.value);
+          }
+          if (it.charge && it.el && it.el.value === it.f.charge) {
+            it.el.value = '';
+          }
+          if (it.op === 'remove') {
+            removedLast.push({ uid: it.uid || uidOf(it.tr), after: it.after || 0 });
+          }
+          lastAt = node.getAttribute('data-at') || lastAt;
+        }
+        apply(node);
+        if (clash) {
+          confirming = false; // a refusal stops a Confirm that waited for my saves: the person looks first
+          refused(it, clash);
+        }
+        if (confirming && queue.length === 0 && !flying) {
+          confirmNow();
+        }
+      };
+
+      // liveApply: the draft's fragment patched into the page.
+      var flashIn = function (tr, by) {
+        var p = people.filter(function (x) { return String(x.id) === by; })[0];
+        tr.classList.add('live-new');
+        if (p) {
+          tr.classList.add('who-c' + p.c);
+        }
+      };
+      var renameRow = function (tr, no) {
+        var old = tr.getAttribute('data-kg-line') || '';
+        if (old === no || !/^[1-9][0-9]*$/.test(no)) {
+          return;
+        }
+        tr.setAttribute('data-kg-line', no);
+        each(tr.querySelectorAll('input[name], button[name="remove_line"]'), function (el) {
+          if (el.tagName === 'BUTTON') {
+            el.setAttribute('value', no);
+          } else {
+            el.name = el.name.replace(/^line_[0-9]+_/, 'line_' + no + '_');
+          }
+        });
+      };
+      var apply = function (node) {
+        var v = num(node.getAttribute('data-v'));
+        var pv = pageV();
+        if (v < pv) {
+          return; // older than what the page shows: never drawn over it
+        }
+        var vIn = form.querySelector('input[type="hidden"][name="version"]');
+        if (vIn) {
+          vIn.value = String(v);
+        }
+        var e = num(node.getAttribute('data-e'));
+        shownE = Math.max(shownE, e);
+        root.setAttribute('data-live-e', String(shownE));
+        var part = function (name) { return node.querySelector('[data-live-part="' + name + '"]'); };
+        var lines = part('lines');
+        var active = document.activeElement;
+        var focusRow = active && active.closest ? active.closest('tr[data-kg-row]') : null;
+        var focusCell = active && active.getAttribute ? active.getAttribute('data-kg-cell') : null;
+        var refocus = null;
+        if (lines) {
+          var theirs = Array.prototype.slice.call(lines.querySelectorAll('tr[data-kg-row][data-uid]'));
+          var want = [];
+          var seen = {};
+          each(theirs, function (srow) {
+            var uid = srow.getAttribute('data-uid');
+            seen[uid] = true;
+            var dropped = false;
+            each(rows(), function (r) {
+              if (r.getAttribute('data-uid') === uid && r.hasAttribute('data-live-drop')) {
+                if (r === focusRow) {
+                  refocus = uid;
+                }
+                dropped = true;
+                r.parentNode.removeChild(r); // my new line, now the server's own row
+              }
+            });
+            var mine = rowOf(uid);
+            if (mine && mine.hidden) {
+              want.push(mine); // removed here, its removal on its way: stays out of sight
+              return;
+            }
+            if (!mine) {
+              var fresh = document.importNode(srow, true);
+              keep(fresh);
+              if (!dropped) {
+                flashIn(fresh, srow.getAttribute('data-by') || '');
+              }
+              want.push(fresh);
+              return;
+            }
+            renameRow(mine, srow.getAttribute('data-kg-line') || '');
+            if (mine.getAttribute('data-rev') === srow.getAttribute('data-rev') && !mine.hasAttribute('data-live-gone')) {
+              want.push(mine);
+              return;
+            }
+            var take = mine.hasAttribute('data-live-take');
+            mine.removeAttribute('data-live-take');
+            if (!take && busyRow(mine)) {
+              // My typing, my save on its way or my choice: my boxes stay; the line says who changed it meanwhile.
+              mine.setAttribute('data-live-server-rev', srow.getAttribute('data-rev') || '');
+              if ((srow.getAttribute('data-by') || '') !== String(meId()) && srow.getAttribute('data-rev') !== mine.getAttribute('data-live-at')) {
+                markRow(mine, 'changed-by', srow.getAttribute('data-by-name') || say('someone'));
+              }
+              want.push(mine);
+              return;
+            }
+            var next = document.importNode(srow, true);
+            keep(next);
+            if (mine === focusRow) {
+              refocus = uid;
+            } else if ((srow.getAttribute('data-by') || '') !== String(meId())) {
+              flashIn(next, srow.getAttribute('data-by') || '');
+            }
+            mine.parentNode.replaceChild(next, mine);
+            want.push(next);
+          });
+          // Who removed a line, from the changes in words (data-name), else the page's word for someone.
+          var removedBy = {};
+          var ev = part('events');
+          each(ev ? ev.querySelectorAll('li[data-op="remove"][data-uid]') : [], function (li) { removedBy[li.getAttribute('data-uid')] = li.getAttribute('data-name') || ''; });
+          // Lines no longer there: gone (marked when I was typing in them); my new lines on their way stay, after the others.
+          each(rows(), function (r) {
+            var uid = r.getAttribute('data-uid');
+            if (r.hasAttribute('data-live-drop') || (uid && !seen[uid] && !busyRow(r))) {
+              if (r.parentNode && want.indexOf(r) < 0) {
+                r.parentNode.removeChild(r);
+              }
+              return;
+            }
+            if (uid && !seen[uid]) {
+              r.setAttribute('data-live-gone', '1');
+              markRow(r, 'removed-by', removedBy[uid] || say('someone'));
+              each(r.querySelectorAll('input[name]'), function (el) { el.disabled = true; }); // never sent by the whole form
+              return;
+            }
+            if (!uid && want.indexOf(r) < 0) {
+              want.push(r);
+            }
+          });
+          // In the server's order, moving only the rows out of their place (a moved row with the cursor would lose it); a line's choice moves
+          // with it; a line gone that I was typing in stays where it is.
+          var choiceOf = function (r) {
+            var n = r.nextSibling;
+            return n && n.nodeType === 1 && n.hasAttribute('data-live-choice-row') ? n : null;
+          };
+          var at = g.body.firstChild;
+          var skip = function () {
+            while (at && at !== g.empty && !(at.nodeType === 1 && at.hasAttribute('data-kg-row') && !at.hasAttribute('data-live-gone'))) {
+              at = at.nextSibling;
+            }
+          };
+          each(want, function (r) {
+            var c = choiceOf(r);
+            skip();
+            if (at === r) {
+              at = c ? c.nextSibling : r.nextSibling;
+              return;
+            }
+            g.body.insertBefore(r, at || g.empty);
+            if (c) {
+              g.body.insertBefore(c, at || g.empty);
+            }
+          });
+          each(rows(), function (r) {
+            if (!r.hasAttribute('data-kg-wired')) {
+              g.wire(r);
+            }
+          });
+          var count = form.querySelector('input[type="hidden"][name="line_count"]');
+          if (count) {
+            count.value = lines.getAttribute('data-count') || count.value;
+          }
+          g.renumber();
+          g.totals();
+          g.tick();
+        }
+        // The totals: the server's figures win over the page's own.
+        var foot = part('foot');
+        if (foot) {
+          each(foot.querySelectorAll('[data-live-total]'), function (dd) {
+            var k = dd.getAttribute('data-live-total');
+            each(document.querySelectorAll('[data-kg-total="' + k + '"]'), function (mineTotal) {
+              mineTotal.textContent = dd.textContent;
+            });
+          });
+        }
+        // The head: each box the server's value, unless I am typing in it; the supplier's address and terms.
+        var head = part('header');
+        if (head) {
+          each(head.querySelectorAll('[data-live-field]'), function (h) {
+            var box = form.querySelector('input[data-live-field="' + h.getAttribute('data-live-field') + '"]');
+            if (!box) {
+              return;
+            }
+            var mineTyping = box.value !== (box.getAttribute('data-live-base') || ''); // the cursor alone in it is no typing
+            var queued = queue.some(function (q) { return q.el === box; }) || (flying && flying.el === box);
+            if (!mineTyping && !queued && !box.hasAttribute('data-live-clash')) {
+              box.value = h.value;
+              box.setAttribute('data-live-base', h.value);
+            }
+          });
+          var party = head.querySelector('[data-live-party]');
+          var mineParty = form.querySelector('[data-kg-swap-part="party"]');
+          if (party && mineParty) {
+            clean(mineParty);
+            each(party.children, function (p) { mineParty.appendChild(document.importNode(p, true)); });
+          }
+          var terms = head.querySelector('[data-live-terms]');
+          var mineTerms = form.querySelector('[data-kg-swap-part="terms"]');
+          if (terms && mineTerms) {
+            mineTerms.textContent = terms.textContent;
+          }
+        }
+        var notes = part('notes');
+        var mineNotes = document.querySelector('[data-live-notes]');
+        if (notes && mineNotes) {
+          clean(mineNotes);
+          each(notes.children, function (c) { mineNotes.appendChild(document.importNode(c, true)); });
+        }
+        var hist = part('history');
+        var mineHist = document.querySelector('section.po-history');
+        var theirHist = hist ? hist.querySelector('section.po-history') : null;
+        if (mineHist && theirHist) {
+          var opened = Array.prototype.map.call(mineHist.querySelectorAll('details.live-fold'), function (d) { return d.open; });
+          var copy = document.importNode(theirHist, true);
+          each(copy.querySelectorAll('details.live-fold'), function (d, i) { d.open = !!opened[i]; });
+          mineHist.parentNode.replaceChild(copy, mineHist);
+        }
+        var events = part('events');
+        if (events) {
+          each(events.querySelectorAll('li[data-id]'), function (li) { told(li.textContent); });
+        }
+        if (refocus !== null) {
+          var back = rowOf(refocus);
+          var box = back ? (back.querySelector('input[data-kg-cell="' + focusCell + '"]') || cells(back)[0]) : null;
+          if (box) {
+            box.focus();
+          }
+        }
+        drawMarks();
+        dirty();
+      };
+      var markRow = function (tr, code, name) {
+        var m = tr.querySelector('[data-live-mark]');
+        if (!m) {
+          var cell = tr.querySelector('th.c-item') || tr.querySelector('th') || tr.firstChild;
+          if (!cell) {
+            return;
+          }
+          m = make('span', ['o-sub', 'live-mark']);
+          m.setAttribute('data-live-mark', '');
+          cell.appendChild(m);
+        }
+        m.textContent = text(say(code), [name]);
+      };
+
+      // liveConflict: the server's refusal under its line (or head box), its buttons wired; the cursor in it; Esc the safe one.
+      var refused = function (it, clash) {
+        var code = clash.getAttribute('data-code') || '';
+        var box = document.importNode(clash, true);
+        box.removeAttribute('data-live-part');
+        var choose = function (choice) {
+          close();
+          if (choice === 'mine') {
+            if (it.op === 'header') {
+              it.base = box.getAttribute('data-theirs') || '';
+              it.el.setAttribute('data-live-base', it.base);
+            } else {
+              it.rev = num(box.getAttribute('data-rev'));
+              it.tr.setAttribute('data-live-at', String(it.rev));
+            }
+            it.parked = false;
+            enqueue(it, true);
+          } else if (choice === 'theirs' || choice === 'keep') {
+            if (it.op === 'header') {
+              it.el.value = box.getAttribute('data-theirs') || '';
+              it.el.setAttribute('data-live-base', it.el.value);
+            } else if (it.tr) {
+              // Their line as it is now: my waiting saves of it go, the server's line is drawn in its place at once.
+              queue = queue.filter(function (q) { return q.tr !== it.tr; });
+              it.tr.hidden = false;
+              it.tr.removeAttribute('data-kg-gone');
+              it.tr.removeAttribute('data-live-at');
+              it.tr.setAttribute('data-live-take', '1');
+              it.tr.setAttribute('data-rev', '0');
+              fetchDoc();
+            }
+          } else if (choice === 'remove') {
+            it.rev = num(box.getAttribute('data-rev'));
+            it.parked = false;
+            enqueue(it, true);
+          } else if (choice === 'more') {
+            it.more = true;
+            it.parked = false;
+            enqueue(it, true);
+          } else if (choice === 'put_back') {
+            var tr = it.tr;
+            var vals = {};
+            each(cells(tr), function (el) { vals[el.getAttribute('data-kg-cell')] = el.value.trim(); });
+            var f = {};
+            if ((tr.getAttribute('data-si') || '') !== '') {
+              f.si = tr.getAttribute('data-si');
+            } else {
+              f.sku = tr.getAttribute('data-sku') || '';
+              f.u = vals.upp || tr.getAttribute('data-kg-upp') || '1';
+            }
+            f.packs = vals.qty || '1';
+            f.price = vals.price || '';
+            tr.removeAttribute('data-uid');
+            tr.setAttribute('data-kg-new', '');
+            enqueue({ op: 'add', tr: tr, f: f, key: key() }, true);
+          } else if (choice === 'leave') {
+            if (it.tr && it.tr.parentNode) {
+              it.tr.parentNode.removeChild(it.tr);
+              g.renumber();
+              g.totals();
+            }
+          }
+          dirty();
+          send();
+        };
+        var row = null;
+        var close = function () {
+          queue = queue.filter(function (q) { return q !== it; });
+          if (row && row.parentNode) {
+            row.parentNode.removeChild(row);
+          }
+          if (row === null) {
+            setNote('', null);
+          }
+          if (it.tr) {
+            it.tr.removeAttribute('data-live-hold');
+          }
+          if (it.el) {
+            it.el.removeAttribute('data-live-clash');
+          }
+          if (it.tr) {
+            it.tr.classList.remove('live-clash');
+          }
+        };
+        var buttons = box.querySelectorAll('button[data-live-choice]');
+        if (buttons.length === 0) {
+          // A refusal without a choice: its words on the box, which keeps what was typed, marked not saved (sent again when it is left).
+          var cellOf = { pack_price: 'price', units_per_pack: 'upp', packs: 'qty' }[box.getAttribute('data-field') || ''] || 'qty';
+          var target = it.el || (it.tr ? (it.tr.querySelector('input[data-kg-cell="' + cellOf + '"]') || cells(it.tr)[0]) : null);
+          if (it.tr) {
+            it.tr.removeAttribute('data-live-hold');
+          }
+          if (target) {
+            var msg = make('span', ['kg-msg', 'live-refused'], box.textContent.replace(/\s+/g, ' ').trim());
+            target.setAttribute('aria-invalid', 'true');
+            target.setAttribute('data-live-bad', '1');
+            if (target.nextSibling && target.nextSibling.classList && target.nextSibling.classList.contains('live-refused')) {
+              target.parentNode.removeChild(target.nextSibling);
+            }
+            target.parentNode.insertBefore(msg, target.nextSibling);
+          }
+          status('not-saved');
+          return;
+        }
+        it.parked = true;
+        queue.unshift(it);
+        // The line's other saves wait behind it (they would meet the same change).
+        each(buttons, function (b) {
+          b.addEventListener('click', function () { choose(b.getAttribute('data-live-choice')); });
+        });
+        box.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Escape') {
+            ev.preventDefault();
+            var safe = box.querySelector('button[data-live-safe]');
+            choose(safe ? safe.getAttribute('data-live-choice') : 'theirs');
+          }
+        });
+        if (it.op === 'header' && it.el) {
+          it.el.setAttribute('data-live-clash', code);
+          row = make('div', ['live-choice-box']);
+          row.setAttribute('data-live-choice-row', '');
+          row.appendChild(box);
+          var holder = it.el.closest('dd, p') || it.el.parentNode;
+          holder.parentNode.insertBefore(row, holder.nextSibling);
+        } else if (!it.tr) {
+          setNote('choice ' + (++seq), function (el) { el.appendChild(box); }); // an undo asked (no line on the page yet)
+        } else if (it.tr) {
+          it.tr.classList.add('live-clash');
+          it.tr.hidden = false;
+          row = make('tr', ['live-choice-row']);
+          row.setAttribute('data-live-choice-row', '');
+          var td = make('td', []);
+          td.setAttribute('colspan', String(Math.max(1, it.tr.children.length)));
+          td.appendChild(box);
+          row.appendChild(td);
+          it.tr.parentNode.insertBefore(row, it.tr.nextSibling);
+        }
+        status('not-saved');
+        var first = buttons[0];
+        if (first) {
+          first.focus();
+        }
+      };
+
+      // The draft's fragment fetched when the poll says it moved (passive: GET, it marks no session seen).
+      var fetchDoc = function () {
+        if (docBusy || flying) {
+          docAgain = true;
+          return;
+        }
+        docBusy = true;
+        docAgain = false;
+        fragment(docUrl + '?since=' + shownE + '&tab=' + tab, '[data-live-fragment]')
+          .then(function (node) {
+            docBusy = false;
+            if (node.getAttribute('data-live-fragment') !== 'po:' + id) {
+              return;
+            }
+            var clash = node.querySelector('[data-live-part="conflict"]');
+            if (clash && clash.getAttribute('data-code') === 'live_off') {
+              off();
+              return;
+            }
+            if (clash && clash.getAttribute('data-code') === 'not_draft') {
+              lock(clash);
+              return;
+            }
+            if (!flying) {
+              apply(node);
+            }
+            if (docAgain) {
+              docAgain = false;
+              fetchDoc();
+            }
+          })
+          .catch(function (e) {
+            docBusy = false;
+            if (e && e.out) {
+              out();
+            }
+          });
+      };
+
+      // Confirm: my saves first, never with a choice open, someone typing said first; then the version the page shows.
+      var confirmNow = function () {
+        confirming = false;
+        if (rows().some(hasChoice) || document.querySelector('[data-live-choice-row]')) {
+          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-first'))); });
+          return;
+        }
+        var typist = people.filter(function (p) { return p.typing && p.state === 'active'; })[0];
+        if (typist && !askedTyping) {
+          var row = typist.uid !== null ? rowOf(typist.uid) : null;
+          var no = row ? (row.querySelector('[data-kg-no]') || {}).textContent : '';
+          var words = row ? text(say('typing-line'), [typist.name, (no || '').replace(/\D/g, '')]) : text(say('typing-head'), [typist.name]);
+          setNote('typing', function (el) {
+            el.appendChild(make('span', [], words));
+            el.appendChild(button(say('confirm-anyway'), function () { askedTyping = true; setNote('', null); confirmNow(); }));
+            el.appendChild(button(say('wait'), function () { setNote('', null); }));
+          });
+          return;
+        }
+        askedTyping = false;
+        setNote('', null);
+        var f = document.createElement('form');
+        f.method = 'post';
+        f.setAttribute('action', confirmUrl);
+        f.hidden = true;
+        each([['csrf', token()], ['version', String(pageV())], ['live', '1']], function (kv) {
+          var i = document.createElement('input');
+          i.type = 'hidden';
+          i.name = kv[0];
+          i.value = kv[1];
+          f.appendChild(i);
+        });
+        document.body.appendChild(f);
+        form.removeAttribute('data-dirty');
+        f.submit();
+      };
+      var confirmIt = function () {
+        // Every box with typing not saved yet goes first (the one the cursor is in, one refused before).
+        each(rows(), function (tr) {
+          each(cells(tr), function (el) {
+            if (el.getAttribute('data-kg-cell') !== 'item' && typed(el)) {
+              left(tr, el);
+            }
+          });
+        });
+        each(heads(), function (h) { headLeft(h); });
+        flushBox();
+        if (rows().some(hasChoice) || document.querySelector('[data-live-choice-row]')) {
+          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-first'))); });
+          return;
+        }
+        if (queue.length > 0 || flying) {
+          confirming = true;
+          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-saving'))); });
+          return;
+        }
+        confirmNow();
+      };
+
+      // The draft confirmed or cancelled by someone (the poll, or a save's 409 not_draft): every box locked, the page says who and which box
+      // of mine was not saved.
+      var lock = function (clash) {
+        if (locked && !clash) {
+          return;
+        }
+        locked = true;
+        on = true;
+        var lost = null;
+        each(rows(), function (tr) {
+          each(cells(tr), function (el) {
+            if (!lost && (typed(el) || pendingFor(tr))) {
+              lost = el;
+            }
+          });
+        });
+        each(heads(), function (h) {
+          if (!lost && h.value !== (h.getAttribute('data-live-base') || '')) {
+            lost = h;
+          }
+        });
+        if (later !== null) {
+          window.clearTimeout(later);
+          later = null;
+        }
+        queue = [];
+        each(form.querySelectorAll('input, select, textarea, button'), function (el) {
+          if (el.type !== 'hidden') {
+            el.disabled = true;
+          }
+        });
+        each(document.querySelectorAll('button[form="' + form.id + '"]'), function (b) { b.disabled = true; }); // the bar's Save and Confirm too
+        status('not-saved');
+        form.removeAttribute('data-dirty');
+        var lostText = lost === null ? '' : text(say('last-box'), [lost.getAttribute('aria-label') || '', lost.value]);
+        if (clash) {
+          var words = Array.prototype.map.call(clash.querySelectorAll('p'), function (p) { return p.textContent.trim(); }).join(' ');
+          setNote('locked', function (el) {
+            el.appendChild(make('span', [], words + (lostText === '' ? '' : ' ' + lostText)));
+            el.appendChild(link(say('open'), page));
+          });
+          stop();
+        }
+        return lostText;
+      };
+      var off = function () {
+        // live.mode taken back to presence: the Save button again (the form's names follow the lines: its whole save is right).
+        on = false;
+        queue = [];
+        if (later !== null) {
+          window.clearTimeout(later);
+          later = null;
+        }
+        var el = statusEl();
+        var b = saveButton();
+        if (el) {
+          el.hidden = true;
+        }
+        if (b) {
+          b.hidden = false;
+        }
+        if (dirty()) {
+          setNote('off', function (n) { n.appendChild(make('span', [], say('save-back'))); });
+        } else {
+          form.removeAttribute('data-dirty');
+        }
+      };
+      // The box the cursor is in, saved now (Cmd/Ctrl+S, Confirm, Enter in a head box).
+      var flushBox = function () {
+        var a = document.activeElement;
+        if (!a || !form.contains(a)) {
+          return;
+        }
+        var tr = a.closest ? a.closest('tr[data-kg-row]') : null;
+        if (tr && a.hasAttribute('data-kg-cell')) {
+          left(tr, a);
+        } else if (a.hasAttribute('data-live-field') || a.hasAttribute('data-kg-delivery')) {
+          headLeft(a);
+        }
+      };
+      var left = function (tr, el) {
+        if (!on || locked || tr.hasAttribute('data-live-gone') || tr.hasAttribute('data-kg-new') && !tr.getAttribute('data-uid')) {
+          return; // a new line not added yet sends what it holds when it goes
+        }
+        var name = { qty: 'packs', price: 'price', upp: 'upp' }[el.getAttribute('data-kg-cell') || ''];
+        if (!name || !typed(el)) {
+          return;
+        }
+        if (name === 'packs' && /^0+$/.test(el.value.trim())) {
+          // 0 packs takes the line out, as without the script.
+          kb.grid.removeAt(el);
+          return;
+        }
+        var f = {};
+        f[name] = el.value.trim();
+        el.setAttribute('data-live-was', el.value);
+        unmarkBad(el);
+        enqueue({ op: 'set', tr: tr, f: f, rev: num(tr.getAttribute('data-live-at')) || num(tr.getAttribute('data-rev')) });
+      };
+      var headLeft = function (el) {
+        if (!on || locked || el.disabled) {
+          return;
+        }
+        if (el.hasAttribute('data-kg-delivery')) {
+          if (el.value.trim() !== '' && !queue.some(function (q) { return q.el === el; }) && !(flying && flying.el === el)) {
+            enqueue({ op: 'add', el: el, charge: true, f: { charge: el.value.trim() }, key: key() });
+          }
+          return;
+        }
+        var base = el.getAttribute('data-live-base') || '';
+        if (el.value !== base) {
+          unmarkBad(el);
+          enqueue({ op: 'header', el: el, field: el.getAttribute('data-live-field'), base: base, f: { value: el.value } });
+        }
+      };
+      form.addEventListener('focusout', function (ev) {
+        var t = ev.target;
+        if (t && t.hasAttribute && (t.hasAttribute('data-live-field') || t.hasAttribute('data-kg-delivery'))) {
+          headLeft(t);
+        }
+      });
+      form.addEventListener('input', function (ev) {
+        var t = ev.target;
+        var tr = t && t.closest ? t.closest('tr[data-kg-row]') : null;
+        if (tr && t.hasAttribute('data-kg-cell') && !tr.hasAttribute('data-live-at')) {
+          tr.setAttribute('data-live-at', tr.getAttribute('data-rev') || ''); // the version this typing is based on
+        }
+        dirty();
+      });
+      // The form's buttons: Save (and Cmd/Ctrl+S, and Enter in a box) saves the box the cursor is in; Confirm as above; the others as before.
+      form.addEventListener('submit', function (ev) {
+        if (!on) {
+          return;
+        }
+        var by = ev.submitter;
+        var act = by ? by.getAttribute('value') || '' : '';
+        if (by && by.getAttribute('name') === 'action' && act === 'approve') {
+          ev.preventDefault();
+          confirmIt();
+          return;
+        }
+        if (!by || (by.getAttribute('name') === 'action' && (act === 'save' || act === 'add'))) {
+          ev.preventDefault();
+          cmdS = act === 'save';
+          flushBox();
+          idle();
+        }
+      }, true);
+      // The supplier changed (its lines move to its packs, KG30): a whole save, after my saves.
+      var supplier = form.querySelector('select[data-po-supplier]');
+      if (supplier) {
+        supplier.addEventListener('change', function () {
+          if (!on || locked) {
+            return;
+          }
+          wholeAfter = true;
+          flushBox();
+          if (queue.length === 0 && !flying) {
+            idle();
+          }
+        });
+      }
+      // A whole save's answer put in place (the supplier changed): the head again (the status beside Save), the rows the server's.
+      document.addEventListener('kg-swapped', function () {
+        each(rows(), keep);
+        each(heads(), function (h) { h.setAttribute('data-live-base', h.value); });
+        status(lastAt !== '' ? 'all-saved' : '', lastAt);
+      });
+
+      // What the grid hands over.
+      kb.live = {
+        on: function (f) { return on && f === form; },
+        left: function (tr, el) { left(tr, el); },
+        changed: function (tr) {
+          if (tr.getAttribute('data-uid')) {
+            each(cells(tr), function (el) {
+              if (el.getAttribute('data-kg-cell') !== 'item' && typed(el)) {
+                left(tr, el);
+              }
+            });
+          }
+        },
+        added: function (tr) { enqueue({ op: 'add', tr: tr, f: {}, key: key() }); },
+        product: function (tr) {
+          if (!tr.getAttribute('data-uid') || tr.hasAttribute('data-kg-new')) {
+            each(queue, function (q) {
+              if (q.op === 'add' && q.tr === tr) {
+                q.f = {}; // not sent yet: it goes with the product it holds now
+              }
+            });
+            if (!queue.some(function (q) { return q.op === 'add' && q.tr === tr; })) {
+              enqueue({ op: 'set', tr: tr, f: product(tr), rev: 0 });
+            }
+            return;
+          }
+          var price = tr.querySelector('input[data-kg-cell="price"]');
+          var f = product(tr);
+          if (price && price.value.trim() !== '') {
+            f.price = price.value.trim();
+            price.setAttribute('data-live-was', price.value);
+          }
+          enqueue({ op: 'set', tr: tr, f: f, rev: num(tr.getAttribute('data-live-at')) || num(tr.getAttribute('data-rev')) });
+        },
+        removed: function (trs) {
+          removedLast = [];
+          each(trs, function (tr) {
+            var unsent = queue.filter(function (q) { return q.op === 'add' && q.tr === tr; });
+            if (unsent.length > 0) {
+              queue = queue.filter(function (q) { return q.tr !== tr; }); // never sent: nothing to take back
+              return;
+            }
+            var prev = tr.previousSibling;
+            while (prev && (!prev.getAttribute || !prev.getAttribute('data-uid') || prev.hidden)) {
+              prev = prev.previousSibling;
+            }
+            queue = queue.filter(function (q) { return !(q.tr === tr && q.op === 'set'); });
+            enqueue({ op: 'remove', tr: tr, f: {}, uid: uidOf(tr), rev: num(tr.getAttribute('data-live-at')) || num(tr.getAttribute('data-rev')), after: prev ? uidOf(prev) : 0 });
+          });
+        },
+        undo: function (trs) {
+          var here = [];
+          each(trs, function (tr) {
+            var waiting = queue.filter(function (q) { return q.op === 'remove' && q.tr === tr && !q.parked; });
+            if (waiting.length > 0) {
+              queue = queue.filter(function (q) { return waiting.indexOf(q) < 0; });
+              here.push(tr);
+              return;
+            }
+            var done = removedLast.filter(function (r) { return r.uid === uidOf(tr); })[0];
+            if (done) {
+              enqueue({ op: 'restore', uid: done.uid, after: done.after, f: {}, key: key() });
+            }
+          });
+          dirty();
+          return here;
+        },
+      };
+      var product = function (tr) {
+        var si = tr.getAttribute('data-si') || '';
+        return si !== '' ? { si: si } : { sku: tr.getAttribute('data-sku') || '', u: tr.getAttribute('data-u') || tr.getAttribute('data-kg-upp') || '1' };
+      };
+      each(rows(), keep);
+      status('');
+      return {
+        moved: function (v) {
+          if (v > pageV() && !locked && on) {
+            fetchDoc();
+          }
+        },
+        lock: lock,
+        off: off,
+        on: function () { return on; },
+      };
     };
 
     // The person: a real key or mouse (never one the script made) is what "active" means.
@@ -6945,6 +8100,9 @@
     document.addEventListener('kg-swapped', draw);
     // The box the cursor is in already (a new order's first save puts it back before this starts: the Codex re-check, LOW).
     place = placeOf(document.activeElement);
+    if (form && form.hasAttribute('data-live-save')) {
+      saver = saving();
+    }
     schedule(send, jitterMs > 0 ? Math.round(Math.random() * jitterMs) : 0);
   };
   // Started once: on the page drawn, or when a new order's first save without leaving the page made it a draft (swapIn takes the draft's

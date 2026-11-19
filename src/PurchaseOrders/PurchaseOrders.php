@@ -18,6 +18,8 @@ use CW\Documents\Documents;
 use CW\Documents\DraftChanges;
 use CW\Files\FileStore;
 use CW\Items\HandMade;
+use CW\Live\LiveChanges;
+use CW\Live\Presence;
 use CW\Matching\Gtin;
 use CW\Settings;
 use CW\Staff\StaffRoles;
@@ -173,7 +175,9 @@ final class PurchaseOrders
             }
             $norm = $this->normaliseLines($caller, $supplier, $lines);
             $doc = $this->docs->updateDraft($caller, $id, $version, array_intersect_key($h, array_flip(['external_ref', 'note', 'doc_date'])));
-            $doc = $this->docs->setLines($caller, $id, $doc->version, array_map(static fn (array $n): array => $n['doc'], $norm));
+            // A line's own version (docs/decisions.md LS2): kept while its content is the same, the order's own row (po_line) included.
+            $doc = $this->docs->setLines($caller, $id, $doc->version, array_map(static fn (array $n): array => $n['doc'], $norm),
+                array_map(static fn (array $n): string => self::poKey($n['po']), $norm), $this->oldKeys($id));
             foreach (array_chunk($norm, 500, true) as $chunk) {
                 $params = [];
                 foreach ($chunk as $i => $n) {
@@ -196,6 +200,12 @@ final class PurchaseOrders
             Audit::write($db, $caller, 'po.save', 'document', (string) $id, null, ['version' => $doc->version, 'lines' => count($norm),
                 'net' => PoMath::fromE2($t['net_e2'])] + ($changed ? ['supplier' => (string) $supplier['code'], 'from_supplier' => $from,
                     'unpriced' => count(array_filter($norm, static fn (array $n): bool => $n['po']['kind'] === 'item' && $n['po']['supplier_item_id'] === null))] : []));
+            if ($changed && $this->liveOn()) {
+                // Every line moved to the new supplier (KG30): the line-by-line changes say so (the History card, the other open pages: LS5).
+                $old = $db->one('SELECT name FROM supplier WHERE id = ?', [$from]);
+                LiveChanges::record($db, $caller, 'po', $id, 'supplier', null, null, ['name' => $old['name'] ?? null], ['name' => (string) $supplier['name']], null,
+                    $doc->version, null, $this->nowDb());
+            }
             return $doc;
         });
     }
@@ -374,6 +384,11 @@ final class PurchaseOrders
             $doc = $this->saveDraft($caller, $id, $version, [], $lines);
             Audit::write($db, $caller, 'po.import_lines', 'document', (string) $id, null,
                 ['file' => mb_substr(basename($name), 0, 120), 'sha256' => $sha, 'format' => $file['format'], 'rows' => count($parsed['lines']), 'mode' => $mode]);
+            if ($this->liveOn()) {
+                // The lines from a file (LS5): every line new (replace) or some added (append), one change in the History card.
+                LiveChanges::record($db, $caller, 'po', $id, 'replace', null, null, null, ['lines' => count($parsed['lines']), 'mode' => $mode], null, $doc->version, null,
+                    $this->nowDb());
+            }
             return ['lines' => count($parsed['lines']), 'errors' => [], 'document' => $doc];
         });
     }
@@ -501,6 +516,525 @@ final class PurchaseOrders
                 'supplier_item_id' => $si === null ? null : (int) $si['id'], 'packs' => $packs, 'line_no' => $res['line_no']]);
             return $res + ['sku_id' => $sku, 'code' => (string) $made['code'], 'supplier_item_id' => $si === null ? null : (int) $si['id']];
         });
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Each box saved by itself (the live drafts plan, step 4; docs/decisions.md LS1-LS14)
+    // ------------------------------------------------------------------------------------------
+
+    /** What a line's boxes change in place (setLine): its packs, its pack's price, its items per pack, its product. */
+    public const LIVE_FIELDS = ['packs', 'pack_price', 'units_per_pack', 'supplier_item_id', 'sku_id'];
+    /** The head's boxes saved by themselves (setHeaderField); the supplier and the order date are whole saves. */
+    public const LIVE_HEADER = ['expected_date', 'external_ref', 'note'];
+    /** The same product added again by someone else within this many seconds of their change is asked first (line_exists). */
+    public const SAME_PRODUCT_SECONDS = 120;
+
+    /**
+     * One line's boxes saved (docs/decisions.md LS3; the plan's 4.2): the line by its own id, at the version the page saw ($rev), with the boxes
+     * changed ($fields: LIVE_FIELDS; 400 bad_field for another). Checked by normaliseLines() as a whole save checks a line (the same pack
+     * and money rules: one line through the same code), then:
+     *  - its values as they are stored already: 200 `unchanged`, nothing written (a retry, two people typing the same figure);
+     *  - the line changed since the page saw it: 409 line_conflict (its version now, who changed it and when, their values) and a
+     *    draft_change `conflict` (the measure); every other line is untouched;
+     *  - no longer on the draft: 409 line_gone (who removed it and when, its product);
+     *  - otherwise in place: the document line (its version + 1: Documents::changeLine), its po_line, the totals over every line; the
+     *    draft's version + 1; a draft_change `set`; the hour's audit row (LiveChanges::record).
+     * A product changed (supplier_item_id, or sku_id with its items per pack) keeps the line, its place and its id; its price is the new pack's
+     * last price unless one is given. Anyone who writes orders (DA1), checked again (poster()); 409 not_draft once it is not a draft.
+     *
+     * @param array<string, mixed> $fields
+     * @return array{status: 'saved'|'unchanged', document: Document, uid: int, rev: int}
+     */
+    public function setLine(Caller $caller, int $id, int $uid, int $rev, array $fields, ?string $tab = null): array
+    {
+        foreach (array_keys($fields) as $k) {
+            if (!in_array($k, self::LIVE_FIELDS, true)) {
+                throw new CwException('bad_field', 'a line saved by itself has ' . implode(', ', self::LIVE_FIELDS) . ', not ' . mb_substr((string) $k, 0, 40), 400,
+                    ['field' => mb_substr((string) $k, 0, 40)]);
+            }
+        }
+        try {
+            return $this->db->transaction(function (Db $db) use ($caller, $id, $uid, $rev, $fields, $tab): array {
+                $this->poster($caller);
+                $supplier = $this->lockLive($id);
+                $cur = $this->liveLine($id, $uid) ?? throw $this->gone($id, $uid);
+                $line = self::asLine($cur);
+                if (array_key_exists('supplier_item_id', $fields) || array_key_exists('sku_id', $fields)) {
+                    // Another product on this line (KG22 in place): the new pack's code, unit and price, unless a price is given.
+                    unset($line['supplier_item_id'], $line['sku_id'], $line['supplier_code'], $line['purchase_unit'], $line['units_per_pack']);
+                    $line['pack_price'] = null;
+                    if (($fields['supplier_item_id'] ?? null) !== null) {
+                        $line['supplier_item_id'] = $fields['supplier_item_id'];
+                    } else {
+                        $line['sku_id'] = $fields['sku_id'] ?? null;
+                    }
+                }
+                foreach (['packs', 'pack_price', 'units_per_pack'] as $k) {
+                    if (array_key_exists($k, $fields)) {
+                        $line[$k] = $fields[$k];
+                    }
+                }
+                $n = $this->normaliseLines($caller, $supplier, [$line], (int) $cur['line_no'] - 1)[0];
+                if (self::contentKey($n['po'], $n['doc']['sku_id'] ?? null, $n['doc']['description'] ?? null) === self::rowKey($cur)) {
+                    return ['status' => 'unchanged', 'document' => $this->docs->get($id), 'uid' => $uid, 'rev' => (int) $cur['rev']];
+                }
+                if ((int) $cur['rev'] !== $rev) {
+                    throw $this->lineConflict($cur);
+                }
+                $doc = $this->docs->changeLine($caller, $id, $uid, $rev, $n['doc']);
+                $this->writePoLine($id, (int) $cur['line_no'], $n['po']);
+                $this->retotal($id);
+                LiveChanges::record($db, $caller, 'po', $id, 'set', $uid, null, self::change($cur), self::change($this->liveLine($id, $uid) ?? $cur), null, $doc->version, $tab,
+                    $this->nowDb());
+                return ['status' => 'saved', 'document' => $doc, 'uid' => $uid, 'rev' => $rev + 1];
+            });
+        } catch (CwException $e) {
+            if ($e->errorCode === 'line_conflict') {
+                LiveChanges::conflict($this->db, $caller, 'po', $id, $uid, null, ['rev' => $rev] + $fields, $tab, $this->nowDb());
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * A product added from the page by itself (LS3): `$pick` is one of the supplier's packs (supplier_item_id), an item not set up with the
+     * supplier (sku_id, units_per_pack) or a charge (kind charge, description: the delivery typed); $price as typed (null: the pack's last).
+     * The page's key ($opKey: 400 bad_key) makes a retry do nothing (`done`, the line it made). The same purchase already on the draft
+     * (sameLine) gets the packs added (today's rule: `incremented`), unless someone else added or changed that line within
+     * SAME_PRODUCT_SECONDS and the page did not ask for more ($more): 409 line_exists (their line, packs, who and when), never a silent double.
+     * A new line goes last (Documents::appendLine: the next free id, version 1). At most MAX_LINES lines.
+     *
+     * @param array<string, mixed> $pick
+     * @return array{status: 'added'|'incremented'|'done', document: Document, uid: ?int}
+     */
+    public function addLineLive(Caller $caller, int $id, array $pick, int $packs, ?string $price, string $opKey, bool $more = false, ?string $tab = null): array
+    {
+        $opKey = LiveChanges::key($opKey);
+        $charge = ($pick['kind'] ?? 'item') === 'charge';
+        if (!$charge && ($packs < 1 || $packs > PoMath::MAX_PACKS)) {
+            throw new CwException('bad_line', 'packs: a whole number from 1 to ' . number_format(PoMath::MAX_PACKS), 422, ['field' => 'packs']);
+        }
+        $new = $charge
+            ? ['kind' => 'charge', 'description' => is_string($pick['description'] ?? null) ? $pick['description'] : null, 'pack_price' => $price]
+            : ['kind' => 'item'] + (($pick['supplier_item_id'] ?? null) !== null ? ['supplier_item_id' => $pick['supplier_item_id']]
+                : ['sku_id' => $pick['sku_id'] ?? null, 'units_per_pack' => $pick['units_per_pack'] ?? null]) + ['packs' => $packs, 'pack_price' => $price];
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $new, $packs, $opKey, $more, $tab, $charge): array {
+            $me = $this->poster($caller);
+            $supplier = $this->lockLive($id);
+            $done = LiveChanges::done($db, 'po', $id, $opKey);
+            if ($done !== null) {
+                return ['status' => 'done', 'document' => $this->docs->get($id), 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid']];
+            }
+            $count = (int) $db->value('SELECT COUNT(*) FROM po_line WHERE document_id = ?', [$id]);
+            $n = $this->normaliseLines($caller, $supplier, [$new], $count)[0];
+            if (!$charge) {
+                $same = $this->sameOnDraft($id, $n['po'], $n['doc']['sku_id']);
+                if ($same !== null) {
+                    return $this->addTo($caller, $me['id'], $id, $same, $packs, $more, $supplier, 'add', $opKey, null, $tab);
+                }
+            }
+            return $this->appendLive($caller, $id, $n, 'add', $opKey, null, $tab);
+        });
+    }
+
+    /**
+     * One line removed from the page by itself (LS3), at the version the page saw: changed since: 409 line_conflict ("Remove it anyway" sends
+     * the version now); no longer there (someone removed it too): 200 `unchanged`, done once. The lines are written again in their order
+     * without it (Documents::replaceLinesLive: the others keep their ids and versions, the numbers follow), the totals; a draft_change
+     * `remove` holding the line as it was (Undo puts it back from there).
+     *
+     * @return array{status: 'removed'|'unchanged', document: Document, uid: int}
+     */
+    public function removeLine(Caller $caller, int $id, int $uid, int $rev, ?string $tab = null): array
+    {
+        try {
+            return $this->db->transaction(function (Db $db) use ($caller, $id, $uid, $rev, $tab): array {
+                $this->poster($caller);
+                $supplier = $this->lockLive($id);
+                $cur = $this->liveLine($id, $uid);
+                if ($cur === null) {
+                    return ['status' => 'unchanged', 'document' => $this->docs->get($id), 'uid' => $uid];
+                }
+                if ((int) $cur['rev'] !== $rev) {
+                    throw $this->lineConflict($cur);
+                }
+                $lines = array_values(array_filter($this->lines($id), static fn (array $l): bool => $l['uid'] !== $uid));
+                $doc = $this->rewrite($caller, $id, $supplier, $lines);
+                LiveChanges::record($db, $caller, 'po', $id, 'remove', $uid, null, self::change($cur, true), null, null, $doc->version, $tab, $this->nowDb());
+                return ['status' => 'removed', 'document' => $doc, 'uid' => $uid];
+            });
+        } catch (CwException $e) {
+            if ($e->errorCode === 'line_conflict') {
+                LiveChanges::conflict($this->db, $caller, 'po', $id, $uid, null, ['rev' => $rev, 'remove' => true], $tab, $this->nowDb());
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Undo (Alt/Option+U, LS8): puts back the caller's OWN line $uid removed from this draft (their newest `remove` of it: 409
+     * nothing_to_restore for a line someone else removed, or one put back already), as it was, with a new id: after the line $afterUid when
+     * that is still there, else at its old place as near as the lines left allow. The page's key: a retry does nothing (`done`). The same
+     * purchase added meanwhile: the question of addLineLive (409 line_exists; $more: its packs added, `incremented`).
+     *
+     * @return array{status: 'restored'|'incremented'|'done', document: Document, uid: ?int}
+     */
+    public function restoreLine(Caller $caller, int $id, int $uid, ?int $afterUid, string $opKey, bool $more = false, ?string $tab = null): array
+    {
+        $opKey = LiveChanges::key($opKey);
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $uid, $afterUid, $opKey, $more, $tab): array {
+            $me = $this->poster($caller);
+            $supplier = $this->lockLive($id);
+            $done = LiveChanges::done($db, 'po', $id, $opKey);
+            if ($done !== null) {
+                return ['status' => 'done', 'document' => $this->docs->get($id), 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid']];
+            }
+            $removed = $db->one("SELECT id, CAST(before_json AS CHAR) AS b FROM draft_change WHERE kind = 'po' AND record_id = ? AND op = 'remove' AND line_uid = ? "
+                . 'AND staff_user_id = ? ORDER BY id DESC LIMIT 1', [$id, $uid, $me['id']]);
+            $was = $removed === null ? null : json_decode((string) $removed['b'], true);
+            $back = $removed === null ? null : $db->value("SELECT 1 FROM draft_change WHERE kind = 'po' AND record_id = ? AND op = 'restore' AND id > ? "
+                . "AND JSON_EXTRACT(before_json, '$.from_uid') = ? LIMIT 1", [$id, (int) $removed['id'], $uid]);
+            if (!is_array($was) || $back !== null || $this->liveLine($id, $uid) !== null) {
+                throw new CwException('nothing_to_restore', 'only a line you removed, and not put back yet, is put back', 409, ['uid' => $uid]);
+            }
+            $line = array_intersect_key($was, array_flip(['kind', 'supplier_item_id', 'sku_id', 'supplier_code', 'purchase_unit', 'units_per_pack', 'packs', 'pack_price',
+                'vat_code', 'description', 'suggested_units']));
+            if (($line['supplier_item_id'] ?? null) !== null) {
+                unset($line['sku_id'], $line['units_per_pack'], $line['supplier_code'], $line['purchase_unit']);
+            }
+            $lines = $this->lines($id);
+            $n = $this->normaliseLines($caller, $supplier, [$line], count($lines))[0];
+            if ($n['po']['kind'] === 'item') {
+                $same = $this->sameOnDraft($id, $n['po'], $n['doc']['sku_id']);
+                if ($same !== null) {
+                    return $this->addTo($caller, $me['id'], $id, $same, (int) $n['po']['packs'], $more, $supplier, 'restore', $opKey, ['from_uid' => $uid], $tab);
+                }
+            }
+            $uids = array_column($lines, 'uid');
+            $at = $afterUid !== null && in_array($afterUid, $uids, true) ? (int) array_search($afterUid, $uids, true) + 1
+                : min(max(0, (int) ($was['line'] ?? 1) - 1), count($lines));
+            array_splice($lines, $at, 0, [$line]);
+            $doc = $this->rewrite($caller, $id, $supplier, $lines);
+            $newUid = (int) $db->value('SELECT uid FROM document_line WHERE document_id = ? AND line_no = ?', [$id, $at + 1]);
+            LiveChanges::record($db, $caller, 'po', $id, 'restore', $newUid, null, ['from_uid' => $uid], self::change($this->liveLine($id, $newUid) ?? []), $opKey,
+                $doc->version, $tab, $this->nowDb());
+            return ['status' => 'restored', 'document' => $doc, 'uid' => $newUid];
+        });
+    }
+
+    /**
+     * One head box saved by itself (LS4): expected_date, external_ref or note (LIVE_HEADER; 400 bad_field for another: the supplier and the
+     * order date are whole saves), checked as a whole save checks it. $base: the value the page showed. The value stored already: 200
+     * `unchanged`; the stored value no longer $base: 409 field_conflict (the value now, who changed it and when) and a draft_change
+     * `conflict`; otherwise saved (the draft's version + 1) with a draft_change `header`.
+     *
+     * @return array{status: 'saved'|'unchanged', document: Document}
+     */
+    public function setHeaderField(Caller $caller, int $id, string $field, ?string $base, ?string $value, ?string $tab = null): array
+    {
+        if (!in_array($field, self::LIVE_HEADER, true)) {
+            throw new CwException('bad_field', 'a box saved by itself is ' . implode(', ', self::LIVE_HEADER) . ', not ' . mb_substr($field, 0, 40), 400,
+                ['field' => mb_substr($field, 0, 40)]);
+        }
+        try {
+            return $this->db->transaction(function (Db $db) use ($caller, $id, $field, $base, $value, $tab): array {
+                $this->poster($caller);
+                $this->lockLive($id);
+                $want = $this->headerFields([$field => $value], true)[$field] ?? null;
+                try {
+                    $seen = $this->headerFields([$field => $base], true)[$field] ?? null;
+                } catch (CwException) {
+                    $seen = false; // the page showed no value CW could store: never the value now
+                }
+                $now = $field === 'expected_date' ? $db->value('SELECT expected_date FROM purchase_order WHERE document_id = ?', [$id])
+                    : $db->value("SELECT {$field} FROM document WHERE id = ?", [$id]);
+                $now = $now === null ? null : (string) $now;
+                if ($want === $now) {
+                    return ['status' => 'unchanged', 'document' => $this->docs->get($id)];
+                }
+                if ($seen !== $now) {
+                    $by = $db->one("SELECT c.staff_user_id, c.created_at, u.display_name FROM draft_change c LEFT JOIN staff_user u ON u.id = c.staff_user_id WHERE c.kind = 'po' "
+                        . "AND c.record_id = ? AND c.op = 'header' AND c.field = ? ORDER BY c.id DESC LIMIT 1", [$id, $field]);
+                    $by ??= ($last = DraftChanges::last($db, $id)) === null ? null : ['staff_user_id' => $last['staff_user_id'], 'display_name' => $last['name'], 'created_at' => $last['at']];
+                    throw new CwException('field_conflict', "{$field} changed since the page was drawn", 409, ['field' => $field, 'theirs' => $now,
+                        'by_id' => $by === null ? null : (int) $by['staff_user_id'], 'by' => $by === null ? null : (string) $by['display_name'],
+                        'at' => $by === null ? null : (string) $by['created_at']]);
+                }
+                if ($field === 'expected_date') {
+                    $db->exec('UPDATE purchase_order SET expected_date = ?, updated_at = ? WHERE document_id = ?', [$want, $this->nowDb(), $id]);
+                    $doc = $this->docs->changeHeaderLive($caller, $id, []);
+                } else {
+                    $doc = $this->docs->changeHeaderLive($caller, $id, [$field => $want]);
+                    $stored = $field === 'note' ? $doc->note : $doc->externalRef;
+                    $want = $stored === null || $stored === '' ? null : $stored;
+                }
+                LiveChanges::record($db, $caller, 'po', $id, 'header', null, $field, ['value' => $now], ['value' => $want], null, $doc->version, $tab, $this->nowDb());
+                return ['status' => 'saved', 'document' => $doc];
+            });
+        } catch (CwException $e) {
+            if ($e->errorCode === 'field_conflict') {
+                LiveChanges::conflict($this->db, $caller, 'po', $id, null, $field, ['base' => $base, 'value' => $value], $tab, $this->nowDb());
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * A draft's lines for the page that saves box by box (the fragment po_live, LS10): each line's own id, version and who changed it last.
+     *
+     * @return array<int, array{uid: ?int, rev: int, changed_by: ?int, changed_at: ?string, by: ?string}> line_no => its own marks
+     */
+    public function lineMarks(int $id): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT dl.line_no, dl.uid, dl.rev, dl.changed_by, dl.changed_at, u.display_name FROM document_line dl LEFT JOIN staff_user u ON u.id = dl.changed_by '
+            . 'WHERE dl.document_id = ? ORDER BY dl.line_no', [$id]) as $r) {
+            $out[(int) $r['line_no']] = ['uid' => $r['uid'] === null ? null : (int) $r['uid'], 'rev' => (int) $r['rev'], 'changed_by' => $r['changed_by'] === null ? null
+                : (int) $r['changed_by'], 'changed_at' => $r['changed_at'] === null ? null : (string) $r['changed_at'], 'by' => $r['display_name'] === null ? null : (string) $r['display_name']];
+        }
+        return $out;
+    }
+
+    /** Whether live.mode is "on" (each box saves by itself: the whole saves record their own line-by-line change too). */
+    private function liveOn(): bool
+    {
+        return Presence::settings($this->db)['mode'] === 'on';
+    }
+
+    /**
+     * The draft's row X-locked first (§6.9), 409 not_draft (what it became, its number, who) otherwise; the supplier FOR SHARE; the
+     * purchase_order row FOR UPDATE (the lock order of saveDraft).
+     *
+     * @return array<string, mixed> the supplier row
+     */
+    private function lockLive(int $id): array
+    {
+        $row = $this->lockPo($id);
+        if ($row['status'] !== 'draft') {
+            throw Documents::notDraft($this->db, $row);
+        }
+        $sid = (int) $this->poRow($id)['supplier_id'];
+        $supplier = $this->db->one('SELECT * FROM supplier WHERE id = ? FOR SHARE', [$sid]) ?? throw new \LogicException('PO without supplier');
+        $this->db->one('SELECT document_id FROM purchase_order WHERE document_id = ? FOR UPDATE', [$id]);
+        return $supplier;
+    }
+
+    /** @return array<string, mixed>|null a line by its own id: its document line, its po_line and its product's name (the draft row is locked) */
+    private function liveLine(int $id, int $uid): ?array
+    {
+        return $this->db->one('SELECT dl.line_no, dl.uid, dl.rev, dl.changed_by, dl.changed_at, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, pl.kind, '
+            . 'pl.supplier_item_id, pl.supplier_code, pl.purchase_unit, pl.units_per_pack, pl.packs, pl.pack_price, pl.vat_code, pl.vat_rate, pl.suggested_units, s.name AS sku_name, '
+            . 'u.display_name AS by_name FROM document_line dl JOIN po_line pl ON pl.document_id = dl.document_id AND pl.line_no = dl.line_no LEFT JOIN sku s ON s.id = dl.sku_id '
+            . 'LEFT JOIN staff_user u ON u.id = dl.changed_by WHERE dl.document_id = ? AND dl.uid = ?', [$id, $uid]);
+    }
+
+    /**
+     * A line as saveDraft() takes it, from liveLine().
+     *
+     * @param array<string, mixed> $r
+     * @return array<string, mixed>
+     */
+    private static function asLine(array $r): array
+    {
+        if ($r['kind'] === 'charge') {
+            return ['kind' => 'charge', 'description' => $r['description'], 'pack_price' => (string) $r['pack_price'], 'vat_code' => (string) $r['vat_code']];
+        }
+        $l = ['kind' => 'item', 'packs' => (int) $r['packs'], 'pack_price' => (string) $r['pack_price'], 'vat_code' => (string) $r['vat_code'], 'description' => $r['description'],
+            'suggested_units' => $r['suggested_units'] === null ? null : (int) $r['suggested_units']];
+        if ($r['supplier_item_id'] !== null) {
+            return $l + ['supplier_item_id' => (int) $r['supplier_item_id']];
+        }
+        return $l + ['sku_id' => (int) $r['sku_id'], 'units_per_pack' => (int) $r['units_per_pack'], 'supplier_code' => $r['supplier_code'], 'purchase_unit' => (string) $r['purchase_unit']];
+    }
+
+    /**
+     * What a line is, for the line-by-line changes and the refusals (packs, price, items per pack, the product; $all: enough to put it back).
+     *
+     * @param array<string, mixed> $r liveLine()
+     * @return array<string, mixed>
+     */
+    private static function change(array $r, bool $all = false): array
+    {
+        if ($r === []) {
+            return [];
+        }
+        $out = ['line' => (int) $r['line_no'], 'kind' => (string) $r['kind'], 'packs' => (int) $r['packs'], 'pack_price' => (string) $r['pack_price'],
+            'units_per_pack' => (int) $r['units_per_pack'], 'purchase_unit' => (string) $r['purchase_unit'], 'supplier_item_id' => $r['supplier_item_id'] === null ? null : (int) $r['supplier_item_id'],
+            'sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'], 'name' => (string) ($r['kind'] === 'charge' ? ($r['description'] ?? '') : ($r['sku_name'] ?? ''))];
+        if ($all) {
+            $out += ['vat_code' => (string) $r['vat_code'], 'description' => $r['description'], 'supplier_code' => $r['supplier_code'],
+                'suggested_units' => $r['suggested_units'] === null ? null : (int) $r['suggested_units']];
+        }
+        return $out;
+    }
+
+    /** @param array<string, mixed> $cur liveLine() */
+    private function lineConflict(array $cur): CwException
+    {
+        return new CwException('line_conflict', 'line ' . $cur['line_no'] . ' changed since the page was drawn', 409, ['uid' => (int) $cur['uid'], 'rev' => (int) $cur['rev'],
+            'line' => (int) $cur['line_no'], 'by_id' => $cur['changed_by'] === null ? null : (int) $cur['changed_by'], 'by' => $cur['by_name'] === null ? null : (string) $cur['by_name'],
+            'at' => $cur['changed_at'] === null ? null : (string) $cur['changed_at'], 'theirs' => self::change($cur)]);
+    }
+
+    private function gone(int $id, int $uid): CwException
+    {
+        $r = $this->db->one("SELECT c.staff_user_id, c.created_at, CAST(c.before_json AS CHAR) AS b, u.display_name FROM draft_change c LEFT JOIN staff_user u ON u.id = c.staff_user_id "
+            . "WHERE c.kind = 'po' AND c.record_id = ? AND c.op = 'remove' AND c.line_uid = ? ORDER BY c.id DESC LIMIT 1", [$id, $uid]);
+        $was = $r === null ? null : json_decode((string) $r['b'], true);
+        return new CwException('line_gone', "line id {$uid} is no longer on this draft", 409, ['uid' => $uid, 'by_id' => $r === null ? null : (int) $r['staff_user_id'],
+            'by' => $r === null ? null : (string) $r['display_name'], 'at' => $r === null ? null : (string) $r['created_at'], 'name' => is_array($was) ? ($was['name'] ?? null) : null,
+            'was' => is_array($was) ? $was : null]);
+    }
+
+    /**
+     * The line of the draft that is the same purchase as $po (sameLine: the same supplier item, or the same item and pack without one).
+     *
+     * @param array<string, mixed> $po normaliseLines()'s po part
+     * @return array<string, mixed>|null liveLine()
+     */
+    private function sameOnDraft(int $id, array $po, ?int $skuId): ?array
+    {
+        $want = ['kind' => 'item', 'supplier_item_id' => $po['supplier_item_id'], 'sku_id' => $skuId, 'units_per_pack' => (int) $po['units_per_pack']];
+        foreach ($this->lines($id) as $l) {
+            if ($l['uid'] !== null && self::sameLine($l, $want)) {
+                return $this->liveLine($id, $l['uid']);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * $packs added to the line $same (an add or an undo of the same purchase): asked first when someone else added or changed it within
+     * SAME_PRODUCT_SECONDS and the page did not ask for more (409 line_exists).
+     *
+     * @param array<string, mixed> $same liveLine()
+     * @param array<string, mixed> $supplier
+     * @param array<string, mixed>|null $before
+     * @return array{status: 'incremented', document: Document, uid: int}
+     */
+    private function addTo(Caller $caller, int $me, int $id, array $same, int $packs, bool $more, array $supplier, string $op, string $opKey, ?array $before, ?string $tab): array
+    {
+        $recent = $same['changed_at'] !== null && Clock::fromDb((string) $same['changed_at']) > ($this->clock)()->modify('-' . self::SAME_PRODUCT_SECONDS . ' seconds');
+        if (!$more && $same['changed_by'] !== null && (int) $same['changed_by'] !== $me && $recent) {
+            throw new CwException('line_exists', 'line ' . $same['line_no'] . ' is this product, added or changed a moment ago by someone else', 409, ['uid' => (int) $same['uid'],
+                'line' => (int) $same['line_no'], 'packs' => (int) $same['packs'], 'by_id' => (int) $same['changed_by'], 'by' => $same['by_name'] === null ? null : (string) $same['by_name'],
+                'at' => (string) $same['changed_at'], 'name' => (string) ($same['sku_name'] ?? ''), 'pack' => ['purchase_unit' => (string) $same['purchase_unit'],
+                    'units_per_pack' => (int) $same['units_per_pack']], 'adding' => $packs]);
+        }
+        $line = self::asLine($same);
+        $line['packs'] = (int) $same['packs'] + $packs;
+        $n = $this->normaliseLines($caller, $supplier, [$line], (int) $same['line_no'] - 1)[0];
+        $uid = (int) $same['uid'];
+        $doc = $this->docs->changeLine($caller, $id, $uid, (int) $same['rev'], $n['doc']);
+        $this->writePoLine($id, (int) $same['line_no'], $n['po']);
+        $this->retotal($id);
+        LiveChanges::record($this->db, $caller, 'po', $id, $op, $uid, null, ($before ?? []) + self::change($same), self::change($this->liveLine($id, $uid) ?? $same), $opKey,
+            $doc->version, $tab, $this->nowDb());
+        return ['status' => 'incremented', 'document' => $doc, 'uid' => $uid];
+    }
+
+    /**
+     * A new line after the last (Documents::appendLine), its po_line, the totals, the change recorded.
+     *
+     * @param array{doc: array<string, mixed>, po: array<string, mixed>, calc: array<string, mixed>} $n
+     * @param array<string, mixed>|null $before
+     * @return array{status: 'added', document: Document, uid: int}
+     */
+    private function appendLive(Caller $caller, int $id, array $n, string $op, string $opKey, ?array $before, ?string $tab): array
+    {
+        if ((int) $this->db->value('SELECT COUNT(*) FROM po_line WHERE document_id = ?', [$id]) >= self::MAX_LINES) {
+            throw new CwException('too_many_lines', 'a purchase order has at most ' . self::MAX_LINES . ' lines', 422);
+        }
+        $r = $this->docs->appendLine($caller, $id, $n['doc']);
+        $p = $n['po'];
+        $this->db->exec('INSERT INTO po_line (document_id, line_no, kind, supplier_item_id, supplier_code, purchase_unit, units_per_pack, packs, pack_price, vat_code, vat_rate, '
+            . 'suggested_units) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [$id, $r['line_no'], $p['kind'], $p['supplier_item_id'], $p['supplier_code'], $p['purchase_unit'],
+                $p['units_per_pack'], $p['packs'], $p['pack_price'], $p['vat_code'], $p['vat_rate'], $p['suggested_units']]);
+        $this->retotal($id);
+        LiveChanges::record($this->db, $caller, 'po', $id, $op, $r['uid'], null, $before, self::change($this->liveLine($id, $r['uid']) ?? []), $opKey, $r['document']->version, $tab,
+            $this->nowDb());
+        return ['status' => 'added', 'document' => $r['document'], 'uid' => $r['uid']];
+    }
+
+    /**
+     * Every line written again in this order (a removal, an undo: the numbers follow), as saveDraft() writes them but without the header,
+     * the version check or its audit rows (Documents::replaceLinesLive): the ids carried, the versions kept for lines left as they were.
+     *
+     * @param array<string, mixed> $supplier
+     * @param list<array<string, mixed>> $lines
+     */
+    private function rewrite(Caller $caller, int $id, array $supplier, array $lines): Document
+    {
+        $norm = $this->normaliseLines($caller, $supplier, $lines);
+        $doc = $this->docs->replaceLinesLive($caller, $id, array_map(static fn (array $n): array => $n['doc'], $norm),
+            array_map(static fn (array $n): string => self::poKey($n['po']), $norm), $this->oldKeys($id));
+        foreach (array_chunk($norm, 500, true) as $chunk) {
+            $params = [];
+            foreach ($chunk as $i => $n) {
+                $p = $n['po'];
+                array_push($params, $id, $i + 1, $p['kind'], $p['supplier_item_id'], $p['supplier_code'], $p['purchase_unit'], $p['units_per_pack'], $p['packs'],
+                    $p['pack_price'], $p['vat_code'], $p['vat_rate'], $p['suggested_units']);
+            }
+            $this->db->exec('INSERT INTO po_line (document_id, line_no, kind, supplier_item_id, supplier_code, purchase_unit, units_per_pack, packs, pack_price, vat_code, '
+                . 'vat_rate, suggested_units) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+        }
+        $this->retotal($id);
+        return $doc;
+    }
+
+    /** @param array<string, mixed> $p normaliseLines()'s po part */
+    private function writePoLine(int $id, int $lineNo, array $p): void
+    {
+        $this->db->exec('UPDATE po_line SET kind = ?, supplier_item_id = ?, supplier_code = ?, purchase_unit = ?, units_per_pack = ?, packs = ?, pack_price = ?, vat_code = ?, '
+            . 'vat_rate = ?, suggested_units = ? WHERE document_id = ? AND line_no = ?', [$p['kind'], $p['supplier_item_id'], $p['supplier_code'], $p['purchase_unit'],
+                $p['units_per_pack'], $p['packs'], $p['pack_price'], $p['vat_code'], $p['vat_rate'], $p['suggested_units'], $id, $lineNo]);
+    }
+
+    /** The totals of the order over every line (PoMath::totals, as saveDraft): always the sum of the lines. */
+    private function retotal(int $id): void
+    {
+        $t = PoMath::totals(array_map(static fn (array $r): array => ['amount_e2' => PoMath::e2((string) $r['amount']), 'vat_code' => (string) $r['vat_code'],
+            'rate_e2' => PoMath::e2((string) $r['vat_rate'])], $this->db->all('SELECT dl.amount, pl.vat_code, pl.vat_rate FROM po_line pl JOIN document_line dl '
+            . 'ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no WHERE pl.document_id = ? ORDER BY pl.line_no', [$id])));
+        $this->db->exec('UPDATE purchase_order SET net_total = ?, vat_total = ?, gross_total = ?, updated_at = ? WHERE document_id = ?',
+            [PoMath::fromE2($t['net_e2']), PoMath::fromE2($t['vat_e2']), PoMath::fromE2($t['gross_e2']), $this->nowDb(), $id]);
+    }
+
+    /**
+     * The order's own part of a line's content (po_line), as one text: what Documents::setLines compares, with the document line, to keep a
+     * line's version (LS2).
+     *
+     * @param array<string, mixed> $p normaliseLines()'s po part, or a po_line row
+     */
+    private static function poKey(array $p): string
+    {
+        $int = static fn (mixed $v): ?int => $v === null ? null : (int) $v;
+        return json_encode([(string) $p['kind'], $int($p['supplier_item_id']), $p['supplier_code'] === null ? null : (string) $p['supplier_code'], (string) $p['purchase_unit'],
+            (int) $p['units_per_pack'], (int) $p['packs'], PoMath::e4((string) $p['pack_price']), (string) $p['vat_code'], PoMath::e2((string) $p['vat_rate']),
+            $int($p['suggested_units'])], JSON_THROW_ON_ERROR);
+    }
+
+    /** @param array<string, mixed> $po @return string a line's whole content: its po_line, its item and its note */
+    private static function contentKey(array $po, mixed $skuId, mixed $description): string
+    {
+        return self::poKey($po) . '|' . ($skuId === null ? '' : (int) $skuId) . '|' . ($description === null ? '' : (string) $description);
+    }
+
+    /** @param array<string, mixed> $r liveLine() */
+    private static function rowKey(array $r): string
+    {
+        return self::contentKey($r, $r['sku_id'], $r['description']);
+    }
+
+    /** @return array<int, string> the order's own part of each line's content, by the line's own id (before a whole save) */
+    private function oldKeys(int $id): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT dl.uid, pl.* FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no '
+            . 'WHERE pl.document_id = ? AND dl.uid IS NOT NULL', [$id]) as $r) {
+            $out[(int) $r['uid']] = self::poKey($r);
+        }
+        return $out;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1390,9 +1924,10 @@ final class PurchaseOrders
      *
      * @param array<string, mixed> $supplier
      * @param mixed $lines
+     * @param int $offset the number of the first line less one (a line saved by itself: its own number in the words)
      * @return list<array{doc: array<string, mixed>, po: array<string, mixed>, calc: array{amount_e2: int, vat_code: string, rate_e2: int}}>
      */
-    private function normaliseLines(Caller $caller, array $supplier, mixed $lines): array
+    private function normaliseLines(Caller $caller, array $supplier, mixed $lines, int $offset = 0): array
     {
         if (!is_array($lines) || !array_is_list($lines)) {
             throw new CwException('bad_lines', 'lines must be a list', 400);
@@ -1431,7 +1966,7 @@ final class PurchaseOrders
         }
         $out = [];
         foreach ($lines as $i => $line) {
-            $no = $i + 1;
+            $no = $i + 1 + $offset; // one line saved by itself names its own number (setLine, addLineLive)
             $bad = static fn (string $field, string $why, int $status = 422): CwException => new CwException('bad_line', "line {$no}, {$field}: {$why}", $status,
                 ['line' => $no, 'field' => $field]);
             if (!is_array($line)) {

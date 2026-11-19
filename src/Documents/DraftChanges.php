@@ -43,10 +43,31 @@ final class DraftChanges
         $r = $db->one('SELECT a.staff_user_id, a.created_at, u.display_name FROM audit_log a LEFT JOIN staff_user u ON u.id = a.staff_user_id '
             . "WHERE a.entity_type = 'document' AND a.entity_id = ? AND a.staff_user_id IS NOT NULL AND a.action IN (" . self::actionList() . ') '
             . 'ORDER BY a.id DESC LIMIT 1', [(string) $documentId, ...self::STARTED, ...self::CHANGED]);
+        // A box saved by itself (docs/decisions.md LS6) is audited once an hour a person: its own row in draft_change names who and when. It is
+        // the newest change while the draft is still at the version it made (a whole save since moved the version on: the audit row is newer).
+        $live = self::lastLive($db, $documentId);
+        if ($live !== null && ($r === null || (int) $live['doc_version'] === (int) $db->value('SELECT version FROM document WHERE id = ?', [$documentId]))) {
+            $r = $live;
+        }
         if ($r === null) {
             return null;
         }
         return ['staff_user_id' => (int) $r['staff_user_id'], 'name' => (string) ($r['display_name'] ?? '#' . $r['staff_user_id']), 'at' => (string) $r['created_at']];
+    }
+
+    /** @return array<string, mixed>|null the newest change of a draft saved box by box (draft_change, 0072), or null (none; no table yet) */
+    private static function lastLive(Db $db, int $documentId): ?array
+    {
+        try {
+            return $db->one('SELECT c.staff_user_id, c.created_at, c.doc_version, u.display_name FROM draft_change c LEFT JOIN staff_user u ON u.id = c.staff_user_id '
+                . "WHERE c.kind IN ('" . implode("', '", array_keys(\CW\Live\Presence::KINDS)) . "') AND c.record_id = ? AND c.op <> 'conflict' ORDER BY c.id DESC LIMIT 1",
+                [$documentId]);
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) === 1146) {
+                return null; // the code a moment before 0072
+            }
+            throw $e;
+        }
     }
 
     /**

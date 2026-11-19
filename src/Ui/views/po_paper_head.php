@@ -9,7 +9,10 @@
 // (its supplier box), but the supplier's address and terms ("party", "terms") follow a supplier changed on Save. $orderDate, $terms: words.
 // Who is here (step 3b, docs/decisions.md LV18): each box a person can be in names its place (data-live-box: h:supplier, h:expected_date,
 // h:external_ref), where app.js draws another person's outline and name tag; read only, only on a draft that shows who is here ($marks).
+// Each box saved by itself (live.mode on, step 4; docs/decisions.md LS10): Expected and Their reference say what they are (data-live-field) and
+// the value they were drawn with (data-live-base: the page sends it, so a box someone else changed meanwhile is a choice, never overwritten).
 $marks = $marks ?? false;
+$liveSave = $liveSave ?? false;
 ?>
 <?php if (!$edit): ?>
   <div class="po-paper-head">
@@ -79,9 +82,9 @@ $marks = $marks ?? false;
     </section>
     <dl class="doc-facts po-dates">
       <dt><?= $word('ORDER', 'order_date') ?></dt><dd><?= $e($orderDate) ?></dd>
-      <dt><label for="po-expected"><?= $word('ORDER', 'expected_short') ?></label></dt><dd class="kg-in" data-live-box="h:expected_date"><input id="po-expected" type="date" name="expected_date" value="<?= $e($info['expected_date']) ?>" class="kg-flat"></dd>
+      <dt><label for="po-expected"><?= $word('ORDER', 'expected_short') ?></label></dt><dd class="kg-in" data-live-box="h:expected_date"><input id="po-expected" type="date" name="expected_date" value="<?= $e($info['expected_date']) ?>" class="kg-flat"<?php if ($liveSave): ?> data-live-field="expected_date" data-live-base="<?= $e($info['expected_date']) ?>"<?php endif; ?>></dd>
       <dt><?= $word('ORDER', 'terms') ?></dt><dd data-kg-swap-part="terms"><?= $e($terms) ?></dd>
-      <dt><label for="po-ref"><?= $word('ORDER', 'their_ref') ?></label></dt><dd class="kg-in" data-live-box="h:external_ref"><input id="po-ref" type="text" name="external_ref" maxlength="191" autocomplete="off" value="<?= $e($info['external_ref']) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"></dd>
+      <dt><label for="po-ref"><?= $word('ORDER', 'their_ref') ?></label></dt><dd class="kg-in" data-live-box="h:external_ref"><input id="po-ref" type="text" name="external_ref" maxlength="191" autocomplete="off" value="<?= $e($info['external_ref']) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"<?php if ($liveSave): ?> data-live-field="external_ref" data-live-base="<?= $e($info['external_ref']) ?>"<?php endif; ?>></dd>
     </dl>
   </div>
 <?php endif; ?>

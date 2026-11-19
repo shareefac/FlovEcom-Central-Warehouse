@@ -12,6 +12,8 @@ use CW\Documents\Document;
 use CW\Documents\Documents;
 use CW\Documents\DraftChanges;
 use CW\Items\HandMade;
+use CW\Live\LiveChanges;
+use CW\Live\Presence;
 use CW\OpResult;
 use CW\Output\CsvWriter;
 use CW\PurchaseOrders\PoLinesFile;
@@ -25,6 +27,7 @@ use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Kernel;
+use CW\Ui\LiveSaveWords;
 use CW\Ui\PoWarnings;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
@@ -915,7 +918,7 @@ final class PurchaseOrdersController
         $code = $e->errorCode;
         return match (true) {
             // The page's own refusals are made in words already.
-            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'no_file', 'upload_failed', 'bad_number'], true) => $e->getMessage(),
+            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'no_file', 'upload_failed', 'bad_number', 'live_changed'], true) => $e->getMessage(),
             // The upload limit is this page's own refusal; any other too_large is the spreadsheet reader's (a sheet too big inside).
             $code === 'too_large' && $e->getMessage() === Words::say('BUY_ERROR', 'too_large', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)) => $e->getMessage(),
             $code === 'too_large' => Words::BUY_ERROR['too_large_inside'],
@@ -1138,7 +1141,15 @@ final class PurchaseOrdersController
     public function approve(Context $ctx): HtmlResponse
     {
         return $this->act($ctx, function (PurchaseOrders $svc, int $id, int $version) use ($ctx): string {
-            $d = $svc->approve($ctx->caller(), $id, $version);
+            try {
+                $d = $svc->approve($ctx->caller(), $id, $version);
+            } catch (CwException $e) {
+                // Saved box by box (docs/decisions.md LS9): the page sends the version it shows; changed since, it says who changed which line.
+                if ($e->errorCode === 'version_conflict' && Presence::settings($ctx->db)['mode'] === 'on') {
+                    throw new CwException('live_changed', LiveSaveWords::confirmChanged($ctx->db, $id, $version), 409);
+                }
+                throw $e;
+            }
             return $d->status === 'awaiting_approval' ? 'submitted' : 'approved';
         });
     }
@@ -1247,44 +1258,8 @@ final class PurchaseOrdersController
         // Anyone who writes orders opens a draft in the editor, not only the person who started it (docs/decisions.md DA1; the owner, 18 Nov
         // 2026: "anyone who have access should be able to edit it").
         $editor = $doc->status === 'draft' && $canPost;
-        $lines = $db->all(
-            'SELECT pl.*, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, dl.uid, s.code AS sku_code, s.name AS sku_name, s.merged_into_sku_id, '
-            . 'si.supplier_code AS si_code, si.last_pack_price, si.last_po_pack_price, si.is_active AS si_active FROM po_line pl '
-            . 'JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id '
-            . 'LEFT JOIN supplier_item si ON si.id = pl.supplier_item_id WHERE pl.document_id = ? ORDER BY pl.line_no',
-            [$doc->id],
-        );
-        $skus = array_values(array_unique(array_filter(array_map(static fn (array $l): int => (int) ($l['sku_id'] ?? 0), $lines))));
-        $stock = [];
-        if ($editor && $skus !== []) {
-            foreach ($db->all('SELECT b.sku_id, SUM(b.on_hand - b.allocated - b.held) AS a FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.is_sellable = 1 '
-                . 'WHERE b.sku_id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ') GROUP BY b.sku_id', $skus) as $r) {
-                $stock[(int) $r['sku_id']] = (int) $r['a'];
-            }
-        }
-        $onOrder = $editor && $skus !== [] ? $svc->onOrder($skus) : [];
-        $units = 0;
-        $products = [];
-        foreach ($lines as &$l) {
-            $l['pack_label'] = $l['kind'] === 'charge' ? '' : self::pack((string) $l['purchase_unit'], (int) $l['units_per_pack']);
-            $l['net'] = PoMath::money(PoMath::e2((string) $l['amount']));
-            $l['price'] = PoMath::price((string) $l['pack_price']);
-            $l['stock'] = $l['sku_id'] === null ? null : ($stock[(int) $l['sku_id']] ?? 0);
-            $l['on_order'] = $l['sku_id'] === null ? null : ($onOrder[(int) $l['sku_id']] ?? 0);
-            $l['code'] = $l['supplier_code'] ?? $l['si_code'];
-            $units += (int) ($l['qty'] ?? 0);
-            if ($l['sku_code'] !== null) {
-                $products[(string) $l['sku_code']] = (string) $l['sku_name'];
-            }
-        }
-        unset($l);
-        $netE2 = PoMath::e2((string) ($po['net_total'] ?? '0'));
-        $totals = PoMath::totals(array_map(static fn (array $l): array => ['amount_e2' => PoMath::e2((string) $l['amount']), 'vat_code' => (string) $l['vat_code'],
-            'rate_e2' => PoMath::e2((string) $l['vat_rate'])], $lines));
-        $vatLabels = [];
-        foreach ($db->all('SELECT code, label FROM vat_code') as $v) {
-            $vatLabels[(string) $v['code']] = (string) $v['label'];
-        }
+        ['lines' => $lines, 'units' => $units, 'products' => $products, 'netE2' => $netE2, 'totals' => $totals, 'vatLabels' => $vatLabels]
+            = $this->linesData($ctx, $doc, $po, $editor, $svc);
         $type = $docs->typeInfo('PO');
         $limit = (int) $type['approval_limit_units'];
         $okFirst = $type['approval_rule'] !== 'none'; // the owner may switch the OK first off (Approval rules page, Y10)
@@ -1342,6 +1317,12 @@ final class PurchaseOrdersController
             if (self::draftLook($ctx) === 'form') {
                 return $ctx->page('purchase_order_edit', $data, $status, $layout);
             }
+            // Each box saves by itself (live.mode on; docs/decisions.md LS10, LS12): the paper's editor only (not the old form, not a looker's
+            // paper, not an order too long for the form), its addresses and words on the form; without the script it is today's whole form.
+            $data['liveSave'] = $data['live'] !== null && $data['editable'] ? LiveController::saveData($ctx, $doc) : null;
+            if ($data['liveSave'] !== null) {
+                $data['live'] += $data['liveSave'];
+            }
             // One look (docs/decisions.md LP1-LP3; the owner, 18 Nov 2026: "I liked how it looks on Shareef's window, the design"): the draft
             // drawn as the saved order's paper, its boxes in place, inside the same editor form; the head and its bar, Related and History as the
             // read-only page has them; the editor's own form key stays the form's (viewData's is for the bar's Copy: barKey).
@@ -1382,6 +1363,109 @@ final class PurchaseOrdersController
             'progress' => $progress,
             'steps' => $progress === null ? null : self::steps($doc, $po, $progress),
         ], $status, $layout);
+    }
+
+    /**
+     * What a draft's own fragment draws (po_live: GET /live/doc and the answers of /live/line, /live/header; LiveController, docs/decisions.md
+     * LS10): the draft's lines as its editor draws them (linesData; words for a person who may only look), its head's values, the supplier's
+     * address and terms, the notes, the History card (the order's one history: docView, viewData), and each line's number by its own id.
+     *
+     * @return array<string, mixed>
+     */
+    public function liveView(Context $ctx, Document $doc): array
+    {
+        $svc = $this->service($ctx);
+        $db = $ctx->db;
+        $me = $ctx->me();
+        $po = $svc->headerRow($doc->id) ?? [];
+        $supplier = $db->one('SELECT * FROM supplier WHERE id = ?', [(int) ($po['supplier_id'] ?? 0)]) ?? [];
+        $supplierName = (string) ($supplier['name'] ?? Words::ORDER['some_supplier']);
+        $canPost = Documents::mayPost($me->roles, 'PO');
+        $editor = $doc->status === 'draft' && $canPost;
+        $l = $this->linesData($ctx, $doc, $po, $editor, $svc);
+        $data = ['doc' => $doc, 'po' => $po, 'lines' => $l['lines'], 'units' => $l['units'], 'vatLabels' => $l['vatLabels'],
+            'totals' => ['net' => PoMath::money($l['netE2']), 'vat' => PoMath::money(PoMath::e2((string) ($po['vat_total'] ?? '0'))),
+                'gross' => PoMath::money(PoMath::e2((string) ($po['gross_total'] ?? '0'))),
+                'by_code' => array_map(static fn (array $v): array => ['rate' => rtrim(rtrim(PoMath::fromE2($v['rate_e2']), '0'), '.'), 'vat' => PoMath::money($v['vat_e2']),
+                    'net' => PoMath::money($v['net_e2']), 'total' => PoMath::money($v['net_e2'] + $v['vat_e2'])], $l['totals']['by_code'])]];
+        $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
+        $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
+        $view = self::docView($data, $doc, $po, $supplier, $supplierName, is_array($snapshot) ? $snapshot : $ctx->settings()->company(), null, $me, $db);
+        $lineNos = [];
+        foreach ($l['lines'] as $line) {
+            if (($line['uid'] ?? null) !== null) {
+                $lineNos[(int) $line['uid']] = (int) $line['line_no'];
+            }
+        }
+        return $data + [
+            'editor' => $editor,
+            'stock' => DocGrid::stock($db, array_column($l['lines'], 'sku_id')),
+            'state' => self::stateCode($doc, $po),
+            'supplierId' => (int) ($po['supplier_id'] ?? 0),
+            'party' => $view['party'],
+            'terms' => self::paperHead($supplier, $supplierName, [])['terms'] ?? Words::DOC_LIST['none'],
+            'events' => $view['events'],
+            'eventsMore' => $view['eventsMore'],
+            'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true)
+                ? self::withoutSupplierWarning(PoWarnings::plain($svc->warnings($doc->id), $supplierName, $l['products']), $supplier, $supplierName) : [],
+            'supplierNeeds' => $doc->status === 'draft' ? self::supplierNeeds($supplier, $supplierName) : null,
+            'lineNos' => $lineNos,
+            'gridVat' => self::gridVat($ctx, (int) ($po['supplier_id'] ?? 0)),
+            'expectedDate' => (string) ($po['expected_date'] ?? ''),
+        ];
+    }
+
+    /**
+     * A purchase order's lines as its page draws them (page(), and a draft's own fragment for the page that saves box by box: LiveController,
+     * docs/decisions.md LS10): each line with its pack, figures, stock and on order (the editor's), its own id and version and who changed it
+     * last; the total quantity, the products, the totals worked out from the lines, the VAT codes' words.
+     *
+     * @param array<string, mixed> $po the purchase_order row
+     * @return array{lines: list<array<string, mixed>>, units: int, products: array<string, string>, netE2: int, totals: array<string, mixed>, vatLabels: array<string, string>}
+     */
+    public function linesData(Context $ctx, Document $doc, array $po, bool $editor, ?PurchaseOrders $svc = null): array
+    {
+        $db = $ctx->db;
+        $svc ??= $this->service($ctx);
+        $lines = $db->all(
+            'SELECT pl.*, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, dl.uid, dl.rev, dl.changed_by, cu.display_name AS changed_name, s.code AS sku_code, '
+            . 's.name AS sku_name, s.merged_into_sku_id, si.supplier_code AS si_code, si.last_pack_price, si.last_po_pack_price, si.is_active AS si_active FROM po_line pl '
+            . 'JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id '
+            . 'LEFT JOIN supplier_item si ON si.id = pl.supplier_item_id LEFT JOIN staff_user cu ON cu.id = dl.changed_by WHERE pl.document_id = ? ORDER BY pl.line_no',
+            [$doc->id],
+        );
+        $skus = array_values(array_unique(array_filter(array_map(static fn (array $l): int => (int) ($l['sku_id'] ?? 0), $lines))));
+        $stock = [];
+        if ($editor && $skus !== []) {
+            foreach ($db->all('SELECT b.sku_id, SUM(b.on_hand - b.allocated - b.held) AS a FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.is_sellable = 1 '
+                . 'WHERE b.sku_id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ') GROUP BY b.sku_id', $skus) as $r) {
+                $stock[(int) $r['sku_id']] = (int) $r['a'];
+            }
+        }
+        $onOrder = $editor && $skus !== [] ? $svc->onOrder($skus) : [];
+        $units = 0;
+        $products = [];
+        foreach ($lines as &$l) {
+            $l['pack_label'] = $l['kind'] === 'charge' ? '' : self::pack((string) $l['purchase_unit'], (int) $l['units_per_pack']);
+            $l['net'] = PoMath::money(PoMath::e2((string) $l['amount']));
+            $l['price'] = PoMath::price((string) $l['pack_price']);
+            $l['stock'] = $l['sku_id'] === null ? null : ($stock[(int) $l['sku_id']] ?? 0);
+            $l['on_order'] = $l['sku_id'] === null ? null : ($onOrder[(int) $l['sku_id']] ?? 0);
+            $l['code'] = $l['supplier_code'] ?? $l['si_code'];
+            $units += (int) ($l['qty'] ?? 0);
+            if ($l['sku_code'] !== null) {
+                $products[(string) $l['sku_code']] = (string) $l['sku_name'];
+            }
+        }
+        unset($l);
+        $netE2 = PoMath::e2((string) ($po['net_total'] ?? '0'));
+        $totals = PoMath::totals(array_map(static fn (array $l): array => ['amount_e2' => PoMath::e2((string) $l['amount']), 'vat_code' => (string) $l['vat_code'],
+            'rate_e2' => PoMath::e2((string) $l['vat_rate'])], $lines));
+        $vatLabels = [];
+        foreach ($db->all('SELECT code, label FROM vat_code') as $v) {
+            $vatLabels[(string) $v['code']] = (string) $v['label'];
+        }
+        return ['lines' => $lines, 'units' => $units, 'products' => $products, 'netE2' => $netE2, 'totals' => $totals, 'vatLabels' => $vatLabels];
     }
 
     /**
@@ -1543,6 +1627,11 @@ final class PurchaseOrdersController
             if ($c['kind'] === 'changed') {
                 $event($c['at'], Words::say('ORDER', 'ev_changed', $c['name']));
             }
+        }
+        // A draft saved box by box (docs/decisions.md LS7; the plan's 4.5): its line-by-line changes, one line per person per minute ("Fazil
+        // changed 3 lines"), each change in its fold ("Packs 5 → 8 on Elf Bar 600 Blue Razz"). The audit's hourly row is not listed (LS6).
+        foreach (LiveSaveWords::history(LiveChanges::group(LiveChanges::history($db, 'po', $doc->id))) as $h) {
+            $events[] = $h;
         }
         usort($events, static fn (array $a, array $b): int => strcmp((string) $b['at'], (string) $a['at']));
         // Related: the papers around it (its deliveries and invoices as the goods-in and invoice lists find them, with how far each got). A

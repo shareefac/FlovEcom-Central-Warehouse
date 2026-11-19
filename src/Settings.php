@@ -149,6 +149,7 @@ final class Settings
         'housekeeping.audit_keep_years' => ['min' => 7, 'max' => 50],
         'housekeeping.chunk_rows' => ['min' => 100, 'max' => 10000],
         'housekeeping.max_seconds' => ['min' => 10, 'max' => 3600],
+        'housekeeping.draft_change_keep_days' => ['min' => 7, 'max' => 3650], // 0072 (LS11): a draft's line-by-line changes, after it is final
         'relay.mode_in_stock' => ['in' => ['strict', 'backorder', 'stopped']],
         'relay.mode_from_warehouse' => ['in' => ['strict', 'backorder', 'stopped']],
         'relay.mode_out_of_stock' => ['in' => ['strict', 'backorder', 'stopped']],

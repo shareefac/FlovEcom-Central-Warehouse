@@ -14,6 +14,7 @@
 // draft that shows who is here ($marks).
 $showReceived = !$edit && $doc !== null && $doc->postedAt !== null;
 $marks = $marks ?? false;
+$liveSave = $liveSave ?? false; // each box saved by itself (LS10): each saved line's version and who changed it
 ?>
 <?php if (!$edit): ?>
 <?php if ($lines === []): ?>
@@ -61,7 +62,7 @@ $marks = $marks ?? false;
 <?php foreach ($lines as $i => $l): ?>
 <?php $no = $i + 1; $gone = $editable && isset($grid['removed'][$no]); $bad = $grid['bad'] === 'line:' . $no; if (!$gone) { $rowNo++; } ?>
 <?= $partial('po_paper_line', ['edit' => true, 'l' => $l, 'no' => $no, 'rowNo' => $rowNo, 'gone' => $gone, 'bad' => $bad ? $grid['badText'] : null, 'editable' => $editable,
-    'typed' => $typed, 'stock' => $stock]) ?>
+    'typed' => $typed, 'stock' => $stock, 'liveSave' => $liveSave]) ?>
 <?php if ($gone && isset($grid['swapped'][$no])): ?>
 <?php $rowNo++; $sw = $grid['swapped'][$no]; ?>
 <?= $partial('po_paper_line', ['edit' => true, 'r' => $sw, 'no' => $rowNo, 'bad' => $grid['bad'] === $sw['key'] ? $grid['badText'] : null, 'replace' => $no,

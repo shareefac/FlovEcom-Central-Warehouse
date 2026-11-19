@@ -18243,3 +18243,96 @@ Unit 639 OK; UiKernel 697 OK; the rest 1,288 OK (83 skipped: the HTTP tests of s
 compressed stream that ended in a carriage return lost that byte and its words; the bytes follow the ids the PDF prints, which
 `PoPresenceScreensTest` (run before it) moves on. The test now reads each stream by its `/Length` (test only). `CompanyScreensTest` and
 `HandoverPdfCompanyTest` parse PDFs the same old way and can fail the same way some day.
+
+## Each box of a draft order saved by itself (branch `live-save`, 19 Nov 2026; LS1-LS14; live drafts step 4; migration 0072)
+
+The owner, 19 Nov 2026: "Step 4 of working together: each box saves by itself when you leave it. The other person sees the change in about 3
+seconds, with no Save button. If you both change the same line, the second person picks which to keep." The plan: sections 4, 5 and step 4 of
+`/root/cw_work/live_drafts_20261118/PLAN_fable.md`. Purchase orders only. On with `live.mode = on` (Settings > Working together); `presence`
+gives the whole-form Save back at once (the undo, no deploy): the new columns are carried, a draft changed box by box is an ordinary draft.
+
+**LS1. Scope.** The paper's editor (`po.draft_look = paper`, an order the form can carry: `editorFits`) of someone who may post orders. The old
+form (`po.draft_look = form`), a person who may only look (they keep step 3's "saved a change [Show it]") and an order too long for the form keep
+the whole-form save. Without the script the paper is today's form: Save and Confirm post it whole, with its version (409 as DA3).
+
+**LS2. A line's own version.** `document_line.rev` (1 for a new line), `changed_by`, `changed_at` (0072). `Documents::setLines()` keeps a line's
+version, author and time when the line keeps its id and its content is the same (its place may move: a line removed above is no change of it),
+else version + 1, the caller's, now; the module's own part of a line is compared too (`$keys`, `$oldKeys`: PurchaseOrders' po_line, so a VAT
+code changed alone moves it). Every type that calls setLines gets the rule; none of the three is in the posting fingerprint (`lineRow`).
+
+**LS3. The in-place paths.** `Documents::changeLine` (one line by its id at the version the page saw: 409 line_conflict / line_gone),
+`appendLine` (after the last, the next free id, version 1), `replaceLinesLive` (every line again, ids and versions carried: a removal and an
+undo renumber, po_line follows by its cascade), `changeHeaderLive`. Each locks the document row first (409 `not_draft`, naming what it became,
+its number and who: `Documents::notDraft`), checks the caller may post the type, moves the document's version by one, and writes NO audit row
+(the module records the change: LS6). `PurchaseOrders`: `setLine` (packs, the pack's price, items per pack, or the product: the same
+`normaliseLines()` as a whole save, one line, its own number in the words), `addLineLive` (a pack, an item and its items per pack, or the
+delivery as a charge line), `removeLine`, `restoreLine`, `setHeaderField` (expected date, their reference, note; the supplier and the order
+date stay whole saves). Lock order as saveDraft: document row, supplier FOR SHARE, purchase_order FOR UPDATE; the totals over every line
+(`PoMath::totals`) on every change. A test holds the in-place paths and the whole save together over random sequences (identical
+document_line, po_line and purchase_order rows) and two real workers on one draft (`LiveLinesRaceTest`).
+
+**LS4. No overwrite (the plan's section 5).** A save of the values stored already: 200 `unchanged` (a retry; two people typing the same figure).
+The same line changed since the page saw it: 409 `line_conflict` with its version now, who and when and their values (the other lines of both
+people are saved). A line gone: 409 `line_gone` (who removed it, its product). Removing a line someone just changed: `line_conflict`; both
+removing: done once. The same head box: 409 `field_conflict` with the value now. The same purchase added by someone else within
+`SAME_PRODUCT_SECONDS` (120): 409 `line_exists` unless the page asks for more; otherwise today's rule (the packs added to that line). An add
+and an undo carry the page's key (`draft_change.op_key`, UNIQUE per draft): sent twice, done once (`done`). Undo puts back the caller's OWN
+removed line (their newest `remove` row), after the line before it when it is still there, with a new id (409 `nothing_to_restore`). A
+confirmed or cancelled draft refuses every one.
+
+**LS5. draft_change** (0072): one row per change (set, add, remove, restore, header; supplier and replace from the whole saves while live.mode is
+on) and per refused clash (`conflict`: the measure of the plan's 7.4), with before and after (a removed line: enough to put it back), the tab,
+the document's version after it; no foreign keys; read by (kind, record_id, id).
+
+**LS6. Audit volume.** One `po.live_edit` audit row per person per draft per clock hour (the first change of the hour, decided from the person's
+draft_change rows of the hour, inside the document lock); the detail is in draft_change. Confirm, cancel and the whole saves audit as before.
+`DraftChanges::last()` (the 409's "who changed it", the poll's `changed`) reads draft_change too: its newest row is the last change while the
+draft is still at the version it made (by version, not by clock).
+
+**LS7. History.** The order's History card (`po_history`, also in the fragment) lists the line-by-line changes, one line per person per minute
+("18 Nov 2026, 14:02 · Fazil changed 3 lines"), each change in its fold ("Packs 5 → 8 on Elf Bar 600 Blue Razz"); the hourly audit row is not
+listed. Kept 90 days after the order is final (LS11), as the owner's answer to the plan's question 9.
+
+**LS8. Routes.** `GET /ui/purchasing/orders/{id}/live/doc?since=&tab=` (purchasing.view, passive: the page sends it by itself, it marks no
+session seen; signed out: 401), `POST …/live/line` (op set, add, remove, restore) and `…/live/header` (doc.PO.post; the session's token and the
+same origin; a person's own act, so the session is seen). Each answers the fragment `po_live` (the draft as it is now; a refusal in words in
+its part `conflict`, status 400, 409 or 422); live.mode not on: 409 `live_off`; a request of another shape: 400.
+
+**LS9. Confirm.** The page's Confirm waits for its saves, is refused on the page while a choice is open, says first when someone is typing
+("Fazil is typing on line 4. [Confirm anyway] [Not now]"), then posts `/approve` with the version the page shows; changed since, the order's
+page says who changed which line ("Fazil changed line 3 a moment ago. Look, then confirm again.", `LiveSaveWords::confirmChanged`). Someone
+else confirming or cancelling: the next poll or save locks every box and says who and the number, and which box of mine was not saved.
+
+**LS10. The fragment `po_live`.** Root `data-live-fragment="po:<id>"` with `data-v`, `data-e` (the newest change), `data-status`, `data-at`
+(UK time), and what the page's own save did (`data-op`, `data-op-status`, `data-op-uid`, `data-op-key`); parts header (values, supplier,
+address, terms), lines (the editor's own rows: `data-uid`, `data-rev`, `data-by`, `data-by-name`, the boxes named by their line number),
+foot (the totals), notes, history, events (the changes since the page's newest, not its own tab's, in words), conflict (`live_conflict`).
+
+**LS11. Clean-up.** `housekeeping.draft_change_keep_days` (90, at least 7; 0072, provisional, with its baseline): the nightly part removes the
+rows of a document that is no longer a draft once they are older; a draft's rows stay however old (its History, its Undo).
+
+**LS12. The page's script** (app.js block "live", its part `saving()`; the grid hands each change over through `kb.live`, and lends its parts
+through `kb.liveGrid`). liveQueue: one save on its way, in order; two waiting saves of the same line become one (the version of the first: the
+line's version at my first key in it); my own new version carried to the line's next save; no answer: again after each of
+`data-live-retry-ms` (1, 3, 10 s, then 10 s), the bar saying "Not saved yet: no connection. Trying again."; a redirect or 401: signed out.
+liveApply: an answer older than the page is not drawn; each line by its id: the same version kept, another version replaces it unless I have
+typing not saved, a save on its way or a choice there (my boxes stay; the line says who changed it); a line gone is taken out, or marked when
+I was typing in it (its boxes then left out of the whole form); a new line put in its place with a short flash in its author's colour; the
+boxes' names follow the line numbers; the head's boxes, the totals, the notes and the History card the server's; the cursor kept.
+liveConflict: the server's words and buttons under the line or box, the cursor in them, Esc the safe one. The bar: Save hidden, the status in
+its place; Cmd/Ctrl+S (and Enter in a box) saves the box the cursor is in. The supplier changed: a whole save after my saves (its lines move,
+KG30). Every word from the page (`Words::LIVE`, the fragment's own); names as text; no inline style; the poll's chain and the save's retry are
+the block's two timers.
+
+**LS13. Tests.** Red first on main's code (`runs/livesave_red_all.log`: 26 tests): `LiveLinesTest` (every row of section 5's table, in place vs
+whole save over 60 random steps, the pack conversion of one line, a retried add, a final order, a stale Confirm, the jobs on every op and admin
+refused, the audit hour, the clean-up), `LiveLinesRaceTest`, `PoLiveScreensTest`, `Migration0072Test`, `UiUnitTest` (routes, passive, the
+block's pins), `WordsTest`. The script: `run_save.js` (queue, merge, rebase, retry rhythm, the patch around typing, out-of-order answers, new
+and gone lines and their names, each choice, Undo, Confirm, the lock, signed out, presence again, the delivery, Cmd+S) and `run_kg.js`'s
+section "live" (the grid's hand-over) in `/root/cw_work/livesave_20261119/js_harness/` (`runs/livesave_js.sh`); `run_live.js` and the
+others unchanged and green.
+
+**LS14. Open, for the owner.** (1) The plan's "Shareef is here too. Change the supplier for everyone?" is today's question when the supplier
+changes with lines on the page ("Change supplier to X? …"); the words naming who else is here are not added. (2) A person who may only look
+keeps step 3's note ("Fazil saved a change at 14:02. [Show it]") instead of the lines changing under them. (3) The old form (`po.draft_look =
+form`) never saves box by box.
