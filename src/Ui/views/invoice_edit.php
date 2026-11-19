@@ -73,7 +73,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
       <select name="supplier_id" id="po-supplier" data-po-supplier data-placeholder="<?= $word('PI_ONE', 'supplier_hint') ?>" data-label="<?= $word('PI_ONE', 'suppliers') ?>" data-change-ask="<?= $word('DOC_GRID', 'change_ask') ?>" data-change-yes="<?= $word('DOC_GRID', 'change_yes') ?>" data-change-keep="<?= $word('DOC_GRID', 'change_keep') ?>"<?php if ($canAddSupplier): ?> data-add="<?= $word('PO_ADD', 'new_supplier') ?>" data-panel="pi-add-supplier"<?php elseif ($isNew): ?> data-ask="<?= $e($askSupplier) ?>"<?php endif; ?>>
         <option value=""><?= $word('ORDERS', 'choose_supplier') ?></option>
 <?php foreach ($supplierChoices as $s): ?>
-        <option value="<?= $e($s['id']) ?>" data-name="<?= $e($s['name']) ?>" data-meta="<?= $e($s['meta']) ?>" data-terms="<?= $e($s['terms']) ?>"<?php if ($s['id'] === $supplierId): ?> selected<?php endif; ?>><?= $e($s['label']) ?></option>
+        <option value="<?= $e($s['id']) ?>" data-name="<?= $e($s['name']) ?>" data-meta="<?= $e($s['meta']) ?>" data-terms="<?= $e($s['terms']) ?>" data-vat="<?= $e($s['vat'] ?? '') ?>"<?php if ($s['id'] === $supplierId): ?> selected<?php endif; ?>><?= $e($s['label']) ?></option>
 <?php endforeach; ?>
       </select>
 <?php if ($canAddSupplier): ?>
@@ -146,7 +146,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
 $rowNo = 0;
 ?>
     <div class="table-wrap">
-    <table class="stack list board doc-lines pi-lines kg-grid" data-kg-grid data-kg-max="<?= $e($grid['max']) ?>" data-kg-remove="x_%d" data-kg-max-qty="<?= $e(\CW\PurchaseOrders\PoMath::MAX_PACKS) ?>" data-kg-min-qty="1"<?= $partial('doc_grid_words', []) ?>>
+    <table class="stack list board doc-lines pi-lines kg-grid" data-kg-grid data-kg-max="<?= $e($grid['max']) ?>" data-kg-remove="x_%d" data-kg-max-qty="<?= $e(\CW\PurchaseOrders\PoMath::MAX_PACKS) ?>" data-kg-min-qty="1" data-kg-vat="<?= $e($gridVat['code'] ?? '') ?>" data-kg-rates="<?= $e(json_encode($gridVat['rates'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) ?>"<?= $partial('doc_grid_words', []) ?>>
       <thead>
         <tr>
           <th scope="col" class="c-no"><input type="checkbox" class="kg-tick" data-kg-tick-all data-kg-js hidden tabindex="-1" aria-label="<?= $word('DOC_GRID', 'tick_all') ?>"><?= $word('DOC_GRID', 'no') ?></th>

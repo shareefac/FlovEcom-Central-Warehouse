@@ -1636,6 +1636,7 @@
     };
     var rateOf = function (code) { return rates[code] ? e2(rates[code].rate, false) : null; };
     var totals = function () {
+      var invoice = !!q('input[name="vat_total"]'); // the supplier invoice's page (its paper figures)
       var sum = 0;
       var count = 0;
       var units = 0;
@@ -1686,10 +1687,12 @@
             perEl.textContent = several ? (perEl.getAttribute('data-words') || '').replace('%s', packWords) : '';
           }
         }
-        var code = isNew(tr) ? newVat() : tr.getAttribute('data-kg-vat') || '';
+        // An invoice's lines carry no VAT code of their own: every line at the supplier's (newVat), as the server works it out (InvoiceOnePage).
+        var atSupplier = isNew(tr) || invoice;
+        var code = atSupplier ? newVat() : tr.getAttribute('data-kg-vat') || '';
         if (a !== null) {
           sum += a;
-          vat(code, isNew(tr) ? rateOf(code) : e2(tr.getAttribute('data-kg-rate') || '', false), a);
+          vat(code, atSupplier ? rateOf(code) : e2(tr.getAttribute('data-kg-rate') || '', false), a);
         }
         // The paper's VAT words on the item's line ("VAT S") say the code the line is worked out with: a new one's (the supplier's) once its
         // item changed in place (the Codex review of look-paper, round 2).
@@ -1801,7 +1804,8 @@
       if (paperNet || paperVat) { // the invoice: the paper's figures when typed, else the lines (InvoiceOnePage::editPage)
         var net = paperNet ? paperE2(paperNet.value) : null;
         var pv = paperVat ? paperE2(paperVat.value) : null;
-        put('total', money((net === null ? sum : net) + (pv === null ? 0 : pv)));
+        // Not typed: the lines (and a charge being typed) and the VAT worked out from them (the owner, 19 Nov 2026: the VAT was not shown).
+        put('total', money((net === null ? sum + charge : net) + (pv === null ? tax + chargeVat : pv)));
       }
     };
     var renumber = function () {

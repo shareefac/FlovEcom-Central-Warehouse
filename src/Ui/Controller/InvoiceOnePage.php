@@ -910,7 +910,19 @@ final class InvoiceOnePage
         }
         $net = self::moneyE2($form['net_total']);
         $vat = self::moneyE2($form['vat_total']);
-        $total = ($net ?? $sum) + ($vat ?? 0);
+        // The VAT worked out from the lines at the supplier's VAT code (the order page's rule, a line at a time: PoMath::lineVatE2): shown
+        // under the Sub total and counted in the Total while the paper's VAT is not typed (the owner, 19 Nov 2026: "still not showing").
+        $gridVat = PurchaseOrdersController::gridVat($ctx, $supplierId);
+        $rateText = (string) ($gridVat['rates'][$gridVat['code']]['rate'] ?? '0.00');
+        $rateE2 = \CW\PurchaseOrders\PoMath::e2($rateText);
+        $linesVat = 0;
+        foreach ($lines as $l) {
+            $a = $l['amount'] === null ? null : InvoiceMath::e2((string) $l['amount']);
+            if ($a !== null && $a > 0 && $rateE2 >= 0 && $rateE2 <= 10_000) {
+                $linesVat += \CW\PurchaseOrders\PoMath::lineVatE2($a, $rateE2);
+            }
+        }
+        $total = ($net ?? $sum) + ($vat ?? $linesVat);
         // The supplier box on a new invoice and on a draft alike (the owner, 6 Nov 2026: "also in draft and new easily supplier change option";
         // docs/decisions.md KG30): another supplier moves the lines in the same save (SupplierInvoices::changeSupplier). "+ Add new supplier"
         // stays the new page's.
@@ -981,8 +993,10 @@ final class InvoiceOnePage
             // The demo the owner approved (KG31): Total quantity (the goods' items) and Total (the lines) as grey boxes over the paper's figures.
             'units' => array_sum(array_map(static fn (array $l): int => $l['kind'] === 'goods' ? (int) $l['packs'] * (int) $l['units_per_pack'] : 0, $lines)),
             'linesSum' => Html::money(InvoiceMath::fromE2($sum)),
+            'gridVat' => $gridVat, // the lines' VAT code and the rates, for the grid's own sums (data-kg-vat, data-kg-rates)
             'totals' => [
                 ['label' => Words::DOC['sub_total'], 'value' => Html::money(InvoiceMath::fromE2($sum)), 'key' => 'sum'],
+                ['label' => Words::say('PI_ONE', 'lines_vat', (string) $gridVat['code'], rtrim(rtrim($rateText, '0'), '.')), 'value' => Html::money(InvoiceMath::fromE2($linesVat)), 'key' => 'vat'],
                 ['label' => Words::PI_ONE['paper_net'], 'input' => ['name' => 'net_total', 'id' => 'pi-net', 'value' => $form['net_total']]],
                 ['label' => Words::PI_ONE['paper_vat'], 'input' => ['name' => 'vat_total', 'id' => 'pi-vat', 'value' => $form['vat_total']]],
                 ['label' => Words::DOC['total'], 'value' => Html::money(InvoiceMath::fromE2($total)), 'grand' => true, 'key' => 'total'],
@@ -1060,8 +1074,9 @@ final class InvoiceOnePage
                 default => '',
             };
             return ['id' => (int) $s['id'], 'name' => (string) $s['name'], 'label' => $state === '' ? (string) $s['name'] : Words::say('PO_ONE', 'supplier_option', (string) $s['name'], $state),
-                'meta' => $state === '' ? '' : mb_strtoupper(mb_substr($state, 0, 1)) . mb_substr($state, 1), 'terms' => $s['payment_terms_days'] === null ? '' : (string) (int) $s['payment_terms_days']];
-        }, $db->all('SELECT id, name, status, payment_terms_days FROM supplier ORDER BY name, id'));
+                'meta' => $state === '' ? '' : mb_strtoupper(mb_substr($state, 0, 1)) . mb_substr($state, 1), 'terms' => $s['payment_terms_days'] === null ? '' : (string) (int) $s['payment_terms_days'],
+                'vat' => (string) $s['default_vat_code']];
+        }, $db->all('SELECT id, name, status, payment_terms_days, default_vat_code FROM supplier ORDER BY name, id'));
     }
 
     /**

@@ -7047,6 +7047,8 @@ final class Words
         'line_n' => 'Line %s',
         'paper_net' => 'Total without VAT on the paper',
         'paper_vat' => 'VAT on the paper',
+        // The VAT worked out from the lines at the supplier's VAT code (the owner, 19 Nov 2026: the invoice's VAT was not shown).
+        'lines_vat' => 'VAT %s (%s%%)',
         'notes' => 'Notes',
         'file' => 'Invoice file',
         'file_kind' => 'What the file is',

@@ -778,7 +778,7 @@ final class PurchaseOrdersController
      *
      * @return array{rates: array<string, array{rate: string, label: string}>, code: string}
      */
-    private static function gridVat(Context $ctx, ?int $supplierId): array
+    public static function gridVat(Context $ctx, ?int $supplierId): array
     {
         $rates = [];
         $active = [];
