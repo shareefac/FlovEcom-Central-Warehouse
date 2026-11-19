@@ -1599,7 +1599,8 @@
       if (!m) {
         return e2(v, false);
       }
-      return parseInt(m[1], 10) * 100 + parseInt(m[2].slice(0, 2), 10) + (parseInt(m[2].charAt(2), 10) >= 5 ? 1 : 0);
+      var n = parseInt(m[1], 10) * 100 + parseInt(m[2].slice(0, 2), 10) + (parseInt(m[2].charAt(2), 10) >= 5 ? 1 : 0);
+      return n > 999999999999 ? null : n; // rounded past 9,999,999,999.99 (the server's 10 digits): not a figure (Codex review of 6fc60ef)
     };
     var money = function (n) {
       var a = Math.abs(n);
@@ -2251,15 +2252,26 @@
     });
     // A paper figure always shows 2 decimals once its box is left (the owner, 19 Nov 2026: "decimal always 2"): 551 -> 551.00, 551.1 -> 551.10,
     // 551.178 -> 551.18 (paperE2, half-up), "£2,755.89" -> 2755.89. What is saved is what the Total counted. A box that is not a figure stays.
-    form.addEventListener('change', function (ev) {
-      var t = ev.target;
+    var paperTidy = function (t) {
       if (t && (t.name === 'net_total' || t.name === 'vat_total') && String(t.value).trim() !== '') {
         var n = paperE2(t.value);
         if (n !== null) {
           t.value = Math.floor(n / 100) + '.' + ('0' + (n % 100)).slice(-2);
-          totals();
+          return true;
         }
       }
+      return false;
+    };
+    form.addEventListener('change', function (ev) {
+      if (paperTidy(ev.target)) {
+        totals();
+      }
+    });
+    // Also on every send (Cmd+S or a button while the cursor is still in the box, so no change fired: the Codex review of 6fc60ef): this
+    // listener comes before the grid's own submit listener, which reads the form after it.
+    form.addEventListener('submit', function () {
+      paperTidy(form.querySelector('input[name="net_total"]'));
+      paperTidy(form.querySelector('input[name="vat_total"]'));
     });
     document.addEventListener('change', function (ev) {
       if (ev.target === supplier()) {
