@@ -933,9 +933,12 @@ final class PurchaseOrders
         $doc = $this->docs->changeLine($caller, $id, $uid, (int) $same['rev'], $n['doc']);
         $this->writePoLine($id, (int) $same['line_no'], $n['po']);
         $this->retotal($id);
-        LiveChanges::record($this->db, $caller, 'po', $id, $op, $uid, null, ($before ?? []) + self::change($same), self::change($this->liveLine($id, $uid) ?? $same), $opKey,
-            $doc->version, $tab, $this->nowDb());
-        return ['status' => 'incremented', 'document' => $doc, 'uid' => $uid, 'rev' => (int) $same['rev'] + 1];
+        $rev = (int) $same['rev'] + 1;
+        // The version it gave the line is kept with the change: a retry with the same key says it (replayed), so the page saves the packs typed
+        // since on it (the Codex verify of be061fd, 1).
+        LiveChanges::record($this->db, $caller, 'po', $id, $op, $uid, null, ($before ?? []) + self::change($same), self::change($this->liveLine($id, $uid) ?? $same) + ['rev' => $rev],
+            $opKey, $doc->version, $tab, $this->nowDb());
+        return ['status' => 'incremented', 'document' => $doc, 'uid' => $uid, 'rev' => $rev];
     }
 
     /**
@@ -963,8 +966,9 @@ final class PurchaseOrders
 
     /**
      * An add or an undo sent again with its key (its first answer lost): `done`, the line it made or added to, and what it did then (`was`:
-     * added, incremented, restored; the version an added or restored line got: 1), so the page treats the replay as it would have treated the
-     * first answer (the Codex re-check of c84b4bb).
+     * added, incremented, restored; the version an added or restored line got: 1; the version packs added to a line gave it, kept with the
+     * change: null for one recorded before it was kept), so the page treats the replay as it would have treated the first answer (the Codex
+     * re-check of c84b4bb; the Codex verify of be061fd, 1).
      *
      * @param array<string, mixed> $done the draft_change row of the key
      * @return array{status: 'done', document: Document, uid: ?int, was: string, rev: ?int}
@@ -973,8 +977,10 @@ final class PurchaseOrders
     {
         $before = json_decode((string) ($done['before_json'] ?? 'null'), true);
         $grew = is_array($before) && array_key_exists('packs', $before); // packs added to a line already there
+        $after = json_decode((string) ($done['after_json'] ?? 'null'), true);
+        $grewTo = is_array($after) && is_int($after['rev'] ?? null) && $after['rev'] > 0 ? $after['rev'] : null;
         $was = $grew ? 'incremented' : ($done['op'] === 'restore' ? 'restored' : 'added');
-        return ['status' => 'done', 'document' => $doc, 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid'], 'was' => $was, 'rev' => $grew ? null : 1];
+        return ['status' => 'done', 'document' => $doc, 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid'], 'was' => $was, 'rev' => $grew ? $grewTo : 1];
     }
 
     /**

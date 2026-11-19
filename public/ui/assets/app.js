@@ -1891,7 +1891,8 @@
         return; // a save is on its way (hold)
       }
       var all = lines();
-      var gone = trs.filter(removable);
+      // Saved by itself: a new line whose add went waits for its answer (it may be on the draft already: the Codex verify of be061fd, 3).
+      var gone = trs.filter(removable).filter(function (tr) { return !liveSave() || !kb.live.removable || kb.live.removable(tr); });
       if (gone.length === 0) {
         return;
       }
@@ -2871,6 +2872,13 @@
     // the form's data was taken (the Codex re-check of 48dc75b, finding 4). Every change by the script (a choice, fill down, a new item, add
     // several, a removal, Undo, the supplier) waits for the answer too (sending, kb.busy).
     var hold = kgHold(form);
+    // Saved by itself and the whole save (the supplier changed) failed or was refused as changed: the block switched to the Save button, the
+    // leave guard kept, so Confirm and the next Save are the form's own posts (serialised, the page's checks: the Codex verify of be061fd, 4).
+    var offLive = function () {
+      if (liveSave() && kb.live.off) {
+        kb.live.off(true);
+      }
+    };
     var ajaxSave = function (by, then) {
       serialise();
       var data = new window.FormData(form);
@@ -2897,6 +2905,7 @@
             // Changed in another tab meanwhile (the Codex review, finding 6): the page drawn again as the server has it now (the head too),
             // by a plain post of the same form: refused again as changed, the new lines kept, nothing saved.
             plain = true;
+            offLive(); // saved by itself: the Save button again first, so that post (and any later one) is the form's own
             // "Saving" is over: the server's own words meanwhile (red: they stay until a press on them), so a plain post that is stopped
             // (the browser's Stop, another listener) never leaves a word that only an answer could take away (Codex re-check 9). Never
             // the words inside the form (a line's) or a <noscript>'s (an answer is read with the script off).
@@ -2933,6 +2942,7 @@
             by.disabled = false;
           }
           plain = true;
+          offLive();
           toast(word('save-failed'), true);
         });
     };
@@ -2963,7 +2973,6 @@
     // patch, the numbers, the totals, the ticks, the checks, a whole save (the supplier changed: its lines move, KG30), and the empty line.
     if ((form.getAttribute('data-kg-editor') || '').indexOf('po:') === 0 && form.classList.contains('kg-paper')) {
       kb.liveGrid = { form: form, table: table, body: body, empty: empty, wire: wire, offBoxes: offBoxes, renumber: renumber, totals: totals, tick: tick,
-        plain: function () { return plain; },
         check: check, hideUndo: function () { undo = null; hideUndo(); }, save: function (then) { if (canSend()) { ajaxSave(null, then); return true; } return false; } };
     }
     // What the site's keys do in the lines (kb, KEYS): docGrid is their one place.
@@ -7048,6 +7057,8 @@
       var sameTarget = function (a, b) { return (!!a.tr && a.tr === b.tr) || (!!a.el && a.el === b.el); };
       var choiceOpen = function () { return document.querySelector('[data-live-choice-row]') !== null; };
       var adding = function (tr) { return queue.concat(flying ? [flying] : []).some(function (x) { return x.op === 'add' && x.tr === tr; }); };
+      // An add of this new line that went at least once (on its way, or waiting to be sent again after no answer): maybe on the draft already.
+      var sentAdd = function (tr) { return queue.concat(flying ? [flying] : []).some(function (x) { return x.op === 'add' && x.tr === tr && (x === flying || !!x.read); }); };
       // A save refused without a choice (a figure that is not one): every box it carried stays marked not saved, sent again when left.
       var markBad = function (it) {
         var boxes = it.el ? [it.el] : (it.op === 'add' && it.tr ? cells(it.tr) : Object.keys(it.f || {}).map(function (k) { return cellFor(it.tr, k); }));
@@ -7309,26 +7320,26 @@
           it.tr.setAttribute('data-live-hold', '1'); // my values stay on the line while I choose
         }
         var carry = null;
-        var carryUid = 0;
-        var carryRev = 0;
         if (done !== 'refused' && done !== '') {
           var uid = num(node.getAttribute('data-op-uid'));
           if ((it.op === 'add' || it.op === 'restore') && it.tr && uid) {
             it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it, on the version the add gave it)
             it.tr.setAttribute('data-rev', String(num(node.getAttribute('data-op-rev')) || 0));
             // Drawn by the server's row now (added to a line already there: that line). What was typed in it since it went is carried over to
-            // the server's row and saved on the version the add gave it (not onto a line it was added to: those figures were the new line's;
-            // also when it was sent again: data-op-was says what the first time did).
-            var was = node.getAttribute('data-op-was') || done;
-            carryRev = num(node.getAttribute('data-op-rev'));
-            if (was === 'added' && carryRev > 0) {
-              carry = {};
+            // the server's row and saved on the version the add gave that line (also when it was sent again: data-op-was says what the first
+            // time did, data-op-rev the version it gave). On a line it was added to, the packs typed since go as the difference from the packs
+            // sent (5 there, 1 added, 3 typed since: 7), never as that line's packs; the other boxes as typed (the Codex verify of be061fd, 1).
+            var opWas = node.getAttribute('data-op-was') || done;
+            if (opWas === 'added' || opWas === 'incremented') {
+              var boxes = {};
               each(cells(it.tr), function (el) {
                 if (typed(el) && el.getAttribute('data-kg-cell') !== 'item') {
-                  carry[el.getAttribute('data-kg-cell')] = el.value;
+                  boxes[el.getAttribute('data-kg-cell')] = { value: el.value, sent: was(el) };
                 }
               });
-              carryUid = uid;
+              if (Object.keys(boxes).length > 0) {
+                carry = { uid: uid, rev: num(node.getAttribute('data-op-rev')), grew: opWas === 'incremented', boxes: boxes };
+              }
             }
             it.tr.setAttribute('data-live-drop', '1');
           }
@@ -7366,22 +7377,9 @@
           }
           lastAt = node.getAttribute('data-at') || lastAt;
         }
-        apply(node);
-        if (carry !== null) {
-          var fresh = rowOf(carryUid);
-          if (fresh && Object.keys(carry).length > 0) {
-            fresh.setAttribute('data-live-at', String(carryRev)); // my typing is based on the version my add gave the line
-          }
-          each(fresh ? Object.keys(carry) : [], function (cellName) {
-            var box = fresh.querySelector('input[data-kg-cell="' + cellName + '"]');
-            if (box) {
-              box.value = carry[cellName];
-              if (box !== document.activeElement) {
-                left(fresh, box); // the box the cursor is in: saved when it is left
-              }
-            }
-          });
-        }
+        // The carried typing is put in before the page takes the draft's version: a line someone changed since my add keeps the whole form on
+        // the version it had until that save is answered (the Codex verify of be061fd, 2).
+        apply(node, carry === null ? null : function () { return carried(carry); });
         if (clash) {
           confirming = false; // a refusal stops a Confirm that waited for my saves: the person looks first
           refused(it, clash);
@@ -7389,6 +7387,54 @@
         if (confirming && queue.length === 0 && !flying) {
           confirmNow();
         }
+      };
+
+      // My typing on a new line since its add went (answered: carry), put on the line it became or was added to, and saved there on the version
+      // that add gave the line (data-live-at). True when that line is no longer that version (someone changed it since): the whole form then
+      // keeps the version it had and the line says who. No version known (an add recorded before the version was kept): the boxes are shown
+      // not saved, nothing sent. A sum of packs below 1 (someone took packs off since) is shown not saved too, never sent as a removal.
+      var carried = function (c) {
+        var target = rows().filter(function (r) { return r.getAttribute('data-uid') === String(c.uid) && !r.hasAttribute('data-live-drop'); })[0];
+        if (!target) {
+          status('not-saved'); // the line is no longer on the draft (the History says who)
+          return false;
+        }
+        each(rows(), function (r) {
+          if (r !== target && r.getAttribute('data-uid') === String(c.uid) && r.hasAttribute('data-live-drop') && r.parentNode) {
+            r.parentNode.removeChild(r); // an answer older than the page: my new line, already drawn as the server's row
+          }
+        });
+        // Based on the version the add gave the line, unless I was typing on that line already (that typing keeps the version it saw).
+        if (c.rev > 0 && !cells(target).some(typed)) {
+          target.setAttribute('data-live-at', String(c.rev));
+        }
+        var whole = function (s) { return /^[0-9]+$/.test((s || '').trim()) ? parseInt(s.trim(), 10) : null; };
+        each(Object.keys(c.boxes), function (cellName) {
+          var box = target.querySelector('input[data-kg-cell="' + cellName + '"]');
+          if (!box) {
+            return;
+          }
+          var b = c.boxes[cellName];
+          var value = b.value;
+          var bad = c.rev === 0;
+          if (c.grew && cellName === 'qty' && whole(b.value) !== null && whole(b.sent) !== null && whole(box.value) !== null) {
+            var sum = whole(box.value) + whole(b.value) - whole(b.sent);
+            value = String(sum);
+            bad = bad || sum < 1;
+          }
+          box.value = value;
+          if (bad) {
+            box.setAttribute('data-live-bad', '1');
+          } else if (box !== document.activeElement) {
+            left(target, box); // the box the cursor is in: saved when it is left
+          }
+        });
+        var behindNow = (target.getAttribute('data-rev') || '') !== (target.getAttribute('data-live-at') || '');
+        if (behindNow && c.rev > 0) {
+          markRow(target, 'changed-by', target.getAttribute('data-by-name') || say('someone'));
+        }
+        dirty();
+        return behindNow;
       };
 
       // liveApply: the draft's fragment patched into the page.
@@ -7413,13 +7459,20 @@
           }
         });
       };
-      var apply = function (node) {
+      // after (answered: my typing carried onto my new line's line) runs once the lines are in, before the version is taken; true: behind.
+      var apply = function (node, after) {
         if (!on || locked) {
           return;
         }
         var v = num(node.getAttribute('data-v'));
+        var vIn = form.querySelector('input[type="hidden"][name="version"]');
         if (v < liveV) {
-          return; // older than what the page shows: never drawn over it
+          // Older than what the page shows: never drawn over it. My typing carried still goes to its line (drawn by the newer fragment); when
+          // that line is behind it, the whole form takes this older version (its Save refused as changed, never over the newer change).
+          if (after && after() && vIn) {
+            vIn.value = String(Math.min(num(vIn.value), v));
+          }
+          return;
         }
         liveV = v;
         // A line or box of mine kept while someone else changed it: the whole form keeps the version it was drawn on (its Save is then refused,
@@ -7637,7 +7690,9 @@
             box.focus();
           }
         }
-        var vIn = form.querySelector('input[type="hidden"][name="version"]');
+        if (after && after()) {
+          behind = true;
+        }
         if (vIn && !behind) {
           vIn.value = String(v); // the whole form is what the server holds, with my own saves on their way: its version too
         }
@@ -7957,8 +8012,10 @@
         }
         return lostText;
       };
-      var off = function () {
-        // live.mode taken back to presence: the Save button again (the form's names follow the lines: its whole save is right).
+      var off = function (keep) {
+        // live.mode taken back to presence: the Save button again (the form's names follow the lines: its whole save is right). keep: the form
+        // holds what was not saved for certain (a whole save failed, or drawn again with what was typed: boxes the page cannot tell apart
+        // from stored ones), so the leave guard and the words stay (the Codex verify of be061fd, 4 and 5).
         on = false;
         each(queue.concat(flying ? [flying] : []), markBad); // not saved: kept as typed for the whole form's Save
         queue = [];
@@ -7974,7 +8031,8 @@
         if (b) {
           b.hidden = false;
         }
-        if (dirty()) {
+        if (dirty() || keep === true) {
+          form.setAttribute('data-dirty', '1');
           setNote('off', function (n) { n.appendChild(make('span', [], say('save-back'))); });
         } else {
           form.removeAttribute('data-dirty');
@@ -8051,8 +8109,8 @@
       });
       // The form's buttons: Save (and Cmd/Ctrl+S, and Enter in a box) saves the box the cursor is in; Confirm as above; the others as before.
       form.addEventListener('submit', function (ev) {
-        if (!on || (g.plain && g.plain())) {
-          return; // the Save button again, or the whole save's own plain post after a refusal (its page drawn afresh)
+        if (!on) {
+          return; // the Save button again (also after the grid's whole save failed: kb.live.off, so its plain post goes as before)
         }
         var by = ev.submitter;
         var act = by ? by.getAttribute('value') || '' : '';
@@ -8089,8 +8147,8 @@
         }
         if (!form.hasAttribute('data-live-save')) {
           // The whole save was refused and drawn again with what was typed (its boxes are not the stored values): the Save button again
-          // (the Codex re-check of c84b4bb).
-          off();
+          // (the Codex re-check of c84b4bb), the leave guard kept (the Codex verify of be061fd, 5).
+          off(true);
           return;
         }
         each(rows(), keep);
@@ -8107,6 +8165,7 @@
       kb.live = {
         on: function (f) { return on && f === form; },
         locked: function () { return locked; },
+        off: function (keep) { off(keep); }, // the grid's whole save failed or was refused as changed: the Save button again, first
         left: function (tr, el) { left(tr, el); },
         changed: function (tr) {
           if (tr.getAttribute('data-uid')) {
@@ -8138,13 +8197,19 @@
           }
           enqueue({ op: 'set', tr: tr, f: f, rev: num(tr.getAttribute('data-live-at')) || num(tr.getAttribute('data-rev')) });
         },
+        // A line may be taken out unless it is a new line whose add went (on its way, or waiting to be sent again): it may be on the draft
+        // already (its answer lost), so it waits for that answer (the Codex verify of be061fd, 3).
+        removable: function (tr) { return !sentAdd(tr); },
         removed: function (trs) {
           removedLast = [];
           each(trs, function (tr) {
+            if (sentAdd(tr)) {
+              return; // never handed over (removable); if it is, nothing is taken back before the add's answer
+            }
             var unsent = queue.filter(function (q) { return q.op === 'add' && q.tr === tr; });
             if (unsent.length > 0) {
               queue = queue.filter(function (q) { return q.tr !== tr; }); // never sent: nothing to take back
-              localGone.push(tr); // Undo puts it back here and adds it again
+              localGone.push({ tr: tr, add: unsent[0] }); // Undo puts it back here and adds it again: the same add, its key
               return;
             }
             var prev = tr.previousSibling;
@@ -8158,10 +8223,12 @@
         undo: function (trs) {
           var here = [];
           each(trs, function (tr) {
-            if (localGone.indexOf(tr) >= 0) {
-              localGone = localGone.filter(function (x) { return x !== tr; });
+            var gone = localGone.filter(function (x) { return x.tr === tr; })[0];
+            if (gone) {
+              localGone = localGone.filter(function (x) { return x !== gone; });
               here.push(tr);
-              enqueue({ op: 'add', tr: tr, f: {}, key: key() }); // a new line taken out before it was added: back, and added
+              gone.add.f = {}; // read again when it goes (what the line holds then)
+              enqueue(gone.add); // a new line taken out before its add went: back, and added (never sent: its own key still)
               return;
             }
             if (flying && flying.op === 'remove' && flying.tr === tr) {

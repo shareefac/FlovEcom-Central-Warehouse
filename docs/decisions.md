@@ -18371,6 +18371,25 @@ A new line taken out before its add went comes back with Undo and is added (c9).
 Checked by `PoLiveScreensTest`, `LiveLinesTest` and `run_save.js` section 11 (red on c84b4bb's app.js: `runs/livesave_js_r2red.log`); not
 reviewed again (the one re-check round).
 
+### The Codex verify of c84b4bb..be061fd before the owner's go (`livesave_20261119/codex_r3_verify.txt`, asked by the coordinator): 9 of LS16's fixed; 4 HIGH and 1 MEDIUM left, each verified in the code, shown failing first and fixed (LS17)
+
+**LS17.** (1, HIGH) An add that went on a line already there (incremented), with packs typed on the new line since it went: those packs are
+added to that line as the difference from the packs sent (5 there, 1 added, 3 typed since: 7), the other boxes as typed, saved on the version
+that add gave the line; never the new line's packs put on it, never dropped. The server keeps that version with the change (`after_json.rev`),
+so a retry with the same key answers it too (`done`, `data-op-rev`); one recorded before it was kept answers none: the boxes are shown not saved,
+nothing sent. A sum below 1 (someone took packs off since) is shown not saved, never sent as a removal. (2, HIGH) The carried typing is put in
+before the page takes the draft's version: a line someone changed since my add keeps the whole form on the version it had (its Save refused as
+changed, never over their change) and says who; an answer older than the page still carries it, and the form then takes that older version.
+(3, HIGH) A new line whose add went (on its way, or waiting to be sent again after no answer) is not taken out before that answer (it may be on
+the draft already: x, Delete and 0 packs wait; `kb.live.removable`); one never sent is taken out, and Undo puts it back with the same add, its
+key. This also closes a case the verify did not name: taking out a new line whose add then went on a line already there removed that whole
+line. (4, HIGH) The grid's whole save (the supplier changed) that fails or is refused as changed switches the block to the Save button first
+(`kb.live.off(true)`), so Confirm and the next Save are the form's own posts (serialised, the page's checks); the block no longer lets every
+submit through while the grid is "plain". (5, MEDIUM) Switched to the Save button because the whole save was drawn again with what was typed
+(or failed): the leave guard and the words stay, whatever the boxes' marks say. Checked by `LiveLinesTest` (the replay's version), `run_save.js`
+section 12 and `run_kg.js` (the grid waits for an add out; the whole save's failure and refusal), all red on 1775a73's app.js first
+(`runs/livesave_js_r3_red.log`, `runs/livesave_r3_red_php.log`).
+
 ### The full suite (sequential, one part at a time)
 
 On be061fd: Unit 640 OK; UiKernel 702 OK; the rest 1,308 OK (83 skipped: the HTTP tests of slot ui, as before). `LiveSaveUnitTest` (added

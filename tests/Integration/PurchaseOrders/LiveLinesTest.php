@@ -315,7 +315,8 @@ final class LiveLinesTest extends PurchaseOrderTestCase
         // An add that went on a line already there, sent again: it says so (the page never takes its figures for a new line's).
         $more = $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 2, null, 'c0ffee0000000002');
         $more2 = $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 2, null, 'c0ffee0000000002');
-        self::assertSame(['incremented', 2, 'done', 'incremented', null], [$more['status'], $more['rev'], $more2['status'], $more2['was'], $more2['rev']]);
+        // ... with the version it gave that line (the page puts packs typed since on that version: the Codex verify of be061fd, 1).
+        self::assertSame(['incremented', 2, 'done', 'incremented', 2], [$more['status'], $more['rev'], $more2['status'], $more2['was'], $more2['rev']]);
         $before = self::snapshot($id);
         self::assertSame($before, self::snapshot($id), 'done once');
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM draft_change WHERE record_id = ? AND op_key = 'c0ffee0000000001'", [$id]));
