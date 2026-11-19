@@ -197,8 +197,8 @@ final class LiveLinesTest extends PurchaseOrderTestCase
     public function testTheSameHeadBoxAtTheSameMomentHasTheSameChoice(): void
     {
         $id = $this->liveDraft();
-        $r = $this->pos->setHeaderField($this->fazil, $id, 'note', null, 'Call before delivery');
-        self::assertSame('saved', $r['status']);
+        $r = $this->pos->setHeaderField($this->fazil, $id, 'note', null, '  Call before delivery ');
+        self::assertSame(['saved', 'Call before delivery'], [$r['status'], $r['value']], 'the value as this save stored it');
         self::assertSame('Call before delivery', $this->docs->get($id)->note);
         $before = self::snapshot($id);
         $e = self::refusal(fn () => $this->pos->setHeaderField($this->shareef, $id, 'note', '', 'Ring first'));
@@ -311,6 +311,12 @@ final class LiveLinesTest extends PurchaseOrderTestCase
         $before = self::snapshot($id);
         $again = $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 4, null, 'c0ffee0000000001');
         self::assertSame(['added', 'done', $r['uid']], [$r['status'], $again['status'], $again['uid']]);
+        self::assertSame(['added', 1, 'added', 1], [$r['status'], $r['rev'], $again['was'], $again['rev']], 'the replay says what the first time did, and the version it gave');
+        // An add that went on a line already there, sent again: it says so (the page never takes its figures for a new line's).
+        $more = $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 2, null, 'c0ffee0000000002');
+        $more2 = $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 2, null, 'c0ffee0000000002');
+        self::assertSame(['incremented', 2, 'done', 'incremented', null], [$more['status'], $more['rev'], $more2['status'], $more2['was'], $more2['rev']]);
+        $before = self::snapshot($id);
         self::assertSame($before, self::snapshot($id), 'done once');
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM draft_change WHERE record_id = ? AND op_key = 'c0ffee0000000001'", [$id]));
         self::assertSame('bad_key', self::refusal(fn () => $this->pos->addLineLive($this->fazil, $id, ['supplier_item_id' => $this->si['glass']], 1, null, 'NOT A KEY'))->errorCode);

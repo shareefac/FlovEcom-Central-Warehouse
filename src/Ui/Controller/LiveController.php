@@ -149,7 +149,9 @@ final class LiveController
                     } elseif (UiRequest::id($req->field('si')) !== null) {
                         $pick = ['supplier_item_id' => UiRequest::id($req->field('si'))];
                     } elseif (UiRequest::id($req->field('sku')) !== null) {
-                        $pick = ['sku_id' => UiRequest::id($req->field('sku')), 'units_per_pack' => UiRequest::id($req->field('u')) ?? 1];
+                        // Items per pack as sent (checked by the service: 2.5 is refused, never 1; none sent: 1).
+                        $u = trim($req->field('u') ?? '');
+                        $pick = ['sku_id' => UiRequest::id($req->field('sku')), 'units_per_pack' => $u === '' ? 1 : $u];
                     } else {
                         return $ctx->error(400, 'bad_line', Words::ERROR['bad_form']);
                     }
@@ -180,8 +182,15 @@ final class LiveController
         }
         // The line's version this save itself wrote (a line changed: `saved`): the page moves its waiting saves of that line onto it, and only
         // then (an `unchanged`, or a fragment read after someone else's change, never does: the Codex review of b40f96a, a1/b1/c1).
+        // An add or an undo answers what it did (`was`, also when sent again: done) and the version it gave the line, so typing on the new line
+        // since it went is saved on that version, never on a later one of someone else's (the Codex re-check of c84b4bb).
+        $rev = match (true) {
+            $r['status'] === 'saved', $r['status'] === 'added', $r['status'] === 'restored', $r['status'] === 'incremented' => $r['rev'] ?? null,
+            $r['status'] === 'done' => $r['rev'] ?? null,
+            default => null,
+        };
         return $this->fragment($ctx, $r['document'], 200, ['op' => ['op' => $op, 'status' => $r['status'], 'uid' => $r['uid'] ?? null, 'key' => $req->field('k'),
-            'rev' => $r['status'] === 'saved' ? ($r['rev'] ?? null) : null]] + self::since($ctx));
+            'rev' => $rev, 'was' => $r['was'] ?? $r['status']]] + self::since($ctx));
     }
 
     /**
@@ -212,7 +221,9 @@ final class LiveController
             return $this->fragment($ctx, $ctx->documents()->get($doc->id), $e->httpStatus, ['refusal' => LiveSaveWords::refusal($e, ['value' => $value], null, $field),
                 'op' => ['op' => 'header']] + self::since($ctx));
         }
-        return $this->fragment($ctx, $r['document'], 200, ['op' => ['op' => 'header', 'status' => $r['status']]] + self::since($ctx));
+        // The value this save stored (or found stored): the page's next save of that box is based on it, never on a later value of someone
+        // else's read for the fragment (the Codex re-check of c84b4bb).
+        return $this->fragment($ctx, $r['document'], 200, ['op' => ['op' => 'header', 'status' => $r['status'], 'value' => $r['value'] ?? '']] + self::since($ctx));
     }
 
     /**

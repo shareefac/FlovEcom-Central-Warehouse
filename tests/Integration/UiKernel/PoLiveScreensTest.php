@@ -325,9 +325,15 @@ final class PoLiveScreensTest extends KernelUiTestCase
         $more = $this->lineSave($shareef, $id, ['op' => 'add', 'si' => (string) $d['si'][2], 'packs' => '5', 'k' => 'b000000000000001', 'more' => '1']);
         self::assertSame(['incremented'], self::attrs($more, '//*[@data-live-fragment]', 'data-op-status'));
         // The same add again (its answer lost): done once.
-        self::assertSame(['done'], self::attrs($this->lineSave($shareef, $id, ['op' => 'add', 'si' => (string) $d['si'][2], 'packs' => '5', 'k' => 'b000000000000001', 'more' => '1']),
-            '//*[@data-live-fragment]', 'data-op-status'));
+        $again = $this->lineSave($shareef, $id, ['op' => 'add', 'si' => (string) $d['si'][2], 'packs' => '5', 'k' => 'b000000000000001', 'more' => '1']);
+        self::assertSame(['done', 'incremented'], [self::attrs($again, '//*[@data-live-fragment]', 'data-op-status')[0], self::attrs($again, '//*[@data-live-fragment]', 'data-op-was')[0]],
+            'sent again: done, and what it did the first time (the page never takes its figures for a new line\'s)');
         self::assertSame(10, (int) self::$db->value('SELECT packs FROM po_line WHERE document_id = ? AND supplier_item_id = ?', [$id, $d['si'][2]]));
+        // Items per pack that are not a whole number: refused, never 1.
+        $loose = (int) self::$db->value('SELECT dl.sku_id FROM document_line dl JOIN po_line pl ON pl.document_id = dl.document_id AND pl.line_no = dl.line_no '
+            . 'WHERE dl.document_id = ? AND pl.supplier_item_id IS NULL AND pl.kind = \'item\' LIMIT 1', [$id]);
+        $bad = $this->lineSave($fazil, $id, ['op' => 'add', 'sku' => (string) $loose, 'u' => '2.5', 'packs' => '5', 'k' => 'a00000000000000e']);
+        self::assertSame(422, $bad->status, self::why($bad));
         // The delivery typed: a charge line.
         $dl = $this->lineSave($fazil, $id, ['op' => 'add', 'charge' => '6.50', 'k' => 'a000000000000002']);
         self::assertSame(['added'], self::attrs($dl, '//*[@data-live-fragment]', 'data-op-status'));
@@ -354,8 +360,9 @@ final class PoLiveScreensTest extends KernelUiTestCase
         $fazilName = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$fazilUser['id']]);
         $head = fn (KernelBrowser $web, array $f, string $tab = self::TAB): UiResponse => $web->post("/ui/purchasing/orders/{$id}/live/header",
             $f + ['csrf' => $this->token($web), 'tab' => $tab]);
-        $r = $head($fazil, ['field' => 'note', 'base' => '', 'value' => 'Call before delivery']);
+        $r = $head($fazil, ['field' => 'note', 'base' => '', 'value' => 'Call before delivery ']);
         self::assertSame(200, $r->status, self::why($r));
+        self::assertSame(['Call before delivery'], self::attrs($r, '//*[@data-live-fragment]', 'data-op-value'), 'the value this save stored: the base of the next');
         self::assertSame(['Call before delivery'], self::attrs($r, '//*[@data-live-part="header"]//*[@data-live-field="note"]', 'value'));
         $c = $head($shareef, ['field' => 'note', 'base' => '', 'value' => 'Ring first'], self::TAB2);
         self::assertSame(409, $c->status);

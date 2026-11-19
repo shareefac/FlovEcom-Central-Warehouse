@@ -18336,3 +18336,36 @@ others unchanged and green.
 changes with lines on the page ("Change supplier to X? …"); the words naming who else is here are not added. (2) A person who may only look
 keeps step 3's note ("Fazil saved a change at 14:02. [Show it]") instead of the lines changing under them. (3) The old form (`po.draft_look =
 form`) never saves box by box.
+
+### The Codex reviews of b40f96a (`livesave_20261119/codex_r1_{a,b,c}.txt`; three focused runs at once: the server, the script, end to end): 6 HIGH, 19 MEDIUM, 1 LOW (deduplicated: 1 HIGH and 3 MEDIUM of the server, 5 HIGH and 14 MEDIUM of the script), each verified in the code, shown failing first and fixed (LS15)
+
+**LS15.** Server: a save answers the line's version it wrote itself (`data-op-rev`; none for `unchanged`), so the page never moves its waiting
+saves onto a version someone else wrote (a1, b1, c1: a lost update); a page drawn again with what was typed (a refused whole form, Show it)
+stays the whole form (a2); the clean-up counts the keep days from the time the order stopped changing (`document.updated_at`, a3); a head
+box's clash names who changed it last only while that change still stands (a4); Undo's put-back-once check compares the line id as a number
+(found on the way); `ensureUids` reads before it locks (a page's own fetch stays a read). Script (`run_save.js` section 10, red on b40f96a's
+app.js: `runs/livesave_js_r1red.log`): Confirm saves every typed box first, again right before it goes, "Confirm anyway" the same path (b2,
+c8); an add retried sends what it sent, the typing since is carried to its line and saved (b3, b8, b9-b11); back to presence keeps the waiting
+boxes as typed and draws no late answer, and the whole form keeps the version it was drawn on while a line of mine is behind someone else's
+change (b4, c2); another person's supplier is shown (b5, c5); a refused save marks every box it carried (b6); a refused new line is added again
+when left (b7); a choice holds its line's other saves (b12, c3); an undo's question is a tracked choice (b13); Undo while the removal is on its
+way (b14, c6); a head box's next save goes on my last (b15, c9); a save or a fetch out longer than `data-live-max-ms` is given up at a poll's
+answer, no timer of its own (b16); refused as no longer a draft keeps and names my box (b17, c7); nothing is drawn after a lock (b18); the
+grid lends its parts on every paper order editor, so a new order's first save starts the saving (b19, c10); a line removed while I type in it
+keeps its boxes (out of the whole form by their names), and leaving one sends it: the server's `line_gone` and its choice (c4).
+
+### The Codex re-check of c84b4bb (`livesave_20261119/codex_r2_{a,b,c}.txt`; three focused runs at once): round 1's fixes checked; 7 HIGH, 12 MEDIUM, 1 LOW new (deduplicated: 4 HIGH, 8 MEDIUM, 1 LOW), each verified in the code, shown failing first and fixed after the last round (LS16)
+
+**LS16.** A head box's save answers the value it stored (`data-op-value`): my next save of that box is based on it, never on a later value of
+someone else's read for the fragment (a1, b1, c3). An add or an undo answers what it did (`data-op-was`: added, incremented, restored; also
+when sent again with its key: `done`) and the version it gave the line (`data-op-rev`): typing on a new line since its add went is carried to
+the server's line and saved on that version (refused as a clash if someone changed it since), and never put on a line the add only went on (a2,
+a3, b2, c1, c2). Items per pack sent that are not a whole number are refused, never taken as 1 (a4). The whole form keeps the version it was
+drawn on while a line of mine is behind the server's by its version, whoever changed it (another tab of the same person is someone else here;
+b3, c5). "Leave it removed" takes the line's other waiting saves with it, and a save of a line no longer on the page is dropped (b4). A whole
+save drawn again with what was typed takes the saving off the form: the Save button again (b5, c4). Confirm waits for the supplier's whole save
+too (b6). A save out too long is given up also when a poll fails (b7, c8). Refused as live saving switched off keeps my box marked not saved
+(b8, c7). A late whole-save answer after the lock draws nothing (b9, c10). The whole save's own plain post after a refusal goes through (c6).
+A new line taken out before its add went comes back with Undo and is added (c9). `live.mode` off straight from on: the Save button again (c11).
+Checked by `PoLiveScreensTest`, `LiveLinesTest` and `run_save.js` section 11 (red on c84b4bb's app.js: `runs/livesave_js_r2red.log`); not
+reviewed again (the one re-check round).

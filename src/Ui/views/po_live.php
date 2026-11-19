@@ -11,12 +11,13 @@
 //  - events: the changes since the newest the page shows, not its own, in words (one at a time by the page's polite region);
 //  - conflict: a refusal, in words on its line or box, with its choices (live_conflict).
 // The root: the draft's version (data-v), its newest change (data-e), its status, the time (UK) for "All changes saved 14:02" (data-at), and
-// what the page's own save did (data-op, data-op-status, data-op-uid, data-op-key, and data-op-rev: the line's version this save itself wrote;
-// "refused" with a refusal).
+// what the page's own save did (data-op, data-op-status, data-op-uid, data-op-key, data-op-rev: the line's version this save itself wrote,
+// data-op-was: what an add or an undo did, also when sent again, data-op-value: a head box's value as this save stored it; "refused" with a
+// refusal).
 $refusal = $refusal ?? null;
 $op = $op ?? null;
 ?>
-<div class="live-fragment" data-live-fragment="po:<?= $e($doc->id) ?>" data-v="<?= $e($doc->version) ?>" data-e="<?= $e($newest) ?>" data-status="<?= $e($doc->status) ?>" data-at="<?= $e($at) ?>"<?php if ($op !== null): ?> data-op="<?= $e($op['op']) ?>" data-op-status="<?= $e($refusal !== null ? 'refused' : ($op['status'] ?? '')) ?>"<?php if (($op['uid'] ?? null) !== null): ?> data-op-uid="<?= $e($op['uid']) ?>"<?php endif; ?><?php if (($op['rev'] ?? null) !== null): ?> data-op-rev="<?= $e($op['rev']) ?>"<?php endif; ?><?php if (($op['key'] ?? null) !== null): ?> data-op-key="<?= $e($op['key']) ?>"<?php endif; ?><?php endif; ?>>
+<div class="live-fragment" data-live-fragment="po:<?= $e($doc->id) ?>" data-v="<?= $e($doc->version) ?>" data-e="<?= $e($newest) ?>" data-status="<?= $e($doc->status) ?>" data-at="<?= $e($at) ?>"<?php if ($op !== null): ?> data-op="<?= $e($op['op']) ?>" data-op-status="<?= $e($refusal !== null ? 'refused' : ($op['status'] ?? '')) ?>"<?php if (($op['uid'] ?? null) !== null): ?> data-op-uid="<?= $e($op['uid']) ?>"<?php endif; ?><?php if (($op['rev'] ?? null) !== null): ?> data-op-rev="<?= $e($op['rev']) ?>"<?php endif; ?><?php if (($op['was'] ?? null) !== null): ?> data-op-was="<?= $e($op['was']) ?>"<?php endif; ?><?php if (array_key_exists('value', $op ?? [])): ?> data-op-value="<?= $e($op['value'] ?? '') ?>"<?php endif; ?><?php if (($op['key'] ?? null) !== null): ?> data-op-key="<?= $e($op['key']) ?>"<?php endif; ?><?php endif; ?>>
   <div data-live-part="header" data-supplier="<?= $e($supplierId) ?>">
     <input type="hidden" data-live-field="expected_date" value="<?= $e($expectedDate) ?>">
     <input type="hidden" data-live-field="external_ref" value="<?= $e($doc->externalRef ?? '') ?>">

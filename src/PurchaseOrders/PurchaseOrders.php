@@ -623,7 +623,7 @@ final class PurchaseOrders
             $supplier = $this->lockLive($id);
             $done = LiveChanges::done($db, 'po', $id, $opKey);
             if ($done !== null) {
-                return ['status' => 'done', 'document' => $this->docs->get($id), 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid']];
+                return self::replayed($done, $this->docs->get($id));
             }
             $count = (int) $db->value('SELECT COUNT(*) FROM po_line WHERE document_id = ?', [$id]);
             $n = $this->normaliseLines($caller, $supplier, [$new], $count)[0];
@@ -687,7 +687,7 @@ final class PurchaseOrders
             $supplier = $this->lockLive($id);
             $done = LiveChanges::done($db, 'po', $id, $opKey);
             if ($done !== null) {
-                return ['status' => 'done', 'document' => $this->docs->get($id), 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid']];
+                return self::replayed($done, $this->docs->get($id));
             }
             $removed = $db->one("SELECT id, CAST(before_json AS CHAR) AS b FROM draft_change WHERE kind = 'po' AND record_id = ? AND op = 'remove' AND line_uid = ? "
                 . 'AND staff_user_id = ? ORDER BY id DESC LIMIT 1', [$id, $uid, $me['id']]);
@@ -718,7 +718,7 @@ final class PurchaseOrders
             $newUid = (int) $db->value('SELECT uid FROM document_line WHERE document_id = ? AND line_no = ?', [$id, $at + 1]);
             LiveChanges::record($db, $caller, 'po', $id, 'restore', $newUid, null, ['from_uid' => $uid], self::change($this->liveLine($id, $newUid) ?? []), $opKey,
                 $doc->version, $tab, $this->nowDb());
-            return ['status' => 'restored', 'document' => $doc, 'uid' => $newUid];
+            return ['status' => 'restored', 'document' => $doc, 'uid' => $newUid, 'rev' => 1];
         });
     }
 
@@ -728,7 +728,7 @@ final class PurchaseOrders
      * `unchanged`; the stored value no longer $base: 409 field_conflict (the value now, who changed it and when) and a draft_change
      * `conflict`; otherwise saved (the draft's version + 1) with a draft_change `header`.
      *
-     * @return array{status: 'saved'|'unchanged', document: Document}
+     * @return array{status: 'saved'|'unchanged', document: Document, value: ?string} value: what the box holds as stored by (or found at) this save
      */
     public function setHeaderField(Caller $caller, int $id, string $field, ?string $base, ?string $value, ?string $tab = null): array
     {
@@ -750,7 +750,7 @@ final class PurchaseOrders
                     : $db->value("SELECT {$field} FROM document WHERE id = ?", [$id]);
                 $now = $now === null ? null : (string) $now;
                 if ($want === $now) {
-                    return ['status' => 'unchanged', 'document' => $this->docs->get($id)];
+                    return ['status' => 'unchanged', 'document' => $this->docs->get($id), 'value' => $now];
                 }
                 if ($seen !== $now) {
                     $by = $db->one("SELECT c.staff_user_id, c.created_at, u.display_name, CAST(c.after_json AS CHAR) AS a FROM draft_change c LEFT JOIN staff_user u "
@@ -774,7 +774,7 @@ final class PurchaseOrders
                     $want = $stored === null || $stored === '' ? null : $stored;
                 }
                 LiveChanges::record($db, $caller, 'po', $id, 'header', null, $field, ['value' => $now], ['value' => $want], null, $doc->version, $tab, $this->nowDb());
-                return ['status' => 'saved', 'document' => $doc];
+                return ['status' => 'saved', 'document' => $doc, 'value' => $want];
             });
         } catch (CwException $e) {
             if ($e->errorCode === 'field_conflict') {
@@ -935,7 +935,7 @@ final class PurchaseOrders
         $this->retotal($id);
         LiveChanges::record($this->db, $caller, 'po', $id, $op, $uid, null, ($before ?? []) + self::change($same), self::change($this->liveLine($id, $uid) ?? $same), $opKey,
             $doc->version, $tab, $this->nowDb());
-        return ['status' => 'incremented', 'document' => $doc, 'uid' => $uid];
+        return ['status' => 'incremented', 'document' => $doc, 'uid' => $uid, 'rev' => (int) $same['rev'] + 1];
     }
 
     /**
@@ -958,7 +958,23 @@ final class PurchaseOrders
         $this->retotal($id);
         LiveChanges::record($this->db, $caller, 'po', $id, $op, $r['uid'], null, $before, self::change($this->liveLine($id, $r['uid']) ?? []), $opKey, $r['document']->version, $tab,
             $this->nowDb());
-        return ['status' => 'added', 'document' => $r['document'], 'uid' => $r['uid']];
+        return ['status' => 'added', 'document' => $r['document'], 'uid' => $r['uid'], 'rev' => 1];
+    }
+
+    /**
+     * An add or an undo sent again with its key (its first answer lost): `done`, the line it made or added to, and what it did then (`was`:
+     * added, incremented, restored; the version an added or restored line got: 1), so the page treats the replay as it would have treated the
+     * first answer (the Codex re-check of c84b4bb).
+     *
+     * @param array<string, mixed> $done the draft_change row of the key
+     * @return array{status: 'done', document: Document, uid: ?int, was: string, rev: ?int}
+     */
+    private static function replayed(array $done, Document $doc): array
+    {
+        $before = json_decode((string) ($done['before_json'] ?? 'null'), true);
+        $grew = is_array($before) && array_key_exists('packs', $before); // packs added to a line already there
+        $was = $grew ? 'incremented' : ($done['op'] === 'restore' ? 'restored' : 'added');
+        return ['status' => 'done', 'document' => $doc, 'uid' => $done['line_uid'] === null ? null : (int) $done['line_uid'], 'was' => $was, 'rev' => $grew ? null : 1];
     }
 
     /**

@@ -2790,6 +2790,8 @@
             form.setAttribute(at.name, at.value);
           }
         });
+      } else if (form.hasAttribute('data-live-save') && !nf.hasAttribute('data-live-save')) {
+        form.removeAttribute('data-live-save'); // drawn again with what was typed: saved as a whole until drawn afresh (docs/decisions.md LS16)
       }
       var hiddenOf = function (f) { return Array.prototype.filter.call(f.querySelectorAll('input[type="hidden"][name]'), function (i) { return i.parentNode === f; }); };
       var mineHidden = {};
@@ -2881,6 +2883,10 @@
       toast(word('saving'), false, true);
       fragment(form.getAttribute('action') || '', '[data-kg-editor]', data)
         .then(function (part) {
+          if (kb.live && kb.live.locked && kb.live.locked()) {
+            sending = false; // confirmed or cancelled by someone meanwhile: the locked page stays as it is
+            return;
+          }
           sending = false;
           hold(false);
           if (by) {
@@ -2957,6 +2963,7 @@
     // patch, the numbers, the totals, the ticks, the checks, a whole save (the supplier changed: its lines move, KG30), and the empty line.
     if ((form.getAttribute('data-kg-editor') || '').indexOf('po:') === 0 && form.classList.contains('kg-paper')) {
       kb.liveGrid = { form: form, table: table, body: body, empty: empty, wire: wire, offBoxes: offBoxes, renumber: renumber, totals: totals, tick: tick,
+        plain: function () { return plain; },
         check: check, hideUndo: function () { undo = null; hideUndo(); }, save: function (then) { if (canSend()) { ajaxSave(null, then); return true; } return false; } };
     }
     // What the site's keys do in the lines (kb, KEYS): docGrid is their one place.
@@ -6819,6 +6826,9 @@
         throw new Error('answer');
       }
       if (j.mode === 'off') {
+        if (saver && saver.on()) {
+          saver.off(); // the Save button again before the page stops checking
+        }
         note = null;
         stop();
         return;
@@ -6938,6 +6948,9 @@
           if (stopped || left) {
             return;
           }
+          if (saver) {
+            saver.watch(); // a save out too long is given up even while the polls fail
+          }
           backoff = Math.min(maxMs, backoff > 0 ? backoff * 2 : pace() * 2);
           next();
         });
@@ -6992,6 +7005,7 @@
       var wholeAfter = false; // the supplier changed: its whole save goes once my saves are done
       var lastAt = '';
       var removedLast = [];
+      var localGone = []; // new lines taken out before their add went (Undo puts them back and adds them)
       var confirming = false;
       var askedTyping = false;
       var cmdS = false;
@@ -7126,6 +7140,11 @@
           var q = queue[i];
           if (q.parked || queue.some(function (p) { return p.parked && sameTarget(p, q); }) || (q.tr && hasChoice(q.tr))) {
             continue; // a choice open on its line or box: that line's saves wait for it, the others go
+          }
+          if (q.op === 'set' && q.tr && !q.tr.parentNode && !q.tr.hasAttribute('data-live-drop') && !q.tr.hasAttribute('data-kg-new')) {
+            queue.splice(i, 1); // its line left the page (taken out, or left removed): nothing to send
+            i--;
+            continue;
           }
           if ((q.op === 'set' || q.op === 'remove') && !uidOf(q.tr)) {
             if (!adding(q.tr)) {
@@ -7282,6 +7301,7 @@
           return;
         }
         if (code === 'live_off') {
+          markBad(it); // not saved: kept as typed for the Save button
           off();
           return;
         }
@@ -7290,17 +7310,18 @@
         }
         var carry = null;
         var carryUid = 0;
+        var carryRev = 0;
         if (done !== 'refused' && done !== '') {
           var uid = num(node.getAttribute('data-op-uid'));
           if ((it.op === 'add' || it.op === 'restore') && it.tr && uid) {
-            var made = node.querySelector('[data-live-part="lines"] tr[data-uid="' + uid + '"]');
-            it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it, on its version)
-            if (made) {
-              it.tr.setAttribute('data-rev', made.getAttribute('data-rev') || '1');
-            }
+            it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it, on the version the add gave it)
+            it.tr.setAttribute('data-rev', String(num(node.getAttribute('data-op-rev')) || 0));
             // Drawn by the server's row now (added to a line already there: that line). What was typed in it since it went is carried over to
-            // the server's row and saved (not onto a line it was added to: those figures were the new line's).
-            if (done !== 'incremented') {
+            // the server's row and saved on the version the add gave it (not onto a line it was added to: those figures were the new line's;
+            // also when it was sent again: data-op-was says what the first time did).
+            var was = node.getAttribute('data-op-was') || done;
+            carryRev = num(node.getAttribute('data-op-rev'));
+            if (was === 'added' && carryRev > 0) {
               carry = {};
               each(cells(it.tr), function (el) {
                 if (typed(el) && el.getAttribute('data-kg-cell') !== 'item') {
@@ -7325,8 +7346,8 @@
             }
           }
           if (it.op === 'header' && it.el) {
-            var stored = node.querySelector('[data-live-part="header"] [data-live-field="' + it.field + '"]');
-            var now = stored ? stored.value : it.f.value;
+            // The value this save stored (or found stored), never the fragment's (read later: maybe someone else's since).
+            var now = node.hasAttribute('data-op-value') ? node.getAttribute('data-op-value') : it.f.value;
             it.el.setAttribute('data-live-base', now);
             each(queue, function (q) {
               if (q.op === 'header' && q.el === it.el && q.base === it.base) {
@@ -7348,6 +7369,9 @@
         apply(node);
         if (carry !== null) {
           var fresh = rowOf(carryUid);
+          if (fresh && Object.keys(carry).length > 0) {
+            fresh.setAttribute('data-live-at', String(carryRev)); // my typing is based on the version my add gave the line
+          }
           each(fresh ? Object.keys(carry) : [], function (cellName) {
             var box = fresh.querySelector('input[data-kg-cell="' + cellName + '"]');
             if (box) {
@@ -7451,10 +7475,11 @@
             if (!take && busyRow(mine)) {
               // My typing, my save on its way or my choice: my boxes stay; the line says who changed it meanwhile.
               mine.setAttribute('data-live-server-rev', srow.getAttribute('data-rev') || '');
-              if ((srow.getAttribute('data-by') || '') !== String(meId())) {
+              // Behind: the server's version is not the one my typing is based on, nor the one my own saves wrote (another tab of the same
+              // person is someone else here: the Codex re-check of c84b4bb).
+              var base = mine.getAttribute('data-live-at') || mine.getAttribute('data-rev') || '';
+              if (srow.getAttribute('data-rev') !== base) {
                 behind = true;
-              }
-              if ((srow.getAttribute('data-by') || '') !== String(meId()) && srow.getAttribute('data-rev') !== mine.getAttribute('data-live-at')) {
                 markRow(mine, 'changed-by', srow.getAttribute('data-by-name') || say('someone'));
               }
               want.push(mine);
@@ -7636,6 +7661,10 @@
       // liveConflict: the server's refusal under its line (or head box), its buttons wired; the cursor in it; Esc the safe one.
       var refused = function (it, clash) {
         var code = clash.getAttribute('data-code') || '';
+        if (it.tr && !it.tr.parentNode && !it.tr.hasAttribute('data-live-drop')) {
+          status('not-saved'); // its line is no longer on the page
+          return;
+        }
         var box = document.importNode(clash, true);
         box.removeAttribute('data-live-part');
         var choose = function (choice) {
@@ -7689,6 +7718,7 @@
             tr.setAttribute('data-kg-new', '');
             enqueue({ op: 'add', tr: tr, f: f, key: key() }, true);
           } else if (choice === 'leave') {
+            queue = queue.filter(function (q) { return !it.tr || q.tr !== it.tr; }); // its other waiting saves go with it
             if (it.tr && it.tr.parentNode) {
               it.tr.parentNode.removeChild(it.tr);
               g.renumber();
@@ -7844,8 +7874,8 @@
           setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-first'))); });
           return;
         }
-        if (queue.length > 0 || flying) {
-          confirming = true;
+        if (queue.length > 0 || flying || wholeAfter || kb.busy) {
+          confirming = true; // my saves first, the supplier's whole save too
           setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-saving'))); });
           return;
         }
@@ -8021,8 +8051,8 @@
       });
       // The form's buttons: Save (and Cmd/Ctrl+S, and Enter in a box) saves the box the cursor is in; Confirm as above; the others as before.
       form.addEventListener('submit', function (ev) {
-        if (!on) {
-          return;
+        if (!on || (g.plain && g.plain())) {
+          return; // the Save button again, or the whole save's own plain post after a refusal (its page drawn afresh)
         }
         var by = ev.submitter;
         var act = by ? by.getAttribute('value') || '' : '';
@@ -8054,16 +8084,29 @@
       }
       // A whole save's answer put in place (the supplier changed): the head again (the status beside Save), the rows the server's.
       document.addEventListener('kg-swapped', function () {
+        if (!on || locked) {
+          return;
+        }
+        if (!form.hasAttribute('data-live-save')) {
+          // The whole save was refused and drawn again with what was typed (its boxes are not the stored values): the Save button again
+          // (the Codex re-check of c84b4bb).
+          off();
+          return;
+        }
         each(rows(), keep);
         each(heads(), function (h) { h.setAttribute('data-live-base', h.value); });
         var vIn = form.querySelector('input[type="hidden"][name="version"]');
         liveV = Math.max(liveV, vIn ? num(vIn.value) : 0);
         status(lastAt !== '' ? 'all-saved' : '', lastAt);
+        if (confirming) {
+          confirmNow(); // the supplier's whole save is in: Confirm goes on
+        }
       });
 
       // What the grid hands over.
       kb.live = {
         on: function (f) { return on && f === form; },
+        locked: function () { return locked; },
         left: function (tr, el) { left(tr, el); },
         changed: function (tr) {
           if (tr.getAttribute('data-uid')) {
@@ -8101,6 +8144,7 @@
             var unsent = queue.filter(function (q) { return q.op === 'add' && q.tr === tr; });
             if (unsent.length > 0) {
               queue = queue.filter(function (q) { return q.tr !== tr; }); // never sent: nothing to take back
+              localGone.push(tr); // Undo puts it back here and adds it again
               return;
             }
             var prev = tr.previousSibling;
@@ -8114,6 +8158,12 @@
         undo: function (trs) {
           var here = [];
           each(trs, function (tr) {
+            if (localGone.indexOf(tr) >= 0) {
+              localGone = localGone.filter(function (x) { return x !== tr; });
+              here.push(tr);
+              enqueue({ op: 'add', tr: tr, f: {}, key: key() }); // a new line taken out before it was added: back, and added
+              return;
+            }
             if (flying && flying.op === 'remove' && flying.tr === tr) {
               flying.undo = true; // put back once its removal is done
               return;
@@ -8147,6 +8197,7 @@
       });
       status('');
       return {
+        watch: function () { watchdog(); },
         moved: function (v) {
           watchdog();
           if (v > liveV && !locked && on) {
