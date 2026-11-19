@@ -9,7 +9,7 @@
 <?php foreach ($rows as $row): ?>
 <?php if (isset($row['input'])): ?>
     <dt><label for="<?= $e($row['input']['id']) ?>"><?= $e($row['label']) ?></label></dt>
-    <dd><input id="<?= $e($row['input']['id']) ?>" type="text" name="<?= $e($row['input']['name']) ?>" value="<?= $e($row['input']['value']) ?>" inputmode="decimal" maxlength="16"></dd>
+    <dd><input id="<?= $e($row['input']['id']) ?>" type="text" name="<?= $e($row['input']['name']) ?>" value="<?= $e($row['input']['value']) ?>" inputmode="decimal" maxlength="16"<?php if ($row['input']['auto'] ?? false): ?> data-kg-auto="1"<?php endif; ?>></dd>
 <?php else: ?>
     <dt<?php if ($row['grand'] ?? false): ?> class="grand"<?php endif; ?>><?= $e($row['label']) ?></dt>
     <dd<?php if ($row['grand'] ?? false): ?> class="grand"<?php endif; ?><?php if (isset($row['key'])): ?> data-kg-total="<?= $e($row['key']) ?>"<?php endif; ?>><?= $e($row['value']) ?></dd>

@@ -1801,6 +1801,25 @@
       put('gross', money(sum + tax + charge + chargeVat));
       var paperNet = q('input[name="net_total"]');
       var paperVat = q('input[name="vat_total"]');
+      // The paper's two boxes follow the lines while the person has not typed in them (data-kg-auto, or empty): the total without VAT =
+      // the lines (and a charge being typed), the VAT = their VAT (the owner, 19 Nov 2026: the boxes did not get the values).
+      var follow = function (box, n) {
+        if (box && (box.hasAttribute('data-kg-auto') || (box.value.trim() === '' && !box.hasAttribute('data-kg-typed')))) {
+          var text = n > 0 ? Math.floor(n / 100) + '.' + ('0' + (n % 100)).slice(-2) : '';
+          if (box.value !== text) {
+            box.value = text;
+          }
+          if (text !== '') {
+            box.setAttribute('data-kg-auto', '1');
+          } else {
+            box.removeAttribute('data-kg-auto');
+          }
+        }
+      };
+      if (invoice) {
+        follow(paperNet, sum + charge);
+        follow(paperVat, tax + chargeVat);
+      }
       if (paperNet || paperVat) { // the invoice: the paper's figures when typed, else the lines (InvoiceOnePage::editPage)
         var net = paperNet ? paperE2(paperNet.value) : null;
         var pv = paperVat ? paperE2(paperVat.value) : null;
@@ -2250,6 +2269,10 @@
     });
     form.addEventListener('input', function (ev) {
       var t = ev.target;
+      if (t && (t.name === 'net_total' || t.name === 'vat_total')) {
+        t.removeAttribute('data-kg-auto'); // typed by the person: the paper's figure, no longer the lines' (emptied too: it stays empty)
+        t.setAttribute('data-kg-typed', '1');
+      }
       if (t && (t.hasAttribute('data-kg-delivery') || t.name === 'net_total' || t.name === 'vat_total')) {
         totals();
       }

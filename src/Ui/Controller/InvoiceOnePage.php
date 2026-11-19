@@ -922,6 +922,19 @@ final class InvoiceOnePage
                 $linesVat += \CW\PurchaseOrders\PoMath::lineVatE2($a, $rateE2);
             }
         }
+        // The paper's two boxes filled from the lines while nothing is typed or saved in them (the owner, 19 Nov 2026: "why this too is not
+        // getting the values"): the total without VAT = the lines, the VAT = the lines' VAT; the person types over them when the paper says
+        // otherwise. data-kg-auto tells the script it may follow the lines (a typed figure is never touched).
+        $autoNet = $sum > 0 && trim($form['net_total']) === '' && !array_key_exists('net_total', $typed);
+        $autoVat = $sum > 0 && trim($form['vat_total']) === '' && !array_key_exists('vat_total', $typed);
+        if ($autoNet) {
+            $form['net_total'] = InvoiceMath::fromE2($sum);
+            $net = $sum;
+        }
+        if ($autoVat) {
+            $form['vat_total'] = InvoiceMath::fromE2($linesVat);
+            $vat = $linesVat;
+        }
         $total = ($net ?? $sum) + ($vat ?? $linesVat);
         // The supplier box on a new invoice and on a draft alike (the owner, 6 Nov 2026: "also in draft and new easily supplier change option";
         // docs/decisions.md KG30): another supplier moves the lines in the same save (SupplierInvoices::changeSupplier). "+ Add new supplier"
@@ -997,8 +1010,8 @@ final class InvoiceOnePage
             'totals' => [
                 ['label' => Words::DOC['sub_total'], 'value' => Html::money(InvoiceMath::fromE2($sum)), 'key' => 'sum'],
                 ['label' => Words::say('PI_ONE', 'lines_vat', (string) $gridVat['code'], rtrim(rtrim($rateText, '0'), '.')), 'value' => Html::money(InvoiceMath::fromE2($linesVat)), 'key' => 'vat'],
-                ['label' => Words::PI_ONE['paper_net'], 'input' => ['name' => 'net_total', 'id' => 'pi-net', 'value' => $form['net_total']]],
-                ['label' => Words::PI_ONE['paper_vat'], 'input' => ['name' => 'vat_total', 'id' => 'pi-vat', 'value' => $form['vat_total']]],
+                ['label' => Words::PI_ONE['paper_net'], 'input' => ['name' => 'net_total', 'id' => 'pi-net', 'value' => $form['net_total'], 'auto' => $autoNet]],
+                ['label' => Words::PI_ONE['paper_vat'], 'input' => ['name' => 'vat_total', 'id' => 'pi-vat', 'value' => $form['vat_total'], 'auto' => $autoVat]],
                 ['label' => Words::DOC['total'], 'value' => Html::money(InvoiceMath::fromE2($total)), 'grand' => true, 'key' => 'total'],
             ],
             'fileRoles' => array_intersect_key(Words::INVOICE_FILE, SupplierInvoices::FILE_ROLES),
