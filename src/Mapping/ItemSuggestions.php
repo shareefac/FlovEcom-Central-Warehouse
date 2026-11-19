@@ -309,8 +309,12 @@ final class ItemSuggestions
             $out[$this->rootOf((int) $r['sku_id'])] ??= (string) $r['barcode'];
         }
         // a barcode the warehouse holds as an outer case or as found on two items is not taken from a store variant either (Codex re-check)
-        $bad = array_map('strval', $this->db->column("SELECT DISTINCT b.barcode FROM sku_barcode b WHERE b.barcode IN ({$in}) AND (b.units_per_scan <> 1 OR b.is_usable = 0)", $forms));
-        $forms = array_values(array_diff($forms, $bad));
+        // (every form of it: "05000000000017" is "5000000000017" with its leading zero, Gtin::key)
+        $badKeys = [];
+        foreach ($this->db->column("SELECT DISTINCT b.barcode FROM sku_barcode b WHERE b.barcode IN ({$in}) AND (b.units_per_scan <> 1 OR b.is_usable = 0)", $forms) as $b) {
+            $badKeys[Gtin::key($b) ?? (string) $b] = true;
+        }
+        $forms = array_values(array_filter($forms, static fn (string $f): bool => !isset($badKeys[Gtin::key($f) ?? $f])));
         if ($forms === []) {
             return $out;
         }
