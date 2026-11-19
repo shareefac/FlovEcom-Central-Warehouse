@@ -238,7 +238,7 @@ final class ReceivingWordsTest extends TestCase
         self::assertSame(Words::RECEIPT_ERROR['bad_status'], ReceivingController::plain($e('bad_field', ['field' => 'status'])));
         self::assertSame(Words::ERROR['task_closed'], ReceivingController::plain($e('task_closed')));
         self::assertSame('Line 3, short: too many. Nothing was saved.', ReceivingController::plain($e('bad_bench', [], 'line 3, short: too many')), 'no words: the service\'s sentence');
-        self::assertSame(Words::say('RECEIPT_ERROR', 'too_large', 2), ReceivingController::plain($e('too_large')));
+        self::assertSame(Words::say('RECEIPT_ERROR', 'too_large', 10), ReceivingController::plain($e('too_large')));
 
         // The list's rows, the bench's progress, where the items went, the packs, the title, which websites the mode reaches.
         $row = ['id' => 1, 'number' => null, 'status' => 'draft', 'review_state' => null, 'external_ref' => null, 'po_number' => 'PO-000004', 'lines' => 1, 'units' => 20,

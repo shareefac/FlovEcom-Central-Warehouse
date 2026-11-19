@@ -30,7 +30,7 @@ use CW\Db;
  *
  * `stored_file` and `document_file` are append-only for the app login; the storage interface has no delete or
  * overwrite. Configured by app.env `file_store_dir` (env CW_FILE_STORE_DIR); unset: 503 file_store_unconfigured.
- * Browser uploads arrive from the I-2 supplier card (kind supplier_check, at most 2 MiB: the UI pool's post_max_size);
+ * Browser uploads arrive from the I-2 supplier card (kind supplier_check, at most 10 MiB: UiRequest::MAX_UPLOAD_BYTES, the UI pool's upload_max_filesize);
  * other files through bin/store_file.php until the I-3 screens.
  */
 final class FileStore

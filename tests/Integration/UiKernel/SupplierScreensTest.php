@@ -475,15 +475,15 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertContains('/ui/files/' . $row['dd_evidence_file_id'], $card->hrefs());
         self::assertSame(2, (int) self::$db->value('SELECT version FROM supplier WHERE id = ?', [(int) $s['id']]));
 
-        // Over 2 MiB: PHP refuses the file (UPLOAD_ERR_INI_SIZE) or drops the whole body; either way 413, nothing kept.
+        // Over 10 MiB (UiRequest::MAX_UPLOAD_BYTES): PHP refuses the file (UPLOAD_ERR_INI_SIZE) or drops the whole body; either way 413, nothing kept.
         $big = $buyer->postMultipart("/ui/purchasing/suppliers/{$s['id']}/evidence", $card->form('/evidence'),
             ['file' => ['path' => '', 'name' => 'scan.pdf', 'size' => 0, 'error' => UPLOAD_ERR_INI_SIZE]]);
         self::assertSame(413, $big->status, $big->describe());
-        self::assertStringContainsString(Words::say('BUY_ERROR', 'too_large', 2), $big->text());
+        self::assertStringContainsString(Words::say('BUY_ERROR', 'too_large', 10), $big->text());
         $dropped = $buyer->send('POST', "/ui/purchasing/suppliers/{$s['id']}/evidence", [], [], ['content-type' => 'multipart/form-data; boundary=x',
-            'content-length' => '3145728']);
+            'content-length' => '12582912']);
         self::assertSame(413, $dropped->status, $dropped->describe());
-        self::assertStringContainsString(Words::error('too_large', '', 2), $dropped->text());
+        self::assertStringContainsString(Words::error('too_large', '', 10), $dropped->text());
         $none = $buyer->postMultipart("/ui/purchasing/suppliers/{$s['id']}/evidence", $card->form('/evidence'), []);
         self::assertSame(400, $none->status);
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM stored_file'));

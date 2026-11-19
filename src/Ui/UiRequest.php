@@ -11,13 +11,14 @@ namespace CW\Ui;
  *
  * Uploads (I-2, docs/decisions.md I46): `files` holds one entry per file field, {path, name, size, error}; fromGlobals()
  * keeps only what PHP really received through this request (is_uploaded_file()), plus the entries PHP refused for their
- * size (UPLOAD_ERR_INI_SIZE / FORM_SIZE, no file), so a screen can answer 413. The UI pool caps an upload at 2 MiB
- * (upload_max_filesize, post_max_size 2M): a larger body arrives with no fields at all, which Kernel answers 413 too.
+ * size (UPLOAD_ERR_INI_SIZE / FORM_SIZE, no file), so a screen can answer 413. The UI pool caps an upload at 10 MiB
+ * (upload_max_filesize 10M, post_max_size 12M; the owner, 19 Nov 2026: 2 MB was too small for a supplier's invoice): a larger body
+ * arrives with no fields at all, which Kernel answers 413 too.
  */
 final class UiRequest
 {
-    /** The largest upload the UI pool accepts (upload_max_filesize = post_max_size = 2M). */
-    public const MAX_UPLOAD_BYTES = 2_097_152;
+    /** The largest upload the UI pool accepts (upload_max_filesize = 10M; post_max_size 12M leaves room for the form's other fields). */
+    public const MAX_UPLOAD_BYTES = 10_485_760;
 
     /**
      * PHP's post_max_size in bytes: the largest request body PHP takes; a larger one reaches the kernel with no field and no file at all
