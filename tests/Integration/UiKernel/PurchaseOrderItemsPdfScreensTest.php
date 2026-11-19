@@ -36,12 +36,17 @@ final class PurchaseOrderItemsPdfScreensTest extends KernelUiTestCase
         return $sup->approve(Caller::staff($this->uiUser('reviewer')['id']), $task, null);
     }
 
-    /** @return list<string> every string a compressed PDF draws, in order (its page streams opened) */
+    /**
+     * @return list<string> every string a compressed PDF draws, in order (its page streams opened). Each stream is read by its own /Length:
+     * a stream whose compressed bytes end in a carriage return lost that byte to `\r?\nendstream` and was skipped, so whether the test passed
+     * hung on the ids and names the PDF printed (it failed after another test file had moved the ids on: branch live-presence-screen).
+     */
     private static function pdfTexts(string $pdf): array
     {
-        preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf, $m);
+        preg_match_all('/\/Length (\d+)[^>]*>>\s*stream\r?\n/', $pdf, $m, PREG_OFFSET_CAPTURE);
         $out = [];
-        foreach ($m[1] as $stream) {
+        foreach ($m[0] as $i => [$head, $at]) {
+            $stream = substr($pdf, $at + strlen($head), (int) $m[1][$i][0]);
             $plain = @gzuncompress($stream);
             if (is_string($plain) && preg_match_all('/\(((?:[^()\\\\\n]|\\\\.)*)\) Tj/', $plain, $t) > 0) {
                 array_push($out, ...array_map(static fn (string $x): string => str_replace(['\\(', '\\)', '\\\\'], ['(', ')', '\\'], $x), $t[1]));
