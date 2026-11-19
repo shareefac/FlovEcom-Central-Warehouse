@@ -18235,3 +18235,11 @@ no dead chain, the redraws; c: one `data-uid` per line, the replacement's, nothi
 (b and c): a new order's first save puts the cursor back before who is here starts, so the first polls said no place until the cursor
 moved; the block now starts from the box the cursor is in (`placeOf(document.activeElement)`). Fixed after the last round, checked by
 `run_live.js` 11f, not reviewed again.
+
+### The full suite (sequential, one part at a time)
+
+Unit 639 OK; UiKernel 697 OK; the rest 1,288 OK (83 skipped: the HTTP tests of slot ui, as before). On the way, UiKernel failed
+`PurchaseOrderItemsPdfScreensTest` (it passes alone and on main): its PDF parser took a stream as the bytes up to `\r?\nendstream`, so a
+compressed stream that ended in a carriage return lost that byte and its words; the bytes follow the ids the PDF prints, which
+`PoPresenceScreensTest` (run before it) moves on. The test now reads each stream by its `/Length` (test only). `CompanyScreensTest` and
+`HandoverPdfCompanyTest` parse PDFs the same old way and can fail the same way some day.
