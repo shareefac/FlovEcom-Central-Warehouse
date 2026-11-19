@@ -18205,3 +18205,33 @@ run by `runs/presence2_js.sh` on cw-test: the first poll, the answer drawn and m
 active only after a real key and once a minute, away, pause and carry on, hidden, left, back from the cache, back-off, a hung poll, 303,
 403, off, confirmed, cancelled, Show it both ways, many people, two in one box, a save drawing the page again, nothing started on a wrong
 address; never more than one timer); `run_kg.js` stays green on the paper.
+
+### The Codex reviews of c62e742 (`presence2_20261119/codex_r1_{a,b,c}.txt`; three focused runs at once: sessions and security, the script, the line ids): 5 MEDIUM, 2 LOW, each shown failing first and fixed (LV26-LV28)
+
+**LV26 (a2, MEDIUM). A passive route never redirects.** A page's goodbye (`navigator.sendBeacon`) follows redirects: a goodbye of a page
+whose session ended, or sent while another person in the same browser must change their password, landed on the sign-in or the password
+page, a GET that marks a session seen. The kernel now answers a passive route (the poll) without a live session, or of a person who must
+change their password first, with 401 `{"signed_out": true}` (JSON, never a redirect; a dead cookie is still cleared); the script reads a
+401 as signed out (as a 303 before). Tests: `LivePresenceScreensTest` (no session, a forced password change: 401 and the session not seen;
+past the idle limit: 401), `run_live.js` 11e.
+
+**LV27 (b2, MEDIUM). Who is here starts after a new order's first save.** A new order has no id, so its page carries no poll; its first
+save without leaving the page made it a draft, but the form kept no `data-live*`. `swapIn` now takes the draft's `data-live*` onto the form
+when it has none (a page that shows who is here keeps its own tab), and the block starts once, on the page drawn or on `kg-swapped`. Tests:
+`run_live.js` 11f, `UiUnitTest` (the copy and the start).
+
+**LV28. The rest of the round.** a1 (MEDIUM): a key from before the page was hidden made the poll at its showing say active=1 twenty
+minutes later; active=1 now also needs the key to be recent (within twice `ACTIVE_SECONDS`): 11a. b1 (MEDIUM): a poll still out when the
+page was left (and kept in the browser's cache) kept `busy` for ever; leaving gives it up (AbortController): 11b. b3 (MEDIUM): a failure
+while away (or at a slow alone pace above the back-off's most) made the next poll sooner; the back-off now starts from the pace in force and
+never shortens it: 11c. b4 (LOW): a page shown again while its away poll was out waited a whole interval; the next poll goes right after
+that answer: 11d. c1 (LOW): a line whose item was changed in place, drawn again after a refusal, carried no id (the hidden saved line kept
+it); the new line in its place now carries it and the hidden line none, on the paper and the old form: `PoPresenceScreensTest`.
+
+### The Codex re-check of round 1's fixes (`presence2_20261119/codex_r2_{a,b,c}.txt`; three focused runs at once): no HIGH, no MEDIUM, 1 LOW
+
+All seven fixes checked (a: the session rule, the 401, the copy of `data-live*` from this order's own answer only; b: one timer, one poll,
+no dead chain, the redraws; c: one `data-uid` per line, the replacement's, nothing broken on a new order or the read-only paper). The LOW
+(b and c): a new order's first save puts the cursor back before who is here starts, so the first polls said no place until the cursor
+moved; the block now starts from the box the cursor is in (`placeOf(document.activeElement)`). Fixed after the last round, checked by
+`run_live.js` 11f, not reviewed again.

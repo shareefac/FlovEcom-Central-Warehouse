@@ -19,7 +19,8 @@ use CW\Ui\Kernel;
 
 /**
  * The poll of a draft order (POST /ui/purchasing/orders/{id}/live; the live drafts plan, step 3; docs/decisions.md LV3, LV4, LV10) through the
- * real kernel as the app login: it needs a sign-in (303 to the sign-in page, nothing written), the session's token and the same origin
+ * real kernel as the app login: it needs a sign-in (401 {"signed_out": true}, never a redirect: a page's goodbye beacon follows redirects, LV26;
+ * nothing written), the session's token and the same origin
  * like every POST, and the right to look at orders (purchasing.view: nothing of a draft reaches anyone else); it answers JSON with the hard
  * headers and may be sent any number of times. It is passive: it never moves the session's last activity unless it says the person did
  * something (active=1), so a page left open is still signed out after the idle limit while it polls. Signing out removes the session's rows.
@@ -110,10 +111,19 @@ final class LivePresenceScreensTest extends KernelUiTestCase
         $theirs = $this->signIn($other);
         $theirToken = $this->token($theirs);
 
-        // No session: the sign-in page (a form sent without a session is lost), nothing written.
+        // No session: 401 and {"signed_out": true}, never a redirect (a goodbye beacon follows one into a page that marks a session seen: the
+        // Codex review of c62e742, a2; LV26); nothing written.
         $nobody = $this->browser();
         $r = self::poll($nobody, $id, 'x');
-        self::assertSame([303, '/ui/login?why=lost'], [$r->status, $r->location()]);
+        self::assertSame([401, null, ['signed_out' => true]], [$r->status, $r->location(), json_decode($r->body, true)]);
+        self::assertSame('application/json; charset=utf-8', $r->header('content-type'));
+        self::assertSame(0, self::rows());
+        // A person who must change their password first (another sign-in in this browser): the same, never the password page.
+        $forced = $this->signIn($this->uiUser('buyer', true), null, '/ui/password');
+        $before = (string) self::$db->value('SELECT last_seen_at FROM staff_session WHERE id = ?', [self::sessionId($forced)]);
+        $r = self::poll($forced, $id, 'x');
+        self::assertSame([401, null], [$r->status, $r->location()]);
+        self::assertSame($before, (string) self::$db->value('SELECT last_seen_at FROM staff_session WHERE id = ?', [self::sessionId($forced)]), 'not seen');
         self::assertSame(0, self::rows());
 
         $web = $this->signIn($buyer);
@@ -214,16 +224,16 @@ final class LivePresenceScreensTest extends KernelUiTestCase
         self::assertSame(200, $web->get("/ui/purchasing/orders/{$id}")->status);
         self::assertGreaterThan($before, self::lastSeen($web));
 
-        // Past the idle limit (30 minutes by default) a polling page is signed out like any other: the next poll goes to the sign-in page.
+        // Past the idle limit (30 minutes by default) a polling page is signed out like any other: the next poll is told so (401).
         self::idle($web, 31 * 60);
         $token = (string) $web->cookies['cw_session'];
         $r = self::poll($web, $id, $csrf);
-        self::assertSame([303, '/ui/login?why=lost'], [$r->status, $r->location()]);
+        self::assertSame([401, null], [$r->status, $r->location()]);
         self::assertStringContainsString('cw_session=;', (string) $r->setCookie('cw_session'), 'the dead cookie is cleared');
         self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session WHERE id = ?', [hash('sha256', $token)]), 'the session ended for good');
         $web->cookies['cw_session'] = $token;
         $r = self::poll($web, $id, $csrf, ['active' => '1']);
-        self::assertSame([303, '/ui/login?why=lost'], [$r->status, $r->location()], 'and active=1 cannot bring it back');
+        self::assertSame([401, null], [$r->status, $r->location()], 'and active=1 cannot bring it back');
         // Just inside the limit, a poll with active=1 keeps it (the person is there, typing).
         $again = $this->signIn($buyer);
         $csrf = $this->token($again);
@@ -234,7 +244,7 @@ final class LivePresenceScreensTest extends KernelUiTestCase
         self::json(self::poll($again, $id, $csrf));
         self::assertSame($before, self::lastSeen($again));
         self::idle($again, 31 * 60);
-        self::assertSame(303, self::poll($again, $id, $csrf)->status);
+        self::assertSame(401, self::poll($again, $id, $csrf)->status);
     }
 
     public function testSigningOutRemovesTheSessionsRows(): void

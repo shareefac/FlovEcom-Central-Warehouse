@@ -296,8 +296,23 @@ final class PoPresenceScreensTest extends KernelUiTestCase
         $page = $web->get($path);
         self::assertSame(['2', '3', '4'], self::attrs($page, '//table[@data-kg-grid]/tbody/tr[@data-kg-line]', 'data-uid'), 'the marks follow the lines');
 
-        // A line's item changed in place (KG22: the saved line removed, a new line in its place): the line keeps its id.
+        // Its item changed in place but refused (packs not a number): drawn again, the new line in its place carries the line's id, the saved
+        // line (hidden, removed) none, on the paper and on the old form (the Codex review of c62e742, c1).
         $f = $page->form('/lines');
+        foreach (['paper', 'form'] as $look) {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = 'po.draft_look'", [json_encode($look)]);
+            $bad = $web->post("{$path}/lines", ['action' => 'save', 'line_1_remove' => '1', DocGrid::FIELD => json_encode([['si' => $d['si'][0], 'line' => 1, 'q' => 'x', 'p' => '']])]
+                + $web->get($path)->form('/lines'));
+            self::assertSame(422, $bad->status, self::why($bad));
+            self::assertSame(['2'], self::attrs($bad, '//table[@data-kg-grid]/tbody/tr[@data-kg-new][@data-kg-replace="1"]', 'data-uid'), "{$look}: the replacement");
+            self::assertSame(1, self::nodes($bad, '//table[@data-kg-grid]/tbody/tr[@data-kg-new][@data-kg-replace="1"]/td[@data-live-cell="qty"]'), "{$look}: its box");
+            self::assertSame(0, self::nodes($bad, '//table[@data-kg-grid]/tbody/tr[@data-kg-line="1"][@data-uid]'), "{$look}: the hidden saved line has none");
+            self::assertSame(1, self::nodes($bad, '//*[@data-uid="2"]'), "{$look}: the id once");
+            self::assertSame([2, 3, 4], self::uidsOf($id), 'nothing saved');
+        }
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"paper\"' AS JSON) WHERE setting_key = 'po.draft_look'");
+
+        // A line's item changed in place (KG22: the saved line removed, a new line in its place): the line keeps its id.
         $r = $web->post("{$path}/lines", ['action' => 'save', 'line_1_remove' => '1', DocGrid::FIELD => json_encode([['si' => $d['si'][0], 'line' => 1, 'q' => '7', 'p' => '']])] + $f);
         self::assertSame(303, $r->status, self::why($r));
         self::assertSame([2, 3, 4], self::uidsOf($id));

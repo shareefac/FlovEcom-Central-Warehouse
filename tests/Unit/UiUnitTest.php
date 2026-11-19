@@ -1800,6 +1800,13 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("addEventListener('visibilitychange'", $code, 'a hidden page stops');
         self::assertDoesNotMatchRegularExpression('/innerHTML|outerHTML|insertAdjacentHTML|\.style\b|setAttribute\(\s*[\'"]style/', $code, 'text only, no inline style');
         self::assertStringContainsString("getAttribute('data-live-' + ", $code, 'the words from the page');
+        // Started once, also when a new order's first save without leaving the page made it a draft (the Codex review of c62e742, b2: swapIn
+        // takes the draft's data-live* onto the form; a page that shows it already keeps its own tab).
+        self::assertStringContainsString("document.addEventListener('kg-swapped', liveFind);", $code);
+        self::assertStringContainsString("if (!form.hasAttribute('data-live') && nf.hasAttribute('data-live')) {", $js);
+        // A 401 is signed out too (a passive route never redirects: LV26); a poll out when the page is left is given up (b1).
+        self::assertStringContainsString('r.status === 401', $code);
+        self::assertStringContainsString('ctl.abort();', $code);
         foreach (Words::LIVE as $k => $text) {
             self::assertStringNotContainsString($text, $js, "the word {$k} is the page's, never the script's");
         }

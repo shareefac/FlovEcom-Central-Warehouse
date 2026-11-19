@@ -2739,6 +2739,15 @@
       form.setAttribute('action', nf.getAttribute('action') || form.getAttribute('action'));
       form.setAttribute('data-kg-editor', mark);
       editor = mark;
+      // A new order's first save made it a draft: who is here starts on it (the draft's data-live*, docs/decisions.md LV27); a page that
+      // already shows it keeps its own (its tab).
+      if (!form.hasAttribute('data-live') && nf.hasAttribute('data-live')) {
+        each(nf.attributes, function (at) {
+          if (at.name.indexOf('data-live') === 0) {
+            form.setAttribute(at.name, at.value);
+          }
+        });
+      }
       var hiddenOf = function (f) { return Array.prototype.filter.call(f.querySelectorAll('input[type="hidden"][name]'), function (i) { return i.parentNode === f; }); };
       var mineHidden = {};
       each(hiddenOf(form), function (i) { mineHidden[i.name] = i; });
@@ -6386,8 +6395,11 @@
     var backoff = 0;
     var nextMs = aloneMs;
     var lastInput = Date.now();
+    var lastReal = 0;
     var lastActive = 0;
     var inputSinceActive = false;
+    var again = false;
+    var ctl = null;
     var place = '';
     var typing = false;
     var people = [];
@@ -6660,6 +6672,10 @@
       body.append('bye', '1');
       window.navigator.sendBeacon(url, body);
     };
+    // The pace in force: the server's, never quicker than the slow one while away.
+    var pace = function () {
+      return Date.now() - lastInput >= awayMs ? Math.max(nextMs, aloneMs) : nextMs;
+    };
     var next = function () {
       if (stopped || paused || left || busy) {
         return;
@@ -6670,12 +6686,14 @@
         }
         return;
       }
-      var wait = nextMs;
-      if (Date.now() - lastInput >= awayMs) {
-        wait = Math.max(wait, aloneMs);
+      if (again) {
+        again = false;
+        send();
+        return;
       }
+      var wait = pace();
       if (backoff > 0) {
-        wait = backoff;
+        wait = Math.max(wait, backoff);
       } else if (jitterMs > 0) {
         wait += Math.round((Math.random() * 2 - 1) * jitterMs);
       }
@@ -6774,34 +6792,37 @@
       body.append('focus', away ? '' : place);
       body.append('state', away ? 'away' : 'active');
       body.append('typing', !away && typing && place !== '' ? '1' : '0');
-      var act = inputSinceActive && !hidden() && (lastActive === 0 || now - lastActive >= activeMs);
+      // active=1: a real key or mouse since the last one said, and lately (a key from before the page was hidden is not the person now).
+      var act = inputSinceActive && !hidden() && now - lastReal < activeMs * 2 && (lastActive === 0 || now - lastActive >= activeMs);
       if (act) {
         lastActive = now;
         inputSinceActive = false;
       }
       body.append('active', act ? '1' : '0');
       busy = true;
-      var ctl = window.AbortController ? new window.AbortController() : null;
+      ctl = window.AbortController ? new window.AbortController() : null;
+      var mine = ctl;
       // A poll on its way too long is given up (the same one timer: no other is set while a poll is out).
-      if (ctl) {
-        schedule(function () { ctl.abort(); }, maxMs);
+      if (mine) {
+        schedule(function () { mine.abort(); }, maxMs);
       }
       window.fetch(url, { credentials: 'same-origin', method: 'POST', headers: { Accept: 'application/json' }, body: body, redirect: 'manual', cache: 'no-store',
-        signal: ctl ? ctl.signal : undefined })
+        signal: mine ? mine.signal : undefined })
         .then(function (r) {
-          if (r.type === 'opaqueredirect' || r.redirected || Math.floor(r.status / 100) === 3) {
+          if (r.type === 'opaqueredirect' || r.redirected || Math.floor(r.status / 100) === 3 || r.status === 401) {
             return { out: true };
           }
           if (r.status === 200) {
             return r.json();
           }
-          if (r.status === 400 || r.status === 401 || r.status === 403 || r.status === 404) {
+          if (r.status === 400 || r.status === 403 || r.status === 404) {
             return { refused: true };
           }
           throw new Error('later');
         })
         .then(function (j) {
           busy = false;
+          ctl = null;
           cancel();
           if (stopped || left) {
             return;
@@ -6825,16 +6846,17 @@
           if (stopped) {
             return;
           }
-          backoff = Date.now() - now > slowMs ? Math.min(maxMs, Math.max(backoff * 2, nextMs * 2)) : 0;
+          backoff = Date.now() - now > slowMs ? Math.min(maxMs, Math.max(backoff * 2, pace() * 2)) : 0;
           next();
         })
         .catch(function () {
           busy = false;
+          ctl = null;
           cancel();
           if (stopped || left) {
             return;
           }
-          backoff = Math.min(maxMs, backoff > 0 ? backoff * 2 : nextMs * 2);
+          backoff = Math.min(maxMs, backoff > 0 ? backoff * 2 : pace() * 2);
           next();
         });
     };
@@ -6846,6 +6868,7 @@
       }
       var wasAway = Date.now() - lastInput >= awayMs;
       lastInput = Date.now();
+      lastReal = lastInput;
       inputSinceActive = true;
       if (paused) {
         resume();
@@ -6882,6 +6905,8 @@
           resume();
           return;
         }
+        // A poll still out (the away one): the next goes right after its answer.
+        again = busy;
       }
       if (!busy && !paused) {
         send();
@@ -6893,6 +6918,9 @@
       }
       left = true;
       cancel();
+      if (ctl) {
+        ctl.abort();
+      }
       if (!paused) {
         bye();
       }
@@ -6915,11 +6943,21 @@
     });
     // A save without leaving the page puts the head, the lines and the chips in place again: the marks and the chips drawn again at once.
     document.addEventListener('kg-swapped', draw);
+    // The box the cursor is in already (a new order's first save puts it back before this starts: the Codex re-check, LOW).
+    place = placeOf(document.activeElement);
     schedule(send, jitterMs > 0 ? Math.round(Math.random() * jitterMs) : 0);
   };
-  var liveRoot = document.querySelector('[data-live]');
-  if (liveRoot) {
-    liveStart(liveRoot);
-  }
+  // Started once: on the page drawn, or when a new order's first save without leaving the page made it a draft (swapIn takes the draft's
+  // data-live* onto the form, then says kg-swapped).
+  var liveOn = false;
+  var liveFind = function () {
+    var root = liveOn ? null : document.querySelector('[data-live]');
+    if (root) {
+      liveOn = true;
+      liveStart(root);
+    }
+  };
+  liveFind();
+  document.addEventListener('kg-swapped', liveFind);
   // (live ends here)
 })();

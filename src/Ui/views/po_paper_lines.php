@@ -64,7 +64,8 @@ $marks = $marks ?? false;
     'typed' => $typed, 'stock' => $stock]) ?>
 <?php if ($gone && isset($grid['swapped'][$no])): ?>
 <?php $rowNo++; $sw = $grid['swapped'][$no]; ?>
-<?= $partial('po_paper_line', ['edit' => true, 'r' => $sw, 'no' => $rowNo, 'bad' => $grid['bad'] === $sw['key'] ? $grid['badText'] : null, 'replace' => $no]) ?>
+<?= $partial('po_paper_line', ['edit' => true, 'r' => $sw, 'no' => $rowNo, 'bad' => $grid['bad'] === $sw['key'] ? $grid['badText'] : null, 'replace' => $no,
+    'takesUid' => $l['uid'] ?? null]) ?>
 <?php endif; ?>
 <?php endforeach; ?>
 <?php foreach ($grid['newRows'] as $r): ?>

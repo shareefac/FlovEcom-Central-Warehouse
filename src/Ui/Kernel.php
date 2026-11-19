@@ -78,7 +78,8 @@ use CW\Ui\Controller\RepackController;
  *   3. resolve the session cookie: live session (not revoked, MFA done, idle and age within the limits of the settings
  *      session.idle_minutes and session.absolute_hours, 30 minutes and 12 hours by default: Auth\Sessions::limits) or nobody;
  *      it is marked seen, except by a passive route (Route::$passive: the poll of who is here) that does not say active=1
- *   4. access: public routes; otherwise sign-in (303 to /ui/login), forced password change,
+ *   4. access: public routes; otherwise sign-in (303 to /ui/login; a passive route: 401 {"signed_out": true}, never a redirect), forced
+ *      password change (a passive route: the same 401),
  *      then the route's permission (Auth\Permissions::MAP, checked against the roles read for this
  *      request: a page a person cannot open is refused 403, not only left out of their menu, I11)
  *   5. every POST: same-origin check (Origin / Sec-Fetch-Site when sent) and the CSRF token
@@ -300,6 +301,12 @@ final class Kernel
                 return HtmlResponse::redirect(($req->path === '/ui/login' ? AuthController::safeBack($req->param('back')) : null) ?? '/ui/');
             }
         } else {
+            if ($route->passive && ($who === null || $who->mustChangePassword)) {
+                // A passive route (the poll of who is here) is never sent on to the sign-in or the password page: a page's goodbye
+                // (navigator.sendBeacon) follows redirects, and the page it lands on would mark a session seen (the Codex review of
+                // c62e742, a2; docs/decisions.md LV26). The page's script reads 401 as signed out. handle() still clears a dead cookie.
+                return $ctx->json(['signed_out' => true], 401);
+            }
             if ($who === null) {
                 $cookie = $req->cookie(self::SESSION_COOKIE);
                 // A cookie of a session that ended (away too long, too old, signed out or switched off elsewhere): the
