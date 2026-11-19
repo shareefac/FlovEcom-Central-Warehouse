@@ -325,7 +325,7 @@
   var LIVE_DOC = /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}\/live\/doc\?since=[0-9]{1,18}&tab=[0-9a-f]{16}$/;
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
-  var fragment = function (url, marker, body) {
+  var fragment = function (url, marker, body, signal) {
     var path = FRAGMENTS[marker];
     if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {
       path = ALSO[marker];
@@ -339,9 +339,18 @@
       return Promise.reject(new Error('not a fragment of this site'));
     }
     var editor = marker === '[data-kg-editor]';
-    return window.fetch(url, sent ? { credentials: 'same-origin', method: 'POST', headers: { Accept: 'text/html' }, body: body, redirect: live ? 'manual' : 'follow' }
-      : { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' }, redirect: live ? 'manual' : 'follow', cache: live ? 'no-store' : 'default' })
+    var status = 0; // a box saved by itself: an answer that is no fragment says its status (a refusal never tried again, only no answer is)
+    var notIt = function () {
+      var no = new Error('not the fragment');
+      no.status = status;
+      return no;
+    };
+    return window.fetch(url, sent ? { credentials: 'same-origin', method: 'POST', headers: { Accept: 'text/html' }, body: body, redirect: live ? 'manual' : 'follow',
+      signal: live ? signal : undefined }
+      : { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' }, redirect: live ? 'manual' : 'follow', cache: live ? 'no-store' : 'default',
+        signal: live ? signal : undefined })
       .then(function (r) {
+        status = r.status;
         if (live && (r.type === 'opaqueredirect' || r.status === 401 || Math.floor(r.status / 100) === 3)) {
           var gone = new Error('signed out');
           gone.out = true;
@@ -350,7 +359,7 @@
         // The editor's Save lands on the editor's page (303, followed) or answers a refusal (409, 422) with it; a box saved by itself answers
         // its refusal (400, 409, 422) with the draft's fragment too; nothing else is an answer.
         if (editor || live ? (r.status !== 200 && r.status !== 409 && r.status !== 422 && !(live && r.status === 400)) : (!r.ok || r.redirected)) {
-          throw new Error('not the fragment');
+          throw notIt();
         }
         return r.text();
       })
@@ -358,7 +367,7 @@
         var doc = new window.DOMParser().parseFromString(html, 'text/html');
         var part = doc.querySelector(editor ? 'form[data-kg-editor]' : marker);
         if (!part || (editor && !part.parentNode)) {
-          throw new Error('not the fragment');
+          throw notIt();
         }
         var node = document.importNode(editor ? part.parentNode : part, true);
         if (!editor) {
@@ -2946,7 +2955,7 @@
     tick();
     // What the block "live" needs of the grid when the lines are saved one by one (docs/decisions.md LS12): its rows wired again after a
     // patch, the numbers, the totals, the ticks, the checks, a whole save (the supplier changed: its lines move, KG30), and the empty line.
-    if (form.hasAttribute('data-live-save')) {
+    if ((form.getAttribute('data-kg-editor') || '').indexOf('po:') === 0 && form.classList.contains('kg-paper')) {
       kb.liveGrid = { form: form, table: table, body: body, empty: empty, wire: wire, offBoxes: offBoxes, renumber: renumber, totals: totals, tick: tick,
         check: check, hideUndo: function () { undo = null; hideUndo(); }, save: function (then) { if (canSend()) { ajaxSave(null, then); return true; } return false; } };
     }
@@ -6471,6 +6480,9 @@
     };
     var hidden = function () { return document.visibilityState === 'hidden'; };
     var pageV = function () {
+      if (saver && saver.on()) {
+        return saver.v(); // saved box by box: the version the page shows (the form's own may wait for a line of mine behind it)
+      }
       var input = form ? form.querySelector('input[type="hidden"][name="version"]') : null;
       return num(input ? input.value : root.getAttribute('data-live-v'));
     };
@@ -6984,6 +6996,11 @@
       var askedTyping = false;
       var cmdS = false;
       var seq = 0;
+      var liveV = pageV(); // the version the page shows (the form's own version input moves only while no line of mine is behind it)
+      var flyCtl = null;
+      var flyingSince = 0;
+      var docCtl = null;
+      var docSince = 0;
       var key = function () {
         var out = '';
         var bytes = window.crypto && window.crypto.getRandomValues ? window.crypto.getRandomValues(new window.Uint8Array(8)) : null;
@@ -7010,6 +7027,22 @@
         return cells(tr).some(typed) || pendingFor(tr) || hasChoice(tr) || tr.hasAttribute('data-live-hold') || tr.hasAttribute('data-kg-new');
       };
       var heads = function () { return Array.prototype.slice.call(form.querySelectorAll('input[data-live-field]')); };
+      // The box of a field of a line's save (packs, price, items per pack).
+      var cellFor = function (tr, name) {
+        return tr ? tr.querySelector('input[data-kg-cell="' + ({ packs: 'qty', pack_price: 'price', price: 'price', upp: 'upp', units_per_pack: 'upp' }[name] || 'qty') + '"]') : null;
+      };
+      var sameTarget = function (a, b) { return (!!a.tr && a.tr === b.tr) || (!!a.el && a.el === b.el); };
+      var choiceOpen = function () { return document.querySelector('[data-live-choice-row]') !== null; };
+      var adding = function (tr) { return queue.concat(flying ? [flying] : []).some(function (x) { return x.op === 'add' && x.tr === tr; }); };
+      // A save refused without a choice (a figure that is not one): every box it carried stays marked not saved, sent again when left.
+      var markBad = function (it) {
+        var boxes = it.el ? [it.el] : (it.op === 'add' && it.tr ? cells(it.tr) : Object.keys(it.f || {}).map(function (k) { return cellFor(it.tr, k); }));
+        each(boxes, function (el) {
+          if (el && el.getAttribute('data-kg-cell') !== 'item') {
+            el.setAttribute('data-live-bad', '1');
+          }
+        });
+      };
       var statusEl = function () { return document.querySelector('[data-live-status]'); };
       var saveButton = function () { return document.querySelector('button[form="' + form.id + '"][name="action"][value="save"]'); };
       // The bar: Save hidden, the status in its place, in the page's words.
@@ -7091,12 +7124,11 @@
         var it = null;
         for (var i = 0; i < queue.length && !it; i++) {
           var q = queue[i];
-          if (q.parked) {
-            continue;
+          if (q.parked || queue.some(function (p) { return p.parked && sameTarget(p, q); }) || (q.tr && hasChoice(q.tr))) {
+            continue; // a choice open on its line or box: that line's saves wait for it, the others go
           }
           if ((q.op === 'set' || q.op === 'remove') && !uidOf(q.tr)) {
-            var adding = queue.concat(flying ? [flying] : []).some(function (x) { return x.op === 'add' && x.tr === q.tr; });
-            if (!adding) {
+            if (!adding(q.tr)) {
               queue.splice(i, 1); // a new line taken out before it was ever added: nothing to send
               i--;
             }
@@ -7126,9 +7158,13 @@
             body.append('uid', String(uidOf(it.tr) || it.uid || ''));
           }
           if (it.op === 'set' || it.op === 'remove') {
-            body.append('rev', String(it.rev || num(it.tr.getAttribute('data-live-at')) || num(it.tr.getAttribute('data-rev'))));
+            // The version the page saw: the one my typing was based on, else the line's (a new line: the version its add gave it).
+            var seenRow = rowOf(uidOf(it.tr)) || it.tr;
+            it.sentRev = it.rev || num(it.tr.getAttribute('data-live-at')) || num(it.tr.getAttribute('data-rev')) || num(seenRow.getAttribute('data-rev'));
+            body.append('rev', String(it.sentRev));
           }
-          if (it.op === 'add' && it.tr) {
+          if (it.op === 'add' && it.tr && !it.read) {
+            it.read = true; // read once: a retry sends what was sent (the server's key does it once), typing since is saved after it
             // A new line: what its boxes hold now (typed after it was picked, before it went).
             var qty = it.tr.querySelector('input[data-kg-cell="qty"]');
             var price = it.tr.querySelector('input[data-kg-cell="price"]');
@@ -7147,12 +7183,7 @@
             if (it.f.u === undefined && (it.tr.getAttribute('data-u') || '') !== '') {
               it.f.u = it.tr.getAttribute('data-u');
             }
-            if (qty) {
-              qty.setAttribute('data-live-was', qty.value);
-            }
-            if (price) {
-              price.setAttribute('data-live-was', price.value);
-            }
+            keep(it.tr); // every box's value as sent (items per pack too): typing after it is told apart
           }
           each(Object.keys(it.f || {}), function (k) { body.append(k, String(it.f[k])); });
           if (it.after) {
@@ -7166,7 +7197,9 @@
           }
         }
         status('saving');
-        fragment(url, '[data-live-fragment]', body)
+        flyCtl = window.AbortController ? new window.AbortController() : null;
+        flyingSince = Date.now();
+        fragment(url, '[data-live-fragment]', body, flyCtl ? flyCtl.signal : undefined)
           .then(function (node) {
             flying = null;
             tries = 0;
@@ -7177,6 +7210,17 @@
             flying = null;
             if (e && e.out) {
               out();
+              return;
+            }
+            if (!on || locked) {
+              return;
+            }
+            if (e && e.status >= 400 && e.status < 500) {
+              // An answer that is no fragment (a request CW cannot take): never tried again; its boxes stay not saved.
+              markBad(it);
+              status('not-saved');
+              dirty();
+              send();
               return;
             }
             // No answer (no network, a server error): the same save again a little later (the server takes it twice as once).
@@ -7192,6 +7236,17 @@
               send();
             }, wait);
           });
+      };
+      // A save or a fetch out longer than the poll's own limit (data-live-max-ms) is given up (then tried again): checked at each poll's
+      // answer, so no timer of its own.
+      var watchdog = function () {
+        var now = Date.now();
+        if (flying && flyCtl && now - flyingSince > maxMs) {
+          flyCtl.abort();
+        }
+        if (docBusy && docCtl && now - docSince > maxMs) {
+          docCtl.abort();
+        }
       };
       window.addEventListener('online', function () {
         if (later !== null) {
@@ -7216,12 +7271,14 @@
         if (!node || node.getAttribute('data-live-fragment') !== 'po:' + id) {
           throw new Error('draft');
         }
+        if (!on || locked) {
+          return; // switched back to the Save button, or locked: a late answer draws nothing
+        }
         var done = node.getAttribute('data-op-status') || '';
         var clash = node.querySelector('[data-live-part="conflict"]');
         var code = clash ? clash.getAttribute('data-code') || '' : '';
         if (code === 'not_draft') {
-          apply(node);
-          lock(clash);
+          lock(clash, it); // before anything is drawn: my box not saved is named, never taken away
           return;
         }
         if (code === 'live_off') {
@@ -7231,47 +7288,76 @@
         if (clash && it.tr) {
           it.tr.setAttribute('data-live-hold', '1'); // my values stay on the line while I choose
         }
+        var carry = null;
+        var carryUid = 0;
         if (done !== 'refused' && done !== '') {
           var uid = num(node.getAttribute('data-op-uid'));
           if ((it.op === 'add' || it.op === 'restore') && it.tr && uid) {
             var made = node.querySelector('[data-live-part="lines"] tr[data-uid="' + uid + '"]');
-            it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it)
-            if (done === 'added' && made && cells(it.tr).some(typed)) {
-              // Typed in since it went: kept with its typing (saved when the box is left), as the server's new line of its own version.
-              it.tr.removeAttribute('data-kg-new');
-              it.tr.removeAttribute('data-live-at');
-              each(['data-rev', 'data-by', 'data-by-name', 'data-kg-line', 'data-kg-vat', 'data-kg-rate', 'data-kg-upp'], function (a) {
-                if (made.getAttribute(a) !== null) {
-                  it.tr.setAttribute(a, made.getAttribute(a));
+            it.tr.setAttribute('data-uid', String(uid)); // the line it became (later saves of this line name it, on its version)
+            if (made) {
+              it.tr.setAttribute('data-rev', made.getAttribute('data-rev') || '1');
+            }
+            // Drawn by the server's row now (added to a line already there: that line). What was typed in it since it went is carried over to
+            // the server's row and saved (not onto a line it was added to: those figures were the new line's).
+            if (done !== 'incremented') {
+              carry = {};
+              each(cells(it.tr), function (el) {
+                if (typed(el) && el.getAttribute('data-kg-cell') !== 'item') {
+                  carry[el.getAttribute('data-kg-cell')] = el.value;
                 }
               });
-            } else {
-              it.tr.setAttribute('data-live-drop', '1'); // drawn by the server's row now (added to a line already there: that line)
+              carryUid = uid;
             }
+            it.tr.setAttribute('data-live-drop', '1');
           }
-          if (it.op === 'set' && it.tr) {
-            var srow = node.querySelector('[data-live-part="lines"] tr[data-uid="' + uidOf(it.tr) + '"]');
-            var rev = srow ? num(srow.getAttribute('data-rev')) : 0;
-            // My own new version: the next save of this line is based on it, never refused by my own change.
+          var mineRev = num(node.getAttribute('data-op-rev'));
+          if (it.op === 'set' && it.tr && done === 'saved' && mineRev > 0) {
+            // The version this save itself wrote: my waiting saves of the line based on the version I sent move onto it (never onto a version
+            // someone else wrote, nor after an unchanged answer: their change is then a choice, never overwritten).
             each(queue, function (q) {
-              if (q.tr === it.tr && (q.op === 'set' || q.op === 'remove')) {
-                q.rev = rev;
+              if (q.tr === it.tr && (q.op === 'set' || q.op === 'remove') && (q.rev || 0) === it.sentRev) {
+                q.rev = mineRev;
               }
             });
-            it.tr.setAttribute('data-live-at', String(rev));
+            if (num(it.tr.getAttribute('data-live-at')) === it.sentRev) {
+              it.tr.setAttribute('data-live-at', String(mineRev));
+            }
           }
           if (it.op === 'header' && it.el) {
-            it.el.setAttribute('data-live-base', it.f.value);
+            var stored = node.querySelector('[data-live-part="header"] [data-live-field="' + it.field + '"]');
+            var now = stored ? stored.value : it.f.value;
+            it.el.setAttribute('data-live-base', now);
+            each(queue, function (q) {
+              if (q.op === 'header' && q.el === it.el && q.base === it.base) {
+                q.base = now; // my own value is the base of my next save of that box
+              }
+            });
           }
           if (it.charge && it.el && it.el.value === it.f.charge) {
             it.el.value = '';
           }
           if (it.op === 'remove') {
             removedLast.push({ uid: it.uid || uidOf(it.tr), after: it.after || 0 });
+            if (it.undo) {
+              enqueue({ op: 'restore', uid: it.uid || uidOf(it.tr), after: it.after || 0, f: {}, key: key() }); // Undo pressed while it went
+            }
           }
           lastAt = node.getAttribute('data-at') || lastAt;
         }
         apply(node);
+        if (carry !== null) {
+          var fresh = rowOf(carryUid);
+          each(fresh ? Object.keys(carry) : [], function (cellName) {
+            var box = fresh.querySelector('input[data-kg-cell="' + cellName + '"]');
+            if (box) {
+              box.value = carry[cellName];
+              if (box !== document.activeElement) {
+                left(fresh, box); // the box the cursor is in: saved when it is left
+              }
+            }
+          });
+        }
         if (clash) {
           confirming = false; // a refusal stops a Confirm that waited for my saves: the person looks first
           refused(it, clash);
@@ -7304,15 +7390,17 @@
         });
       };
       var apply = function (node) {
+        if (!on || locked) {
+          return;
+        }
         var v = num(node.getAttribute('data-v'));
-        var pv = pageV();
-        if (v < pv) {
+        if (v < liveV) {
           return; // older than what the page shows: never drawn over it
         }
-        var vIn = form.querySelector('input[type="hidden"][name="version"]');
-        if (vIn) {
-          vIn.value = String(v);
-        }
+        liveV = v;
+        // A line or box of mine kept while someone else changed it: the whole form keeps the version it was drawn on (its Save is then refused,
+        // never saved over their change).
+        var behind = false;
         var e = num(node.getAttribute('data-e'));
         shownE = Math.max(shownE, e);
         root.setAttribute('data-live-e', String(shownE));
@@ -7363,6 +7451,9 @@
             if (!take && busyRow(mine)) {
               // My typing, my save on its way or my choice: my boxes stay; the line says who changed it meanwhile.
               mine.setAttribute('data-live-server-rev', srow.getAttribute('data-rev') || '');
+              if ((srow.getAttribute('data-by') || '') !== String(meId())) {
+                behind = true;
+              }
               if ((srow.getAttribute('data-by') || '') !== String(meId()) && srow.getAttribute('data-rev') !== mine.getAttribute('data-live-at')) {
                 markRow(mine, 'changed-by', srow.getAttribute('data-by-name') || say('someone'));
               }
@@ -7394,8 +7485,13 @@
             }
             if (uid && !seen[uid]) {
               r.setAttribute('data-live-gone', '1');
+              behind = true;
               markRow(r, 'removed-by', removedBy[uid] || say('someone'));
-              each(r.querySelectorAll('input[name]'), function (el) { el.disabled = true; }); // never sent by the whole form
+              // Its boxes stay (the cursor may be in one), out of the whole form; leaving a box sends it: the server's line_gone and its choice.
+              each(r.querySelectorAll('input[name]'), function (el) {
+                el.setAttribute('data-live-name', el.name);
+                el.removeAttribute('name');
+              });
               return;
             }
             if (!uid && want.indexOf(r) < 0) {
@@ -7462,8 +7558,22 @@
             if (!mineTyping && !queued && !box.hasAttribute('data-live-clash')) {
               box.value = h.value;
               box.setAttribute('data-live-base', h.value);
+            } else if (box.getAttribute('data-live-base') !== h.value) {
+              behind = true;
             }
           });
+          // The supplier someone else chose (its lines moved to its packs: a whole save, KG30): the box says it, the product box asks it; never a
+          // save of its own. A supplier of mine waiting to be saved stays.
+          var sel = form.querySelector('select[data-po-supplier]');
+          var sid = head.getAttribute('data-supplier') || '';
+          if (sel && sid !== '' && sel.value !== sid && !wholeAfter) {
+            sel.value = sid;
+            var opt = sel.querySelector('option[value="' + sid + '"]');
+            var shownBox = document.getElementById(sel.id + '-box');
+            if (shownBox && opt) {
+              shownBox.value = opt.getAttribute('data-name') || opt.textContent;
+            }
+          }
           var party = head.querySelector('[data-live-party]');
           var mineParty = form.querySelector('[data-kg-swap-part="party"]');
           if (party && mineParty) {
@@ -7501,6 +7611,10 @@
           if (box) {
             box.focus();
           }
+        }
+        var vIn = form.querySelector('input[type="hidden"][name="version"]');
+        if (vIn && !behind) {
+          vIn.value = String(v); // the whole form is what the server holds, with my own saves on their way: its version too
         }
         drawMarks();
         dirty();
@@ -7590,9 +7704,6 @@
           if (row && row.parentNode) {
             row.parentNode.removeChild(row);
           }
-          if (row === null) {
-            setNote('', null);
-          }
           if (it.tr) {
             it.tr.removeAttribute('data-live-hold');
           }
@@ -7606,8 +7717,8 @@
         var buttons = box.querySelectorAll('button[data-live-choice]');
         if (buttons.length === 0) {
           // A refusal without a choice: its words on the box, which keeps what was typed, marked not saved (sent again when it is left).
-          var cellOf = { pack_price: 'price', units_per_pack: 'upp', packs: 'qty' }[box.getAttribute('data-field') || ''] || 'qty';
-          var target = it.el || (it.tr ? (it.tr.querySelector('input[data-kg-cell="' + cellOf + '"]') || cells(it.tr)[0]) : null);
+          var target = it.el || (it.tr ? (cellFor(it.tr, box.getAttribute('data-field') || '') || cells(it.tr)[0]) : null);
+          markBad(it);
           if (it.tr) {
             it.tr.removeAttribute('data-live-hold');
           }
@@ -7644,7 +7755,11 @@
           var holder = it.el.closest('dd, p') || it.el.parentNode;
           holder.parentNode.insertBefore(row, holder.nextSibling);
         } else if (!it.tr) {
-          setNote('choice ' + (++seq), function (el) { el.appendChild(box); }); // an undo asked (no line on the page yet)
+          // An undo asked (no line on the page yet): under the chips, a choice like any other (Confirm waits for it).
+          row = make('div', ['live-choice-box']);
+          row.setAttribute('data-live-choice-row', '');
+          row.appendChild(box);
+          (document.querySelector('[data-live-here]') || form).appendChild(row);
         } else if (it.tr) {
           it.tr.classList.add('live-clash');
           it.tr.hidden = false;
@@ -7671,9 +7786,14 @@
         }
         docBusy = true;
         docAgain = false;
-        fragment(docUrl + '?since=' + shownE + '&tab=' + tab, '[data-live-fragment]')
+        docCtl = window.AbortController ? new window.AbortController() : null;
+        docSince = Date.now();
+        fragment(docUrl + '?since=' + shownE + '&tab=' + tab, '[data-live-fragment]', undefined, docCtl ? docCtl.signal : undefined)
           .then(function (node) {
             docBusy = false;
+            if (!on || locked) {
+              return;
+            }
             if (node.getAttribute('data-live-fragment') !== 'po:' + id) {
               return;
             }
@@ -7703,10 +7823,30 @@
       };
 
       // Confirm: my saves first, never with a choice open, someone typing said first; then the version the page shows.
+      var flushAll = function () {
+        each(rows(), function (tr) {
+          each(cells(tr), function (el) {
+            if (el.getAttribute('data-kg-cell') !== 'item' && (typed(el) || (tr.hasAttribute('data-kg-new') && !tr.getAttribute('data-uid')))) {
+              left(tr, el);
+            }
+          });
+        });
+        each(heads(), function (h) { headLeft(h); });
+        var del = form.querySelector('input[data-kg-delivery]');
+        if (del) {
+          headLeft(del);
+        }
+      };
       var confirmNow = function () {
         confirming = false;
-        if (rows().some(hasChoice) || document.querySelector('[data-live-choice-row]')) {
+        flushAll(); // every box with typing not saved yet goes first, also what was typed while Confirm waited
+        if (choiceOpen()) {
           setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-first'))); });
+          return;
+        }
+        if (queue.length > 0 || flying) {
+          confirming = true;
+          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-saving'))); });
           return;
         }
         var typist = people.filter(function (p) { return p.typing && p.state === 'active'; })[0];
@@ -7716,7 +7856,7 @@
           var words = row ? text(say('typing-line'), [typist.name, (no || '').replace(/\D/g, '')]) : text(say('typing-head'), [typist.name]);
           setNote('typing', function (el) {
             el.appendChild(make('span', [], words));
-            el.appendChild(button(say('confirm-anyway'), function () { askedTyping = true; setNote('', null); confirmNow(); }));
+            el.appendChild(button(say('confirm-anyway'), function () { askedTyping = true; setNote('', null); confirmNow(); })); // the same checks again
             el.appendChild(button(say('wait'), function () { setNote('', null); }));
           });
           return;
@@ -7739,37 +7879,18 @@
         f.submit();
       };
       var confirmIt = function () {
-        // Every box with typing not saved yet goes first (the one the cursor is in, one refused before).
-        each(rows(), function (tr) {
-          each(cells(tr), function (el) {
-            if (el.getAttribute('data-kg-cell') !== 'item' && typed(el)) {
-              left(tr, el);
-            }
-          });
-        });
-        each(heads(), function (h) { headLeft(h); });
-        flushBox();
-        if (rows().some(hasChoice) || document.querySelector('[data-live-choice-row]')) {
-          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-first'))); });
-          return;
-        }
-        if (queue.length > 0 || flying) {
-          confirming = true;
-          setNote('confirm', function (el) { el.appendChild(make('span', [], say('confirm-saving'))); });
-          return;
-        }
+        askedTyping = false;
         confirmNow();
       };
 
       // The draft confirmed or cancelled by someone (the poll, or a save's 409 not_draft): every box locked, the page says who and which box
       // of mine was not saved.
-      var lock = function (clash) {
+      var lock = function (clash, it) {
         if (locked && !clash) {
-          return;
+          return '';
         }
         locked = true;
-        on = true;
-        var lost = null;
+        var lost = it ? (it.el || (it.op === 'set' ? cellFor(it.tr, Object.keys(it.f || {})[0] || 'packs') : null)) : null;
         each(rows(), function (tr) {
           each(cells(tr), function (el) {
             if (!lost && (typed(el) || pendingFor(tr))) {
@@ -7795,7 +7916,7 @@
         each(document.querySelectorAll('button[form="' + form.id + '"]'), function (b) { b.disabled = true; }); // the bar's Save and Confirm too
         status('not-saved');
         form.removeAttribute('data-dirty');
-        var lostText = lost === null ? '' : text(say('last-box'), [lost.getAttribute('aria-label') || '', lost.value]);
+        var lostText = !lost ? '' : text(say('last-box'), [lost.getAttribute('aria-label') || '', lost.value]);
         if (clash) {
           var words = Array.prototype.map.call(clash.querySelectorAll('p'), function (p) { return p.textContent.trim(); }).join(' ');
           setNote('locked', function (el) {
@@ -7809,6 +7930,7 @@
       var off = function () {
         // live.mode taken back to presence: the Save button again (the form's names follow the lines: its whole save is right).
         on = false;
+        each(queue.concat(flying ? [flying] : []), markBad); // not saved: kept as typed for the whole form's Save
         queue = [];
         if (later !== null) {
           window.clearTimeout(later);
@@ -7842,8 +7964,15 @@
         }
       };
       var left = function (tr, el) {
-        if (!on || locked || tr.hasAttribute('data-live-gone') || tr.hasAttribute('data-kg-new') && !tr.getAttribute('data-uid')) {
-          return; // a new line not added yet sends what it holds when it goes
+        if (!on || locked) {
+          return;
+        }
+        if (tr.hasAttribute('data-kg-new') && !tr.getAttribute('data-uid')) {
+          if (!adding(tr)) {
+            each(cells(tr), function (c) { c.removeAttribute('data-live-bad'); });
+            enqueue({ op: 'add', tr: tr, f: {}, key: key() }); // its add refused before: added again with what it holds now
+          }
+          return; // a new line on its way sends what it holds when it goes; typing after it is carried over to its line
         }
         var name = { qty: 'packs', price: 'price', upp: 'upp' }[el.getAttribute('data-kg-cell') || ''];
         if (!name || !typed(el)) {
@@ -7927,6 +8056,8 @@
       document.addEventListener('kg-swapped', function () {
         each(rows(), keep);
         each(heads(), function (h) { h.setAttribute('data-live-base', h.value); });
+        var vIn = form.querySelector('input[type="hidden"][name="version"]');
+        liveV = Math.max(liveV, vIn ? num(vIn.value) : 0);
         status(lastAt !== '' ? 'all-saved' : '', lastAt);
       });
 
@@ -7983,6 +8114,10 @@
         undo: function (trs) {
           var here = [];
           each(trs, function (tr) {
+            if (flying && flying.op === 'remove' && flying.tr === tr) {
+              flying.undo = true; // put back once its removal is done
+              return;
+            }
             var waiting = queue.filter(function (q) { return q.op === 'remove' && q.tr === tr && !q.parked; });
             if (waiting.length > 0) {
               queue = queue.filter(function (q) { return waiting.indexOf(q) < 0; });
@@ -8003,13 +8138,22 @@
         return si !== '' ? { si: si } : { sku: tr.getAttribute('data-sku') || '', u: tr.getAttribute('data-u') || tr.getAttribute('data-kg-upp') || '1' };
       };
       each(rows(), keep);
+      each(['expected_date', 'external_ref', 'note'], function (f) {
+        var h = form.querySelector('input[name="' + f + '"]');
+        if (h && !h.hasAttribute('data-live-field')) {
+          h.setAttribute('data-live-field', f);
+          h.setAttribute('data-live-base', h.value);
+        }
+      });
       status('');
       return {
         moved: function (v) {
-          if (v > pageV() && !locked && on) {
+          watchdog();
+          if (v > liveV && !locked && on) {
             fetchDoc();
           }
         },
+        v: function () { return liveV; },
         lock: lock,
         off: off,
         on: function () { return on; },

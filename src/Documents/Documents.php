@@ -305,6 +305,9 @@ final class Documents
      */
     public function ensureUids(int $id): int
     {
+        if ($this->db->value('SELECT 1 FROM document_line WHERE document_id = ? AND uid IS NULL LIMIT 1', [$id]) === null) {
+            return 0; // every line has its id (the usual case): no lock is taken (a page's own fetch must stay a read)
+        }
         return $this->db->transaction(function (Db $db) use ($id): int {
             $row = $this->lock($id);
             if ($row['status'] !== 'draft') {

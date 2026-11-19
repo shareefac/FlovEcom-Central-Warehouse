@@ -333,6 +333,9 @@ final class LiveLinesTest extends PurchaseOrderTestCase
         $again = $this->pos->restoreLine($this->shareef, $id, 2, 1, 'e000000000000001');
         self::assertSame(['done', 4], [$again['status'], $again['uid']], 'a retried undo: done once');
         self::assertSame($before, self::snapshot($id));
+        self::assertSame('nothing_to_restore', self::refusal(fn () => $this->pos->restoreLine($this->shareef, $id, 2, 1, 'e00000000000000f'))->errorCode,
+            'put back already: another key puts it back no second time');
+        self::assertSame($before, self::snapshot($id));
         // The line before it gone meanwhile: back where it was, as near as the lines left allow (here: last).
         $this->pos->removeLine($this->shareef, $id, 3, 1);
         $this->pos->removeLine($this->fazil, $id, 1, 1);
@@ -566,6 +569,11 @@ final class LiveLinesTest extends PurchaseOrderTestCase
         $this->pos->approve($this->fazil, $final, self::docVersion($final));
         self::$db->exec("UPDATE draft_change SET created_at = NOW(6) - INTERVAL 91 DAY WHERE record_id IN (?, ?)", [$draft, $final]);
         self::$db->exec("UPDATE draft_change SET created_at = NOW(6) - INTERVAL 89 DAY WHERE record_id = ? AND line_uid = 2", [$final]);
+        // Confirmed a day ago: its changes are kept 90 days from then, however old (the Codex review of b40f96a, a3).
+        self::$db->exec('UPDATE document SET updated_at = NOW(6) - INTERVAL 1 DAY WHERE id = ?', [$final]);
+        $none = (new \CW\Ops\Housekeeping(self::$db))->run(new \CW\Settings(self::$db), true);
+        self::assertSame(0, $none['draft_change']['removed'], 'confirmed a day ago: nothing of it goes yet');
+        self::$db->exec('UPDATE document SET updated_at = NOW(6) - INTERVAL 91 DAY WHERE id = ?', [$final]);
         $dry = (new \CW\Ops\Housekeeping(self::$db))->run(new \CW\Settings(self::$db), true);
         self::assertSame(1, $dry['draft_change']['removed']);
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM draft_change WHERE record_id IN (?, ?)', [$draft, $final]), 'a dry run removes nothing');

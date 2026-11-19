@@ -178,8 +178,10 @@ final class LiveController
             return $this->fragment($ctx, $refused, $e->httpStatus, ['refusal' => LiveSaveWords::refusal($e, $sent, $uid), 'op' => ['op' => $op, 'key' => $req->field('k')]]
                 + self::since($ctx));
         }
-        return $this->fragment($ctx, $r['document'], 200, ['op' => ['op' => $op, 'status' => $r['status'], 'uid' => $r['uid'] ?? null, 'key' => $req->field('k')]]
-            + self::since($ctx));
+        // The line's version this save itself wrote (a line changed: `saved`): the page moves its waiting saves of that line onto it, and only
+        // then (an `unchanged`, or a fragment read after someone else's change, never does: the Codex review of b40f96a, a1/b1/c1).
+        return $this->fragment($ctx, $r['document'], 200, ['op' => ['op' => $op, 'status' => $r['status'], 'uid' => $r['uid'] ?? null, 'key' => $req->field('k'),
+            'rev' => $r['status'] === 'saved' ? ($r['rev'] ?? null) : null]] + self::since($ctx));
     }
 
     /**

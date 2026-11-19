@@ -25,7 +25,7 @@ use CW\Settings;
  *                  goodbye, a session that ended without a sign-out). Nothing reads a row that old: it is never shown.
  *   draft_change   a draft's line-by-line changes (0072, Live\LiveChanges; docs/decisions.md LS11): rows older than
  *                  housekeeping.draft_change_keep_days (90; 7 at the least) whose document is no longer a draft (confirmed, cancelled,
- *                  reversed). A draft's own rows stay however old: its History and Undo read them. The audit log keeps one row per
+ *                  reversed) and has not changed for as long. A draft's own rows stay however old: its History and Undo read them. The audit log keeps one row per
  *                  person per draft per hour.
  *
  * In chunks of housekeeping.chunk_rows, each its own autocommit DELETE … ORDER BY … LIMIT on the table's time index, oldest first,
@@ -97,10 +97,11 @@ final class Housekeeping
             'SELECT COUNT(*) FROM draft_presence WHERE seen_at < ?', [$cut], $cut, $chunk, $deadline, $dryRun);
 
         $cut = Clock::db($now->modify('-' . $days('housekeeping.draft_change_keep_days', 90, 7) . ' days'));
-        // Only a document that is no longer a draft (its id by its primary key; a row whose document is gone goes too).
-        $gone = "created_at < ? AND NOT EXISTS (SELECT 1 FROM document d WHERE d.id = draft_change.record_id AND d.status = 'draft')";
+        // Only a document that is no longer a draft and has not changed since the cut (it was confirmed or cancelled before it: the keep days
+        // count from then, not from the change; the Codex review of b40f96a, a3), by its primary key; a row whose document is gone goes too.
+        $gone = "created_at < ? AND NOT EXISTS (SELECT 1 FROM document d WHERE d.id = draft_change.record_id AND (d.status = 'draft' OR d.updated_at >= ?))";
         $out['draft_change'] = $this->prune('draft_change', 'DELETE FROM draft_change WHERE ' . $gone . ' ORDER BY created_at LIMIT ' . $chunk,
-            'SELECT COUNT(*) FROM draft_change WHERE ' . $gone, [$cut], $cut, $chunk, $deadline, $dryRun);
+            'SELECT COUNT(*) FROM draft_change WHERE ' . $gone, [$cut, $cut], $cut, $chunk, $deadline, $dryRun);
         return $out;
     }
 

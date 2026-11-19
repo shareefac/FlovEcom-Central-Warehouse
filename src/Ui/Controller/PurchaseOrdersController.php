@@ -1319,7 +1319,9 @@ final class PurchaseOrdersController
             }
             // Each box saves by itself (live.mode on; docs/decisions.md LS10, LS12): the paper's editor only (not the old form, not a looker's
             // paper, not an order too long for the form), its addresses and words on the form; without the script it is today's whole form.
-            $data['liveSave'] = $data['live'] !== null && $data['editable'] ? LiveController::saveData($ctx, $doc) : null;
+            // A page drawn again with what was typed (a refused whole form, "Show it") stays the whole form until it is saved or drawn afresh: its
+            // boxes hold values that are not the stored ones (the Codex review of b40f96a, a2).
+            $data['liveSave'] = $data['live'] !== null && $data['editable'] && ($extra['typed'] ?? []) === [] ? LiveController::saveData($ctx, $doc) : null;
             if ($data['liveSave'] !== null) {
                 $data['live'] += $data['liveSave'];
             }

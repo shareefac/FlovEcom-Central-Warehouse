@@ -1,6 +1,6 @@
 <?php
 // A draft order as it is now, for the page that saves each box by itself (the live drafts plan, step 4, 4.3; docs/decisions.md LS10): the
-// answer of GET /live/doc (the page's poll found the draft moved) and of POST /live/line and /live/header (the page's own save). app.js
+// answer of GET /live/doc (the page's poll found the draft moved) and of the page's own save of a line or a head box (POST /live/line, its head twin). app.js
 // accepts it only by its root's marker (data-live-fragment="po:<id>", fragment()), reads it inert (DOMParser: nothing in it runs) and patches
 // its page from these parts, never the box the person is typing in:
 //  - the head's part: its values (expected date, their reference, the note: data-live-field), the supplier (data-supplier), its address and terms;
@@ -11,11 +11,12 @@
 //  - events: the changes since the newest the page shows, not its own, in words (one at a time by the page's polite region);
 //  - conflict: a refusal, in words on its line or box, with its choices (live_conflict).
 // The root: the draft's version (data-v), its newest change (data-e), its status, the time (UK) for "All changes saved 14:02" (data-at), and
-// what the page's own save did (data-op, data-op-status, data-op-uid, data-op-key; "refused" with a refusal).
+// what the page's own save did (data-op, data-op-status, data-op-uid, data-op-key, and data-op-rev: the line's version this save itself wrote;
+// "refused" with a refusal).
 $refusal = $refusal ?? null;
 $op = $op ?? null;
 ?>
-<div class="live-fragment" data-live-fragment="po:<?= $e($doc->id) ?>" data-v="<?= $e($doc->version) ?>" data-e="<?= $e($newest) ?>" data-status="<?= $e($doc->status) ?>" data-at="<?= $e($at) ?>"<?php if ($op !== null): ?> data-op="<?= $e($op['op']) ?>" data-op-status="<?= $e($refusal !== null ? 'refused' : ($op['status'] ?? '')) ?>"<?php if (($op['uid'] ?? null) !== null): ?> data-op-uid="<?= $e($op['uid']) ?>"<?php endif; ?><?php if (($op['key'] ?? null) !== null): ?> data-op-key="<?= $e($op['key']) ?>"<?php endif; ?><?php endif; ?>>
+<div class="live-fragment" data-live-fragment="po:<?= $e($doc->id) ?>" data-v="<?= $e($doc->version) ?>" data-e="<?= $e($newest) ?>" data-status="<?= $e($doc->status) ?>" data-at="<?= $e($at) ?>"<?php if ($op !== null): ?> data-op="<?= $e($op['op']) ?>" data-op-status="<?= $e($refusal !== null ? 'refused' : ($op['status'] ?? '')) ?>"<?php if (($op['uid'] ?? null) !== null): ?> data-op-uid="<?= $e($op['uid']) ?>"<?php endif; ?><?php if (($op['rev'] ?? null) !== null): ?> data-op-rev="<?= $e($op['rev']) ?>"<?php endif; ?><?php if (($op['key'] ?? null) !== null): ?> data-op-key="<?= $e($op['key']) ?>"<?php endif; ?><?php endif; ?>>
   <div data-live-part="header" data-supplier="<?= $e($supplierId) ?>">
     <input type="hidden" data-live-field="expected_date" value="<?= $e($expectedDate) ?>">
     <input type="hidden" data-live-field="external_ref" value="<?= $e($doc->externalRef ?? '') ?>">

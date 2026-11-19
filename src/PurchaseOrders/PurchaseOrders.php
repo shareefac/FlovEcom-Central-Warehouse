@@ -693,7 +693,7 @@ final class PurchaseOrders
                 . 'AND staff_user_id = ? ORDER BY id DESC LIMIT 1', [$id, $uid, $me['id']]);
             $was = $removed === null ? null : json_decode((string) $removed['b'], true);
             $back = $removed === null ? null : $db->value("SELECT 1 FROM draft_change WHERE kind = 'po' AND record_id = ? AND op = 'restore' AND id > ? "
-                . "AND JSON_EXTRACT(before_json, '$.from_uid') = ? LIMIT 1", [$id, (int) $removed['id'], $uid]);
+                . "AND CAST(JSON_UNQUOTE(JSON_EXTRACT(before_json, '$.from_uid')) AS UNSIGNED) = ? LIMIT 1", [$id, (int) $removed['id'], $uid]);
             if (!is_array($was) || $back !== null || $this->liveLine($id, $uid) !== null) {
                 throw new CwException('nothing_to_restore', 'only a line you removed, and not put back yet, is put back', 409, ['uid' => $uid]);
             }
@@ -753,8 +753,13 @@ final class PurchaseOrders
                     return ['status' => 'unchanged', 'document' => $this->docs->get($id)];
                 }
                 if ($seen !== $now) {
-                    $by = $db->one("SELECT c.staff_user_id, c.created_at, u.display_name FROM draft_change c LEFT JOIN staff_user u ON u.id = c.staff_user_id WHERE c.kind = 'po' "
-                        . "AND c.record_id = ? AND c.op = 'header' AND c.field = ? ORDER BY c.id DESC LIMIT 1", [$id, $field]);
+                    $by = $db->one("SELECT c.staff_user_id, c.created_at, u.display_name, CAST(c.after_json AS CHAR) AS a FROM draft_change c LEFT JOIN staff_user u "
+                        . "ON u.id = c.staff_user_id WHERE c.kind = 'po' AND c.record_id = ? AND c.op = 'header' AND c.field = ? ORDER BY c.id DESC LIMIT 1", [$id, $field]);
+                    // That box's own last change names who, while it still holds the value now (a whole save may have changed it since: then
+                    // who saved the draft last; the Codex review of b40f96a, a4).
+                    if ($by !== null && (json_decode((string) $by['a'], true)['value'] ?? null) !== $now) {
+                        $by = null;
+                    }
                     $by ??= ($last = DraftChanges::last($db, $id)) === null ? null : ['staff_user_id' => $last['staff_user_id'], 'display_name' => $last['name'], 'created_at' => $last['at']];
                     throw new CwException('field_conflict', "{$field} changed since the page was drawn", 409, ['field' => $field, 'theirs' => $now,
                         'by_id' => $by === null ? null : (int) $by['staff_user_id'], 'by' => $by === null ? null : (string) $by['display_name'],

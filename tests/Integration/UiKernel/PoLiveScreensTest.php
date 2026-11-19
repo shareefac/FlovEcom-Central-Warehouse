@@ -269,8 +269,11 @@ final class PoLiveScreensTest extends KernelUiTestCase
         $r = $this->lineSave($fazil, $id, ['op' => 'set', 'uid' => '1', 'rev' => '1', 'packs' => '8']);
         self::assertSame(200, $r->status, self::why($r));
         $root = self::fragment($r, $id);
-        self::assertSame(['set', 'saved', '1', (string) self::docVersion($id)], [$root->getAttribute('data-op'), $root->getAttribute('data-op-status'),
-            $root->getAttribute('data-op-uid'), $root->getAttribute('data-v')]);
+        self::assertSame(['set', 'saved', '1', (string) self::docVersion($id), '2'], [$root->getAttribute('data-op'), $root->getAttribute('data-op-status'),
+            $root->getAttribute('data-op-uid'), $root->getAttribute('data-v'), $root->getAttribute('data-op-rev')], 'the version this save itself wrote');
+        $same = self::fragment($this->lineSave($fazil, $id, ['op' => 'set', 'uid' => '1', 'rev' => '1', 'packs' => '8']), $id);
+        self::assertSame(['unchanged', ''], [$same->getAttribute('data-op-status'), $same->getAttribute('data-op-rev')],
+            'nothing written: no version of its own (the page never moves its waiting saves onto someone else\'s: the Codex review of b40f96a)');
         self::assertSame(['2'], self::attrs($r, '//tr[@data-uid="1"]', 'data-rev'));
         self::assertSame(['8'], self::attrs($r, '//tr[@data-uid="1"]//input[@data-kg-cell="qty"]', 'value'));
         $e = (int) $root->getAttribute('data-e');
@@ -413,5 +416,11 @@ final class PoLiveScreensTest extends KernelUiTestCase
         $stale = $web->post("/ui/purchasing/orders/{$id}/lines", ['line_1_packs' => '1', 'action' => 'save'] + $f);
         self::assertSame(409, $stale->status);
         self::assertSame(9, (int) self::$db->value('SELECT packs FROM po_line WHERE document_id = ? AND line_no = 1', [$id]));
+        // A whole form refused (a figure that is not one) is drawn again with what was typed: it stays the whole form (its boxes are not the
+        // stored values) until it is saved or drawn afresh (the Codex review of b40f96a, a2).
+        $bad = $web->post("/ui/purchasing/orders/{$id}/lines", ['line_2_packs' => 'x', 'action' => 'save'] + $web->get("/ui/purchasing/orders/{$id}")->form('/lines'));
+        self::assertSame(422, $bad->status, self::why($bad));
+        self::assertSame(0, self::nodes($bad, '//*[@data-live-save]'));
+        self::assertSame(1, self::nodes($web->get("/ui/purchasing/orders/{$id}"), '//*[@data-live-save]'));
     }
 }
