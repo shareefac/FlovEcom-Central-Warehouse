@@ -7084,12 +7084,14 @@
         el.textContent = code === '' ? '' : (part !== undefined ? text(say(code), [part]) : say(code));
         el.classList.toggle('live-unsaved', code === 'not-saved' || code === 'offline');
       };
+      // Switched back to the Save button (off): never taken away here any more (the boxes' marks may not say what is stored: the form's own
+      // guard again, sent or not; the Codex verify of 7491a84).
       var dirty = function () {
         var any = queue.length > 0 || flying !== null || rows().some(function (tr) { return cells(tr).some(typed) || hasChoice(tr); })
           || heads().some(function (h) { return h.value !== (h.getAttribute('data-live-base') || ''); });
         if (any) {
           form.setAttribute('data-dirty', '1');
-        } else {
+        } else if (on) {
           form.removeAttribute('data-dirty');
         }
         return any;
@@ -7391,8 +7393,10 @@
 
       // My typing on a new line since its add went (answered: carry), put on the line it became or was added to, and saved there on the version
       // that add gave the line (data-live-at). True when that line is no longer that version (someone changed it since): the whole form then
-      // keeps the version it had and the line says who. No version known (an add recorded before the version was kept): the boxes are shown
-      // not saved, nothing sent. A sum of packs below 1 (someone took packs off since) is shown not saved too, never sent as a removal.
+      // keeps the version it had and the line says who. No version known (an add recorded before the version was kept): saved on version 1,
+      // which a line packs were added to never has (it is 2 or more), so the server refuses it as changed and the person chooses; never saved
+      // on the line's version now, maybe someone else's (the Codex verify of 7491a84). A sum of packs below 1 (someone took packs off since) is
+      // shown not saved, never sent as a removal.
       var carried = function (c) {
         var target = rows().filter(function (r) { return r.getAttribute('data-uid') === String(c.uid) && !r.hasAttribute('data-live-drop'); })[0];
         if (!target) {
@@ -7405,8 +7409,8 @@
           }
         });
         // Based on the version the add gave the line, unless I was typing on that line already (that typing keeps the version it saw).
-        if (c.rev > 0 && !cells(target).some(typed)) {
-          target.setAttribute('data-live-at', String(c.rev));
+        if (!cells(target).some(typed)) {
+          target.setAttribute('data-live-at', String(c.rev > 0 ? c.rev : 1));
         }
         var whole = function (s) { return /^[0-9]+$/.test((s || '').trim()) ? parseInt(s.trim(), 10) : null; };
         each(Object.keys(c.boxes), function (cellName) {
@@ -7416,11 +7420,11 @@
           }
           var b = c.boxes[cellName];
           var value = b.value;
-          var bad = c.rev === 0;
+          var bad = false;
           if (c.grew && cellName === 'qty' && whole(b.value) !== null && whole(b.sent) !== null && whole(box.value) !== null) {
             var sum = whole(box.value) + whole(b.value) - whole(b.sent);
             value = String(sum);
-            bad = bad || sum < 1;
+            bad = sum < 1;
           }
           box.value = value;
           if (bad) {
@@ -7520,6 +7524,11 @@
             }
             renameRow(mine, srow.getAttribute('data-kg-line') || '');
             if (mine.getAttribute('data-rev') === srow.getAttribute('data-rev') && !mine.hasAttribute('data-live-gone')) {
+              // The same version drawn: still behind when my typing there is based on an older one (typing carried onto a line someone changed
+              // since my add, its save refused: the Codex verify of 7491a84).
+              if (busyRow(mine) && (mine.getAttribute('data-live-at') || mine.getAttribute('data-rev') || '') !== (srow.getAttribute('data-rev') || '')) {
+                behind = true;
+              }
               want.push(mine);
               return;
             }

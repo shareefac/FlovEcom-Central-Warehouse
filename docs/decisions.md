@@ -18390,6 +18390,15 @@ submit through while the grid is "plain". (5, MEDIUM) Switched to the Save butto
 section 12 and `run_kg.js` (the grid waits for an add out; the whole save's failure and refusal), all red on 1775a73's app.js first
 (`runs/livesave_js_r3_red.log`, `runs/livesave_r3_red_php.log`).
 
+The one Codex verify of these fixes (`livesave_20261119/codex_r4_verify.txt`, git diff 1775a73 7491a84): 1, 3 and 4 FIXED; 2 and 5 PARTLY, and
+one new HIGH, each reproduced, shown failing first (`runs/livesave_js_r4_red.log`) and fixed: (2) the carried save's refusal draws that line at
+the same version, and the equal-version shortcut skipped the behind check: a line whose typing is based on an older version than the one drawn
+keeps the whole form's version there too. (5) Typing after the switch back to the Save button ran the block's leave-guard bookkeeping, which
+took the guard away again (the rows drawn again carry no saved-value marks): switched off, the block only ever sets it; the form's own guard
+does the rest. (New) An add recorded before its version was kept (no `data-op-rev`) marked the carried boxes not saved, and Confirm then sent
+them on the line's version now, over someone else's change: they are now sent on version 1, which a line packs were added to never has (2 or
+more), so the server refuses them as changed and the person chooses. Not reviewed again (the one verify).
+
 ### The full suite (sequential, one part at a time)
 
 On be061fd: Unit 640 OK; UiKernel 702 OK; the rest 1,308 OK (83 skipped: the HTTP tests of slot ui, as before). `LiveSaveUnitTest` (added
