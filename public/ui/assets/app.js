@@ -6501,9 +6501,18 @@
       el.setAttribute('title', label);
       return el;
     };
+    // Drawn again only when what it says changed (or the element is a new one, put in place by a save): a button keeps the cursor, a
+    // screen reader is not told the same again.
+    var drawn = function (el, key) {
+      if (el.getAttribute('data-live-drawn') === key) {
+        return true;
+      }
+      el.setAttribute('data-live-drawn', key);
+      return false;
+    };
     var drawWho = function () {
       var who = document.querySelector('[data-live-here] [data-live-who]');
-      if (!who) {
+      if (!who || drawn(who, stopped ? '' : JSON.stringify(people.map(function (p) { return [p.id, p.name, p.c, p.state, p.edits]; })))) {
         return;
       }
       clean(who);
@@ -6561,7 +6570,7 @@
     };
     var drawNote = function () {
       var el = document.querySelector('[data-live-here] [data-live-note]');
-      if (!el) {
+      if (!el || drawn(el, note ? note.key : '')) {
         return;
       }
       clean(el);
@@ -6569,7 +6578,7 @@
         el.hidden = true;
         return;
       }
-      note(el);
+      note.fill(el);
       el.hidden = false;
     };
     var draw = function () {
@@ -6678,7 +6687,7 @@
       bye();
       people = [];
       known = null;
-      note = function (el) { el.appendChild(button(say('paused'), function () { resume(); })); };
+      note = { key: 'paused', fill: function (el) { el.appendChild(button(say('paused'), function () { resume(); })); } };
       draw();
     };
     var resume = function () {
@@ -6721,10 +6730,10 @@
         var by = typeof j.by === 'string' && j.by !== '' ? j.by : say('someone');
         var words = j.status === 'posted' ? text(say('confirmed'), [by, typeof j.number === 'string' ? j.number : ''])
           : (j.status === 'awaiting_approval' ? text(say('sent-ok'), [by]) : (j.status === 'cancelled' ? text(say('cancelled'), [by]) : ''));
-        note = words === '' ? null : function (el) {
+        note = words === '' ? null : { key: 'done ' + words, fill: function (el) {
           el.appendChild(make('span', [], words));
           el.appendChild(link(say('open'), page));
-        };
+        } };
         stop();
         return;
       }
@@ -6736,7 +6745,7 @@
         var ch = j.changed && typeof j.changed === 'object' ? j.changed : null;
         if (ch && typeof ch.by === 'string' && typeof ch.at === 'string') {
           var said = ch.you === true ? text(say('saved-you'), [ch.at]) : text(say('saved'), [ch.by, ch.at]);
-          note = function (el) { showIt(el, said); };
+          note = { key: 'saved ' + said, fill: function (el) { showIt(el, said); } };
         }
       } else if (typeof j.v === 'number' && j.v <= v && !paused) {
         note = null;
@@ -6798,12 +6807,12 @@
             return;
           }
           if (j && j.out === true) {
-            note = function (el) {
+            note = { key: 'out', fill: function (el) {
               el.appendChild(make('span', [], say('signed-out')));
               if (login.indexOf('/ui/login') === 0) {
                 el.appendChild(link(say('sign-in'), login));
               }
-            };
+            } };
             stop();
             return;
           }

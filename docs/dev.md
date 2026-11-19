@@ -1440,6 +1440,11 @@ figures under the packs box (`[data-kg-units][data-words]`, `data-kg-pack-of` on
 (`[data-kg-vat-rows]` on it, a VAT code a `div[data-kg-vat-row]` drawn before `[data-kg-vat-end]`; `[data-kg-total="vat"]`). The old
 one-page form stays while `po.draft_look = form`. JS: `run_kg.js` with `page({ kind: 'po', paper: true })` (lookpaper's copy of the harness,
 `/root/cw_work/lookpaper_20261118/js_harness/`).
+Who is here on a draft order (`docs/decisions.md` LV18-LV25, setting `live.mode`): the element the script starts on carries `data-live`
+(the poll's address), `data-live-tab`, `data-live-v`, the rhythm `data-live-*-ms` and every word `data-live-<code>` (partial `live_attrs`,
+`Words::LIVE`); `live_here` under the title; a saved line `tr[data-uid]`, its boxes `[data-live-cell]`, the head's `[data-live-box="h:…"]`.
+app.js block "live" (`// live drafts` … `// (live ends here)`); colours `.who-c1`…`.who-c8`. JS: `run_live.js`
+(`/root/cw_work/presence2_20261119/js_harness/`, `runs/presence2_js.sh`).
 
 - Tests: `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (lines in one post, FormOnce, conflicts, the limit, refusals on their row,
   without the script, the head bar, "+ Add new item"'s route, a saved line's item changed in place, the posting time, the keys' pages, the
