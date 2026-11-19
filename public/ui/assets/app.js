@@ -1591,6 +1591,16 @@
       var n = parseInt(m[2], 10) * 100 + parseInt(((m[3] || '') + '00').slice(0, 2), 10);
       return m[1] === '-' ? -n : n;
     };
+    // The paper's two figures on an invoice (net and VAT): a figure typed with more pence digits than a paper has (551.178, worked out on a
+    // calculator) counts as its pennies, half-up, instead of being left out of the Total; the box shows the pennies when it is left (the
+    // owner, 19 Nov 2026: "the vat is not getting updated properly"). The server still takes 2 decimals only (SupplierInvoices::money).
+    var paperE2 = function (v) {
+      var m = /^([0-9]{1,10})\.([0-9]{3,6})$/.exec(String(v).replace(/[,£\s ]/g, ''));
+      if (!m) {
+        return e2(v, false);
+      }
+      return parseInt(m[1], 10) * 100 + parseInt(m[2].slice(0, 2), 10) + (parseInt(m[2].charAt(2), 10) >= 5 ? 1 : 0);
+    };
     var money = function (n) {
       var a = Math.abs(n);
       return (n < 0 ? '-' : '') + '£' + Math.floor(a / 100).toLocaleString('en-GB') + '.' + ('0' + (a % 100)).slice(-2);
@@ -1788,8 +1798,8 @@
       var paperNet = q('input[name="net_total"]');
       var paperVat = q('input[name="vat_total"]');
       if (paperNet || paperVat) { // the invoice: the paper's figures when typed, else the lines (InvoiceOnePage::editPage)
-        var net = paperNet ? e2(paperNet.value, false) : null;
-        var pv = paperVat ? e2(paperVat.value, false) : null;
+        var net = paperNet ? paperE2(paperNet.value) : null;
+        var pv = paperVat ? paperE2(paperVat.value) : null;
         put('total', money((net === null ? sum : net) + (pv === null ? 0 : pv)));
       }
     };
@@ -2237,6 +2247,18 @@
       var t = ev.target;
       if (t && (t.hasAttribute('data-kg-delivery') || t.name === 'net_total' || t.name === 'vat_total')) {
         totals();
+      }
+    });
+    // A paper figure always shows 2 decimals once its box is left (the owner, 19 Nov 2026: "decimal always 2"): 551 -> 551.00, 551.1 -> 551.10,
+    // 551.178 -> 551.18 (paperE2, half-up), "£2,755.89" -> 2755.89. What is saved is what the Total counted. A box that is not a figure stays.
+    form.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (t && (t.name === 'net_total' || t.name === 'vat_total') && String(t.value).trim() !== '') {
+        var n = paperE2(t.value);
+        if (n !== null) {
+          t.value = Math.floor(n / 100) + '.' + ('0' + (n % 100)).slice(-2);
+          totals();
+        }
       }
     });
     document.addEventListener('change', function (ev) {
