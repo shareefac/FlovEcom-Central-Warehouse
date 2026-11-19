@@ -272,6 +272,28 @@ final class WordsTest extends TestCase
         self::assertSame(Words::SETTING_TOPIC['po'], Words::settingTopic('po.draft_look'));
     }
 
+    /** Who is here on a draft order (docs/decisions.md LV18): the words app.js fills, each with its places in the order the script fills them. */
+    public function testWhoIsHereSaysItInWholeSentences(): void
+    {
+        self::assertSame('Fazil is here too', Words::say('LIVE', 'one', 'Fazil'));
+        self::assertSame('Fazil and Asha are here too', Words::say('LIVE', 'two', 'Fazil', 'Asha'));
+        self::assertSame('4 others are here', Words::say('LIVE', 'many', 4));
+        self::assertSame('Asha is looking', Words::say('LIVE', 'looking', 'Asha'));
+        self::assertSame('Fazil (away)', Words::say('LIVE', 'away', 'Fazil'));
+        self::assertSame('Paused. Click to carry on.', Words::LIVE['paused']);
+        self::assertSame('Fazil saved a change at 14:02.', Words::say('LIVE', 'saved', 'Fazil', '14:02'));
+        self::assertSame('Fazil confirmed this order. It is PO-000123 now.', Words::say('LIVE', 'confirmed', 'Fazil', 'PO-000123'));
+        $places = ['one' => 1, 'two' => 2, 'many' => 1, 'looking' => 1, 'away' => 1, 'looks' => 1, 'more' => 1, 'joined' => 1, 'left' => 1, 'saved' => 2,
+            'saved_you' => 1, 'confirmed' => 2, 'sent_ok' => 1, 'cancelled' => 1];
+        foreach (Words::LIVE as $code => $text) {
+            self::assertSame($places[$code] ?? 0, substr_count($text, '%s'), $code);
+            self::assertSame(0, preg_match('/%[^s]/', $text), "{$code}: only %s");
+        }
+        foreach (['joined', 'left', 'paused', 'signed_out', 'saved', 'saved_you', 'confirmed', 'sent_ok', 'cancelled', 'shown'] as $sentence) {
+            self::assertMatchesRegularExpression('/[.]$/', Words::LIVE[$sentence], "{$sentence}: a whole sentence");
+        }
+    }
+
     public function testJobsAndWhoMayOpenAPage(): void
     {
         self::assertSame('Admin · Matching lead (off) · Reviewer (off)', Words::roles(['admin', 'mapping_lead', 'reviewer']));

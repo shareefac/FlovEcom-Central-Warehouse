@@ -14,7 +14,11 @@
 // app.js). A person who may only look gets the same parts with words instead of boxes. The old one-page form is purchase_order_edit.php
 // (po.draft_look = form, the way back for one release). The order's ONE history is the History card: who changed it while it was a draft is
 // in it (LP10; no separate "History of changes" here).
+// Who is here (live drafts step 3b, docs/decisions.md LV18-LV25): with live.mode on, a draft's editor form (or its paper, for a person who may
+// only look) carries the poll and its words ($live: LiveController::pageData, live_attrs) and the chips sit under the title (live_here); each
+// line names its own id (data-uid), each box its place (data-live-cell, data-live-box). A confirmed order and a new one show nobody.
 $paperEdit = $paperEdit ?? false;
+$live = $live ?? null;
 ?>
 <?php if ($paperEdit): ?>
 <?php
@@ -29,6 +33,9 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']],
     aside: $isNew ? $chip('waiting', \CW\Ui\Words::DOC_GRID['not_saved']) : '', meta: $isNew ? '' : $stateChip('PO_STATE', 'draft') . ' ' . $e($factLine)) ?>
 </div>
+<?php if ($live !== null): ?>
+<?= $partial('live_here', []) ?>
+<?php endif; ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -60,7 +67,7 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?php endif; ?>
 <?php // No company note on the page that makes the order (PX10): the confirmed order's page says it. ?>
 
-<form id="po-form" class="po-editor kg-doc kg-paper" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
+<form id="po-form" class="po-editor kg-doc kg-paper" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?><?php if ($live !== null): ?><?= $partial('live_attrs', ['live' => $live]) ?><?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
   <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
@@ -170,6 +177,9 @@ $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainA
     meta: ($doc->number === null ? $stateChip('PO_STATE', $state) . ' ' : '') . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
     ? '<span class="tag ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span> ' : '') . $e($factLine)) ?>
 </div>
+<?php if ($live !== null): ?>
+<?= $partial('live_here', []) ?>
+<?php endif; ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -248,11 +258,14 @@ $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainA
 </ol>
 <?php endif; ?>
 
-<article class="doc-view po-paper" aria-labelledby="lines-h">
-<?= $partial('po_paper_head', ['edit' => false, 'party' => $party, 'deliverTo' => $deliverTo, 'dates' => $dates]) ?>
+<article class="doc-view po-paper" aria-labelledby="lines-h"<?php if ($live !== null): ?><?= $partial('live_attrs', ['live' => $live]) ?><?php endif; ?>>
+<?php if ($live !== null): ?>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+<?php endif; ?>
+<?= $partial('po_paper_head', ['edit' => false, 'party' => $party, 'deliverTo' => $deliverTo, 'dates' => $dates, 'marks' => $live !== null]) ?>
   <h2 id="lines-h" class="visually-hidden"><?= $word('ORDER', 'lines') ?></h2>
-<?= $partial('po_paper_lines', ['edit' => false, 'doc' => $doc, 'lines' => $lines, 'stock' => $stock ?? [], 'state' => $state]) ?>
-<?= $partial('po_paper_foot', ['edit' => false, 'note' => $doc->note, 'totalRows' => $totalRows]) ?>
+<?= $partial('po_paper_lines', ['edit' => false, 'doc' => $doc, 'lines' => $lines, 'stock' => $stock ?? [], 'state' => $state, 'marks' => $live !== null]) ?>
+<?= $partial('po_paper_foot', ['edit' => false, 'note' => $doc->note, 'totalRows' => $totalRows, 'marks' => $live !== null]) ?>
 </article>
 
 <?= $partial('po_cards', ['related' => $related, 'events' => $events, 'eventsMore' => $eventsMore ?? null, 'history' => $history]) ?>

@@ -49,6 +49,7 @@ final class UiTemplatesTest extends TestCase
             'simple_match', 'simple_match_options', // Products › Simple matching and its cell's choices (docs/decisions.md SM1-SM9)
             'po_products', // the purchase order's product box: its choices (docs/decisions.md PX8)
             'po_paper_head', 'po_paper_lines', 'po_paper_line', 'po_paper_foot', 'po_cards', // the order's paper, a draft's boxes in place (docs/decisions.md LP1)
+            'live_attrs', 'live_here', // who is here on a draft order: the script's poll and words, the chips' place (docs/decisions.md LV18)
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page and the shared document pieces (docs/decisions.md PV)
             'po_action', 'si_action', // the approved design: one action of a saved order or invoice, in its bar or under More (docs/decisions.md PV19)
             'store_new_preview', // Store Products' "Create new warehouse products for these" (docs/decisions.md NF7)
@@ -244,6 +245,7 @@ final class UiTemplatesTest extends TestCase
             'sales_order_bar', 'report_sales', // wave w10: an order's bar; Sales by Store on the report pattern (docs/decisions.md W10)
             'po_supplier_needs', 'po_products', // pack PO (PO3); PO on one page (PX8): the product box's choices
             'po_paper_head', 'po_paper_lines', 'po_paper_line', 'po_paper_foot', 'po_cards', // one look (LP1): the paper's parts
+            'live_here', // who is here (LV18): the chips' place (live_attrs is attributes alone, as doc_grid_words: no markup to read words from)
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page, the shared document pieces (PV)
             'po_action', 'si_action', // the approved design: a saved order's or invoice's actions (PV19)
             // Suppliers and buying on the approved patterns (docs/decisions.md W9)

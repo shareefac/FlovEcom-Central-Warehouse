@@ -4063,3 +4063,43 @@ form.kg-paper table.kg-grid td.num input.kg-flat:placeholder-shown, form.kg-pape
 .po-send { margin: 0 0 20px; }
 .po-send > .doc-act-panel { margin: 0; }
 /* ==== end lp ====================================================================================================================== */
+/* ==== live: who is here on a draft order (live drafts step 3b, branch live-presence-screen; docs/decisions.md LV18-LV25) ==============
+   Each person's colour is a class, who-c1 to who-c8 (the number decided by the server, LV7; the CSP allows no inline style): white words on
+   each pass WCAG AA (4.5:1). The colour is never the only sign: an outline always has its name tag. app.js's block "live" puts the classes on
+   the chips under the title, on a line's row (a 3 px edge), on the box a person is in (an outline) and on the name tag at that box. */
+.who-c1 { --who: #1f5fbf; }
+.who-c2 { --who: #0f7a5a; }
+.who-c3 { --who: #a65c00; }
+.who-c4 { --who: #6b3fd4; }
+.who-c5 { --who: #c2263d; }
+.who-c6 { --who: #0b6e8f; }
+.who-c7 { --who: #8f0a71; }
+.who-c8 { --who: #5c6b00; }
+/* Under the title: the page's sentence with each person a chip (a dot and the name); away: faded; a note and its button under it. */
+.live-here { margin: -6px 0 14px; }
+.live-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font: 400 13px/22px var(--font); color: var(--ink-body); }
+.live-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border: 1px solid var(--hairline); border-radius: var(--r-pill); background: var(--card); color: var(--ink); font-weight: 500; }
+.live-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--who); }
+.live-chip.live-away { opacity: .55; }
+.live-init, .live-more { display: none; }
+.live-more { align-items: center; padding: 1px 8px; border: 1px solid var(--hairline); border-radius: var(--r-pill); background: var(--card); color: var(--ink-muted); font: 500 13px/22px var(--font); }
+.live-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 0; font: 400 13px/22px var(--font); color: var(--ink-body); }
+.live-note .btn { min-height: 32px; }
+/* On the lines and in the head: the line's edge, the box's outline and the name tag at its top right. */
+tr.live-row > :first-child { box-shadow: inset 3px 0 0 var(--who); }
+.live-at { position: relative; outline: 2px solid var(--who); outline-offset: -2px; }
+.live-tag { position: absolute; top: -9px; right: 4px; z-index: 3; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; border-radius: var(--r-8); background: var(--who); color: #fff; font: 600 11px/16px var(--font); white-space: nowrap; pointer-events: none; }
+/* A phone (rule 14): a line is a card; its edge is the card's left edge and the tag sits at the card's top right. Many people: their
+   initials, the 4th on folded into "+N". */
+@container (max-width: 640px) {
+  table.stack tr.live-row { position: relative; box-shadow: inset 3px 0 0 var(--who); }
+  table.stack tr.live-row > :first-child { box-shadow: none; }
+}
+@media (max-width: 640px) {
+  .live-many .live-name { display: none; }
+  .live-many .live-init { display: inline; }
+  .live-many .live-chip:nth-of-type(n+4) { display: none; }
+  .live-more { display: inline-flex; }
+  .live-note .btn { min-height: 44px; }
+}
+/* ==== end live ==================================================================================================================== */

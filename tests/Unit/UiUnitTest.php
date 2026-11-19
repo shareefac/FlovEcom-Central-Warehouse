@@ -1151,7 +1151,7 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
         self::assertStringContainsString("each(document.querySelectorAll('select[data-pi-from]'), function (from) {", $js);
         self::assertStringContainsString("each(document.querySelectorAll('input[data-pi-due]'), function (due) {", $js);
-        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'still one fetch');
+        self::assertSame(2, preg_match_all('/\bfetch\s*\(/', $js), 'still the fragments\' one fetch (and the poll of who is here on a draft order, LV21)');
         // The Codex review of 6418b15, finding 4 (driven in node: runs/pione_js_harness/): the due date is filled only while the box is empty
         // or holds the date the page filled; a date typed, or the box cleared by the person, is theirs; due_shown follows what it shows.
         self::assertStringContainsString("if (typed || days === null || !m || (due.value !== '' && due.value !== auto)) {", $js);
@@ -1642,8 +1642,15 @@ final class UiUnitTest extends TestCase
         // lists' Check & match fold (docs/decisions.md CM1; data-check, a path of /ui/review/listing/…/check). One fetch for both, sent
         // with the session's cookie only to this site, parsed inert (DOMParser: nothing in it runs) and shown only when its root
         // carries the marker of the route it was asked of. Nothing else talks to the network, and nothing is sent but the GET.
-        self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
-        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
+        self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|EventSource)\b/', $js, 'no other way to the network');
+        // Who is here (live drafts step 3b, docs/decisions.md LV18): the draft's poll is the second fetch and the one beacon (the page left), both
+        // in the block "live" only, both to the page's own poll address (testWhoIsHereIsOneBlockWithItsWordsFromThePage).
+        self::assertSame(2, preg_match_all('/\bfetch\s*\(/', $js), 'two fetches: the fragments\' and the poll of who is here');
+        self::assertSame(1, preg_match_all('/\bsendBeacon\s*\(/', $js), 'one beacon: the poll\'s goodbye');
+        $from = (int) strpos($js, '  // live drafts');
+        $live = substr($js, $from, (int) strpos($js, '  // (live ends here)') - $from);
+        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $live), 'the second fetch is the poll\'s');
+        self::assertSame(1, preg_match_all('/\bsendBeacon\s*\(/', $live));
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
             . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', "
             . "'[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };", $js,
@@ -1763,6 +1770,73 @@ final class UiUnitTest extends TestCase
      * form.kg-doc) is drawn as before; the focus ring always shows; a touch screen (no hover) shows the boxes; no movement when reduced motion is
      * asked for. One grid engine still: app.js draws the paper's VAT rows and its pack figures, and shows Print again after a save.
      */
+    /**
+     * Who is here on a draft order, on the screen (the live drafts plan, step 3b; docs/decisions.md LV18-LV25): ONE block of app.js ("live",
+     * from "// live drafts" to "// (live ends here)") draws it, with ONE timer chain (setTimeout, never setInterval), one poll in flight, the
+     * poll only to the page's own address, a 303 never followed, the beacon only when the page is left, active=1 only after a real key or
+     * mouse; every word it shows comes from the page (dev.md rule 17: none of Words::LIVE is in the script, no sentence in a string) and every
+     * name goes in as text (no markup is built: the assets test). The colours are eight classes (the CSP: no inline style), each readable as a
+     * tag behind white text (WCAG AA, 4.5:1), and never the only sign: the name tag is drawn with every outline.
+     */
+    public function testWhoIsHereIsOneBlockWithItsWordsFromThePage(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, substr_count($js, '  // live drafts'), 'the block starts once');
+        self::assertSame(1, substr_count($js, '  // (live ends here)'), 'and ends once');
+        $from = (int) strpos($js, '  // live drafts');
+        $to = (int) strpos($js, '  // (live ends here)');
+        self::assertGreaterThan($from, $to);
+        $live = substr($js, $from, $to - $from);
+        $code = (string) preg_replace('#^\s*//.*$#m', '', $live); // the block without its comments
+        self::assertStringNotContainsString('setInterval', $code, 'never setInterval');
+        self::assertSame(1, preg_match_all('/\bsetTimeout\s*\(/', $code), 'one place sets the timer: the chain');
+        self::assertGreaterThanOrEqual(1, preg_match_all('/\bclearTimeout\s*\(/', $code), 'the timer is cleared before it is set again');
+        self::assertStringContainsString("var LIVE_PATH = /^\\/ui\\/purchasing\\/orders\\/[1-9][0-9]{0,17}\\/live$/;", $code, 'the poll goes only to an order\'s own poll');
+        self::assertStringContainsString("redirect: 'manual'", $code, 'a 303 (signed out) is never followed');
+        self::assertStringContainsString('isTrusted === false', $code, 'active only after a real key or mouse');
+        self::assertStringContainsString("getAttribute('data-live-active-ms')", $code, 'at most once in that time');
+        self::assertStringContainsString("addEventListener('pagehide'", $code, 'goodbye when the page is left');
+        self::assertStringContainsString("addEventListener('visibilitychange'", $code, 'a hidden page stops');
+        self::assertDoesNotMatchRegularExpression('/innerHTML|outerHTML|insertAdjacentHTML|\.style\b|setAttribute\(\s*[\'"]style/', $code, 'text only, no inline style');
+        self::assertStringContainsString("getAttribute('data-live-' + ", $code, 'the words from the page');
+        foreach (Words::LIVE as $k => $text) {
+            self::assertStringNotContainsString($text, $js, "the word {$k} is the page's, never the script's");
+        }
+        // No sentence or name in a string of the block: a literal holds a selector, an attribute, a class, an event or a value sent.
+        preg_match_all("/'(?:[^'\\\\\n]|\\\\.)*'/", $code, $m);
+        self::assertGreaterThan(50, count($m[0]), 'the strings were read');
+        $words = array_values(array_filter($m[0], static fn (string $lit): bool => preg_match('/[A-Za-z]{2,} [A-Za-z]{2,}/', $lit) === 1));
+        self::assertSame([], $words, 'no words in the script');
+        // No time of its own: the rhythm is the page's (data-live-*-ms: the settings and Presence's numbers).
+        self::assertSame(0, preg_match_all('/\b(?:300|1000|2000|3000|5000|10000|25000|30000|60000|120000|600000)\b/', $code, $n), 'times: ' . implode(' ', $n[0] ?? []));
+
+        // The colours: eight classes, each a colour readable behind white text; used by the chips, the line's edge, the outline and the tag.
+        $plain = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        $lum = static function (string $hex): float {
+            $c = array_map(static fn (string $h): float => hexdec($h) / 255, str_split($hex, 2));
+            $c = array_map(static fn (float $v): float => $v <= 0.03928 ? $v / 12.92 : (($v + 0.055) / 1.055) ** 2.4, $c);
+            return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2];
+        };
+        $seen = [];
+        for ($i = 1; $i <= 8; $i++) {
+            self::assertSame(1, preg_match('/\.who-c' . $i . ' \{ --who: #([0-9a-f]{6}); \}/', $plain, $c), "who-c{$i}");
+            self::assertGreaterThanOrEqual(4.5, 1.05 / ($lum($c[1]) + 0.05), "who-c{$i}: white text on it passes AA");
+            $seen[$c[1]] = true;
+        }
+        self::assertCount(8, $seen, 'eight different colours');
+        foreach (['.live-dot', 'tr.live-row > :first-child', '.live-at', '.live-tag'] as $sel) {
+            self::assertSame(1, preg_match('/' . preg_quote($sel, '/') . ' \{[^}]*var\(--who\)/', $plain), "{$sel} is drawn in the person's colour");
+        }
+        self::assertSame(1, preg_match('/\.live-tag \{[^}]*color: #fff;/', $plain), 'the tag: white words on the colour');
+        self::assertSame(1, preg_match('/\.live-at \{[^}]*outline: 2px solid var\(--who\)/', $plain), 'the outline on the box');
+        self::assertSame(1, preg_match('/\.live-chip\.live-away \{[^}]*opacity:/', $plain), 'away: faded');
+        // A phone (rule 14): the 4th chip on folds into "+N", the names of many into their initials; the tag sits in the card.
+        self::assertSame(1, preg_match('/@media \(max-width: 640px\) \{[^@]*\.live-many \.live-chip:nth-of-type\(n\+4\) \{ display: none; \}/s', $plain));
+        self::assertSame(1, preg_match('/@media \(max-width: 640px\) \{[^@]*\.live-more \{ display: inline-flex; \}/s', $plain));
+        self::assertStringNotContainsString('who-c', (string) preg_replace('/\.who-c[1-8]\b/', '', $plain), 'only as classes');
+    }
+
     public function testThePapersBoxesAreScopedToThePaperAndTheEngineIsStillOne(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');

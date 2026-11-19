@@ -18,6 +18,9 @@
 // ERPNext's head as the demo the owner approved (docs/decisions.md KG26, KG31): the status beside the title (Not saved on a new order), the
 // actions on the right: Keys (?), "..." (the rest), Save, and the dark main button Confirm.
 $confirmWord = $overLimit ? \CW\Ui\Words::PO['confirm_over_limit'] : \CW\Ui\Words::PO_ONE['confirm'];
+// Who is here (live drafts step 3b, docs/decisions.md LV18): as on the paper, the poll and its words on the form ($live, live_attrs), the
+// chips under the title (live_here), each line's own id (data-uid) and each box's place (data-live-cell, data-live-box).
+$live = $live ?? null;
 $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\Words::ORDER['add_button'], 'back' => '/ui/purchasing/orders', 'more' => $isNew ? '' : 'po_head_more', 'moreData' => ['doc' => $doc, 'editable' => $editable], 'buttons' => [
         ['value' => 'save', 'label' => \CW\Ui\Words::PO_ONE['save']],
         ['value' => 'approve', 'label' => $confirmWord, 'primary' => true]]]);
@@ -25,6 +28,9 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']],
     aside: $isNew ? $chip('waiting', \CW\Ui\Words::DOC_GRID['not_saved']) : $stateChip('PO_STATE', 'draft'),
     side: $headSide) ?>
+<?php if ($live !== null): ?>
+<?= $partial('live_here', []) ?>
+<?php endif; ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -49,7 +55,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
 <?php endif; ?>
 
-<form id="po-form" class="po-editor kg-doc" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?>>
+<form id="po-form" class="po-editor kg-doc" method="post" action="<?= $u($formAction) ?>" data-kg-editor="po:<?= $e($isNew ? 'new' : $doc->id) ?>"<?php if (!$isNew): ?> data-kg-address="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"<?php endif; ?> novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>"<?php if ($grid['newRows'] !== [] || $grid['removed'] !== []): ?> data-dirty="1"<?php endif; ?><?php if (($errorCode ?? null) === 'version_conflict'): ?> data-kg-conflict<?php endif; ?><?php if ($live !== null): ?><?= $partial('live_attrs', ['live' => $live]) ?><?php endif; ?>>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
   <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
@@ -67,7 +73,7 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <?php if ($supplierFixed): ?>
     <p class="po-fixed"><?= $word('ORDER', 'supplier') ?>: <a href="<?= $u('/ui/purchasing/suppliers/' . ($supplier['id'] ?? 0)) ?>"><?= $e($supplierName) ?></a></p>
 <?php else: ?>
-    <div class="po-box-field">
+    <div class="po-box-field" data-live-box="h:supplier">
       <label for="po-supplier"><?= $word('ORDER', 'supplier') ?></label>
       <select name="supplier_id" id="po-supplier" data-po-supplier data-placeholder="<?= $word('PO_ONE', 'supplier_hint') ?>" data-label="<?= $word('PO_ONE', 'suppliers') ?>" data-change-ask="<?= $word('DOC_GRID', 'change_ask') ?>" data-change-yes="<?= $word('DOC_GRID', 'change_yes') ?>" data-change-keep="<?= $word('DOC_GRID', 'change_keep') ?>"<?php if ($canAddSupplier): ?> data-add="<?= $word('PO_ADD', 'new_supplier') ?>" data-panel="po-add-supplier"<?php else: ?> data-ask="<?= $e($askSupplier) ?>"<?php endif; ?>>
         <option value=""><?= $word('ORDERS', 'choose_supplier') ?></option>
@@ -91,9 +97,9 @@ $headSide = $partial('doc_head_bar', ['form' => 'po-form', 'default' => \CW\Ui\W
 <?php endif; ?>
     </div>
 <?php endif; ?>
-    <label><?= $word('ORDER', 'expected') ?> <input type="date" name="expected_date" value="<?= $e($info['expected_date']) ?>"></label>
-    <label><?= $word('ORDER', 'ref') ?> <input type="text" name="external_ref" maxlength="191" value="<?= $e($info['external_ref']) ?>"></label>
-    <label class="kg-wide"><?= $word('ORDER', 'note') ?> <input type="text" name="note" maxlength="1000" value="<?= $e($info['note']) ?>"></label>
+    <label data-live-box="h:expected_date"><?= $word('ORDER', 'expected') ?> <input type="date" name="expected_date" value="<?= $e($info['expected_date']) ?>"></label>
+    <label data-live-box="h:external_ref"><?= $word('ORDER', 'ref') ?> <input type="text" name="external_ref" maxlength="191" value="<?= $e($info['external_ref']) ?>"></label>
+    <label class="kg-wide" data-live-box="h:note"><?= $word('ORDER', 'note') ?> <input type="text" name="note" maxlength="1000" value="<?= $e($info['note']) ?>"></label>
   </fieldset>
   </section>
 
@@ -131,22 +137,22 @@ $rowNo = 0;
       <tbody>
 <?php foreach ($lines as $i => $l): ?>
 <?php $no = $i + 1; $gone = $editable && isset($grid['removed'][$no]); $bad = $grid['bad'] === 'line:' . $no; if (!$gone) { $rowNo++; } ?>
-        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if ($l['kind'] !== 'charge'): ?> data-si="<?= $e($l['supplier_item_id'] ?? '') ?>" data-sku="<?= $e($l['supplier_item_id'] === null ? $l['sku_id'] : '') ?>" data-u="<?= $e($l['supplier_item_id'] === null && (int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-name="<?= $e($l['sku_name']) ?>" data-code="<?= $e($l['sku_code']) ?>" data-pack="<?= $e($l['pack_label']) ?>" data-their="<?= $e($l['code'] ?? '') ?>" data-stock="<?= $e(($stock ?? [])[(int) $l['sku_id']]['on_hand'] ?? '') ?>" data-coming="<?= $e(($stock ?? [])[(int) $l['sku_id']]['coming'] ?? '') ?>"<?php endif; ?> data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-kg-vat="<?= $e($l['vat_code']) ?>" data-kg-rate="<?= $e($l['vat_rate']) ?>" data-kg-e2="<?= $e(\CW\PurchaseOrders\PoMath::e2((string) $l['amount'])) ?>"<?php if ($l['kind'] === 'charge'): ?> data-kg-charge<?php endif; ?><?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1) || $bad): ?> class="<?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1)): ?>differs<?php endif; ?><?php if ($bad): ?> kg-bad<?php endif; ?>"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
+        <tr data-kg-row data-kg-line="<?= $e($no) ?>"<?php if (($l['uid'] ?? null) !== null): ?> data-uid="<?= $e($l['uid']) ?>"<?php endif; ?><?php if ($l['kind'] !== 'charge'): ?> data-si="<?= $e($l['supplier_item_id'] ?? '') ?>" data-sku="<?= $e($l['supplier_item_id'] === null ? $l['sku_id'] : '') ?>" data-u="<?= $e($l['supplier_item_id'] === null && (int) $l['units_per_pack'] > 1 ? $l['units_per_pack'] : '') ?>" data-name="<?= $e($l['sku_name']) ?>" data-code="<?= $e($l['sku_code']) ?>" data-pack="<?= $e($l['pack_label']) ?>" data-their="<?= $e($l['code'] ?? '') ?>" data-stock="<?= $e(($stock ?? [])[(int) $l['sku_id']]['on_hand'] ?? '') ?>" data-coming="<?= $e(($stock ?? [])[(int) $l['sku_id']]['coming'] ?? '') ?>"<?php endif; ?> data-kg-upp="<?= $e($l['units_per_pack']) ?>" data-kg-vat="<?= $e($l['vat_code']) ?>" data-kg-rate="<?= $e($l['vat_rate']) ?>" data-kg-e2="<?= $e(\CW\PurchaseOrders\PoMath::e2((string) $l['amount'])) ?>"<?php if ($l['kind'] === 'charge'): ?> data-kg-charge<?php endif; ?><?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1) || $bad): ?> class="<?php if ($l['merged_into_sku_id'] !== null || ($l['si_active'] !== null && (int) $l['si_active'] !== 1)): ?>differs<?php endif; ?><?php if ($bad): ?> kg-bad<?php endif; ?>"<?php endif; ?><?php if ($gone): ?> hidden<?php endif; ?>>
           <td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>" data-kg-no><?php if (!$gone): ?><?= $e($rowNo) ?><?php endif; ?></td>
 <?php if ($l['kind'] === 'charge'): ?>
-          <th scope="row" class="c-head c-item"><span class="kg-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span><?php if ($editable): ?><input type="hidden" name="line_<?= $e($no) ?>_packs" value="1"><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
+          <th scope="row" class="c-head c-item" data-live-cell="item"><span class="kg-name"><?= $e($l['description'] ?? \CW\Ui\Words::ORDER['charge']) ?></span><?php if ($editable): ?><input type="hidden" name="line_<?= $e($no) ?>_packs" value="1"><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
 <?= $partial('doc_stock', ['st' => null]) ?>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"></td>
           <td data-label="<?= $word('ORDER', 'pack') ?>"></td>
           <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"></td>
-          <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
+          <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>" data-live-cell="price"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
 <?php else: ?>
-          <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>" class="kg-name" tabindex="-1"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span><?php if ($l['merged_into_sku_id'] !== null): ?> <span class="tag blocked"><?= $word('ORDER', 'replaced') ?></span><?php elseif ($l['si_active'] !== null && (int) $l['si_active'] !== 1): ?> <span class="tag needs"><?= $word('ORDER', 'switched_off') ?></span><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
+          <th scope="row" class="c-head c-item" data-live-cell="item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>" class="kg-name" tabindex="-1"><?= $e($l['sku_name']) ?></a> <span class="kg-code"><?= $e($l['sku_code']) ?></span><?php if ($l['merged_into_sku_id'] !== null): ?> <span class="tag blocked"><?= $word('ORDER', 'replaced') ?></span><?php elseif ($l['si_active'] !== null && (int) $l['si_active'] !== 1): ?> <span class="tag needs"><?= $word('ORDER', 'switched_off') ?></span><?php endif; ?><?php if ($bad): ?><span class="o-sub kg-error"><?= $e($grid['badText']) ?></span><?php endif; ?></th>
 <?= $partial('doc_stock', ['st' => ($stock ?? [])[(int) $l['sku_id']] ?? null]) ?>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"><?= $e($l['code']) ?></td>
-          <td data-label="<?= $word('ORDER', 'pack') ?>"><?php if ($l['supplier_item_id'] === null && $editable): ?><label><?= $word('ORDER', 'items_per_pack') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short" data-kg-cell="upp"></label><?php else: ?><?= $e($l['pack_label']) ?><?php endif; ?></td>
-          <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"><?php if ($editable): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" data-kg-cell="qty" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'packs') ?>"><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
-          <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
+          <td data-label="<?= $word('ORDER', 'pack') ?>"><?php if ($l['supplier_item_id'] === null && $editable): ?><label data-live-cell="upp"><?= $word('ORDER', 'items_per_pack') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short" data-kg-cell="upp"></label><?php else: ?><?= $e($l['pack_label']) ?><?php endif; ?></td>
+          <td class="num" data-label="<?= $word('ORDER', 'packs') ?>" data-live-cell="qty"><?php if ($editable): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" data-kg-cell="qty" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'packs') ?>"><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
+          <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>" data-live-cell="price"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" autocomplete="off" data-kg-cell="price" aria-keyshortcuts="Control+Delete Meta+Backspace" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
 <?php endif; ?>
           <td class="num" data-label="<?= $word('ORDER', 'total') ?>" data-kg-amount><?= $e($l['net']) ?></td>
           <td class="c-status"><?php if ($editable): ?><button type="submit" name="remove_line" value="<?= $e($no) ?>" class="btn ghost po-x" data-kg-x aria-label="<?= $say('PO_ONE', 'remove', $no) ?>">&times;</button><?php if ($gone): ?><input type="hidden" name="line_<?= $e($no) ?>_remove" value="1"><?php endif; ?><?php endif; ?></td>
@@ -259,7 +265,7 @@ $rowNo = 0;
 <?php endforeach; ?>
         </tbody>
         <tbody class="kg-charge-rows">
-          <tr><td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"></td><th scope="row"><label for="po-delivery"><?= $word('PO_ONE', 'delivery') ?></label></th><td class="num" data-label="<?= $word('DOC_GRID', 'tax_rate') ?>" data-kg-delivery-rate></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_net') ?>"><input id="po-delivery" type="text" name="charge_amount" inputmode="decimal" class="short" value="<?= $e($typed['charge_amount'] ?? '') ?>" data-kg-delivery></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_vat') ?>" data-kg-delivery-vat></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_total') ?>" data-kg-delivery-total></td></tr>
+          <tr><td class="c-no" data-label="<?= $word('DOC_GRID', 'no') ?>"></td><th scope="row"><label for="po-delivery"><?= $word('PO_ONE', 'delivery') ?></label></th><td class="num" data-label="<?= $word('DOC_GRID', 'tax_rate') ?>" data-kg-delivery-rate></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_net') ?>" data-live-box="h:delivery"><input id="po-delivery" type="text" name="charge_amount" inputmode="decimal" class="short" value="<?= $e($typed['charge_amount'] ?? '') ?>" data-kg-delivery></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_vat') ?>" data-kg-delivery-vat></td><td class="num" data-label="<?= $word('DOC_GRID', 'tax_total') ?>" data-kg-delivery-total></td></tr>
         </tbody>
       </table>
       </div>

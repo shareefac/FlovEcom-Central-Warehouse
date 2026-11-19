@@ -6290,4 +6290,627 @@
       new window.ResizeObserver(lift).observe(footBar.closest('.page') || work); // a fold opened, a line added
     }
   }
+  // live drafts: who else has a draft order open, and where (the live drafts plan, step 3b, 3.1 and 3.4; docs/decisions.md LV18-LV25; the
+  // owner, 18 Nov 2026: "we need to show each other if each others are in the same window as like in google sheets where we know which line
+  // they are pressed in"). Started on the element that carries data-live (the order's editor form, or a draft's paper for a person who may
+  // only look; drawn only while the setting live.mode is not off). Each open page posts a short poll to its own address
+  // (/ui/purchasing/orders/<id>/live, LiveController): its tab, the version it shows, the box the cursor is in ("7:qty", "h:note"), active
+  // or away, typing. The answer (JSON: numbers and names, never words) says who else is here; the page draws them:
+  //  - under the title (data-live-here): the page's sentence with each person a chip in their colour (who-c1..8), faded when away; three or
+  //    more: their initials on a phone, the 4th on folded into "+N";
+  //  - on the lines: the row of a person's line gets a coloured edge (live-row), the box they are in an outline (live-at) and their name tag
+  //    (live-tag); the head's boxes the same. Names go in as text only (never as markup). The colour is never the only sign.
+  //  - one polite live region says who came and who left, in whole sentences, at most once in data-live-say-ms.
+  // The rhythm (every number is the page's, data-live-*-ms): ONE timer (setTimeout, never setInterval; set again only after it fired or was
+  // cleared) and at most one poll on its way; the next poll after the answer: the server's poll_ms (quick while someone else is here, slow
+  // alone), spread by the jitter; no key or mouse for data-live-away-ms: "away" and the slow pace; for data-live-stop-ms: no more polls, a
+  // goodbye, the paused note (Words LIVE paused) until a key or the mouse is used again; the page hidden: one away poll, then none until it is
+  // shown again (then at once); the page left: a goodbye by the browser's beacon, its row goes; no answer, an error or a slow answer: the wait
+  // doubles up to data-live-max-ms (a poll on its way longer than that is given up), back to the server's pace at the first good answer.
+  // The session (LV4): a poll is passive; it says active=1 only after a real key or mouse (ev.isTrusted), at most once in
+  // data-live-active-ms, so a page left open is still signed out after the idle limit. A 303 (signed out) is never followed: polling stops
+  // and the page says so. 400, 403, 404: this page cannot show who is here (another sign-in in this browser, the right to look taken away):
+  // polling stops, quietly. The answer mode "off": nothing more is drawn or sent. A draft confirmed, sent for its OK or cancelled by someone:
+  // polling stops and the page says who, with the way to the order. A draft saved since the page was drawn (the answer's version is newer
+  // than the page's): who saved it and when, with a button: the page again (a GET), or, with something typed, the editor's form sent
+  // with action=show (the server draws the draft as it is now with the new lines typed kept, as after a refused save; nothing saved).
+  var LIVE_PATH = /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}\/live$/;
+  var LIVE_PAGE = /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}$/;
+  var LIVE_TAB = /^[0-9a-f]{16}$/;
+  var liveStart = function (root) {
+    var url = root.getAttribute('data-live') || '';
+    var tab = root.getAttribute('data-live-tab') || '';
+    var page = root.getAttribute('data-live-page') || '';
+    var login = root.getAttribute('data-live-login') || '';
+    var num = function (v) {
+      var n = parseInt(v || '', 10);
+      return isFinite(n) && n > 0 ? n : 0;
+    };
+    var aloneMs = num(root.getAttribute('data-live-ms'));
+    var awayMs = num(root.getAttribute('data-live-away-ms'));
+    var stopMs = num(root.getAttribute('data-live-stop-ms'));
+    var maxMs = num(root.getAttribute('data-live-max-ms'));
+    var slowMs = num(root.getAttribute('data-live-slow-ms'));
+    var activeMs = num(root.getAttribute('data-live-active-ms'));
+    var jitterMs = num(root.getAttribute('data-live-jitter-ms'));
+    var sayMs = num(root.getAttribute('data-live-say-ms'));
+    if (!LIVE_PATH.test(url) || url !== page + '/live' || !LIVE_PAGE.test(page) || !LIVE_TAB.test(tab) || !aloneMs || !awayMs || !stopMs || !maxMs || !slowMs
+      || !activeMs || !sayMs || !window.fetch || !window.URLSearchParams) {
+      return;
+    }
+    var form = root.tagName === 'FORM' ? root : null;
+    var say = function (code) { return root.getAttribute('data-live-' + code) || ''; };
+    // A word with its places (%s) filled in order: the parts are text, or elements put in their place (the chips).
+    var fill = function (into, words, parts) {
+      var bits = words.split('%s');
+      each(bits, function (bit, i) {
+        if (bit !== '') {
+          into.appendChild(document.createTextNode(bit));
+        }
+        if (i < bits.length - 1 && i < parts.length) {
+          var p = parts[i];
+          into.appendChild(typeof p === 'string' || typeof p === 'number' ? document.createTextNode(String(p)) : p);
+        }
+      });
+      return into;
+    };
+    var text = function (words, parts) {
+      var bits = words.split('%s');
+      var out = '';
+      each(bits, function (bit, i) {
+        out += bit + (i < bits.length - 1 && i < parts.length ? String(parts[i]) : '');
+      });
+      return out;
+    };
+    var make = function (tag, classes, words) {
+      var el = document.createElement(tag);
+      each(classes, function (c) { el.classList.add(c); });
+      if (words !== undefined) {
+        el.textContent = words;
+      }
+      return el;
+    };
+    var clean = function (el) {
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
+      }
+    };
+
+    // The state of this page.
+    var timer = null;
+    var busy = false;
+    var stopped = false;
+    var paused = false;
+    var left = false;
+    var hiddenSent = false;
+    var backoff = 0;
+    var nextMs = aloneMs;
+    var lastInput = Date.now();
+    var lastActive = 0;
+    var inputSinceActive = false;
+    var place = '';
+    var typing = false;
+    var people = [];
+    var known = null;
+    var queue = [];
+    var lastSaid = 0;
+    var note = null;
+
+    // The one timer: set again only after it fired or was cleared.
+    var cancel = function () {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+    var schedule = function (fn, ms) {
+      cancel();
+      timer = window.setTimeout(function () {
+        timer = null;
+        fn();
+      }, Math.max(0, ms));
+    };
+    var hidden = function () { return document.visibilityState === 'hidden'; };
+    var pageV = function () {
+      var input = form ? form.querySelector('input[type="hidden"][name="version"]') : null;
+      return num(input ? input.value : root.getAttribute('data-live-v'));
+    };
+    var token = function () {
+      var c = root.querySelector('input[name="csrf"]');
+      return c ? c.value : '';
+    };
+
+    // The place of an element: a head box ("h:note") or a line's box ("7:qty"), else none.
+    var placeOf = function (el) {
+      if (!el || !el.closest || !root.contains(el)) {
+        return '';
+      }
+      var box = el.closest('[data-live-box]');
+      if (box) {
+        var key = box.getAttribute('data-live-box') || '';
+        return /^h:[a-z][a-z_]{0,21}$/.test(key) ? key : '';
+      }
+      var row = el.closest('tr[data-uid]');
+      var cell = el.closest('[data-live-cell]');
+      if (!row || !cell || !row.contains(cell)) {
+        return '';
+      }
+      var uid = row.getAttribute('data-uid') || '';
+      var field = cell.getAttribute('data-live-cell') || '';
+      return /^[1-9][0-9]{0,9}$/.test(uid) && /^[a-z][a-z_]{0,23}$/.test(field) ? uid + ':' + field : '';
+    };
+
+    // What is drawn: the marks on the lines and the head (removed before each drawing), the chips, the note.
+    var marked = [];
+    var unmark = function () {
+      each(marked, function (m) {
+        m.el.classList.remove('live-row');
+        m.el.classList.remove('live-at');
+        for (var c = 1; c <= 8; c++) {
+          m.el.classList.remove('who-c' + c);
+        }
+        if (m.tag && m.tag.parentNode) {
+          m.tag.parentNode.removeChild(m.tag);
+        }
+      });
+      marked = [];
+    };
+    var markBox = function (el, p) {
+      for (var i = 0; i < marked.length; i++) {
+        if (marked[i].el === el && marked[i].tag) {
+          marked[i].tag.textContent = marked[i].tag.textContent + ', ' + p.name;
+          return;
+        }
+      }
+      el.classList.add('live-at');
+      el.classList.add('who-c' + p.c);
+      var tag = make('span', ['live-tag', 'who-c' + p.c], p.name);
+      tag.setAttribute('aria-hidden', 'true');
+      el.appendChild(tag);
+      marked.push({ el: el, tag: tag });
+    };
+    var markRow = function (row, p) {
+      for (var i = 0; i < marked.length; i++) {
+        if (marked[i].el === row) {
+          return;
+        }
+      }
+      row.classList.add('live-row');
+      row.classList.add('who-c' + p.c);
+      marked.push({ el: row, tag: null });
+    };
+    var initials = function (name) {
+      var out = '';
+      each(name.split(/\s+/), function (w) {
+        if (w !== '' && out.length < 2) {
+          out += w.charAt(0).toUpperCase();
+        }
+      });
+      return out;
+    };
+    var chip = function (p, alone) {
+      var label = p.state === 'away' ? text(say('away'), [p.name]) : (!p.edits && !alone ? text(say('looks'), [p.name]) : p.name);
+      var el = make('span', p.state === 'away' ? ['live-chip', 'who-c' + p.c, 'live-away'] : ['live-chip', 'who-c' + p.c]);
+      var dot = make('span', ['live-dot']);
+      dot.setAttribute('aria-hidden', 'true');
+      el.appendChild(dot);
+      el.appendChild(make('span', ['live-name'], label));
+      var short = make('span', ['live-init'], initials(p.name));
+      short.setAttribute('aria-hidden', 'true');
+      el.appendChild(short);
+      el.setAttribute('title', label);
+      return el;
+    };
+    var drawWho = function () {
+      var who = document.querySelector('[data-live-here] [data-live-who]');
+      if (!who) {
+        return;
+      }
+      clean(who);
+      who.classList.remove('live-many');
+      if (stopped || people.length === 0) {
+        who.hidden = true;
+        return;
+      }
+      var n = people.length;
+      if (n === 1) {
+        fill(who, say(people[0].edits || people[0].state === 'away' ? 'one' : 'looking'), [chip(people[0], true)]);
+      } else if (n === 2) {
+        fill(who, say('two'), [chip(people[0], false), chip(people[1], false)]);
+      } else {
+        who.classList.add('live-many');
+        fill(who, say('many'), [n]);
+        each(people, function (p) { who.appendChild(chip(p, false)); });
+        if (n > 3) {
+          var more = make('small', ['live-more'], text(say('more'), [n - 3]));
+          more.setAttribute('aria-hidden', 'true');
+          who.appendChild(more);
+        }
+      }
+      who.hidden = false;
+    };
+    var drawMarks = function () {
+      unmark();
+      if (stopped) {
+        return;
+      }
+      each(people, function (p) {
+        if (p.state !== 'active' || p.field === null) {
+          return;
+        }
+        if (p.field.indexOf('h:') === 0) {
+          var box = root.querySelector('[data-live-box="' + p.field + '"]');
+          if (box) {
+            markBox(box, p);
+          }
+          return;
+        }
+        if (p.uid === null) {
+          return;
+        }
+        var row = root.querySelector('tr[data-uid="' + p.uid + '"]');
+        if (!row || row.hidden) {
+          return;
+        }
+        markRow(row, p);
+        var cell = row.querySelector('[data-live-cell="' + p.field + '"]') || row.querySelector('[data-live-cell]');
+        if (cell) {
+          markBox(cell, p);
+        }
+      });
+    };
+    var drawNote = function () {
+      var el = document.querySelector('[data-live-here] [data-live-note]');
+      if (!el) {
+        return;
+      }
+      clean(el);
+      if (!note) {
+        el.hidden = true;
+        return;
+      }
+      note(el);
+      el.hidden = false;
+    };
+    var draw = function () {
+      drawWho();
+      drawMarks();
+      drawNote();
+    };
+    // Who came and who left: said by the polite region, one sentence at a time.
+    var tell = function () {
+      var now = {};
+      each(people, function (p) { now[p.id] = p.name; });
+      if (known !== null) {
+        each(people, function (p) {
+          if (!(p.id in known)) {
+            queue.push(text(say('joined'), [p.name]));
+          }
+        });
+        each(Object.keys(known), function (id) {
+          if (!(id in now)) {
+            queue.push(text(say('left'), [known[id]]));
+          }
+        });
+      }
+      known = now;
+      while (queue.length > 3) {
+        queue.shift();
+      }
+      var region = document.querySelector('[data-live-here] [data-live-say]');
+      if (region && queue.length > 0 && Date.now() - lastSaid >= sayMs) {
+        region.textContent = queue.shift();
+        lastSaid = Date.now();
+      }
+    };
+
+    // The notes: one at a time, drawn again when a save puts the head in place.
+    var button = function (words, onPress) {
+      var b = make('button', ['btn'], words);
+      b.type = 'button';
+      b.addEventListener('click', onPress);
+      return b;
+    };
+    var link = function (words, href) {
+      var a = make('a', [], words);
+      a.setAttribute('href', href);
+      return a;
+    };
+    var showIt = function (el, words) {
+      el.appendChild(make('span', [], words));
+      var b = button(say('show'), function (ev) {
+        if (form && form.id && (form.hasAttribute('data-dirty') || form.querySelector('tbody > tr[data-kg-new]'))) {
+          return;
+        }
+        ev.preventDefault();
+        window.location.assign(page);
+      });
+      if (form && form.id) {
+        b.type = 'submit';
+        b.setAttribute('form', form.id);
+        b.setAttribute('name', 'action');
+        b.setAttribute('value', 'show');
+      }
+      el.appendChild(b);
+    };
+
+    // The poll.
+    var stop = function () {
+      stopped = true;
+      cancel();
+      people = [];
+      draw();
+    };
+    var bye = function () {
+      if (!window.navigator || !window.navigator.sendBeacon) {
+        return;
+      }
+      var body = new window.URLSearchParams();
+      body.append('csrf', token());
+      body.append('tab', tab);
+      body.append('bye', '1');
+      window.navigator.sendBeacon(url, body);
+    };
+    var next = function () {
+      if (stopped || paused || left || busy) {
+        return;
+      }
+      if (hidden()) {
+        if (!hiddenSent) {
+          send();
+        }
+        return;
+      }
+      var wait = nextMs;
+      if (Date.now() - lastInput >= awayMs) {
+        wait = Math.max(wait, aloneMs);
+      }
+      if (backoff > 0) {
+        wait = backoff;
+      } else if (jitterMs > 0) {
+        wait += Math.round((Math.random() * 2 - 1) * jitterMs);
+      }
+      schedule(send, wait);
+    };
+    var pause = function () {
+      paused = true;
+      cancel();
+      bye();
+      people = [];
+      known = null;
+      note = function (el) { el.appendChild(button(say('paused'), function () { resume(); })); };
+      draw();
+    };
+    var resume = function () {
+      if (!paused || stopped) {
+        return;
+      }
+      paused = false;
+      lastInput = Date.now();
+      note = null;
+      draw();
+      if (!busy) {
+        send();
+      }
+    };
+    var valid = function (raw) {
+      var out = [];
+      if (!Array.isArray(raw)) {
+        return out;
+      }
+      each(raw, function (p) {
+        if (!p || typeof p.name !== 'string' || typeof p.id !== 'number' || p.id < 1 || typeof p.c !== 'number' || p.c < 1 || p.c > 8 || Math.floor(p.c) !== p.c) {
+          return;
+        }
+        var field = typeof p.field === 'string' && /^(h:[a-z][a-z_]{0,21}|[a-z][a-z_]{0,23})$/.test(p.field) ? p.field : null;
+        var uid = typeof p.uid === 'number' && p.uid >= 1 && Math.floor(p.uid) === p.uid ? p.uid : null;
+        out.push({ id: p.id, name: p.name, c: p.c, state: p.state === 'away' ? 'away' : 'active', edits: p.edits === true, uid: uid, field: field });
+      });
+      return out;
+    };
+    var answer = function (j, sentV) {
+      if (!j || typeof j !== 'object') {
+        throw new Error('answer');
+      }
+      if (j.mode === 'off') {
+        note = null;
+        stop();
+        return;
+      }
+      if (j.status !== 'draft') {
+        var by = typeof j.by === 'string' && j.by !== '' ? j.by : say('someone');
+        var words = j.status === 'posted' ? text(say('confirmed'), [by, typeof j.number === 'string' ? j.number : ''])
+          : (j.status === 'awaiting_approval' ? text(say('sent-ok'), [by]) : (j.status === 'cancelled' ? text(say('cancelled'), [by]) : ''));
+        note = words === '' ? null : function (el) {
+          el.appendChild(make('span', [], words));
+          el.appendChild(link(say('open'), page));
+        };
+        stop();
+        return;
+      }
+      nextMs = typeof j.poll_ms === 'number' && j.poll_ms > 0 && j.poll_ms <= stopMs ? j.poll_ms : aloneMs;
+      people = valid(j.here);
+      tell();
+      var v = pageV();
+      if (typeof j.v === 'number' && j.v > v && sentV === v && root.getAttribute('aria-busy') !== 'true') {
+        var ch = j.changed && typeof j.changed === 'object' ? j.changed : null;
+        if (ch && typeof ch.by === 'string' && typeof ch.at === 'string') {
+          var said = ch.you === true ? text(say('saved-you'), [ch.at]) : text(say('saved'), [ch.by, ch.at]);
+          note = function (el) { showIt(el, said); };
+        }
+      } else if (typeof j.v === 'number' && j.v <= v && !paused) {
+        note = null;
+      }
+      draw();
+    };
+    var send = function () {
+      cancel();
+      if (stopped || paused || left || busy) {
+        return;
+      }
+      var now = Date.now();
+      if (now - lastInput >= stopMs) {
+        pause();
+        return;
+      }
+      var away = hidden() || now - lastInput >= awayMs;
+      if (hidden()) {
+        hiddenSent = true;
+      }
+      var body = new window.URLSearchParams();
+      body.append('csrf', token());
+      body.append('tab', tab);
+      var sentV = pageV();
+      body.append('v', String(sentV));
+      body.append('focus', away ? '' : place);
+      body.append('state', away ? 'away' : 'active');
+      body.append('typing', !away && typing && place !== '' ? '1' : '0');
+      var act = inputSinceActive && !hidden() && (lastActive === 0 || now - lastActive >= activeMs);
+      if (act) {
+        lastActive = now;
+        inputSinceActive = false;
+      }
+      body.append('active', act ? '1' : '0');
+      busy = true;
+      var ctl = window.AbortController ? new window.AbortController() : null;
+      // A poll on its way too long is given up (the same one timer: no other is set while a poll is out).
+      if (ctl) {
+        schedule(function () { ctl.abort(); }, maxMs);
+      }
+      window.fetch(url, { credentials: 'same-origin', method: 'POST', headers: { Accept: 'application/json' }, body: body, redirect: 'manual', cache: 'no-store',
+        signal: ctl ? ctl.signal : undefined })
+        .then(function (r) {
+          if (r.type === 'opaqueredirect' || r.redirected || Math.floor(r.status / 100) === 3) {
+            return { out: true };
+          }
+          if (r.status === 200) {
+            return r.json();
+          }
+          if (r.status === 400 || r.status === 401 || r.status === 403 || r.status === 404) {
+            return { refused: true };
+          }
+          throw new Error('later');
+        })
+        .then(function (j) {
+          busy = false;
+          cancel();
+          if (stopped || left) {
+            return;
+          }
+          if (j && j.out === true) {
+            note = function (el) {
+              el.appendChild(make('span', [], say('signed-out')));
+              if (login.indexOf('/ui/login') === 0) {
+                el.appendChild(link(say('sign-in'), login));
+              }
+            };
+            stop();
+            return;
+          }
+          if (j && j.refused === true) {
+            note = null;
+            stop();
+            return;
+          }
+          answer(j, sentV);
+          if (stopped) {
+            return;
+          }
+          backoff = Date.now() - now > slowMs ? Math.min(maxMs, Math.max(backoff * 2, nextMs * 2)) : 0;
+          next();
+        })
+        .catch(function () {
+          busy = false;
+          cancel();
+          if (stopped || left) {
+            return;
+          }
+          backoff = Math.min(maxMs, backoff > 0 ? backoff * 2 : nextMs * 2);
+          next();
+        });
+    };
+
+    // The person: a real key or mouse (never one the script made) is what "active" means.
+    var used = function (ev) {
+      if (ev.isTrusted === false || stopped || left) {
+        return;
+      }
+      var wasAway = Date.now() - lastInput >= awayMs;
+      lastInput = Date.now();
+      inputSinceActive = true;
+      if (paused) {
+        resume();
+      } else if (wasAway && !busy && !hidden()) {
+        send();
+      }
+    };
+    each(['keydown', 'pointerdown', 'mousedown', 'touchstart', 'wheel'], function (type) {
+      document.addEventListener(type, used, { capture: true, passive: true });
+    });
+    root.addEventListener('focusin', function (ev) {
+      place = placeOf(ev.target);
+      typing = false;
+    });
+    root.addEventListener('focusout', function () {
+      place = '';
+      typing = false;
+    });
+    root.addEventListener('input', function (ev) {
+      if (place !== '' && placeOf(ev.target) === place) {
+        typing = true;
+      }
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (stopped || left) {
+        return;
+      }
+      // Hidden: one away poll now (or, with a poll on its way, after its answer: next()), then none. Shown again: the person is back (for
+      // away and paused only; active=1 still waits for a real key or mouse), one poll at once.
+      hiddenSent = false;
+      if (!hidden()) {
+        lastInput = Date.now();
+        if (paused) {
+          resume();
+          return;
+        }
+      }
+      if (!busy && !paused) {
+        send();
+      }
+    });
+    window.addEventListener('pagehide', function () {
+      if (stopped || left) {
+        return;
+      }
+      left = true;
+      cancel();
+      if (!paused) {
+        bye();
+      }
+    });
+    window.addEventListener('pageshow', function (ev) {
+      if (!ev.persisted || !left || stopped) {
+        return;
+      }
+      left = false;
+      known = null;
+      if (!paused && !busy) {
+        send();
+      }
+    });
+    window.addEventListener('online', function () {
+      if (backoff > 0 && !busy && !stopped && !paused && !left && !hidden()) {
+        backoff = 0;
+        send();
+      }
+    });
+    // A save without leaving the page puts the head, the lines and the chips in place again: the marks and the chips drawn again at once.
+    document.addEventListener('kg-swapped', draw);
+    schedule(send, jitterMs > 0 ? Math.round(Math.random() * jitterMs) : 0);
+  };
+  var liveRoot = document.querySelector('[data-live]');
+  if (liveRoot) {
+    liveStart(liveRoot);
+  }
+  // (live ends here)
 })();

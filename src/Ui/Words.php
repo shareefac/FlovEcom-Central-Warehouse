@@ -34,7 +34,7 @@ final class Words
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
-        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'DRAFT', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
+        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'DRAFT', 'LIVE', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
         'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'DOC_GRID', 'KEYS', 'REORDER', 'WHY',
@@ -3638,6 +3638,37 @@ final class Words
         'conflict_saved' => 'Your changes were saved, but %s changed this draft again at %s before it was made final. Look at their changes, then make it final.',
         'conflict_saved_you' => 'Your changes were saved, but this draft was changed again at %s in another tab or window before it was made final. Look at it '
             . 'again, then make it final.',
+    ];
+
+    /**
+     * Who is here on a draft order (the live drafts plan, step 3b; docs/decisions.md LV18-LV25): what app.js shows under the title and on the
+     * lines, read from the page (data-live-* of the order's form, or of its paper for a person who may only look: dev.md rule 17). %s: a
+     * person's display name, a number, the clock ("14:02", UK time) or an order's number, in the order given.
+     */
+    public const LIVE = [
+        'label' => 'Who else has this order open',
+        'one' => '%s is here too',
+        'two' => '%s and %s are here too',
+        'many' => '%s others are here',
+        'looking' => '%s is looking',
+        'away' => '%s (away)',
+        'looks' => '%s (looking)',
+        'more' => '+%s',
+        'joined' => '%s opened this order.',
+        'left' => '%s left this order.',
+        'paused' => 'Paused. Click to carry on.',
+        'signed_out' => 'You were signed out. What you typed is still on this page, but it is not saved.',
+        'sign_in' => 'Sign in again',
+        'saved' => '%s saved a change at %s.',
+        'saved_you' => 'You saved a change at %s in another tab or window.',
+        'show' => 'Show it',
+        // The order drawn again by "Show it" (what was typed on its saved lines is not kept, as on the page after a refused save).
+        'shown' => 'Here is the order as it is now. The new lines you typed are kept; type any other change again.',
+        'confirmed' => '%s confirmed this order. It is %s now.',
+        'sent_ok' => '%s sent this order for its OK.',
+        'cancelled' => '%s cancelled this draft.',
+        'someone' => 'Someone',
+        'open' => 'Open the order',
     ];
 
     public const RECORD = [

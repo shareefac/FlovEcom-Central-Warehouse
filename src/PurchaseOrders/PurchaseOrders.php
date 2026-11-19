@@ -71,7 +71,7 @@ final class PurchaseOrders
     public const DOC_DATE_AHEAD_DAYS = 31;
     public const DOC_DATE_BACK_DAYS = 731;
     public const LINE_FIELDS = ['kind', 'sku_id', 'supplier_item_id', 'supplier_code', 'purchase_unit', 'units_per_pack', 'packs', 'pack_price', 'vat_code',
-        'description', 'suggested_units', 'save_item'];
+        'description', 'suggested_units', 'save_item', 'uid'];
     public const SEARCH_LIMIT = 20;
 
     private readonly Settings $settings;
@@ -934,11 +934,11 @@ final class PurchaseOrders
     {
         $out = [];
         foreach ($this->db->all(
-            'SELECT pl.*, dl.sku_id, dl.description FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no '
+            'SELECT pl.*, dl.sku_id, dl.description, dl.uid FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no '
             . 'WHERE pl.document_id = ? ORDER BY pl.line_no',
             [$id],
         ) as $r) {
-            $out[] = ['kind' => (string) $r['kind'], 'sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'],
+            $out[] = ['uid' => $r['uid'] === null ? null : (int) $r['uid'], 'kind' => (string) $r['kind'], 'sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'],
                 'supplier_item_id' => $r['supplier_item_id'] === null ? null : (int) $r['supplier_item_id'],
                 'supplier_code' => $r['supplier_code'] === null ? null : (string) $r['supplier_code'], 'purchase_unit' => (string) $r['purchase_unit'],
                 'units_per_pack' => (int) $r['units_per_pack'], 'packs' => (int) $r['packs'], 'pack_price' => (string) $r['pack_price'], 'vat_code' => (string) $r['vat_code'],
@@ -1371,6 +1371,7 @@ final class PurchaseOrders
         $vat = $this->vatCodes();
         $out = [];
         foreach ($this->lines($id) as $l) {
+            unset($l['uid']); // another order's lines: the new draft gives its own ids (LV8)
             if ($l['supplier_item_id'] !== null && $this->db->value('SELECT 1 FROM supplier_item WHERE id = ? AND supplier_id = ? AND is_active = 1',
                 [$l['supplier_item_id'], $supplierId]) === null) {
                 $l['supplier_item_id'] = null;
@@ -1442,6 +1443,14 @@ final class PurchaseOrders
                 }
             }
             $kind = (string) ($line['kind'] ?? 'item');
+            // The line's own id when it names one (a line of this draft read by lines(): LV8, LV18), checked by Documents::setLines.
+            $uid = [];
+            if (array_key_exists('uid', $line)) {
+                if ($line['uid'] !== null && !is_int($line['uid'])) {
+                    throw $bad('uid', 'the id of a line of this draft, or none', 400);
+                }
+                $uid = ['uid' => $line['uid']];
+            }
             $description = self::text($line['description'] ?? null, 255, $bad, 'description');
             $vatCode = self::text($line['vat_code'] ?? null, 4, $bad, 'vat_code');
             $vatCode = $vatCode === null ? $defaultVat : strtoupper($vatCode);
@@ -1470,7 +1479,7 @@ final class PurchaseOrders
                     }
                 }
                 $amount = PoMath::fromE2(intdiv(PoMath::e4($price), 100));
-                $out[] = ['doc' => ['amount' => $amount, 'description' => $description],
+                $out[] = ['doc' => ['amount' => $amount, 'description' => $description] + $uid,
                     'po' => ['kind' => 'charge', 'supplier_item_id' => null, 'supplier_code' => null, 'purchase_unit' => 'each', 'units_per_pack' => 1, 'packs' => 1,
                         'pack_price' => $price, 'vat_code' => $vatCode, 'vat_rate' => $vat[$vatCode]['rate'], 'suggested_units' => null],
                     'calc' => ['amount_e2' => PoMath::e2($amount), 'vat_code' => $vatCode, 'rate_e2' => $rateE2]];
@@ -1535,7 +1544,7 @@ final class PurchaseOrders
                 throw $bad('pack_price', $e->getMessage());
             }
             $suggested = ($line['suggested_units'] ?? null) === null ? null : self::int($line['suggested_units'], 0, 2_000_000_000, $bad, 'suggested_units');
-            $out[] = ['doc' => ['sku_id' => $skuId, 'qty' => $qty, 'unit_cost' => $unitCost, 'amount' => PoMath::fromE2($amountE2), 'description' => $description],
+            $out[] = ['doc' => ['sku_id' => $skuId, 'qty' => $qty, 'unit_cost' => $unitCost, 'amount' => PoMath::fromE2($amountE2), 'description' => $description] + $uid,
                 'po' => ['kind' => 'item', 'supplier_item_id' => $si === null ? null : (int) $si['id'], 'supplier_code' => $code, 'purchase_unit' => $unit,
                     'units_per_pack' => $upp, 'packs' => $packs, 'pack_price' => $price, 'vat_code' => $vatCode, 'vat_rate' => $vat[$vatCode]['rate'],
                     'suggested_units' => $suggested],

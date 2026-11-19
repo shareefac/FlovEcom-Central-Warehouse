@@ -951,6 +951,12 @@ final class PurchaseOrdersController
     {
         $id = $ctx->id();
         $req = $ctx->req;
+        if ($req->field('action') === 'show') {
+            // "Fazil saved a change at 14:02. [Show it]" (who is here, step 3b; docs/decisions.md LV18): the draft as it is now, the new lines typed
+            // kept, as the 409 page keeps them (KG6); nothing is saved or checked, so it never fails on what the page holds.
+            $new = DocGrid::read($req->field(DocGrid::FIELD), PurchaseOrders::MAX_LINES, false);
+            return $this->page($ctx, $id, 200, null, Words::LIVE['shown'], ['typed' => $new === [] ? [] : [DocGrid::FIELD => DocGrid::json($new)]]);
+        }
         $version = UiRequest::id($req->field('version'));
         if ($version === null) {
             return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
@@ -996,7 +1002,8 @@ final class PurchaseOrdersController
                 $lines = $current;
                 $keys = array_map(static fn (int $i): string => 'line:' . ($i + 1), array_keys($current));
             }
-            [$lines, $keys] = self::gridLines($ctx->db, $lines, $keys, $new, $editable ? DocGrid::removedLines($req->post, 'line_%d_remove') : []);
+            [$lines, $keys] = self::gridLines($ctx->db, $lines, $keys, $new, $editable ? DocGrid::removedLines($req->post, 'line_%d_remove') : [],
+                array_column($current, 'uid'));
             return self::withCharge($req, $lines);
         };
         try {
@@ -1241,7 +1248,7 @@ final class PurchaseOrdersController
         // 2026: "anyone who have access should be able to edit it").
         $editor = $doc->status === 'draft' && $canPost;
         $lines = $db->all(
-            'SELECT pl.*, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, s.code AS sku_code, s.name AS sku_name, s.merged_into_sku_id, '
+            'SELECT pl.*, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, dl.uid, s.code AS sku_code, s.name AS sku_name, s.merged_into_sku_id, '
             . 'si.supplier_code AS si_code, si.last_pack_price, si.last_po_pack_price, si.is_active AS si_active FROM po_line pl '
             . 'JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id '
             . 'LEFT JOIN supplier_item si ON si.id = pl.supplier_item_id WHERE pl.document_id = ? ORDER BY pl.line_no',
@@ -1330,6 +1337,8 @@ final class PurchaseOrdersController
                 'cancelReasons' => self::reasonChoices($db, 'draft_cancel'),
             ] + $this->oneData($ctx, $doc, UiRequest::id(is_string($extra['typed']['supplier_id'] ?? null) ? $extra['typed']['supplier_id'] : null) ?? (int) ($po['supplier_id'] ?? 0),
                 count($lines), $extra);
+            // Who is here (live drafts step 3b, docs/decisions.md LV18): the poll and its words on the editor's form, the version it was drawn with.
+            $data['live'] = LiveController::pageData($ctx, 'po', $doc, (int) $data['formVersion']);
             if (self::draftLook($ctx) === 'form') {
                 return $ctx->page('purchase_order_edit', $data, $status, $layout);
             }
@@ -1352,6 +1361,8 @@ final class PurchaseOrdersController
             ], $status, $layout);
         }
         $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
+        // A draft read by a person who may only look polls too, so the others see them "looking" (step 3b); a confirmed order shows nobody.
+        $data['live'] = LiveController::pageData($ctx, 'po', $doc, $doc->version);
         // The saved order read like a document (docs/decisions.md PV): the shared head and totals, and the next papers' ways in.
         $receivable = $doc->status === 'posted' && in_array($state, ['approved', 'sent', 'part_received'], true);
         $canReceive = $receivable && Documents::mayPost($me->roles, 'GRN');
@@ -1578,9 +1589,11 @@ final class PurchaseOrdersController
             'deliverTo' => $head['deliverTo'],
             'dates' => [
                 ['label' => Words::ORDER['order_date'], 'value' => $doc->docDate === null ? $none : Html::day($doc->docDate)],
-                ['label' => Words::ORDER['expected_short'], 'value' => ($po['expected_date'] ?? null) === null ? $none : Html::day((string) $po['expected_date'])],
+                ['label' => Words::ORDER['expected_short'], 'value' => ($po['expected_date'] ?? null) === null ? $none : Html::day((string) $po['expected_date']),
+                    'box' => 'h:expected_date'],
                 ['label' => Words::ORDER['terms'], 'value' => $terms ?? $none],
-                ['label' => Words::ORDER['their_ref'], 'value' => $doc->externalRef === null || $doc->externalRef === '' ? $none : $doc->externalRef],
+                ['label' => Words::ORDER['their_ref'], 'value' => $doc->externalRef === null || $doc->externalRef === '' ? $none : $doc->externalRef,
+                    'box' => 'h:external_ref'],
             ],
             'factLine' => $factLine,
             'events' => $events,
@@ -1962,15 +1975,20 @@ final class PurchaseOrdersController
      * (`sku`, with its items per pack when a case's barcode named it: an item in CW and not joined into another, as the box's search finds
      * them), the packs as typed (a whole number; 0 leaves the line out, as on a saved line) and the price as typed (empty: the pack's last
      * price, as Add). Refused in words on its line (its place in the list saved, and its row).
+     * A line's own id (docs/decisions.md LV8, LV18): a saved line kept carries its own (PurchaseOrders::lines(), the draft's lines at the version
+     * the page was drawn with); a new line that takes the place of a saved line removed in the same post (its item changed in place, KG22) takes
+     * that line's id, so a mark on it stays; any other new line gets a new one.
      *
      * @param list<array<string, mixed>> $kept
      * @param list<string> $keptKeys
      * @param list<array{si: ?int, sku: ?int, u: ?int, line: ?int, q: string, p: string}> $new
      * @param array<int, true> $removed
+     * @param list<?int> $uids the draft's line ids now, line order (line N's at N - 1)
      * @return array{0: list<array<string, mixed>>, 1: list<string>} the lines and each one's row ('line:N', 'new:J')
      */
-    private static function gridLines(Db $db, array $kept, array $keptKeys, array $new, array $removed): array
+    private static function gridLines(Db $db, array $kept, array $keptKeys, array $new, array $removed, array $uids = []): array
     {
+        $taken = [];
         $skus = array_values(array_unique(array_filter(array_column($new, 'sku'))));
         $live = [];
         foreach (array_chunk($skus, 1000) as $chunk) {
@@ -1999,8 +2017,13 @@ final class PurchaseOrdersController
             if ($l['sku'] !== null && !isset($live[$l['sku']])) {
                 throw new CwException('bad_line', "line {$at}, item: there is no such item, or it was joined into another", 422, ['line' => $at, 'field' => 'item', 'row' => $row]);
             }
+            $uid = null;
+            if ($l['line'] !== null && isset($removed[$l['line']]) && !isset($taken[$l['line']]) && is_int($uids[$l['line'] - 1] ?? null)) {
+                $uid = $uids[$l['line'] - 1];
+                $taken[$l['line']] = true;
+            }
             $lines[] = ['kind' => 'item'] + ($l['si'] !== null ? ['supplier_item_id' => $l['si']] : ['sku_id' => $l['sku']] + ($l['u'] !== null ? ['units_per_pack' => $l['u']] : []))
-                + ['packs' => $packs, 'pack_price' => trim($l['p']) === '' ? null : $l['p']];
+                + ['packs' => $packs, 'pack_price' => trim($l['p']) === '' ? null : $l['p']] + ($uid !== null ? ['uid' => $uid] : []);
             $keys[] = $row;
         }
         return [$lines, $keys];

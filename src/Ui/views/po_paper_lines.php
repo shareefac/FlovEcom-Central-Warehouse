@@ -9,7 +9,11 @@
 // product box with the site's one dropdown; its packs and Add without the script); the new line's <template>; then the tools (Add row, Add
 // multiple, + New item, Download; Upload when the order is too long for the page) and the key hints with Undo. $editable false: the lines as
 // words (too many for one form: PurchaseOrdersController::editorFits), changed by the file.
+// Who is here (step 3b, docs/decisions.md LV18): each line names its own id (data-uid; a new line not saved yet has none) and each box its
+// place (data-live-cell: item, qty, price, upp), where app.js draws another person's coloured edge, outline and name tag; read only, only on a
+// draft that shows who is here ($marks).
 $showReceived = !$edit && $doc !== null && $doc->postedAt !== null;
+$marks = $marks ?? false;
 ?>
 <?php if (!$edit): ?>
 <?php if ($lines === []): ?>
@@ -32,7 +36,7 @@ $showReceived = !$edit && $doc !== null && $doc->postedAt !== null;
     </thead>
     <tbody>
 <?php foreach ($lines as $l): ?>
-<?= $partial('po_paper_line', ['edit' => false, 'l' => $l, 'state' => $state, 'stock' => $stock, 'showReceived' => $showReceived]) ?>
+<?= $partial('po_paper_line', ['edit' => false, 'l' => $l, 'state' => $state, 'stock' => $stock, 'showReceived' => $showReceived, 'marks' => $marks]) ?>
 <?php endforeach; ?>
     </tbody>
   </table>

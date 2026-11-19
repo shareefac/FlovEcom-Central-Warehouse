@@ -56,6 +56,19 @@ final class Presence
     /** The most rows of one draft a poll reads (the newest): a page that sends many tabs cannot make every poll of the draft heavy. */
     public const MAX_ROWS = 100;
     /**
+     * The page's own rhythm (step 3b, the plan's 3.4; printed in the page, so app.js holds no number of its own): no key or mouse for
+     * IDLE_AWAY_SECONDS, the page says away; for AWAY_SECONDS, it stops checking ("Paused. Click to carry on.") and says goodbye; it says
+     * active=1 at most once every ACTIVE_SECONDS and only after a key or the mouse (LV4); an answer slower than SLOW_MS, or none, doubles the
+     * wait up to BACKOFF_SECONDS; the quick check is spread by JITTER_MS either way, so pages opened together do not check together.
+     */
+    public const IDLE_AWAY_SECONDS = 120;
+    public const ACTIVE_SECONDS = 60;
+    public const BACKOFF_SECONDS = 30;
+    public const SLOW_MS = 2000;
+    public const JITTER_MS = 300;
+    /** The page says who came and who left (its polite live region) at most once in this many seconds (the plan's 2.4). */
+    public const SAY_SECONDS = 5;
+    /**
      * A place: "<line id>:<box>" (a line's box: qty, price, upp, item, ...) or "h:<box>" (a header box: h:note, h:expected_date, ...); a box is
      * lower-case letters and _, 24 characters at most with its "h:" (draft_presence.focus_field).
      */

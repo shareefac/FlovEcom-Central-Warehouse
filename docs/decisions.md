@@ -18124,3 +18124,84 @@ as typed; hidden, and out of the keys' boxes, for a supplier's pack.
   last round; checked by UiUnitTest and the JS harness, not reviewed again (the cap).
 - Codex found no lost field or power of the old form, no nested form, no leak of the paper's CSS to the supplier invoice, no CSP,
   escaping, permission or form-key problem.
+
+## Who is here on a draft order, on the screen (branch `live-presence-screen`, 19 Nov 2026; LV18-LV25; live drafts step 3b; no migration)
+
+The owner, 19 Nov 2026: "the on-screen 'Fazil is here too' with coloured names on lines. Do this." The server half is LV1-LV17 (live since
+18 Nov, switched off: `live.mode` = off); the look is LP1-LP11. Turning it on stays the setting `live.mode` (Settings > Working together):
+`presence` (or `on`) shows it, `off` draws nothing and sends nothing (the undo, no deploy).
+
+**LV18. Where it is drawn.** Purchase orders only, a draft with an id (a confirmed order, one waiting for its OK or cancelled, and a new
+order without an id show nobody). `LiveController::pageData()` gives the page what its script needs, or null (live.mode off, not a draft):
+the poll's address, a new tab id each time the page is drawn (`Presence::newTab()`), the version the page shows (the editor's form version:
+a page drawn again after a refusal shows the version it was typed on), the page and the sign-in page with the way back, the rhythm (LV21)
+and every word (Words::LIVE). `live_attrs` prints them as `data-live*` on the element the script starts on: the editor form `#po-form` (the
+paper, and the old form of `po.draft_look = form`), or, for a person who may only look, the read-only paper (`article.po-paper`, with the
+session's token beside it as a hidden input): they poll too, so the others see them "looking" (open question 6 of the plan, the owner's
+"yes"). `live_here` is the place under the title for the chips, a note and one polite live region. Each saved line names its own id
+(`tr[data-uid]`, `Documents::lineUids` order; a new line not saved yet has none), each box its place (`data-live-cell`: item, qty, price,
+upp), the head's and the foot's boxes theirs (`data-live-box`: h:supplier, h:expected_date, h:external_ref, h:note, h:delivery; the plan's
+3.2). With live.mode off the read-only paper is drawn as before (its marks only when shown).
+
+**LV19. A line keeps its id through every whole save (LV8's "step 3b's").** `PurchaseOrders::lines()` names each line's `uid`;
+`normaliseLines()` takes it (a whole number or null, 400 otherwise) and passes it to `Documents::setLines()`, which keeps it (400
+bad_lines for an id that is not a line of the draft, or one twice). So every path that saves the lines it read keeps them: the page's
+whole save (the controller maps the form's rows onto `lines()` read inside the save, after the version check: the rows the page showed),
+Add and its increment, the grid's new lines (a new id each), a line removed (the others keep theirs), the file appended (Add multiple and
+the file), a supplier changed (`repoint()` keeps the line's other keys), a new supplier made on the draft, a new item made on a line. A line
+whose item is changed in place (KG22: the saved line removed and a new line in its place in the same post) keeps the replaced line's id
+(`gridLines`). New ids: a file that replaces the lines, and another order's lines (`copyLines()` drops them: copy and amend). The form
+sends no ids: the version check already guarantees the server's lines are the page's, so nothing of the page is trusted and no field is
+added per line (max_input_vars, I73). The ids are not in the posting fingerprint (LV8; the tests of 0070 pin it).
+
+**LV20. What people see.** Under the title, the page's sentence with each person a chip (a coloured dot and the name): "Fazil is here too",
+"Fazil and Asha are here too", "4 others are here" (then a chip each), "Asha is looking" (a person who may only look, alone; with others
+their chip says "Asha (looking)"), "Fazil (away)" faded. On a phone (640 px), three or more people: their initials, the 4th on folded into
+"+N". On a line: a 3 px edge in the person's colour on the row (a phone's card: its left edge), an outline on the box they are in and a
+small name tag at its top right (two people in one box: one tag, both names); the head's boxes the same; a removed (hidden) line and an
+away person get no mark. The colours are the classes `who-c1`..`who-c8` (the number is the server's, LV7; the CSP allows no inline style),
+each passing WCAG AA behind white words; the name tag is always there, so the colour is never the only sign. One `aria-live="polite"`
+region says who came and who left in whole sentences, at most one in `data-live-say-ms` (5 s). Names go in as text only.
+
+**LV21. The script's rhythm** (app.js block "live", from `// live drafts` to `// (live ends here)`; the plan's 3.4). ONE timer (setTimeout,
+never setInterval; cleared before it is set again) and at most one poll on its way: the next poll is set only from its answer. The pace is
+the answer's `poll_ms` (live.poll_seconds while someone else is here, live.alone_seconds alone), spread by ±`JITTER_MS`; the first poll
+within the jitter of the page being drawn. No key or mouse for `IDLE_AWAY_SECONDS` (2 min): state away, no place, the slow pace; for
+`AWAY_SECONDS` (10 min): no more polls, a goodbye (its row goes), "Paused. Click to carry on." until a key, the mouse or the button. The page
+hidden: one away poll, then none; shown again: the person is back (for away and the pause only, never active=1), one poll at once. The page
+left (`pagehide`): a goodbye by `navigator.sendBeacon` (bye=1, its token, its tab); back from the browser's cache (`pageshow` persisted):
+polling again. No answer, a 5xx, a 409/429 or an answer slower than `SLOW_MS` (2 s): the wait doubles up to `BACKOFF_SECONDS` (30 s); a poll
+out that long is given up (AbortController, on the same one timer); the first good answer: the server's pace again. Every number is the
+page's (`data-live-*-ms`: the settings and Presence's constants); the script holds none.
+
+**LV22. The session (LV4) from the page.** A poll says `active=1` only after a real key or mouse (`ev.isTrusted`; keydown, pointerdown,
+mousedown, touchstart, wheel), at most once in `ACTIVE_SECONDS` (a minute); a key inside that minute is said at the first poll after it. So a
+page left open is signed out after the idle limit although it polls. A 303 (the session ended) is never followed (`redirect: 'manual'`):
+polling stops and the note says "You were signed out…" with "Sign in again" (the sign-in page, back to the order). A 400, 403 or 404 (another
+sign-in in this browser, the right to look taken away): polling stops quietly. The answer `{"mode": "off"}`: nothing more is drawn or sent.
+The page's own fragment fetches (Save without leaving the page) are not polls; they move the session as any request (the person pressed Save).
+
+**LV23. "Fazil saved a change at 14:02. [Show it]"** (the plan's step 3). The poll sends the version the page shows (`v`); when the draft
+is newer, `LiveController` adds who saved it last and when (`changed`: `by`, `at` (Html::clock, UK time), `you`), one read of the audit
+(DraftChanges::last), only then. The page says "Fazil saved a change at 14:02." ("You saved a change at 14:02 in another tab or window."
+for the person's own) with "Show it": nothing typed, the page again (GET); something typed (the form dirty, or a new line on it), the
+editor form sent with `action=show`: `PurchaseOrdersController::lines()` draws the draft as it is now with the new lines typed kept (as the
+409 page keeps them, KG6), nothing saved or checked, with the notice "Here is the order as it is now. The new lines you typed are kept; type
+any other change again." The page's own save on its way (`aria-busy`) or a poll sent before the page's version moved never says it; the note
+goes when the page shows the newest version.
+
+**LV24. A draft that is no longer one.** The poll's answer for a confirmed, sent-for-OK or cancelled draft (LV3) stops polling and says who:
+"Fazil confirmed this order. It is PO-000123 now.", "… sent this order for its OK.", "… cancelled this draft." ("Someone" when CW knows no
+name), with "Open the order" (the page's own address). The boxes are not locked in this step (a save is refused as `not_draft`, as before).
+
+**LV25. Tests.** `PoPresenceScreensTest` (new: nothing with live.mode off; the editor form, the old form and a looker's paper carry the poll,
+the tab, the version, the rhythm and every word; the chips' place under the title; `data-uid` = `lineUids`; the boxes' places; no inline
+style; a confirmed and a new order show nobody; a line keeps its id through the page's save, a new line, a removal, an item changed in
+place and Add; the poll's `changed`; Show it); `PoLineUidTest` (two new: the service's every path, copy fresh); `UiUnitTest::
+testWhoIsHereIsOneBlockWithItsWordsFromThePage` (one block, one timer, no words or times in it, the poll's own address, the colour classes
+and their contrast, the phone rules) and the assets test (two fetches, one beacon, both in the block); `WordsTest::
+testWhoIsHereSaysItInWholeSentences`. The script in node: `run_live.js` (outside the repo, `/root/cw_work/presence2_20261119/js_harness/`,
+run by `runs/presence2_js.sh` on cw-test: the first poll, the answer drawn and moved, joins and leaves said at the rate, focus, typing,
+active only after a real key and once a minute, away, pause and carry on, hidden, left, back from the cache, back-off, a hung poll, 303,
+403, off, confirmed, cancelled, Show it both ways, many people, two in one box, a save drawing the page again, nothing started on a wrong
+address; never more than one timer); `run_kg.js` stays green on the paper.
