@@ -308,6 +308,12 @@ final class ItemSuggestions
             . 'ORDER BY b.sku_id LIMIT 20', $forms) as $r) {
             $out[$this->rootOf((int) $r['sku_id'])] ??= (string) $r['barcode'];
         }
+        // a barcode the warehouse holds as an outer case or as found on two items is not taken from a store variant either (Codex re-check)
+        $bad = array_map('strval', $this->db->column("SELECT DISTINCT b.barcode FROM sku_barcode b WHERE b.barcode IN ({$in}) AND (b.units_per_scan <> 1 OR b.is_usable = 0)", $forms));
+        $forms = array_values(array_diff($forms, $bad));
+        if ($forms === []) {
+            return $out;
+        }
         foreach ($this->db->all("SELECT cl.sku_id, CAST(lp.barcodes AS CHAR) AS barcodes FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id "
             . "WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND cl.sku_id IS NOT NULL AND cl.status IN ('mapped', 'quarantined') AND cl.units_per_item = 1 "
             . 'ORDER BY cl.sku_id LIMIT 20',

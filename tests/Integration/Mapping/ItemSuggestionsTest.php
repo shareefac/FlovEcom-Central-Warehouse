@@ -167,6 +167,10 @@ final class ItemSuggestionsTest extends MappingTestCase
         self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan, is_usable) VALUES (?, '5000000000024', 1, 0)", [$doubt]);
         $pack = $this->listing($this->site('electrofag'), '6001', $single, 5);
         self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes) VALUES (?, 'A 5 pack', '[\"5000000000031\"]')", [$pack]);
+        // ...nor through a store variant linked one for one that carries such a barcode (Codex re-check)
+        $other = $this->item('legacy', 0, 'Another bottle');
+        $one = $this->listing($this->site('vapeandgo'), '6002', $other);
+        self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes) VALUES (?, 'One bottle', '[\"5000000000024\", \"5000000000017\"]')", [$one]);
         $s = new ItemSuggestions(self::$db);
         foreach (['5000000000017', '5000000000024', '5000000000031'] as $code) {
             self::assertSame([], $s->suggest($site->channelId, ['barcodes' => [$code]])['suggestions'], $code);
