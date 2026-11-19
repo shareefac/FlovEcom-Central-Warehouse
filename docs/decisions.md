@@ -18302,3 +18302,13 @@ until no `existing` choice is waiting (docs/ops.md); a connector rollback first 
 the store gave is not an item" (a pack's or an existing item's). Done rows: "Linked to the existing item the store named"; `waiting_second`
 reads "The link waits for a matching lead's second OK" (a pack's or an existing item's).
 
+Reviews (Codex, read only; reports in /root/cw_work/existing_20261119/codex/): round 1, three focused runs at once (a correctness, b security,
+c UX and the three shops): 1 HIGH (a CW rollback would read a waiting `existing` choice as New item: the undo steps now wait until none is
+waiting, or take the job off the timer), 8 MEDIUM, 1 LOW, all fixed: a pack's barcode (an outer case, a barcode found on two items, a variant
+linked as a pack) is never suggested as the item itself; the database narrows the brand as brandTokens() reads it ("R&M" = randm); the
+connector's undo has a gate (no unsent `existing` choice, the 0.4.16 admin gone for two minutes); a failed second call never counts the
+first group again; the admin's per-session limit is kept in the session for real; the save's check of the numbers is bounded (20 numbers,
+6 s); a suggestion answer for details no longer shown is never used. The re-check (three runs) found the barcode filter incomplete on the
+listing path and in its leading-zero forms, the undo's running saves, a pack in the shop's offline list, a busy note hidden under New item
+and the EF/VB patch route: all fixed (the EF/VB admin goes through the shared master only).
+
