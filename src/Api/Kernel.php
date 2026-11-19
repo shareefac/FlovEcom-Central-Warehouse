@@ -8,6 +8,7 @@ use CW\Api\Controller\AvailabilityController;
 use CW\Api\Controller\ChangesController;
 use CW\Api\Controller\HealthController;
 use CW\Api\Controller\HeartbeatController;
+use CW\Api\Controller\ItemSuggestionsController;
 use CW\Api\Controller\ListingsController;
 use CW\Api\Controller\MovementsController;
 use CW\Api\Controller\OpeningOrdersController;
@@ -148,6 +149,9 @@ final class Kernel
         // A store's choice at Add product (docs/decisions.md SC1, SC2): kept for bin/apply_store_choices.php; allowed while the store is off, like
         // its listings (a choice moves no stock).
         $r->add('PUT', '/v1/store-choices', (new StoreChoicesController())->put(...));
+        // The store's Existing item box (docs/decisions.md SX2, SX3; CW-1138): which items a new variant may be, what a typed CW number is.
+        // Read only, in any mode.
+        $r->add('GET', '/v1/item-suggestions', (new ItemSuggestionsController())->index(...));
         $r->add('POST', '/v1/heartbeat', (new HeartbeatController())->create(...));
         $r->add('GET', '/v1/purchasing', (new PurchasingController())->index(...));
         $r->add('GET', '/v1/health', (new HealthController())->show(...));

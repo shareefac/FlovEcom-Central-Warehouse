@@ -381,6 +381,180 @@ final class StoreChoicesTest extends MappingTestCase
         self::assertSame(2, self::tool('apply_store_choices.php', '--choice=1', '--apply')['code'], '--choice is always dry');
     }
 
+    // ------------------------------------------------------------------------------------------
+    // Existing item (SX1, SX4) and the same details before a new item (SX6; tracker CW-1138)
+    // ------------------------------------------------------------------------------------------
+
+    /** An item with an identity card as the matching fills it. @param array<string, mixed> $card */
+    private function carded(string $name, array $card, string $policy = 'legacy', int $onHand = 0): int
+    {
+        $id = $this->item($policy, $onHand, $name);
+        $set = [];
+        $vals = [];
+        foreach ($card as $k => $v) {
+            $set[] = "{$k} = ?";
+            $vals[] = $v;
+        }
+        self::$db->exec('UPDATE sku SET ' . implode(', ', $set) . ' WHERE id = ?', [...$vals, $id]);
+        return $id;
+    }
+
+    /** The Elux Legend 5mg card of CW-1138 (CW-011468 on production). @return array<string, mixed> */
+    private static function legendCard(string $strength = '5.00'): array
+    {
+        return ['brand' => 'Elux Nic Salt (Legend Salts) E-Liquids', 'flavour' => 'lemon lime', 'strength_mg' => $strength, 'volume_ml' => '10.00',
+            'form' => 'nic_salt', 'nic_type' => 'salt', 'line' => 'elux legend'];
+    }
+
+    /** A variant as a store pushes it, with its option. @param list<array{name: string, value: string}> $attrs */
+    private function storeVariant(string $id, string $product, string $title, string $brand, array $attrs = [], array $barcodes = [], ?Caller $site = null): int
+    {
+        $lid = $this->listing($site ?? $this->shop, $id, null);
+        $items = array_map(static fn (array $a): array => $a + ['is_variable' => 1], $attrs);
+        self::$db->exec('INSERT INTO listing_profile (listing_id, product_title, variant_title, brand, attributes, barcodes) VALUES (?, ?, ?, ?, ?, ?)',
+            [$lid, $product, $title, $brand, json_encode(['items' => $items]), json_encode($barcodes)]);
+        return $lid;
+    }
+
+    public function testAnExistingItemIsSentWithItsCwNumberAndNoUnits(): void
+    {
+        $r = $this->svc()->receive($this->shop, [self::choice('4001', 'existing', ['pack_of' => 'CW-011468'])]);
+        self::assertSame(['accepted' => 1, 'ignored' => []], $r);
+        $row = self::$db->one("SELECT CAST(choice AS CHAR) AS choice, pack_of_code, units FROM store_choice WHERE external_variant_id = '4001'");
+        self::assertSame(['existing', 'CW-011468', null], [$row['choice'], $row['pack_of_code'], $row['units']]);
+        $before = (int) self::$db->value('SELECT COUNT(*) FROM store_choice');
+        foreach ([
+            [self::choice('4002', 'existing')],                                                  // which item
+            [self::choice('4003', 'existing', ['pack_of' => 'CW-12'])],                         // a CW number
+            [self::choice('4004', 'existing', ['pack_of' => '11468'])],                         // as CW writes it (the store normalises)
+            [self::choice('4005', 'existing', ['pack_of' => 'CW-011468', 'units' => 1])],       // one for one: no units
+            [self::choice('4006', 'existing', ['pack_of' => 'CW-011468', 'units' => 10])],      // that is a pack
+            [self::choice('4007', 'none', ['pack_of' => 'CW-011468'])],
+        ] as $bad) {
+            self::refused(400, 'bad_request', fn () => $this->svc()->receive($this->shop, $bad));
+        }
+        self::assertSame($before, (int) self::$db->value('SELECT COUNT(*) FROM store_choice'));
+        // the database's own rule (0073): an existing item names its item and no units
+        foreach ([
+            "INSERT INTO store_choice (channel_id, external_variant_id, choice, staff_ref, staff_name, chosen_at) VALUES (?, '4010', 'existing', '17', 'A', UTC_TIMESTAMP(6))",
+            "INSERT INTO store_choice (channel_id, external_variant_id, choice, pack_of_code, units, staff_ref, staff_name, chosen_at) VALUES (?, '4011', 'existing', 'CW-000001', 2, '17', 'A', UTC_TIMESTAMP(6))",
+        ] as $sql) {
+            try {
+                self::$db->exec($sql, [$this->shop->channelId]);
+                self::fail('store_choice let through: ' . $sql);
+            } catch (\PDOException $e) {
+                self::assertStringContainsString('ck_store_choice_pack', $e->getMessage());
+            }
+        }
+    }
+
+    public function testAnExistingItemLinksOneForOneToTheItemItIsNowWithoutLookingFurther(): void
+    {
+        $item = $this->carded('Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', self::legendCard());
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$item]);
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan) VALUES (?, '5061026755072', 1)", [$item]);
+        $kept = $this->item('legacy', 0, 'Kept 10mg');
+        $gone = $this->item('legacy', 0, 'Gone 10mg');
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$kept, $gone]);
+        $goneCode = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$gone]);
+        $legend = $this->storeVariant('13869', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg', 'Elux Legend',
+            [['name' => 'Nicotine Strength', 'value' => '5mg']]);
+        $joined = $this->variant('4002', 'Something the store named by an old number');
+        $unknown = $this->variant('4003', 'A number CW does not have');
+        $linked = $this->variant('4004', 'Linked by hand first');
+        $this->decide($this->staffUser('mapping_lead'), 'link', $linked, ['sku_id' => $kept]);
+        $this->svc()->receive($this->shop, [self::choice('13869', 'existing', ['pack_of' => $code]), self::choice('4002', 'existing', ['pack_of' => $goneCode]),
+            self::choice('4003', 'existing', ['pack_of' => 'CW-999999']), self::choice('4004', 'existing', ['pack_of' => $code])]);
+        self::assertSame('linked_existing', $this->svc()->plan($this->idOf('13869'))['outcome'], 'a dry run says it');
+        $this->svc()->run(true);
+
+        self::assertSame([$item, 'mapped', 1], [$this->link($legend)['sku_id'], $this->link($legend)['status'], $this->link($legend)['units_per_item']]);
+        $d = self::$db->one("SELECT decided_by, actor, reason, units_per_item, CAST(state AS CHAR) AS state FROM match_decision WHERE listing_id = ? AND action = 'link'", [$legend]);
+        self::assertSame([null, 'system:store_choice', 1, 'applied'], [$d['decided_by'], $d['actor'], (int) $d['units_per_item'], $d['state']]);
+        self::assertSame("Chosen at Add product on VAPEANDGO test site by Aswin: the existing item {$code}.", $d['reason']);
+        self::assertSame(['done', 'linked_existing', $code], [$this->row('13869')['state'], $this->row('13869')['outcome'], $this->row('13869')['detail']['sku']]);
+        self::assertSame([$kept, 'mapped', 1], [$this->link($joined)['sku_id'], $this->link($joined)['status'], $this->link($joined)['units_per_item']]);
+        self::assertSame($goneCode, $this->row('4002')['detail']['named'], 'joined: followed to the item it is now');
+        self::assertSame(['refused', 'no_such_item', 'CW-999999'], [$this->row('4003')['state'], $this->row('4003')['outcome'], $this->row('4003')['detail']['sku']]);
+        self::assertSame('unmapped', $this->link($unknown)['status']);
+        self::assertSame(['done', 'already_decided', $kept], [$this->row('4004')['state'], $this->row('4004')['outcome'], $this->link($linked)['sku_id']]);
+        self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'nothing was made');
+        // The unknown number waits for a person: a new item or not stock (no item was found to join it to).
+        self::assertSame(1, $this->svc()->openCount());
+        self::refused(409, 'nothing_found', fn () => $this->svc()->answer($this->staffUser('mapping_lead'), $this->idOf('4003'), 'same', $this->version($unknown), null));
+        self::assertSame('made_by_person', $this->svc()->answer($this->staffUser('mapping_lead'), $this->idOf('4003'), 'new', $this->version($unknown), null)['outcome']);
+    }
+
+    public function testAnExistingItemThatIsProtectedWaitsForAMatchingLead(): void
+    {
+        $counted = $this->item('strict', 5, 'Counted Grape 10mg');
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$counted]);
+        $lid = $this->variant('4101', 'Grape 10mg on the store');
+        $this->svc()->receive($this->shop, [self::choice('4101', 'existing', ['pack_of' => $code])]);
+        $this->svc()->run(true);
+        $pending = self::$db->one("SELECT id, decided_by, actor, CAST(state AS CHAR) AS state, units_per_item FROM match_decision WHERE listing_id = ?", [$lid]);
+        self::assertSame([null, 'system:store_choice', 'pending_second', 1], [$pending['decided_by'], $pending['actor'], $pending['state'], (int) $pending['units_per_item']]);
+        self::assertSame(['done', 'waiting_second'], [$this->row('4101')['state'], $this->row('4101')['outcome']]);
+        self::assertSame('unmapped', $this->link($lid)['status'], 'nothing linked until a matching lead says yes');
+        $this->ds->approve($this->staffUser('mapping_lead'), (int) $pending['id']);
+        self::assertSame([$counted, 'mapped', 1], [$this->link($lid)['sku_id'], $this->link($lid)['status'], $this->link($lid)['units_per_item']]);
+    }
+
+    public function testCw1138ANewItemWithTheSameDetailsAsAnItemWaitsForAPersonInsteadOfMakingASecondItem(): void
+    {
+        // CW-1138 (19 Nov 2026): Vape Big's 5mg, "New item", no barcode; CW had it as CW-011468 under another name, with two barcodes and the
+        // other stores' variants on it. The name checks found nothing, so CW made an empty CW-015324. Now the same details stop it.
+        $item = $this->carded('Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', self::legendCard(), 'legacy', 12);
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$item]);
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan) VALUES (?, '5061026755072', 1), (?, '5061026755270', 1)", [$item, $item]);
+        $this->listing($this->site('electrofag'), '5183', $item);
+        $this->carded('Elux Legend Nic Salt - Lemon & Lime - 10ml - 10mg', self::legendCard('10.00'));
+        $vapebig = $this->site('vapebig');
+        $lid = $this->storeVariant('13869', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg', 'Elux Legend',
+            [['name' => 'Nicotine Strength', 'value' => '5mg']], [], $vapebig);
+        $twenty = $this->storeVariant('13870', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 20mg', 'Elux Legend',
+            [['name' => 'Nicotine Strength', 'value' => '20mg']], [], $vapebig);
+        $this->svc()->receive($vapebig, [self::choice('13869'), self::choice('13870')]);
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+        $this->svc()->run(true);
+
+        $row = self::$db->one("SELECT CAST(state AS CHAR) AS state, outcome, CAST(detail AS CHAR) AS detail FROM store_choice WHERE channel_id = ? AND external_variant_id = '13869'",
+            [$vapebig->channelId]);
+        $detail = json_decode((string) $row['detail'], true);
+        self::assertSame(['to_check', 'same_features', $code, $item], [$row['state'], $row['outcome'], $detail['sku'], $detail['sku_id']]);
+        self::assertSame('Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', $detail['item_name']);
+        self::assertSame('unmapped', $this->link($lid)['status']);
+        // 20mg: no item has those details, so it is made as before (strength is never "close enough").
+        self::assertSame('mapped', $this->link($twenty)['status']);
+        self::assertSame($skus + 1, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'only the 20mg was made');
+
+        // Approvals > New products: the item found, and "Yes, the same" links it one for one, as the person.
+        $open = array_values(array_filter($this->svc()->list(), static fn (array $r): bool => $r['external_variant_id'] === '13869'));
+        self::assertSame([$item, 12], [(int) $open[0]['found']['id'], (int) $open[0]['found']['on_hand']]);
+        $id = (int) self::$db->value("SELECT id FROM store_choice WHERE channel_id = ? AND external_variant_id = '13869'", [$vapebig->channelId]);
+        self::assertSame('joined', $this->svc()->answer($this->staffUser('mapping_lead'), $id, 'same', $this->version($lid), null)['outcome']);
+        self::assertSame([$item, 'mapped', 1], [$this->link($lid)['sku_id'], $this->link($lid)['status'], $this->link($lid)['units_per_item']]);
+    }
+
+    public function testTheOlderChecksStillComeFirstAndItemsWithoutACardNeverStopANewItem(): void
+    {
+        // A barcode found is said as before (barcode_on_item), even with an item of the same details there too.
+        $byCode = $this->carded('Old name 5mg', self::legendCard());
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan) VALUES (?, '5061026755072', 1)", [$byCode]);
+        $this->carded('Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg (copy)', self::legendCard());
+        $this->storeVariant('4201', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg', 'Elux Legend',
+            [['name' => 'Nicotine Strength', 'value' => '5mg']], ['5061026755072']);
+        // An item with only a name (no card) is never "the same details".
+        $this->item('legacy', 0, 'Peach Mango Elux Legend 10ml 5mg');
+        $peach = $this->storeVariant('4202', 'Elux Legend Peach Mango Nic Salt E-liquid 10ml', 'Elux Legend Peach Mango Nic Salt E-liquid 10ml - 5mg', 'Elux Legend',
+            [['name' => 'Nicotine Strength', 'value' => '5mg']]);
+        $this->svc()->receive($this->shop, [self::choice('4201'), self::choice('4202')]);
+        $this->svc()->run(true);
+        self::assertSame(['to_check', 'barcode_on_item'], [$this->row('4201')['state'], $this->row('4201')['outcome']]);
+        self::assertSame(['done', 'made'], [$this->row('4202')['state'], $this->row('4202')['outcome']]);
+        self::assertSame('mapped', $this->link($peach)['status']);
+    }
+
     /** @return array{code: int, out: string, err: string} */
     private static function tool(string $script, string ...$args): array
     {

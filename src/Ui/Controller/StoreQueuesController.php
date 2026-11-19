@@ -761,6 +761,7 @@ final class StoreQueuesController
             : (Words::has('NEW_PRODUCT_WHY', $outcome) ? Words::NEW_PRODUCT_WHY[$outcome] : Words::say('NEW_PRODUCTS', 'why_other', $outcome));
         $what = match ((string) $r['choice']) {
             'pack' => Words::say('NEW_PRODUCTS', 'choice_pack', (int) $r['units'], (string) $r['pack_of_code']),
+            'existing' => Words::say('NEW_PRODUCTS', 'choice_existing', (string) $r['pack_of_code']),
             'none' => Words::NEW_PRODUCTS['choice_none'],
             default => Words::NEW_PRODUCTS['choice_new'],
         };
@@ -789,7 +790,7 @@ final class StoreQueuesController
             'closed' => !$done ? null : ($r['settled_by'] === null ? Words::say('NEW_PRODUCTS', 'closed_cw', $why)
                 : Words::say('NEW_PRODUCTS', 'closed', $why, Html::when((string) $r['settled_at']), (string) ($r['settled_by_name'] ?? Words::QUEUES['someone']))),
             // The item an ending names (a person's new item, not stock or a decision on the variant's page keep what the check had found).
-            'item_line' => in_array($outcome, ['made', 'linked', 'waiting_second', 'joined', 'already_decided'], true) && is_string($d['sku'] ?? null)
+            'item_line' => in_array($outcome, ['made', 'linked', 'linked_existing', 'waiting_second', 'joined', 'already_decided'], true) && is_string($d['sku'] ?? null)
                 ? Words::say('NEW_PRODUCTS', 'item_line', $d['sku']) : null,
             'note_line' => is_string($d['note'] ?? null) ? Words::say('NEW_PRODUCTS', 'note_line', $d['note']) : null,
         ];

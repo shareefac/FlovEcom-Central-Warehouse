@@ -12487,6 +12487,7 @@ final class Words
         'chosen' => 'Chosen by %s at Add product: %s.',
         'choice_new' => 'a new item',
         'choice_pack' => 'a pack of %s x %s',
+        'choice_existing' => 'the existing item %s',
         'choice_none' => 'not stock',
         'new_on' => 'New on %s',
         'in_cw' => 'Already in CW',
@@ -12527,10 +12528,12 @@ final class Words
         'barcode_on_listing' => 'Same barcode as another store\'s product',
         'same_name' => 'Same name',
         'close_name' => 'Very close name',
+        // SX6 (CW-1138): an item with the same brand family, flavour, strength, size and kind, whatever its name says.
+        'same_features' => 'Same brand, flavour, strength and size',
         'said_real' => 'A person said it is a real product',
         'held' => 'Set aside by a person',
         'has_history' => 'Decided before by a person',
-        'no_such_item' => 'The CW number for the pack is not an item',
+        'no_such_item' => 'The CW number the store gave is not an item',
         'no_name' => 'It has no name',
     ];
 
@@ -12538,7 +12541,8 @@ final class Words
     public const NEW_PRODUCT_DONE = [
         'made' => 'A new item was made',
         'linked' => 'Linked as a pack',
-        'waiting_second' => 'The pack waits for a matching lead\'s second OK',
+        'linked_existing' => 'Linked to the existing item the store named',
+        'waiting_second' => 'The link waits for a matching lead\'s second OK',
         'not_stock' => 'Marked not stock',
         'already_decided' => 'Someone had decided it already',
         'joined' => 'Joined to the item found',

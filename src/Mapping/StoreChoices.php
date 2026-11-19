@@ -15,17 +15,22 @@ use CW\Queues\QueueRules;
 
 /**
  * A store's choice at Add product (the owner's drawing of 3 Nov 2026, "Add product to CW"; tracker CW-217; docs/decisions.md SC1-SC12).
- * When staff add a product or a variant on a store, they say what each new variant is for the warehouse: a new item (the default), a pack
- * of an item the warehouse has (its CW number and how many one pack holds), or not stock (a page that holds none). This class takes the
+ * When staff add a product or a variant on a store, they say what each new variant is for the warehouse: a new item (the default), an
+ * item the warehouse already has (its CW number; tracker CW-1138, SX1-SX8), a pack of an item the warehouse has (its CW number and how
+ * many one pack holds), or not stock (a page that holds none). This class takes the
  * choices from the store (receive(), PUT /v1/store-choices), follows them once the variant has arrived (run(), bin/apply_store_choices.php
  * every minute) and lets a person answer the ones it does not follow alone (answer(), Approvals > New products).
  *
  * WHAT IT DOES, per choice (SC3-SC6), only when the variant is there (its listing and its profile) and nobody has decided it:
  *  - new   the warehouse looks first: a suggestion of the check on arrival that names an item, a barcode of the variant on an item or on
  *          another store's variant, an item with the same name or with a name that differs only in letter case, spaces and punctuation
- *          (StoreChoices::key()). Any of them: nothing is made, the row waits for a person (to_check, with what was found). None: a new
- *          item is made from the variant (DecisionService `new_item`, the item's card from the variant's own details, as the single
- *          "Create a new product" makes it).
+ *          (StoreChoices::key()), then (SX6, after CW-1138) an item with the same details: brand family, flavour, strength, size and kind
+ *          (ItemSuggestions::sameDetails()). Any of them: nothing is made, the row waits for a person (to_check, with what was found).
+ *          None: a new item is made from the variant (DecisionService `new_item`, the item's card from the variant's own details, as the
+ *          single "Create a new product" makes it).
+ *  - existing  a link to the item its CW number names (followed to the item it was joined into), one sale one item (DecisionService
+ *          `link`, units 1, SX4). Staff named the item, so nothing else is looked for; the two-person rules of a link still apply (a
+ *          protected item, a variant once said not to be that item: pending_second). An unknown number is refused (no_such_item).
  *  - pack  a link to the item its CW number names (followed to the item it was joined into) with that many units per sale
  *          (DecisionService `link`). The two-person rule of a link whose units are not 1 still applies: while approvals.match_multiple is
  *          on, the link waits for a matching lead on Approvals (the store's staff member chose it, a warehouse person says yes).
@@ -46,7 +51,7 @@ final class StoreChoices
 {
     /** Caller::system(JOB): the job that follows the choices (DecisionService::STORE_CHOICE_ACTOR). */
     public const JOB = 'store_choice';
-    public const CHOICES = ['new', 'pack', 'none'];
+    public const CHOICES = ['new', 'pack', 'none', 'existing'];
     public const STATES = ['waiting', 'done', 'to_check', 'refused'];
     /** The states a person answers (Approvals > New products). */
     public const OPEN = ['to_check', 'refused'];
@@ -57,16 +62,17 @@ final class StoreChoices
     public const MIN_UNITS = 2;
     /**
      * What a row's `outcome` says (SC8).
-     *   done      made (a new item), linked (a pack's link), waiting_second (a pack's link waits for a matching lead), not_stock (marked),
-     *             already_decided (someone decided the variant first: nothing done), and a person's answers: joined, made_by_person,
-     *             not_stock_by_person, decided_elsewhere (on the variant's own page).
-     *   to_check  suggested_match, conflict, barcode_on_item, barcode_on_listing, same_name, close_name, said_real, held, has_history.
+     *   done      made (a new item), linked (a pack's link), linked_existing (an existing item's link, SX4), waiting_second (a link waits
+     *             for a matching lead), not_stock (marked), already_decided (someone decided the variant first: nothing done), and a
+     *             person's answers: joined, made_by_person, not_stock_by_person, decided_elsewhere (on the variant's own page).
+     *   to_check  suggested_match, conflict, barcode_on_item, barcode_on_listing, same_name, close_name, same_features (SX6), said_real,
+     *             held, has_history.
      *   refused   no_such_item, no_name, and any other refusal of DecisionService (its code).
      */
-    public const OUTCOMES_DONE = ['made', 'linked', 'waiting_second', 'not_stock', 'already_decided', 'joined', 'made_by_person', 'not_stock_by_person',
-        'decided_elsewhere'];
-    public const OUTCOMES_CHECK = ['suggested_match', 'conflict', 'barcode_on_item', 'barcode_on_listing', 'same_name', 'close_name', 'said_real', 'held',
-        'has_history'];
+    public const OUTCOMES_DONE = ['made', 'linked', 'linked_existing', 'waiting_second', 'not_stock', 'already_decided', 'joined', 'made_by_person',
+        'not_stock_by_person', 'decided_elsewhere'];
+    public const OUTCOMES_CHECK = ['suggested_match', 'conflict', 'barcode_on_item', 'barcode_on_listing', 'same_name', 'close_name', 'same_features',
+        'said_real', 'held', 'has_history'];
     /** A person's answers (answer()): the item found, a new item, not stock. */
     public const ANSWERS = ['same', 'new', 'none'];
     /** What key() leaves out of a name: everything but letters and digits (PCRE and MySQL's ICU read it alike). */
@@ -180,8 +186,16 @@ final class StoreChoices
             if (!is_int($units) || $units < self::MIN_UNITS || $units > DecisionService::MAX_UNITS) {
                 throw $bad('units', 'must be how many of that item one pack holds, ' . self::MIN_UNITS . ' to ' . DecisionService::MAX_UNITS);
             }
+        } elseif ($choice === 'existing') {
+            // SX1: the variant IS the item pack_of names, one for one (no units).
+            if (!is_string($packOf) || preg_match('/^CW-[0-9]{6,9}$/D', $packOf) !== 1) {
+                throw $bad('pack_of', 'must be the CW number of the existing item (CW-000123)');
+            }
+            if ($units !== null) {
+                throw $bad('units', 'is for a pack only: an existing item is one for one');
+            }
         } elseif ($packOf !== null || $units !== null) {
-            throw $bad('pack_of', 'and units are for a pack only');
+            throw $bad('pack_of', 'and units are for a pack or an existing item only');
         }
         $staff = $c['staff'] ?? null;
         $ref = is_array($staff) ? ($staff['id'] ?? null) : null;
@@ -200,7 +214,7 @@ final class StoreChoices
         if ($when === null) {
             throw $bad('chosen_at', 'must be a real time with its zone, from 2020 on (2026-11-03T10:42:00Z)');
         }
-        return ['variant_id' => $v, 'choice' => $choice, 'pack_of' => $choice === 'pack' ? $packOf : null, 'units' => $choice === 'pack' ? $units : null,
+        return ['variant_id' => $v, 'choice' => $choice, 'pack_of' => in_array($choice, ['pack', 'existing'], true) ? $packOf : null, 'units' => $choice === 'pack' ? $units : null,
             'staff_ref' => trim((string) $ref), 'staff_name' => trim((string) $name), 'chosen_at' => Clock::db($when)];
     }
 
@@ -379,6 +393,16 @@ final class StoreChoices
             case 'none':
                 return $done('not_stock') + ['request' => ['action' => 'landing', 'landing' => ['reason' => DecisionService::LANDING_STORE_CHOICE,
                     'source' => 'add_product', 'evidence' => ['store_choice_id' => (int) $c['id']]]] + array_diff_key($request, ['proposal_id' => true])];
+            case 'existing':
+                // SX4: staff named the item; followed to the item it was joined into, linked one for one (nothing else is looked for).
+                $sku = $this->db->one('SELECT id FROM sku WHERE code = ?', [$c['pack_of_code']]);
+                if ($sku === null) {
+                    return ['state' => 'refused', 'outcome' => 'no_such_item', 'detail' => ['sku' => $c['pack_of_code']]];
+                }
+                $root = $this->ds->rootOf((int) $sku['id']);
+                $code = (string) $this->db->value('SELECT code FROM sku WHERE id = ?', [$root]);
+                return $done('linked_existing', ['sku' => $code] + ($root !== (int) $sku['id'] ? ['named' => $c['pack_of_code']] : []))
+                    + ['request' => ['action' => 'link', 'sku_id' => $root, 'units_per_item' => 1] + $request];
             case 'pack':
                 $sku = $this->db->one('SELECT id FROM sku WHERE code = ?', [$c['pack_of_code']]);
                 if ($sku === null) {
@@ -406,6 +430,12 @@ final class StoreChoices
                 $same = $this->sameName($name);
                 if ($same !== null) {
                     return $check($same['outcome'], $same['detail'] + ['name' => $name]);
+                }
+                // SX6 (CW-1138): an item with the same details (brand family, flavour, strength, size, kind), read afresh from the
+                // variant's profile, whatever its name says: nothing is made, a person decides.
+                $alike = $this->sameFeatures($lid);
+                if ($alike !== null) {
+                    return $check('same_features', $alike + ['name' => $name]);
                 }
                 return $done('made', ['name' => $name]) + ['request' => ['action' => 'new_item'] + $request];
         }
@@ -464,6 +494,28 @@ final class StoreChoices
         $hit = $this->db->one('SELECT id, code, name FROM sku WHERE merged_into_sku_id IS NULL AND name IS NOT NULL AND '
             . "REGEXP_REPLACE(LOWER(REPLACE(name, '&', ' and ')), ?, '') = ? ORDER BY id LIMIT 1", [self::KEY_DROP, $key]);
         return $hit === null ? null : ['outcome' => 'close_name', 'detail' => ['sku_id' => (int) $hit['id'], 'sku' => (string) $hit['code'], 'item_name' => (string) $hit['name']]];
+    }
+
+    /**
+     * An item (not joined into another) with the same details as the variant (SX6; ItemSuggestions::sameDetails(): brand family,
+     * flavour, strength, size and kind, read afresh from the variant's profile), the closest name first: what to_check's
+     * same_features found (the item, its name), or null. Read fresh each time, like the names.
+     *
+     * @return array{sku_id: int, sku: string, item_name: string}|null
+     */
+    private function sameFeatures(int $listingId): ?array
+    {
+        $p = $this->db->one('SELECT product_title, variant_title, brand, CAST(attributes AS CHAR) AS attributes, CAST(barcodes AS CHAR) AS barcodes '
+            . 'FROM listing_profile WHERE listing_id = ?', [$listingId]);
+        if ($p === null) {
+            return null;
+        }
+        $ids = (new ItemSuggestions($this->db))->sameDetailsItems(ItemSuggestions::card($p), 1);
+        if ($ids === []) {
+            return null;
+        }
+        $hit = $this->db->one('SELECT id, code, name FROM sku WHERE id = ?', [$ids[0]]);
+        return $hit === null ? null : ['sku_id' => (int) $hit['id'], 'sku' => (string) $hit['code'], 'item_name' => (string) $hit['name']];
     }
 
     /**
@@ -654,6 +706,7 @@ final class StoreChoices
     {
         $what = match ($c['choice']) {
             'pack' => 'a pack of ' . $c['units'] . ' x ' . $c['pack_of_code'],
+            'existing' => 'the existing item ' . $c['pack_of_code'],
             'none' => 'not stock',
             default => 'a new item',
         };

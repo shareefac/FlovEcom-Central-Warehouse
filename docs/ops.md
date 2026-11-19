@@ -1960,6 +1960,14 @@ The log line: `looked` (waiting choices whose variant is there) and one count pe
 costs nothing. Who chose what: `SELECT * FROM store_choice ORDER BY id DESC LIMIT 20;`. Undo of one followed choice: the variant's own
 page (undo the match, or "it is a real product" for a landing mark), as for any decision.
 
+Since 0073 (tracker CW-1138, `docs/decisions.md` SX1-SX8) a store may also send `existing` (the variant is the item its CW number names,
+one for one; outcome `linked_existing`, or `waiting_second` for a protected item, or `no_such_item` on New products), and a new item now
+also waits when an item has the same details (`same_features`: brand family, flavour, strength, size, kind). The stores' Existing item
+box asks `GET /v1/item-suggestions` (read only, the store's key; at most 5 items: barcode, same details, similar name). Deploy order: CW
+first (0073 applied by `install_cron.sh --migrate`), then the connector 0.4.16 on the stores; a connector sends its `existing` choices in a
+call of their own, so a CW without 0073 only holds those back (retried, never parked). Undo: the release before (its code ignores the
+`existing` rows; the column keeps the value; the stores' `existing` choices then wait, retried, until CW is back on this release).
+
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
 
 The barcodes the sites hold for linked listings (`listing_profile.barcodes`) into the items' barcodes. A barcode no item has is

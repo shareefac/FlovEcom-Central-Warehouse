@@ -18243,3 +18243,60 @@ Unit 639 OK; UiKernel 697 OK; the rest 1,288 OK (83 skipped: the HTTP tests of s
 compressed stream that ended in a carriage return lost that byte and its words; the bytes follow the ids the PDF prints, which
 `PoPresenceScreensTest` (run before it) moves on. The test now reads each stream by its `/Length` (test only). `CompanyScreensTest` and
 `HandoverPdfCompanyTest` parse PDFs the same old way and can fail the same way some day.
+
+## Existing item at Add product, and the same details before a new item (branch `store-existing`, 19 Nov 2026; SX1-SX8; tracker CW-1138)
+
+The owner, 19 Nov 2026: "we should have an option under new item something like existing. so i can just add the cw code there and if it
+can show recommendation then great". That day Vape Big's 5mg (variant 13869, "Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg", no
+barcode) was added as "New item"; CW had it as CW-011468 ("Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg", two barcodes, Vape and Go's
+and Electrofag's variants linked), found no barcode and no near-same name, and made an empty CW-015324 (relinked by hand, decision 46109).
+
+**SX1. A fourth choice: existing.** At Add product and Add variant staff may say a new variant IS an item the warehouse has: `choice`
+`existing`, `pack_of` its CW number (CW-000123 as CW writes it; the store turns "cw-11468" or "11468" into that), `units` null. 0073 adds the
+value at the end of the column's list; the CHECK keeps every other choice exactly as before. The first choice is kept (SC2).
+
+**SX2. The store asks before it sends.** GET /v1/item-suggestions (the store's key, like every /v1 route; read only; any mode): at most 5
+items, not joined into another (one found through a joined item counts as the item it is now), each with its CW number, name, free to sell
+for that store (on hand + on its way - allocated - held over its sellable warehouses) and why: `barcode` (a barcode of the variant, any form
+one scan takes, on an item or on a store variant linked to one), then `same_details` (SX5), then `similar_name` (most of the name's words in
+the item's name: a Dice score of at least 0.5 over the telling words, a little more when strength, size and kind agree). `strong`: the
+first is a barcode or the same details (the store shows "CW already has this ... Use it" under New item). With `code` the answer also says
+what that number is now (`item`; null = no such item; `named` = the number asked, joined into the one shown). No other store's name is in
+the answer.
+
+**SX3. Bounded.** Every field is checked (400 bad_query naming it): title and option at most 512 characters, brand 128, at most 20 option
+names/values (128/255), at most 20 barcodes of 1-64 printable characters, code a CW number, limit 1-5; at least one of title, option,
+barcodes, code. The reads: the barcode indexes (never a scan), one pass over the items' cards for the same details (narrowed by kind,
+strength, brand family and a flavour word; at most 500 read), one pass over the items' names for the words (at most 6 words, the best 80
+scored). Measured on staging's copy (14,859 items, the staging droplet to its database): 150-270 ms a question, end to end.
+
+**SX4. Existing is a link, one for one.** The job follows it as `system:store_choice` (SC4): the item its number names, followed to the item
+it was joined into, linked with units 1 through DecisionService; nothing else is looked for (staff named the item). The two-person rules of
+a link apply as for anyone (a protected item, a variant once said not to be that item: pending_second, outcome `waiting_second`). An
+unknown number is refused (`no_such_item`) and waits on Approvals > New products, where a person makes a new item or marks it not stock.
+Outcome `linked_existing`; the decision's reason says "the existing item CW-...".
+
+**SX5. The same details (ItemSuggestions::sameDetails).** Strict, because it stops the job: the same flavour words (both known; a brand or
+range word read as flavour on one side, "Elux Legend Lemon & Lime" under the brand "Elux", is left out of both), the same kind (form class,
+both known), the same strength (both unknown counts as the same), a brand family word in common (the brand's family words or the range's
+words), the same nicotine type, size and puffs when both say one, the same pack size (unknown = 1), the same range numbers ("Legend 3500"
+is not "Legend 8000") and modifiers ("Pro" is not plain). The variant is read as the matching reads a listing (Normalizer, then
+DecisionService::cardFrom), afresh from its profile (stored features are cleared on every identity change); the item side is its card.
+
+**SX6. A new item waits when an item has the same details.** After the older checks, in their order (the check on arrival's suggestion, a
+barcode, the same or a close name), the job also looks for an item with the same details; one found: nothing is made, the row waits for a
+person (to_check `same_features`, with the item, its name): "Yes, the same" links it one for one, as for the other doubts (SC9). Looked at
+again after the name's guard row, like the others (SC6). Items without a card (no flavour or kind) never stop a new item.
+
+**SX7. The connector (0.4.16).** The store's admin shows Existing item second (New item / Existing item / A pack of an item / Not stock) on
+Add product (simple and every row of a variable product) and Add variant: a CW number box, what CW says it is (name and free to sell),
+up to 5 suggestions to click, and under New item the strong match with "Use it". A number CW says it has not got stops the save; when CW
+cannot be asked the save goes ahead and this job checks it (SX4). The store's key stays on the store's server (the admin asks its own
+endpoint, which asks CW). The `existing` choices go in a PUT of their own after the others: a CW before 0073 refuses that call whole, and
+the other choices never wait for it.
+
+**SX8. Approvals > New products.** A same_features row shows "Same brand, flavour, strength and size" with the item found and its stock, and
+"Yes, the same: use CW-..." as the main answer; an existing choice reads "the existing item CW-..."; `no_such_item` now reads "The CW number
+the store gave is not an item" (a pack's or an existing item's). Done rows: "Linked to the existing item the store named"; `waiting_second`
+reads "The link waits for a matching lead's second OK" (a pack's or an existing item's).
+

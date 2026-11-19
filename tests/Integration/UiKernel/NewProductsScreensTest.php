@@ -294,4 +294,37 @@ final class NewProductsScreensTest extends KernelUiTestCase
         self::assertSame(403, $mapper->post($route, ['csrf' => 'forged'] + $fields)->status, 'a forged token');
         self::assertSame(3, (new StoreChoices(self::$db, $this->ds))->openCount(), 'nothing was answered');
     }
+
+    public function testTheSameDetailsAndAnExistingItemShowInTheStoresWordsWithTheMainAnswer(): void
+    {
+        // SX6 / SX8 (CW-1138): an item with the same details is the main answer; an existing item the store named that is not an item waits too.
+        $shop = $this->site('vapeandgo');
+        $item = $this->item('legacy', 12, 'Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg');
+        self::$db->exec("UPDATE sku SET brand = 'Elux Nic Salt (Legend Salts) E-Liquids', flavour = 'lemon lime', strength_mg = 5, volume_ml = 10, form = 'nic_salt', "
+            . "nic_type = 'salt', line = 'elux legend' WHERE id = ?", [$item]);
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$item]);
+        $this->profiled($shop, '2001', ['product_title' => 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml', 'variant_title' => 'Elux Legend Lemon & Lime Nic Salt E-liquid 10ml - 5mg',
+            'brand' => 'Elux Legend']);
+        $this->profiled($shop, '2002', ['product_title' => 'Something', 'variant_title' => 'Something 10ml']);
+        $svc = new StoreChoices(self::$db, $this->ds);
+        $who = ['staff' => ['id' => '17', 'name' => 'Aswin'], 'chosen_at' => '2026-11-03T10:42:00Z'];
+        $svc->receive($shop, [['variant_id' => '2001', 'choice' => 'new'] + $who, ['variant_id' => '2002', 'choice' => 'existing', 'pack_of' => 'CW-999998'] + $who]);
+        $svc->run(true);
+        $ids = [];
+        foreach (['2001', '2002'] as $v) {
+            $ids[$v] = (int) self::$db->value('SELECT id FROM store_choice WHERE channel_id = ? AND external_variant_id = ?', [$shop->channelId, $v]);
+        }
+        $page = $this->signIn($this->uiUser('mapper'))->get(self::PATH);
+        self::assertSame(200, $page->status, $page->describe());
+        $text = $page->text();
+        self::assertStringContainsString(Words::NEW_PRODUCT_WHY['same_features'], $text);
+        self::assertStringContainsString(Words::NEW_PRODUCT_WHY['no_such_item'], $text);
+        self::assertStringContainsString(Words::say('NEW_PRODUCTS', 'chosen', 'Aswin', Words::say('NEW_PRODUCTS', 'choice_existing', 'CW-999998')), $text);
+        $xp = new \DOMXPath($page->dom());
+        $main = static fn (int $id): string => trim((string) $xp->evaluate('string(//form[@action="' . self::PATH . '/' . $id . '/answer"]//button[contains(@class, "primary")])'));
+        self::assertSame(Words::say('NEW_PRODUCTS', 'same', $code), $main($ids['2001']), 'the item with the same details is the main answer');
+        self::assertSame(Words::NEW_PRODUCTS['make_new'], $main($ids['2002']));
+        self::assertSame('12', trim((string) $xp->evaluate('string(//article[@id="new-products-' . $ids['2001'] . '"]//dt[.="' . Words::NEW_PRODUCTS['on_hand']
+            . '"]/following-sibling::dd[1])')));
+    }
 }
