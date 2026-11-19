@@ -502,17 +502,24 @@ final class UiUnitTest extends TestCase
         self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);
         self::assertArrayHasKey('POST /ui/people/{id}/active', $byPath);
         // Who is here on a draft order (the live drafts plan, step 3; docs/decisions.md LV4): the poll is for everyone who looks at orders, as
-        // the order's page is; it is the only passive route (it never keeps a session alive by itself).
+        // the order's page is; passive (it never keeps a session alive by itself).
         self::assertSame('purchasing.view', $byPath['POST /ui/purchasing/orders/{id}/live']);
         self::assertSame($byPath['GET /ui/purchasing/orders/{id}'], $byPath['POST /ui/purchasing/orders/{id}/live'], 'whoever may open the order');
         self::assertArrayNotHasKey('GET /ui/purchasing/orders/{id}/live', $byPath);
+        // Each box saved by itself (step 4; docs/decisions.md LS10): the draft's own fragment for whoever may open the order, fetched by the page
+        // by itself (passive too: a page left open never keeps its session alive by fetching it); a line and a head box saved for whoever writes
+        // orders, as the whole form (a person's own act: not passive).
+        self::assertSame('purchasing.view', $byPath['GET /ui/purchasing/orders/{id}/live/doc']);
+        self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders/{id}/live/line']);
+        self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders/{id}/live/header']);
+        self::assertSame($byPath['POST /ui/purchasing/orders/{id}/lines'], $byPath['POST /ui/purchasing/orders/{id}/live/line'], 'whoever saves the whole form');
         $passive = [];
         foreach ($kernel->router()->routes() as $route) {
             if ($route->passive) {
                 $passive[] = $route->method . ' ' . $route->pattern;
             }
         }
-        self::assertSame(['POST /ui/purchasing/orders/{id}/live'], $passive);
+        self::assertSame(['POST /ui/purchasing/orders/{id}/live', 'GET /ui/purchasing/orders/{id}/live/doc'], $passive);
     }
 
     /**
@@ -1662,7 +1669,13 @@ final class UiUnitTest extends TestCase
         // (docs/decisions.md AJ): a new one's /new and a draft's /grid, nothing else of Stock records.
         self::assertStringContainsString("var SENT = { '[data-ni-fragment]': /^\\/ui\\/purchasing\\/(orders|invoices)\\/new-item$/, "
             . "'[data-kg-editor]': /^\\/ui\\/(purchasing\\/(orders|invoices)(\\/[1-9][0-9]{0,17}\\/lines)?|receiving\\/[1-9][0-9]{0,17}\\/lines"
-            . "|stock\\/adjustments\\/(new|[1-9][0-9]{0,17}\\/grid))$/ };", $js, 'what is sent, and only where');
+            . "|stock\\/adjustments\\/(new|[1-9][0-9]{0,17}\\/grid))$/,\n    '[data-live-fragment]': /^\\/ui\\/purchasing\\/orders\\/[1-9][0-9]{0,17}\\/live\\/(line|header)$/ };",
+            $js, 'what is sent, and only where');
+        // Each box saved by itself (docs/decisions.md LS10, LS12): the third kind sent, one line or one head box to the order's own /live/line and
+        // /live/header; the draft's own fragment read only from its /live/doc (since, tab); a redirect or a 401 never followed (the session ended).
+        self::assertStringContainsString("var LIVE_DOC = /^\\/ui\\/purchasing\\/orders\\/[1-9][0-9]{0,17}\\/live\\/doc\\?since=[0-9]{1,18}&tab=[0-9a-f]{16}$/;", $js);
+        self::assertStringContainsString("redirect: live ? 'manual' : 'follow'", $js);
+        self::assertStringContainsString("if (live && (r.type === 'opaqueredirect' || r.status === 401 || Math.floor(r.status / 100) === 3)) {", $js);
         self::assertStringContainsString("var sent = body !== undefined && SENT[marker] !== undefined && SENT[marker].test(url);", $js);
         self::assertStringContainsString("credentials: 'same-origin', method: 'POST'", $js);
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');
@@ -1790,7 +1803,11 @@ final class UiUnitTest extends TestCase
         $live = substr($js, $from, $to - $from);
         $code = (string) preg_replace('#^\s*//.*$#m', '', $live); // the block without its comments
         self::assertStringNotContainsString('setInterval', $code, 'never setInterval');
-        self::assertSame(1, preg_match_all('/\bsetTimeout\s*\(/', $code), 'one place sets the timer: the chain');
+        // Two timers, each set in one place and cleared before it is set again: the poll's chain, and a box's save tried again after no answer
+        // (each box saved by itself, docs/decisions.md LS12).
+        self::assertSame(2, preg_match_all('/\bsetTimeout\s*\(/', $code), 'two places set a timer: the poll\'s chain and the save\'s retry');
+        self::assertStringContainsString("later = window.setTimeout(function () {", $code, 'the retry\'s one timer');
+        self::assertStringContainsString("getAttribute('data-live-retry-ms')", $code, 'its rhythm is the page\'s');
         self::assertGreaterThanOrEqual(1, preg_match_all('/\bclearTimeout\s*\(/', $code), 'the timer is cleared before it is set again');
         self::assertStringContainsString("var LIVE_PATH = /^\\/ui\\/purchasing\\/orders\\/[1-9][0-9]{0,17}\\/live$/;", $code, 'the poll goes only to an order\'s own poll');
         self::assertStringContainsString("redirect: 'manual'", $code, 'a 303 (signed out) is never followed');

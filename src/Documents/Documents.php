@@ -166,33 +166,210 @@ final class Documents
      * A line's own id (document_line.uid; 0070, docs/decisions.md LV8): a line may name the id it had (`uid`, a line of this draft now: 400
      * bad_lines for another, or for one id twice); the line keeps it, wherever it is now. A line without one (absent or null) gets the
      * draft's next free id (document.next_line_uid), never given before in this document. The ids are not in the posting fingerprint.
+     * A line's own version (document_line.rev, changed_by, changed_at; 0072, docs/decisions.md LS2): a line that keeps its id keeps its
+     * version, who changed it and when while its content is the same as the old line's (its place may move: a line removed above it is not a
+     * change of it); otherwise its version moves by one and it is the caller's, now. A new line: version 1, the caller's. $keys / $oldKeys:
+     * the module's own part of each line's content (PurchaseOrders: the order's own row, po_line), $keys in the order of $lines, $oldKeys by
+     * the old line's id; a line whose key differs is changed too. Neither is in the posting fingerprint.
      *
      * @param list<array<string, mixed>> $lines
+     * @param list<string> $keys
+     * @param array<int, string> $oldKeys
      */
-    public function setLines(Caller $caller, int $id, int $expectedVersion, array $lines): Document
+    public function setLines(Caller $caller, int $id, int $expectedVersion, array $lines, array $keys = [], array $oldKeys = []): Document
     {
         [$lines, $uids] = self::takeUids($lines);
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $expectedVersion, $lines, $uids): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $expectedVersion, $lines, $uids, $keys, $oldKeys): Document {
             $me = $this->staff($caller);
             $row = $this->lockDraft($id, $expectedVersion);
             $type = (string) $row['doc_type'];
             $this->checkPoster($me, $type);
             $norm = $this->normaliseLines($type, $lines);
-            [$given, $next] = $this->giveUids($id, (int) ($row['next_line_uid'] ?? 1), $uids);
-            $db->exec('DELETE FROM document_line WHERE document_id = ?', [$id]);
-            foreach (array_chunk($norm, 500, true) as $chunk) {
-                $params = [];
-                foreach ($chunk as $i => $l) {
-                    array_push($params, $id, $l['line_no'], $given[$i], $l['sku_id'], $l['warehouse_id'], $l['qty'], $l['unit_cost'], $l['amount'], $l['reason_code'],
-                        $l['description']);
-                }
-                $db->exec('INSERT INTO document_line (document_id, line_no, uid, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) VALUES '
-                    . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
-            }
-            $db->exec('UPDATE document SET version = version + 1, next_line_uid = ?, updated_at = ? WHERE id = ?', [$next, $this->nowDb(), $id]);
+            $this->writeLines($me['id'], $row, $norm, $uids, $keys, $oldKeys);
             Audit::write($db, $caller, 'document.lines', 'document', (string) $id, null, ['version' => $expectedVersion + 1, 'lines' => count($norm)]);
             return $this->get($id);
         });
+    }
+
+    /**
+     * Replaces every line of a draft as setLines() does, for a module's own change of one line that renumbers the others (a line removed, a
+     * line put back: PurchaseOrders::removeLine, restoreLine; docs/decisions.md LS3), inside the module's transaction: the draft row locked
+     * here (409 not_draft), the caller allowed to post its type, NO version check (the module checked the line's own version) and NO audit
+     * row (the module records the change: Live\LiveChanges, one audit row per person per draft per hour). Ids, versions and the next free id
+     * as setLines(); the document's version moves by one.
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param list<string> $keys
+     * @param array<int, string> $oldKeys
+     */
+    public function replaceLinesLive(Caller $caller, int $id, array $lines, array $keys = [], array $oldKeys = []): Document
+    {
+        [$lines, $uids] = self::takeUids($lines);
+        return $this->db->transaction(function () use ($caller, $id, $lines, $uids, $keys, $oldKeys): Document {
+            $me = $this->staff($caller);
+            $row = $this->lockLiveDraft($id);
+            $type = (string) $row['doc_type'];
+            $this->checkPoster($me, $type);
+            $this->writeLines($me['id'], $row, $this->normaliseLines($type, $lines), $uids, $keys, $oldKeys);
+            return $this->get($id);
+        });
+    }
+
+    /**
+     * Changes ONE line of a draft in place (docs/decisions.md LS3; PurchaseOrders::setLine): the line named by its own id, at the version the
+     * page saw (409 line_conflict with the version now; 409 line_gone when it is no longer there), its content as $line (the fields of
+     * LINE_FIELDS, checked as setLines checks a line). Its version moves by one and it is the caller's, now; the document's version moves by
+     * one. Inside the module's transaction; the document row locked first (409 not_draft); the caller allowed to post its type; no audit row
+     * (the module records the change).
+     *
+     * @param array<string, mixed> $line
+     */
+    public function changeLine(Caller $caller, int $id, int $uid, int $expectedRev, array $line): Document
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $uid, $expectedRev, $line): Document {
+            $me = $this->staff($caller);
+            $row = $this->lockLiveDraft($id);
+            $type = (string) $row['doc_type'];
+            $this->checkPoster($me, $type);
+            $old = $db->one('SELECT line_no, rev FROM document_line WHERE document_id = ? AND uid = ? FOR UPDATE', [$id, $uid])
+                ?? throw new CwException('line_gone', "there is no line with id {$uid} on this draft", 409, ['uid' => $uid]);
+            if ((int) $old['rev'] !== $expectedRev) {
+                throw new CwException('line_conflict', "line id {$uid} changed since the page was drawn", 409, ['uid' => $uid, 'rev' => (int) $old['rev'],
+                    'line' => (int) $old['line_no']]);
+            }
+            $n = $this->normaliseLines($type, [$line])[0];
+            $now = $this->nowDb();
+            $db->exec('UPDATE document_line SET sku_id = ?, warehouse_id = ?, qty = ?, unit_cost = ?, amount = ?, reason_code = ?, description = ?, rev = rev + 1, '
+                . 'changed_by = ?, changed_at = ? WHERE document_id = ? AND uid = ?', [$n['sku_id'], $n['warehouse_id'], $n['qty'], $n['unit_cost'], $n['amount'],
+                    $n['reason_code'], $n['description'], $me['id'], $now, $id, $uid]);
+            $db->exec('UPDATE document SET version = version + 1, updated_at = ? WHERE id = ?', [$now, $id]);
+            return $this->get($id);
+        });
+    }
+
+    /**
+     * Adds ONE line after the draft's last (docs/decisions.md LS3; PurchaseOrders::addLineLive): the draft's next free id, version 1, the
+     * caller's, now; the document's version and its next free id move by one. At most MAX_LINES (422 too_many_lines). Inside the module's
+     * transaction, as changeLine().
+     *
+     * @param array<string, mixed> $line
+     * @return array{document: Document, uid: int, line_no: int}
+     */
+    public function appendLine(Caller $caller, int $id, array $line): array
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $line): array {
+            $me = $this->staff($caller);
+            $row = $this->lockLiveDraft($id);
+            $type = (string) $row['doc_type'];
+            $this->checkPoster($me, $type);
+            $n = $this->normaliseLines($type, [$line])[0];
+            $at = $db->one('SELECT COUNT(*) AS n, COALESCE(MAX(line_no), 0) AS last, COALESCE(MAX(uid), 0) AS top FROM document_line WHERE document_id = ?', [$id]);
+            if ((int) $at['n'] >= self::MAX_LINES) {
+                throw new CwException('too_many_lines', 'a document has at most ' . self::MAX_LINES . ' lines', 422);
+            }
+            $uid = max((int) ($row['next_line_uid'] ?? 1), (int) $at['top'] + 1, 1);
+            $no = (int) $at['last'] + 1;
+            $now = $this->nowDb();
+            $db->exec('INSERT INTO document_line (document_id, line_no, uid, rev, changed_by, changed_at, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) '
+                . 'VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [$id, $no, $uid, $me['id'], $now, $n['sku_id'], $n['warehouse_id'], $n['qty'], $n['unit_cost'], $n['amount'],
+                    $n['reason_code'], $n['description']]);
+            $db->exec('UPDATE document SET version = version + 1, next_line_uid = ?, updated_at = ? WHERE id = ?', [$uid + 1, $now, $id]);
+            return ['document' => $this->get($id), 'uid' => $uid, 'line_no' => $no];
+        });
+    }
+
+    /**
+     * Changes header fields of a draft in place for a module's own change of one box (docs/decisions.md LS4; PurchaseOrders::setHeaderField):
+     * the keys given (of HEADER_FIELDS; none: only the version moves, a field of the module's own row changed), checked as updateDraft checks
+     * them; NO version check (the module checked the value the page saw) and NO audit row (the module records the change); the document's
+     * version moves by one. Inside the module's transaction; the document row locked first (409 not_draft).
+     *
+     * @param array<string, mixed> $header
+     */
+    public function changeHeaderLive(Caller $caller, int $id, array $header): Document
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $header): Document {
+            $me = $this->staff($caller);
+            $row = $this->lockLiveDraft($id);
+            $this->checkPoster($me, (string) $row['doc_type']);
+            $h = $this->header((string) $row['doc_type'], $header, $row);
+            $db->exec('UPDATE document SET external_ref = ?, doc_date = ?, warehouse_id = ?, reason_code = ?, note = ?, version = version + 1, updated_at = ? WHERE id = ?',
+                [$h['external_ref'], $h['doc_date'], $h['warehouse_id'], $h['reason_code'], $h['note'], $this->nowDb(), $id]);
+            return $this->get($id);
+        });
+    }
+
+    /**
+     * Gives an id to every line of a draft that has none (a line written before 0070 by code that gave none), in line order, from the next
+     * free one (docs/decisions.md LS3: a page saves a line by its id). Nothing else moves, not the version. Returns how many got one.
+     */
+    public function ensureUids(int $id): int
+    {
+        if ($this->db->value('SELECT 1 FROM document_line WHERE document_id = ? AND uid IS NULL LIMIT 1', [$id]) === null) {
+            return 0; // every line has its id (the usual case): no lock is taken (a page's own fetch must stay a read)
+        }
+        return $this->db->transaction(function (Db $db) use ($id): int {
+            $row = $this->lock($id);
+            if ($row['status'] !== 'draft') {
+                return 0;
+            }
+            $none = array_map('intval', $db->column('SELECT line_no FROM document_line WHERE document_id = ? AND uid IS NULL ORDER BY line_no', [$id]));
+            if ($none === []) {
+                return 0;
+            }
+            $next = max((int) $row['next_line_uid'], (int) $db->value('SELECT COALESCE(MAX(uid), 0) FROM document_line WHERE document_id = ?', [$id]) + 1, 1);
+            foreach ($none as $no) {
+                $db->exec('UPDATE document_line SET uid = ? WHERE document_id = ? AND line_no = ?', [$next++, $id, $no]);
+            }
+            $db->exec('UPDATE document SET next_line_uid = ? WHERE id = ?', [$next, $id]);
+            return count($none);
+        });
+    }
+
+    /**
+     * The lines of a draft written again (setLines, replaceLinesLive): each line's id (giveUids), its version kept or moved (LS2), then the
+     * old lines out and the new in, the document's version + 1 and its next free id. The document row is locked by the caller.
+     *
+     * @param array<string, mixed> $row the document row, X-locked
+     * @param list<array<string, mixed>> $norm normaliseLines()
+     * @param list<?int> $uids takeUids()
+     * @param list<string> $keys
+     * @param array<int, string> $oldKeys
+     */
+    private function writeLines(int $staffId, array $row, array $norm, array $uids, array $keys, array $oldKeys): void
+    {
+        $id = (int) $row['id'];
+        $db = $this->db;
+        [$given, $next] = $this->giveUids($id, (int) ($row['next_line_uid'] ?? 1), $uids);
+        $old = [];
+        foreach ($db->all('SELECT * FROM document_line WHERE document_id = ? AND uid IS NOT NULL', [$id]) as $o) {
+            $old[(int) $o['uid']] = $o;
+        }
+        $now = $this->nowDb();
+        $db->exec('DELETE FROM document_line WHERE document_id = ?', [$id]);
+        foreach (array_chunk($norm, 500, true) as $chunk) {
+            $params = [];
+            foreach ($chunk as $i => $l) {
+                $o = $old[$given[$i]] ?? null;
+                $same = $o !== null && self::sameContent(self::lineRow($o), $l) && ($keys[$i] ?? null) === ($oldKeys[$given[$i]] ?? null);
+                array_push($params, $id, $l['line_no'], $given[$i], $o === null ? 1 : ((int) $o['rev'] + ($same ? 0 : 1)), $same ? $o['changed_by'] : $staffId,
+                    $same ? $o['changed_at'] : $now, $l['sku_id'], $l['warehouse_id'], $l['qty'], $l['unit_cost'], $l['amount'], $l['reason_code'], $l['description']);
+            }
+            $db->exec('INSERT INTO document_line (document_id, line_no, uid, rev, changed_by, changed_at, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) VALUES '
+                . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')), $params);
+        }
+        $db->exec('UPDATE document SET version = version + 1, next_line_uid = ?, updated_at = ? WHERE id = ?', [$next, $now, $id]);
+    }
+
+    /** Whether a line's content (all but its number) is the same: an old row as lineRow() reads it, a new one as normaliseLines() makes it. */
+    private static function sameContent(array $a, array $b): bool
+    {
+        foreach (['sku_id', 'warehouse_id', 'qty', 'unit_cost', 'amount', 'reason_code', 'description'] as $k) {
+            if (($a[$k] ?? null) !== ($b[$k] ?? null)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Cancels a draft (never numbered, nothing booked). $reason 3-500 characters (400 bad_cancel_reason). */
@@ -1014,6 +1191,40 @@ final class Documents
             throw DraftChanges::conflict($this->db, $id, 'document', (int) $row['version'], $expectedVersion);
         }
         return $row;
+    }
+
+    /**
+     * A draft's row, X-locked, for a change of one line or one box (LS3): 409 not_draft (naming what it became, its number and who made it so)
+     * when it is no longer a draft; no version check (the line's own version is the module's).
+     *
+     * @return array<string, mixed>
+     */
+    private function lockLiveDraft(int $id): array
+    {
+        $row = $this->lock($id);
+        if ($row['status'] !== 'draft') {
+            throw self::notDraft($this->db, $row);
+        }
+        return $row;
+    }
+
+    /**
+     * 409 not_draft for a change of a document that is no longer a draft (docs/decisions.md LS9): its status, its number, who made it so
+     * (posted, sent for its OK, cancelled) by name, for the page that was typing in it ("Fazil confirmed this order. It is PO-000123 now.").
+     *
+     * @param array<string, mixed> $row the document row
+     */
+    public static function notDraft(Db $db, array $row): CwException
+    {
+        $status = (string) $row['status'];
+        $by = match ($status) {
+            'cancelled' => $row['cancelled_by'] ?? null,
+            'awaiting_approval' => $row['submitted_by'] ?? null,
+            default => $row['posted_by'] ?? null,
+        };
+        $name = $by === null ? null : $db->value('SELECT display_name FROM staff_user WHERE id = ?', [(int) $by]);
+        return new CwException('not_draft', 'document #' . $row['id'] . ' is ' . str_replace('_', ' ', $status) . ': only a draft is changed', 409,
+            ['status' => $status, 'number' => $row['number'] === null ? null : (string) $row['number'], 'by' => $name === null ? null : (string) $name]);
     }
 
     /**

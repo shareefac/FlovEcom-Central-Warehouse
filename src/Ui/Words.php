@@ -34,7 +34,7 @@ final class Words
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
-        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'DRAFT', 'LIVE', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
+        'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'DRAFT', 'LIVE', 'LIVE_SAVE', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'MATCH', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
         'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_STEP', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'DOC_GRID', 'KEYS', 'REORDER', 'WHY',
@@ -2736,7 +2736,7 @@ final class Words
         // The adjustment page (0065; docs/decisions.md AJ9).
         'stock.adjust_opens_on' => 'Reason a new adjustment opens on',
         // Who is here on a draft order (0070; docs/decisions.md LV9).
-        'live.mode' => 'Show who else has a draft order open',
+        'live.mode' => 'Working together on a draft order',
         'live.poll_seconds' => 'Seconds between two checks while others have the draft open',
         'live.alone_seconds' => 'Seconds between two checks while nobody else has it open',
         'live.gone_seconds' => 'Seconds before a person who left is no longer shown',
@@ -2881,6 +2881,7 @@ final class Words
         'housekeeping.audit_keep_years' => 'Years the audit log is kept',
         'housekeeping.chunk_rows' => 'Rows removed at a time by the clean-up',
         'housekeeping.max_seconds' => 'Longest one clean-up may take, in seconds',
+        'housekeeping.draft_change_keep_days' => 'Days a draft order\'s line-by-line changes are kept', // 0072 (LS11)
         // The card "Messages from ERPNext" opens with the nightly Confirm all, in NightlyConfirm.dc.html's order (docs/decisions.md NC8).
         'relay.nightly_confirm' => 'Confirm ready ERPNext corrections every night',
         'relay.nightly_confirm_at' => 'Time it runs',
@@ -3669,6 +3670,78 @@ final class Words
         'cancelled' => '%s cancelled this draft.',
         'someone' => 'Someone',
         'open' => 'Open the order',
+        // Each box saves by itself (live.mode on; the live drafts plan, step 4; docs/decisions.md LS12): the bar's status, the marks, Confirm.
+        'saving' => 'Saving…',
+        'all_saved' => 'All changes saved %s',
+        'not_saved' => 'Not saved yet',
+        'offline' => 'Not saved yet: no connection. Trying again.',
+        'box_saved' => 'This box is saved.',
+        'changed_by' => '%s changed this line while you were typing in it.',
+        'removed_by' => '%s removed this line while you were typing in it.',
+        'confirm_first' => 'Choose on the marked line first: someone changed it at the same moment as you.',
+        'confirm_saving' => 'Saving your changes, then confirming the order.',
+        'typing_line' => '%s is typing on line %s.',
+        'typing_head' => '%s is typing in the order\'s details.',
+        'confirm_anyway' => 'Confirm anyway',
+        'wait' => 'Not now',
+        'last_box' => 'Your last box was not saved: %s (%s).',
+        'save_back' => 'Saving is back to the Save button: press Save to keep what you typed.',
+    ];
+
+    /**
+     * The server's words of a draft order saved box by box (live.mode on; the live drafts plan, sections 4 and 5; docs/decisions.md LS12):
+     * the choices of a clash on a line or a box, the changes said to the other open pages, the History card's lines and their fold, Confirm.
+     */
+    public const LIVE_SAVE = [
+        'conflict_line' => '%s just changed this line (%s).',
+        'theirs' => '%s\'s: %s.',
+        'yours' => 'Yours: %s.',
+        'keep' => 'Keep %s\'s',
+        'use_mine' => 'Use mine',
+        'gone' => '%s removed this line (%s).',
+        'put_back' => 'Put it back with my change',
+        'leave_removed' => 'Leave it removed',
+        'remove_conflict' => '%s just changed this line: %s.',
+        'remove_anyway' => 'Remove it anyway',
+        'keep_it' => 'Keep it',
+        'exists' => '%s just added this (%s). Add %s more?',
+        'add_more' => 'Add %s more',
+        'leave_it' => 'Leave it',
+        'field_conflict' => '%s just changed this (%s).',
+        'nothing_to_restore' => 'This line cannot be put back: only a line you removed yourself, and not put back yet, comes back.',
+        'live_off' => 'Saving each box by itself was switched off. Press Save to keep what you typed.',
+        'someone' => 'Someone',
+        'empty' => 'empty',
+        'packs' => '%s × %s',
+        'at_price' => '%s at %s',
+        'per_pack' => '%s items per pack',
+        'confirm_changed_line' => '%s changed line %s a moment ago. Look, then confirm again.',
+        'confirm_changed' => '%s changed this order a moment ago. Look, then confirm again.',
+        // Said to the other open pages (one at a time, by the page's polite region).
+        'ev_set' => '%s changed line %s (%s).',
+        'ev_add' => '%s added line %s (%s).',
+        'ev_remove' => '%s removed line %s (%s).',
+        'ev_restore' => '%s put back line %s (%s).',
+        'ev_head' => '%s changed %s.',
+        'ev_supplier' => '%s changed the supplier to %s.',
+        'ev_replace' => '%s changed the lines from a file.',
+        // The History card: one line per person per minute, the changes in its fold.
+        'ev_line' => '%s changed 1 line',
+        'ev_lines' => '%s changed %s lines',
+        'ev_details' => '%s changed the order\'s details',
+        'ev_line_details' => '%s changed 1 line and the order\'s details',
+        'ev_lines_details' => '%s changed %s lines and the order\'s details',
+        'fold' => 'What changed',
+        'fold_packs' => 'Packs %s → %s on %s',
+        'fold_price' => 'Price %s → %s on %s',
+        'fold_upp' => 'Items per pack %s → %s on %s',
+        'fold_product' => '%s became %s',
+        'fold_add' => 'Added %s (%s)',
+        'fold_remove' => 'Removed %s',
+        'fold_restore' => 'Put back %s',
+        'fold_head' => '%s: %s → %s',
+        'fold_supplier' => 'Supplier: %s → %s',
+        'fold_replace' => 'Lines from a file (%s)',
     ];
 
     public const RECORD = [
@@ -4118,8 +4191,9 @@ final class Words
             . 'switched off later, or is no longer offered on stock corrections, the page opens on Data correction again.',
         // Who is here on a draft order (0070; docs/decisions.md LV9).
         'live.mode' => '"off": nobody sees who else has a draft order open, and the pages do not check. "presence": a draft order shows who else has it '
-            . 'open, and the line and box each person is in, in their own colour; a person who can only look is shown as looking. "on": the same for now; '
-            . 'saving each box by itself comes later.',
+            . 'open, and the line and box each person is in, in their own colour; a person who can only look is shown as looking; changes are saved with '
+            . 'the Save button. "on": the same, and each box saves by itself when you leave it: the others see the change in about 3 seconds, and if two '
+            . 'people change the same line at the same moment, the second one chooses which to keep. Back to "presence" brings the Save button back.',
         'live.poll_seconds' => 'While someone else has the same draft order open, each open page checks this often who is here. Fewer seconds: the marks '
             . 'move sooner. More seconds: less work for the server.',
         'live.alone_seconds' => 'While nobody else has the draft order open, the page checks this often instead, to save the server work. A person who '
@@ -4310,6 +4384,8 @@ final class Words
             . 'nightly clean-up.',
         'housekeeping.chunk_rows' => 'The nightly clean-up removes old rows this many at a time, so the stores\' calls never wait long for it.',
         'housekeeping.max_seconds' => 'The nightly clean-up stops after this many seconds; the rest goes the next night.',
+        'housekeeping.draft_change_keep_days' => 'Each change saved box by box on a draft order (who changed which line, from what to what) is kept this '
+            . 'many days after the order is confirmed or cancelled, for its History. The audit log keeps one line per person per hour for ever.',
         'relay.correction_is_for_sale' => 'On: a figure set in ERPNext is what the website may sell, so the units kept for paid orders not sent '
             . 'yet are added to get the shelf figure. Off: the figure is the shelf figure.',
         'relay.mode_review' => 'On: each selling-mode change ERPNext makes waits in Approvals › Mode changes for a person. Off: CW notes it '

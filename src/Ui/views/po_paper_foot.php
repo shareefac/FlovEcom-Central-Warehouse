@@ -7,7 +7,10 @@
 // total with VAT. $lines, $units, $totals, $vatLabels: page()'s; $typed: the form as sent (after a refusal).
 // Who is here (step 3b): the note and the delivery name their place (data-live-box: h:note, h:delivery); read only, the note, on a draft that
 // shows who is here ($marks).
+// Each box saved by itself (live.mode on, step 4; docs/decisions.md LS10): the note says what it is and the value it was drawn with
+// (data-live-field, data-live-base); the delivery typed is a charge line added by itself.
 $marks = $marks ?? false;
+$liveSave = $liveSave ?? false;
 ?>
 <?php if (!$edit): ?>
   <div class="doc-foot">
@@ -21,7 +24,7 @@ $marks = $marks ?? false;
   <div class="doc-foot" data-kg-swap-part="summary">
     <div class="doc-notes">
       <p class="doc-label"><label for="po-note"><?= $word('ORDER', 'note_title') ?></label></p>
-      <p class="kg-in" data-live-box="h:note"><input id="po-note" type="text" name="note" maxlength="1000" autocomplete="off" value="<?= $e($note) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"></p>
+      <p class="kg-in" data-live-box="h:note"><input id="po-note" type="text" name="note" maxlength="1000" autocomplete="off" value="<?= $e($note) ?>" placeholder="<?= $word('DOC_LIST', 'none') ?>" class="kg-flat"<?php if ($liveSave): ?> data-live-field="note" data-live-base="<?= $e($note) ?>"<?php endif; ?>></p>
     </div>
     <section class="doc-totals" aria-label="<?= $word('DOC', 'totals') ?>">
       <dl data-kg-vat-rows data-words="<?= $word('ORDER', 'vat_line') ?>">

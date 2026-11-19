@@ -1445,6 +1445,13 @@ Who is here on a draft order (`docs/decisions.md` LV18-LV25, setting `live.mode`
 `Words::LIVE`); `live_here` under the title; a saved line `tr[data-uid]`, its boxes `[data-live-cell]`, the head's `[data-live-box="h:…"]`.
 app.js block "live" (`// live drafts` … `// (live ends here)`); colours `.who-c1`…`.who-c8`. JS: `run_live.js`
 (`/root/cw_work/presence2_20261119/js_harness/`, `runs/presence2_js.sh`).
+Each box saved by itself (`docs/decisions.md` LS1-LS14, `live.mode = on`, the paper's editor only): the form also carries `data-live-save`,
+`-head`, `-doc`, `-confirm`, `-e`, `-retry-ms`, `-me`; a saved line `data-rev`, `data-by`, `data-by-name`; the head's boxes `data-live-field` and
+`data-live-base`; the bar `[data-live-status]` beside Save; the warnings `[data-live-notes]`. The fragment `po_live` (`data-live-fragment="po:<id>"`,
+parts `[data-live-part]`: header, lines, foot, notes, history, events, conflict; `live_conflict` with `button[data-live-choice]`,
+`[data-live-safe]`). In app.js the grid hands each change to `kb.live` (set by the block's part `saving()`), the block uses the grid's
+`kb.liveGrid`; `fragment()` sends the third kind (`[data-live-fragment]`). Two timers in the block (the poll's chain, the save's retry), each
+set in one place. JS: `run_save.js` (and `run_kg.js`'s section "live") in `/root/cw_work/livesave_20261119/js_harness/`, `runs/livesave_js.sh`.
 
 - Tests: `tests/Integration/UiKernel/DocKeyGridScreensTest.php` (lines in one post, FormOnce, conflicts, the limit, refusals on their row,
   without the script, the head bar, "+ Add new item"'s route, a saved line's item changed in place, the posting time, the keys' pages, the
@@ -1540,6 +1547,25 @@ key `doubt:<id>`.
 
 - Tests: `tests/Unit/StockDoubtUnitTest.php`, `tests/Integration/Counts/StockDoubtTest.php`, `Migration0066Test.php`, `DoubtLoadCliTest.php`,
   `tests/Integration/UiKernel/DoubtfulStockScreensTest.php`. Runner: `/root/cw_work/runs/doubt_run.sh`, `doubt_full.sh <tag>`.
+
+### Each box of a draft order saved by itself (`docs/decisions.md` LS1-LS14; branch `live-save`; migration 0072; 19 Nov 2026)
+
+`live.mode = on`: the paper's editor saves one line or one head box at a time; `presence` (or `off`) keeps the whole-form Save (the undo).
+
+| Path | What |
+|---|---|
+| `migrations/0072_live_save.sql` | `document_line.rev`, `changed_by`, `changed_at`; `draft_change`; the setting `housekeeping.draft_change_keep_days` |
+| `src/Documents/Documents.php` | `setLines()` keeps or moves a line's version (`$keys`/`$oldKeys`: the module's own part of a line); `changeLine`, `appendLine`, `replaceLinesLive`, `changeHeaderLive` (no version check, no audit: the module records), `ensureUids`, `notDraft` |
+| `src/PurchaseOrders/PurchaseOrders.php` | `setLine`, `addLineLive`, `removeLine`, `restoreLine`, `setHeaderField`, `lineMarks`; the refusals `line_conflict`, `line_gone`, `field_conflict`, `line_exists`, `nothing_to_restore`, `not_draft` (with who) |
+| `src/Live/LiveChanges.php` | the draft_change rows, the hour's audit row (`po.live_edit`), `since`, `history`, `group`, `done` (an op key) |
+| `src/Documents/DraftChanges.php` | `last()` reads draft_change too (by the document's version) |
+| `src/Ui/Controller/LiveController.php`, `PurchaseOrdersController::liveView/linesData`, `src/Ui/LiveSaveWords.php` | `GET …/live/doc` (passive), `POST …/live/line`, `…/live/header`; the fragment's data; the words of a refusal, a change, the History card, Confirm |
+| `src/Ui/views/po_live.php`, `live_conflict.php`, `po_history.php` | the fragment, a refusal with its choices, the History card (also under the paper) |
+| `src/Ops/Housekeeping.php` | the nightly part `draft_change` (a final document's rows after the keep days) |
+
+- Tests: `tests/Integration/PurchaseOrders/LiveLinesTest.php` (section 5's table, in place vs whole save, the audit hour, the clean-up),
+  `LiveLinesRaceTest.php` (two workers, `po_worker.php` ops `live_*`), `tests/Integration/UiKernel/PoLiveScreensTest.php`,
+  `tests/Integration/Migration0072Test.php`, `UiUnitTest`, `WordsTest`. Runner: `/root/cw_work/runs/livesave_run.sh`.
 
 ### Who is here on a draft order, the server half (`docs/decisions.md` LV1-LV12; branch `live-presence`; migration 0070; 18 Nov 2026)
 

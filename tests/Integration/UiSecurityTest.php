@@ -57,6 +57,7 @@ final class UiSecurityTest extends UiTestCase
         '/ui/purchasing/orders', '/ui/purchasing/orders/1/lines', // PO on one page (docs/decisions.md PX2)
         '/ui/items/families/1/pick', // a family's picker (docs/decisions.md FP4)
         '/ui/purchasing/orders/1/live', // who is here on a draft order: the poll (docs/decisions.md LV3)
+        '/ui/purchasing/orders/1/live/line', '/ui/purchasing/orders/1/live/header', // each box saved by itself (docs/decisions.md LS10)
         ];
 
     public function testEveryScreenNeedsASignIn(): void

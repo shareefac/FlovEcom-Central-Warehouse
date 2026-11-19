@@ -284,13 +284,49 @@ final class WordsTest extends TestCase
         self::assertSame('Fazil saved a change at 14:02.', Words::say('LIVE', 'saved', 'Fazil', '14:02'));
         self::assertSame('Fazil confirmed this order. It is PO-000123 now.', Words::say('LIVE', 'confirmed', 'Fazil', 'PO-000123'));
         $places = ['one' => 1, 'two' => 2, 'many' => 1, 'looking' => 1, 'away' => 1, 'looks' => 1, 'more' => 1, 'joined' => 1, 'left' => 1, 'saved' => 2,
-            'saved_you' => 1, 'confirmed' => 2, 'sent_ok' => 1, 'cancelled' => 1];
+            'saved_you' => 1, 'confirmed' => 2, 'sent_ok' => 1, 'cancelled' => 1, 'all_saved' => 1, 'changed_by' => 1, 'removed_by' => 1, 'typing_line' => 2,
+            'typing_head' => 1, 'last_box' => 2];
         foreach (Words::LIVE as $code => $text) {
             self::assertSame($places[$code] ?? 0, substr_count($text, '%s'), $code);
             self::assertSame(0, preg_match('/%[^s]/', $text), "{$code}: only %s");
         }
-        foreach (['joined', 'left', 'paused', 'signed_out', 'saved', 'saved_you', 'confirmed', 'sent_ok', 'cancelled', 'shown'] as $sentence) {
+        foreach (['joined', 'left', 'paused', 'signed_out', 'saved', 'saved_you', 'confirmed', 'sent_ok', 'cancelled', 'shown', 'offline', 'box_saved', 'changed_by',
+            'removed_by', 'confirm_first', 'confirm_saving', 'typing_line', 'typing_head', 'last_box', 'save_back'] as $sentence) {
             self::assertMatchesRegularExpression('/[.]$/', Words::LIVE[$sentence], "{$sentence}: a whole sentence");
+        }
+    }
+
+    /**
+     * Each box saved by itself (the live drafts plan, sections 4.5 and 5; docs/decisions.md LS12): the plan's own words, whole sentences, each
+     * place a %s the code fills in order.
+     */
+    public function testEachBoxSavedByItselfSaysItInWholeSentences(): void
+    {
+        self::assertSame('All changes saved 14:02', Words::say('LIVE', 'all_saved', '14:02'));
+        self::assertSame('Not saved yet: no connection. Trying again.', Words::LIVE['offline']);
+        self::assertSame('Fazil just changed this line (14:02).', Words::say('LIVE_SAVE', 'conflict_line', 'Fazil', '14:02'));
+        self::assertSame("Fazil's: 8 × box of 10. Yours: 6 × box of 10.", Words::say('LIVE_SAVE', 'theirs', 'Fazil', Words::say('LIVE_SAVE', 'packs', '8', 'box of 10'))
+            . ' ' . Words::say('LIVE_SAVE', 'yours', Words::say('LIVE_SAVE', 'packs', '6', 'box of 10')));
+        self::assertSame(["Keep Fazil's", 'Use mine'], [Words::say('LIVE_SAVE', 'keep', 'Fazil'), Words::LIVE_SAVE['use_mine']]);
+        self::assertSame('Fazil removed this line (Elf Bar 600).', Words::say('LIVE_SAVE', 'gone', 'Fazil', 'Elf Bar 600'));
+        self::assertSame(['Put it back with my change', 'Leave it removed'], [Words::LIVE_SAVE['put_back'], Words::LIVE_SAVE['leave_removed']]);
+        self::assertSame('Fazil just added this (5 × box of 10). Add 5 more?', Words::say('LIVE_SAVE', 'exists', 'Fazil', '5 × box of 10', '5'));
+        self::assertSame(['Add 5 more', 'Leave it'], [Words::say('LIVE_SAVE', 'add_more', '5'), Words::LIVE_SAVE['leave_it']]);
+        self::assertSame(['Remove it anyway', 'Keep it'], [Words::LIVE_SAVE['remove_anyway'], Words::LIVE_SAVE['keep_it']]);
+        self::assertSame('Fazil changed line 3 a moment ago. Look, then confirm again.', Words::say('LIVE_SAVE', 'confirm_changed_line', 'Fazil', '3'));
+        self::assertSame('Fazil is typing on line 4.', Words::say('LIVE', 'typing_line', 'Fazil', '4'));
+        self::assertSame(['Confirm anyway', 'Not now'], [Words::LIVE['confirm_anyway'], Words::LIVE['wait']]);
+        self::assertSame('Fazil changed 3 lines', Words::say('LIVE_SAVE', 'ev_lines', 'Fazil', '3'));
+        self::assertSame('Packs 5 → 8 on Elf Bar 600 Blue Razz', Words::say('LIVE_SAVE', 'fold_packs', '5', '8', 'Elf Bar 600 Blue Razz'));
+        self::assertSame('Fazil removed line 3 (Elf Bar 600 Blue Razz).', Words::say('LIVE_SAVE', 'ev_remove', 'Fazil', '3', 'Elf Bar 600 Blue Razz'));
+        foreach (Words::LIVE_SAVE as $code => $text) {
+            self::assertSame(0, preg_match('/%[^s]/', $text), "{$code}: only %s");
+            if (str_starts_with($code, 'ev_') && !in_array($code, ['ev_line', 'ev_lines', 'ev_details', 'ev_line_details', 'ev_lines_details'], true)) {
+                self::assertMatchesRegularExpression('/[.]$/', $text, "{$code}: said as a whole sentence");
+            }
+        }
+        foreach (['conflict_line', 'gone', 'exists', 'field_conflict', 'remove_conflict', 'nothing_to_restore', 'live_off', 'confirm_changed_line', 'confirm_changed'] as $sentence) {
+            self::assertMatchesRegularExpression('/[.?]$/', Words::LIVE_SAVE[$sentence], "{$sentence}: a whole sentence");
         }
     }
 

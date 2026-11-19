@@ -8,8 +8,8 @@ declare(strict_types=1);
  * operation and prints one JSON line with its result. `hold_ms` keeps the operation's transaction open (its locks held)
  * that long before the commit, so the other worker meets the locks for certain.
  *
- * job = {start: float unix time, op: 'approve' | 'create_once' | 'deactivate', staff_id, document_id?, version?, supplier_id?,
- *        form_key?, hold_ms?}
+ * job = {start: float unix time, op: 'approve' | 'create_once' | 'deactivate' | 'live_sets' | 'live_set' | 'live_add', staff_id, document_id?,
+ *        version?, supplier_id?, form_key?, hold_ms?, uid?, rev?, packs?, values?, si?, key?}
  * create_once runs the PO creation exactly as Ui\FormOnce does (Idempotency::run under "ui:<staff id>:<form_key>").
  */
 
@@ -42,7 +42,36 @@ try {
             default => throw new \InvalidArgumentException('unknown op'),
         };
     };
-    if ($job['op'] === 'create_once') {
+    if (str_starts_with((string) $job['op'], 'live_')) {
+        // Each box saved by itself (docs/decisions.md LS1-LS14): live_sets saves a line's packs to each value in turn, each with the line's version read
+        // just before (as a page that saw it); live_set and live_add are one save (the line's version as given; held open hold_ms when asked).
+        $doc = (int) $job['document_id'];
+        $one = static function () use ($pos, $caller, $job, $doc): array {
+            $r = $job['op'] === 'live_add'
+                ? $pos->addLineLive($caller, $doc, ['supplier_item_id' => (int) $job['si']], (int) $job['packs'], null, (string) $job['key'])
+                : $pos->setLine($caller, $doc, (int) $job['uid'], (int) $job['rev'], ['packs' => (string) $job['packs']]);
+            return ['result' => $r['status'], 'uid' => $r['uid'] ?? null];
+        };
+        if ($job['op'] === 'live_sets') {
+            $results = [];
+            foreach ($job['values'] as $v) {
+                $rev = (int) $db->value('SELECT rev FROM document_line WHERE document_id = ? AND uid = ?', [$doc, (int) $job['uid']]);
+                try {
+                    $results[] = $pos->setLine($caller, $doc, (int) $job['uid'], $rev, ['packs' => (string) $v])['status'];
+                } catch (CwException $e) {
+                    $results[] = $e->errorCode;
+                }
+            }
+            $out = ['status' => 200, 'results' => $results];
+        } else {
+            $row = $hold > 0 ? $db->transaction(static function () use ($one, $hold): array {
+                $r = $one();
+                usleep($hold * 1000);
+                return $r;
+            }) : $one();
+            $out = ['status' => 200] + $row;
+        }
+    } elseif ($job['op'] === 'create_once') {
         $r = (new Idempotency($db))->run($caller, "ui:{$caller->staffUserId}:{$job['form_key']}", 'ui.po.create', '/ui/purchasing/orders',
             ['supplier_id' => (int) $job['supplier_id']], null, null, static function (Db $db) use ($pos, $caller, $job, $hold): OpResult {
                 $d = $pos->createDraft($caller, (int) $job['supplier_id'], []);

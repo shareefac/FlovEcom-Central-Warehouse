@@ -22,34 +22,5 @@
 <?php endif; ?>
 </section>
 
-<section class="card po-history" aria-labelledby="history-h">
-  <div class="head-help">
-    <h2 id="history-h"><?= $word('ORDER', 'history_title') ?></h2>
-    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-  </div>
-<?php if ($events === [] && $history === []): ?>
-  <p class="muted"><?= $word('ORDER', 'no_history') ?></p>
-<?php endif; ?>
-<?php if ($events !== []): ?>
-  <ol class="plain po-events">
-<?php foreach ($events as $ev): ?>
-    <li><strong><?= $e($ev['when']) ?></strong> · <?= $e($ev['text']) ?></li>
-<?php endforeach; ?>
-  </ol>
-<?php if (($eventsMore ?? null) !== null): ?>
-  <p class="muted"><?= $e($eventsMore) ?></p>
-<?php endif; ?>
-<?php endif; ?>
-<?php if ($history !== []): ?>
-  <h3 class="doc-label"><?= $word('ORDER', 'history') ?></h3>
-  <ol class="plain checks-history">
-<?php foreach ($history as $h): ?>
-    <li>
-      <p><?= $e($h['asked']) ?> <?= $e($h['why']) ?><?php if ($h['about'] !== null): ?> <?= $e($h['about']) ?><?php endif; ?></p>
-      <p class="muted"><?= $e($h['outcome']) ?><?php if ($h['note'] !== null): ?> "<?= $e($h['note']) ?>"<?php endif; ?></p>
-    </li>
-<?php endforeach; ?>
-  </ol>
-<?php endif; ?>
-</section>
+<?= $partial('po_history', ['events' => $events, 'eventsMore' => $eventsMore ?? null, 'history' => $history]) ?>
 </div>

@@ -6,7 +6,10 @@
 // its unseen Add first (Enter is Add, PX7), "Leave without saving", the paper copy, Keys (?), More (a draft's other steps: its PDF, Copy, Cancel
 // draft), then Save (Ctrl+S, the save without leaving the page) and the main button Confirm, both sending the typed form. A new order has
 // nothing saved yet: no paper copy and no More.
+// Each box saved by itself (live.mode on, step 4; docs/decisions.md LS12): beside Save, the status the script shows instead of it ("Saving…",
+// "All changes saved 14:02", "Not saved yet"), hidden until then; without the script Save stays the whole form's save ($liveSave).
 $editor = $editor ?? null;
+$liveSave = $liveSave ?? false;
 ?>
 <div class="doc-actions<?php if ($editor !== null): ?> po-edit-bar<?php endif; ?>" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
 <?php if ($editor !== null): ?>
@@ -41,6 +44,9 @@ $moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') 
   </details>
 <?php endif; ?>
 <?php if ($editor !== null): ?>
+<?php if ($liveSave): ?>
+  <span class="live-status" data-live-status role="status" aria-live="polite" hidden></span>
+<?php endif; ?>
   <button type="submit" form="<?= $e($editor) ?>" name="action" value="save" class="btn" aria-keyshortcuts="Control+S"><?= $word('PO_ONE', 'save') ?></button>
   <button type="submit" form="<?= $e($editor) ?>" name="action" value="approve" class="btn primary"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('PO_ONE', 'confirm') ?><?php endif; ?></button>
 <?php elseif ($mainAction === 'send' && ($sendBelow ?? false)): ?>

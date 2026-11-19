@@ -17,17 +17,22 @@
 // Who is here (live drafts step 3b, docs/decisions.md LV18-LV25): with live.mode on, a draft's editor form (or its paper, for a person who may
 // only look) carries the poll and its words ($live: LiveController::pageData, live_attrs) and the chips sit under the title (live_here); each
 // line names its own id (data-uid), each box its place (data-live-cell, data-live-box). A confirmed order and a new one show nobody.
+// Each box saved by itself (live.mode on, step 4; docs/decisions.md LS10-LS12; $liveSave): the editor form carries the addresses and words of
+// the saving (live_attrs), each line its version, the head's boxes the values they were drawn with, the bar the status beside Save, and the
+// warnings sit in their own place (data-live-notes) so each answer can draw them again. Without the script the form saves as a whole, as before.
 $paperEdit = $paperEdit ?? false;
 $live = $live ?? null;
+$liveSave = ($liveSave ?? null) !== null;
 ?>
 <?php if ($paperEdit): ?>
 <?php
 $bar = $partial('po_bar', ['editor' => $editor, 'moreActions' => $moreActions ?? [], 'mainAction' => null, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
     'supplier' => $supplier ?? [], 'sendVia' => $sendVia ?? [], 'sendWarnings' => $sendWarnings ?? [], 'sendCompany' => $sendCompany ?? false, 'companyNote' => $companyNote,
-    'formKey' => $barKey ?? '', 'cancelReasons' => $cancelReasons ?? [], 'amendReasons' => $amendReasons ?? [], 'reasonError' => $reasonError ?? null, 'errorCode' => $errorCode ?? null]);
+    'formKey' => $barKey ?? '', 'cancelReasons' => $cancelReasons ?? [], 'amendReasons' => $amendReasons ?? [], 'reasonError' => $reasonError ?? null, 'errorCode' => $errorCode ?? null,
+    'liveSave' => $liveSave]);
 $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, 'deliverTo' => $deliverTo, 'orderDate' => $orderDate, 'terms' => $terms, 'info' => $info,
     'supplierFixed' => $supplierFixed, 'supplierName' => $supplierName ?? '', 'supplierId' => $supplierId, 'supplierChoices' => $supplierChoices, 'canAddSupplier' => $canAddSupplier,
-    'askSupplier' => $askSupplier, 'supplierError' => $supplierError, 'newSupplier' => $newSupplier];
+    'askSupplier' => $askSupplier, 'supplierError' => $supplierError, 'newSupplier' => $newSupplier, 'liveSave' => $liveSave];
 ?>
 <div class="doc-head">
 <?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', side: $bar, back: ['/ui/purchasing/orders', \CW\Ui\Words::MENU['orders']],
@@ -55,6 +60,9 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
   <p><?= $word('ORDER', 'rejected_next') ?></p>
 </div>
 <?php endif; ?>
+<?php if ($liveSave): ?>
+<div class="live-notes" data-live-notes>
+<?php endif; ?>
 <?php if ($warnings !== []): ?>
 <ul class="warnings">
 <?php foreach ($warnings as $w): ?>
@@ -64,6 +72,9 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?php endif; ?>
 <?php if ($supplierNeeds !== null): ?>
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
+<?php endif; ?>
+<?php if ($liveSave): ?>
+</div>
 <?php endif; ?>
 <?php // No company note on the page that makes the order (PX10): the confirmed order's page says it. ?>
 
@@ -91,7 +102,8 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
 <?php endif; ?>
     </div>
 <?= $partial('po_paper_lines', ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'lines' => $lines, 'stock' => $stock ?? [], 'state' => $state, 'editable' => $editable, 'grid' => $grid,
-    'gridVat' => $gridVat, 'typed' => $typed, 'q' => $q, 'packs' => $packs, 'pick' => $pick, 'productsUrl' => $productsUrl, 'canAddItem' => $canAddItem, 'askItem' => $askItem]) ?>
+    'gridVat' => $gridVat, 'typed' => $typed, 'q' => $q, 'packs' => $packs, 'pick' => $pick, 'productsUrl' => $productsUrl, 'canAddItem' => $canAddItem, 'askItem' => $askItem,
+    'liveSave' => $liveSave]) ?>
 <?php if ($canAddItem): ?>
     <details class="card po-add" id="po-add-item" data-po-panel data-ni-url="<?= $e(\CW\Ui\Controller\PoAddNew::NEW_ITEM['po']) ?>"<?php if ($supplierFixed): ?> data-supplier="<?= $e($supplierId) ?>"<?php endif; ?><?php if ($itemOpen): ?> open<?php endif; ?>>
       <summary><?= $word('PO_ADD', 'new_item') ?></summary>
@@ -149,7 +161,8 @@ $paper = ['edit' => true, 'isNew' => $isNew, 'doc' => $doc, 'party' => $party, '
     </ul>
   </section>
 <?php endif; ?>
-<?= $partial('po_paper_foot', ['edit' => true, 'note' => $info['note'], 'lines' => $lines, 'units' => $units, 'totals' => $totals, 'vatLabels' => $vatLabels, 'typed' => $typed]) ?>
+<?= $partial('po_paper_foot', ['edit' => true, 'note' => $info['note'], 'lines' => $lines, 'units' => $units, 'totals' => $totals, 'vatLabels' => $vatLabels, 'typed' => $typed,
+    'liveSave' => $liveSave]) ?>
   </article>
 </form>
 <?php if (!$isNew && !$editable): ?>

@@ -1934,7 +1934,8 @@ final class UiTemplatesTest extends TestCase
         self::assertSame(1, substr_count($t['sales_orders.php'], '<select id="tb-show" name="channel"'), 'one Show: the stores');
         // The order's page.
         // The order's page and the paper's parts it draws (docs/decisions.md LP1: one paper for a new order, a draft and a confirmed order).
-        $order = $t['purchase_order.php'] . $t['po_paper_head.php'] . $t['po_paper_lines.php'] . $t['po_paper_line.php'] . $t['po_paper_foot.php'] . $t['po_cards.php'];
+        $order = $t['purchase_order.php'] . $t['po_paper_head.php'] . $t['po_paper_lines.php'] . $t['po_paper_line.php'] . $t['po_paper_foot.php'] . $t['po_cards.php']
+            . $t['po_history.php']; // the History card, its own part since the page saves box by box (docs/decisions.md LS7)
         foreach (['<ol class="po-steps"', '<div class="po-paper-head">', '<section class="doc-party po-deliver"', '<dl class="doc-facts po-dates">',
             "\$word('ORDER', 'col_item')", "\$word('ORDER', 'col_ordered')", "\$word('ORDER', 'col_received')", "\$word('ORDER', 'col_cost')",
             "\$word('ORDER', 'col_line_total')", "\$partial('doc_totals'", '<section class="card po-related"', '<section class="card po-history"', 'back: [',
