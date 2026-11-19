@@ -1965,8 +1965,13 @@ one for one; outcome `linked_existing`, or `waiting_second` for a protected item
 also waits when an item has the same details (`same_features`: brand family, flavour, strength, size, kind). The stores' Existing item
 box asks `GET /v1/item-suggestions` (read only, the store's key; at most 5 items: barcode, same details, similar name). Deploy order: CW
 first (0073 applied by `install_cron.sh --migrate`), then the connector 0.4.16 on the stores; a connector sends its `existing` choices in a
-call of their own, so a CW without 0073 only holds those back (retried, never parked). Undo: the release before (its code ignores the
-`existing` rows; the column keeps the value; the stores' `existing` choices then wait, retried, until CW is back on this release).
+call of their own, so a CW without 0073 only holds those back (retried, never parked). Undo (Codex review r1, a1): the release before
+does NOT know `existing`: its job reads an unknown choice as a new item and would make one. So before going back,
+`SELECT COUNT(*) FROM store_choice WHERE choice = 'existing' AND state = 'waiting'` must be 0 (a choice waits only until its variant's
+listing arrives, normally the same minute: run `php bin/apply_store_choices.php --apply` and look again); if any stay, take the
+apply_store_choices line out of the timer before going back and leave it out until CW is on this release again or those rows are decided
+by hand. 0073 stays (the old code never writes `existing`). The stores' `existing` choices then wait in the stores, retried, until CW is
+back on this release.
 
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
 

@@ -40,6 +40,8 @@ final class ItemSuggestions
     private const NAME_WORDS = 6;
     private const MIN_SIMILAR = 0.5;
     /** Words that say nothing about which item it is (beyond Normalizer::STOPWORDS). */
+    /** Normalizer::brandTokens()'s one fold ("r & m", "r and m", "r n m" -> randm), as MySQL's ICU REGEXP_REPLACE reads it. */
+    private const RANDM = '\\br\\s*(and|&|n)\\s*m\\b';
     private const NAME_NOISE = ['and', 'by', 'the', 'of', 'with', 'e', 'liquid', 'eliquid', 'nic', 'salt', 'salts', 'nicotine', 'vape', 'vapes', 'new', 'uk', 'x'];
 
     public function __construct(private readonly Db $db)
@@ -199,15 +201,16 @@ final class ItemSuggestions
         // One pass over the items' cards, narrowed in the database to the same kind and strength, a brand family word in the brand or
         // the range, and a flavour word (a stem: "raspberr" finds raspberry and raspberries); sameDetails() then compares it all.
         $like = static fn (string $w): string => '%' . self::like($w) . '%';
-        $fam = array_slice($card['family'], 0, 4);
+        $fam = array_slice($card['family'], 0, 8);
         $flav = array_slice($flavour, 0, 6);
         $sql = 'SELECT id, code, name, brand, strength_mg, nic_type, line, form, flavour, volume_ml, puffs, pack_units FROM sku '
             . 'WHERE merged_into_sku_id IS NULL AND form IN (' . implode(',', array_fill(0, count($forms), '?')) . ') '
-            . 'AND (' . implode(' OR ', array_fill(0, count($fam), '(brand LIKE ? OR line LIKE ?)')) . ') '
+            // the brand as Normalizer::brandTokens() reads it ("R&M" / "R and M" is "randm"), so this narrows exactly as sameDetails() compares
+            . 'AND (' . implode(' OR ', array_fill(0, count($fam), "REGEXP_REPLACE(LOWER(COALESCE(brand, '')), ?, 'randm') LIKE ? OR line LIKE ?")) . ') '
             . 'AND (' . implode(' OR ', array_fill(0, count($flav), 'flavour LIKE ?')) . ') AND ';
         $params = $forms;
         foreach ($fam as $w) {
-            array_push($params, $like($w), $like($w));
+            array_push($params, self::RANDM, $like($w), $like($w));
         }
         foreach ($flav as $w) {
             $params[] = $like(substr($w, 0, max(4, strlen($w) - 2)));
@@ -285,7 +288,8 @@ final class ItemSuggestions
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Items a barcode of the variant is on, or on a store variant linked to one: root id => the barcode, in the order found.
+     * Items a barcode of the variant is on (one scan = one unit, usable), or on a store variant linked to one one for one: root id => the
+     * barcode, in the order found. A pack's barcode is never suggested as the item itself.
      *
      * @param list<string> $barcodes
      * @return array<int, string>
@@ -298,11 +302,15 @@ final class ItemSuggestions
         }
         $out = [];
         $in = implode(',', array_fill(0, count($forms), '?'));
-        foreach ($this->db->all("SELECT b.barcode, b.sku_id FROM sku_barcode b WHERE b.barcode IN ({$in}) ORDER BY b.sku_id LIMIT 20", $forms) as $r) {
+        // one scan = one unit only: an outer case's barcode (units_per_scan > 1) or a barcode found on two items (is_usable 0) is never a
+        // one-for-one suggestion (Existing item links one for one)
+        foreach ($this->db->all("SELECT b.barcode, b.sku_id FROM sku_barcode b WHERE b.barcode IN ({$in}) AND b.units_per_scan = 1 AND b.is_usable = 1 "
+            . 'ORDER BY b.sku_id LIMIT 20', $forms) as $r) {
             $out[$this->rootOf((int) $r['sku_id'])] ??= (string) $r['barcode'];
         }
         foreach ($this->db->all("SELECT cl.sku_id, CAST(lp.barcodes AS CHAR) AS barcodes FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id "
-            . "WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND cl.sku_id IS NOT NULL AND cl.status IN ('mapped', 'quarantined') ORDER BY cl.sku_id LIMIT 20",
+            . "WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND cl.sku_id IS NOT NULL AND cl.status IN ('mapped', 'quarantined') AND cl.units_per_item = 1 "
+            . 'ORDER BY cl.sku_id LIMIT 20',
             [json_encode($forms, JSON_THROW_ON_ERROR)]) as $r) {
             $have = json_decode((string) $r['barcodes'], true);
             $shared = is_array($have) ? array_values(array_intersect(array_map('strval', $have), $forms)) : [];

@@ -18293,7 +18293,9 @@ Add product (simple and every row of a variable product) and Add variant: a CW n
 up to 5 suggestions to click, and under New item the strong match with "Use it". A number CW says it has not got stops the save; when CW
 cannot be asked the save goes ahead and this job checks it (SX4). The store's key stays on the store's server (the admin asks its own
 endpoint, which asks CW). The `existing` choices go in a PUT of their own after the others: a CW before 0073 refuses that call whole, and
-the other choices never wait for it.
+the other choices never wait for it. Going back: the release before reads an unknown choice as New item, so a CW rollback first waits
+until no `existing` choice is waiting (docs/ops.md); a connector rollback first waits until the store has no unsent `existing` choice
+(a 0.4.15 worker parks it as a bad choice; the kit's undo gate refuses otherwise).
 
 **SX8. Approvals > New products.** A same_features row shows "Same brand, flavour, strength and size" with the item found and its stock, and
 "Yes, the same: use CW-..." as the main answer; an existing choice reads "the existing item CW-..."; `no_such_item` now reads "The CW number

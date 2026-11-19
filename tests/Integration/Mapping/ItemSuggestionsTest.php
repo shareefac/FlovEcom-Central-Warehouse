@@ -155,6 +155,34 @@ final class ItemSuggestionsTest extends MappingTestCase
         self::assertFalse(ItemSuggestions::sameDetails($pods, ['line' => 'elux legend 8000', 'puffs' => 8000] + $podItem), 'another range number');
     }
 
+    public function testAPacksBarcodeIsNeverSuggestedAsTheItemAndAnRandMBrandIsFoundAsTheMatchingReadsIt(): void
+    {
+        // Codex review r1 (a2): Existing item links one for one, so an outer case's barcode (10 units a scan), a barcode on two items
+        // (not usable) or a store variant linked as a pack is never a suggestion of the item itself.
+        $site = $this->site('vapebig');
+        $single = $this->item('legacy', 0, 'Single bottle');
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan) VALUES (?, '5000000000017', 10)", [$single]);
+        $doubt = $this->item('legacy', 0, 'Barcode in doubt');
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, units_per_scan, is_usable) VALUES (?, '5000000000024', 1, 0)", [$doubt]);
+        $pack = $this->listing($this->site('electrofag'), '6001', $single, 5);
+        self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes) VALUES (?, 'A 5 pack', '[\"5000000000031\"]')", [$pack]);
+        $s = new ItemSuggestions(self::$db);
+        foreach (['5000000000017', '5000000000024', '5000000000031'] as $code) {
+            self::assertSame([], $s->suggest($site->channelId, ['barcodes' => [$code]])['suggestions'], $code);
+        }
+        // Codex review r1 (a3): the database narrows the brand as Normalizer::brandTokens() reads it ("R&M" is "randm"; the item has no range
+        // to match instead).
+        $rm = $this->carded('Blue Razz Ice R&M Disposable', ['brand' => 'R&M', 'flavour' => 'blue razz ice', 'strength_mg' => '20.00', 'volume_ml' => null,
+            'form' => 'disposable', 'nic_type' => null, 'line' => null]);
+        $in = ['title' => 'R and M Disposable Vape', 'option' => 'Blue Razz Ice', 'brand' => 'R and M',
+            'attrs' => [['name' => 'Flavour', 'value' => 'Blue Razz Ice'], ['name' => 'Nicotine Strength', 'value' => '20mg']]];
+        $card = ItemSuggestions::card(ItemSuggestions::profile($in));
+        self::assertSame(['randm'], $card['family']);
+        self::assertTrue(ItemSuggestions::sameDetails($card, self::$db->one('SELECT * FROM sku WHERE id = ?', [$rm])), 'the same details');
+        self::assertSame([$rm], $s->sameDetailsItems($card, 5), 'and the database finds it');
+        self::assertSame([$this->code($rm), 'same_details'], [$s->suggest($site->channelId, $in)['suggestions'][0]['code'], $s->suggest($site->channelId, $in)['suggestions'][0]['why']]);
+    }
+
     public function testNothingToGoOnFindsNothing(): void
     {
         $site = $this->site('vapebig');
