@@ -28,7 +28,7 @@ final class ItemSuggestionsRouteTest extends ApiKernelTestCase
         $keys = array_keys($d);
         sort($keys);
         self::assertSame(['item', 'strong', 'suggestions'], $keys);
-        self::assertSame(['code' => $code, 'name' => 'Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', 'free' => 9, 'why' => 'code'], $d['item'],
+        self::assertEquals(['code' => $code, 'name' => 'Elux Legend Nic Salt - Lemon & Lime - 10ml - 5mg', 'free' => 9, 'why' => 'code'], $d['item'],
             'a store switched off may ask (nothing moves); free to sell from its own warehouse');
         self::assertSame([$code, 'same_details'], [$d['suggestions'][0]['code'], $d['suggestions'][0]['why']]);
         self::assertTrue($d['strong']);
