@@ -18941,3 +18941,34 @@ A rebuild's events count against the run's event limit.
 **PR88.** (r5a 7 LOW) Credits given while goods were on their way are kept per credit-note line, so one credit note of two lines of the same
 invoice line is undone line by line against what still stands: 400 units at £1.00 with one note of 1p and 2p (£0.9999), the note cancelled:
 £1.0000, £400.00 (it was £399.96).
+
+### The Codex check of 1179112..e1f075c (`build/A/codex_r8.txt`, one run, the last build round): no HIGH; 5 MEDIUM and 3 LOW new, 3 PARTLY; each shown failing first with Codex's numbers on e1f075c (`runs/profit_r8fix_red.log`, `red2.log`) and fixed (PR89-PR93); what is left is a known limit in the README
+
+**PR89.** (M1; the lead: "the mark must never pass an unread document") The job's mark never passes its cutoff (a delivery is stamped when its
+stock was made final, which can be after the cutoff: what came between was not read), and never passes a document not read yet: every run's
+look back now reads the documents not read whole since the start (the oldest first, up to UNREAD_PER_RUN; the day bound is gone, the same
+index range as the window's own read), and while one is left before the window the mark stays just before it (never going back). Three
+deliveries committed after the window passed them, one read a run: the mark waits, then moves on once all are read (£2.00). The look back
+waits for the next run once a run has written its limit. Left (a known limit): a booking whose transaction commits more than LAG_SECONDS (5
+minutes) after its own time can be passed before it is visible; its item's history is written again when it is read, and the sales costed
+meanwhile keep their cost until bin/recost_sales.php.
+
+**PR90.** (M2, M3) Everything that compares a delivery with other events uses when its stock was made final (stock_value_seq): a new item's
+first delivery and the priced stock that came in before it (ten at £2.00 made final before a delivery of ten at £3.00 booked earlier: the
+item starts at £2.00, £2.50 after the delivery; it was £2.00), and a receipt taken back stops taking credits only when its stock leaves (a
+credit between the reversal's booking and its being made final comes off the twenty still on hand: £3.50, then the ten leave at £4.00:
+£30.00 for ten; it was £40.00).
+
+**PR91.** (M4, M5, M2 PARTLY) The units on hand at a place of an item's commit order are exact: the sum of our warehouses' on-hand rows of its
+seq rows, walked from the nearest place known (nothing before the first; today's balances at the last, read in one consistent statement;
+every place worked out before by the engine), never bounded by ledger ids or booking times (ten booked, on hand, whatever the ids: 10, it
+read 0). A rebuild reads its events in time order, so its walks add up to the item's history about once. A moment's place takes the rows
+just after the binary search's answer whose clock says they were made final by then (a clock stepped back: 30, it read 10). Left (a known
+limit): a clock stepped back across more than 64 bookings of one item.
+
+**PR92.** (LOW 1, the multi-line PARTLY) A credit line counts as cancelled only by the cancellation of its own line, so the lines of one note
+cancelled one after the other each give back their own part against what still stands (a note of 1p, 3p, 3p and a note of 4p on 400 units
+at £1.00, the first note cancelled: £0.9999, £399.96; it gave £400.00). (LOW 2) A rebuild's rows are counted once in the run (5, it said 6).
+
+**PR93.** (LOW 3) Units waiting for their cost are counted on every summed row ("+1 waiting for their cost" beside the No price count), also
+when they are too few to say "incomplete" (PR85).

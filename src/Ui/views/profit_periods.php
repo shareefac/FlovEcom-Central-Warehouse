@@ -38,7 +38,7 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['f']['delivery'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?><?php if ($r['f']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['pending']) ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
     <tr class="rp-total">
@@ -50,7 +50,7 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($total['profit'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($total['margin_bp'])) ?><?php if ($total['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($total['delivery'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($total['no_cost']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($total['no_cost']) ?><?php if ($total['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $total['pending']) ?></span><?php endif; ?></td>
     </tr>
   </tbody>
 </table>

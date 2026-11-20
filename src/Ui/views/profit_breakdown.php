@@ -49,7 +49,7 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?><?php if ($r['f']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['pending']) ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
