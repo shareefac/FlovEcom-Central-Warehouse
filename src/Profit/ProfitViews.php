@@ -83,7 +83,7 @@ final class ProfitViews
     public function pending(string $from, string $to, ?int $store): array
     {
         $out = [];
-        foreach ($this->db->all('SELECT day, SUM(units) AS u FROM sale_line WHERE cost_source IS NULL AND day BETWEEN ? AND ? AND removed_at IS NULL'
+        foreach ($this->db->all('SELECT day, SUM(units) AS u FROM sale_line WHERE cost_source IS NULL AND day BETWEEN ? AND ? AND removed_at IS NULL AND restocked = 0'
             . ($store === null ? '' : ' AND channel_id = ?') . ' GROUP BY day', [$from, $to, ...($store === null ? [] : [$store])]) as $r) {
             if ((int) $r['u'] > 0) {
                 $out[(string) $r['day']] = (int) $r['u'];
@@ -147,7 +147,7 @@ final class ProfitViews
         };
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
         $params = [$from, $to, ...($store === null ? [] : [$store])];
-        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
+        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.restocked = 0 AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
         $waiting = static fn (string $key, string $from, string $on): string => "LEFT JOIN (SELECT {$key} AS k, SUM(l.units) AS u FROM {$from} WHERE {$lw} GROUP BY k) w ON {$on}";
         $limit = self::ROW_LIMIT + 1;
         $rows = match ($by) {
@@ -188,7 +188,8 @@ final class ProfitViews
     {
         $cols = 'o.channel_id, o.order_ref, o.order_no, o.status, o.paid_at, o.gateway, o.parent_ref, o.units, o.sale_ex, o.cost, o.resend_cost, o.resends, '
             . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store, '
-            . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL) AS pending';
+            . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
+            . 'AND l.units > 0 AND l.restocked = 0) AS pending';
         if ($q !== '') {
             $rows = [];
             foreach ($this->stores() as $s) {
@@ -276,12 +277,14 @@ final class ProfitViews
         }, $this->db->all('SELECT l.*, s.code AS sku_code, s.name AS sku_name FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id '
             . 'WHERE l.channel_id = ? AND l.order_ref = ? ORDER BY l.removed_at IS NOT NULL, l.line_id', [$store, $ref]));
         $resends = $this->db->all('SELECT o.order_ref, o.order_no, o.paid_at, o.cost, o.units, o.units_no_cost, (SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id '
-            . 'AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL) AS pending FROM sale_order o WHERE o.channel_id = ? AND o.parent_ref = ? '
+            . 'AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 AND l.restocked = 0) AS pending FROM sale_order o '
+            . 'WHERE o.channel_id = ? AND o.parent_ref = ? '
             . 'ORDER BY o.paid_at, o.order_ref', [$store, $ref]);
         // Whether its own units, and its paid re-sends' units, all have their buying price (the Codex re-check of e5d2e5a, S1): the profit is
         // "not known" exactly when they do not, whatever the order sold for.
         $own = $o['paid_at'] !== null && ((int) $o['units_no_cost'] > 0
-            || array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null && (int) $l['units'] > 0) !== []);
+            || array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null && (int) $l['units'] > 0
+                && (int) $l['restocked'] === 0) !== []);
         $theirs = array_filter($resends, static fn (array $r): bool => $r['paid_at'] !== null && ((int) $r['units_no_cost'] > 0 || (int) $r['pending'] > 0)) !== [];
         return [
             'order' => $o,

@@ -344,7 +344,8 @@ final class OrderSnapshots
         $order['resend_cost'] = (int) $rs['c'];
         // No margin while some units have no buying price or wait for it (a figure that is not known is never ranked: the Codex review of
         // 57d98ad, c6); the screens say it is incomplete.
-        $open = array_filter($newLines, static fn (array $r): bool => $r['removed_at'] === null && $r['cost_source'] === null && $r['day'] !== null);
+        $open = array_filter($newLines, static fn (array $r): bool => $r['removed_at'] === null && $r['cost_source'] === null && $r['day'] !== null
+            && (int) $r['units'] > 0 && (int) $r['restocked'] === 0);
         $order['margin_bp'] = $order['units_no_cost'] > 0 || $open !== [] || (int) $rs['nc'] > 0 || (int) $rs['open'] > 0 ? null
             : ProfitMath::marginBp($order['sale_ex'] - $order['cost'] - $order['resend_cost'], $order['sale_ex']);
 
@@ -429,7 +430,10 @@ final class OrderSnapshots
             return;
         }
         $rs = self::resendFigures($db, $channelId, $parent);
-        $ownOpen = (int) $db->value('SELECT COUNT(*) FROM sale_line WHERE channel_id = ? AND order_ref = ? AND cost_source IS NULL AND day IS NOT NULL AND removed_at IS NULL',
+        // A line waits for a cost only when it has one to wait for: units that count and not back in stock (those cost 0, known: the Codex
+        // check of 51417a3, L6).
+        $ownOpen = (int) $db->value('SELECT COUNT(*) FROM sale_line WHERE channel_id = ? AND order_ref = ? AND cost_source IS NULL AND day IS NOT NULL AND removed_at IS NULL '
+            . 'AND units > 0 AND restocked = 0',
             [$channelId, $parent]);
         $complete = (int) $p['units_no_cost'] === 0 && $ownOpen === 0 && (int) $rs['nc'] === 0 && (int) $rs['open'] === 0;
         $db->exec('UPDATE sale_order SET resends = ?, resend_cost = ?, margin_bp = ? WHERE channel_id = ? AND order_ref = ?',
@@ -447,7 +451,8 @@ final class OrderSnapshots
         $r = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
             . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ?', [$channelId, $parent, $parent]) ?? ['n' => 0, 'c' => 0, 'nc' => 0];
         $r['open'] = $db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
-            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ? AND l.cost_source IS NULL AND l.removed_at IS NULL',
+            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ? AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 '
+            . 'AND l.restocked = 0',
             [$channelId, $parent, $parent]) ?? 0;
         return $r;
     }

@@ -18865,3 +18865,35 @@ sales that waited instead of refusing.
 window are unread (a1/b1: a sale's cost is fixed once, PR16; a booking committed more than an hour late moves the price from its own time on,
 and the sales costed meanwhile keep theirs until bin/recost_sales.php); the lists by product, brand and supplier over a long period read every
 item-day row of it (PR45, PR56); the staff log-in tool's "all" list is outside the build (it was checked not to name finance).
+
+### The Codex check of 51417a3 (`build/A/codex_r6.txt`, one run): r5's eleven checked (8 FIXED, 3 PARTLY); no HIGH; 3 MEDIUM and 3 LOW new; each shown failing first with Codex's own numbers on 51417a3 (`runs/profit_r6fix_red.log`) and fixed (PR79-PR82)
+
+**PR79.** (M1, M2, M3, L5; r5a 2 PARTLY; the coordinator's direction of 20 Nov) An item's price history in force is ALWAYS in time order. An
+event the cost job meets that is older than the item's last one (a booking that committed late, one the look back recovered, the
+cancellation of one) is never put in at its place, shifted to a receipt's time or adjusted in place: the item's whole history is written
+again from its start, in time order, as its next timeline (item_cost.timeline, item_cost_event.timeline; CostEngine::rebuild): every
+delivery, invoice, credit note and cancellation the item had, and the late one, each worked out again by the SAME rules as an event read in
+order (its units on hand, whether a credit's goods were still on their way, what a receipt took in, what a cancellation undoes, all as of its
+own time). The earlier timeline is kept (append only); the start comes first (moved just before the first event when it was not). An item
+has few events since 16 Nov, so writing it again is cheap. The late-credit branch of PR73 is gone (a late credit is a late event). Numbers
+(Codex's): a credit and its cancellation before the goods came, read after their receipt: £40.00 (it was £30.00); a credit read late whose
+receipt is taken back and made again: £30.00 (it was £40.00); a credit read late on a receipt in two portions gives what reading it in time
+gives: £0.9967 (it was £0.9968); a 1p credit read late on 100 units when 100 were on the shelf at £0.9999: £199.98 (it was £200.00). The
+`late` flag and the `replay` event of PR36/PR60/PR69 are gone: the price at a moment is the last event up to it in the timeline in force,
+one indexed read (FORCE INDEX ix_item_cost_event_item: MySQL took a table scan for a moment after every event).
+
+**PR80.** (r5a 5 PARTLY) Units on hand are read in each item's commit order (stock_value_seq: an item's on-hand rows are numbered in the
+order they were made final, all rows of one operation together): the units at a moment = every operation made final by then (its seq rows
+are made at its end), whole; "the fewest on hand since" walks the seq rows between two places, looking only between operations; an operation
+cut by a place (rows of one operation made by several statements) is carried to its end by its identity (CostEngine::opEnd), never by a
+time pad. A delivery's own "units on hand before it" is read at its place in the commit order too (its operation's earlier rows included: a
+receipt's second portion averages with its first). A transfer that took six minutes is whole at every moment (20 on hand, never 10). Where a
+cancellation of a credit looks "since its receipt came", it starts after that receipt's whole operation (its last portion's place).
+
+**PR81.** (L4) The undo of a credit is worked out against the credits of the line still standing when it is cancelled (those cancelled
+before gave their own rounding back already): 400 units at £1.00 with credits of 2p and 1p (£0.9999), the 2p cancelled (£1.0000), the 1p
+cancelled: £1.0000, £400.00 (it was £400.04).
+
+**PR82.** (L6) A line waits for its buying price only when it has one to wait for: units that count and not back in stock. A line refunded
+in full whose unit came back to stock has a cost of zero, known: its order's profit is £0.00, never "not known" (ProfitViews::order, the
+re-sends' figures, the waiting units of every list, and the order's margin in OrderSnapshots::refreshParent).

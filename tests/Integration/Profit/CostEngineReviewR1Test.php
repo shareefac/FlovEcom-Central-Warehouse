@@ -171,18 +171,21 @@ final class CostEngineReviewR1Test extends ArrivalsTestCase
         $this->start();
         $g1 = $this->deliver($who, $o, 10, '1.00');
         $this->engine()->run();
+        // An invoice of the first delivery at £2 made final before the second delivery, but read by the job only after it (its booking committed
+        // late: the job's window starts just after it, the look back finds it). Since PR79 the item's history is written again, in time order,
+        // as its next timeline (the "replay" of round 1 did this by folding the stored events again).
+        $inv = $this->invoiceOf($who, $g1->id, ['pack_price' => '2.0000']);
+        usleep(2000);
         $this->deliver($who, $o, 10, '3.00');
-        $this->engine()->run();
-        self::assertSame(20000, self::cost($o['sku']));
-        // An invoice of the first delivery at £2 that the job reads only now, though it was made final before the second delivery (its
-        // booking committed late): written as the job writes it, with its own time.
-        $before = (string) self::$db->value("SELECT source_at FROM item_cost_event WHERE sku_id = ? AND kind = 'receipt' ORDER BY id LIMIT 1", [$o['sku']]);
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, document_id, document_line, units, on_hand, price_e4, booked_e4, old_cost_e4, "
-            . "new_cost_e4) VALUES (?, UTC_TIMESTAMP(6), DATE_ADD(?, INTERVAL 1 MICROSECOND), 'invoice', 'doc:late:1', ?, 1, 10, 10, 20000, 10000, 20000, 30000)",
-            [$o['sku'], $before, $g1->id]);
-        self::$db->exec('UPDATE item_cost SET unit_cost_e4 = 30000 WHERE sku_id = ?', [$o['sku']]);
-        $this->engine()->replayItem($o['sku']);
+        $mark = Clock::fromDb((string) self::$db->value('SELECT posted_at FROM document WHERE id = ?', [$inv->id]))->modify('+1 usec +' . CostEngine::OVERLAP_SECONDS . ' seconds');
+        self::$db->exec('UPDATE profit_job SET mark_at = ? WHERE job = ?', [Clock::db($mark), CostEngine::JOB]);
+        $at = $mark->modify('+' . (CostEngine::LAG_SECONDS + 60) . ' seconds');
+        (new CostEngine(self::$db, static fn (): \DateTimeImmutable => $at))->run();
         self::assertSame(25000, self::cost($o['sku']), 'start, 10 at £1, the 10 to £2, 10 more at £3: £2.50');
-        self::assertSame('replay', (string) self::$db->value('SELECT kind FROM item_cost_event WHERE sku_id = ? ORDER BY id DESC LIMIT 1', [$o['sku']]));
+        self::assertSame(1, (int) self::$db->value('SELECT timeline FROM item_cost WHERE sku_id = ?', [$o['sku']]), 'written again as its next timeline');
+        self::assertSame(['start', 'receipt', 'invoice', 'receipt'], self::$db->column('SELECT kind FROM item_cost_event WHERE sku_id = ? AND timeline = 1 ORDER BY source_at, id',
+            [$o['sku']]), 'in time order');
+        self::assertSame(['start', 'receipt', 'receipt'], self::$db->column('SELECT kind FROM item_cost_event WHERE sku_id = ? AND timeline = 0 ORDER BY source_at, id',
+            [$o['sku']]), 'the history before is kept');
     }
 }

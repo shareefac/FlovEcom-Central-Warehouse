@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS item_cost (
   start_source   ENUM('erp_bin','cw_average','supplier_price','none') NOT NULL COMMENT 'where its starting price came from',
   started_at     DATETIME(6)  NOT NULL,
   last_event_id  BIGINT UNSIGNED NULL,
+  timeline       INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'the item''s price history in force (item_cost_event.timeline): when the job meets an event older than the item''s last one, it writes the whole history again, in time order, as the next timeline',
   updated_at     DATETIME(6)  NOT NULL,
   PRIMARY KEY (sku_id),
   CONSTRAINT ck_item_cost_value CHECK (unit_cost_e4 IS NULL OR unit_cost_e4 >= 0)
@@ -166,11 +167,11 @@ CREATE TABLE IF NOT EXISTS item_cost (
 CREATE TABLE IF NOT EXISTS item_cost_event (
   id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   sku_id           INT UNSIGNED    NOT NULL,
-  at               DATETIME(6)     NOT NULL COMMENT 'when the price became this (never before the item''s previous event)',
-  source_at        DATETIME(6)     NOT NULL COMMENT 'the time of what it was worked out from (the booking, the posting): the order a replay folds in',
-  kind             ENUM('start','receipt','receipt_reversal','invoice','invoice_reversal','credit_note','credit_note_reversal','replay') NOT NULL
-                   COMMENT 'replay: the item''s history folded again in source order after an event that came late',
-  source_key       VARCHAR(96)     NOT NULL COMMENT 'what it was worked out from (start:<item>, ledger:<id>, doc:<id>:<line>:<item>): each once',
+  at               DATETIME(6)     NOT NULL COMMENT 'when the price became this (never before the item''s previous event of its timeline)',
+  source_at        DATETIME(6)     NOT NULL COMMENT 'the time of what it was worked out from (the booking, the posting): a timeline is in this order',
+  timeline         INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT 'which of the item''s histories it belongs to (item_cost.timeline is the one in force; the earlier ones are kept)',
+  kind             ENUM('start','receipt','receipt_reversal','invoice','invoice_reversal','credit_note','credit_note_reversal') NOT NULL,
+  source_key       VARCHAR(96)     NOT NULL COMMENT 'what it was worked out from (start:<item>, ledger:<id>, doc:<id>:<line>:<item>): each once in a timeline',
   document_id      BIGINT UNSIGNED NULL COMMENT 'the delivery, invoice or credit note (or its reversal)',
   document_line    INT UNSIGNED    NULL,
   doc_ref          VARCHAR(64)     NULL COMMENT 'its number, as shown',
@@ -182,19 +183,16 @@ CREATE TABLE IF NOT EXISTS item_cost_event (
   booked_e4        BIGINT          NULL COMMENT 'the unit price those units had before it (an invoice); a credit: what it takes off a unit',
   deferred         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1: a credit of goods still on their way: it moves nothing now, their receipt takes it in',
   undoes_event_id  BIGINT UNSIGNED NULL COMMENT 'a cancellation: the event it undoes (its effect is read from the folded history each time)',
-  late             TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1: written after an event of a later source time (it came late): the prices stored with those events are out of date from it on',
   old_cost_e4      BIGINT          NULL,
   new_cost_e4      BIGINT          NULL,
   note             VARCHAR(255)    NULL,
   created_at       DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
-  UNIQUE KEY uq_item_cost_event_source (source_key),
-  KEY ix_item_cost_event_item (sku_id, at, id),
-  KEY ix_item_cost_event_source (sku_id, source_at, id),
+  UNIQUE KEY uq_item_cost_event_source (source_key, timeline),
+  KEY ix_item_cost_event_item (sku_id, timeline, source_at, id) COMMENT 'an item''s history in force, in time order: the price at a moment is one read',
   KEY ix_item_cost_event_document (document_id, document_line),
   KEY ix_item_cost_event_ref (ref_document_id, ref_line),
-  KEY ix_item_cost_event_late (sku_id, late, source_at, id) COMMENT 'the price at a moment: whether a late event changed it, from the late events only',
-  CONSTRAINT ck_item_cost_event_deferred CHECK (deferred IN (0, 1) AND late IN (0, 1))
+  CONSTRAINT ck_item_cost_event_deferred CHECK (deferred IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='every move of an item''s buying price (profit step 1): the cost on a past day is read from here; append-only';
 

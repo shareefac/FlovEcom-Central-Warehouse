@@ -11,7 +11,7 @@ use CW\Tests\Support\StockTestCase;
 
 /**
  * The Codex re-check of 6b8a7ee (build/A/codex_r4.txt), each shown failing first: the price of an item at a PAST moment is one indexed
- * read however long its history after that moment (R6: whether a late event changed it is read from the late events only); the lists by
+ * read however long its history after that moment (R6; since PR79 a timeline is always in time order); the lists by
  * product, brand and supplier rank the rows whose units wait for their cost in SQL, before the list is cut at its 300 rows, and find a
  * brand's waiting units whatever the case of its name (c6).
  */
@@ -49,12 +49,11 @@ final class ProfitReviewR4Test extends StockTestCase
         $before = self::rowsRead();
         // 24 Nov 07:30 is after the 199th delivery: 200 events come after it.
         self::assertSame(['e4' => 10000, 'source' => 'cw_cost'], $costs->at([$a], '2026-11-24 07:30:00')[$a]);
-        self::assertLessThan(60, self::rowsRead() - $before - $overhead, 'one indexed read and a look at the late events, not the 200 events after the moment');
-        // A delivery of 10 at £3 of 17 Nov 00:30 that came late (the job marks it): a moment after it folds the history, one before it does not.
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, units, on_hand, price_e4, late, old_cost_e4, new_cost_e4) "
-            . "VALUES (?, '2026-12-30 00:00:00', '2026-11-17 00:30:00', 'receipt', ?, 10, 24, 30000, 1, 10000, 15882)", [$a, 'r4late:' . $a]);
-        self::assertGreaterThan(10000, (int) (new ItemCosts(self::$db))->at([$a], '2026-11-24 07:30:00')[$a]['e4'], 'folded with the late delivery');
-        self::assertSame(10000, (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:15:00')[$a]['e4'], 'before it: as it was');
+        self::assertLessThan(60, self::rowsRead() - $before - $overhead, 'one indexed read of the timeline in force, not the 200 events after the moment');
+        // A history that is no longer in force (an earlier timeline, before a rebuild) is never read.
+        self::$db->exec("INSERT INTO item_cost_event (sku_id, timeline, at, source_at, kind, source_key, units, on_hand, price_e4, new_cost_e4) "
+            . "VALUES (?, 7, '2026-11-24 07:00:00', '2026-11-24 07:00:00', 'receipt', ?, 10, 24, 30000, 99999)", [$a, 'r4other:' . $a]);
+        self::assertSame(10000, (new ItemCosts(self::$db))->at([$a], '2026-11-24 07:30:00')[$a]['e4']);
     }
 
     public function testWaitingUnitsAreRankedBeforeTheListIsCut(): void

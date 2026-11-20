@@ -12,9 +12,9 @@ use CW\Db;
  *
  *  - before ERPNext's history (profit.erp_history_from): profit.before_history says: `estimate` = the item's price today, marked as an
  *    estimate; `none` = no price;
- *  - else the item's history up to the moment folded in its sources' order (ProfitMath::fold, the cost job's own rule): `cw_cost` from the
- *    day CW's own price starts (profit.cost_start), `estimate` before it (ERPNext's history import puts the cost at each sale in its place:
- *    erp_at_sale);
+ *  - else the price of the item's last event up to the moment in its timeline in force (always in time order: CostEngine::rebuild):
+ *    `cw_cost` from the day CW's own price starts (profit.cost_start), `estimate` before it (ERPNext's history import puts the cost at each
+ *    sale in its place: erp_at_sale);
  *  - a moment before the item's first event: that first price, as an `estimate`;
  *  - no event at all, or no price: `none`;
  *  - `pending` (nothing fixed yet) while the cost job has not read up to the moment (its mark, profit_job): a delivery booked just
@@ -59,26 +59,17 @@ final class ItemCosts
         }
         $own = $atUtc >= $this->settings->costStartAt();
         foreach ($skuIds as $sku) {
-            // The item's history up to the moment, folded in its sources' order with the job's own rule (ProfitMath::fold): the price at a
-            // moment is the same whether the events came in order or one came late and was folded in since (the Codex review of 57d98ad, a6).
-            // The item's last event up to the moment (a `replay` included: it holds the folded price of all before it) has the price the fold
-            // gives, unless an event written after it has an earlier source (it came late: that event's price is out of date). One indexed
-            // read and one short check; only a moment a late event changed folds the history (the Codex re-check of 37a2cf0, R6). The check
-            // reads the late events only (the cost job marks each one, `late`; ix_item_cost_event_late): bounded by how many came late, never
-            // by how long the history after the moment is (the Codex re-check of 6b8a7ee, R6).
-            $last = $this->db->one('SELECT id, at, source_at, new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND source_at <= ? ORDER BY source_at DESC, id DESC LIMIT 1',
-                [$sku, $atUtc]);
+            // The item's last event up to the moment in its timeline in force: a timeline is always in time order (an event the cost job meets
+            // late makes it write the item's whole history again: CostEngine::rebuild), so its price is the price at the moment. One indexed
+            // read (ix_item_cost_event_item, after the item's row), however long the history (the Codex re-checks of 37a2cf0 and 6b8a7ee, R6).
+            $tl = (int) ($this->db->value('SELECT timeline FROM item_cost WHERE sku_id = ?', [$sku]) ?? 0);
+            $last = $this->db->one('SELECT new_cost_e4 FROM item_cost_event FORCE INDEX (ix_item_cost_event_item) WHERE sku_id = ? AND timeline = ? AND source_at <= ? '
+                . 'ORDER BY source_at DESC, id DESC LIMIT 1',
+                [$sku, $tl, $atUtc]);
             $before = $last === null;
-            $stale = !$before && $this->db->value('SELECT 1 FROM item_cost_event WHERE sku_id = ? AND late = 1 AND source_at < ? AND id > ? LIMIT 1',
-                [$sku, $last['source_at'], (int) $last['id']]) !== null;
-            if ($stale) {
-                $e4 = ProfitMath::fold($this->db->all('SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event '
-                    . "WHERE sku_id = ? AND (source_at <= ? OR kind = 'start') AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]));
-            } else {
-                $e4 = $before || $last['new_cost_e4'] === null ? null : (int) $last['new_cost_e4'];
-            }
+            $e4 = $before || $last['new_cost_e4'] === null ? null : (int) $last['new_cost_e4'];
             if ($before) {
-                $first = $this->db->one("SELECT new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND kind = 'start' ORDER BY source_at, id LIMIT 1", [$sku]);
+                $first = $this->db->one("SELECT new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND timeline = ? AND kind = 'start' ORDER BY source_at, id LIMIT 1", [$sku, $tl]);
                 $e4 = $first === null || $first['new_cost_e4'] === null ? null : (int) $first['new_cost_e4'];
             }
             $out[$sku] = ['e4' => $e4, 'source' => $e4 === null ? 'none' : ($own && !$before ? 'cw_cost' : 'estimate')];

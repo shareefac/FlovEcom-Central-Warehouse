@@ -6,12 +6,13 @@ namespace CW\Tests\Integration\Profit;
 
 use CW\Profit\CostEngine;
 use CW\Profit\ItemCosts;
+use CW\Profit\ProfitMath;
 use CW\Profit\SnapshotBody;
 use CW\Tests\Support\StockTestCase;
 
 /**
  * The Codex re-check of 37a2cf0 (build/A/codex_r3.txt), each shown failing first: the price of an item at a moment is one indexed read,
- * however long its history, unless a late event changed it (R6); an all-digit tracking number is DPD's only on a DPD label the shop made
+ * however long its history (R6; since PR79 a late event makes the job write the item's history again as its next timeline); an all-digit tracking number is DPD's only on a DPD label the shop made
  * (b12).
  */
 final class ProfitReviewR3Test extends StockTestCase
@@ -46,15 +47,30 @@ final class ProfitReviewR3Test extends StockTestCase
         $before = self::rowsRead();
         self::assertSame(['e4' => 10000, 'source' => 'cw_cost'], $costs->at([$a], '2026-12-31 00:00:00')[$a]);
         self::assertLessThan(60, self::rowsRead() - $before - $overhead, 'one indexed read, not the 401 events folded');
-        // A delivery of 10 at £3 of 17 Nov 00:30 written late (after all the others), marked late as the cost job marks it (PR69): from it on,
-        // the history is folded in its own order.
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, units, on_hand, price_e4, late, old_cost_e4, new_cost_e4) "
-            . "VALUES (?, '2026-12-30 00:00:00', '2026-11-17 00:30:00', 'receipt', ?, 10, 24, 30000, 1, 10000, 15882)", [$a, 'r3late:' . $a]);
-        $at = (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:45:00')[$a]['e4'];
-        self::assertSame(15882, $at, 'at its own place: (24 x £1 + 10 x £3) / 34');
-        self::assertSame(15882, (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:45:00')[$a]['e4']);
-        $late = (int) (new ItemCosts(self::$db))->at([$a], '2026-12-31 00:00:00')[$a]['e4'];
-        self::assertTrue($late > 10000 && $late < 15882, 'later moments fold it in: ' . $late);
+        // A delivery of 10 at £3 of 17 Nov 00:30 that came late: since PR79 the cost job writes the item's whole history again, in time order, as
+        // its next timeline (CostEngine::rebuild); written here as it writes it (each event's price by ProfitMath::step on the one before).
+        $events = self::$db->all('SELECT * FROM item_cost_event WHERE sku_id = ? AND timeline = 0 ORDER BY source_at, id', [$a]);
+        $late = ['sku_id' => $a, 'at' => '2026-11-17 00:30:00', 'source_at' => '2026-11-17 00:30:00', 'kind' => 'receipt', 'source_key' => 'r3late:' . $a, 'units' => 10,
+            'on_hand' => 24, 'price_e4' => 30000, 'booked_e4' => null];
+        array_splice($events, 25, 0, [$late]); // after the start and the 24 deliveries up to 17 Nov 00:00
+        $rows = [];
+        $params = [];
+        $price = null;
+        foreach ($events as $ev) {
+            $price = ProfitMath::step($price, $ev + ['new_cost_e4' => $ev['new_cost_e4'] ?? null]);
+            $rows[] = '(?, 1, ?, ?, ?, ?, ?, ?, ?, ?)';
+            array_push($params, $a, $ev['source_at'], $ev['source_at'], $ev['kind'], $ev['source_key'], $ev['units'], $ev['on_hand'], $ev['price_e4'], $price);
+        }
+        self::$db->exec('INSERT INTO item_cost_event (sku_id, timeline, at, source_at, kind, source_key, units, on_hand, price_e4, new_cost_e4) VALUES ' . implode(', ', $rows), $params);
+        self::$db->exec('UPDATE item_cost SET timeline = 1, unit_cost_e4 = ? WHERE sku_id = ?', [$price, $a]);
+        self::assertSame(15882, (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:45:00')[$a]['e4'], 'at its own place: (24 x £1 + 10 x £3) / 34');
+        $costs = new ItemCosts(self::$db);
+        $costs->at([$a], '2026-11-17 00:45:00');
+        $before = self::rowsRead();
+        $later = (int) $costs->at([$a], '2026-12-31 00:00:00')[$a]['e4'];
+        self::assertLessThan(60, self::rowsRead() - $before - $overhead, 'the timeline in force: one indexed read');
+        self::assertTrue($later > 10000 && $later < 15882, 'later moments have it in: ' . $later);
+        self::assertSame($price, $later);
         self::assertSame(10000, (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:15:00')[$a]['e4'], 'before it: as it was');
     }
 

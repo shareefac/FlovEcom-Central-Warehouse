@@ -16,7 +16,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
 <p class="note" role="status"><?= $word('PROFIT', 'unpaid') ?></p>
 <?php elseif ((int) $o['units_no_cost'] > 0 || $resends_incomplete): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'incomplete_note') ?></p>
-<?php elseif (array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null) !== []): ?>
+<?php elseif ($own_incomplete): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
 <?php endif; ?>
 <div class="table-wrap">
