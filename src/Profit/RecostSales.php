@@ -50,38 +50,70 @@ final class RecostSales
         foreach ($orders as $o) {
             $ch = (int) $o['channel_id'];
             $ref = (string) $o['order_ref'];
-            $paid = $this->db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$ch, $ref]);
-            if ($paid === null) {
+            $plan = static fn (Db $db): ?array => self::plan($db, $costs, $ch, $ref, $sources);
+            // What would move, read now (the dry run's figures); written under the order's locks from what is stored THEN (a line an import
+            // fixed meanwhile is no longer of these sources and is left alone: the Codex review of 92efa82, a11/b11).
+            $p = $plan($this->db);
+            if ($p === null) {
                 continue;
             }
-            $lines = $this->db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
-                . 'LEFT JOIN channel_listing c ON c.channel_id = l.channel_id AND c.external_variant_id = l.variant_id '
-                . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})", [$ch, $ref, ...$sources]);
-            $skus = [];
-            foreach ($lines as $l) {
-                $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($l['now_sku'] !== null && in_array($l['status'], ['mapped', 'quarantined'], true) ? (int) $l['now_sku'] : null);
-                if ($sku !== null) {
-                    $skus[] = $sku;
-                }
-            }
-            $at = $costs->at($skus, (string) $paid);
-            $override = [];
-            foreach ($lines as $l) {
-                $relinked = $l['sku_id'] === null && $l['now_sku'] !== null && in_array($l['status'], ['mapped', 'quarantined'], true);
-                $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($relinked ? (int) $l['now_sku'] : null);
-                $c = $sku === null ? ['e4' => null, 'source' => 'none'] : ($at[$sku] ?? ['e4' => null, 'source' => 'none']);
-                $override[(string) $l['line_id']] = ['e4' => $c['e4'], 'source' => $c['e4'] === null ? 'none' : $c['source'], 'by' => 'recost']
-                    + ($relinked ? ['sku' => (int) $l['now_sku'], 'upi' => max(1, (int) $l['now_upi'])] : []);
-                $k = $l['cost_source'] . ' > ' . $override[(string) $l['line_id']]['source'];
-                $out['moves'][$k] = ($out['moves'][$k] ?? 0) + 1;
+            foreach ($p['moves'] as $k => $n) {
+                $out['moves'][$k] = ($out['moves'][$k] ?? 0) + $n;
             }
             $out['orders']++;
-            $out['lines'] += count($override);
-            if ($apply && $override !== []) {
-                $service->recompute($ch, $ref, $override);
+            $out['lines'] += count($p['override']);
+            if ($apply) {
+                $service->recompute($ch, $ref, static function (Db $db) use ($plan): ?array {
+                    $again = $plan($db);
+                    return $again === null || $again['override'] === [] ? null : $again['override'];
+                });
             }
         }
         ksort($out['moves']);
         return $out;
+    }
+
+    /**
+     * One order's lines of these sources and the cost each would get now (null: not paid, or none of these sources).
+     *
+     * @param list<string> $sources
+     * @return array{override: array<string, array<string, mixed>>, moves: array<string, int>}|null
+     */
+    private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources): ?array
+    {
+        $paid = $db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$ch, $ref]);
+        if ($paid === null) {
+            return null;
+        }
+        $in = implode(', ', array_fill(0, count($sources), '?'));
+        $lines = $db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
+            . 'LEFT JOIN channel_listing c ON c.channel_id = l.channel_id AND c.external_variant_id = l.variant_id '
+            . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})", [$ch, $ref, ...$sources]);
+        if ($lines === []) {
+            return null;
+        }
+        $linked = static fn (array $l): bool => $l['sku_id'] === null && $l['now_sku'] !== null && in_array($l['status'], ['mapped', 'quarantined'], true);
+        $skus = [];
+        foreach ($lines as $l) {
+            if ($l['sku_id'] !== null || $linked($l)) {
+                $skus[] = $l['sku_id'] !== null ? (int) $l['sku_id'] : (int) $l['now_sku'];
+            }
+        }
+        $at = $costs->at($skus, (string) $paid);
+        $override = [];
+        $moves = [];
+        foreach ($lines as $l) {
+            $relinked = $linked($l);
+            $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($relinked ? (int) $l['now_sku'] : null);
+            $c = $sku === null ? ['e4' => null, 'source' => 'none'] : ($at[$sku] ?? ['e4' => null, 'source' => 'none']);
+            if ($c['source'] === ItemCosts::PENDING) {
+                continue; // the cost job has not reached its paid time: left as it is
+            }
+            $override[(string) $l['line_id']] = ['e4' => $c['e4'], 'source' => $c['e4'] === null ? 'none' : $c['source'], 'by' => 'recost']
+                + ($relinked ? ['sku' => (int) $l['now_sku'], 'upi' => max(1, (int) $l['now_upi'])] : []);
+            $k = $l['cost_source'] . ' > ' . $override[(string) $l['line_id']]['source'];
+            $moves[$k] = ($moves[$k] ?? 0) + 1;
+        }
+        return ['override' => $override, 'moves' => $moves];
     }
 }

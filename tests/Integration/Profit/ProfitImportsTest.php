@@ -40,8 +40,10 @@ final class ProfitImportsTest extends StockTestCase
     {
         self::$db->exec("INSERT INTO item_cost (sku_id, unit_cost_e4, start_source, started_at, updated_at) VALUES (?, ?, 'erp_bin', ?, ?) AS n "
             . 'ON DUPLICATE KEY UPDATE unit_cost_e4 = n.unit_cost_e4', [$sku, $e4, $at, $at]);
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, kind, source_key, new_cost_e4) VALUES (?, ?, 'receipt', ?, ?)",
-            [$sku, $at, 'test:' . $sku . ':' . bin2hex(random_bytes(4)), $e4]);
+        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, new_cost_e4) VALUES (?, ?, ?, 'receipt', ?, ?)",
+            [$sku, $at, $at, 'test:' . $sku . ':' . bin2hex(random_bytes(4)), $e4]);
+        // The cost job has read everything (its mark far ahead): costs are fixed at once.
+        self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('item_cost', '2030-01-01') AS n ON DUPLICATE KEY UPDATE mark_at = n.mark_at");
     }
 
     private static function sl(string $id, string $variant, int $price, array $over = []): array
@@ -105,6 +107,9 @@ final class ProfitImportsTest extends StockTestCase
         $lines[] = json_encode(['ref' => '503'] + self::body([self::sl('4', '1', 1200)], ['version' => 6]), JSON_THROW_ON_ERROR); // older: ignored
         $file = $this->dir . '/snapshots_vapebig_2026-11-19.jsonl';
         file_put_contents($file, implode("\n", $lines) . "\n");
+        // Its .sum (the connector's; its totals are not compared while a line is refused: its store, its day and the file's sha256 are).
+        file_put_contents($this->dir . '/snapshots_vapebig_2026-11-19.sum', json_encode(['channel' => 'vapebig', 'day' => '2026-11-19', 'orders' => 5, 'lines' => 5,
+            'goods_inc' => 0, 'delivery_inc' => 0, 'file_sha256' => hash_file('sha256', $file)]));
         $log = [];
         $r = (new SnapshotImport(self::$db))->file('vapebig', $file, false, function (string $m) use (&$log): void {
             $log[] = $m;
@@ -190,7 +195,7 @@ final class ProfitImportsTest extends StockTestCase
         self::assertStringContainsString('2026-11-17 erp orders 1', $log[1]);
         self::assertStringContainsString('paid on or after the cost start 1', $log[1]);
         $r = $import->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
-        self::assertSame(['days' => 2, 'orders' => 1, 'lines' => 3], $r);
+        self::assertSame(['days' => 2, 'orders' => 1, 'lines' => 3, 'refused' => 0], $r);
         $rows = self::$db->all("SELECT line_id, unit_cost_e4, cost, cost_source, costed_by FROM sale_line WHERE order_ref IN ('1001', '1002') ORDER BY line_id");
         self::assertSame([['L1', '9000', '90', 'erp_at_sale', 'erp_import'], ['L2', '9000', '90', 'erp_at_sale', 'erp_import'],
             ['L3', '15000', '300', 'erp_at_sale', 'erp_import'], ['L4', '10000', '100', 'cw_cost', 'sale']],
@@ -199,7 +204,7 @@ final class ProfitImportsTest extends StockTestCase
         $kept = self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]);
         ProfitDays::rebuild(self::$db, (int) $site->channelId, $day);
         self::assertSame($kept, self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]));
-        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 3], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
+        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 3, 'refused' => 0], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
             'run again: the same costs again');
         self::assertSame('480', (string) self::$db->value('SELECT cost FROM profit_day WHERE day = ?', [$day]));
     }

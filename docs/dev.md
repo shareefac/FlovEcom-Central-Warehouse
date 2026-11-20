@@ -1588,3 +1588,24 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   (slot ui), and the line ids through each type's service: `Documents/LineUidTest`, `PurchaseOrders/PoLineUidTest`, `Invoices/LineUidsInvoicesTest`,
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
+
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR30; branch `profit`; migration 0074; 20 Nov 2026)
+
+| File | What |
+|---|---|
+| `migrations/0074_profit.sql` | `order_snapshot`, `sale_order`, `sale_line`, `sale_parcel`, `item_cost`, `item_cost_event`, `profit_day`, `profit_item_day`, `profit_job`; five `profit.*` settings; `finance` in `staff_role.role` |
+| `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version) |
+| `src/Profit/ProfitMath.php` | the money rules (ex VAT, a line, its cost, margin) and the moving average (`receive`, `correct`, `remove`), `spread`, `e4` |
+| `src/Profit/OrderSnapshots.php` | `store` (same / older_ignored / stored), `apply` (order, lines, parcels, re-sends, day summaries), `recompute` (with a cost override) |
+| `src/Profit/ProfitDays.php` | `orderShare` (THE definition), `change` (the snapshot's increments), `rebuild` (a store's day from the rows) |
+| `src/Profit/CostEngine.php`, `ItemCosts.php`, `ProfitSettings.php` | the buying price: `plan` / `seed` (the start), `run` (deliveries, invoices, credits, reversals), `landed`; the price at a moment; the settings |
+| `src/Profit/ReturnsSweep.php`, `SnapshotImport.php`, `ErpSalesImport.php`, `RecostSales.php`, `ProfitViews.php` | units back in stock; the bulk files; ERPNext's cost at sale; the re-cost; the screens' reads |
+| `src/Api/Controller/OrderSnapshotController.php` | `PUT /v1/orders/{ref}/snapshot` (any mode; 256 KB) |
+| `src/Ui/Controller/ProfitController.php`, `src/Ui/views/profit_*.php` | the Profit section (profit.view): summary, by day, by product, by order (+ one order), no buying price |
+| `bin/seed_item_cost.php`, `refresh_item_cost.php`, `import_order_snapshots.php`, `import_erp_sales_cost.php`, `recost_sales.php`, `rebuild_profit_days.php` | the tools (README of build/A: the order to run them on live, the cron lines) |
+
+- Tests: `tests/Unit/ProfitMathTest.php`, `tests/Integration/Profit/{ProfitSnapshotTest,CostEngineTest,ProfitImportsTest}.php`,
+  `tests/Integration/ApiKernel/OrderSnapshotRouteTest.php`, `tests/Integration/UiKernel/ProfitScreensTest.php`, `tests/Integration/Migration0074Test.php`;
+  `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest` know the new job and section. Runner: `/root/cw_work/runs/profit_run.sh`,
+  `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).
+

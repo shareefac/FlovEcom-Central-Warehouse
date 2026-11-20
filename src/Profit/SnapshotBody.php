@@ -131,7 +131,7 @@ final class SnapshotBody
             $seenP[$ref] = true;
             $outParcels[] = [
                 'parcel_ref' => $ref,
-                'tracking_no' => self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true),
+                'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true)),
                 'carrier' => (string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32),
                 'service_code' => (string) self::optText($p['service_code'] ?? null, "{$f}.service_code", 64, true),
                 'service' => (string) self::optText($p['service'] ?? null, "{$f}.service", 128),
@@ -166,6 +166,25 @@ final class SnapshotBody
     {
         unset($body['version'], $body['ref']);
         return hash('sha256', Idempotency::canonicalJson($body));
+    }
+
+    /**
+     * A carrier's tracking number as CONTRACT.md change 5 says it (agreed 20 Nov 2026): only A-Z a-z 0-9, space . / # _ -, and at least 4
+     * digits, and (CW's own, stricter) a digit in every word; anything else (a note typed by hand, an address, a name) is kept as null, so
+     * no free text reaches CW (the Codex review of 92efa82, b12).
+     */
+    public static function tracking(?string $t): ?string
+    {
+        if ($t === null || $t === '' || preg_match('/^[A-Za-z0-9 .\/#_-]{1,64}$/D', $t) !== 1 || preg_match_all('/[0-9]/', $t) < 4) {
+            return null;
+        }
+        // Stricter than the contract on one point: every word of it holds a digit ("John Smith 12345" is not a tracking number).
+        foreach (preg_split('/ +/', trim($t)) ?: [] as $word) {
+            if (preg_match('/[0-9]/', $word) !== 1) {
+                return null;
+            }
+        }
+        return $t;
     }
 
     /** The order ref of a path or a bulk line (1-64 printable characters, as the reservations). */

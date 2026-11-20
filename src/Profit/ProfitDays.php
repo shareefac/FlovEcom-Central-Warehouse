@@ -14,6 +14,9 @@ use CW\Db;
  *             row in key order (an increment: two orders of the same day never overwrite each other);
  *  rebuild()  the batch tools: a store's day worked out again from its sale_order and sale_line rows (the same orderShare()), its rows
  *             replaced; what change() kept must equal it (tests: ProfitSnapshotTest).
+ *  guard()    THE lock of a store's day (its profit_day row, made when missing): every snapshot takes it for its day (and the day it
+ *             counted on before) before it reads or writes anything of the order, and a rebuild takes it before it reads the day's orders,
+ *             so a rebuild never replaces the day with figures that miss a snapshot committed meanwhile (the Codex review of 92efa82, c1).
  *
  * An order counts on the UK day it was paid (sale_order.day); an unpaid one counts nothing. `orders` counts the paid orders with at
  * least one unit that counts and no parent (`resends` the ones with one); sale_ex is the lines' (the order-level refunds apart).
@@ -92,11 +95,26 @@ final class ProfitDays
      *
      * @return array<string, int> the day's figures
      */
+    /**
+     * Locks the summary rows of a store's days (made when missing), in day order, inside the caller's transaction.
+     *
+     * @param list<string> $days
+     */
+    public static function guard(Db $db, int $channelId, array $days): void
+    {
+        $days = array_values(array_unique($days));
+        sort($days, SORT_STRING);
+        foreach ($days as $d) {
+            $db->exec('INSERT INTO profit_day (channel_id, day) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE channel_id = n.channel_id', [$channelId, $d]);
+        }
+    }
+
     public static function rebuild(Db $db, int $channelId, string $day): array
     {
         return $db->transaction(static function (Db $db) use ($channelId, $day): array {
+            self::guard($db, $channelId, [$day]);
             $orders = [];
-            foreach ($db->all('SELECT * FROM sale_order WHERE day = ? AND channel_id = ? FOR UPDATE', [$day, $channelId]) as $o) {
+            foreach ($db->all('SELECT * FROM sale_order WHERE day = ? AND channel_id = ?', [$day, $channelId]) as $o) {
                 $orders[(string) $o['order_ref']] = ['o' => $o, 'lines' => []];
             }
             foreach ($db->all('SELECT l.* FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '

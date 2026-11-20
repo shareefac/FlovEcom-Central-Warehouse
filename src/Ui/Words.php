@@ -10938,6 +10938,24 @@ final class Words
         'see_orders' => 'See the orders',
         'see_list' => 'See the list',
         'today_is' => 'UK days; today is %s.',
+        // The Codex review of 92efa82 (c2, c6, c7, c8)
+        'orders_found' => '%s orders.',
+        'first_page' => 'First page',
+        'next_page' => 'Next page',
+        'incomplete' => 'incomplete',
+        'incomplete_note' => 'Incomplete: some units have no buying price yet, so their cost is missing and the profit is too high by it.',
+        'pending' => 'Units waiting for their cost',
+        'pending_note' => 'Some units were sold in the last minutes: their cost comes with the next run of the cost job, within 10 minutes. Until then they have no cost in these figures.',
+        'order_refunds_note' => 'Refunds kept on whole orders, not on a product, are left out of this list: %s. The summary and each order take them off.',
+        'no_margin' => 'Orders with no sale have no margin: they are not in this order.',
+        'gateway_globalpay' => 'Card (GlobalPay)',
+        'gateway_pp' => 'PayPal',
+        'gateway_pphf' => 'PayPal card fields',
+        'gateway_viva' => 'Viva',
+        'gateway_payroc' => 'Payroc',
+        'gateway_office' => 'Office order',
+        'gateway_none' => 'Not said',
+        'store_variant' => '%s: website product %s',
     ];
 
     public const RD_REPORTS = [

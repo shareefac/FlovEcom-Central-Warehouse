@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 /**
- * The cost job (profit step 1; docs/decisions.md PR15; CW\Profit\CostEngine, CW\Profit\ReturnsSweep): follows the deliveries, supplier
- * invoices and credit notes booked since its last run into each item's buying price, then works out again the orders whose units came
- * back to stock since then. Cron runs it every 10 minutes; it never runs inside a booking (a booking can never fail because of it). While
+ * The cost job (profit step 1; docs/decisions.md PR15; CW\Profit\CostEngine, PendingCosts, ReturnsSweep): follows the deliveries, supplier
+ * invoices and credit notes booked since its last run into each item's buying price (and starts the items made since), fixes the cost of
+ * the sales that waited for it, then works out again the orders whose units came back to stock since then. Cron runs it every 10 minutes; it never runs inside a booking (a booking can never fail because of it). While
  * the setting profit.cost_refresh_on is off it does nothing (unless --force). Restartable: what is done is never done twice.
  *
  *   php bin/refresh_item_cost.php [--force] [--status]
@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 use CW\Ops\Cli;
 use CW\Profit\CostEngine;
+use CW\Profit\PendingCosts;
 use CW\Profit\ProfitSettings;
 use CW\Profit\ReturnsSweep;
 
@@ -36,6 +37,8 @@ exit(Cli::main(CostEngine::JOB, ['force', 'status'], 'usage: php bin/refresh_ite
         }
         $r = $engine->run();
         $cli->log(isset($r['not_started']) ? 'not started yet (run bin/seed_item_cost.php first): nothing done' : 'cost ' . json_encode($r, JSON_UNESCAPED_SLASHES));
+        // The sales stored before the job reached their paid time get their cost now (docs/decisions.md PR16).
+        $cli->log('pending ' . json_encode((new PendingCosts($cli->db))->run(), JSON_UNESCAPED_SLASHES));
         $cli->log('returns ' . json_encode((new ReturnsSweep($cli->db))->run(), JSON_UNESCAPED_SLASHES));
         return Cli::OK;
     }, true, true));

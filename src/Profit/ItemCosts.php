@@ -15,11 +15,16 @@ use CW\Db;
  *  - else the item's last event at or before the moment: `cw_cost` from the day CW's own price starts (profit.cost_start), `estimate`
  *    before it (ERPNext's history import puts the cost at each sale in its place: erp_at_sale);
  *  - a moment before the item's first event: that first price, as an `estimate`;
- *  - no event at all, or no price: `none`.
+ *  - no event at all, or no price: `none`;
+ *  - `pending` (nothing fixed yet) while the cost job has not read up to the moment (its mark, profit_job): a delivery booked just
+ *    before a sale may not be in the history yet (the Codex review of 92efa82, a1/b1); CW\Profit\PendingCosts fixes those lines once the
+ *    job is past their paid time. Before the start of the buying prices was ever written every moment is pending.
  */
 final class ItemCosts
 {
     public const SOURCES = ['erp_at_sale', 'cw_cost', 'estimate', 'none'];
+    /** Not a source: the cost job has not reached the moment yet (the line waits). */
+    public const PENDING = 'pending';
 
     private readonly ProfitSettings $settings;
 
@@ -38,6 +43,9 @@ final class ItemCosts
         $skuIds = array_values(array_unique(array_filter($skuIds, static fn (int $s): bool => $s > 0)));
         if ($skuIds === []) {
             return [];
+        }
+        if (!$this->reached($atUtc)) {
+            return array_fill_keys($skuIds, ['e4' => null, 'source' => self::PENDING]);
         }
         if ($atUtc < $this->settings->historyFromAt()) {
             if ($this->settings->beforeHistory() === 'none') {
@@ -61,6 +69,16 @@ final class ItemCosts
         }
         return $out;
     }
+
+    /** Whether the cost job has read every delivery and invoice up to $atUtc (its mark). */
+    public function reached(string $atUtc): bool
+    {
+        $this->mark ??= [(string) ($this->db->value('SELECT mark_at FROM profit_job WHERE job = ?', [CostEngine::JOB]) ?? '')];
+        return $this->mark[0] !== '' && $atUtc <= $this->mark[0];
+    }
+
+    /** @var array{0: string}|null the cost job's mark, read once per instance ('' when never started) */
+    private ?array $mark = null;
 
     /**
      * @param list<int> $skuIds

@@ -64,12 +64,30 @@ final class ProfitViews
         return $out;
     }
 
-    /** @return array<string, int|null> the figures of the days $from..$to (one store, or all) */
+    /** @return array<string, int|null> the figures of the days $from..$to (one store, or all), with the units still waiting for their cost */
     public function totals(string $from, string $to, ?int $store): array
     {
         $r = $this->db->one('SELECT ' . self::SUMS . ' FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
             [$from, $to, ...($store === null ? [] : [$store])]) ?? [];
-        return self::figures($r);
+        return self::figures($r + ['pending' => array_sum($this->pending($from, $to, $store))]);
+    }
+
+    /**
+     * The units of paid orders whose cost waits for the cost job (a few minutes at most), by day (index (cost_source, day)): until then their
+     * cost is 0 in every figure, which the screens say (the Codex review of 92efa82, c6).
+     *
+     * @return array<string, int> day => units
+     */
+    public function pending(string $from, string $to, ?int $store): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT day, SUM(units) AS u FROM sale_line WHERE cost_source IS NULL AND day BETWEEN ? AND ? AND removed_at IS NULL'
+            . ($store === null ? '' : ' AND channel_id = ?') . ' GROUP BY day', [$from, $to, ...($store === null ? [] : [$store])]) as $r) {
+            if ((int) $r['u'] > 0) {
+                $out[(string) $r['day']] = (int) $r['u'];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -80,8 +98,10 @@ final class ProfitViews
     public function periods(string $from, string $to, ?int $store, string $by): array
     {
         $groups = [];
+        $pending = $this->pending($from, $to, $store);
         foreach ($this->db->all('SELECT day, ' . self::SUMS . ' FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?')
             . ' GROUP BY day ORDER BY day', [$from, $to, ...($store === null ? [] : [$store])]) as $r) {
+            $r['pending'] = $pending[(string) $r['day']] ?? 0;
             $d = new \DateTimeImmutable((string) $r['day']);
             [$gFrom, $gTo] = match ($by) {
                 'week' => [$d->modify('monday this week')->format('Y-m-d'), $d->modify('sunday this week')->format('Y-m-d')],
@@ -106,14 +126,17 @@ final class ProfitViews
      */
     public function breakdown(string $from, string $to, ?int $store, string $by, string $sort): array
     {
-        $margin = '(SUM(p.sale_ex) - SUM(p.cost)) / NULLIF(SUM(p.sale_ex), 0)';
+        // Goods sold as the rows show them (figures()): by shop, the lines less the refunds kept at order level (the Codex review of 92efa82,
+        // c4); by product, brand or supplier, the lines (those refunds are on no product: the page says how much they are, c7).
+        $goods = $by === 'shop' ? '(SUM(p.sale_ex) - SUM(p.order_refund_ex))' : 'SUM(p.sale_ex)';
+        $margin = "IF({$goods} > 0, ({$goods} - SUM(p.cost)) / {$goods}, NULL)";
         $order = match ($sort) {
-            'sale' => 'SUM(p.sale_ex) DESC',
+            'sale' => "{$goods} DESC",
             'cost' => 'SUM(p.cost) DESC',
             'units' => 'SUM(p.units) DESC',
             'margin' => "{$margin} IS NULL, {$margin} DESC",
             'margin_low' => "{$margin} IS NULL, {$margin} ASC",
-            default => 'SUM(p.sale_ex) - SUM(p.cost) DESC',
+            default => "{$goods} - SUM(p.cost) DESC",
         };
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
         $params = [$from, $to, ...($store === null ? [] : [$store])];
@@ -139,14 +162,19 @@ final class ProfitViews
     }
 
     /**
-     * The paid orders of the days (one store, or all), newest first or lowest margin first; or the orders with this number (any day).
+     * The paid orders of the days (one store, or all), newest first or the lowest margin first, PAGE at a time after a cursor (keyset pages
+     * on ix_sale_order_paid / ix_sale_order_store_paid and ix_sale_order_margin: a page reads its own rows, never every row before it; the
+     * Codex review of 92efa82, c2); or the orders with this number (any day). The lowest margin first leaves out the orders with no sale (no
+     * margin).
      *
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
+     * @param array{0: string, 1: int, 2: string}|null $after the last row of the page before: its paid time (or margin), store, order ref
+     * @return array{rows: list<array<string, mixed>>, total: int, next: ?array{0: string, 1: int, 2: string}}
      */
-    public function orders(string $from, string $to, ?int $store, string $q, bool $lowest, int $page): array
+    public function orders(string $from, string $to, ?int $store, string $q, bool $lowest, ?array $after = null): array
     {
         $cols = 'o.channel_id, o.order_ref, o.order_no, o.status, o.paid_at, o.gateway, o.parent_ref, o.units, o.sale_ex, o.cost, o.resend_cost, o.resends, '
-            . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store';
+            . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store, '
+            . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL) AS pending';
         if ($q !== '') {
             $rows = [];
             foreach ($this->stores() as $s) {
@@ -161,17 +189,40 @@ final class ProfitViews
                 . ' LIMIT 50', [$q, ...($store === null ? [] : [$store])]) as $r) {
                 $rows[$r['channel_id'] . ':' . $r['order_ref']] = $r;
             }
-            return ['rows' => array_map(self::orderRow(...), array_values($rows)), 'total' => count($rows), 'page' => 1, 'pages' => 1];
+            return ['rows' => array_map(self::orderRow(...), array_values($rows)), 'total' => count($rows), 'next' => null];
         }
-        $where = 'o.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND o.channel_id = ?');
-        $params = [$from, $to, ...($store === null ? [] : [$store])];
-        $total = (int) $this->db->value("SELECT COUNT(*) FROM sale_order o WHERE {$where}", $params);
-        $pages = max(1, intdiv($total + self::PAGE - 1, self::PAGE));
-        $page = min(max(1, $page), $pages);
-        $order = $lowest ? 'o.margin_bp IS NULL, o.margin_bp ASC, o.day DESC, o.order_ref' : 'o.day DESC, o.paid_at DESC, o.order_ref DESC';
-        $rows = $this->db->all("SELECT {$cols} FROM sale_order o JOIN channel c ON c.id = o.channel_id WHERE {$where} ORDER BY {$order} LIMIT " . self::PAGE
-            . ' OFFSET ' . (($page - 1) * self::PAGE), $params);
-        return ['rows' => array_map(self::orderRow(...), $rows), 'total' => $total, 'page' => $page, 'pages' => $pages];
+        $lo = \CW\Clock::db(ReportRefresh::bounds($from)[0]);
+        $hi = \CW\Clock::db(ReportRefresh::bounds($to)[1]);
+        $where = ['o.paid_at >= ?', 'o.paid_at < ?'];
+        $params = [$lo, $hi];
+        if ($store !== null) {
+            $where[] = 'o.channel_id = ?';
+            $params[] = $store;
+        }
+        $total = (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where), $params);
+        if ($lowest) {
+            $where[] = 'o.margin_bp IS NOT NULL';
+            if ($after !== null) {
+                $where[] = '(o.margin_bp, o.channel_id, o.order_ref) > (?, ?, ?)';
+                array_push($params, (int) $after[0], $after[1], $after[2]);
+            }
+            $order = 'o.margin_bp, o.channel_id, o.order_ref';
+        } else {
+            if ($after !== null) {
+                $where[] = '(o.paid_at, o.channel_id, o.order_ref) < (?, ?, ?)';
+                array_push($params, $after[0], $after[1], $after[2]);
+            }
+            $order = 'o.paid_at DESC, o.channel_id DESC, o.order_ref DESC';
+        }
+        $rows = $this->db->all("SELECT {$cols} FROM sale_order o JOIN channel c ON c.id = o.channel_id WHERE " . implode(' AND ', $where) . " ORDER BY {$order} LIMIT "
+            . (self::PAGE + 1), $params);
+        $next = null;
+        if (count($rows) > self::PAGE) {
+            $rows = array_slice($rows, 0, self::PAGE);
+            $last = $rows[self::PAGE - 1];
+            $next = [$lowest ? (string) $last['margin_bp'] : (string) $last['paid_at'], (int) $last['channel_id'], (string) $last['order_ref']];
+        }
+        return ['rows' => array_map(self::orderRow(...), $rows), 'total' => $total, 'next' => $next];
     }
 
     /** @param array<string, mixed> $r @return array<string, mixed> */
@@ -183,7 +234,8 @@ final class ProfitViews
             'status' => (string) $r['status'], 'paid_at' => $r['paid_at'] === null ? null : (string) $r['paid_at'], 'gateway' => (string) $r['gateway'],
             'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => (int) $r['units'], 'sale' => $sale, 'cost' => $cost,
             'resends' => (int) $r['resends'], 'profit' => $sale - $cost, 'margin_bp' => $r['margin_bp'] === null ? null : (int) $r['margin_bp'],
-            'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost']];
+            'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
+            'incomplete' => (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0];
     }
 
     /**
@@ -219,13 +271,23 @@ final class ProfitViews
      */
     public function noCost(string $from, string $to, ?int $store): array
     {
-        $rows = $this->db->all("SELECT l.sku_id, IF(l.sku_id IS NULL, l.variant_id, NULL) AS variant, s.code, s.name, SUM(l.units) AS units, SUM(l.sale_ex) AS sale, "
-            . "COUNT(*) AS n FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id WHERE l.day BETWEEN ? AND ? AND l.cost_source = 'none' AND l.units > 0 "
-            . 'AND l.restocked = 0 AND l.removed_at IS NULL' . ($store === null ? '' : ' AND l.channel_id = ?')
-            . ' GROUP BY l.sku_id, variant, s.code, s.name ORDER BY units DESC, l.sku_id LIMIT ' . self::ROW_LIMIT, [$from, $to, ...($store === null ? [] : [$store])]);
+        // A website product with no CW item is its store's own (two stores' variant 123 are not the same product: the Codex review of 92efa82,
+        // c5); a CW item is one row whatever store sold it.
+        $rows = $this->db->all("SELECT l.sku_id, IF(l.sku_id IS NULL, l.variant_id, NULL) AS variant, IF(l.sku_id IS NULL, l.channel_id, NULL) AS ch, s.code, s.name, "
+            . "SUM(l.units) AS units, SUM(l.sale_ex) AS sale, COUNT(*) AS n FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id "
+            . "WHERE l.cost_source = 'none' AND l.day BETWEEN ? AND ? AND l.units > 0 AND l.restocked = 0 AND l.removed_at IS NULL" . ($store === null ? '' : ' AND l.channel_id = ?')
+            . ' GROUP BY l.sku_id, variant, ch, s.code, s.name ORDER BY units DESC, l.sku_id, ch, variant LIMIT ' . self::ROW_LIMIT, [$from, $to, ...($store === null ? [] : [$store])]);
+        $names = array_column($this->stores(), 'name', 'id');
         return array_map(static fn (array $r): array => ['sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'], 'code' => $r['code'] === null ? null : (string) $r['code'],
-            'name' => (string) ($r['name'] ?? ''), 'variant' => $r['variant'] === null ? null : (string) $r['variant'], 'units' => (int) $r['units'], 'sale' => (int) $r['sale'],
-            'lines' => (int) $r['n']], $rows);
+            'name' => (string) ($r['name'] ?? ''), 'variant' => $r['variant'] === null ? null : (string) $r['variant'],
+            'store' => $r['ch'] === null ? null : (string) ($names[(int) $r['ch']] ?? ''), 'units' => (int) $r['units'], 'sale' => (int) $r['sale'], 'lines' => (int) $r['n']], $rows);
+    }
+
+    /** The refunds the shops kept at order level in these days (ex VAT): on no product, so the lists by product, brand and supplier leave them out. */
+    public function orderRefunds(string $from, string $to, ?int $store): int
+    {
+        return (int) $this->db->value('SELECT COALESCE(SUM(order_refund_ex), 0) FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
+            [$from, $to, ...($store === null ? [] : [$store])]);
     }
 
     /**
@@ -240,7 +302,8 @@ final class ProfitViews
         $cost = (int) ($r['cost'] ?? 0);
         return ['orders' => (int) ($r['orders'] ?? 0), 'resends' => (int) ($r['resends'] ?? 0), 'units' => (int) ($r['units'] ?? 0), 'goods' => $goods, 'cost' => $cost,
             'profit' => $goods - $cost, 'margin_bp' => ProfitMath::marginBp($goods - $cost, $goods), 'delivery' => (int) ($r['delivery_ex'] ?? 0),
-            'no_cost' => (int) ($r['units_no_cost'] ?? 0)];
+            'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
+            'incomplete' => (int) ($r['units_no_cost'] ?? 0) > 0 || (int) ($r['pending'] ?? 0) > 0];
     }
 
     /** Pence as a decimal amount of pounds ("-12.05"), for the money helper. */

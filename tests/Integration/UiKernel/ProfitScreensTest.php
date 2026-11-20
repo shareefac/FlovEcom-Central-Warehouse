@@ -26,7 +26,9 @@ final class ProfitScreensTest extends KernelUiTestCase
         $b = $this->item('legacy', 0, 'Profit item B');
         self::$db->exec('UPDATE sku SET brand = ? WHERE id = ?', ['Elux', $a]);
         self::$db->exec("INSERT INTO item_cost (sku_id, unit_cost_e4, start_source, started_at, updated_at) VALUES (?, 5000, 'erp_bin', '2026-11-16', '2026-11-16')", [$a]);
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, kind, source_key, new_cost_e4) VALUES (?, '2026-11-16 00:00:00', 'start', ?, 5000)", [$a, 'start:' . $a]);
+        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, new_cost_e4) VALUES (?, '2026-11-16 00:00:00', '2026-11-16 00:00:00', 'start', ?, 5000)",
+            [$a, 'start:' . $a]);
+        self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('item_cost', '2030-01-01')"); // the cost job has read everything
         $this->listing($site, '11', $a);
         $this->listing($site, '12', $b);
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z'); // today (UK)
@@ -105,7 +107,8 @@ final class ProfitScreensTest extends KernelUiTestCase
         $sum = $fin->get('/ui/profit');
         self::phoneReady($sum);
         $today = self::rows($sum, 'profit-summary')[0];
-        self::assertSame([Words::PROFIT['today'], '2', '£7.55', '£2.00', '£5.55', '73.5%', '£6.00', '1'], $today, 'two orders (the re-send is not one); 1 unit with no price');
+        self::assertSame([Words::PROFIT['today'], '2', '£7.55', '£2.00', '£5.55', '73.5% ' . Words::PROFIT['incomplete'], '£6.00', '1'], $today,
+            'two orders (the re-send is not one); 1 unit with no price: the margin says it is incomplete');
         self::assertSame(200, $fin->get('/ui/profit', ['store' => (string) $site->channelId])->status);
 
         $days = $fin->get('/ui/profit/periods', ['by' => 'week']);
@@ -117,7 +120,7 @@ final class ProfitScreensTest extends KernelUiTestCase
         $by = $fin->get('/ui/profit/by', ['by' => 'product']);
         self::assertSame(200, $by->status, $by->describe());
         self::phoneReady($by);
-        self::assertSame([['Profit item B ' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$b]), '1', '£5.00', '£0.00', '£5.00', '100.0%', '1'],
+        self::assertSame([['Profit item B ' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$b]), '1', '£5.00', '£0.00', '£5.00', '100.0% ' . Words::PROFIT['incomplete'], '1'],
             ['Profit item A ' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$a]), '4', '£2.55', '£2.00', '£0.55', '21.6%', '0']], self::rows($by, 'profit-breakdown'),
             'the biggest profit first');
         self::assertSame('Profit item A', trim((string) (new \DOMXPath($fin->get('/ui/profit/by', ['by' => 'product', 'sort' => 'margin_low'])->dom()))

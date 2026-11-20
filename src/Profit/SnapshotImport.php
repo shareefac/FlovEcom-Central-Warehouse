@@ -8,15 +8,20 @@ use CW\CwException;
 use CW\Db;
 
 /**
- * The backfill of order snapshots from the connector's day files (bin/import_order_snapshots.php; CONTRACT.md "Bulk"; docs/decisions.md
- * PR3): one JSON object per line with its `ref`, stored through the SAME service as the API (OrderSnapshots::store, source `bulk`):
- * the same checks, the same "older ignored", one transaction per order, so a backfill and the live feed can never disagree. A line CW
- * refuses is reported with its field and the rest go on. The file's `.sum` line (orders, lines, goods_inc, delivery_inc, file_sha256),
- * when it is there, is checked against the file as read.
+ * The backfill of order snapshots from the connector's day files (bin/import_order_snapshots.php; CONTRACT.md "Bulk" and change 7;
+ * docs/decisions.md PR3): one JSON object per line with its `ref`, stored through the SAME service as the API (OrderSnapshots::store,
+ * source `bulk`): the same checks, the same "older ignored", one transaction per order, so a backfill and the live feed can never disagree.
+ *
+ * The file proves its store before anything is written (the Codex review of 92efa82, b13, b14): its name is snapshots_<store>_<day>.jsonl
+ * and names the store asked for, and its .sum line (next to it) is there, whole, names the same store and day, and matches the file (its
+ * sha256; its orders, lines, goods and delivery when every line could be read). The file is read twice, line by line: once to check it
+ * (nothing written when it does not match), once to store it. A line CW refuses is reported with its field and the rest go on; a line
+ * longer than the cap is ONE refused line, whatever follows on it (b15).
  */
 final class SnapshotImport
 {
     public const MAX_LINE_BYTES = SnapshotBody::MAX_BYTES;
+    private const SUM_KEYS = ['channel', 'day', 'orders', 'lines', 'goods_inc', 'delivery_inc', 'file_sha256'];
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, private readonly ?\Closure $clock = null)
@@ -25,7 +30,7 @@ final class SnapshotImport
 
     /**
      * @param \Closure(string): void $log
-     * @return array{lines: int, results: array<string, int>, refused: int, sum: ?array<string, mixed>, sum_ok: ?bool, read: array<string, int|string>}
+     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, read: array<string, int>}
      */
     public function file(string $channelCode, string $path, bool $dryRun, \Closure $log): array
     {
@@ -34,15 +39,52 @@ final class SnapshotImport
             throw new \InvalidArgumentException("no store {$channelCode}");
         }
         $base = basename($path);
-        if (preg_match('/^snapshots_([a-z][a-z0-9_]*)_\d{4}-\d{2}-\d{2}\.jsonl$/D', $base, $m) === 1 && $m[1] !== $channelCode) {
+        if (preg_match('/^snapshots_([a-z][a-z0-9_]*)_(\d{4}-\d{2}-\d{2})\.jsonl$/D', $base, $m) !== 1) {
+            throw new \InvalidArgumentException("{$base}: a day file is named snapshots_<store>_<day>.jsonl (the store it is of cannot be told otherwise)");
+        }
+        if ($m[1] !== $channelCode) {
             throw new \InvalidArgumentException("{$base} is a file of the store {$m[1]}, not {$channelCode}");
         }
+        $sum = $this->sum($path, $channelCode, $m[2]);
+        $now = $this->clock === null ? \CW\Clock::now() : ($this->clock)();
+        // Pass 1: every line checked, nothing written.
+        $check = $this->pass($path, null, (int) $channel, $now, static fn (string $m) => null);
+        $sumOk = hash_equals(strtolower((string) $sum['file_sha256']), (string) hash_file('sha256', $path));
+        if (!$sumOk) {
+            $log('the .sum names another file (its sha256 differs): nothing written');
+        }
+        if ($sumOk && $check['refused'] === 0) {
+            foreach (['orders', 'lines', 'goods_inc', 'delivery_inc'] as $k) {
+                if ((int) $sum[$k] !== $check['read'][$k]) {
+                    $sumOk = false;
+                    $log("the .sum says {$k} {$sum[$k]}, the file holds {$check['read'][$k]}: nothing written");
+                }
+            }
+        }
+        if (!$sumOk || $dryRun) {
+            if ($dryRun) {
+                $this->pass($path, null, (int) $channel, $now, $log); // the refusals, said
+            }
+            return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
+                'sum_ok' => $sumOk, 'read' => $check['read']];
+        }
+        // Pass 2: stored, order by order.
+        $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), (int) $channel, $now, $log);
+        return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true, 'read' => $done['read']];
+    }
+
+    /**
+     * One pass over the file: each line read (a line past the cap drained to its end and refused once), checked, and stored when $service.
+     *
+     * @param \Closure(string): void $log
+     * @return array{lines: int, results: array<string, int>, refused: int, read: array<string, int>}
+     */
+    private function pass(string $path, ?OrderSnapshots $service, int $channel, \DateTimeImmutable $now, \Closure $log): array
+    {
         $fh = @fopen($path, 'rb');
         if ($fh === false) {
             throw new \InvalidArgumentException("cannot read {$path}");
         }
-        $service = new OrderSnapshots($this->db, $this->clock);
-        $now = $this->clock === null ? \CW\Clock::now() : ($this->clock)();
         $results = array_fill_keys(OrderSnapshots::RESULTS, 0);
         $read = ['orders' => 0, 'lines' => 0, 'goods_inc' => 0, 'delivery_inc' => 0];
         $refused = 0;
@@ -50,13 +92,19 @@ final class SnapshotImport
         try {
             while (($line = fgets($fh, self::MAX_LINE_BYTES + 2)) !== false) {
                 $n++;
+                $tooLong = strlen($line) > self::MAX_LINE_BYTES && !str_ends_with($line, "\n");
+                while ($tooLong && !str_ends_with((string) $line, "\n") && ($line = fgets($fh, 65536)) !== false) {
+                    // the rest of an over-long line: never read as a line of its own
+                }
+                if ($tooLong) {
+                    $refused++;
+                    $log("line {$n}: refused body_too_large: the line is larger than " . intdiv(self::MAX_LINE_BYTES, 1024) . ' KB');
+                    continue;
+                }
                 if (trim($line) === '') {
                     continue;
                 }
                 try {
-                    if (strlen($line) > self::MAX_LINE_BYTES) {
-                        throw new CwException('body_too_large', 'the line is larger than ' . intdiv(self::MAX_LINE_BYTES, 1024) . ' KB', 413);
-                    }
                     try {
                         $o = json_decode($line, true, 64, JSON_THROW_ON_ERROR);
                     } catch (\JsonException) {
@@ -73,8 +121,8 @@ final class SnapshotImport
                         $read['goods_inc'] += $l['price_inc'] - $l['discount_inc'];
                     }
                     $read['delivery_inc'] += $body['delivery']['charged_inc'];
-                    if (!$dryRun) {
-                        $results[$service->store((int) $channel, $ref, $o, 'bulk')['result']]++;
+                    if ($service !== null) {
+                        $results[$service->store($channel, $ref, $o, 'bulk')['result']]++;
                     }
                 } catch (CwException $e) {
                     $refused++;
@@ -85,33 +133,35 @@ final class SnapshotImport
         } finally {
             fclose($fh);
         }
-        $sum = $this->sum($path);
-        $sumOk = null;
-        if ($sum !== null) {
-            $sumOk = true;
-            foreach (['orders', 'lines', 'goods_inc', 'delivery_inc'] as $k) {
-                if (isset($sum[$k]) && (int) $sum[$k] !== $read[$k] && $refused === 0) {
-                    $sumOk = false;
-                    $log("the .sum says {$k} {$sum[$k]}, the file holds {$read[$k]}");
-                }
-            }
-            if (is_string($sum['file_sha256'] ?? null) && !hash_equals(strtolower($sum['file_sha256']), (string) hash_file('sha256', $path))) {
-                $sumOk = false;
-                $log('the .sum names another file (its sha256 differs)');
-            }
-        }
-        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'sum' => $sum, 'sum_ok' => $sumOk, 'read' => $read];
+        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read];
     }
 
-    /** @return array<string, mixed>|null the day file's `.sum` line (next to it: <name>.sum or <name>.jsonl.sum) */
-    private function sum(string $path): ?array
+    /**
+     * The day file's .sum line (<name>.sum, else <name>.jsonl.sum): there, one JSON object with every key, the same store and day.
+     *
+     * @return array<string, mixed>
+     */
+    private function sum(string $path, string $channelCode, string $day): array
     {
-        foreach ([preg_replace('/\.jsonl$/D', '.sum', $path), $path . '.sum'] as $p) {
-            if (is_string($p) && $p !== $path && is_file($p)) {
-                $s = json_decode(trim((string) file_get_contents($p, false, null, 0, 65536)), true);
-                return is_array($s) ? $s : null;
+        foreach ([(string) preg_replace('/\.jsonl$/D', '.sum', $path), $path . '.sum'] as $p) {
+            if ($p === $path || !is_file($p)) {
+                continue;
             }
+            $s = json_decode(trim((string) file_get_contents($p, false, null, 0, 65536)), true);
+            if (!is_array($s) || array_diff(self::SUM_KEYS, array_keys($s)) !== [] || !is_string($s['file_sha256']) || !is_string($s['channel'])) {
+                throw new \InvalidArgumentException(basename($p) . ': the .sum is not whole (it needs ' . implode(', ', self::SUM_KEYS) . ')');
+            }
+            foreach (['orders', 'lines', 'goods_inc', 'delivery_inc'] as $k) {
+                if (!is_int($s[$k])) {
+                    throw new \InvalidArgumentException(basename($p) . ": the .sum's {$k} is not a whole number");
+                }
+            }
+            if ($s['channel'] !== $channelCode || $s['day'] !== $day) {
+                throw new \InvalidArgumentException(basename($p) . ": the .sum is of the store {$s['channel']}, day " . (is_string($s['day']) ? $s['day'] : '?')
+                    . ", not {$channelCode} {$day}");
+            }
+            return $s;
         }
-        return null;
+        throw new \InvalidArgumentException(basename($path) . ': the day file has no .sum next to it (snapshots_<store>_<day>.sum): it is not read');
     }
 }

@@ -21,7 +21,7 @@
   <tbody>
 <?php foreach ($rows as $r): ?>
     <tr>
-      <th scope="row"><?php if ($r['sku_id'] !== null): ?><a href="<?= $u('/ui/items/' . $r['sku_id']) ?>" title="<?= $word('PROFIT', 'item_link') ?>"><?= $e($r['name']) ?></a> <span class="muted"><?= $e((string) $r['code']) ?></span><?php else: ?><?= $say('PROFIT', 'variant', (string) $r['variant']) ?><?php endif; ?></th>
+      <th scope="row"><?php if ($r['sku_id'] !== null): ?><a href="<?= $u('/ui/items/' . $r['sku_id']) ?>" title="<?= $word('PROFIT', 'item_link') ?>"><?= $e($r['name']) ?></a> <span class="muted"><?= $e((string) $r['code']) ?></span><?php else: ?><?= $say('PROFIT', 'store_variant', (string) $r['store'], (string) $r['variant']) ?><?php endif; ?></th>
       <td class="num" data-label="<?= $word('PROFIT', 'units') ?>"><?= $n($r['units']) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'sale_of_these') ?>"><?= $money($r['sale'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'lines') ?>"><?= $n($r['lines']) ?></td>

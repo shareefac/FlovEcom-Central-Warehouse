@@ -21,7 +21,7 @@ final class CostEngineTest extends ArrivalsTestCase
     private function engine(): CostEngine
     {
         // Three minutes ahead: what was just booked is past the job's lag, and the mark stays behind what the test books next.
-        return new CostEngine(self::$db, static fn (): \DateTimeImmutable => Clock::now()->modify('+180 seconds'));
+        return new CostEngine(self::$db, static fn (): \DateTimeImmutable => Clock::now()->modify('+' . (CostEngine::LAG_SECONDS + 60) . ' seconds'));
     }
 
     private static function cost(int $sku): ?int

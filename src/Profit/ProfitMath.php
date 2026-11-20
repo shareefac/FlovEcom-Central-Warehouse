@@ -134,6 +134,58 @@ final class ProfitMath
         return self::divRound($value, $left);
     }
 
+    /**
+     * A relative move: $units of the $onHand units on hand change by $deltaE4 each (an invoice's landed price less the price they came in
+     * at, a credit, the undoing of either). Nothing on hand, no units or no change: unchanged. An unknown price stays unknown (a credit on a
+     * price nobody knows is still not a price: the Codex review of 92efa82, a4). Never below 0.
+     */
+    public static function shift(?int $costE4, int $onHand, int $units, int $deltaE4): ?int
+    {
+        if ($costE4 === null || $onHand <= 0 || $units <= 0 || $deltaE4 === 0) {
+            return $costE4;
+        }
+        return max(0, self::divRound($costE4 * $onHand + $deltaE4 * min($units, $onHand), $onHand));
+    }
+
+    /**
+     * One event of an item's price history applied to the price before it: THE rule the cost job applies and a replay folds with (the same
+     * function both ways, so a history read in order gives the price the job wrote).
+     *
+     * @param array{kind: string, units: int, on_hand: ?int, price_e4: ?int, booked_e4: ?int, new_cost_e4?: ?int, deferred?: int|bool} $e
+     */
+    public static function step(?int $costE4, array $e): ?int
+    {
+        $units = (int) $e['units'];
+        $onHand = (int) ($e['on_hand'] ?? 0);
+        $price = $e['price_e4'] === null ? null : (int) $e['price_e4'];
+        $booked = $e['booked_e4'] === null ? null : (int) $e['booked_e4'];
+        return match ((string) $e['kind']) {
+            'start' => array_key_exists('new_cost_e4', $e) && $e['new_cost_e4'] !== null ? (int) $e['new_cost_e4'] : null,
+            'receipt' => $price === null ? $costE4 : self::receive($costE4, $onHand, $units, $price),
+            'receipt_reversal' => $price === null ? $costE4 : self::remove($costE4, $onHand, $units, $price),
+            // An invoice sets an absolute price: on a price nobody knew, its landed price; else the move of its units from booked to landed.
+            'invoice' => $booked === null || $price === null || $units <= 0 || $onHand <= 0 ? $costE4
+                : ($costE4 === null ? $price : self::shift($costE4, $onHand, $units, $price - $booked)),
+            'credit_note' => ((int) ($e['deferred'] ?? 0)) === 1 || $booked === null ? $costE4 : self::shift($costE4, $onHand, $units, (int) $price - $booked),
+            'invoice_reversal', 'credit_note_reversal' => $booked === null || $price === null ? $costE4 : self::shift($costE4, $onHand, $units, $price - $booked),
+            default => $costE4, // replay: not a source
+        };
+    }
+
+    /**
+     * An item's history folded in its sources' order (start first): the price it should have.
+     *
+     * @param list<array<string, mixed>> $events ordered by source_at, id
+     */
+    public static function fold(array $events): ?int
+    {
+        $cost = null;
+        foreach ($events as $e) {
+            $cost = self::step($cost, $e);
+        }
+        return $cost;
+    }
+
     /** How many units a correction reaches: the units billed that are still on hand. */
     public static function reach(int $units, int $onHand): int
     {

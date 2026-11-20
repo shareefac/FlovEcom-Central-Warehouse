@@ -66,6 +66,7 @@ final class ProfitController
             default => null,
         }], $result['rows']);
         return $ctx->page('profit_breakdown', ['rows' => $rows, 'more' => $result['more'], 'by' => $by, 'bys' => ProfitViews::BY, 'sort' => $sort,
+            'orderRefunds' => $by === 'shop' ? 0 : $views->orderRefunds($from, $to, $store),
             'sorts' => ProfitViews::SORTS, 'sortLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/by', $query + ['sort' => $s]),
                 'current' => $s === $sort], ProfitViews::SORTS),
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store,
@@ -81,14 +82,16 @@ final class ProfitController
         $q = trim((string) ($ctx->req->param('q') ?? ''));
         $q = preg_match('/^[\x21-\x7e]{1,64}$/D', $q) === 1 ? $q : '';
         $low = $ctx->req->param('low') === '1';
-        $r = $views->orders($from, $to, $store, $q, $low, UiRequest::id($ctx->req->param('page')) ?? 1);
+        $after = self::cursor($ctx, $low);
+        $r = $views->orders($from, $to, $store, $q, $low, $after);
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $store, 'q' => $q === '' ? null : $q,
             'low' => $low ? '1' : null];
-        $rows = array_map(static fn (array $o): array => $o + ['href' => Html::url(self::PATH . '/orders/view', ['store' => $o['store_id'], 'ref' => $o['ref']])], $r['rows']);
-        return $ctx->page('profit_orders', ['rows' => $rows, 'total' => $r['total'], 'page_no' => $r['page'], 'pages' => $r['pages'], 'q' => $q, 'low' => $low,
+        $rows = array_map(static fn (array $o): array => $o + ['href' => Html::url(self::PATH . '/orders/view', ['store' => $o['store_id'], 'ref' => $o['ref']]),
+            'gateway_words' => self::gateway($o['gateway'])], $r['rows']);
+        return $ctx->page('profit_orders', ['rows' => $rows, 'total' => $r['total'], 'q' => $q, 'low' => $low,
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store,
-            'prev_link' => $r['page'] > 1 ? Html::url(self::PATH . '/orders', $query + ['page' => $r['page'] - 1]) : null,
-            'next_link' => $r['page'] < $r['pages'] ? Html::url(self::PATH . '/orders', $query + ['page' => $r['page'] + 1]) : null],
+            'first_link' => $after !== null ? Html::url(self::PATH . '/orders', $query) : null,
+            'next_link' => $r['next'] !== null ? Html::url(self::PATH . '/orders', $query + ['ak' => $r['next'][0], 'ac' => $r['next'][1], 'ar' => $r['next'][2]]) : null],
             200, ['title' => Words::MENU['profit_orders']]);
     }
 
@@ -102,6 +105,7 @@ final class ProfitController
         }
         $link = static fn (?string $r): ?string => $r === null ? null : Html::url(self::PATH . '/orders/view', ['store' => $store, 'ref' => $r]);
         return $ctx->page('profit_order', $o + ['parent_href' => $link($o['order']['parent_ref']), 'sub_href' => $link($o['order']['sub_of']),
+            'gateway_words' => self::gateway((string) $o['order']['gateway']),
             'resend_href' => array_map(static fn (array $r): string => (string) $link((string) $r['order_ref']), $o['resends'])],
             200, ['title' => Words::say('PROFIT', 'order_title', (string) ($o['order']['order_no'] !== '' ? $o['order']['order_no'] : $o['order']['order_ref']))]);
     }
@@ -115,6 +119,27 @@ final class ProfitController
         return $ctx->page('profit_no_cost', ['rows' => $views->noCost($from, $to, $store), 'limit' => ProfitViews::ROW_LIMIT, 'period' => $period,
             'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_no_cost']]);
+    }
+
+    /** A payment way in words: the shop's code (CONTRACT change 3) named, an unknown one as it came. */
+    public static function gateway(string $code): string
+    {
+        return $code === '' ? Words::PROFIT['gateway_none'] : (Words::PROFIT['gateway_' . $code] ?? $code);
+    }
+
+    /**
+     * The page cursor of Profit by order (the last row of the page before: ak = its paid time, or its margin with low=1; ac = its store;
+     * ar = its order ref); null when there is none or it is not one.
+     *
+     * @return array{0: string, 1: int, 2: string}|null
+     */
+    private static function cursor(Context $ctx, bool $low): ?array
+    {
+        $k = (string) ($ctx->req->param('ak') ?? '');
+        $c = UiRequest::id($ctx->req->param('ac'));
+        $r = (string) ($ctx->req->param('ar') ?? '');
+        $keyOk = $low ? preg_match('/^-?[0-9]{1,18}$/D', $k) === 1 : preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/D', $k) === 1;
+        return $keyOk && $c !== null && preg_match('/^[\x21-\x7e]{1,64}$/D', $r) === 1 ? [$k, $c, $r] : null;
     }
 
     /** @param list<array{id: int}> $stores */

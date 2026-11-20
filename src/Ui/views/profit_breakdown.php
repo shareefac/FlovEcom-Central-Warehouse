@@ -18,6 +18,9 @@ foreach ($sortLinks as $sl) {
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['nothing'], \CW\Ui\Words::PROFIT['nothing_text']) ?>
 <?php else: ?>
+<?php if ($orderRefunds > 0): ?>
+<p class="note"><?= $say('PROFIT', 'order_refunds_note', \CW\Ui\Html::money($orderRefunds / 100)) ?></p>
+<?php endif; ?>
 <?php if ($more): ?>
 <p class="note"><?= $say('PROFIT', 'top_only', $limit) ?></p>
 <?php endif; ?>
@@ -42,7 +45,7 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['f']['goods'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?></td>
     </tr>
 <?php endforeach; ?>

@@ -41,8 +41,12 @@ final class OrderSnapshots
     private readonly ProfitSettings $settings;
     private readonly ItemCosts $costs;
 
+    /** How long a snapshot waits for another one of the same order (or of its first order) before it answers 503 busy. */
+    public const LOCK_WAIT_SEC = 10;
+
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
-    public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null)
+    public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null,
+        private readonly int $lockWaitSec = self::LOCK_WAIT_SEC)
     {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
         $this->settings = $settings ?? new ProfitSettings($db);
@@ -66,10 +70,14 @@ final class OrderSnapshots
         }
         $hash = SnapshotBody::hash($body);
         $at = Clock::db($now);
-        return $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash, $source, $at): array {
+        return $this->guarded($channelId, $ref, $body['parent_ref'], fn (): array => $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash,
+            $source, $at): array {
             $cur = $db->one('SELECT version, body_hash FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
             if ($cur !== null) {
                 $stored = (int) $cur['version'];
+                if ($body['version'] < $stored) {
+                    return ['result' => 'older_ignored', 'version' => $stored];
+                }
                 if (hash_equals((string) $cur['body_hash'], $hash)) {
                     if ($body['version'] > $stored) {
                         $db->exec("UPDATE order_snapshot SET version = ?, body = JSON_SET(body, '$.version', ?) WHERE channel_id = ? AND order_ref = ?",
@@ -77,9 +85,6 @@ final class OrderSnapshots
                         $db->exec('UPDATE sale_order SET snapshot_version = ? WHERE channel_id = ? AND order_ref = ?', [$body['version'], $channelId, $ref]);
                     }
                     return ['result' => 'same', 'version' => max($stored, $body['version'])];
-                }
-                if ($body['version'] < $stored) {
-                    return ['result' => 'older_ignored', 'version' => $stored];
                 }
             }
             $json = Idempotency::canonicalJson($body);
@@ -92,25 +97,83 @@ final class OrderSnapshots
             }
             $this->apply($db, $channelId, $ref, $body, $at);
             return ['result' => 'stored', 'version' => $body['version']];
-        });
+        }));
     }
 
     /**
-     * apply() again with the stored snapshot, in a transaction of its own (or the caller's). False when the order has none.
-     *
-     * @param array<string, array{e4: ?int, source: string, by: string}> $override line id => the cost to fix on it now
+     * The name of an order's guard (a MySQL named lock, at most 64 characters): every write of an order's figures holds its own and the one
+     * of the order it is (or was) a re-send of, so a re-send and its first order, and two first snapshots of one order, wait for each other
+     * (the Codex review of 92efa82, a8, b8, b9; no row exists to lock before an order's first snapshot).
      */
-    public function recompute(int $channelId, string $ref, array $override = []): bool
+    public static function lockName(int $channelId, string $ref): string
     {
-        return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
+        $name = 'cw_profit:' . $channelId . ':' . $ref;
+        return strlen($name) <= 64 ? $name : 'cw_profit:' . $channelId . ':' . sha1($ref);
+    }
+
+    /**
+     * Runs $fn holding the guards of $ref, of $parent and of the parent the stored order names, taken in name order; 503 busy when one is not
+     * free within lockWaitSec. Released whatever happens.
+     *
+     * @template T
+     * @param \Closure(): T $fn
+     * @return T
+     */
+    private function guarded(int $channelId, string $ref, ?string $parent, \Closure $fn): mixed
+    {
+        $refs = [$ref];
+        foreach ([$parent, $this->db->value('SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref])] as $p) {
+            if ($p !== null && (string) $p !== $ref) {
+                $refs[] = (string) $p;
+            }
+        }
+        $names = array_values(array_unique(array_map(static fn (string $r): string => self::lockName($channelId, $r), $refs)));
+        sort($names, SORT_STRING);
+        $held = [];
+        try {
+            foreach ($names as $n) {
+                if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$n, $this->lockWaitSec]) !== 1) {
+                    throw new CwException('busy', 'another snapshot of this order (or of the order it is a re-send of) is being stored; retry shortly', 503);
+                }
+                $held[] = $n;
+            }
+            return $fn();
+        } finally {
+            foreach (array_reverse($held) as $n) {
+                try {
+                    $this->db->value('SELECT RELEASE_LOCK(?)', [$n]);
+                } catch (\Throwable) {
+                    // the connection is gone: MySQL released it with the session
+                }
+            }
+        }
+    }
+
+    /**
+     * apply() again with the stored snapshot, in a transaction of its own (or the caller's), holding the order's guards. False when the order
+     * has none, or when $override is a function that returns null (nothing to do).
+     *
+     * @param array<string, array{e4: ?int, source: string, by: string}>|\Closure(Db, array<string, mixed>): ?array<string, array<string, mixed>> $override
+     *        line id => the cost to fix on it now; or a function that works it out under the locks from the stored body
+     */
+    public function recompute(int $channelId, string $ref, array|\Closure $override = []): bool
+    {
+        $parent = $this->db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(body, '$.parent_ref')) FROM order_snapshot WHERE channel_id = ? AND order_ref = ?", [$channelId, $ref]);
+        $parent = $parent === null || $parent === 'null' ? null : (string) $parent;
+        return $this->guarded($channelId, $ref, $parent, fn (): bool => $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
             $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
             if ($json === null) {
                 return false;
             }
             $body = json_decode((string) $json, true, 64, JSON_THROW_ON_ERROR);
-            $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $override);
+            // A batch tool works its costs out here, under the order's locks, from what is stored now (the Codex review of 92efa82, a11/b11).
+            $o = $override instanceof \Closure ? $override($db, $body) : $override;
+            if ($o === null) {
+                return false;
+            }
+            $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o);
             return true;
-        });
+        }));
     }
 
     /**
@@ -122,6 +185,11 @@ final class OrderSnapshots
      */
     public function apply(Db $db, int $channelId, string $ref, array $body, string $now, array $override = []): void
     {
+        // The day guards first (ProfitDays::guard: before any row of the order, the lock order a rebuild keeps too): the day the order counted
+        // on (only this order's writer, holding its guard, changes it) and the day it counts on now.
+        $oldDay = $db->value('SELECT day FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+        $newDay = $body['paid_at'] === null ? null : ReportRefresh::ukDay((string) $body['paid_at']);
+        ProfitDays::guard($db, $channelId, array_values(array_filter([$oldDay === null ? null : (string) $oldDay, $newDay], static fn (?string $d): bool => $d !== null)));
         $old = $db->one('SELECT * FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
         $oldLines = [];
         foreach ($db->all('SELECT * FROM sale_line WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]) as $r) {
@@ -143,8 +211,13 @@ final class OrderSnapshots
         // The CW item of each line: the unit's own at the sale, else the listing's link now (an item fixed with its cost stays).
         $units = [];
         foreach (array_chunk($ids, 500) as $chunk) {
-            foreach ($db->all('SELECT unit_id, listing_id, sku_id, units_per_item, state FROM reservation_unit WHERE channel_id = ? AND unit_id IN (' . self::marks($chunk) . ')',
-                [$channelId, ...$chunk]) as $r) {
+            foreach ($db->all('SELECT u.unit_id, u.listing_id, u.sku_id, u.units_per_item, u.state, r.order_ref FROM reservation_unit u JOIN reservation r ON r.id = u.reservation_id '
+                . 'WHERE u.channel_id = ? AND u.unit_id IN (' . self::marks($chunk) . ')', [$channelId, ...$chunk]) as $r) {
+                if ((string) $r['order_ref'] !== $ref) {
+                    // The unit id is a unit of another order of the store in CW (the Codex review of 92efa82, b6): refused whole.
+                    $i = (int) array_search((string) $r['unit_id'], $ids, true);
+                    throw new CwException('bad_snapshot', "line {$r['unit_id']} is a unit of another order", 400, ['field' => "lines[{$i}].line_id"]);
+                }
                 $units[(string) $r['unit_id']] = $r;
             }
         }
@@ -212,10 +285,13 @@ final class OrderSnapshots
                 $costAt = (string) $prev['cost_at'];
             } elseif ($paid !== null) {
                 $c = $x['sku'] === null ? ['e4' => null, 'source' => 'none'] : ($costs[$x['sku']] ?? ['e4' => null, 'source' => 'none']);
-                $e4 = $c['e4'];
-                $source = $c['e4'] === null ? 'none' : $c['source'];
-                $by = 'sale';
-                $costAt = $now;
+                if ($c['source'] !== ItemCosts::PENDING) {
+                    // Fixed now. Pending (the cost job has not reached the paid time): left open for PendingCosts.
+                    $e4 = $c['e4'];
+                    $source = $c['e4'] === null ? 'none' : $c['source'];
+                    $by = 'sale';
+                    $costAt = $now;
+                }
             }
             if ($source === 'none') {
                 $e4 = null;
@@ -253,7 +329,17 @@ final class OrderSnapshots
 
         self::upsert($db, 'sale_order', [$order], ['channel_id', 'order_ref', 'first_at']);
         foreach (array_chunk(array_values($newLines), 200) as $chunk) {
-            self::upsert($db, 'sale_line', array_map(static fn (array $r): array => self::lineRow($r), $chunk), ['channel_id', 'line_id']);
+            self::upsert($db, 'sale_line', array_map(static fn (array $r): array => self::lineRow($r), $chunk), ['channel_id', 'line_id', 'order_ref']);
+        }
+        // A line id another order of the store stored at the same moment (its row was new to both checks above): never taken over (the
+        // Codex review of 92efa82, b7): the upsert kept its order, and the whole snapshot is refused (rolled back).
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $other = $db->value('SELECT line_id FROM sale_line WHERE channel_id = ? AND line_id IN (' . self::marks($chunk) . ') AND order_ref <> ? LIMIT 1',
+                [$channelId, ...$chunk, $ref]);
+            if ($other !== null) {
+                $i = (int) array_search((string) $other, $ids, true);
+                throw new CwException('bad_snapshot', "line {$other} belongs to another order", 400, ['field' => "lines[{$i}].line_id"]);
+            }
         }
         $this->parcels($db, $channelId, $ref, $body['parcels'], $now);
         // The re-send figures of the order(s) this one is (or was) a re-send of.

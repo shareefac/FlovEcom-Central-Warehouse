@@ -14,6 +14,10 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
     aside: $explain('profit_cost', \CW\Ui\Words::PROFIT['cost_from']), back: ['/ui/profit/orders', \CW\Ui\Words::PROFIT['back']]) ?>
 <?php if ($o['paid_at'] === null): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'unpaid') ?></p>
+<?php elseif ((int) $o['units_no_cost'] > 0): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'incomplete_note') ?></p>
+<?php elseif (array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null) !== []): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
 <?php endif; ?>
 <div class="table-wrap">
 <table class="stack rp-table profit-order-money">
@@ -22,7 +26,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
     <tr><th scope="row"><?= $word('PROFIT', 'status') ?></th><td><?= $e($o['status']) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'placed') ?></th><td><?= $when($o['placed_at']) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'paid') ?></th><td><?= $when($o['paid_at']) ?></td></tr>
-    <tr><th scope="row"><?= $word('PROFIT', 'gateway') ?></th><td><?= $e($o['gateway']) ?></td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'gateway') ?></th><td><?= $e($gateway_words) ?></td></tr>
 <?php if ($parent_href !== null): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'resends') ?></th><td><a href="<?= $e($parent_href) ?>"><?= $say('PROFIT', 'resend_of', (string) $o['parent_ref']) ?></a></td></tr>
 <?php endif; ?>

@@ -20,6 +20,7 @@
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['no_orders'], \CW\Ui\Words::PROFIT['no_orders_text']) ?>
 <?php else: ?>
+<p class="muted"><?= $say('PROFIT', 'orders_found', $total) ?><?php if ($low): ?> <?= $word('PROFIT', 'no_margin') ?><?php endif; ?></p>
 <div class="table-wrap">
 <table class="stack rp-table profit-orders">
   <thead>
@@ -45,12 +46,14 @@
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['sale'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['profit'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['margin_bp'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['margin_bp'])) ?><?php if ($r['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['delivery'] / 100) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
 </div>
-<p class="pager"><?= $say('PROFIT', 'page', $page_no, $pages) ?><?php if ($prev_link !== null): ?> <a href="<?= $e($prev_link) ?>"><?= $word('PROFIT', 'newer') ?></a><?php endif; ?><?php if ($next_link !== null): ?> <a href="<?= $e($next_link) ?>"><?= $word('PROFIT', 'older') ?></a><?php endif; ?></p>
+<?php if ($first_link !== null || $next_link !== null): ?>
+<p class="pager"><?php if ($first_link !== null): ?><a href="<?= $e($first_link) ?>"><?= $word('PROFIT', 'first_page') ?></a><?php endif; ?><?php if ($next_link !== null): ?> <a href="<?= $e($next_link) ?>"><?= $word('PROFIT', 'next_page') ?></a><?php endif; ?></p>
+<?php endif; ?>
 <?php endif; ?>

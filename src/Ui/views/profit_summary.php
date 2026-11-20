@@ -6,6 +6,9 @@
 <?= $head(\CW\Ui\Words::MENU['profit_summary'], intro: 'profit_summary', aside: $explain('profit', \CW\Ui\Words::PROFIT['profit'])) ?>
 <?= $partial('profit_options', ['period' => null, 'periods' => [], 'from' => '', 'to' => '', 'stores' => $stores, 'storeId' => $storeId]) ?>
 <p class="muted"><?= $say('PROFIT', 'today_is', \CW\Ui\Html::day($today)) ?></p>
+<?php if (array_sum(array_map(static fn (array $r): int => (int) $r['f']['pending'], $rows)) > 0): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
+<?php endif; ?>
 <div class="table-wrap">
 <table class="stack rp-table profit-summary">
   <thead>
@@ -28,7 +31,7 @@
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['f']['goods'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['f']['delivery'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost') ?>"><?php if ($r['f']['no_cost'] > 0): ?><a href="<?= $e($r['no_cost_href']) ?>"><?= $n($r['f']['no_cost']) ?></a><?php else: ?><?= $n(0) ?><?php endif; ?></td>
     </tr>

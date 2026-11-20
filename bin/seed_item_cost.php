@@ -5,7 +5,8 @@ declare(strict_types=1);
 /**
  * The start of the buying prices (profit step 1; docs/decisions.md PR12-PR14; CW\Profit\CostEngine): each CW item's price on the day CW's
  * own price starts (ERPNext's Bin valuation, else CW's average so far, else the supplier's last price, else none), then the replay of
- * every delivery, invoice and credit note since then. Once: refused when items have a price already.
+ * every delivery, invoice and credit note since then, then the cost of every stored sale that waited for it. Once: refused when the start
+ * is done (the cost job has its mark); a start stopped half way is run again the same way and goes on with the items not written yet.
  *
  *   php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--apply]
  *
@@ -19,6 +20,7 @@ declare(strict_types=1);
 
 use CW\Ops\Cli;
 use CW\Profit\CostEngine;
+use CW\Profit\PendingCosts;
 use CW\Profit\ProfitSettings;
 use CW\Reports\ReportRefresh;
 
@@ -59,5 +61,9 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'apply'],
             $r = $engine->run();
             $cli->log('replay ' . json_encode($r, JSON_UNESCAPED_SLASHES));
         } while (($r['events'] ?? 0) >= CostEngine::MAX_EVENTS);
+        do {
+            $p = (new PendingCosts($cli->db))->run();
+            $cli->log('sales costed that waited for the start: ' . $p['orders'] . ' orders');
+        } while ($p['orders'] >= PendingCosts::MAX_ORDERS);
         return Cli::OK;
     }, true, true));

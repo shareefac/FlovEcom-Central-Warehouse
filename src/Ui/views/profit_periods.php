@@ -6,6 +6,9 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
 <?= $head(\CW\Ui\Words::MENU['profit_periods'], intro: 'profit_periods', aside: $explain('profit', \CW\Ui\Words::PROFIT['profit'])) ?>
 <?= $partial('profit_options', ['period' => $period, 'periods' => $periods, 'from' => $from, 'to' => $to, 'stores' => $stores, 'storeId' => $storeId, 'warn' => $warn,
     'extra' => ['by' => [\CW\Ui\Words::PROFIT['by'], $groupWords, $by]]]) ?>
+<?php if ($total['pending'] > 0): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
+<?php endif; ?>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['nothing'], \CW\Ui\Words::PROFIT['nothing_text']) ?>
 <?php else: ?>
@@ -33,7 +36,7 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['f']['goods'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['f']['delivery'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?></td>
     </tr>
@@ -45,7 +48,7 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($total['goods'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($total['cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($total['profit'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($total['margin_bp'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($total['margin_bp'])) ?><?php if ($total['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($total['delivery'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($total['no_cost']) ?></td>
     </tr>

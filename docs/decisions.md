@@ -18474,3 +18474,209 @@ after it) 4 OK alone. The script: `run_save.js` 118, `run_live.js` 122, `run_kg.
 `run_aj.js` keeps its one failure that main has too (`presence2_20261119/js_harness/README.txt`). Not walked through in two browsers on
 staging yet (the plan's written script of step 4: different lines for two minutes, the same line at once, remove against change, the same
 product, confirm while the other types, cancel, the network off for 20 s, a phone and a laptop).
+
+## Profit on every order, step 1: the money and the buying cost (branch `profit`, 19-20 Nov 2026; PR1-PR30; migration 0074)
+
+The owner, 19 Nov 2026: "on each order, I just want to know how much is the percentage of profit actually that we are getting ... you know
+how much we bought each for, and the rest have an average valuation ... We can copy ERP, that's okay. I don't want everything to be
+copied", and "Yes" to build steps 1 and 2 on test CW. Built from /root/cw_work/profit_20261119/build/BRIEF_A_cw_step1.md and the agreed
+contract build/CONTRACT.md (with its Changes 1-7, agreed by the lead on 20 Nov). Nothing goes to production without his separate go.
+
+**PR1.** ONE snapshot per order (CONTRACT.md): the shop sends, per order, its money and its parcels as a whole picture; the latest replaces
+the earlier one. `PUT /v1/orders/{ref}/snapshot`, the store's key, accepted in every store mode (it moves no stock, like `PUT /v1/listings`).
+Answers: `stored`, `same` (the same content, whatever its version: the version is not content, so a newer version is only remembered),
+`older_ignored` (an older version with other content); an equal version with other content is stored (last one wins: the shop's version is
+the time of its read, two reads in the same millisecond are the only way). 400 `bad_snapshot` with `field`; 413 above 256 KB; 415 not JSON.
+
+**PR2.** Only the contract's fields are kept (CW\Profit\SnapshotBody::parse returns the normalised body; `order_snapshot.body` is that, never
+the raw request). An unknown field is ignored AND never stored, so no personal data can ride in on a field CW does not know. Ids are kept as
+strings, times as UTC, money as integer pence inc VAT. `sub_of` (an office sub order, CONTRACT change 2) is kept and shown as a link; it is
+its own sale. A line id that belongs to another order of the store is refused whole (400, its field).
+
+**PR3.** One service (CW\Profit\OrderSnapshots) for the API, the bulk files (bin/import_order_snapshots.php: the connector's day files,
+`.sum` checked, a wrong store's file refused, a refused line reported and the rest go on), the ERPNext import and the re-cost. One
+transaction per order. A backfill and the live feed can never disagree (ProfitImportsTest compares them row for row).
+
+**PR4.** ex VAT = inc / (1 + rate), rounded half away from zero; the rate is the setting `profit.vat_rate_pct` (20) and is kept on each order
+when it is first stored (`sale_order.vat_bp`), so a later change of the setting does not move old orders. Delivery the same.
+
+**PR5.** A line's sale = price - discount - refund. Coupons and points are a price cut (in the discount). A discount may be below 0 (CONTRACT
+change 1: a coupon's rounding pennies), never below minus the line's price nor below -GBP 100 (refused otherwise).
+
+**PR6.** A cancelled line counts nothing (no units, no sale, no cost). A free line counts its units and its cost, sale 0.
+
+**PR7.** A refund kept on the order and not on a line (`order_refund_inc`) comes off the order's goods sold; the lists by product, brand and
+supplier do not take it off (it is on no product), the day and the order do.
+
+**PR8.** A re-send (`parent_ref`, CONTRACT change 2: the shop's ord_is_cloned) keeps its own row; its cost belongs to the first order: the
+parent shows its re-sends and their cost, and its margin is worked out with them (`sale_order.resend_cost`, `margin_bp`), whichever of the two
+CW stores first. In the day summaries the re-send's cost is on the day it was paid (the day the goods went: a closed month never moves), and
+it is not counted as an order (`resends` instead).
+
+**PR9.** A unit that came back to stock in CW (its reservation unit is `returned`) has no cost, and no sale when it was refunded. The return
+may reach CW after the snapshot, and the shop need not send again: CW\Profit\ReturnsSweep (with the cost job) finds the returns booked since
+its mark and works those orders out again from the stored snapshot.
+
+**PR10.** An order counts when it has a paid time, on the UK day of it (`sale_order.day`); an unpaid one counts nothing (its lines are kept,
+no cost fixed). The shop sends it once it is paid and then on every change (CONTRACT change 6). An "order" in the figures is a paid order
+with at least one unit that counts and no parent.
+
+**PR11.** Margin = profit / goods sold ex VAT (none when nothing was sold). Delivery charged ex VAT is income shown on its own line; what
+delivery costs comes in step 2. Parcels (`sale_parcel`) are kept for step 2: a parcel missing from a newer snapshot gets `removed_at`, never
+deleted; "orl:" parcels are the shop's Royal Mail return labels of that order (CONTRACT change 4).
+
+**PR12.** The buying price of each CW item is its own table (`item_cost`, every move in `item_cost_event`), a moving average that follows
+the invoices ("invoice price wins", the owner, 15 Oct). Nothing of report_item, the stock ledger, CostHints or any stock screen changes. It
+starts at `profit.cost_start` (16 Nov 2026, midnight UK: the day purchases moved to CW and ERPNext's valuation froze) from ERPNext's own
+valuation (Bin.valuation_rate; item_code "P" + the Vape and Go variant, the CW item through that store's match, a pack's rate divided by its
+units; several warehouses weighted by their quantity, by their plain average when none holds stock); the rates erp_opening.placeholder_costs
+names (0 and 1) are placeholders, as for the opening (PI5). Else CW's average so far (report_item), else the supplier's last price (the
+newest ERPNext purchase invoice copy line, else the supplier item's price, else its last order price), else none.
+
+**PR13.** Then, in time order: a goods receipt's goods_in rows move the average with their own unit price ex VAT (pack price / units);
+units on hand = every warehouse of ours as the ledger stood just before (below zero: the receipt's price). A receipt of a final invoice's goods
+that were on their way ("count on arrival", pack J) comes in at that invoice's landed price. A receipt taken back takes its units out at the
+price they came in at (the average unchanged when nothing, or less than nothing, would be left).
+
+**PR14.** A supplier invoice made final: each goods line's landed price = its amount plus its share of the invoice's carriage, duty, service
+and other lines spread over its goods lines BY VALUE (the brief; `invoices.duty_spread` stays the value engine's setting), per unit. For the
+units it bills that are still on hand it replaces the price they came in at (the receipt's, or an earlier invoice's for that delivery line).
+A credit note that answers our return (it has a debit note) moves nothing (those units left at the average); any other credit note lowers the
+units still on hand by what it credits. A reversal of either undoes its moves on the units still on hand. A copy of an ERPNext purchase
+invoice never moves it (its stock came through the relay; the start holds ERPNext's valuation). Every other movement (sales, counts,
+adjustments, the 130,206 units ERPNext relayed without a cost, returns) comes in or goes out at the price of the moment, which leaves the
+average where it is.
+
+**PR15.** bin/refresh_item_cost.php every 10 minutes (setting `profit.cost_refresh_on`): reads deliveries (the ledger) and invoices (posted
+documents) from its mark less 10 minutes, up to 2 minutes ago, in time order; each event its own small transaction, written once
+(`source_key` UNIQUE): restartable, and a booking committed late is still found. Never inside a booking's transaction. An event's time is
+never before the item's previous event (moved up to it), so the price at a moment reads one history.
+
+**PR16.** The cost of a sale line is fixed ONCE: the first time the line is stored on a paid order, the item's price at the paid time
+(ItemCosts::at), with `cost_source` (erp_at_sale, cw_cost, estimate, none), `costed_by` (sale) and `cost_at`. Later snapshots keep it, and
+the line's CW item is fixed with it (the unit's own item at the sale from reservation_unit, else the listing's link then). Only two
+deliberate commands change a fixed cost: the ERPNext history import (costed_by erp_import) and bin/recost_sales.php (costed_by recost; a
+line with no item takes its listing's link now). `cost_source` keeps the brief's four values; who changed it is `costed_by`.
+
+**PR17.** Grants: item_cost_event APPEND_ONLY; order_snapshot, sale_order, sale_line, sale_parcel, item_cost and profit_job NO_DELETE;
+profit_day and profit_item_day FULL (a batch rebuilds a day).
+
+**PR18.** ERPNext's history (bin/import_erp_sales_cost.php, files si_<day>.tsv or .tsv.gz of the read-only export, read line by line, one
+day in memory): for an invoice of an order CW holds (custom_order_id = the order ref), paid before `profit.cost_start`, each line of a
+variant gets ERPNext's incoming_rate (several rows of one variant weighted by quantity; per CW unit: / the line's units per item), source
+erp_at_sale. A rate of 0 is not taken. Run again: the same costs. Orders paid on or after the cost start keep CW's price (ERPNext's cost is
+frozen since 16 Nov).
+
+**PR19.** One reconciliation line per day: ERPNext's orders, goods net and cost at sale, CW's orders and goods sold ex VAT for the same orders,
+the lines costed, ERPNext lines with no CW line, orders not in CW, orders paid after the cost start, unpaid in CW, returns (count and net:
+reported, not applied), invoices with no order id, variants whose rate is 0.
+
+**PR20.** `profit.erp_history_from` (15 Dec 2025): the first day ERPNext holds a cost at each sale. A sale between it and the cost start that
+the import has not reached yet carries the item's starting price as an `estimate`.
+
+**PR21.** Before ERPNext's history: `profit.before_history` = estimate (today's price, marked estimate; the default) or none (the owner's one
+switch). Read when the line's cost is fixed.
+
+**PR22.** The day summaries (`profit_day` per store and UK day, `profit_item_day` per store, day and item; sku 0 = no CW item) are kept by the
+same transaction that stores a snapshot, by the difference between what the order counted before and now (row increments in key order: no
+lost update, no deadlock cycle), and rebuilt from sale_order and sale_line by bin/rebuild_profit_days.php with the SAME definition
+(ProfitDays::orderShare); the tests check they agree after every kind of change.
+
+**PR23.** The new job `finance` (0074: at the end of the staff_role ENUM, number 16) holds the new permission `profit.view`, and the two
+every job has (catalogue.view, reference.view: LOCKED, so the code gives them whatever 0034's rows say). Nobody holds it by default and it is
+not in the "all" list of the staff log-in tool: the owner says who (bin/grant_role.php or Settings > Users). The Profit section (Reports'
+chart icon, green) is shown only to it.
+
+**PR24.** Profit summary: today, yesterday, the last 7 and 30 days, this month and last month (UK days), all shops or one: orders, goods
+sold, buying cost, profit, margin, delivery charged, and the units with no buying price (a link to that list for the period).
+
+**PR25.** Profit by day: the reports' periods (or From / To, at most `reports.sales_max_days`), day by day, week by week (from Monday) or month
+by month, newest first, with the total.
+
+**PR26.** Profit by product: by shop, product, brand or main supplier (the item's preferred supplier item), the biggest first by profit,
+goods sold, cost, units, or margin (highest or lowest first); at most 300 rows. From profit_item_day.
+
+**PR27.** Profit by order: the paid orders of the period and shop, newest first or the lowest margin first (`sale_order.margin_bp`, index
+(day, margin_bp)); or the orders with the number typed, any day (the shop's order id per store on the key, or the reference the customer
+sees). Each order's page: its money, every line (sale ex VAT, the cost of one unit and where it came from, cost, profit, margin; cancelled,
+free, back in stock, no longer on the order), its parcels, its re-sends, the order it is a re-send or a sub order of.
+
+**PR28.** No buying price: the products sold in the period whose units have no price (cost_source none, counting, not back in stock), their
+units and what those units sold for, from sale_line by (day, cost_source); a link to the product's page; a website product with no CW item by
+its number.
+
+**PR29.** Not built here: delivery cost and carrier invoices (step 2, on top of this branch: the parcels are stored), card fees and other
+expenses, the connector (builder B), anything sent to a shop, any change to stock, reservations, documents or an existing screen's numbers.
+
+**PR30.** Go-live order on live (README of build/A): migrate 0074; bin/seed_item_cost.php --bin (dry run, then --apply: the start and the
+replay since 16 Nov); the connector's bulk days through bin/import_order_snapshots.php; bin/import_erp_sales_cost.php (dry run, then
+--apply); bin/recost_sales.php for what is left without a price; bin/rebuild_profit_days.php as a check; then the cron lines. Undo: the
+release before is 286055a; 0074 only adds (its tables can stay, empty or not).
+
+### The Codex review of 92efa82 (three focused runs at once, `build/A/codex_r1_{a,b,c}.txt`): 4 HIGH and 30 MEDIUM, each checked in the code, shown failing first (`runs/profit_r1fix_red1.log`, `red2.log`) and fixed (PR31-PR45)
+
+**PR31.** (a1/b1, HIGH) A sale's cost is fixed only once the cost job has read up to its paid time (`ItemCosts::reached`, the job's mark):
+before that the line stays open (`cost_source` NULL with a day: "waiting for its cost"), and `CW\Profit\PendingCosts` (run by
+bin/refresh_item_cost.php after each cost run, and by the start) fixes it at the price of the paid time. A delivery booked a minute before a
+sale is in that sale's cost. Before the start was ever written every paid line waits. The screens say when units wait (at most ~10 minutes).
+
+**PR32.** (a2, HIGH) An invoice line on a delivery line moves its own units from the price THEY came in at (the receipt's), never from an
+earlier invoice's price of other units of the same delivery line: two invoices of 50 units each of one 100-unit line each move their own 50.
+
+**PR33.** (a3, HIGH) An invoice or credit event records the units it really reached (on hand then, 0 when none); its reversal undoes what it
+really moved a unit (its value change over those units), on the units still on hand: an invoice that moved nothing is undone by nothing.
+
+**PR34.** (a4) A relative move (a credit, a reversal) on an item whose price nobody knows leaves it unknown (`ProfitMath::shift`); only an
+invoice's landed price (an absolute price) gives an unknown item a price.
+
+**PR35.** (a5) A price credit of an invoice whose goods are still on their way (no delivery named, none received from it yet) moves nothing
+then (`deferred`); the receipt of those goods comes in at the invoice's landed price less that credit (unless the credit was cancelled
+before); a cancellation after the receipt undoes it on the units still on hand.
+
+**PR36.** (a6) Every event keeps its source's own time (`source_at`); an event older than the item's last one (a booking committed late)
+triggers a replay: the item's history folded again in source order with the same rule (`ProfitMath::step`, `fold`), and a `replay` event when
+that gives another price. (b2) The job reads back an hour (OVERLAP_SECONDS 3600) and leaves the last 5 minutes (LAG_SECONDS 300).
+
+**PR37.** (b3) The job never reads before the start (`profit_job.floor_at`): a delivery before the start is inside ERPNext's valuation.
+(b4) A start stopped half way is run again the same way and goes on with the items not written yet; it is refused only once the job has
+its mark. (b5) An item made after the start gets its starting price on the next run (CW's average, else the supplier's price, else none),
+from when it was made.
+
+**PR38.** (a13) A receipt made from a final invoice finds that invoice from what never changes (goods_receipt_invoice, both documents'
+lines of the item in line order), not from the arrival row a later reversal of the receipt opens again; only an invoice final before the
+receipt counts. The start resolves ERPNext's item codes exactly as the opening import (ErpItemResolver: CW's ERPNext link first, else the
+variant through the store's match; RB10).
+
+**PR39.** (a7/b10/c1, HIGH in c) Every write of an order's figures first locks its day's summary row (ProfitDays::guard: the day it counted
+on and the day it counts on, before any row of the order), and a rebuild locks it before it reads the day: a rebuild never drops a snapshot
+committed meanwhile. (a8/b8/b9) Every write of an order holds a named lock of the order (OrderSnapshots::lockName) and of the order it is (or
+was) a re-send of, in name order, 10 s at most (else 503 busy, retried by the store): a re-send and its first order, and two first snapshots
+of one order, never interleave.
+
+**PR40.** (b6) A line id that is a unit of another order's reservation in CW is refused (400, its field). (b7) A line id another order stored
+at the same moment is never taken over: the upsert never changes a line's order, and the snapshot is refused whole when a line is another
+order's. (b20) An older version is `older_ignored` whatever its content. (b12) A tracking number is kept only when it is one (CONTRACT
+change 5: A-Z a-z 0-9, space . / # _ -, at least 4 digits; CW adds: a digit in every word); anything else is kept as null. (a12, b18) The
+margin, units and units-without-price columns are BIGINT.
+
+**PR41.** (a9/b17) ERPNext's rows of one order are taken together over every day file it is on (two passes; an order is applied on its last
+day). (a10) A variant with a row at a rate of 0 keeps what it had. (b16) A day file with a row that is not whole, or a number that is not
+one, is refused whole and named; nothing of it is applied. (b19) The folder is read as it is named (scandir, never a glob pattern).
+
+**PR42.** (a11/b11) The re-cost and the ERPNext import work their costs out under the order's locks from what is stored then (a line an
+import fixed meanwhile is no longer of the re-cost's sources; an order no longer paid before the cost start is left).
+
+**PR43.** (b13/b14/b15) A bulk file proves its store before anything is written: its name is snapshots_<store>_<day>.jsonl and names the
+store asked for; its .sum is there, whole, of the same store and day; the file is read twice (checked, then stored); a .sum that does not
+match (its sha256; its totals when every line could be read) writes nothing. A line longer than the cap is one refused line, drained to
+its end.
+
+**PR44.** (c2) Profit by order pages by a cursor (the last row's paid time or margin, store and order ref) on ix_sale_order_paid /
+ix_sale_order_store_paid / ix_sale_order_margin: a page reads its own rows. The lowest margin first leaves out orders with no sale.
+(c3) The No buying price list reads ix_sale_line_cost (cost_source, day). (c4) Shops are ranked by the figures their rows show (the
+order-level refunds taken off). (c5) A website product with no CW item is its own store's row. (c6) A figure with units with no price, or
+units waiting for their cost, says "incomplete" (and why); the order's page says it too. (c7) The lists by product, brand and supplier say
+how much order-level refund they leave out. (c8) The payment way in words.
+
+**PR45.** Not changed: the lists by product, brand and supplier over a long period still add up every item-day row of it (about a million
+rows a year): a year's list takes a second or two; a month-level summary can come later if it is slow on live.
