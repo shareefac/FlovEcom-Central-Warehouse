@@ -15,12 +15,13 @@
 --  * profit_day / profit_item_day: the day summaries the Profit screens read (per store and UK day; per item too), kept by the same
 --    transaction that stores a snapshot, and rebuilt from sale_line by the batch tools.
 --  * profit_job: where the cost job (bin/refresh_item_cost.php) has read up to.
---  * staff_role.role gets `finance` at the END of its list (the stored number of every grant stays what it was); the code gives it the new
---    permission profit.view; nobody holds it until the owner says who (bin/grant_role.php or Settings > Users).
+--  * staff_role.role gets `finance` at the END of its list (the stored number of every grant stays what it was); the new permission
+--    profit.view is a row of the stored map (role_permission) held by it, with its baseline; nobody holds the job until the owner says who
+--    (bin/grant_role.php or Settings > Users).
 --  * Five settings (provisional, the owner may change them), each with its version 1 in config_change.
 --
--- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty tables: nothing is copied or locked), the setting rows ON DUPLICATE KEY, their
--- baselines only when missing, and ONE ALTER of staff_role (tiny: a few dozen rows; ALGORITHM = COPY, LOCK = SHARED, as 0069). Every
+-- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty tables: nothing is copied or locked), the setting rows and the permission's row
+-- ON DUPLICATE KEY, their baselines only when missing, and ONE ALTER of staff_role (tiny: a few dozen rows; ALGORITHM = COPY, LOCK = SHARED, as 0069). Every
 -- statement can run again and changes nothing the second time, so a run stopped half way runs again cleanly.
 
 CREATE TABLE IF NOT EXISTS order_snapshot (
@@ -254,6 +255,18 @@ INSERT INTO config_change (subject_type, subject_key, version, action, state, ac
   FROM app_setting s WHERE s.setting_key IN ('profit.vat_rate_pct', 'profit.cost_start', 'profit.erp_history_from', 'profit.before_history',
     'profit.cost_refresh_on')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);
+
+-- The new permission in the stored map (pack E, 0034), with its baseline, as 0038 added its own (docs/decisions.md PR64): held by Finance only.
+-- The two LOCKED permissions every job has (catalogue.view, reference.view) keep 0034's rows: the code gives them to Finance whatever a row
+-- says (as 0069 left them for the People manager). Run again: the row as it is then (a holder given on the roles screen stays), no second
+-- baseline.
+INSERT INTO role_permission (permission, roles, updated_actor) VALUES ('profit.view', 'finance', 'system:migrate')
+  ON DUPLICATE KEY UPDATE permission = permission;
+
+INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
+  SELECT 'permission', p.permission, 1, 'baseline', JSON_OBJECT('roles', p.roles), 'system:migrate'
+  FROM role_permission p WHERE p.permission = 'profit.view'
+    AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'permission' AND c.subject_key = p.permission);
 
 ALTER TABLE staff_role MODIFY COLUMN role ENUM('viewer','mapper','mapping_lead','warehouse','manager','admin','buyer','purchasing_manager',
     'goods_in','purchasing_desk','stock_controller','reviewer','accountant','auditor','people_manager','finance') NOT NULL,

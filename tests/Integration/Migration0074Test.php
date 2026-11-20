@@ -36,8 +36,8 @@ final class Migration0074Test extends IntegrationTestCase
         $statements = SqlSplitter::split($sql);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b/i', $sql, 'nothing is deleted, changed or dropped');
         foreach ($statements as $st) {
-            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS|INSERT INTO (app_setting|config_change)|ALTER TABLE staff_role MODIFY COLUMN role)\b/', $st,
-                'only new tables, the settings and the job list');
+            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS|INSERT INTO (app_setting|config_change|role_permission)|ALTER TABLE staff_role MODIFY COLUMN role)\b/', $st,
+                'only new tables, the settings, the new permission\'s row and the job list');
         }
         self::assertSame(['Select', 'Insert'], Grants::desired('item_cost_event'), 'the price history is never rewritten');
         foreach (['order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document'] as $t) {
@@ -56,6 +56,7 @@ final class Migration0074Test extends IntegrationTestCase
         $db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'people_manager'), (?, 'auditor')", [$staff, $staff]);
         $roles = $db->all('SELECT id, role, CAST(role AS UNSIGNED) AS n FROM staff_role ORDER BY id');
         $settings = (int) $db->value('SELECT COUNT(*) FROM app_setting');
+        $perms = $db->all('SELECT permission, roles, updated_actor FROM role_permission ORDER BY permission');
 
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
@@ -72,6 +73,12 @@ final class Migration0074Test extends IntegrationTestCase
             'profit.erp_history_from' => '"2025-12-15"', 'profit.vat_rate_pct' => '"20"'],
             array_column($db->all("SELECT setting_key, CAST(value_json AS CHAR) AS v FROM app_setting WHERE setting_key LIKE 'profit.%' ORDER BY setting_key"), 'v', 'setting_key'));
         self::assertSame(5, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.%' AND version = 1"));
+        // The new permission is a row of the stored map with its baseline, as 0038 added its own (docs/decisions.md PR64): Finance only; every
+        // other row as it was (the LOCKED ones every job has are the code's whatever a row says, as 0069 left them for the People manager).
+        self::assertSame([...$perms, ['permission' => 'profit.view', 'roles' => 'finance', 'updated_actor' => 'system:migrate']],
+            $db->all("SELECT permission, roles, updated_actor FROM role_permission ORDER BY permission = 'profit.view', permission"));
+        self::assertSame([[1, 'baseline', 'system:migrate', '{"roles": "finance"}']], array_map(static fn (array $r): array => [(int) $r['version'], $r['action'], $r['actor'],
+            $r['state']], $db->all("SELECT version, action, actor, CAST(state AS CHAR) AS state FROM config_change WHERE subject_type = 'permission' AND subject_key = 'profit.view'")));
 
         // The CHECKs: a paid order has its day; a line's cost is fixed whole; flags are 0 or 1.
         $ch = $db->insert("INSERT INTO channel (code, name) VALUES ('vapeandgo', 'Vape and Go')");
@@ -90,12 +97,15 @@ final class Migration0074Test extends IntegrationTestCase
         self::assertSame(1452, self::mysqlError(static fn () => $db->exec("INSERT INTO sale_line (channel_id, line_id, order_ref, variant_id, qty, price_inc, updated_at) "
             . "VALUES (?, 'f', 'no such order', '9', 1, 1, UTC_TIMESTAMP(6))", [$ch])), 'a line belongs to a stored order');
 
-        // Every statement again: nothing changes.
+        // Every statement again: nothing changes (a holder given on the roles screen meanwhile stays).
+        $db->exec("UPDATE role_permission SET roles = 'accountant,finance' WHERE permission = 'profit.view'");
         foreach ($statements as $st) {
             $db->pdo()->exec($st);
         }
         self::assertSame($settings + 5, (int) $db->value('SELECT COUNT(*) FROM app_setting'));
         self::assertSame(5, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.%'"));
         self::assertSame(3, (int) $db->value('SELECT COUNT(*) FROM sale_line'));
+        self::assertSame('accountant,finance', (string) $db->value("SELECT roles FROM role_permission WHERE permission = 'profit.view'"));
+        self::assertSame(1, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'permission' AND subject_key = 'profit.view'"));
     }
 }

@@ -18761,3 +18761,13 @@ starts again from the first page (never a 500).
 **PR63.** Left as they are (said in the README): an ERPNext purchase-line index (N10: the import reads the requested items' rows only, each
 once); a receipt line that brought two invoice lines of the item is priced by both together (their landed value over their units), not
 split by units; the lists by product, brand and supplier over a long period read every item-day row of it (PR56).
+
+### The full suite of 6b8a7ee and the Codex re-check of it (`build/A/codex_r4.txt`): 2 part C tests red; 5 new MEDIUM (F1-F5) and 7 PARTLY; each checked in the code, shown failing first and fixed (PR64-PR71)
+
+**PR64.** (part C: RolePermissionsTest, Migration0069Test) The new permission `profit.view` is a row of the stored map (role_permission) with
+its version 1, as 0038 added its own: every permission of the code has its row and its baseline, so the roles screen and the nightly checks
+read it like every other one (`finance` only; run again, the row is left as it is then and no second baseline is written). The two LOCKED
+permissions every job has (catalogue.view, reference.view) keep 0034's rows: the code gives them to Finance whatever a row says, as 0069 left
+them for the People manager (RolePermissionsTest says exactly that, as RoleMapTest already did). The code was wrong there, not the test.
+Migration0069Test was the test that was wrong: it compared 0069's job list with the code's whole list; it now says 0069's list is the code's
+up to people_manager, and that the code has after it only the jobs later migrations append at the end (0074's finance), nothing else.

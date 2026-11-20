@@ -18,6 +18,8 @@ use CW\Tests\Support\MigrationFixture;
 final class Migration0069Test extends IntegrationTestCase
 {
     private const FILE = '0069_people_manager.sql';
+    /** The jobs later migrations add after people_manager, each at the end again: 0074's finance (docs/decisions.md PR23, PR64). */
+    private const LATER = ['finance'];
     private ?string $dir = null;
 
     protected function tearDown(): void
@@ -49,7 +51,8 @@ final class Migration0069Test extends IntegrationTestCase
         $rows = $db->all('SELECT permission, roles FROM role_permission ORDER BY permission');
 
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
-        self::assertSame(Permissions::ROLES, self::enum($db), 'the jobs of the code, in its order: people_manager last');
+        self::assertSame(array_slice(Permissions::ROLES, 0, 15), self::enum($db), 'the jobs of the code up to people_manager, in its order: people_manager last');
+        self::assertSame(self::LATER, array_slice(Permissions::ROLES, 15), 'after it in the code only the jobs later migrations append at the end');
         self::assertSame('NO', $db->value("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'staff_role' "
             . "AND COLUMN_NAME = 'role'"));
         self::assertSame($grants, $db->all('SELECT id, staff_user_id, CAST(role AS CHAR) AS role, role + 0 AS n, granted_by, granted_at, revoked_by, revoked_at, '
@@ -65,7 +68,7 @@ final class Migration0069Test extends IntegrationTestCase
         foreach ($statements as $sql) {
             $db->exec($sql);
         }
-        self::assertSame(Permissions::ROLES, self::enum($db));
+        self::assertSame(array_slice(Permissions::ROLES, 0, 15), self::enum($db));
         self::assertSame($snapshot, $db->all('SELECT id, CAST(role AS CHAR) AS role, role + 0 AS n FROM staff_role ORDER BY id'), 'a second run changes nothing');
     }
 
