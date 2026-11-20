@@ -27,6 +27,11 @@ final class SnapshotBody
     public const MAX_QTY = 100_000;
     /** A negative discount (a coupon's rounding pennies) is at most this many pence (CONTRACT.md, change 1). */
     public const MAX_NEGATIVE_DISCOUNT = 10_000;
+    /**
+     * How far below 0 a line's price may go, and how far below minus its price its discount may go, in pence (CONTRACT.md change 8, PR83:
+     * the shop leaves spread remainders of -2p / -3p and a coupon's remainder of -99p on a 49p line).
+     */
+    public const MAX_NEGATIVE_PRICE = 100;
     /** A paid or label time may be at most this far after CW's clock (the shops' clocks drift a little). */
     public const MAX_AHEAD_SEC = Clock::MAX_AHEAD_SEC;
 
@@ -81,12 +86,18 @@ final class SnapshotBody
             if (!is_int($qty) || $qty < 1 || $qty > self::MAX_QTY) {
                 throw self::bad("{$f}.qty", "{$f}.qty must be a whole number from 1 to " . self::MAX_QTY);
             }
-            $price = self::pence($l['price_inc'] ?? null, "{$f}.price_inc");
-            // May be below 0 (CONTRACT.md, change 1, agreed 20 Nov 2026): the shop leaves a coupon's rounding pennies on one line; never
-            // below minus the line's price, nor below -MAX_NEGATIVE_DISCOUNT.
+            // A price may be a few pence below 0 (CONTRACT.md change 8, PR83: a spread remainder the shop stores next to free lines), down to
+            // -MAX_NEGATIVE_PRICE.
+            $price = self::pence($l['price_inc'] ?? null, "{$f}.price_inc", true);
+            if ($price < -self::MAX_NEGATIVE_PRICE) {
+                throw self::bad("{$f}.price_inc", "{$f}.price_inc may be below 0 by at most " . self::MAX_NEGATIVE_PRICE . ' pence');
+            }
+            // A discount may be below 0 (CONTRACT.md changes 1 and 8): the shop leaves a coupon's rounding pennies on one line; never below
+            // minus (the line's price + MAX_NEGATIVE_PRICE), nor below -MAX_NEGATIVE_DISCOUNT.
             $discount = self::pence($l['discount_inc'] ?? 0, "{$f}.discount_inc", true);
-            if ($discount < -min($price, self::MAX_NEGATIVE_DISCOUNT)) {
-                throw self::bad("{$f}.discount_inc", "{$f}.discount_inc may be below 0 by at most the line's price and at most " . self::MAX_NEGATIVE_DISCOUNT . ' pence');
+            if ($discount < -min($price + self::MAX_NEGATIVE_PRICE, self::MAX_NEGATIVE_DISCOUNT)) {
+                throw self::bad("{$f}.discount_inc", "{$f}.discount_inc may be below 0 by at most the line's price + " . self::MAX_NEGATIVE_PRICE . ' pence and at most '
+                    . self::MAX_NEGATIVE_DISCOUNT . ' pence');
             }
             $outLines[] = [
                 'line_id' => $id,

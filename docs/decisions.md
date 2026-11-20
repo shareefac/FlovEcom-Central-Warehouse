@@ -18897,3 +18897,14 @@ cancelled: £1.0000, £400.00 (it was £400.04).
 **PR82.** (L6) A line waits for its buying price only when it has one to wait for: units that count and not back in stock. A line refunded
 in full whose unit came back to stock has a cost of zero, known: its order's profit is £0.00, never "not known" (ProfitViews::order, the
 re-sends' figures, the waiting units of every list, and the order's margin in OrderSnapshots::refreshParent).
+
+### The lead's real-data test of 51417a3 on CW staging (a copy of live CW, 50 real Vape and Go day files, 1 Oct - 19 Nov 2026, 65,363 orders): 4 orders refused (PR83)
+
+**PR83.** (CONTRACT.md change 8) The shapes the shop really stores are taken: a line's price may be below 0 down to -£1.00
+(SnapshotBody::MAX_NEGATIVE_PRICE: spread remainders of -2p / -3p next to free lines; 10 such lines since ord_id 1,500,000, the lowest -3p),
+and its discount below 0 down to minus (its price + £1.00), never below -£100 (change 1; a coupon's remainder of -99p on a 49p line beside
+lines discounted 1p each; 1 such line). Before, the 4 orders holding them were refused whole (400 bad_snapshot) and vanished from the
+profit. The money stays exact, line by line: goods = price - discount - refund, ex VAT at the order's rate. £12.99 with two free lines and
+two lines of -2p: £12.95 inc VAT, £10.79 ex VAT (£10.83 - 2p - 2p); four 49p lines less 1p and one 49p line less -99p: £3.40 inc VAT, £2.83
+ex VAT (4 x 40p + £1.23) (ProfitSnapshotShapesTest). A price below -£1.00, or a discount below minus (price + £1.00), is still refused, with
+its field. The bulk test's refused example is now a price of -£1.01 (its -5p is a real shape since change 8).

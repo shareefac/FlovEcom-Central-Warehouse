@@ -103,7 +103,7 @@ final class ProfitImportsTest extends StockTestCase
             }
             $delivery += $b['delivery']['charged_inc'] ?? 0;
         }
-        $lines[] = json_encode(['ref' => '504'] + self::body([self::sl('5', '1', -5)]), JSON_THROW_ON_ERROR); // refused: a negative price
+        $lines[] = json_encode(['ref' => '504'] + self::body([self::sl('5', '1', -101)]), JSON_THROW_ON_ERROR); // refused: a price below -£1.00 (CONTRACT change 8)
         $lines[] = json_encode(['ref' => '503'] + self::body([self::sl('4', '1', 1200)], ['version' => 6]), JSON_THROW_ON_ERROR); // older: ignored
         $file = $this->dir . '/snapshots_vapebig_2026-11-19.jsonl';
         file_put_contents($file, implode("\n", $lines) . "\n");

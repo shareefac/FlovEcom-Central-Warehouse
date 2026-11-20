@@ -178,8 +178,18 @@ final class ProfitMathTest extends TestCase
         self::assertSame(-3, SnapshotBody::parse(self::body(['lines' => [['discount_inc' => -3] + self::body()['lines'][0]]]), $now)['lines'][0]['discount_inc'],
             'a negative discount (a coupon\'s rounding penny) is taken');
 
-        self::assertSame('lines[0].discount_inc', self::field(self::body(['lines' => [['discount_inc' => -1300] + self::body()['lines'][0]]])),
-            'never below minus the line\'s price');
+        // CONTRACT.md change 8 (PR83, the real Vape and Go files): a discount down to minus (the line's price + £1.00), a price down to -£1.00.
+        self::assertSame(-99, SnapshotBody::parse(self::body(['lines' => [['price_inc' => 49, 'discount_inc' => -99] + self::body()['lines'][0]]]), $now)['lines'][0]['discount_inc'],
+            'a coupon\'s remainder on one line: 49p with a discount of -99p is taken');
+        self::assertNull(self::field(self::body(['lines' => [['discount_inc' => -1399] + self::body()['lines'][0]]])), '£12.99 with a discount of -£13.99: taken');
+        self::assertSame('lines[0].discount_inc', self::field(self::body(['lines' => [['discount_inc' => -1400] + self::body()['lines'][0]]])),
+            'never below minus (the line\'s price + £1.00)');
+        self::assertSame(-3, SnapshotBody::parse(self::body(['lines' => [['price_inc' => -3, 'discount_inc' => 0] + self::body()['lines'][0]]]), $now)['lines'][0]['price_inc'],
+            'a spread remainder priced -3p is taken');
+        self::assertNull(self::field(self::body(['lines' => [['price_inc' => -100, 'discount_inc' => 0] + self::body()['lines'][0]]])));
+        self::assertSame('lines[0].price_inc', self::field(self::body(['lines' => [['price_inc' => -101, 'discount_inc' => 0] + self::body()['lines'][0]]])), 'never below -£1.00');
+        self::assertSame('lines[0].discount_inc', self::field(self::body(['lines' => [['price_inc' => -3, 'discount_inc' => -98] + self::body()['lines'][0]]])),
+            'a price of -3p: a discount down to -97p');
         self::assertSame('lines[0].discount_inc', self::field(self::body(['lines' => [['price_inc' => 20000, 'discount_inc' => -10001] + self::body()['lines'][0]]])),
             'never below -£100');
         self::assertNull(self::field(self::body(['lines' => [['price_inc' => 20000, 'discount_inc' => -10000] + self::body()['lines'][0]]])));
@@ -195,7 +205,7 @@ final class ProfitMathTest extends TestCase
         self::assertSame('paid_at', self::field(self::body(['paid_at' => '19/11/2026'])));
         self::assertSame('placed_at', self::field(self::body(['placed_at' => '1999-12-31T23:59:59Z'])));
         self::assertSame('lines', self::field(self::body(['lines' => ['a' => 1]])));
-        self::assertSame('lines[0].price_inc', self::field(self::body(['lines' => [['price_inc' => -1] + self::body()['lines'][0]]])));
+
         self::assertSame('lines[0].price_inc', self::field(self::body(['lines' => [['price_inc' => 12.99] + self::body()['lines'][0]]])), 'pence, not pounds');
         self::assertSame('lines[0].refund_inc', self::field(self::body(['lines' => [['refund_inc' => -5] + self::body()['lines'][0]]])));
         self::assertSame('lines[0].qty', self::field(self::body(['lines' => [['qty' => 0] + self::body()['lines'][0]]])));
