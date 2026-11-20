@@ -18924,3 +18924,20 @@ estimate needed) and it is the one the list's sort can use in SQL: a list by mar
 1,000 without a price no longer pushes a 60% product after a 50% one). 5 of 1,000: not said; 6 of 1,000: said; 1 of 400 on a day: the count
 1, no "incomplete"; 3 of 400: "incomplete". One order is still incomplete with any unit without a price (its margin is not known).
 
+### The Codex check of 3f1b54e (`build/A/codex_r7.txt`, one run): r6's findings and r5a 2/5 FIXED; no HIGH; 2 MEDIUM new and 1 LOW left; each shown failing first with Codex's numbers on a copy of 1179112 (`runs/profit_r7fix_red.log`) and fixed (PR86-PR88)
+
+**PR86.** (M1) A delivery's time in the price history is when its units were on hand: when its operation was made final (its seq row's
+time, stock_value_seq), the same clock "units on hand at a moment" reads; the booking's own time stays in the ledger. A delivery booked at
+10:00 and made final at 10:02 with a credit of the earlier ten at 10:01: the credit sees the ten on hand (to £0), then the ten at £3.00
+come in: £30.00 for twenty, £1.50 each (it was £1.00: the credit saw ten units while the history already held twenty). The job's mark stops
+a microsecond short of the first delivery not read by that same time (PR47).
+
+**PR87.** (M2) A moment long ago is read without the history after it: an item's place in its commit order at a moment is a binary search on
+stock_value_seq's primary key (its rows' times only grow; a few point reads), an operation's end is found reading one row and then more,
+and the units on hand at a place read each of our warehouses that ever held the item back from the last ledger row booked by then (a row up
+to that place was booked before it was made final). On a 300-row history a moment after the 10th row reads under 150 rows (it read 979).
+A rebuild's events count against the run's event limit.
+
+**PR88.** (r5a 7 LOW) Credits given while goods were on their way are kept per credit-note line, so one credit note of two lines of the same
+invoice line is undone line by line against what still stands: 400 units at £1.00 with one note of 1p and 2p (£0.9999), the note cancelled:
+£1.0000, £400.00 (it was £399.96).

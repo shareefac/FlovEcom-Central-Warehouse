@@ -67,6 +67,8 @@ final class CostEngine
     private array $timelineOf = [];
     /** The item a rebuild is writing the history of (null: none). */
     private ?int $rebuilding = null;
+    /** Events the rebuilds since the run last looked have written (a run counts them against its limit). */
+    private int $rebuildWrites = 0;
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null)
@@ -321,10 +323,11 @@ final class CostEngine
         $lo = $this->db->value('SELECT id FROM stock_ledger WHERE created_at >= ? ORDER BY created_at, id LIMIT 1', [$from]);
         if ($lo !== null) {
             foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
-                . "l.created_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id JOIN warehouse w ON w.id = l.warehouse_id "
+                . "l.created_at, COALESCE(q.created_at, l.created_at) AS seq_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id "
+                . "JOIN warehouse w ON w.id = l.warehouse_id LEFT JOIN stock_value_seq q ON q.stock_ledger_id = l.id "
                 . "WHERE l.id >= ? AND l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' "
                 . "AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL AND w.stock_owner = 'own' ORDER BY l.id", [(int) $lo, $from, $cutoff]) as $r) {
-                $events[] = [(string) $r['created_at'], 0, (int) $r['id'], 'ledger', $r];
+                $events[] = [(string) $r['seq_at'], 0, (int) $r['id'], 'ledger', $r];
             }
         }
         foreach ($this->db->all("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d WHERE d.doc_type IN ('SINV', 'SCN') "
@@ -346,6 +349,8 @@ final class CostEngine
                 $done[$k] = ($done[$k] ?? 0) + 1;
                 $written += $k === 'skipped' ? 0 : 1;
             }
+            $written += $this->rebuildWrites; // an event met late wrote its item's history again: every event of it counts
+            $this->rebuildWrites = 0;
         }
         // What a booking that committed later than the overlap left behind (b2): a receipt, an invoice or a credit note not read whole since
         // it left the window (the day before it each run; at night, with --reconcile, everything since the start). Applied now (late: its
@@ -356,6 +361,8 @@ final class CostEngine
             $done[$k] = ($done[$k] ?? 0) + 1;
             $written += $k === 'skipped' ? 0 : 1;
         }
+        $written += $this->rebuildWrites;
+        $this->rebuildWrites = 0;
         $summary = ['events' => $written, 'kinds' => $done, 'started' => $started, 'from' => $from, 'to' => $newMark];
         $this->db->exec('UPDATE profit_job SET mark_at = ?, ran_at = ?, summary = ? WHERE job = ?',
             [$newMark, Clock::db($now), json_encode($summary, JSON_THROW_ON_ERROR), self::JOB]);
@@ -396,7 +403,8 @@ final class CostEngine
             $out = $this->documentEvents($d);
         } else {
             foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
-                . "l.created_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id JOIN warehouse w ON w.id = l.warehouse_id "
+                . "l.created_at, COALESCE(q.created_at, l.created_at) AS seq_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id "
+                . "JOIN warehouse w ON w.id = l.warehouse_id LEFT JOIN stock_value_seq q ON q.stock_ledger_id = l.id "
                 . "WHERE l.document_id = ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL "
                 . "AND w.stock_owner = 'own' ORDER BY l.id", [(int) $d['id']]) as $r) {
                 array_push($out, ...$this->ledgerEvent($r));
@@ -502,7 +510,9 @@ final class CostEngine
         $onHand = $this->onHandBefore($sku, (int) $r['id']);
         $doc = (int) $r['document_id'];
         $line = $r['document_line'] === null ? null : (int) $r['document_line'];
-        $at = (string) $r['created_at'];
+        // Its time is when its units were on hand: when its operation was made final (its place in the item's commit order, stock_value_seq),
+        // the clock "units on hand at a moment" reads too (the Codex check of 3f1b54e, M1; the booking's own time is kept in the ledger).
+        $at = (string) ($r['seq_at'] ?? $r['created_at']);
         if ($r['reverses_id'] !== null && $qty < 0) {
             $orig = (int) $r['reverses_id'];
             // The delivery it takes back read first (F5): its units leave at the price they came in at.
@@ -583,7 +593,7 @@ final class CostEngine
      * some), each with its landed price and the credits of it given while its goods were on their way and not cancelled by $at.
      *
      * @return array{invoice: int, came: int, own: int, lines: non-empty-array<int, array{take: int, units: int, landed: int, credits: array<int, int>}>}|null
-     *         lines: invoice line => what it gave; credits: credit note document => its value (what it takes off a unit x the units it credits)
+     *         lines: invoice line => what it gave; credits: credit note line ("document:line") => its value (what it takes off a unit x the units it credits)
      */
     private function receiptBasis(int $grn, int $line, int $sku, string $at, ?int $own = null): ?array
     {
@@ -621,20 +631,22 @@ final class CostEngine
 
     /**
      * The value of each credit of an invoice line given while its goods were on their way (deferred) and not cancelled by $at: what it takes
-     * off a credited unit x the units it credits (GBP x 10,000), by credit note.
+     * off a credited unit x the units it credits (GBP x 10,000), by credit note line ("document:line").
      *
-     * @return array<int, int>
+     * @return array<string, int>
      */
     private function deferredCredits(int $invoice, int $invLine, int $sku, string $at): array
     {
         $out = [];
         $tl = $this->tl($sku);
-        foreach ($this->db->all("SELECT e.booked_e4, e.units, e.document_id FROM item_cost_event e WHERE e.kind = 'credit_note' AND e.deferred = 1 "
+        foreach ($this->db->all("SELECT e.booked_e4, e.units, e.document_id, e.document_line FROM item_cost_event e WHERE e.kind = 'credit_note' AND e.deferred = 1 "
             . 'AND e.ref_document_id = ? AND e.ref_line = ? AND e.sku_id = ? AND e.timeline = ? ORDER BY e.id', [$invoice, $invLine, $sku, $tl]) as $c) {
             $undone = $this->db->value("SELECT 1 FROM item_cost_event WHERE kind = 'credit_note_reversal' AND ref_document_id = ? AND sku_id = ? AND timeline = ? "
                 . 'AND source_at <= ? LIMIT 1', [(int) $c['document_id'], $sku, $tl, $at]);
             if ($undone === null) {
-                $out[(int) $c['document_id']] = ($out[(int) $c['document_id']] ?? 0) + (int) $c['booked_e4'] * (int) $c['units'];
+                // Each credit line its own (one credit note of two lines of the same invoice line: each undone by its own share, the two
+                // together giving back what they took off together: the Codex check of 3f1b54e).
+                $out[(int) $c['document_id'] . ':' . (int) $c['document_line']] = (int) $c['booked_e4'] * (int) $c['units'];
             }
         }
         return $out;
@@ -673,7 +685,7 @@ final class CostEngine
      *
      * @param array<string, mixed> $basis receiptBasis()'s
      */
-    private static function creditShare(array $basis, int $invLine, int $creditDoc, int $value): int
+    private static function creditShare(array $basis, int $invLine, string $creditDoc, int $value): int
     {
         $with = $basis['lines'];
         $without = $basis['lines'];
@@ -790,7 +802,7 @@ final class CostEngine
                         foreach (array_keys($basis['lines']) as $no) {
                             $basis['lines'][$no]['credits'] = $this->deferredCredits((int) $e['ref_document_id'], $no, $sku, $at);
                         }
-                        $value += self::creditShare($basis, (int) $e['ref_line'], $orig, (int) $e['booked_e4'] * (int) $e['units']) * $u;
+                        $value += self::creditShare($basis, (int) $e['ref_line'], $orig . ':' . (int) $e['document_line'], (int) $e['booked_e4'] * (int) $e['units']) * $u;
                         $units += $u;
                     }
                 }
@@ -858,8 +870,20 @@ final class CostEngine
      */
     private function position(int $sku, string $at): int
     {
-        $s = (int) ($this->db->value('SELECT seq FROM stock_value_seq FORCE INDEX (PRIMARY) WHERE sku_id = ? AND created_at <= ? ORDER BY seq DESC LIMIT 1', [$sku, $at]) ?? 0);
-        return $s === 0 ? 0 : $this->opEnd($sku, $s);
+        // Its seq rows are made in order, so their times only grow: a binary search on the primary key (a few reads, never the history
+        // after the moment: the Codex check of 3f1b54e, M2).
+        $lo = 0;
+        $hi = (int) ($this->db->value('SELECT last_seq FROM stock_value_clock WHERE sku_id = ?', [$sku]) ?? 0);
+        while ($lo < $hi) {
+            $mid = intdiv($lo + $hi + 1, 2);
+            $t = $this->db->value('SELECT created_at FROM stock_value_seq WHERE sku_id = ? AND seq = ?', [$sku, $mid]);
+            if ($t !== null && (string) $t <= $at) {
+                $lo = $mid;
+            } else {
+                $hi = $mid - 1;
+            }
+        }
+        return $lo === 0 ? 0 : $this->opEnd($sku, $lo);
     }
 
     /** The place of one ledger row in its item's commit order (0: none, never for an on-hand row). */
@@ -878,15 +902,16 @@ final class CostEngine
         if ($op === null) {
             return $s;
         }
-        while (true) {
-            $next = $this->seqRows($sku, $s, $s + 50);
+        // The next row first (most operations end there), then more at a time.
+        for ($n = 1; ; $n = min(64, $n * 4)) {
+            $next = $this->seqRows($sku, $s, $s + $n);
             foreach ($next as $r) {
                 if ($r['op'] !== $op) {
                     return $s;
                 }
                 $s = (int) $r['seq'];
             }
-            if (count($next) < 50) {
+            if (count($next) < $n) {
                 return $s;
             }
         }
@@ -908,7 +933,7 @@ final class CostEngine
             'qty' => isset($own[(int) $r['warehouse_id']]) ? (int) $r['qty_delta'] : 0,
             'op' => ProfitMath::operation($r['document_id'] === null ? null : (int) $r['document_id'], $r['idem_key'] === null ? null : (string) $r['idem_key'],
                 $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor'])],
-            $this->db->all('SELECT s.seq, l.id, l.warehouse_id, l.qty_delta, l.document_id, l.idem_key, l.channel_id, l.actor FROM stock_value_seq s FORCE INDEX (PRIMARY) '
+            $this->db->all('SELECT STRAIGHT_JOIN s.seq, l.id, l.warehouse_id, l.qty_delta, l.document_id, l.idem_key, l.channel_id, l.actor FROM stock_value_seq s FORCE INDEX (PRIMARY) '
                 . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id = ? AND s.seq > ? AND s.seq <= ? ORDER BY s.seq', [$sku, $from, $to]));
     }
 
@@ -918,10 +943,24 @@ final class CostEngine
         if ($s <= 0) {
             return 0;
         }
+        // Every row up to place $s was booked before that place was made final (its seq row's time): the ledger is read back from the last
+        // row booked by then (one second's room for rows booked in the same instant), never from the end of the history (the Codex check
+        // of 3f1b54e, M2); only our warehouses that ever held the item.
+        $t = $this->db->value('SELECT created_at FROM stock_value_seq WHERE sku_id = ? AND seq = ?', [$sku, $s]);
+        if ($t === null) {
+            return 0;
+        }
+        $bound = (int) ($this->db->value('SELECT id FROM stock_ledger FORCE INDEX (ix_stock_ledger_created) WHERE created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 1',
+            [Clock::db(Clock::fromDb((string) $t)->modify('+1 second'))]) ?? PHP_INT_MAX);
+        $own = $this->ownWarehouses();
+        if ($own === []) {
+            return 0;
+        }
         $sum = 0;
-        foreach ($this->ownWarehouses() as $wh) {
-            $sum += (int) ($this->db->value('SELECT l.balance_after FROM stock_ledger l FORCE INDEX (ix_stock_ledger_balance) JOIN stock_value_seq s ON s.stock_ledger_id = l.id '
-                . "WHERE l.warehouse_id = ? AND l.sku_id = ? AND l.bucket = 'on_hand' AND s.seq <= ? ORDER BY l.id DESC LIMIT 1", [$wh, $sku, $s]) ?? 0);
+        foreach (array_map('intval', $this->db->column('SELECT warehouse_id FROM stock_balance WHERE sku_id = ? AND warehouse_id IN (' . implode(', ', array_fill(0, count($own), '?'))
+            . ') ORDER BY warehouse_id', [$sku, ...$own])) as $wh) {
+            $sum += (int) ($this->db->value('SELECT STRAIGHT_JOIN l.balance_after FROM stock_ledger l FORCE INDEX (ix_stock_ledger_balance) JOIN stock_value_seq s ON s.stock_ledger_id = l.id '
+                . "WHERE l.warehouse_id = ? AND l.sku_id = ? AND l.bucket = 'on_hand' AND l.id <= ? AND s.seq <= ? ORDER BY l.id DESC LIMIT 1", [$wh, $sku, $bound, $s]) ?? 0);
         }
         return $sum;
     }
@@ -1054,9 +1093,10 @@ final class CostEngine
             $sources = [];
             foreach (array_chunk(array_keys($ledger), 500) as $chunk) {
                 foreach ($db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, l.created_at, "
-                    . 'd.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id WHERE l.id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
-                    . 'AND l.sku_id = ?', [...$chunk, $sku]) as $r) {
-                    $sources[] = [(string) $r['created_at'], 0, (int) $r['id'], 'ledger', $r];
+                    . 'COALESCE(q.created_at, l.created_at) AS seq_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id '
+                    . 'LEFT JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND l.sku_id = ?',
+                    [...$chunk, $sku]) as $r) {
+                    $sources[] = [(string) $r['seq_at'], 0, (int) $r['id'], 'ledger', $r];
                 }
             }
             foreach (array_chunk(array_keys($docs), 500) as $chunk) {
@@ -1088,6 +1128,7 @@ final class CostEngine
                 }
                 $this->rebuilding = $before[1];
             }
+            $this->rebuildWrites += (int) $db->value('SELECT COUNT(*) FROM item_cost_event WHERE sku_id = ? AND timeline = ?', [$sku, $next]);
             $last = (array) $db->one('SELECT id, new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND timeline = ? ORDER BY source_at DESC, id DESC LIMIT 1', [$sku, $next]);
             $db->exec('UPDATE item_cost SET timeline = ?, unit_cost_e4 = ?, last_event_id = ?, updated_at = ? WHERE sku_id = ?',
                 [$next, $last['new_cost_e4'], (int) $last['id'], Clock::db(($this->clock)()), $sku]);

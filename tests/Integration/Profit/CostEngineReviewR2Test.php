@@ -84,7 +84,9 @@ final class CostEngineReviewR2Test extends ArrivalsTestCase
             $this->delivered($who['desk'], (int) $who['supplier']['id'], [['sku_id' => $o['sku'], 'supplier_item_id' => (int) $o['si']['id'], 'packs' => 10,
                 'units_per_pack' => 1, 'pack_price' => $price, 'po_line_no' => 1]], $o['doc']->id);
         }
-        $second = (string) self::$db->value("SELECT MAX(created_at) FROM stock_ledger WHERE sku_id = ? AND movement_type = 'goods_in'", [$o['sku']]);
+        // The second delivery's moment: when its units were on hand (its operation made final: its place in the commit order, PR86).
+        $second = (string) self::$db->value("SELECT MAX(q.created_at) FROM stock_ledger l JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.sku_id = ? "
+            . "AND l.movement_type = 'goods_in'", [$o['sku']]);
         $r = $this->engine()->run(1);
         self::assertSame(1, $r['events']);
         self::assertLessThan($second, (string) $r['mark_at'], 'the mark is before the delivery not read yet');

@@ -1589,7 +1589,7 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR82; branch `profit`; migration 0074; 20 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR88; branch `profit`; migration 0074; 20 Nov 2026)
 
 | File | What |
 |---|---|

@@ -243,7 +243,7 @@ final class ProfitMath
      * credit's value x units taken / the line's units, each rounded), plus the units beyond the invoice at the receipt's own price, over every
      * unit that came (the Codex re-checks of 6b8a7ee F2/F3 and e5d2e5a: over-delivery). Never below 0; null when nothing came.
      *
-     * @param array<int, array{take: int, units: int, landed: int, credits: array<int, int>}> $lines invoice line => what it gave; credits: each
+     * @param array<int, array{take: int, units: int, landed: int, credits: array<int|string, int>}> $lines invoice line => what it gave; credits: each
      *        credit's value (what it takes off a credited unit x the units it credits)
      */
     public static function receiptPrice(array $lines, int $came, int $own): ?int
