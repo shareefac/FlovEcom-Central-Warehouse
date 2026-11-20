@@ -35,7 +35,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
 <?php endif; ?>
     <tr><th scope="row"><?= $word('PROFIT', 'goods') ?></th><td class="num"><?= $money($sale / 100) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'cost') ?></th><td class="num"><?= $money($cost / 100) ?></td></tr>
-    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money(($sale - $cost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($sale - $cost, $sale))) ?>)</td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money(($sale - $cost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($sale - $cost, $sale))) ?>)<?php if ($o['paid_at'] !== null && $o['margin_bp'] === null && $sale > 0): ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td></tr>
 <?php if ((int) $o['resends'] > 0): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'resend_cost') ?></th><td class="num"><?= $money($resendCost / 100) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $money(($sale - $cost - $resendCost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct($o['margin_bp'] === null ? null : (int) $o['margin_bp'])) ?>)</td></tr>
@@ -77,8 +77,13 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
       <td class="num" data-label="<?= $word('PROFIT', 'unit_cost') ?>"><?php if ($l['unit_cost_e4'] !== null): ?><?= $e(\CW\Profit\ProfitViews::price((int) $l['unit_cost_e4'])) ?><?php endif; ?></td>
       <td data-label="<?= $word('PROFIT', 'cost_from') ?>"><?= $e($l['cost_source'] === null ? \CW\Ui\Words::PROFIT['source_open'] : $sourceWords[(string) $l['cost_source']]) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money((int) $l['cost'] / 100) ?></td>
+<?php if ((int) $l['units'] > 0 && (int) $l['restocked'] === 0 && ($l['cost_source'] === null || $l['cost_source'] === 'none')): ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $word('PROFIT', 'unknown') ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $word('PROFIT', 'unknown') ?></td>
+<?php else: ?>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($l['profit'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($l['margin_bp'])) ?></td>
+<?php endif; ?>
     </tr>
 <?php endforeach; ?>
   </tbody>

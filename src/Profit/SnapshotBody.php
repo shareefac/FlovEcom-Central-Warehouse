@@ -169,22 +169,23 @@ final class SnapshotBody
     }
 
     /**
-     * A carrier's tracking number as CONTRACT.md change 5 says it (agreed 20 Nov 2026): only A-Z a-z 0-9, space . / # _ -, and at least 4
-     * digits, and (CW's own, stricter) a digit in every word; anything else (a note typed by hand, an address, a name) is kept as null, so
-     * no free text reaches CW (the Codex review of 92efa82, b12).
+     * A carrier's tracking number as CONTRACT.md change 5b says it (builder B, 20 Nov 2026): written as the carriers' invoices print it (spaces
+     * and hyphens taken out, upper case) and kept only in one of the carriers' own shapes: Royal Mail XX123456789GB, DPD 10 or 14 digits,
+     * Evri / Parcel2Go H + 15 letters or digits, UPS 1Z + 16. Anything else (a note typed by hand, a phone number, a name) is kept as null,
+     * so no free text reaches CW (the Codex reviews of 92efa82 b12 and of 57d98ad).
      */
     public static function tracking(?string $t): ?string
     {
-        if ($t === null || $t === '' || preg_match('/^[A-Za-z0-9 .\/#_-]{1,64}$/D', $t) !== 1 || preg_match_all('/[0-9]/', $t) < 4) {
+        if ($t === null) {
             return null;
         }
-        // Stricter than the contract on one point: every word of it holds a digit ("John Smith 12345" is not a tracking number).
-        foreach (preg_split('/ +/', trim($t)) ?: [] as $word) {
-            if (preg_match('/[0-9]/', $word) !== 1) {
-                return null;
+        $n = strtoupper((string) preg_replace('/[\s-]+/', '', $t));
+        foreach (['/^[A-Z]{2}[0-9]{9}GB$/D', '/^[0-9]{10}$/D', '/^[0-9]{14}$/D', '/^H[A-Z0-9]{15}$/D', '/^1Z[A-Z0-9]{16}$/D'] as $shape) {
+            if (preg_match($shape, $n) === 1) {
+                return $n;
             }
         }
-        return $t;
+        return null;
     }
 
     /** The order ref of a path or a bulk line (1-64 printable characters, as the reservations). */

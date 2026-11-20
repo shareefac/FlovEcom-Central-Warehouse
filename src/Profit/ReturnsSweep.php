@@ -28,6 +28,25 @@ final class ReturnsSweep
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
     }
 
+    /**
+     * The nightly check (bin/refresh_item_cost.php --reconcile): every sale line whose unit is back in stock in CW and is not shown so, found
+     * whatever the time of its return (a return whose booking committed after the sweep's window: the Codex review of 57d98ad, b2). Reads
+     * every returned unit (a full read, once a night; a few hundred units a month come back).
+     *
+     * @return array{orders: int}
+     */
+    public function reconcile(int $maxOrders = self::MAX_ORDERS): array
+    {
+        $orders = $this->db->all("SELECT DISTINCT s.channel_id, s.order_ref FROM reservation_unit u JOIN sale_line s ON s.channel_id = u.channel_id AND s.line_id = u.unit_id "
+            . "WHERE u.state = 'returned' AND s.restocked = 0 AND s.removed_at IS NULL ORDER BY s.channel_id, s.order_ref LIMIT " . max(1, $maxOrders));
+        $snapshots = new OrderSnapshots($this->db, $this->clock);
+        $n = 0;
+        foreach ($orders as $o) {
+            $n += $snapshots->recompute((int) $o['channel_id'], (string) $o['order_ref']) ? 1 : 0;
+        }
+        return ['orders' => $n];
+    }
+
     /** @return array{orders: int, mark_at: string} */
     public function run(int $maxOrders = self::MAX_ORDERS): array
     {

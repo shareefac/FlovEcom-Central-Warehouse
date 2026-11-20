@@ -20,7 +20,7 @@
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['no_orders'], \CW\Ui\Words::PROFIT['no_orders_text']) ?>
 <?php else: ?>
-<p class="muted"><?= $say('PROFIT', 'orders_found', $total) ?><?php if ($low): ?> <?= $word('PROFIT', 'no_margin') ?><?php endif; ?></p>
+<p class="muted"><?php if ($total !== null): ?><?= $say('PROFIT', 'orders_found', $total) ?> <?php endif; ?><?php if ($low): ?><?= $word('PROFIT', 'no_margin') ?><?php endif; ?></p>
 <div class="table-wrap">
 <table class="stack rp-table profit-orders">
   <thead>

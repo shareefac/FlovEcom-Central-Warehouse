@@ -17,6 +17,8 @@ use CW\Reports\ReportRefresh;
 final class ProfitViews
 {
     public const PAGE = 50;
+    /** The longest period "the lowest margin first" sorts (its orders are sorted, so it is bounded). */
+    public const LOWEST_MAX_DAYS = 93;
     public const BY = ['shop', 'product', 'brand', 'supplier'];
     public const SORTS = ['profit', 'sale', 'cost', 'margin', 'margin_low', 'units'];
     public const GROUPS = ['day', 'week', 'month'];
@@ -134,8 +136,9 @@ final class ProfitViews
             'sale' => "{$goods} DESC",
             'cost' => 'SUM(p.cost) DESC',
             'units' => 'SUM(p.units) DESC',
-            'margin' => "{$margin} IS NULL, {$margin} DESC",
-            'margin_low' => "{$margin} IS NULL, {$margin} ASC",
+            // A row with units that have no price is not ranked by its margin (it is too high): after the others (c6, round 2).
+            'margin' => "SUM(p.units_no_cost) > 0, {$margin} IS NULL, {$margin} DESC",
+            'margin_low' => "SUM(p.units_no_cost) > 0, {$margin} IS NULL, {$margin} ASC",
             default => "{$goods} - SUM(p.cost) DESC",
         };
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
@@ -168,7 +171,7 @@ final class ProfitViews
      * margin).
      *
      * @param array{0: string, 1: int, 2: string}|null $after the last row of the page before: its paid time (or margin), store, order ref
-     * @return array{rows: list<array<string, mixed>>, total: int, next: ?array{0: string, 1: int, 2: string}}
+     * @return array{rows: list<array<string, mixed>>, total: ?int, next: ?array{0: string, 1: int, 2: string}}
      */
     public function orders(string $from, string $to, ?int $store, string $q, bool $lowest, ?array $after = null): array
     {
@@ -199,8 +202,13 @@ final class ProfitViews
             $where[] = 'o.channel_id = ?';
             $params[] = $store;
         }
-        $total = (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where), $params);
+        // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2).
+        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where), $params) : null;
+        $hint = '';
         if ($lowest) {
+            // The period's orders sorted (its paid-time index bounds them; the period is at most LOWEST_MAX_DAYS), never the whole history in
+            // margin order.
+            $hint = ' USE INDEX (ix_sale_order_paid, ix_sale_order_store_paid)';
             $where[] = 'o.margin_bp IS NOT NULL';
             if ($after !== null) {
                 $where[] = '(o.margin_bp, o.channel_id, o.order_ref) > (?, ?, ?)';
@@ -214,7 +222,7 @@ final class ProfitViews
             }
             $order = 'o.paid_at DESC, o.channel_id DESC, o.order_ref DESC';
         }
-        $rows = $this->db->all("SELECT {$cols} FROM sale_order o JOIN channel c ON c.id = o.channel_id WHERE " . implode(' AND ', $where) . " ORDER BY {$order} LIMIT "
+        $rows = $this->db->all("SELECT {$cols} FROM sale_order o{$hint} JOIN channel c ON c.id = o.channel_id WHERE " . implode(' AND ', $where) . " ORDER BY {$order} LIMIT "
             . (self::PAGE + 1), $params);
         $next = null;
         if (count($rows) > self::PAGE) {
@@ -235,7 +243,8 @@ final class ProfitViews
             'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => (int) $r['units'], 'sale' => $sale, 'cost' => $cost,
             'resends' => (int) $r['resends'], 'profit' => $sale - $cost, 'margin_bp' => $r['margin_bp'] === null ? null : (int) $r['margin_bp'],
             'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
-            'incomplete' => (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0];
+            // No margin on an order that sold something: some unit (its own or a re-send's) has no price or waits for it.
+            'incomplete' => (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0 || ($r['margin_bp'] === null && $sale > 0)];
     }
 
     /**

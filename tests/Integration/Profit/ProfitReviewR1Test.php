@@ -81,7 +81,7 @@ final class ProfitReviewR1Test extends StockTestCase
         $l = self::row($site, 'L1');
         self::assertSame([null, '2026-11-19', '0'], [$l['cost_source'], $l['day'], (string) $l['cost']], 'paid after the job\'s mark: not fixed yet');
         // The job reads a delivery at 09:30 that moves the price to £2.00, then passes 10:00: the sale takes the price of its time.
-        self::price($a, 20000, '2026-11-19 09:30:00', 'receipt');
+        self::price($a, 20000, '2026-11-19 09:30:00', 'start'); // a later price, as an absolute event
         self::mark('2026-11-19 10:05:00');
         self::assertSame(1, (new PendingCosts(self::$db))->run()['orders']);
         $l = self::row($site, 'L1');
@@ -116,9 +116,10 @@ final class ProfitReviewR1Test extends StockTestCase
         $parcel = static fn (?string $t): array => ['parcel_ref' => 'odl:' . bin2hex(random_bytes(3)), 'tracking_no' => $t, 'carrier' => 'dpd', 'service_code' => '',
             'service' => '', 'status' => 'generated', 'label_at' => null, 'shipped_at' => null, 'manual' => false, 'partial' => false];
         $s->store((int) $site->channelId, 'C', self::body([self::sl('c1', '1', 100)], ['parcels' => [$parcel('15501234567890'), $parcel('customer@example.invalid'),
-            $parcel('John Smith 12345'), $parcel('AB12'), $parcel('15 501/234#5_6-7.8')]]), 'api');
+            $parcel('John Smith 12345'), $parcel('07123456789'), $parcel('ab 123 456 789 gb'), $parcel('1550-1234-56')]]), 'api');
         $tracks = array_column(json_decode((string) self::$db->value("SELECT CAST(body AS CHAR) FROM order_snapshot WHERE order_ref = 'C'"), true)['parcels'], 'tracking_no');
-        self::assertSame(['15501234567890', null, null, null, '15 501/234#5_6-7.8'], $tracks, 'only a tracking number is kept (CONTRACT change 5): no free text reaches CW');
+        self::assertSame(['15501234567890', null, null, null, 'AB123456789GB', '1550123456'], $tracks,
+            'only a carrier\'s own shape is kept (CONTRACT change 5b), as its invoice prints it: no free text, no phone number reaches CW');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM sale_parcel WHERE tracking_no LIKE '%@%' OR tracking_no LIKE '%Smith%'"));
         // A margin far below -100%: 1p of sale on £3,000 of cost.
         $big = $this->item('legacy');

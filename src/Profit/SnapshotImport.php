@@ -46,9 +46,28 @@ final class SnapshotImport
             throw new \InvalidArgumentException("{$base} is a file of the store {$m[1]}, not {$channelCode}");
         }
         $sum = $this->sum($path, $channelCode, $m[2]);
+        // The file as it is now, copied aside: what is checked is what is stored (the Codex review of 57d98ad, b14).
+        $copy = tempnam(sys_get_temp_dir(), 'cw_snap_');
+        if ($copy === false || !@copy($path, $copy)) {
+            throw new \InvalidArgumentException("cannot read {$path}");
+        }
+        try {
+            return $this->checked($copy, $sum, (int) $channel, $dryRun, $log);
+        } finally {
+            @unlink($copy);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $sum
+     * @param \Closure(string): void $log
+     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, read: array<string, int>}
+     */
+    private function checked(string $path, array $sum, int $channel, bool $dryRun, \Closure $log): array
+    {
         $now = $this->clock === null ? \CW\Clock::now() : ($this->clock)();
         // Pass 1: every line checked, nothing written.
-        $check = $this->pass($path, null, (int) $channel, $now, static fn (string $m) => null);
+        $check = $this->pass($path, null, $channel, $now, static fn (string $m) => null);
         $sumOk = hash_equals(strtolower((string) $sum['file_sha256']), (string) hash_file('sha256', $path));
         if (!$sumOk) {
             $log('the .sum names another file (its sha256 differs): nothing written');
@@ -63,13 +82,13 @@ final class SnapshotImport
         }
         if (!$sumOk || $dryRun) {
             if ($dryRun) {
-                $this->pass($path, null, (int) $channel, $now, $log); // the refusals, said
+                $this->pass($path, null, $channel, $now, $log); // the refusals, said
             }
             return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
                 'sum_ok' => $sumOk, 'read' => $check['read']];
         }
         // Pass 2: stored, order by order.
-        $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), (int) $channel, $now, $log);
+        $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), $channel, $now, $log);
         return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true, 'read' => $done['read']];
     }
 

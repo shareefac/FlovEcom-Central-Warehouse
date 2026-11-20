@@ -67,6 +67,7 @@ final class ProfitController
         }], $result['rows']);
         return $ctx->page('profit_breakdown', ['rows' => $rows, 'more' => $result['more'], 'by' => $by, 'bys' => ProfitViews::BY, 'sort' => $sort,
             'orderRefunds' => $by === 'shop' ? 0 : $views->orderRefunds($from, $to, $store),
+            'pending' => array_sum($views->pending($from, $to, $store)),
             'sorts' => ProfitViews::SORTS, 'sortLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/by', $query + ['sort' => $s]),
                 'current' => $s === $sort], ProfitViews::SORTS),
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store,
@@ -82,6 +83,10 @@ final class ProfitController
         $q = trim((string) ($ctx->req->param('q') ?? ''));
         $q = preg_match('/^[\x21-\x7e]{1,64}$/D', $q) === 1 ? $q : '';
         $low = $ctx->req->param('low') === '1';
+        if ($low && (new \DateTimeImmutable($from))->diff(new \DateTimeImmutable($to))->days >= ProfitViews::LOWEST_MAX_DAYS) {
+            $from = (new \DateTimeImmutable($to))->modify('-' . (ProfitViews::LOWEST_MAX_DAYS - 1) . ' days')->format('Y-m-d');
+            $warn = trim(($warn ?? '') . ' ' . Words::say('PROFIT', 'lowest_max', ProfitViews::LOWEST_MAX_DAYS));
+        }
         $after = self::cursor($ctx, $low);
         $r = $views->orders($from, $to, $store, $q, $low, $after);
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $store, 'q' => $q === '' ? null : $q,
@@ -138,7 +143,13 @@ final class ProfitController
         $k = (string) ($ctx->req->param('ak') ?? '');
         $c = UiRequest::id($ctx->req->param('ac'));
         $r = (string) ($ctx->req->param('ar') ?? '');
-        $keyOk = $low ? preg_match('/^-?[0-9]{1,18}$/D', $k) === 1 : preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/D', $k) === 1;
+        if ($low) {
+            $keyOk = preg_match('/^-?[0-9]{1,18}$/D', $k) === 1;
+        } else {
+            // A real time, as the database writes it (the Codex review of 57d98ad, N11): anything else starts again from the first page.
+            $t = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s.u', $k, new \DateTimeZone('UTC'));
+            $keyOk = $t !== false && $t->format('Y-m-d H:i:s.u') === $k;
+        }
         return $keyOk && $c !== null && preg_match('/^[\x21-\x7e]{1,64}$/D', $r) === 1 ? [$k, $c, $r] : null;
     }
 

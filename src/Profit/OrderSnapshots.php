@@ -121,29 +121,46 @@ final class OrderSnapshots
      */
     private function guarded(int $channelId, string $ref, ?string $parent, \Closure $fn): mixed
     {
-        $refs = [$ref];
-        foreach ([$parent, $this->db->value('SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref])] as $p) {
-            if ($p !== null && (string) $p !== $ref) {
-                $refs[] = (string) $p;
-            }
-        }
-        $names = array_values(array_unique(array_map(static fn (string $r): string => self::lockName($channelId, $r), $refs)));
-        sort($names, SORT_STRING);
-        $held = [];
-        try {
-            foreach ($names as $n) {
-                if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$n, $this->lockWaitSec]) !== 1) {
-                    throw new CwException('busy', 'another snapshot of this order (or of the order it is a re-send of) is being stored; retry shortly', 503);
+        // The parents to hold: the one asked for, the one the stored order names, and (recompute) the one its stored body names. Read
+        // before the locks, so read again once they are held: a parent changed meanwhile means the locks are taken again with it
+        // (the Codex review of 57d98ad, N9).
+        $parentsNow = function () use ($channelId, $ref, $parent): array {
+            $out = [];
+            foreach ([$parent, $this->db->value('SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]),
+                $this->db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(body, '$.parent_ref')) FROM order_snapshot WHERE channel_id = ? AND order_ref = ?", [$channelId, $ref])] as $p) {
+                if ($p !== null && $p !== 'null' && (string) $p !== $ref) {
+                    $out[] = (string) $p;
                 }
-                $held[] = $n;
             }
-            return $fn();
-        } finally {
-            foreach (array_reverse($held) as $n) {
-                try {
-                    $this->db->value('SELECT RELEASE_LOCK(?)', [$n]);
-                } catch (\Throwable) {
-                    // the connection is gone: MySQL released it with the session
+            return $out;
+        };
+        $refs = [$ref, ...$parentsNow()];
+        for ($try = 0; ; $try++) {
+            $names = array_values(array_unique(array_map(static fn (string $r): string => self::lockName($channelId, $r), $refs)));
+            sort($names, SORT_STRING);
+            $held = [];
+            try {
+                foreach ($names as $n) {
+                    if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$n, $this->lockWaitSec]) !== 1) {
+                        throw new CwException('busy', 'another snapshot of this order (or of the order it is a re-send of) is being stored; retry shortly', 503);
+                    }
+                    $held[] = $n;
+                }
+                $missing = array_diff(array_map(static fn (string $r): string => self::lockName($channelId, $r), $parentsNow()), $names);
+                if ($missing === []) {
+                    return $fn();
+                }
+                if ($try >= 3) {
+                    throw new CwException('busy', 'the order\'s first order keeps changing; retry shortly', 503);
+                }
+                $refs = array_values(array_unique([...$refs, ...$parentsNow()]));
+            } finally {
+                foreach (array_reverse($held) as $n) {
+                    try {
+                        $this->db->value('SELECT RELEASE_LOCK(?)', [$n]);
+                    } catch (\Throwable) {
+                        // the connection is gone: MySQL released it with the session
+                    }
                 }
             }
         }
@@ -158,9 +175,7 @@ final class OrderSnapshots
      */
     public function recompute(int $channelId, string $ref, array|\Closure $override = []): bool
     {
-        $parent = $this->db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(body, '$.parent_ref')) FROM order_snapshot WHERE channel_id = ? AND order_ref = ?", [$channelId, $ref]);
-        $parent = $parent === null || $parent === 'null' ? null : (string) $parent;
-        return $this->guarded($channelId, $ref, $parent, fn (): bool => $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
+        return $this->guarded($channelId, $ref, null, fn (): bool => $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
             $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
             if ($json === null) {
                 return false;
@@ -235,6 +250,9 @@ final class OrderSnapshots
             $id = (string) $l['line_id'];
             $prev = $oldLines[$id] ?? null;
             $fixed = $prev !== null && $prev['cost_source'] !== null;
+            // A line stored on a paid order keeps the item, listing and units it was resolved to then, also while its cost waits for the
+            // cost job (the Codex review of 57d98ad, N7).
+            $resolved = $fixed || ($prev !== null && $prev['day'] !== null && $prev['removed_at'] === null);
             $u = $units[$id] ?? null;
             $li = $listings[(string) $l['variant_id']] ?? null;
             if (isset($override[$id]['sku'])) {
@@ -242,7 +260,7 @@ final class OrderSnapshots
                 $sku = (int) $override[$id]['sku'];
                 $upi = (int) ($override[$id]['upi'] ?? 1);
                 $listing = $li === null ? ($prev['listing_id'] ?? null) : (int) $li['id'];
-            } elseif ($fixed) {
+            } elseif ($resolved) {
                 $sku = $prev['sku_id'] === null ? null : (int) $prev['sku_id'];
                 $upi = (int) $prev['units_per_item'];
                 $listing = $prev['listing_id'] === null ? null : (int) $prev['listing_id'];
@@ -321,11 +339,14 @@ final class OrderSnapshots
             'first_at' => $old === null ? $now : (string) $old['first_at'], 'updated_at' => $now,
         ];
         // Its re-sends (the cost that belongs to it), as stored now.
-        $rs = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(cost), 0) AS c FROM sale_order WHERE channel_id = ? AND parent_ref = ? AND paid_at IS NOT NULL '
-            . 'AND order_ref <> ?', [$channelId, $ref, $ref]) ?? ['n' => 0, 'c' => 0];
+        $rs = self::resendFigures($db, $channelId, $ref);
         $order['resends'] = (int) $rs['n'];
         $order['resend_cost'] = (int) $rs['c'];
-        $order['margin_bp'] = ProfitMath::marginBp($order['sale_ex'] - $order['cost'] - $order['resend_cost'], $order['sale_ex']);
+        // No margin while some units have no buying price or wait for it (a figure that is not known is never ranked: the Codex review of
+        // 57d98ad, c6); the screens say it is incomplete.
+        $open = array_filter($newLines, static fn (array $r): bool => $r['removed_at'] === null && $r['cost_source'] === null && $r['day'] !== null);
+        $order['margin_bp'] = $order['units_no_cost'] > 0 || $open !== [] || (int) $rs['nc'] > 0 || (int) $rs['open'] > 0 ? null
+            : ProfitMath::marginBp($order['sale_ex'] - $order['cost'] - $order['resend_cost'], $order['sale_ex']);
 
         self::upsert($db, 'sale_order', [$order], ['channel_id', 'order_ref', 'first_at']);
         foreach (array_chunk(array_values($newLines), 200) as $chunk) {
@@ -403,14 +424,32 @@ final class OrderSnapshots
     /** The re-sends of $parent (paid, stored) and their cost on its row, and its margin with them. */
     public static function refreshParent(Db $db, int $channelId, string $parent): void
     {
-        $p = $db->one('SELECT sale_ex, cost FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $parent]);
+        $p = $db->one('SELECT sale_ex, cost, units_no_cost, margin_bp FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $parent]);
         if ($p === null) {
             return;
         }
-        $rs = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(cost), 0) AS c FROM sale_order WHERE channel_id = ? AND parent_ref = ? AND paid_at IS NOT NULL '
-            . 'AND order_ref <> ?', [$channelId, $parent, $parent]) ?? ['n' => 0, 'c' => 0];
+        $rs = self::resendFigures($db, $channelId, $parent);
+        $ownOpen = (int) $db->value('SELECT COUNT(*) FROM sale_line WHERE channel_id = ? AND order_ref = ? AND cost_source IS NULL AND day IS NOT NULL AND removed_at IS NULL',
+            [$channelId, $parent]);
+        $complete = (int) $p['units_no_cost'] === 0 && $ownOpen === 0 && (int) $rs['nc'] === 0 && (int) $rs['open'] === 0;
         $db->exec('UPDATE sale_order SET resends = ?, resend_cost = ?, margin_bp = ? WHERE channel_id = ? AND order_ref = ?',
-            [(int) $rs['n'], (int) $rs['c'], ProfitMath::marginBp((int) $p['sale_ex'] - (int) $p['cost'] - (int) $rs['c'], (int) $p['sale_ex']), $channelId, $parent]);
+            [(int) $rs['n'], (int) $rs['c'], $complete ? ProfitMath::marginBp((int) $p['sale_ex'] - (int) $p['cost'] - (int) $rs['c'], (int) $p['sale_ex']) : null,
+                $channelId, $parent]);
+    }
+
+    /**
+     * The paid re-sends of $parent as stored now: how many, their cost, their units with no price and their lines waiting for a cost.
+     *
+     * @return array{n: int|string, c: int|string, nc: int|string, open: int|string}
+     */
+    private static function resendFigures(Db $db, int $channelId, string $parent): array
+    {
+        $r = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
+            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ?', [$channelId, $parent, $parent]) ?? ['n' => 0, 'c' => 0, 'nc' => 0];
+        $r['open'] = $db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ? AND l.cost_source IS NULL AND l.removed_at IS NULL',
+            [$channelId, $parent, $parent]) ?? 0;
+        return $r;
     }
 
     /** @param list<array<string, mixed>> $parcels */

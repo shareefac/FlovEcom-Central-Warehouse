@@ -8,7 +8,9 @@ declare(strict_types=1);
  * the sales that waited for it, then works out again the orders whose units came back to stock since then. Cron runs it every 10 minutes; it never runs inside a booking (a booking can never fail because of it). While
  * the setting profit.cost_refresh_on is off it does nothing (unless --force). Restartable: what is done is never done twice.
  *
- *   php bin/refresh_item_cost.php [--force] [--status]
+ *   php bin/refresh_item_cost.php [--force] [--status] [--reconcile]
+ *
+ *   --reconcile  also every unit back in stock whenever its return was booked (a full read: once a night)
  *
  * Exit codes: 0 done (also: switched off, not started yet, or another run holds the job's lock) · 2 usage · 3 cannot run.
  */
@@ -21,7 +23,7 @@ use CW\Profit\ReturnsSweep;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main(CostEngine::JOB, ['force', 'status'], 'usage: php bin/refresh_item_cost.php [--force] [--status]',
+exit(Cli::main(CostEngine::JOB, ['force', 'status', 'reconcile'], 'usage: php bin/refresh_item_cost.php [--force] [--status] [--reconcile]',
     static function (Cli $cli, array $opts): int {
         $engine = new CostEngine($cli->db);
         if (array_key_exists('status', $opts)) {
@@ -40,5 +42,9 @@ exit(Cli::main(CostEngine::JOB, ['force', 'status'], 'usage: php bin/refresh_ite
         // The sales stored before the job reached their paid time get their cost now (docs/decisions.md PR16).
         $cli->log('pending ' . json_encode((new PendingCosts($cli->db))->run(), JSON_UNESCAPED_SLASHES));
         $cli->log('returns ' . json_encode((new ReturnsSweep($cli->db))->run(), JSON_UNESCAPED_SLASHES));
+        if (array_key_exists('reconcile', $opts)) {
+            // Nightly: every unit back in stock, whenever its return was booked (docs/decisions.md PR46).
+            $cli->log('returns reconciled ' . json_encode((new ReturnsSweep($cli->db))->reconcile(), JSON_UNESCAPED_SLASHES));
+        }
         return Cli::OK;
     }, true, true));

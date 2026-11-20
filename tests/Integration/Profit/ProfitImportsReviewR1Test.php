@@ -91,12 +91,24 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         $r = (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['L1' => '20000/erp_at_sale', 'L2' => '20000/erp_at_sale'], self::costs('1'), 'its two days together: (1 + 3) / 2 a unit');
-        self::assertSame(['M1' => '10000/estimate', 'M2' => '10000/estimate'], self::costs('2'), 'a rate of 0 beside a priced one: the variant is left as it was');
-        self::assertSame(['N1' => '10000/estimate'], self::costs('3'), 'a broken day applies nothing');
+        self::assertSame(['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => 1], $r, 'a broken day stops the run before anything is written');
+        self::assertSame(['L1' => '10000/estimate', 'L2' => '10000/estimate'], self::costs('1'));
         self::assertStringContainsString('2026-04-12 refused: row 2', implode("\n", $log));
+        unlink($this->dir . '/si_2026-04-12.tsv');
+        $log = [];
+        // Asked for the second day only: order 1's rows of the first day are read with it.
+        $r = (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', '2026-04-11', '2026-04-11', true, function (string $m) use (&$log): void {
+            $log[] = $m;
+        });
+        self::assertSame(['L1' => '20000/erp_at_sale', 'L2' => '20000/erp_at_sale'], self::costs('1'), 'its two days together: (1 + 3) / 2 a unit');
+        self::assertSame(['M1' => '10000/estimate', 'M2' => '10000/estimate'], self::costs('2'), 'its last day is not asked for: left');
+        self::assertSame(1, $r['days']);
+        (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
+            $log[] = $m;
+        });
+        self::assertSame(['M1' => '10000/estimate', 'M2' => '10000/estimate'], self::costs('2'), 'a rate of 0 beside a priced one: the variant is left as it was');
         self::assertStringContainsString('rate 0 1', implode("\n", $log));
-        self::assertSame(2, $r['days']);
+        self::assertSame(['L1' => '20000/erp_at_sale', 'L2' => '20000/erp_at_sale'], self::costs('1'), 'run again: the same');
     }
 
     public function testABulkFileProvesItsStoreAndItsSumBeforeAnythingIsWritten(): void

@@ -129,7 +129,7 @@ final class ProfitSnapshotTest extends StockTestCase
         // goods: 1099/1.2 = 915.83 -> 916, 500/1.2 = 416.67 -> 417; delivery 399/1.2 = 332.5 -> 333
         self::assertSame(['1333', '210', '3', '1', '333', self::DAY, '2000'], [(string) $o['sale_ex'], (string) $o['cost'], (string) $o['units'],
             (string) $o['units_no_cost'], (string) $o['delivery_ex'], (string) $o['day'], (string) $o['vat_bp']]);
-        self::assertSame(8425, (int) $o['margin_bp'], '(1333 - 210) / 1333');
+        self::assertNull($o['margin_bp'], 'one unit has no buying price: no margin is ranked until it has one (PR39, c6)');
         $l1 = self::lineRow($site, '8001');
         self::assertSame(['cw_cost', '10500', '105', 'sale'], [$l1['cost_source'], (string) $l1['unit_cost_e4'], (string) $l1['cost'], $l1['costed_by']]);
         self::assertSame('none', self::lineRow($site, '8002')['cost_source'], 'an item with no price: none (the No buying price list)');
@@ -152,7 +152,7 @@ final class ProfitSnapshotTest extends StockTestCase
         self::assertSame(1005, (int) self::$db->value('SELECT version FROM order_snapshot WHERE order_ref = ?', ['5001']));
 
         // The item's price moves later: the line keeps the cost fixed at its sale.
-        self::price($a, 99900, '2026-11-19 11:00:00', 'receipt');
+        self::price($a, 99900, '2026-11-19 11:00:00', 'start'); // a later price, as an absolute event
         $lines[0]['refund_inc'] = 599;
         self::assertSame('stored', $s->store((int) $site->channelId, '5001', self::body($lines, ['version' => 1010]), 'api')['result']);
         $l1 = self::lineRow($site, '8001');
@@ -272,7 +272,7 @@ final class ProfitSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $a = $this->item('legacy');
         self::price($a, 10000);
-        self::price($a, 15000, '2026-11-18 00:00:00', 'receipt');
+        self::price($a, 15000, '2026-11-18 00:00:00', 'start'); // a later price, as an absolute event
         $this->listing($site, '1', $a);
         $s = $this->snapshots();
         $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '1', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'api');

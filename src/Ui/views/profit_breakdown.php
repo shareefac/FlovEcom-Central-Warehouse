@@ -18,6 +18,9 @@ foreach ($sortLinks as $sl) {
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['nothing'], \CW\Ui\Words::PROFIT['nothing_text']) ?>
 <?php else: ?>
+<?php if ($pending > 0): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
+<?php endif; ?>
 <?php if ($orderRefunds > 0): ?>
 <p class="note"><?= $say('PROFIT', 'order_refunds_note', \CW\Ui\Html::money($orderRefunds / 100)) ?></p>
 <?php endif; ?>

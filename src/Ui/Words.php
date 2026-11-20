@@ -10956,6 +10956,8 @@ final class Words
         'gateway_office' => 'Office order',
         'gateway_none' => 'Not said',
         'store_variant' => '%s: website product %s',
+        'lowest_max' => 'The lowest margin first looks at %s days at most: the days shown are the last of them.',
+        'unknown' => 'not known',
     ];
 
     public const RD_REPORTS = [

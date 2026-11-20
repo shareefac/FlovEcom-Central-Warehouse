@@ -44,30 +44,40 @@ final class ErpSalesImport
         if ($channel === null) {
             throw new \InvalidArgumentException("no store {$channelCode}");
         }
-        $files = self::files($dir, $from, $to);
+        // Every day file of the folder is read (an order's rows may be on a day outside --from / --to); --from / --to choose the orders to
+        // apply: those whose LAST day is in it (the Codex review of 57d98ad, a9).
+        $files = self::files($dir, null, null);
         $settings = new ProfitSettings($this->db);
         $until = $settings->costStartAt();
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
-        // Pass 1: each day read whole (a broken day is refused and left out of both passes); each order's last day.
+        // Pass 1: each day read whole; each order's last day. A broken day stops the whole run before anything is written: an order whose
+        // rows are on it could never be costed whole (N8).
         $last = [];
-        $ok = [];
-        $refused = 0;
+        $broken = [];
         foreach ($files as $day => $f) {
             $d = $this->read($f);
             if (isset($d['error'])) {
-                $refused++;
-                $log("{$day} refused: {$d['error']} (nothing of this day is applied; the file is left as it is)");
+                $broken[] = $day;
+                $log("{$day} refused: {$d['error']}");
                 continue;
             }
-            $ok[$day] = $f;
             foreach (array_keys($d['orders']) as $ref) {
                 $last[(string) $ref] = $day;
             }
         }
+        if ($broken !== []) {
+            $log('nothing applied: ' . count($broken) . ' day file(s) cannot be read whole (' . implode(', ', $broken) . '); export those days again, then run this again');
+            return ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => count($broken)];
+        }
+        $ok = $files;
+        $refused = 0;
         // Pass 2: the orders, each on its last day, with its rows of every day before it held until then.
         $tot = ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => $refused];
         $held = [];
         foreach ($ok as $day => $f) {
+            if ($to !== null && $day > $to) {
+                break; // an order whose last day is later is not asked for
+            }
             $d = $this->read($f);
             $r = $d['counts'] + ['cw_orders' => 0, 'cw_goods_e2' => 0, 'costed' => 0, 'no_line' => 0, 'not_in_cw' => 0, 'after_start' => 0, 'unpaid' => 0, 'rate_zero' => 0,
                 'held' => 0];
@@ -86,6 +96,9 @@ final class ErpSalesImport
                 } else {
                     $r['held']++;
                 }
+            }
+            if (($from !== null && $day < $from) || ($to !== null && $day > $to)) {
+                continue; // read for the orders it holds; its own orders are not asked for
             }
             $this->apply((int) $channel, $due, $until, $apply, $service, $r);
             $tot['days']++;

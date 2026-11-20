@@ -18680,3 +18680,47 @@ how much order-level refund they leave out. (c8) The payment way in words.
 
 **PR45.** Not changed: the lists by product, brand and supplier over a long period still add up every item-day row of it (about a million
 rows a year): a year's list takes a second or two; a month-level summary can come later if it is slow on live.
+
+### The Codex re-check of 57d98ad (`build/A/codex_r2.txt`): of the first round 25 FIXED, 15 PARTLY, 1 NOT FIXED; 10 new MEDIUM, 1 LOW; each checked in the code, shown failing first (`runs/profit_r2fix_red.log`) and fixed (PR46-PR56)
+
+**PR46.** (b2 NOT FIXED: a booking committed later than the job's window) Every run also reads the receipts, invoices and credit notes posted
+since the start that have no event at all, whatever their time (`CostEngine::unread`: by document, item_cost_event's document index; a copy
+of an ERPNext invoice and the answer to a return are left out), and folds their items again (late). The returns: every night
+`bin/refresh_item_cost.php --reconcile` reads every unit back in stock whatever the time of its return (`ReturnsSweep::reconcile`).
+
+**PR47.** (N6, a1/b1 PARTLY) When a run stops at its event limit, its mark stops a microsecond short of the first event it did not read: a sale
+paid at that moment waits for it.
+
+**PR48.** (a6 PARTLY, N2, N3) The price at a moment is the item's history up to it folded in its sources' order with the job's own rule
+(`ItemCosts::at` = `ProfitMath::fold`), so a late event changes the past as it should, not only today's price. An undo (a reversal) reads what
+its event really moved from the same fold, and undoes it only on the units it reached that can still be on hand (never more than the fewest
+units on hand since: once they sold out nothing is left to undo; a3 PARTLY). A late event and the item's folded price are written in ONE
+transaction (a run stopped between them could not finish the fold).
+
+**PR49.** (N1, a5 PARTLY) A credit of some units of a line still on its way is its value (per unit credited x units credited) spread over the
+whole line's units when they arrive; its cancellation undoes that on the receipt's units still on hand.
+
+**PR50.** (N4, a13 PARTLY) A receipt of an invoice's goods on their way is matched only to the invoice's lines that were on their way (each has
+an arrival row, made when the invoice was made final and never removed), in line order.
+
+**PR51.** (N5, b5 PARTLY) An item made after the start starts at the supplier's price (else none), never at CW's average so far: that average
+already holds the item's receipts, which the job reads again. (N10) The supplier's price is read for the items asked for only.
+
+**PR52.** (N7) A line stored on a paid order keeps the item, listing and units it was resolved to then, also while its cost waits.
+(N9, a8/b9 PARTLY) An order's guards are taken again when its first order changed while they were being taken (at most three tries, else 503
+busy). (N8, a9/b16/b17 PARTLY) A broken ERPNext day file stops the whole import before anything is written (an order with rows on it could
+never be costed whole); every day file is read, and --from / --to choose the orders whose LAST day is in them.
+
+**PR53.** (b12 PARTLY: CONTRACT change 5b, builder B) A tracking number is kept only in a carrier's own shape (Royal Mail XX123456789GB, DPD
+10 or 14 digits, Evri H + 15, UPS 1Z + 16), written as the carrier's invoice prints it (spaces and hyphens out, upper case); anything else is
+null (a phone number is no longer kept). (b14 PARTLY) A bulk file is copied aside first: what is checked and hashed is what is stored.
+
+**PR54.** (c6 PARTLY) An order with a unit (its own, or one of its re-sends') without a price, or waiting for one, has no margin
+(`sale_order.margin_bp` NULL): it is never ranked by margin and is said "incomplete"; a line with no price shows its profit and margin as
+"not known"; lists by margin put the rows with units without a price after the others; the lists by product say when units wait for their cost.
+
+**PR55.** (c2 PARTLY) Profit by order counts its orders on the first page only. The lowest margin first sorts the period's orders (bounded by
+the paid-time index, at most 93 days: a longer period is cut to its last 93 days and says so), never the whole history in margin order.
+(N11) A page cursor that is not a real time starts again from the first page.
+
+**PR56.** Left as it is (said in the README): the lists by product, brand and supplier over a long period still read every item-day row of it.
