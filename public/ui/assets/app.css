@@ -186,48 +186,50 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: 24px 0; }
   -webkit-mask-position: center; mask-position: center; -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
   -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
-.ico-dashboard { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#dashboard"); mask-image: url("icons.svg?v=891b99bdff99d7e5#dashboard"); }
-.ico-products { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#products"); mask-image: url("icons.svg?v=891b99bdff99d7e5#products"); }
-.ico-stock { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#stock"); mask-image: url("icons.svg?v=891b99bdff99d7e5#stock"); }
-.ico-purchasing { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#purchasing"); mask-image: url("icons.svg?v=891b99bdff99d7e5#purchasing"); }
-.ico-reports { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#reports"); mask-image: url("icons.svg?v=891b99bdff99d7e5#reports"); }
-.ico-approvals { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#approvals"); mask-image: url("icons.svg?v=891b99bdff99d7e5#approvals"); }
-.ico-settings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#settings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#settings"); }
-.ico-search { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#search"); mask-image: url("icons.svg?v=891b99bdff99d7e5#search"); }
-.ico-key { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#key"); mask-image: url("icons.svg?v=891b99bdff99d7e5#key"); }
-.ico-signout { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#signout"); mask-image: url("icons.svg?v=891b99bdff99d7e5#signout"); }
-.ico-plus { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#plus"); mask-image: url("icons.svg?v=891b99bdff99d7e5#plus"); }
-.ico-help { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#help"); mask-image: url("icons.svg?v=891b99bdff99d7e5#help"); }
-.ico-filter { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#filter"); mask-image: url("icons.svg?v=891b99bdff99d7e5#filter"); }
-.ico-sort { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sort"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sort"); }
-.ico-export { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#export"); mask-image: url("icons.svg?v=891b99bdff99d7e5#export"); }
-.ico-menu { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#menu"); mask-image: url("icons.svg?v=891b99bdff99d7e5#menu"); }
-.ico-more { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#more"); mask-image: url("icons.svg?v=891b99bdff99d7e5#more"); }
-.ico-bell { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#bell"); mask-image: url("icons.svg?v=891b99bdff99d7e5#bell"); }
-.ico-close { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#close"); mask-image: url("icons.svg?v=891b99bdff99d7e5#close"); }
-.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-right"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-right"); }
-.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-left"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-left"); }
-.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-down"); mask-image: url("icons.svg?v=891b99bdff99d7e5#chevron-down"); }
-.ico-check { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#check"); mask-image: url("icons.svg?v=891b99bdff99d7e5#check"); }
-.ico-user { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#user"); mask-image: url("icons.svg?v=891b99bdff99d7e5#user"); }
-.ico-home { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#home"); mask-image: url("icons.svg?v=891b99bdff99d7e5#home"); }
-.ico-goods-in { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#goods-in"); mask-image: url("icons.svg?v=891b99bdff99d7e5#goods-in"); }
-.ico-counts { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#counts"); mask-image: url("icons.svg?v=891b99bdff99d7e5#counts"); }
-.ico-orders { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#orders"); mask-image: url("icons.svg?v=891b99bdff99d7e5#orders"); }
-.ico-sales { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sales"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sales"); }
-.ico-matching { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#matching"); mask-image: url("icons.svg?v=891b99bdff99d7e5#matching"); }
-.ico-sec-home { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-home"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-home"); }
-.ico-sec-approvals { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-approvals"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-approvals"); }
-.ico-sec-items { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-items"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-items"); }
-.ico-sec-inventory { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-inventory"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-inventory"); }
-.ico-sec-purchases { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-purchases"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-purchases"); }
-.ico-sec-sales { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-sales"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-sales"); }
-.ico-sec-listings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-listings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-listings"); }
-.ico-sec-reports { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-reports"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-reports"); }
-.ico-sec-settings { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-settings"); mask-image: url("icons.svg?v=891b99bdff99d7e5#sec-settings"); }
-.ico-receive { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#receive"); mask-image: url("icons.svg?v=891b99bdff99d7e5#receive"); }
-.ico-count { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#count"); mask-image: url("icons.svg?v=891b99bdff99d7e5#count"); }
-.ico-dots { -webkit-mask-image: url("icons.svg?v=891b99bdff99d7e5#dots"); mask-image: url("icons.svg?v=891b99bdff99d7e5#dots"); }
+.ico-dashboard { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#dashboard"); mask-image: url("icons.svg?v=5bd6dbdf15661178#dashboard"); }
+.ico-products { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#products"); mask-image: url("icons.svg?v=5bd6dbdf15661178#products"); }
+.ico-stock { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#stock"); mask-image: url("icons.svg?v=5bd6dbdf15661178#stock"); }
+.ico-purchasing { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#purchasing"); mask-image: url("icons.svg?v=5bd6dbdf15661178#purchasing"); }
+.ico-reports { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#reports"); mask-image: url("icons.svg?v=5bd6dbdf15661178#reports"); }
+.ico-approvals { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#approvals"); mask-image: url("icons.svg?v=5bd6dbdf15661178#approvals"); }
+.ico-settings { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#settings"); mask-image: url("icons.svg?v=5bd6dbdf15661178#settings"); }
+.ico-search { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#search"); mask-image: url("icons.svg?v=5bd6dbdf15661178#search"); }
+.ico-key { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#key"); mask-image: url("icons.svg?v=5bd6dbdf15661178#key"); }
+.ico-signout { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#signout"); mask-image: url("icons.svg?v=5bd6dbdf15661178#signout"); }
+.ico-plus { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#plus"); mask-image: url("icons.svg?v=5bd6dbdf15661178#plus"); }
+.ico-help { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#help"); mask-image: url("icons.svg?v=5bd6dbdf15661178#help"); }
+.ico-filter { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#filter"); mask-image: url("icons.svg?v=5bd6dbdf15661178#filter"); }
+.ico-sort { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sort"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sort"); }
+.ico-export { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#export"); mask-image: url("icons.svg?v=5bd6dbdf15661178#export"); }
+.ico-menu { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#menu"); mask-image: url("icons.svg?v=5bd6dbdf15661178#menu"); }
+.ico-more { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#more"); mask-image: url("icons.svg?v=5bd6dbdf15661178#more"); }
+.ico-bell { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#bell"); mask-image: url("icons.svg?v=5bd6dbdf15661178#bell"); }
+.ico-close { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#close"); mask-image: url("icons.svg?v=5bd6dbdf15661178#close"); }
+.ico-chevron-right { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-right"); mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-right"); }
+.ico-chevron-left { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-left"); mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-left"); }
+.ico-chevron-down { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-down"); mask-image: url("icons.svg?v=5bd6dbdf15661178#chevron-down"); }
+.ico-check { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#check"); mask-image: url("icons.svg?v=5bd6dbdf15661178#check"); }
+.ico-user { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#user"); mask-image: url("icons.svg?v=5bd6dbdf15661178#user"); }
+.ico-home { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#home"); mask-image: url("icons.svg?v=5bd6dbdf15661178#home"); }
+.ico-goods-in { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#goods-in"); mask-image: url("icons.svg?v=5bd6dbdf15661178#goods-in"); }
+.ico-counts { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#counts"); mask-image: url("icons.svg?v=5bd6dbdf15661178#counts"); }
+.ico-orders { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#orders"); mask-image: url("icons.svg?v=5bd6dbdf15661178#orders"); }
+.ico-sales { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sales"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sales"); }
+.ico-matching { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#matching"); mask-image: url("icons.svg?v=5bd6dbdf15661178#matching"); }
+.ico-sec-home { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-home"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-home"); }
+.ico-sec-approvals { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-approvals"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-approvals"); }
+.ico-sec-items { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-items"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-items"); }
+.ico-sec-inventory { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-inventory"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-inventory"); }
+.ico-sec-purchases { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-purchases"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-purchases"); }
+.ico-sec-sales { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-sales"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-sales"); }
+.ico-sec-listings { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-listings"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-listings"); }
+.ico-sec-reports { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-reports"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-reports"); }
+/* Profit (0074, docs/decisions.md PR23): the reports' chart, in the section's own colour. */
+.ico-sec-profit { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-profit"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-profit"); }
+.ico-sec-settings { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-settings"); mask-image: url("icons.svg?v=5bd6dbdf15661178#sec-settings"); }
+.ico-receive { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#receive"); mask-image: url("icons.svg?v=5bd6dbdf15661178#receive"); }
+.ico-count { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#count"); mask-image: url("icons.svg?v=5bd6dbdf15661178#count"); }
+.ico-dots { -webkit-mask-image: url("icons.svg?v=5bd6dbdf15661178#dots"); mask-image: url("icons.svg?v=5bd6dbdf15661178#dots"); }
 
 /* ---------- 3. Strips (the test system, every page) and toasts ---------- */
 .strip.test-system {
@@ -280,6 +282,7 @@ p.toast.is-gone { opacity: 0; transform: translateY(8px); pointer-events: none; 
 .sec-purchases { --sec: var(--st-amber); --sec-tint: var(--sf-amber); --sec-ink: var(--st-amber); }
 .sec-sales { --sec: var(--st-green); --sec-tint: var(--sf-green); --sec-ink: var(--st-green); }
 .sec-reports { --sec: var(--st-navy); --sec-tint: var(--sf-blue); --sec-ink: var(--st-navy); }
+.sec-profit { --sec: var(--st-green); --sec-tint: var(--sf-green); --sec-ink: var(--st-green); }
 .sec-settings { --sec: var(--ink-body); --sec-tint: var(--sf-grey); --sec-ink: var(--ink-body); }
 
 /* The sidebar: the CW tile, the name and the stores; the find box; one row per section (42 px, its 28 px icon chip in its tint, white on
@@ -1175,7 +1178,7 @@ details.help > :last-child:not(summary) { margin-bottom: 0; }
   html.js details.drawer[open]:not(.is-inline) > summary::before { display: none; }
   html.js details.drawer[open]:not(.is-inline) > summary::after {
     content: ""; flex: none; width: 20px; height: 20px; padding: 10px; border-radius: var(--r-10); background: var(--ink-muted);
-    -webkit-mask: url("icons.svg?v=891b99bdff99d7e5#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=891b99bdff99d7e5#close") center / 20px 20px no-repeat;
+    -webkit-mask: url("icons.svg?v=5bd6dbdf15661178#close") center / 20px 20px no-repeat; mask: url("icons.svg?v=5bd6dbdf15661178#close") center / 20px 20px no-repeat;
   }
   html.js details.drawer[open]:not(.is-inline) > :not(summary) { margin-left: 24px; margin-right: 24px; }
   html.js details.drawer[open]:not(.is-inline) > summary + * { margin-top: 20px; }

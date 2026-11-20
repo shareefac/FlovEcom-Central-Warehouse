@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class PermissionsTest extends TestCase
 {
     private const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance'];
 
     public function testTheFifteenRolesAndTheirDescriptionsAndGroups(): void
     {
@@ -44,8 +44,13 @@ final class PermissionsTest extends TestCase
             return array_map(static fn (string $v): string => trim($v, " '\n"), explode(',', $m[1]));
         };
         self::assertSame(array_slice(Permissions::ROLES, 0, 14), $enum('0007_staff_roles.sql'));
-        self::assertSame(Permissions::ROLES, $enum('0069_people_manager.sql'));
+        self::assertSame(array_slice(Permissions::ROLES, 0, 15), $enum('0069_people_manager.sql'));
         self::assertSame('people_manager', Permissions::ROLES[14], 'added at the end: the stored values keep their numbers');
+        // 0074 (profit step 1, docs/decisions.md PR23): finance after it, at the end again.
+        self::assertSame(Permissions::ROLES, $enum('0074_profit.sql'));
+        self::assertSame('finance', Permissions::ROLES[15]);
+        self::assertSame(['finance'], Permissions::MAP['profit.view'], 'nobody else sees the profit until the owner says who');
+        self::assertSame(['catalogue.view', 'reference.view', 'profit.view'], Permissions::permissionsOf(['finance']), 'Finance looks at the profit and nothing else');
     }
 
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void

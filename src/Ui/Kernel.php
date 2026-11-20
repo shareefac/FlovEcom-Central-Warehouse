@@ -40,6 +40,7 @@ use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
+use CW\Ui\Controller\ProfitController;
 use CW\Ui\Controller\ReportsController;
 use CW\Ui\Controller\ReservationsController;
 use CW\Ui\Controller\SalesController; // pack D
@@ -635,6 +636,14 @@ final class Kernel
         // the valuation as a PDF (docs/decisions.md AO5)
         $r->add('GET', '/ui/reports/stock-value.pdf', ReportsController::PAGES['stock-value'], $reports->pdf(...));
         // ---- end Pack E
+        // ---- Profit step 1 (0074; docs/decisions.md PR23-PR28): read only, the Finance job (profit.view).
+        $profit = new ProfitController();
+        $r->add('GET', ProfitController::PATH, ProfitController::PERM, $profit->summary(...));
+        $r->add('GET', ProfitController::PATH . '/periods', ProfitController::PERM, $profit->periods(...));
+        $r->add('GET', ProfitController::PATH . '/by', ProfitController::PERM, $profit->breakdown(...));
+        $r->add('GET', ProfitController::PATH . '/orders', ProfitController::PERM, $profit->orders(...));
+        $r->add('GET', ProfitController::PATH . '/orders/view', ProfitController::PERM, $profit->order(...));
+        $r->add('GET', ProfitController::PATH . '/no-cost', ProfitController::PERM, $profit->noCost(...));
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));

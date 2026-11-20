@@ -221,6 +221,14 @@ final class Sections
             'slow_stock' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/slow-stock', 'match' => ['/ui/reports/slow-stock*']]]],
             'sales_by_store' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/sales-by-store', 'match' => ['/ui/reports/sales-by-store*']]]],
         ]],
+        // ---- Profit step 1 (0074; docs/decisions.md PR23): what each order sold for, cost to buy and the margin. Read only, the Finance job.
+        'profit' => ['tabs' => [
+            'profit_summary' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit', 'match' => ['/ui/profit']]]],
+            'profit_periods' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/periods', 'match' => ['/ui/profit/periods*']]]],
+            'profit_breakdown' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/by', 'match' => ['/ui/profit/by*']]]],
+            'profit_orders' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/orders', 'match' => ['/ui/profit/orders*']]]],
+            'profit_no_cost' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/no-cost', 'match' => ['/ui/profit/no-cost*']]]],
+        ]],
         // Settings: ONE entry for every settings page (no sub-items); each page one of its choices, the audit log last (docs/decisions.md RD7).
         'settings' => ['tabs' => [
             'settings' => ['pages' => [
@@ -258,12 +266,12 @@ final class Sections
     /** The sprite's icon of each section (its chip in the sidebar) and of each phone bar entry (ico-<name>: no underscore). */
     public const ICON = [
         'home' => 'sec-home', 'approvals' => 'sec-approvals', 'items' => 'sec-items', 'inventory' => 'sec-inventory', 'purchases' => 'sec-purchases',
-        'sales' => 'sec-sales', 'listings' => 'sec-listings', 'reports' => 'sec-reports', 'settings' => 'sec-settings',
+        'sales' => 'sec-sales', 'listings' => 'sec-listings', 'reports' => 'sec-reports', 'profit' => 'sec-profit', 'settings' => 'sec-settings',
         'receive' => 'receive', 'count' => 'count', 'more' => 'dots',
     ];
 
     /** The sections whose list pages keep their figure tiles (the owner's rule of 30 Oct 2026: figures only on Home and the reports). */
-    public const FIGURES = ['home', 'reports'];
+    public const FIGURES = ['home', 'reports', 'profit'];
 
     /**
      * Where a request belongs: the section, entry ("tab") and page whose `match` fits the path (and query) best, or null (the password
