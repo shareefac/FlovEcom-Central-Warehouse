@@ -660,6 +660,18 @@ final class Queries
         'not_matched' => "cl.status IN ('unmapped', 'suggested') AND NOT EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id) AND "
             . self::NOT_WAITING,
     ];
+    /**
+     * Store Products' All (docs/decisions.md HI1): every state but Ignored, the opposite of STATE_WHERE['ignored'] (a product waiting for a
+     * second OK stays: its status may be 'ignored'). The status is read from the (channel_id, status) index; the waiting decision is looked
+     * up by its unique key for an ignored row only (the OR stops at the status of every other row).
+     */
+    private const ALL_WHERE = "(cl.status <> 'ignored' OR EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id))";
+
+    /** All's count (HI1): every state of storeStateCounts() but Ignored. @param array<string, int> $counts */
+    public static function storeAllCount(array $counts): int
+    {
+        return array_sum($counts) - ($counts['ignored'] ?? 0);
+    }
 
     /**
      * How many of a store's website products are in each state (STORE_STATES), from three narrow reads: the listings by status (the
@@ -703,9 +715,13 @@ final class Queries
      * says how many rows of this state and search are left out: from $hidden without a search, else from the search's own one pass
      * (each id it finds says whether it is hidden: one more column, no second pass).
      *
+     * All ($state null) leaves out the products whose state is Ignored, with or without a search, whatever the search names (HI1: the
+     * Ignored state lists them); its total is storeAllCount(), and `ignored` says how many of All's rows of this search are left out:
+     * $counts['ignored'] without a search, else from the search's own one pass (one more column). 0 for every other state.
+     *
      * @param array<string, int>|null $counts
      * @param array{all: int, open: int, new: int}|null $hidden
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, hidden: int}
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, hidden: int, ignored: int}
      */
     public function storeProducts(int $channelId, ?string $state, string $q, string $sort, int $page, ?array $counts = null, ?array $hidden = null): array
     {
@@ -730,27 +746,47 @@ final class Queries
         $hint = self::UNITS_HINT;
         $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
         $left = 0;
+        $ignored = 0;
         if ($q !== '') {
             // A search reads the profile of every website product of the store: ONE pass gives every id it finds, in the page's
-            // order, so the count and the page come from it (two passes before: a COUNT, then the page). Each says whether it is shown.
-            $found = $this->db->all('SELECT ' . $hint . 'cl.id' . ($shown === '' ? ', 1' : ', ' . $shown) . ' AS shown ' . $from . $order, [...$shownParams, ...$params]);
-            $all = array_map(static fn (array $r): int => (int) $r['id'], array_values(array_filter($found, static fn (array $r): bool => (int) $r['shown'] === 1)));
-            $left = count($found) - count($all);
+            // order, so the count and the page come from it (two passes before: a COUNT, then the page). Each says whether it is shown,
+            // and on All whether it is Ignored (HI1: left out, and counted for the line).
+            $found = $this->db->all('SELECT ' . $hint . 'cl.id' . ($shown === '' ? ', 1' : ', ' . $shown) . ' AS shown, '
+                . ($state === null ? '(' . self::STATE_WHERE['ignored'] . ')' : '0') . ' AS ign ' . $from . $order, [...$shownParams, ...$params]);
+            $all = [];
+            foreach ($found as $r) {
+                if ((int) $r['ign'] === 1) {
+                    $ignored++;
+                } elseif ((int) $r['shown'] !== 1) {
+                    $left++;
+                } else {
+                    $all[] = (int) $r['id'];
+                }
+            }
             $total = count($all);
             $pages = max(1, (int) ceil($total / self::PER_PAGE));
             $page = min(max(1, $page), $pages);
             $ids = array_slice($all, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
         } else {
+            if ($state === null) {
+                // HI1: All leaves out the ignored products (its count below is storeAllCount(); the line says how many: theirs)
+                $where[] = self::ALL_WHERE;
+                $ignored = $counts !== null ? ($counts['ignored'] ?? 0)
+                    : (int) $this->db->value('SELECT COUNT(*) FROM channel_listing cl WHERE cl.channel_id = ? AND ' . self::STATE_WHERE['ignored'], [$channelId]);
+                // HI4: the store's entries of the (channel_id, status) index hold what the condition reads (status, id): named, as without
+                // the hint MySQL read every row of the store by its unique (store, option number) index (EXPLAIN on the test machine)
+                $hint = '/*+ INDEX(lp ix_listing_profile_units) INDEX(cl ix_channel_listing_status) */ ';
+            }
             if ($shown !== '') {
                 $where[] = $shown;
                 array_push($params, ...$shownParams);
-                $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
                 $left = self::unsoldOfState($hidden ?? ['all' => 0, 'open' => 0, 'new' => 0], $state);
                 // the store's entries of the index of 0051 hold all the listing's columns the conditions read (status, first seen, id)
                 $hint = '/*+ INDEX(lp ix_listing_profile_units) INDEX(cl ix_channel_listing_unsold) */ ';
             }
+            $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
             if ($counts !== null) {
-                $total = $state === null ? array_sum($counts) : ($counts[$state] ?? 0);
+                $total = $state === null ? self::storeAllCount($counts) : ($counts[$state] ?? 0);
             } else {
                 // Without a text the profile is not read: the store's listings by the (channel_id, status) index.
                 $total = (int) $this->db->value('SELECT COUNT(*) FROM channel_listing cl WHERE ' . implode(' AND ', $where), $params);
@@ -769,7 +805,7 @@ final class Queries
             . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id WHERE cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . $order,
             $ids,
         );
-        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'hidden' => $left];
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'hidden' => $left, 'ignored' => $ignored];
     }
 
     // ------------------------------------------------------------------------------------------

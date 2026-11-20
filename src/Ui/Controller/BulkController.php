@@ -103,8 +103,13 @@ final class BulkController
             return $ctx->error($e->httpStatus, $e->errorCode, $text, $back);
         }
         // The result page of a match-strength list leads back to the list as it was shown (U140): what it showed travels in the
-        // address, as By Item's choices do, and is read there as the list reads it.
-        return HtmlResponse::redirect(Html::url('/ui/review/batches/' . $r['batch_id'], ['show' => $source === 'review' ? self::shown($req->field('show')) : null]));
+        // address, as By Item's choices do, and is read there as the list reads it. Store Products' the same (docs/decisions.md HI3:
+        // its choice, sort, search and page, so a batch done on the Ignored choice leads back to it, not to All, which leaves them out).
+        return HtmlResponse::redirect(Html::url('/ui/review/batches/' . $r['batch_id'], match ($source) {
+            'review' => ['show' => self::shown($req->field('show'))],
+            'store' => self::storeList($req->field('state'), $req->field('sort'), $req->field('q'), $req->field('page')),
+            default => [],
+        }));
     }
 
     /** The batch page: what was asked, what became of every row (done, sent to Second approval, skipped with why), and the way back. */
@@ -157,7 +162,8 @@ final class BulkController
         $asked = (int) $b['rows_asked'];
         $from = (string) $b['source'];
         $list = match ($from) {
-            'store' => [Html::url('/ui/review/store', ['channel' => $b['channel_code']]), Words::MENU['store_products']],
+            'store' => [Html::url('/ui/review/store', ['channel' => $b['channel_code']]
+                + self::storeList($ctx->req->param('state'), $ctx->req->param('sort'), $ctx->req->param('q'), $ctx->req->param('page'))), Words::MENU['store_products']],
             'item' => [self::itemList($ctx), Words::MENU['by_product']],
             'new' => [Html::url(NewVariantsController::PATH, ['channel' => $b['channel_code']]), Words::MENU['new_variants']],
             default => [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code'], 'show' => self::shown($ctx->req->param('show'))]),
@@ -301,9 +307,8 @@ final class BulkController
         $req = $ctx->req;
         $channel = self::channel($ctx, $req->field('channel'));
         if ($source === 'store') {
-            return [Html::url('/ui/review/store', ['channel' => $channel['code'] ?? null, 'state' => self::opt($req->field('state'), Queries::STORE_STATES),
-                'sort' => self::opt($req->field('sort'), array_keys(Queries::STORE_SORTS)), 'q' => self::text($req->field('q')),
-                'page' => UiRequest::id($req->field('page'))]), Words::MENU['store_products']];
+            return [Html::url('/ui/review/store', ['channel' => $channel['code'] ?? null]
+                + self::storeList($req->field('state'), $req->field('sort'), $req->field('q'), $req->field('page'))), Words::MENU['store_products']];
         }
         if ($source === 'new') {
             // The period as the list wrote it (`all` or a number of days; the list itself checks it is one of its own).
@@ -321,6 +326,18 @@ final class BulkController
             'min' => preg_match('/^[0-9]{1,6}$/D', (string) $req->field('min')) === 1 && (int) $req->field('min') > 0 ? (int) $req->field('min') : null,
             'show' => self::shown($req->field('show')), 'q' => self::text($req->field('q')), 'page' => UiRequest::id($req->field('page'))]),
             Words::of('BAND_TITLE', $band)];
+    }
+
+    /**
+     * Store Products as the person had it (its choice, sort, search and page), each value as the list reads it: the way back of a refused or
+     * confirmed request, and of the batch page (HI3).
+     *
+     * @return array{state: ?string, sort: ?string, q: ?string, page: ?int}
+     */
+    private static function storeList(?string $state, ?string $sort, ?string $q, ?string $page): array
+    {
+        return ['state' => self::opt($state, Queries::STORE_STATES), 'sort' => self::opt($sort, array_keys(Queries::STORE_SORTS)), 'q' => self::text($q),
+            'page' => UiRequest::id($page)];
     }
 
     /** What a match-strength list showed, as its address writes it (Queries::SHOWS; nothing for every row or an unknown word). */

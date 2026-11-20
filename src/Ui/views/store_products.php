@@ -3,7 +3,8 @@
 // (DC27's pop-over: the store, the state, the sort: the store tabs, the state tabs and the Sort pop-over before), Clear at the right; then the page's
 // website products grouped by their state, each group its colour and count over a card with the coloured edge, the state the solid cell;
 // a row's Check & match and Open at its end; "Select all on this page" and the bulk bar where a bulk action applies. A store product's
-// decision is its own page (TP_Match, W12.1).
+// decision is its own page (TP_Match, W12.1). At the end, before the pager, the quiet lines of what All leaves out: the old products not
+// sold in a year (HU3) and the ignored ones (HI2), each with its one link.
 ?>
 <?= $head(\CW\Ui\Words::MENU['store_products'], intro: 'store_products', look: $lookOnly) ?>
 <?php if ($store === null): ?>
@@ -57,6 +58,8 @@
 <?php if ($rows === []): ?>
 <?php if ($text !== '' || $state !== null): ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_filter'], \CW\Ui\Words::STORE_PRODUCTS['empty_filter_text'] . ($text !== '' ? ' ' . \CW\Ui\Words::FIND['try'] : ''), $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?php elseif ($ignoredLine !== null || ($unsold !== null && !$unsoldShown)): ?>
+<?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_hidden'], \CW\Ui\Words::STORE_PRODUCTS['empty_hidden_text']) ?>
 <?php else: ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty'], \CW\Ui\Words::STORE_PRODUCTS['empty_text']) ?>
 <?php endif; ?>
@@ -148,6 +151,9 @@
 <?php endif; ?>
 <?php if ($unsold !== null): ?>
 <p class="muted unsold-line" data-unsold><?= $e($unsold['text']) ?> <a href="<?= $e($unsold['href']) ?>"><?= $e($unsold['link']) ?></a></p>
+<?php endif; ?>
+<?php if ($ignoredLine !== null): ?>
+<p class="muted ignored-line" data-ignored><?= $e($ignoredLine['text']) ?> <a href="<?= $e($ignoredLine['href']) ?>"><?= $e($ignoredLine['link']) ?></a></p>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>
