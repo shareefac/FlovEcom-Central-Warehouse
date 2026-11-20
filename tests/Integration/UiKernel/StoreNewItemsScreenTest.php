@@ -182,13 +182,14 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
         self::assertSame(['pick_' . $h1, 'pick_' . $h2, 'pick_' . $other],
             array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), iterator_to_array($xp->query('//input[@data-bulk-row]'))));
         // A matching lead's bar has the new action, which opens the preview; the others keep their address.
-        self::assertSame(['ignore' => '', 'unignore' => '', 'send_back' => '', 'new_item' => '/ui/review/store/new-items'], self::bar($page));
+        // (docs/decisions.md HI7) Not matched holds no ignored row: no "take off the ignored list".
+        self::assertSame(['ignore' => '', 'send_back' => '', 'new_item' => '/ui/review/store/new-items'], self::bar($page));
         self::assertSame(Words::STORE_NEW['button'], self::squash($xp->evaluate('string(//div[@data-bulkbar]//button[@value="new_item"])')));
         self::assertStringContainsString(Words::STORE_NEW['hint'], self::squash($page->text()));
         // A matcher's bar has not.
         $matcher = $this->signIn($this->uiUser('mapper'));
         $theirs = $matcher->get('/ui/review/store', ['channel' => 'vbig', 'state' => 'not_matched']);
-        self::assertSame(['ignore' => '', 'unignore' => '', 'send_back' => ''], self::bar($theirs));
+        self::assertSame(['ignore' => '', 'send_back' => ''], self::bar($theirs));
         self::assertStringNotContainsString(Words::STORE_NEW['hint'], self::squash($theirs->text()));
     }
 
@@ -292,8 +293,9 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
         $form = $preview->form('/ui/review/store/new-items/apply');
         $done = $web->post('/ui/review/store/new-items/apply', $form);
         self::assertSame(303, $done->status, $done->describe() . implode("\n", self::$log));
-        self::assertMatchesRegularExpression('#^/ui/review/batches/([0-9]+)$#', (string) $done->location());
-        $batch = (int) substr((string) $done->location(), strlen('/ui/review/batches/'));
+        // (docs/decisions.md HI6, Codex review of 17d1c52, MEDIUM) the batch page's address carries the list the rows were ticked on
+        self::assertMatchesRegularExpression('#^/ui/review/batches/([0-9]+)\?state=not_matched&q=hayati$#', (string) $done->location());
+        $batch = (int) substr((string) parse_url((string) $done->location(), PHP_URL_PATH), strlen('/ui/review/batches/'));
         self::assertSame(['new_item', 'store'], array_values(self::$db->one('SELECT action, source FROM mapping_batch WHERE id = ?', [$batch])));
 
         // One item per row, made from the variant's own details, matched with 1 sale = 1.
@@ -319,12 +321,13 @@ final class StoreNewItemsScreenTest extends KernelUiTestCase
             self::assertContains('/ui/items/' . $this->link($lid)['sku_id'], $result->hrefs(), 'a link to each new item');
         }
         self::assertStringContainsString(Words::STORE_NEW['result_what'], $text);
-        self::assertSame('/ui/review/store?channel=vbig', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'));
+        self::assertSame('/ui/review/store?channel=vbig&state=not_matched&q=hayati', (new \DOMXPath($result->dom()))->evaluate('string(//p[@class="crumbs" or contains(@class, "ph-back")]/a/@href)'),
+            'back to the list the rows were ticked on (HI6), not to the store\'s All');
 
         // The same form again (a double click, Back and send): the same batch page, nothing made or recorded twice.
         $counts = self::counts();
         $again = $web->post('/ui/review/store/new-items/apply', $form);
-        self::assertSame([303, '/ui/review/batches/' . $batch], [$again->status, $again->location()], $again->describe());
+        self::assertSame([303, '/ui/review/batches/' . $batch . '?state=not_matched&q=hayati'], [$again->status, $again->location()], $again->describe());
         self::assertSame($counts, self::counts());
         // The same key with other rows is no form of ours: refused, nothing saved.
         $other = $form;

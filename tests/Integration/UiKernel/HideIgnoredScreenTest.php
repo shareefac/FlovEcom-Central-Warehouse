@@ -270,6 +270,8 @@ final class HideIgnoredScreenTest extends KernelUiTestCase
         self::assertNull(self::unsoldLine($page), 'nothing old is hidden here: the ignored products are not "not sold in a year"');
         self::assertSame(0, self::xp($page)->query('//main//details[contains(@class, "help")]')->length, 'no help to unfold');
         self::assertStringNotContainsString('Nic Nic 10 pack', $page->text(), 'their names are nowhere on All');
+        // (HI7, Codex review of 17d1c52, LOW) All holds no ignored row, so it offers no "take off the ignored list": every row it took was skipped.
+        self::assertSame(['ignore', 'send_back'], self::barActions($page), 'All: ignore and send back only');
 
         // The Ignored choice lists them with its count, each can be ticked, and the bar takes them off the ignored list.
         $ign = self::open($web, (string) $line['href']);
@@ -279,7 +281,10 @@ final class HideIgnoredScreenTest extends KernelUiTestCase
         self::assertSame(3, self::pills($ign)[Words::STORE_STATE['ignored']]);
         self::assertSame(4, self::pills($ign)[Words::STORE_STATE['all']], 'All is counted the same from every choice');
         self::assertSame(self::sorted($nic), self::tickable($ign), 'each can be ticked');
-        self::assertContains('unignore', self::barActions($ign), 'take off the ignored list');
+        self::assertSame(['ignore', 'unignore', 'send_back'], self::barActions($ign), 'take off the ignored list, with every action it had');
+        foreach (['suggested', 'not_matched'] as $state) {
+            self::assertSame(['ignore', 'send_back'], self::barActions($web->get(self::STORE, ['channel' => 'vapeandgo', 'state' => $state])), "{$state}: no ignored row, no unignore");
+        }
         self::assertNull(self::ignoredLine($ign), 'no line where they are listed');
         foreach (['waiting', 'quarantined', 'linked', 'suggested', 'not_matched'] as $state) {
             $r = $web->get(self::STORE, ['channel' => 'vapeandgo', 'state' => $state]);
@@ -339,12 +344,18 @@ final class HideIgnoredScreenTest extends KernelUiTestCase
         self::assertSame(['channel' => 'vapeandgo', 'state' => 'ignored', 'sort' => 'sold_365', 'q' => 'nic nic'], self::queryOf((string) self::ignoredLine($sorted)['href']));
         $onlyIgnored = $web->get(self::STORE, ['channel' => 'vapeandgo', 'q' => 'parent page']);
         self::assertSame([], self::storeRows($onlyIgnored));
-        self::assertStringContainsString(Words::STORE_PRODUCTS['empty_filter'], $onlyIgnored->text(), 'nothing listed: the empty list says so');
+        // (HI8, Codex review of 17d1c52, LOW) nothing listed because it is ignored: the hidden words, never "check the spelling"
+        self::assertStringContainsString(Words::STORE_PRODUCTS['empty_hidden'], $onlyIgnored->text(), 'nothing listed: the empty list says why');
+        self::assertStringNotContainsString(Words::FIND['try'], $onlyIgnored->text(), 'the search found it: no spelling hint');
+        self::assertStringNotContainsString(Words::STORE_PRODUCTS['empty_filter'], $onlyIgnored->text());
+        self::assertSame(Words::QUEUE['clear'], self::squash(self::xp($onlyIgnored)->evaluate('string(//main//*[contains(@class, "empty")]//a)')), 'the search can be cleared');
         self::assertSame(self::ignoredWords(1), self::ignoredLine($onlyIgnored)['text'] ?? null, 'and the line says where it is');
         self::assertSame([$parent], self::storeRows(self::open($web, (string) self::ignoredLine($onlyIgnored)['href'])));
         // Its exact store ID does not bring it back to All either: the line leads to it.
         $exact = $web->get(self::STORE, ['channel' => 'vapeandgo', 'q' => 'N10']);
         self::assertSame([], self::storeRows($exact));
+        self::assertStringContainsString(Words::STORE_PRODUCTS['empty_hidden'], $exact->text());
+        self::assertStringNotContainsString(Words::FIND['try'], $exact->text(), 'its exact ID was found: no spelling hint');
         self::assertSame(self::ignoredWords(1), self::ignoredLine($exact)['text'] ?? null);
         self::assertSame([$nic10], self::storeRows(self::open($web, (string) self::ignoredLine($exact)['href'])));
         // A search that leaves nothing out says nothing.
@@ -398,6 +409,11 @@ final class HideIgnoredScreenTest extends KernelUiTestCase
         self::assertSame(['channel' => 'electrofag', 'q' => 'kit', 'unsold' => '1'], self::queryOf((string) self::unsoldLine($found)['href']));
         self::assertSame(self::ignoredWords(2), self::ignoredLine($found)['text'] ?? null);
         self::assertSame(['channel' => 'electrofag', 'state' => 'ignored', 'q' => 'kit'], self::queryOf((string) self::ignoredLine($found)['href']));
+        $onlyOld = $web->get(self::STORE, ['channel' => 'electrofag', 'q' => 'old unsold']);
+        self::assertSame([], self::storeRows($onlyOld));
+        self::assertSame(self::unsoldWords(1), self::unsoldLine($onlyOld)['text'] ?? null);
+        self::assertStringContainsString(Words::STORE_PRODUCTS['empty_hidden'], $onlyOld->text(), 'found, but hidden as old: the hidden words (HI8)');
+        self::assertStringNotContainsString(Words::FIND['try'], $onlyOld->text());
         $foundShown = $web->get(self::STORE, ['channel' => 'electrofag', 'q' => 'kit', 'unsold' => '1']);
         self::assertSame([$oldUnsold, $new], self::storeRows($foundShown));
         self::assertSame(self::ignoredWords(2), self::ignoredLine($foundShown)['text'] ?? null);
@@ -510,6 +526,81 @@ final class HideIgnoredScreenTest extends KernelUiTestCase
         $after = self::open($web, $back);
         self::assertSame([$nic], self::storeRows($after));
         self::assertSame(self::ignoredWords(2), self::ignoredLine($after)['text'] ?? null);
+    }
+
+    /**
+     * (HI5, Codex review of 17d1c52, MEDIUM) Another person's Ignore while All is read: All's counts, its page and its rows are ONE moment
+     * (Snapshot::read), so a page the pager names is never empty, and a row ignored between the page's ids and its details is never drawn
+     * as Ignored on All. The other person's change is a commit on another connection between two of the page's statements.
+     */
+    public function testAnIgnoreByAnotherPersonWhileAllIsReadNeverLeavesAnEmptyPageOrAnIgnoredRow(): void
+    {
+        $site = $this->site('vapebig', 'shadow');
+        $ids = [];
+        for ($i = 1; $i <= 51; $i++) {
+            $ids[] = $this->profiled($site, sprintf('R%03d', $i), ['product_title' => sprintf('Race product %03d', $i)]);
+        }
+        $web = $this->signIn($this->uiUser('viewer'));
+        $race = function (string $after, int $ignore, array $query) use ($web): UiResponse {
+            $done = false;
+            self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [static function (string $sql) use ($after, $ignore, &$done): void {
+                if (!$done && str_contains((string) preg_replace('/\s+/', ' ', $sql), $after)) {
+                    $done = true;
+                    self::$db->exec("UPDATE channel_listing SET status = 'ignored' WHERE id = ?", [$ignore]); // another person, committed
+                }
+            }]]);
+            try {
+                $page = $web->get(self::STORE, ['channel' => 'vapebig'] + $query);
+            } finally {
+                self::$appDb->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+            }
+            self::assertTrue($done, 'the other person acted while the page was read');
+            self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
+            return $page;
+        };
+        // 1. Ignored after the counts, before the page: page 2 of 2 still has its row.
+        $p2 = $race('SELECT status, COUNT(*) AS n FROM channel_listing WHERE channel_id = ? GROUP BY status', $ids[0], ['page' => '2']);
+        $rows = self::orderedRows($p2);
+        self::assertNotSame([], $rows, 'never an empty page');
+        $all = self::pills($p2)[Words::STORE_STATE['all']];
+        preg_match('/(\d+)\D+(\d+)/', (string) self::pagerText($p2), $m);
+        $at = (int) ($m[1] ?? 1);
+        self::assertSame(min(50, $all - 50 * ($at - 1)), count($rows), 'the rows are the ones the count and the pager say');
+        self::assertSame((int) ceil($all / 50), (int) ($m[2] ?? 1), 'the pager counts the same rows as All');
+        self::$db->exec("UPDATE channel_listing SET status = 'unmapped' WHERE id = ?", [$ids[0]]);
+        // 2. Ignored after the page's ids, before their details: never drawn as Ignored on All.
+        $p1 = $race('FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE', $ids[1], []);
+        $chips = array_map(static fn (\DOMNode $c): string => self::squash($c->textContent), iterator_to_array(self::xp($p1)->query('//td[contains(@class, "c-status")]/span[@class="chip"]')));
+        self::assertNotContains(Words::STORE_STATE['ignored'], $chips, 'no Ignored row on All');
+        self::assertCount(50, self::orderedRows($p1));
+        self::assertSame('ignored', $this->listingStatus($ids[1]), 'the other person\'s Ignore is kept');
+        // 3. The same with a search (its one pass, then the details).
+        self::$db->exec("UPDATE channel_listing SET status = 'unmapped' WHERE id = ?", [$ids[1]]);
+        $s1 = $race('AS ign FROM channel_listing cl LEFT JOIN listing_profile lp', $ids[2], ['q' => 'race product']);
+        $chips = array_map(static fn (\DOMNode $c): string => self::squash($c->textContent), iterator_to_array(self::xp($s1)->query('//td[contains(@class, "c-status")]/span[@class="chip"]')));
+        self::assertNotContains(Words::STORE_STATE['ignored'], $chips, 'no Ignored row on All after a search');
+    }
+
+    /**
+     * (HI5) The list's own guard: counts read apart from the rows (a caller's, or an older one) that promise a page the rows do not hold
+     * give the last page that has rows, its total counted from the rows, never an empty page with a pager.
+     */
+    public function testAPageTheCountsPromiseButTheRowsDoNotHoldIsTheLastPageWithRows(): void
+    {
+        $site = $this->site('vapebig', 'shadow');
+        $ids = [];
+        for ($i = 1; $i <= 50; $i++) {
+            $ids[] = $this->profiled($site, sprintf('G%03d', $i), ['product_title' => sprintf('Guard product %03d', $i)]);
+        }
+        $q = new Queries(self::$db);
+        $counts = $q->storeStateCounts((int) $site->channelId);
+        self::assertSame(50, $counts['not_matched']);
+        $stale = ['not_matched' => 60] + $counts; // ten more than there are, as an older count would say
+        foreach ([null, 'not_matched'] as $state) {
+            $r = $q->storeProducts((int) $site->channelId, $state, '', 'sold_30', 2, $stale);
+            self::assertSame([1, 1, 50], [$r['page'], $r['pages'], $r['total']], ($state ?? 'All') . ': the last page with rows, counted from the rows');
+            self::assertSame($ids, array_map(static fn (array $row): int => (int) $row['listing_id'], $r['rows']));
+        }
     }
 
     /**

@@ -452,7 +452,8 @@ final class BulkScreensTest extends KernelUiTestCase
         // Only the rows a store action applies to can be ticked: a matched, waiting or on-hold one changes on its own page.
         $boxes = array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'), iterator_to_array($xp->query('//input[@data-bulk-row]')));
         self::assertSame(['pick_' . $suggested, 'pick_' . $unmatched], $boxes);
-        self::assertSame(['ignore', 'unignore', 'send_back'], self::barActions($page));
+        // All holds no ignored row, so it offers no "take off the ignored list" (docs/decisions.md HI7); the Ignored choice does.
+        self::assertSame(['ignore', 'send_back'], self::barActions($page));
         // The state filter, with each state's count, and the sort.
         $pills = array_map(static fn (\DOMNode $a): string => trim((string) preg_replace('/\s+/', ' ', $a->textContent)), iterator_to_array($xp->query('//select[@name="state"]/option')));
         self::assertSame(['All (5)', 'Waiting for a second OK (1)', 'On hold (1)', 'Ignored (1)', 'Matched (1)', 'Suggested (1)', 'Not matched (1)'], $pills, 'the Show row\'s state (W12.6)');
@@ -460,6 +461,7 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(['Ignored one'], self::titles($ignoredList));
         self::assertSame(['pick_' . $ignored], array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
             iterator_to_array((new \DOMXPath($ignoredList->dom()))->query('//input[@data-bulk-row]'))), 'ticked on the Ignored choice');
+        self::assertSame(['ignore', 'unignore', 'send_back'], self::barActions($ignoredList));
         self::assertSame(['Suggested one', 'Unmatched one', 'Waiting one', 'On hold one', 'Linked one'],
             self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'sort' => 'sold_365'])), 'by state, then the sort');
         self::assertSame(['Unmatched one'], self::titles($web->get('/ui/review/store', ['channel' => 'alt', 'q' => 'Unmatch'])));
