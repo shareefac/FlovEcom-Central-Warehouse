@@ -1,0 +1,87 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Profit;
+
+use CW\Db;
+
+/**
+ * The ONE deliberate re-cost of sales already stored (bin/recost_sales.php; docs/decisions.md PR16): the lines of the orders paid on the
+ * days asked for, whose cost came from the sources asked for (default: none), get the buying price at the time they were paid again
+ * (ItemCosts::at, from today's history), with costed_by `recost`. A line with no item takes the item its listing is linked to now. Each
+ * order through its own service (OrderSnapshots::recompute), so its totals and the day summaries follow. A cost is never changed silently:
+ * only this command and the ERPNext history import change a fixed cost.
+ */
+final class RecostSales
+{
+    public const SOURCES = ['none', 'estimate', 'cw_cost', 'erp_at_sale'];
+
+    /** @param (\Closure(): \DateTimeImmutable)|null $clock */
+    public function __construct(private readonly Db $db, private readonly ?\Closure $clock = null)
+    {
+    }
+
+    /**
+     * @param list<string> $sources
+     * @return array{orders: int, lines: int, moves: array<string, int>}
+     */
+    public function run(string $from, string $to, array $sources, ?string $channelCode, bool $apply): array
+    {
+        foreach ($sources as $s) {
+            if (!in_array($s, self::SOURCES, true)) {
+                throw new \InvalidArgumentException("unknown cost source {$s}");
+            }
+        }
+        $channel = null;
+        if ($channelCode !== null) {
+            $channel = $this->db->value('SELECT id FROM channel WHERE code = ?', [$channelCode]);
+            if ($channel === null) {
+                throw new \InvalidArgumentException("no store {$channelCode}");
+            }
+        }
+        $in = implode(', ', array_fill(0, count($sources), '?'));
+        $orders = $this->db->all("SELECT DISTINCT channel_id, order_ref FROM sale_line WHERE day BETWEEN ? AND ? AND cost_source IN ({$in}) AND removed_at IS NULL"
+            . ($channel === null ? '' : ' AND channel_id = ?') . ' ORDER BY channel_id, order_ref', [$from, $to, ...$sources, ...($channel === null ? [] : [(int) $channel])]);
+        $settings = new ProfitSettings($this->db);
+        $costs = new ItemCosts($this->db, $settings);
+        $service = new OrderSnapshots($this->db, $this->clock, $settings);
+        $out = ['orders' => 0, 'lines' => 0, 'moves' => []];
+        foreach ($orders as $o) {
+            $ch = (int) $o['channel_id'];
+            $ref = (string) $o['order_ref'];
+            $paid = $this->db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$ch, $ref]);
+            if ($paid === null) {
+                continue;
+            }
+            $lines = $this->db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
+                . 'LEFT JOIN channel_listing c ON c.channel_id = l.channel_id AND c.external_variant_id = l.variant_id '
+                . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})", [$ch, $ref, ...$sources]);
+            $skus = [];
+            foreach ($lines as $l) {
+                $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($l['now_sku'] !== null && in_array($l['status'], ['mapped', 'quarantined'], true) ? (int) $l['now_sku'] : null);
+                if ($sku !== null) {
+                    $skus[] = $sku;
+                }
+            }
+            $at = $costs->at($skus, (string) $paid);
+            $override = [];
+            foreach ($lines as $l) {
+                $relinked = $l['sku_id'] === null && $l['now_sku'] !== null && in_array($l['status'], ['mapped', 'quarantined'], true);
+                $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($relinked ? (int) $l['now_sku'] : null);
+                $c = $sku === null ? ['e4' => null, 'source' => 'none'] : ($at[$sku] ?? ['e4' => null, 'source' => 'none']);
+                $override[(string) $l['line_id']] = ['e4' => $c['e4'], 'source' => $c['e4'] === null ? 'none' : $c['source'], 'by' => 'recost']
+                    + ($relinked ? ['sku' => (int) $l['now_sku'], 'upi' => max(1, (int) $l['now_upi'])] : []);
+                $k = $l['cost_source'] . ' > ' . $override[(string) $l['line_id']]['source'];
+                $out['moves'][$k] = ($out['moves'][$k] ?? 0) + 1;
+            }
+            $out['orders']++;
+            $out['lines'] += count($override);
+            if ($apply && $override !== []) {
+                $service->recompute($ch, $ref, $override);
+            }
+        }
+        ksort($out['moves']);
+        return $out;
+    }
+}

@@ -1,0 +1,183 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Profit;
+
+/**
+ * The money rules of profit step 1 (docs/decisions.md PR4-PR11, PR13-PR16). Pure: no database, integers only (pence; a unit price is
+ * GBP x 10,000 = hundredths of a penny, "e4"). Every rounding is half away from zero.
+ *
+ *  - ex VAT = inc VAT / (1 + rate); the rate is kept on each order in basis points (2000 = 20%).
+ *  - a line's sale = price - discount - refund (coupons and points are in the discount: a price cut). A cancelled line counts nothing
+ *    (no units, no sale, no cost). A free line counts its units and its cost with sale 0. A unit that came back to stock in CW (a
+ *    return, restocked) has no cost, and no sale when it was refunded.
+ *  - a line's cost = its CW units x the unit price fixed at the sale.
+ *  - margin = profit / sale ex VAT.
+ *  - the buying price of an item is a moving average over the units on hand: a delivery moves it with its unit price; an invoice
+ *    corrects the units it bills that are still on hand from the price they came in at to the invoice's landed price; a price credit
+ *    lowers the units still on hand; a delivery taken back takes its units out at the price they came in at.
+ */
+final class ProfitMath
+{
+    /** The largest amount of pence a snapshot may carry in one field (GBP 100 million). */
+    public const MAX_PENCE = 10_000_000_000;
+
+    /** a / b rounded half away from zero (b > 0). */
+    public static function divRound(int $a, int $b): int
+    {
+        if ($b <= 0) {
+            throw new \InvalidArgumentException('divide by a positive number');
+        }
+        $q = intdiv(abs($a) * 2 + $b, 2 * $b);
+        return $a < 0 ? -$q : $q;
+    }
+
+    /** "20" or "17.5" (percent) => basis points (2000, 1750); null when it is not a percent from 0 to 100 with at most two decimals. */
+    public static function vatBp(string $percent): ?int
+    {
+        if (preg_match('/^(0|[1-9][0-9]?|100)(?:\.([0-9]{1,2}))?$/D', trim($percent), $m) !== 1) {
+            return null;
+        }
+        $bp = (int) $m[1] * 100 + (int) str_pad($m[2] ?? '', 2, '0');
+        return $bp <= 10000 ? $bp : null;
+    }
+
+    /** Pence inc VAT => pence ex VAT at $vatBp. */
+    public static function exVat(int $inc, int $vatBp): int
+    {
+        return self::divRound($inc * 10000, 10000 + $vatBp);
+    }
+
+    /** Pence of $units CW units at $unitE4 (GBP x 10,000 per unit). */
+    public static function cost(int $units, int $unitE4): int
+    {
+        return self::divRound($units * $unitE4, 100);
+    }
+
+    /**
+     * What one shop line counts for.
+     *
+     * @param array{qty: int, price_inc: int, discount_inc: int, refund_inc: int, cancelled: bool, free: bool} $l
+     * @return array{counts: bool, units: int, sale_inc: int, sale_ex: int}
+     */
+    public static function line(array $l, int $unitsPerItem, bool $restocked, int $vatBp): array
+    {
+        if ($l['cancelled']) {
+            return ['counts' => false, 'units' => 0, 'sale_inc' => 0, 'sale_ex' => 0];
+        }
+        $units = $l['qty'] * max(1, $unitsPerItem);
+        if ($l['free'] || ($restocked && $l['refund_inc'] > 0)) {
+            $inc = 0;
+        } else {
+            $inc = $l['price_inc'] - $l['discount_inc'] - $l['refund_inc'];
+        }
+        return ['counts' => true, 'units' => $units, 'sale_inc' => $inc, 'sale_ex' => self::exVat($inc, $vatBp)];
+    }
+
+    /** The cost of a line that counts: 0 for a unit back in stock or with no price; else units x price. */
+    public static function lineCost(bool $counts, int $units, ?int $unitE4, bool $restocked): int
+    {
+        return !$counts || $restocked || $unitE4 === null ? 0 : self::cost($units, $unitE4);
+    }
+
+    /** profit / sale in basis points (2500 = 25.00%), or null when there is no sale to measure against. */
+    public static function marginBp(int $profit, int $sale): ?int
+    {
+        return $sale <= 0 ? null : self::divRound($profit * 10000, $sale);
+    }
+
+    // ---- the buying price (moving average per item) -------------------------------------------------------------------------------------
+
+    /**
+     * $units come in at $priceE4 while $onHand units are on hand at $costE4. Nothing on hand (or below zero), or no price yet: the
+     * delivery's price.
+     */
+    public static function receive(?int $costE4, int $onHand, int $units, int $priceE4): int
+    {
+        if ($costE4 === null || $onHand <= 0 || $units <= 0) {
+            return $units <= 0 && $costE4 !== null ? $costE4 : $priceE4;
+        }
+        return self::divRound($costE4 * $onHand + $priceE4 * $units, $onHand + $units);
+    }
+
+    /**
+     * $units billed (or credited) move from $fromE4 to $toE4: the ones still on hand ($onHand, at most $units of them) carry the
+     * difference into the average. Nothing on hand: unchanged (the units were sold at the cost they had). Never below 0.
+     */
+    public static function correct(?int $costE4, int $onHand, int $units, int $fromE4, int $toE4): ?int
+    {
+        if ($onHand <= 0 || $units <= 0 || $fromE4 === $toE4) {
+            return $costE4;
+        }
+        if ($costE4 === null) {
+            return max(0, $toE4);
+        }
+        $n = min($units, $onHand);
+        return max(0, self::divRound($costE4 * $onHand + ($toE4 - $fromE4) * $n, $onHand));
+    }
+
+    /**
+     * $units leave at the price they came in at ($priceE4: a delivery taken back) while $onHand units (them included) are on hand.
+     * When none would be left, or the value left would be below zero: unchanged.
+     */
+    public static function remove(?int $costE4, int $onHand, int $units, int $priceE4): ?int
+    {
+        if ($costE4 === null || $units <= 0) {
+            return $costE4;
+        }
+        $left = $onHand - $units;
+        $value = $costE4 * $onHand - $priceE4 * $units;
+        if ($left <= 0 || $value < 0) {
+            return $costE4;
+        }
+        return self::divRound($value, $left);
+    }
+
+    /** How many units a correction reaches: the units billed that are still on hand. */
+    public static function reach(int $units, int $onHand): int
+    {
+        return max(0, min($units, $onHand));
+    }
+
+    /** GBP as a decimal string ("1.05", "0.2200", "12") => GBP x 10,000, rounded half up; null when it is not an amount. */
+    public static function e4(string $gbp): ?int
+    {
+        $s = trim($gbp);
+        if (preg_match('/^(-?)([0-9]{1,12})(?:\.([0-9]{1,12}))?$/D', $s, $m) !== 1) {
+            return null;
+        }
+        $frac = str_pad($m[3] ?? '', 5, '0');
+        $v = (int) $m[2] * 10000 + (int) substr($frac, 0, 4) + ((int) $frac[4] >= 5 ? 1 : 0);
+        return $m[1] === '-' ? -$v : $v;
+    }
+
+    /** Spreads $total over $weights (non-negative) in proportion; the pennies left over go to the largest remainders. */
+    public static function spread(int $total, array $weights): array
+    {
+        $sum = array_sum($weights);
+        $out = array_fill_keys(array_keys($weights), 0);
+        if ($sum <= 0 || $total === 0) {
+            return $out;
+        }
+        $sign = $total < 0 ? -1 : 1;
+        $abs = abs($total);
+        $rem = [];
+        $given = 0;
+        foreach ($weights as $k => $w) {
+            $share = intdiv($abs * $w, $sum);
+            $out[$k] = $share;
+            $rem[$k] = ($abs * $w) % $sum;
+            $given += $share;
+        }
+        arsort($rem);
+        foreach (array_keys($rem) as $k) {
+            if ($given >= $abs) {
+                break;
+            }
+            $out[$k]++;
+            $given++;
+        }
+        return array_map(static fn (int $v): int => $sign * $v, $out);
+    }
+}

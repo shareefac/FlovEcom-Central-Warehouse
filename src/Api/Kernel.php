@@ -12,6 +12,7 @@ use CW\Api\Controller\ItemSuggestionsController;
 use CW\Api\Controller\ListingsController;
 use CW\Api\Controller\MovementsController;
 use CW\Api\Controller\OpeningOrdersController;
+use CW\Api\Controller\OrderSnapshotController;
 use CW\Api\Controller\PurchasingController;
 use CW\Api\Controller\RelayController;
 use CW\Api\Controller\ReservationsController;
@@ -152,6 +153,8 @@ final class Kernel
         // The store's Existing item box (docs/decisions.md SX2, SX3; CW-1138): which items a new variant may be, what a typed CW number is.
         // Read only, in any mode.
         $r->add('GET', '/v1/item-suggestions', (new ItemSuggestionsController())->index(...));
+        // Profit step 1 (docs/decisions.md PR1-PR3): a store's money-and-parcels snapshot of one order. Moves no stock: accepted in any mode.
+        $r->add('PUT', '/v1/orders/{ref}/snapshot', (new OrderSnapshotController())->put(...));
         $r->add('POST', '/v1/heartbeat', (new HeartbeatController())->create(...));
         $r->add('GET', '/v1/purchasing', (new PurchasingController())->index(...));
         $r->add('GET', '/v1/health', (new HealthController())->show(...));

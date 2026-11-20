@@ -73,7 +73,9 @@ final class Grants
         // --- Pack J (0041): the receipt made from a supplier invoice (written once).
         'goods_receipt_invoice',
         // XA2, XA7: replacement ancestry is immutable; mode watermarks only advance their timestamp.
-        'opening_replacement', 'relay_mode_seen'];
+        'opening_replacement', 'relay_mode_seen',
+        // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
+        'item_cost_event'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -209,7 +211,11 @@ final class Grants
         // CW-917 (0060; docs/decisions.md EC12): an ERPNext purchase invoice the copy job read (its state and copy change; never removed).
         // erp_pi_line keeps FULL rights: a re-read that brings other content replaces the lines of an invoice not copied (or whose copy
         // was cancelled in the same transaction).
-        'erp_pi'];
+        'erp_pi',
+        // 0074 (docs/decisions.md PR2, PR17): a store order's latest snapshot, its money, lines and parcels (replaced or marked removed, never
+        // deleted), each item's buying price now and the profit jobs' marks. profit_day and profit_item_day keep FULL rights: a batch tool
+        // rebuilds a day (DELETE + INSERT in one transaction).
+        'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */
