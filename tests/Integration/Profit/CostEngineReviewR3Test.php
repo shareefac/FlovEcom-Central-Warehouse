@@ -167,8 +167,11 @@ final class CostEngineReviewR3Test extends ArrivalsTestCase
         $this->delivered($who['desk'], (int) $who['supplier']['id'], [['sku_id' => $other, 'supplier_item_id' => (int) $si2['id'], 'packs' => 10, 'units_per_pack' => 1,
             'pack_price' => '2.00']]);
         $this->engine(60)->run();
-        self::assertSame([20000, 'cw_average'], [self::cost($other), (string) self::$db->value('SELECT start_source FROM item_cost WHERE sku_id = ?', [$other])],
-            'its delivery is in its start, and read once: £2, not more');
+        // Since the re-check of 6b8a7ee (F1, PR65) such an item starts just BEFORE its first delivery (at the supplier's £3.00: nothing came in
+        // with a price before it), and the delivery is folded on top of it, once: nothing was on hand, so £2.00.
+        self::assertSame([20000, 'supplier_price'], [self::cost($other), (string) self::$db->value('SELECT start_source FROM item_cost WHERE sku_id = ?', [$other])],
+            'its delivery read once, on top of its start: £2, not more');
+        self::assertSame(['start', 'receipt'], self::$db->column('SELECT kind FROM item_cost_event WHERE sku_id = ? ORDER BY source_at, id', [$other]));
     }
 
     public function testALateEventKeepsThePriceAtItsOwnPlace(): void

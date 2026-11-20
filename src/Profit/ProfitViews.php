@@ -132,52 +132,45 @@ final class ProfitViews
         // c4); by product, brand or supplier, the lines (those refunds are on no product: the page says how much they are, c7).
         $goods = $by === 'shop' ? '(SUM(p.sale_ex) - SUM(p.order_refund_ex))' : 'SUM(p.sale_ex)';
         $margin = "IF({$goods} > 0, ({$goods} - SUM(p.cost)) / {$goods}, NULL)";
+        // Units waiting for their cost (minutes at most), per row, joined in SQL: their rows are incomplete too, and a list by margin puts every
+        // incomplete row after the rows whose margin is known BEFORE the list is cut at ROW_LIMIT (the Codex re-checks of 37a2cf0 and 6b8a7ee,
+        // c6); a brand's waiting units are matched by the database's own comparison, the one its rows are grouped by (case does not matter).
+        $pending = 'COALESCE(MAX(w.u), 0)';
+        $incomplete = "(SUM(p.units_no_cost) > 0 OR {$pending} > 0)";
         $order = match ($sort) {
             'sale' => "{$goods} DESC",
             'cost' => 'SUM(p.cost) DESC',
             'units' => 'SUM(p.units) DESC',
-            // A row with units that have no price is not ranked by its margin (it is too high): after the others (c6, round 2).
-            'margin' => "SUM(p.units_no_cost) > 0, {$margin} IS NULL, {$margin} DESC",
-            'margin_low' => "SUM(p.units_no_cost) > 0, {$margin} IS NULL, {$margin} ASC",
+            'margin' => "{$incomplete}, {$margin} IS NULL, {$margin} DESC",
+            'margin_low' => "{$incomplete}, {$margin} IS NULL, {$margin} ASC",
             default => "{$goods} - SUM(p.cost) DESC",
         };
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
         $params = [$from, $to, ...($store === null ? [] : [$store])];
+        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
+        $waiting = static fn (string $key, string $from, string $on): string => "LEFT JOIN (SELECT {$key} AS k, SUM(l.units) AS u FROM {$from} WHERE {$lw} GROUP BY k) w ON {$on}";
         $limit = self::ROW_LIMIT + 1;
         $rows = match ($by) {
-            'shop' => $this->db->all('SELECT p.channel_id AS id, c.name AS label, NULL AS code, ' . self::SUMS . " FROM profit_day p JOIN channel c ON c.id = p.channel_id "
-                . "WHERE {$where} GROUP BY p.channel_id, c.name ORDER BY {$order}, p.channel_id LIMIT {$limit}", $params),
-            'brand' => $this->db->all('SELECT COALESCE(NULLIF(s.brand, \'\'), \'\') AS label, NULL AS id, NULL AS code, ' . self::ITEM_SUMS . ' FROM profit_item_day p '
-                . "LEFT JOIN sku s ON s.id = p.sku_id WHERE {$where} GROUP BY label ORDER BY {$order}, label LIMIT {$limit}", $params),
-            'supplier' => $this->db->all('SELECT si.supplier_id AS id, COALESCE(sp.name, \'\') AS label, NULL AS code, ' . self::ITEM_SUMS . ' FROM profit_item_day p '
-                . 'LEFT JOIN supplier_item si ON si.preferred_sku_id = p.sku_id LEFT JOIN supplier sp ON sp.id = si.supplier_id '
-                . "WHERE {$where} GROUP BY si.supplier_id, sp.name ORDER BY {$order}, label LIMIT {$limit}", $params),
-            default => $this->db->all('SELECT p.sku_id AS id, COALESCE(s.name, \'\') AS label, s.code, ' . self::ITEM_SUMS . ' FROM profit_item_day p '
-                . "LEFT JOIN sku s ON s.id = p.sku_id WHERE {$where} GROUP BY p.sku_id, s.name, s.code ORDER BY {$order}, p.sku_id LIMIT {$limit}", $params),
+            'shop' => $this->db->all('SELECT p.channel_id AS id, c.name AS label, NULL AS code, ' . self::SUMS . ", {$pending} AS pending FROM profit_day p "
+                . 'JOIN channel c ON c.id = p.channel_id ' . $waiting('l.channel_id', 'sale_line l', 'w.k = p.channel_id')
+                . " WHERE {$where} GROUP BY p.channel_id, c.name ORDER BY {$order}, p.channel_id LIMIT {$limit}", [...$params, ...$params]),
+            'brand' => $this->db->all('SELECT COALESCE(NULLIF(s.brand, \'\'), \'\') AS label, NULL AS id, NULL AS code, ' . self::ITEM_SUMS . ", {$pending} AS pending "
+                . 'FROM profit_item_day p LEFT JOIN sku s ON s.id = p.sku_id '
+                . $waiting("COALESCE(NULLIF(s.brand, ''), '')", 'sale_line l LEFT JOIN sku s ON s.id = l.sku_id', "w.k = COALESCE(NULLIF(s.brand, ''), '')")
+                . " WHERE {$where} GROUP BY label ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
+            'supplier' => $this->db->all('SELECT si.supplier_id AS id, COALESCE(sp.name, \'\') AS label, NULL AS code, ' . self::ITEM_SUMS . ", {$pending} AS pending "
+                . 'FROM profit_item_day p LEFT JOIN supplier_item si ON si.preferred_sku_id = p.sku_id LEFT JOIN supplier sp ON sp.id = si.supplier_id '
+                . $waiting('si.supplier_id', 'sale_line l LEFT JOIN supplier_item si ON si.preferred_sku_id = l.sku_id', 'w.k <=> si.supplier_id')
+                . " WHERE {$where} GROUP BY si.supplier_id, sp.name ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
+            default => $this->db->all('SELECT p.sku_id AS id, COALESCE(s.name, \'\') AS label, s.code, ' . self::ITEM_SUMS . ", {$pending} AS pending FROM profit_item_day p "
+                . 'LEFT JOIN sku s ON s.id = p.sku_id ' . $waiting('COALESCE(l.sku_id, 0)', 'sale_line l', 'w.k = p.sku_id')
+                . " WHERE {$where} GROUP BY p.sku_id, s.name, s.code ORDER BY {$order}, p.sku_id LIMIT {$limit}", [...$params, ...$params]),
         };
         $more = count($rows) > self::ROW_LIMIT;
-        // Units waiting for their cost (minutes at most): their items' rows are incomplete too, and a list by margin puts them after the
-        // rows whose margin is known (the Codex re-check of 37a2cf0, c6).
-        $waiting = [];
-        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
-        foreach (match ($by) {
-            'shop' => $this->db->all("SELECT l.channel_id AS k, SUM(l.units) AS u FROM sale_line l WHERE {$lw} GROUP BY l.channel_id", $params),
-            'brand' => $this->db->all("SELECT COALESCE(NULLIF(s.brand, ''), '') AS k, SUM(l.units) AS u FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id WHERE {$lw} GROUP BY k",
-                $params),
-            'supplier' => $this->db->all('SELECT si.supplier_id AS k, SUM(l.units) AS u FROM sale_line l LEFT JOIN supplier_item si ON si.preferred_sku_id = l.sku_id '
-                . "WHERE {$lw} GROUP BY si.supplier_id", $params),
-            default => $this->db->all("SELECT l.sku_id AS k, SUM(l.units) AS u FROM sale_line l WHERE {$lw} GROUP BY l.sku_id", $params),
-        } as $w) {
-            $waiting[(string) $w['k']] = (int) $w['u'];
-        }
         $out = [];
         foreach (array_slice($rows, 0, self::ROW_LIMIT) as $r) {
-            $id = $r['id'] === null ? null : (int) $r['id'];
-            $out[] = ['id' => $id, 'label' => (string) $r['label'], 'code' => $r['code'] === null ? null : (string) $r['code'],
-                'f' => self::figures($r + ['pending' => $waiting[(string) ($by === 'brand' ? $r['label'] : $r['id'])] ?? 0])];
-        }
-        if (in_array($sort, ['margin', 'margin_low'], true)) {
-            usort($out, static fn (array $a, array $b): int => (int) $a['f']['incomplete'] <=> (int) $b['f']['incomplete']); // stable: the SQL order kept
+            $out[] = ['id' => $r['id'] === null ? null : (int) $r['id'], 'label' => (string) $r['label'], 'code' => $r['code'] === null ? null : (string) $r['code'],
+                'f' => self::figures($r)];
         }
         return ['rows' => $out, 'more' => $more];
     }

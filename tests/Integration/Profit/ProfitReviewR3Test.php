@@ -46,9 +46,10 @@ final class ProfitReviewR3Test extends StockTestCase
         $before = self::rowsRead();
         self::assertSame(['e4' => 10000, 'source' => 'cw_cost'], $costs->at([$a], '2026-12-31 00:00:00')[$a]);
         self::assertLessThan(60, self::rowsRead() - $before - $overhead, 'one indexed read, not the 401 events folded');
-        // A delivery of 10 at £3 of 17 Nov 00:30 written late (after all the others): from it on, the history is folded in its own order.
-        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, units, on_hand, price_e4, old_cost_e4, new_cost_e4) "
-            . "VALUES (?, '2026-12-30 00:00:00', '2026-11-17 00:30:00', 'receipt', ?, 10, 24, 30000, 10000, 15882)", [$a, 'r3late:' . $a]);
+        // A delivery of 10 at £3 of 17 Nov 00:30 written late (after all the others), marked late as the cost job marks it (PR69): from it on,
+        // the history is folded in its own order.
+        self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, units, on_hand, price_e4, late, old_cost_e4, new_cost_e4) "
+            . "VALUES (?, '2026-12-30 00:00:00', '2026-11-17 00:30:00', 'receipt', ?, 10, 24, 30000, 1, 10000, 15882)", [$a, 'r3late:' . $a]);
         $at = (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:45:00')[$a]['e4'];
         self::assertSame(15882, $at, 'at its own place: (24 x £1 + 10 x £3) / 34');
         self::assertSame(15882, (new ItemCosts(self::$db))->at([$a], '2026-11-17 00:45:00')[$a]['e4']);

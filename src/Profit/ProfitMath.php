@@ -198,6 +198,41 @@ final class ProfitMath
         return $cost;
     }
 
+    /**
+     * The stock operation a ledger row belongs to (one transaction): its document, else its Idempotency-Key within the caller's scope (the
+     * store, or the staff member / job: a key is unique only there, so two stores' "batch:1" are two operations; the Codex re-check of
+     * 6b8a7ee, F4); null when it has neither (a row by itself).
+     */
+    public static function operation(?int $documentId, ?string $idemKey, ?int $channelId, string $actor): ?string
+    {
+        if ($documentId !== null) {
+            return 'd' . $documentId;
+        }
+        return $idemKey === null || $idemKey === '' ? null : 'k' . ($channelId ?? 0) . '|' . $actor . '|' . $idemKey;
+    }
+
+    /**
+     * The fewest units on hand from $level on, through $rows (one item's on-hand rows in our warehouses) taken in the item's COMMIT order
+     * (`seq`, stock_value_seq: ledger ids are not in commit order across warehouses) and looked at only between whole operations (the rows
+     * of one operation are one transaction: a transfer between two of our warehouses is never a sell-out; the Codex re-checks of 37a2cf0 R3
+     * and 6b8a7ee R3). Never below 0.
+     *
+     * @param list<array{id: int, seq: ?int, qty: int, op: ?string}> $rows
+     */
+    public static function lowestLevel(int $level, array $rows): int
+    {
+        usort($rows, static fn (array $a, array $b): int => [$a['seq'] ?? PHP_INT_MAX, $a['id']] <=> [$b['seq'] ?? PHP_INT_MAX, $b['id']]);
+        $low = $level;
+        foreach ($rows as $i => $r) {
+            $level += (int) $r['qty'];
+            $next = $rows[$i + 1] ?? null;
+            if ($r['op'] === null || $next === null || $next['op'] !== $r['op']) {
+                $low = min($low, $level); // the end of an operation
+            }
+        }
+        return max(0, $low);
+    }
+
     /** How many units a correction reaches: the units billed that are still on hand. */
     public static function reach(int $units, int $onHand): int
     {

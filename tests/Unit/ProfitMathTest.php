@@ -97,6 +97,35 @@ final class ProfitMathTest extends TestCase
         self::assertNull(ProfitMath::e4('1,05'));
     }
 
+    /**
+     * The Codex re-check of 6b8a7ee (R3, F4): the fewest units on hand is looked at only between whole operations, in the item's commit order
+     * (stock_value_seq), and an operation is its document, or its Idempotency-Key within the caller's scope (the store, or the staff / job).
+     */
+    public function testTheFewestOnHandIsSeenBetweenWholeOperationsInCommitOrder(): void
+    {
+        // 15 on hand. A transfer between two of our warehouses (out: ledger id 1, in: id 3) and a sale of 5 from a third warehouse booked
+        // between them (id 2): the sale committed first (seq 1), the transfer after it (seq 2, 3).
+        $transfer = ProfitMath::operation(7, 'staff:transfer-1', null, 'staff:3');
+        $sale = ProfitMath::operation(null, 'sale-9', 2, 'channel:vapeandgo');
+        $rows = [['id' => 1, 'seq' => 2, 'qty' => -10, 'op' => $transfer], ['id' => 2, 'seq' => 1, 'qty' => -5, 'op' => $sale], ['id' => 3, 'seq' => 3, 'qty' => 10, 'op' => $transfer]];
+        self::assertSame(10, ProfitMath::lowestLevel(15, $rows), 'never 0: the transfer is whole, and the sale is before it in commit order');
+        $rows[0]['seq'] = 1;
+        $rows[1]['seq'] = 3;
+        $rows[2]['seq'] = 2;
+        self::assertSame(10, ProfitMath::lowestLevel(15, $rows), 'the transfer committed first: 15, then 10');
+        // The same key of two stores is two operations: all ten sold, then ten more came.
+        $a = ProfitMath::operation(null, 'batch:1', 1, 'channel:vapeandgo');
+        $b = ProfitMath::operation(null, 'batch:1', 2, 'channel:vapebig');
+        self::assertNotSame($a, $b);
+        self::assertSame(0, ProfitMath::lowestLevel(10, [['id' => 5, 'seq' => 1, 'qty' => -10, 'op' => $a], ['id' => 6, 'seq' => 2, 'qty' => 10, 'op' => $b]]));
+        self::assertSame(10, ProfitMath::lowestLevel(10, [['id' => 5, 'seq' => 1, 'qty' => -10, 'op' => $a], ['id' => 6, 'seq' => 2, 'qty' => 10, 'op' => $a]]),
+            'one operation (one store, one key) is whole');
+        // A row of no operation is one by itself; the level is never below 0.
+        self::assertNull(ProfitMath::operation(null, null, null, 'system:x'));
+        self::assertSame(0, ProfitMath::lowestLevel(3, [['id' => 1, 'seq' => 1, 'qty' => -5, 'op' => null], ['id' => 2, 'seq' => 2, 'qty' => 5, 'op' => null]]));
+        self::assertSame(4, ProfitMath::lowestLevel(4, []));
+    }
+
     private static function body(array $over = []): array
     {
         return $over + ['v' => 1, 'version' => 1763586245123, 'order_no' => 'VPG1567469', 'status' => 'Completed', 'placed_at' => '2026-11-19T21:04:05Z',

@@ -63,12 +63,14 @@ final class ItemCosts
             // moment is the same whether the events came in order or one came late and was folded in since (the Codex review of 57d98ad, a6).
             // The item's last event up to the moment (a `replay` included: it holds the folded price of all before it) has the price the fold
             // gives, unless an event written after it has an earlier source (it came late: that event's price is out of date). One indexed
-            // read and one short check; only a moment a late event changed folds the history (the Codex re-check of 37a2cf0, R6).
+            // read and one short check; only a moment a late event changed folds the history (the Codex re-check of 37a2cf0, R6). The check
+            // reads the late events only (the cost job marks each one, `late`; ix_item_cost_event_late): bounded by how many came late, never
+            // by how long the history after the moment is (the Codex re-check of 6b8a7ee, R6).
             $last = $this->db->one('SELECT id, at, source_at, new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND source_at <= ? ORDER BY source_at DESC, id DESC LIMIT 1',
                 [$sku, $atUtc]);
             $before = $last === null;
-            $stale = !$before && $this->db->value("SELECT 1 FROM item_cost_event WHERE sku_id = ? AND at >= ? AND id > ? AND source_at < ? AND kind <> 'replay' LIMIT 1",
-                [$sku, $last['at'], (int) $last['id'], $last['source_at']]) !== null;
+            $stale = !$before && $this->db->value('SELECT 1 FROM item_cost_event WHERE sku_id = ? AND late = 1 AND source_at < ? AND id > ? LIMIT 1',
+                [$sku, $last['source_at'], (int) $last['id']]) !== null;
             if ($stale) {
                 $e4 = ProfitMath::fold($this->db->all('SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event '
                     . "WHERE sku_id = ? AND source_at <= ? AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]));

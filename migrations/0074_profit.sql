@@ -21,7 +21,7 @@
 --  * Five settings (provisional, the owner may change them), each with its version 1 in config_change.
 --
 -- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty tables: nothing is copied or locked), the setting rows and the permission's row
--- ON DUPLICATE KEY, their baselines only when missing, and ONE ALTER of staff_role (tiny: a few dozen rows; ALGORITHM = COPY, LOCK = SHARED, as 0069). Every
+-- ON DUPLICATE KEY, their baselines only when missing, one index added to erp_pi_line while it is not there (INPLACE, no lock), and ONE ALTER of staff_role (tiny: a few dozen rows; ALGORITHM = COPY, LOCK = SHARED, as 0069). Every
 -- statement can run again and changes nothing the second time, so a run stopped half way runs again cleanly.
 
 CREATE TABLE IF NOT EXISTS order_snapshot (
@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS item_cost_event (
   booked_e4        BIGINT          NULL COMMENT 'the unit price those units had before it (an invoice); a credit: what it takes off a unit',
   deferred         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1: a credit of goods still on their way: it moves nothing now, their receipt takes it in',
   undoes_event_id  BIGINT UNSIGNED NULL COMMENT 'a cancellation: the event it undoes (its effect is read from the folded history each time)',
+  late             TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1: written after an event of a later source time (it came late): the prices stored with those events are out of date from it on',
   old_cost_e4      BIGINT          NULL,
   new_cost_e4      BIGINT          NULL,
   note             VARCHAR(255)    NULL,
@@ -192,7 +193,8 @@ CREATE TABLE IF NOT EXISTS item_cost_event (
   KEY ix_item_cost_event_source (sku_id, source_at, id),
   KEY ix_item_cost_event_document (document_id, document_line),
   KEY ix_item_cost_event_ref (ref_document_id, ref_line),
-  CONSTRAINT ck_item_cost_event_deferred CHECK (deferred IN (0, 1))
+  KEY ix_item_cost_event_late (sku_id, late, source_at, id) COMMENT 'the price at a moment: whether a late event changed it, from the late events only',
+  CONSTRAINT ck_item_cost_event_deferred CHECK (deferred IN (0, 1) AND late IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='every move of an item''s buying price (profit step 1): the cost on a past day is read from here; append-only';
 
@@ -267,6 +269,17 @@ INSERT INTO config_change (subject_type, subject_key, version, action, state, ac
   SELECT 'permission', p.permission, 1, 'baseline', JSON_OBJECT('roles', p.roles), 'system:migrate'
   FROM role_permission p WHERE p.permission = 'profit.view'
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'permission' AND c.subject_key = p.permission);
+
+-- The supplier's last price of the items asked for (CostEngine::supplierPrices: the start, and each item made after it) reads their own ERPNext
+-- purchase lines, never the whole copy (the Codex re-check of 6b8a7ee, N10; docs/decisions.md PR71): one index on erp_pi_line, ALGORITHM =
+-- INPLACE, LOCK = NONE (the copy job goes on while it builds), added only while it is not there (a prepared statement, as 0056). No row changes.
+SET @cw_0074_erp_pi_line_sku = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'erp_pi_line'
+    AND index_name = 'ix_erp_pi_line_sku') = 0,
+  'ALTER TABLE erp_pi_line ADD INDEX ix_erp_pi_line_sku (sku_id, erp_pi_id, idx), ALGORITHM = INPLACE, LOCK = NONE',
+  'DO 0');
+PREPARE cw_0074_erp_pi_line_sku FROM @cw_0074_erp_pi_line_sku;
+EXECUTE cw_0074_erp_pi_line_sku;
+DEALLOCATE PREPARE cw_0074_erp_pi_line_sku;
 
 ALTER TABLE staff_role MODIFY COLUMN role ENUM('viewer','mapper','mapping_lead','warehouse','manager','admin','buyer','purchasing_manager',
     'goods_in','purchasing_desk','stock_controller','reviewer','accountant','auditor','people_manager','finance') NOT NULL,

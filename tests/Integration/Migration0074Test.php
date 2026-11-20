@@ -36,8 +36,9 @@ final class Migration0074Test extends IntegrationTestCase
         $statements = SqlSplitter::split($sql);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b/i', $sql, 'nothing is deleted, changed or dropped');
         foreach ($statements as $st) {
-            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS|INSERT INTO (app_setting|config_change|role_permission)|ALTER TABLE staff_role MODIFY COLUMN role)\b/', $st,
-                'only new tables, the settings, the new permission\'s row and the job list');
+            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS|INSERT INTO (app_setting|config_change|role_permission)|ALTER TABLE staff_role MODIFY COLUMN role'
+                . '|SET @cw_0074_erp_pi_line_sku = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) cw_0074_erp_pi_line_sku)\b/', $st,
+                'only new tables, the settings, the new permission\'s row, the job list and one index added to erp_pi_line while it is not there');
         }
         self::assertSame(['Select', 'Insert'], Grants::desired('item_cost_event'), 'the price history is never rewritten');
         foreach (['order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document'] as $t) {
@@ -58,7 +59,12 @@ final class Migration0074Test extends IntegrationTestCase
         $settings = (int) $db->value('SELECT COUNT(*) FROM app_setting');
         $perms = $db->all('SELECT permission, roles, updated_actor FROM role_permission ORDER BY permission');
 
+        $index = static fn (): array => $db->column("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'erp_pi_line' "
+            . "AND INDEX_NAME = 'ix_erp_pi_line_sku' ORDER BY SEQ_IN_INDEX");
+        self::assertSame([], $index());
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
+        // The supplier's last price of the items asked for reads their own purchase lines (the Codex re-check of 6b8a7ee, N10; PR71).
+        self::assertSame(['sku_id', 'erp_pi_id', 'idx'], $index());
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
         self::assertSame(self::TABLES, $new);
@@ -107,5 +113,6 @@ final class Migration0074Test extends IntegrationTestCase
         self::assertSame(3, (int) $db->value('SELECT COUNT(*) FROM sale_line'));
         self::assertSame('accountant,finance', (string) $db->value("SELECT roles FROM role_permission WHERE permission = 'profit.view'"));
         self::assertSame(1, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'permission' AND subject_key = 'profit.view'"));
+        self::assertSame(['sku_id', 'erp_pi_id', 'idx'], $index(), 'the index is added once');
     }
 }

@@ -36,9 +36,12 @@ use CW\StockOps\CostHints;
  * committed late is found (and skipped when done). An event never goes before the item's previous one (its `at` is moved up to it), so
  * "the price at a moment" reads one history; an event whose own time (source_at) is older than the item's last one is written and the item's
  * history folded again in source order (ProfitMath::fold, a `replay` event: the Codex review of 92efa82, a6). The move of each event is
- * ProfitMath::step, the same rule the fold uses; a late event stores the price at its own place in the history (PR60). An item made after
- * the start gets its starting price on the next run (startNewItems: CW's average up to then, else the supplier's price; PR59). Each document
- * read whole is marked (item_cost_document); one not marked a day after it left the window is read again (all of them at night: PR57).
+ * ProfitMath::step, the same rule the fold uses; a late event stores the price at its own place in the history (PR60) and is marked `late`
+ * (PR69). An item made after the start gets its starting price on the next run, just before its first delivery, so its deliveries and
+ * invoices fold on top of it (startNewItems: CW's average of what came in with a price before it, else the supplier's price; PR59, PR65).
+ * Each document read whole is marked (item_cost_document); one not marked a day after it left the window is read again (all of them at
+ * night: PR57); a cancellation reads the document it cancels first (PR68). Two invoice lines received on one receipt line share what came by
+ * the arrival matching (PR66). "The fewest on hand since" looks between whole operations in commit order (PR67).
  */
 final class CostEngine
 {
@@ -58,6 +61,8 @@ final class CostEngine
     private readonly ProfitSettings $settings;
     /** @var list<int>|null */
     private ?array $own = null;
+    /** The start of the buying prices (profit_job.floor_at), read once. */
+    private ?string $floor = null;
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null)
@@ -244,12 +249,14 @@ final class CostEngine
     private function supplierPrices(array $skus): array
     {
         $out = [];
-        // The newest ERPNext purchase invoice line of each item asked for (a copy CW keeps; never a debit note), a chunk of items at a time
-        // (the Codex review of 57d98ad, N10: never every line of the history at once).
+        // The newest ERPNext purchase invoice line of each item asked for (a copy CW keeps; never a debit note; a unit price of at least a
+        // hundredth of a penny), a chunk of items at a time, read by the items' own index (ix_erp_pi_line_sku, 0074) and only that line of each
+        // sent back (the Codex review of 57d98ad and re-check of 6b8a7ee, N10).
         foreach (array_chunk($skus, 500) as $chunk) {
-            foreach ($this->db->all('SELECT l.sku_id, CAST(l.net_amount AS CHAR) AS amount, l.units FROM erp_pi_line l JOIN erp_pi p ON p.id = l.erp_pi_id '
-                . 'WHERE l.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND l.units > 0 AND l.net_amount > 0 AND p.is_return = 0 '
-                . 'AND p.docstatus = 1 ORDER BY p.posting_date, p.id, l.idx', $chunk) as $r) {
+            foreach ($this->db->all('SELECT t.sku_id, t.amount, t.units FROM (SELECT l.sku_id, CAST(l.net_amount AS CHAR) AS amount, l.units, ROW_NUMBER() OVER '
+                . '(PARTITION BY l.sku_id ORDER BY p.posting_date DESC, p.id DESC, l.idx DESC) AS n FROM erp_pi_line l JOIN erp_pi p ON p.id = l.erp_pi_id '
+                . 'WHERE l.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND l.units > 0 AND l.net_amount > 0 AND l.net_amount * 20000 >= l.units '
+                . 'AND p.is_return = 0 AND p.docstatus = 1) t WHERE t.n = 1', $chunk) as $r) {
                 if (($e4 = ProfitMath::e4(bcdiv((string) $r['amount'], (string) $r['units'], 8))) !== null && $e4 > 0) {
                     $out[(int) $r['sku_id']] = $e4;
                 }
@@ -298,6 +305,7 @@ final class CostEngine
         }
         $mark = (string) $job['mark_at'];
         $floor = $job['floor_at'] === null ? '' : (string) $job['floor_at'];
+        $this->floor = $floor;
         $now = ($this->clock)();
         $cutoff = Clock::db($now->modify('-' . self::LAG_SECONDS . ' seconds'));
         if ($cutoff <= $mark) {
@@ -365,59 +373,101 @@ final class CostEngine
         foreach ($this->db->all("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d LEFT JOIN item_cost_document r ON r.document_id = d.id "
             . "WHERE d.doc_type IN ('GRN', 'SINV', 'SCN') AND d.status IN ('posted', 'reversed') AND d.posted_at >= ? AND d.posted_at < ? AND r.document_id IS NULL "
             . 'ORDER BY d.posted_at, d.id LIMIT ' . max(1, $limit), [$since, $before]) as $d) {
-            if ($d['doc_type'] !== 'GRN') {
-                array_push($out, ...$this->documentEvents($d));
-            } else {
-                foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
-                    . "l.created_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id JOIN warehouse w ON w.id = l.warehouse_id "
-                    . "WHERE l.document_id = ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL "
-                    . "AND w.stock_owner = 'own' ORDER BY l.id", [(int) $d['id']]) as $r) {
-                    array_push($out, ...$this->ledgerEvent($r));
-                }
-            }
-            $this->db->exec('INSERT INTO item_cost_document (document_id, read_at) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE read_at = n.read_at',
-                [(int) $d['id'], Clock::db(($this->clock)())]);
+            array_push($out, ...$this->readDocument($d));
         }
         return $out;
     }
 
     /**
-     * CW's average price of each item (CostHints::average's rule: every unit that came in with a price) of the rows booked up to $at: the
-     * rows after it are read by the job on top of the start, so they are never in it.
+     * One receipt, invoice or credit note read whole (its events written once each: what is done is skipped) and marked read
+     * (item_cost_document), also when it moves no price.
      *
-     * @param list<int> $skus
-     * @return array<int, int> sku id => price e4
+     * @param array<string, mixed> $d the document row (id, doc_type, number, posted_at, reverses_id)
+     * @return list<string> what was written
      */
-    private function averageAt(array $skus, string $at): array
+    private function readDocument(array $d): array
     {
         $out = [];
-        foreach (array_chunk($skus, CostHints::CHUNK) as $chunk) {
-            foreach ($this->db->all('SELECT s.sku_id, CAST(SUM(l.qty_delta * l.unit_cost) AS CHAR) AS v, SUM(l.qty_delta) AS q FROM stock_value_seq s '
-                . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
-                . 'AND l.unit_cost IS NOT NULL AND l.qty_delta > 0 AND l.created_at <= ? GROUP BY s.sku_id', [...$chunk, $at]) as $r) {
-                if ((int) $r['q'] > 0 && ($e4 = ProfitMath::e4(bcdiv((string) $r['v'], (string) $r['q'], 6))) !== null) {
-                    $out[(int) $r['sku_id']] = $e4;
-                }
+        if ($d['doc_type'] !== 'GRN') {
+            $out = $this->documentEvents($d);
+        } else {
+            foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
+                . "l.created_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id JOIN warehouse w ON w.id = l.warehouse_id "
+                . "WHERE l.document_id = ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL "
+                . "AND w.stock_owner = 'own' ORDER BY l.id", [(int) $d['id']]) as $r) {
+                array_push($out, ...$this->ledgerEvent($r));
             }
         }
+        $this->db->exec('INSERT INTO item_cost_document (document_id, read_at) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE read_at = n.read_at',
+            [(int) $d['id'], Clock::db(($this->clock)())]);
         return $out;
     }
 
     /**
-     * Items made since the start (no item_cost row), started at $at (the run's own time).
+     * A cancellation is read after what it cancels: the document it reverses is read whole first when it is not marked read yet, whatever
+     * its time (a booking that committed late and lies outside every run's look back until the night): never a cancellation marked read with
+     * nothing to undo while its original is still to come (the Codex re-check of 6b8a7ee, F5). A document of before the start is inside the
+     * start (never read).
+     *
+     * @return list<string> what was written
      */
-    private function startNewItems(string $at): int
+    private function readOriginal(int $orig): array
+    {
+        if ($this->db->value('SELECT 1 FROM item_cost_document WHERE document_id = ?', [$orig]) !== null) {
+            return [];
+        }
+        $d = $this->db->one("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d WHERE d.id = ? AND d.doc_type IN ('GRN', 'SINV', 'SCN') "
+            . "AND d.status IN ('posted', 'reversed') AND d.reverses_id IS NULL", [$orig]);
+        $this->floor ??= (string) ($this->db->value('SELECT floor_at FROM profit_job WHERE job = ?', [self::JOB]) ?? '');
+        if ($d === null || (string) $d['posted_at'] < $this->floor) {
+            return [];
+        }
+        return $this->readDocument($d);
+    }
+
+    /**
+     * CW's average price of one item (CostHints::average's rule: every unit that came in with a price) of the rows booked before $before.
+     */
+    private function averageBefore(int $sku, string $before): ?int
+    {
+        $r = $this->db->one('SELECT CAST(SUM(l.qty_delta * l.unit_cost) AS CHAR) AS v, SUM(l.qty_delta) AS q FROM stock_value_seq s JOIN stock_ledger l ON l.id = s.stock_ledger_id '
+            . 'WHERE s.sku_id = ? AND l.unit_cost IS NOT NULL AND l.qty_delta > 0 AND l.created_at < ?', [$sku, $before]);
+        if ($r === null || (int) ($r['q'] ?? 0) <= 0) {
+            return null;
+        }
+        return ProfitMath::e4(bcdiv((string) $r['v'], (string) $r['q'], 6));
+    }
+
+    /**
+     * Items made since the start (no item_cost row). Each starts just before the first delivery the job reads of it (or at $cutoff, the run's
+     * own time, when it has none yet), so every delivery, invoice and credit note of it is folded on top of its start in time order, as for
+     * an item of the start: an invoice made final before the item's first run keeps its correction (the Codex re-check of 6b8a7ee, F1).
+     * Its starting price: CW's average of what came in with a price before that moment (stock booked in by hand at a price: the re-check of
+     * 37a2cf0, R5), else the supplier's price, else none.
+     */
+    private function startNewItems(string $cutoff): int
     {
         $skus = array_map('intval', $this->db->column('SELECT s.id FROM sku s LEFT JOIN item_cost c ON c.sku_id = s.id WHERE c.sku_id IS NULL ORDER BY s.id LIMIT 5000'));
         if ($skus === []) {
             return 0;
         }
-        // Its price NOW: CW's own average of every unit that came in with a price so far (receipts and priced stock-ins alike), else the
-        // supplier's price, else none. The start is now: a receipt of before it that the job reads afterwards is folded in BEFORE the start,
-        // which sets the price (it holds that receipt already), so nothing is counted twice (the Codex re-checks of 57d98ad N5 and 37a2cf0 R5).
+        $firstIn = [];
+        foreach (array_chunk($skus, 500) as $chunk) {
+            foreach ($this->db->all("SELECT l.sku_id, MIN(l.created_at) AS first_at FROM stock_ledger l JOIN warehouse w ON w.id = l.warehouse_id WHERE l.sku_id IN ("
+                . implode(', ', array_fill(0, count($chunk), '?')) . ") AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.cost_source = 'document' "
+                . "AND l.unit_cost IS NOT NULL AND w.stock_owner = 'own' AND l.created_at <= ? GROUP BY l.sku_id", [...$chunk, $cutoff]) as $r) {
+                $firstIn[(int) $r['sku_id']] = (string) $r['first_at'];
+            }
+        }
         $prices = [];
-        foreach ($this->averageAt($skus, $at) as $sku => $e4) {
-            $prices[$sku] = ['e4' => $e4, 'source' => 'cw_average'];
+        $at = [];
+        foreach ($skus as $sku) {
+            $first = $firstIn[$sku] ?? null;
+            $at[$sku] = $first === null ? $cutoff : Clock::db(Clock::fromDb($first)->modify('-1 usec'));
+            $e4 = $this->averageBefore($sku, $first ?? Clock::db(Clock::fromDb($cutoff)->modify('+1 usec')));
+            if ($e4 !== null) {
+                $prices[$sku] = ['e4' => $e4, 'source' => 'cw_average'];
+            }
         }
         $rest = array_values(array_diff($skus, array_keys($prices)));
         foreach ($rest === [] ? [] : $this->supplierPrices($rest) as $s => $e4) {
@@ -427,7 +477,7 @@ final class CostEngine
         foreach ($skus as $sku) {
             $p = $prices[$sku] ?? ['e4' => null, 'source' => 'none'];
             $this->db->transaction(function (Db $db) use ($sku, $p, $at, $now): void {
-                $this->startItem($db, $sku, $p['e4'], $p['source'], $at, $now);
+                $this->startItem($db, $sku, $p['e4'], $p['source'], $at[$sku], $now);
             });
         }
         return count($skus);
@@ -450,10 +500,12 @@ final class CostEngine
         $at = (string) $r['created_at'];
         if ($r['reverses_id'] !== null && $qty < 0) {
             $orig = (int) $r['reverses_id'];
+            // The delivery it takes back read first (F5): its units leave at the price they came in at.
+            $first = $this->readOriginal($orig);
             $in = $line === null ? null : $this->db->value("SELECT price_e4 FROM item_cost_event WHERE kind = 'receipt' AND document_id = ? AND document_line = ? "
                 . 'AND sku_id = ? ORDER BY id DESC LIMIT 1', [$orig, $line, $sku]);
             $price = $in === null ? $own : (int) $in;
-            return [$this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => 'receipt_reversal', 'source_key' => 'ledger:' . (int) $r['id'], 'document_id' => $doc,
+            return [...$first, $this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => 'receipt_reversal', 'source_key' => 'ledger:' . (int) $r['id'], 'document_id' => $doc,
                 'document_line' => $line, 'doc_ref' => (string) $r['doc_ref'], 'ref_document_id' => $orig, 'ref_line' => $line, 'units' => -$qty, 'on_hand' => $onHand,
                 'price_e4' => $price, 'booked_e4' => null, 'note' => 'a delivery taken back'])];
         }
@@ -467,31 +519,27 @@ final class CostEngine
         $refDoc = null;
         $refLine = null;
         $note = 'a delivery';
-        $inv = $line === null ? null : $this->invoiceLineOf($doc, $line, $sku, $at);
-        if ($inv !== null) {
-            // The landed value of the invoice line(s) this receipt line received (two lines of the item keyed as one on the receipt: both,
-            // weighted by their units; a13), less each credit's value (what it takes off a credited unit x the units it credits) given
-            // before the goods came (N1), per unit of those lines.
+        $share = $line === null ? null : $this->receiptShare($doc, $line, $sku, $at);
+        if ($share !== null) {
+            // The units this receipt line brought are given to the invoice line(s) it received in line order, each at most its own units (the
+            // arrival matching, Arrivals::missingOf: two lines keyed as one on the receipt and short take what came from the first line
+            // first; the Codex re-check of 6b8a7ee, F2). Its price is their landed value over those units, less the part of each credit
+            // given before the goods came that is on the units that came (a credit's value spread over its whole line: N1, F3).
             $value = 0;
             $units = 0;
             $credits = 0;
-            foreach ($this->landed($inv[0]) as $g) {
-                if (!in_array($g['line_no'], $inv[1], true) || $g['price_e4'] === null) {
-                    continue;
-                }
-                $value += $g['price_e4'] * $g['units'];
-                $units += $g['units'];
-                foreach ($this->db->all("SELECT e.booked_e4, e.units, e.document_id FROM item_cost_event e WHERE e.kind = 'credit_note' AND e.deferred = 1 "
-                    . 'AND e.ref_document_id = ? AND e.ref_line = ? AND e.sku_id = ?', [$inv[0], $g['line_no'], $sku]) as $c) {
-                    $undone = $this->db->value("SELECT 1 FROM item_cost_event WHERE kind = 'credit_note_reversal' AND ref_document_id = ? AND sku_id = ? AND source_at <= ? "
-                        . 'LIMIT 1', [(int) $c['document_id'], $sku, $at]);
-                    $credits += $undone === null ? (int) $c['booked_e4'] * (int) $c['units'] : 0;
+            foreach ($share['lines'] as $no => $take) {
+                [$priceE4, $lineUnits] = $share['landed'][$no];
+                $value += $priceE4 * $take;
+                $units += $take;
+                foreach ($this->deferredCredits($share['invoice'], $no, $sku, $at) as $c) {
+                    $credits += ProfitMath::divRound($c * $take, $lineUnits);
                 }
             }
             if ($units > 0) {
                 $price = max(0, ProfitMath::divRound($value - $credits, $units));
-                $refDoc = $inv[0];
-                $refLine = $inv[1][0];
+                $refDoc = $share['invoice'];
+                $refLine = (int) array_key_first($share['lines']);
                 $note = 'a delivery of an invoice\'s goods on their way, at the invoice\'s landed price' . ($credits > 0 ? ', less its credits' : '');
             }
         }
@@ -534,6 +582,87 @@ final class CostEngine
     }
 
     /**
+     * What one receipt line brought of the final invoice it was made from: its units (Arrivals::missingOf's rule: accepted, set aside to
+     * check or quarantined) given to the invoice lines it received in line order, each at most its own units; only the lines that got some.
+     *
+     * @return array{invoice: int, lines: non-empty-array<int, int>, landed: array<int, array{0: int, 1: int}>}|null invoice line => units taken;
+     *         landed: invoice line => [its landed price, its units]
+     */
+    private function receiptShare(int $grn, int $line, int $sku, string $at): ?array
+    {
+        $inv = $this->invoiceLineOf($grn, $line, $sku, $at);
+        if ($inv === null) {
+            return null;
+        }
+        $came = (int) ($this->db->value('SELECT COALESCE(accepted_units, 0) + COALESCE(verify_units, 0) + COALESCE(quarantine_units, 0) FROM grn_line '
+            . 'WHERE document_id = ? AND line_no = ?', [$grn, $line]) ?? 0);
+        if ($came <= 0) {
+            // Not counted on the line: what it booked into stock.
+            $came = (int) $this->db->value("SELECT COALESCE(SUM(qty_delta), 0) FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
+                . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
+        }
+        $landed = [];
+        foreach ($this->landed($inv[0]) as $g) {
+            if (in_array($g['line_no'], $inv[1], true) && $g['price_e4'] !== null && $g['units'] > 0) {
+                $landed[$g['line_no']] = [$g['price_e4'], $g['units']];
+            }
+        }
+        $lines = [];
+        foreach ($inv[1] as $no) {
+            if (!isset($landed[$no]) || $came <= 0) {
+                continue;
+            }
+            $take = min($landed[$no][1], $came);
+            $came -= $take;
+            $lines[$no] = $take;
+        }
+        return $lines === [] ? null : ['invoice' => $inv[0], 'lines' => $lines, 'landed' => $landed];
+    }
+
+    /**
+     * The value of each credit of an invoice line given while its goods were on their way (deferred) and not cancelled by $at: what it takes
+     * off a credited unit x the units it credits (GBP x 10,000).
+     *
+     * @return list<int>
+     */
+    private function deferredCredits(int $invoice, int $invLine, int $sku, string $at): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT e.booked_e4, e.units, e.document_id FROM item_cost_event e WHERE e.kind = 'credit_note' AND e.deferred = 1 "
+            . 'AND e.ref_document_id = ? AND e.ref_line = ? AND e.sku_id = ?', [$invoice, $invLine, $sku]) as $c) {
+            $undone = $this->db->value("SELECT 1 FROM item_cost_event WHERE kind = 'credit_note_reversal' AND ref_document_id = ? AND sku_id = ? AND source_at <= ? "
+                . 'LIMIT 1', [(int) $c['document_id'], $sku, $at]);
+            if ($undone === null) {
+                $out[] = (int) $c['booked_e4'] * (int) $c['units'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The receipt lines that took in goods of an invoice line (receipt events of that invoice whose line, by receiptShare, got units of it;
+     * a line received into several warehouses is several events, one line), up to $at: per receipt line its units in, its last portion's
+     * time, the units of the invoice line it took and the units its price was worked out over (the Codex re-check of 6b8a7ee, F3).
+     *
+     * @return list<array{units: int, last_at: string, take: int, over: int, line_units: int}>
+     */
+    private function receiptsTaking(int $invoice, int $invLine, int $sku, string $at): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT document_id, document_line, COALESCE(SUM(units), 0) AS units, MIN(source_at) AS first_at, MAX(source_at) AS last_at "
+            . "FROM item_cost_event WHERE kind = 'receipt' AND ref_document_id = ? AND sku_id = ? AND source_at <= ? AND document_line IS NOT NULL "
+            . 'GROUP BY document_id, document_line ORDER BY first_at, document_id, document_line', [$invoice, $sku, $at]) as $g) {
+            $share = $this->receiptShare((int) $g['document_id'], (int) $g['document_line'], $sku, (string) $g['first_at']);
+            if ($share === null || $share['invoice'] !== $invoice || ($share['lines'][$invLine] ?? 0) <= 0) {
+                continue;
+            }
+            $out[] = ['units' => (int) $g['units'], 'last_at' => (string) $g['last_at'], 'take' => $share['lines'][$invLine],
+                'over' => array_sum($share['lines']), 'line_units' => $share['landed'][$invLine][1]];
+        }
+        return $out;
+    }
+
+    /**
      * A supplier invoice or credit note made final, or the reversal of one.
      *
      * @param array<string, mixed> $d the document row
@@ -545,7 +674,8 @@ final class CostEngine
         $at = (string) $d['posted_at'];
         $number = (string) $d['number'];
         if ($d['reverses_id'] !== null) {
-            return $this->reversalEvents($id, (int) $d['reverses_id'], $at, $number);
+            $first = $this->readOriginal((int) $d['reverses_id']);
+            return [...$first, ...$this->reversalEvents($id, (int) $d['reverses_id'], $at, $number)];
         }
         if ($this->isCopy($id)) {
             return [];
@@ -578,9 +708,9 @@ final class CostEngine
                 // (no delivery named, none received from it so far): deferred; their receipt takes it in (the Codex review of 92efa82, a5).
                 $inv = $h['credits_document_id'] === null ? null : (int) $h['credits_document_id'];
                 $invLine = $creditOf[$g['line_no']] ?? null;
-                $deferred = $inv !== null && $invLine !== null && $g['grn'] === null
-                    && $this->db->value("SELECT 1 FROM item_cost_event WHERE kind = 'receipt' AND ref_document_id = ? AND ref_line = ? AND sku_id = ? LIMIT 1",
-                        [$inv, $invLine, $sku]) === null;
+                // A receipt took that line's goods in when one of its lines got units of it (two lines keyed as one on the receipt: the line's
+                // goods came on the receipt's one line, whatever line the receipt's event names; the Codex re-check of 6b8a7ee, F3).
+                $deferred = $inv !== null && $invLine !== null && $g['grn'] === null && $this->receiptsTaking($inv, $invLine, $sku, '9999-12-31 23:59:59.999999') === [];
                 $out[] = $this->write($base + ['kind' => 'credit_note', 'ref_document_id' => $inv, 'ref_line' => $invLine,
                     'units' => $deferred ? $g['units'] : ProfitMath::reach($g['units'], $onHand), 'price_e4' => 0, 'booked_e4' => $g['price_e4'], 'deferred' => $deferred ? 1 : 0,
                     'note' => $deferred ? 'a price credit of goods still on their way: their receipt takes it in' : 'a price credit']);
@@ -620,21 +750,19 @@ final class CostEngine
             $units = 0;
             $per = 0;
             if ((int) $e['deferred'] === 1) {
-                // Taken in by a receipt (its value spread over the invoice line's units): undone on that receipt's units still here.
-                // Every receipt row that took it in (a line received into several warehouses is several rows: the Codex re-check of 37a2cf0, R4).
-                $took = $this->db->one("SELECT COALESCE(SUM(units), 0) AS units, MIN(source_at) AS first_at, MAX(source_at) AS last_at FROM item_cost_event WHERE kind = 'receipt' "
-                    . 'AND ref_document_id = ? AND ref_line = ? AND sku_id = ? AND source_at <= ?', [(int) $e['ref_document_id'], (int) $e['ref_line'], $sku, $at]);
-                $lineUnits = 0;
-                foreach ($took === null || $took['first_at'] === null ? [] : $this->landed((int) $e['ref_document_id']) as $g) {
-                    if ($g['line_no'] === (int) $e['ref_line']) {
-                        $lineUnits = $g['units'];
+                // Taken in by the receipt line(s) that got units of its invoice line (its value spread over the invoice line's units, the part on
+                // the units that came spread over the units the receipt's price was worked out over): undone on those receipts' units still
+                // here, the fewest on hand since their last portion came in (every portion: R4; the line found by what it took, not by the
+                // line its event names: the Codex re-check of 6b8a7ee, F3).
+                $value = 0;
+                foreach ($this->receiptsTaking((int) $e['ref_document_id'], (int) $e['ref_line'], $sku, $at) as $t) {
+                    $u = min($t['units'], $this->lowestOnHandSince($sku, $t['last_at'], $at));
+                    if ($u > 0 && $t['line_units'] > 0 && $t['over'] > 0) {
+                        $value += ProfitMath::divRound((int) $e['booked_e4'] * (int) $e['units'] * $t['take'] * $u, $t['line_units'] * $t['over']);
+                        $units += $u;
                     }
                 }
-                if ($took !== null && $took['first_at'] !== null && $lineUnits > 0) {
-                    $per = ProfitMath::divRound((int) $e['booked_e4'] * (int) $e['units'], $lineUnits);
-                    // The fewest on hand since the last portion came in (all of them in: the level before it would leave its own units out).
-                    $units = min((int) $took['units'], $this->lowestOnHandSince($sku, (string) $took['last_at'], $at));
-                }
+                $per = $units > 0 ? ProfitMath::divRound($value, $units) : 0;
             } else {
                 // What the event really moved a unit, read from the history folded in its sources' order (so a replay since is counted:
                 // the Codex review of 57d98ad, N2), undone on the units it reached that can still be here: never more than the fewest on
@@ -677,30 +805,34 @@ final class CostEngine
         $end = $this->db->value('SELECT id FROM stock_ledger WHERE created_at > ? ORDER BY created_at, id LIMIT 1', [$until]);
         $start = $start === null ? PHP_INT_MAX : (int) $start;
         $end = $end === null ? PHP_INT_MAX : (int) $end;
-        $level = $this->onHandBefore($sku, $start);
-        $low = $level;
-        if ($start < $end) {
-            $wh = $this->ownWarehouses();
-            if ($wh !== []) {
-                // One operation's rows together (a transfer between two warehouses of ours is out and in at once: never a sell-out; the Codex
-                // re-check of 37a2cf0, R3): the level is looked at only between operations.
-                $op = null;
-                foreach ($this->db->all('SELECT qty_delta, document_id, idem_key FROM stock_ledger WHERE warehouse_id IN (' . implode(', ', array_fill(0, count($wh), '?'))
-                    . ") AND sku_id = ? AND bucket = 'on_hand' AND id >= ? AND id < ? ORDER BY id", [...$wh, $sku, $start, $end]) as $r) {
-                    $key = $r['document_id'] !== null ? 'd' . $r['document_id'] : ($r['idem_key'] !== null ? 'k' . $r['idem_key'] : null);
-                    if ($op !== null && ($key === null || $key !== $op)) {
-                        $low = min($low, $level);
-                    }
-                    $level += (int) $r['qty_delta'];
-                    $op = $key;
-                    if ($key === null) {
-                        $low = min($low, $level);
-                    }
-                }
-                $low = min($low, $level);
+        $wh = $this->ownWarehouses();
+        if ($start >= $end || $wh === []) {
+            return max(0, $this->onHandBefore($sku, $start));
+        }
+        // The rows of the time, each with its place in the item's commit order (stock_value_seq) and its operation (its document, or its key
+        // within the caller's scope): the level is looked at only between whole operations, in the order they committed (the Codex re-checks
+        // of 37a2cf0 R3 and 6b8a7ee R3, F4: a transfer between two of our warehouses is never a sell-out, even with a sale booked between
+        // its two rows; two stores' "batch:1" are two operations).
+        $rows = $this->db->all('SELECT l.id, l.warehouse_id, l.qty_delta, l.balance_after, l.document_id, l.idem_key, l.channel_id, l.actor, s.seq FROM stock_ledger l '
+            . 'LEFT JOIN stock_value_seq s ON s.stock_ledger_id = l.id WHERE l.warehouse_id IN (' . implode(', ', array_fill(0, count($wh), '?'))
+            . ") AND l.sku_id = ? AND l.bucket = 'on_hand' AND l.id >= ? AND l.id < ?", [...$wh, $sku, $start, $end]);
+        // Each warehouse's level before the time: before its own first row of it (a warehouse's rows are in its own order by id), else its
+        // last row before it.
+        $first = [];
+        foreach ($rows as $r) {
+            $w = (int) $r['warehouse_id'];
+            if (!isset($first[$w]) || (int) $r['id'] < $first[$w][0]) {
+                $first[$w] = [(int) $r['id'], (int) $r['balance_after'] - (int) $r['qty_delta']];
             }
         }
-        return max(0, $low);
+        $level = 0;
+        foreach ($wh as $w) {
+            $level += $first[$w][1] ?? (int) ($this->db->value("SELECT balance_after FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND bucket = 'on_hand' AND id < ? "
+                . 'ORDER BY id DESC LIMIT 1', [$w, $sku, $start]) ?? 0);
+        }
+        return ProfitMath::lowestLevel($level, array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'seq' => $r['seq'] === null ? null : (int) $r['seq'],
+            'qty' => (int) $r['qty_delta'], 'op' => ProfitMath::operation($r['document_id'] === null ? null : (int) $r['document_id'],
+                $r['idem_key'] === null ? null : (string) $r['idem_key'], $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor'])], $rows));
     }
 
     /**
@@ -779,11 +911,13 @@ final class CostEngine
             } else {
                 $new = ProfitMath::step($old, $e);
             }
+            // `late` marks it (the Codex re-check of 6b8a7ee, R6): whoever reads the price at a moment after it but stored before it knows from
+            // the late events alone (an index of them) that the stored price there is out of date.
             $id = $db->insert('INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, document_id, document_line, doc_ref, ref_document_id, ref_line, '
-                . 'units, on_hand, price_e4, booked_e4, deferred, undoes_event_id, old_cost_e4, new_cost_e4, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                . 'units, on_hand, price_e4, booked_e4, deferred, undoes_event_id, late, old_cost_e4, new_cost_e4, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [$sku, $when, $at, $e['kind'], $e['source_key'], $e['document_id'] ?? null, $e['document_line'] ?? null,
                     isset($e['doc_ref']) ? mb_substr((string) $e['doc_ref'], 0, 64) : null, $e['ref_document_id'] ?? null, $e['ref_line'] ?? null, (int) $e['units'],
-                    $e['on_hand'], $e['price_e4'], $e['booked_e4'], (int) ($e['deferred'] ?? 0), $e['undoes_event_id'] ?? null, $old, $new,
+                    $e['on_hand'], $e['price_e4'], $e['booked_e4'], (int) ($e['deferred'] ?? 0), $e['undoes_event_id'] ?? null, $late ? 1 : 0, $old, $new,
                     mb_substr((string) $e['note'], 0, 255)]);
             $db->exec('UPDATE item_cost SET unit_cost_e4 = ?, last_event_id = ?, updated_at = ? WHERE sku_id = ?', [$new, $id, $now, $sku]);
             if ($late) {

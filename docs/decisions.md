@@ -18771,3 +18771,54 @@ permissions every job has (catalogue.view, reference.view) keep 0034's rows: the
 them for the People manager (RolePermissionsTest says exactly that, as RoleMapTest already did). The code was wrong there, not the test.
 Migration0069Test was the test that was wrong: it compared 0069's job list with the code's whole list; it now says 0069's list is the code's
 up to people_manager, and that the code has after it only the jobs later migrations append at the end (0074's finance), nothing else.
+
+**PR65.** (F1, b5 PARTLY) An item made after the start starts just BEFORE the first delivery the job reads of it (a microsecond before; at
+the run's own time when it has none yet), at CW's average of what came in with a price before that moment (stock booked in by hand at a
+price: R5), else the supplier's price, else none; every delivery, invoice and credit note of it is then folded on top of its start in time
+order, exactly as for an item of the start. Before, the start sat at the run's time AFTER them and reset the price to the deliveries' own
+average: ten received at £1.00 and invoiced at £2.00 before the item's first run came out at £10.00 instead of £20.00 (and £0 after the
+invoice was cancelled); now £20.00, and £10.00 once cancelled (CostEngineReviewR4Test). A unit booked in by hand at a price after the first
+delivery comes in at the price of the moment, as for every item of the start (PR14). Such an item's `start_source` is what its start was
+(R5's second item: `supplier_price` £3.00, then its delivery of 10 at £2.00 on nothing on hand: £2.00).
+
+**PR66.** (F2, F3, a5/a13/N1 PARTLY) A receipt line that received several invoice lines of its item (two lines keyed as one) shares what it
+brought by the arrival matching (Arrivals::missingOf): its units (accepted, set aside, quarantined) go to those invoice lines in line order,
+each at most its own units. Its price = the landed value of the units each line gave, less the part of each credit given before the goods
+came that is on those units (a credit's value x units given / the line's units), over the units given. 10 at £2.00 and 10 at £4.00 keyed as
+one, 10 came: £2.00 (line 1's; line 2 is short), not £3.00. The receipt lines that took in an invoice line are found by that sharing, not by
+the one line the receipt's event names: a credit of line 2 (10 x £1.00) given before 20 came on one line is cancelled on that receipt (£3.50
+back to £4.00, not left at £3.50), and a credit of line 2 given after that receipt lowers the 20 on hand (£4.00 to £3.50) instead of
+waiting for a receipt that never comes. A cancelled credit's undo on one receipt line = credit value x units of the line it took / the
+line's units x units still here / units the receipt's price was worked out over.
+
+**PR67.** (F4, R3 PARTLY, a3 PARTLY) "The fewest units on hand since" takes the item's rows in COMMIT order (stock_value_seq: ledger ids
+are not in commit order across warehouses, Stock::assignValueSeq) and looks at the level only between whole operations, an operation being
+its document or its Idempotency-Key within the caller's scope (store id and actor + key: two stores' "batch:1" are two operations;
+ProfitMath::operation, ::lowestLevel). Each warehouse's level before the time is its own balance before its first row of it. 15 on hand, a
+transfer out 10 / a sale of 5 from a third warehouse / the transfer in 10: never 0 (10), whichever committed first. Ten corrected to £2.00,
+all sold by store A ("batch:1"), ten more relayed in without a price by store B ("batch:1"): the cancelled invoice finds the sell-out and
+leaves £2.00 (it took them to £1.00 before).
+
+**PR68.** (F5, b2 PARTLY) A cancellation is read after what it cancels: when the document it reverses is not marked read yet (whatever its
+time: one that committed late lies outside every run's look back until the night), it is read whole and marked first, then the
+cancellation (CostEngine::readOriginal; a delivery taken back too, so its units leave at the price they came in at). Never again is a
+cancellation marked read with nothing to undo while its invoice is still to come: invoice £1.00 to £2.00 committed late, cancelled; the
+run that reaches the cancellation reads both: £1.00 (it stayed at £2.00). A document of before the start is never read (it is inside the
+start). Left as it is (a1/b1): the mark is not held back while documents older than the job's window are still unread; a sale's cost is
+fixed once (PR16), a booking committed more than an hour late moves the price from its own time on and the sales costed meanwhile keep
+theirs until a deliberate bin/recost_sales.php.
+
+**PR69.** (R6 PARTLY) Whether a late event changed the price at a moment is read from the late events only: the cost job marks every event
+it writes after an event of a later source time (`item_cost_event.late`, 0074, with ix_item_cost_event_late (sku_id, late, source_at, id)),
+and ItemCosts::at checks "a late event with an earlier source written after the last event up to the moment" on that index. A moment in
+the middle of 400 events reads under 60 rows (it read 203: every event after the moment); with a late event before it, it folds as before.
+
+**PR70.** (c6 PARTLY) The lists by shop, product, brand and supplier join the units waiting for their cost in SQL (a derived table of
+sale_line by ix_sale_line_cost, joined on the row's own key), so sorted by margin every incomplete row goes after the rows whose margin is
+known BEFORE the list is cut at its 300 rows (300 waiting rows at 100% no longer push out a priced row at 50%), and a brand's waiting units
+are matched by the database's own comparison, the one its rows are grouped by ("acme" waits for "Acme"). A product with no CW item (sku 0)
+finds its waiting units too.
+
+**PR71.** (N10 PARTLY) 0074 adds one index to erp_pi_line, ix_erp_pi_line_sku (sku_id, erp_pi_id, idx), INPLACE without a lock and only
+while it is not there (as 0056; 0074 is not live, so it fits it); the supplier's last price reads the items asked for by it and sends back
+only the newest line of each (a window function), a unit price of at least a hundredth of a penny as before.
