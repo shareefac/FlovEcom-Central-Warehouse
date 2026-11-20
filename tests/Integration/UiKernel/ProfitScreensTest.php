@@ -35,7 +35,7 @@ final class ProfitScreensTest extends KernelUiTestCase
         $body = static fn (array $lines, array $over = []): array => $over + ['v' => 1, 'version' => 1, 'order_no' => 'VPG100', 'status' => 'completed',
             'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => $lines,
             'delivery' => ['method_id' => '1', 'method' => 'Royal Mail Tracked 48', 'charged_inc' => 360, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 0,
-            'parcels' => [['parcel_ref' => 'odl:1', 'tracking_no' => '15501234567890', 'carrier' => 'royal_mail', 'service_code' => 'TPN', 'service' => 'Tracked 48',
+            'parcels' => [['parcel_ref' => 'odl:1', 'tracking_no' => '15501234567890', 'carrier' => 'dpd', 'service_code' => '12', 'service' => 'Next day',
                 'status' => 'generated', 'label_at' => $paid, 'shipped_at' => null, 'manual' => false, 'partial' => false]]];
         $line = static fn (string $id, string $variant, int $price, array $over = []): array => $over + ['line_id' => $id, 'variant_id' => $variant, 'qty' => 1,
             'price_inc' => $price, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false];

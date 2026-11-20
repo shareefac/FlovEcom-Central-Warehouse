@@ -11,14 +11,15 @@ use CW\Tests\Support\IntegrationTestCase;
 use CW\Tests\Support\MigrationFixture;
 
 /**
- * 0074 (profit step 1; docs/decisions.md PR1-PR30), applied to a scratch schema that already holds a role grant: it only ADDS (nine new,
+ * 0074 (profit step 1; docs/decisions.md PR1-PR30), applied to a scratch schema that already holds a role grant: it only ADDS (ten new,
  * empty tables, five setting rows with their baselines, `finance` at the end of the job list); no existing row changes; its CHECKs; the
  * app login's rights on each new table; running every statement again changes nothing.
  */
 final class Migration0074Test extends IntegrationTestCase
 {
     private const FILE = '0074_profit.sql';
-    private const TABLES = ['item_cost', 'item_cost_event', 'order_snapshot', 'profit_day', 'profit_item_day', 'profit_job', 'sale_line', 'sale_order', 'sale_parcel'];
+    private const TABLES = ['item_cost', 'item_cost_document', 'item_cost_event', 'order_snapshot', 'profit_day', 'profit_item_day', 'profit_job', 'sale_line', 'sale_order',
+        'sale_parcel'];
     private const CHECK_VIOLATED = 3819;
     private ?string $dir = null;
 
@@ -39,7 +40,7 @@ final class Migration0074Test extends IntegrationTestCase
                 'only new tables, the settings and the job list');
         }
         self::assertSame(['Select', 'Insert'], Grants::desired('item_cost_event'), 'the price history is never rewritten');
-        foreach (['order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job'] as $t) {
+        foreach (['order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document'] as $t) {
             self::assertSame(['Select', 'Insert', 'Update'], Grants::desired($t), "{$t}: never deleted by the app login");
         }
         self::assertSame(Grants::FULL, Grants::desired('profit_day'), 'a batch rebuilds a day');

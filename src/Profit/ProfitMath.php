@@ -180,8 +180,20 @@ final class ProfitMath
     public static function fold(array $events): ?int
     {
         $cost = null;
+        $moved = [];
         foreach ($events as $e) {
+            // A cancellation undoes what its event moved in THIS fold (so a late event folded in since changes the undo too: the Codex
+            // re-check of 37a2cf0, N2): the event's value change over the units it reached, a unit at a time.
+            $undoes = isset($e['undoes_event_id']) ? (int) $e['undoes_event_id'] : 0;
+            if ($undoes > 0 && isset($moved[$undoes]) && in_array((string) $e['kind'], ['invoice_reversal', 'credit_note_reversal'], true)) {
+                [$delta, $onHand, $units] = $moved[$undoes];
+                $e = ['price_e4' => $units > 0 ? -self::divRound($delta * $onHand, $units) : 0, 'booked_e4' => 0] + $e;
+            }
+            $before = $cost;
             $cost = self::step($cost, $e);
+            if (isset($e['id'])) {
+                $moved[(int) $e['id']] = [$before === null || $cost === null ? 0 : $cost - $before, (int) ($e['on_hand'] ?? 0), (int) $e['units']];
+            }
         }
         return $cost;
     }

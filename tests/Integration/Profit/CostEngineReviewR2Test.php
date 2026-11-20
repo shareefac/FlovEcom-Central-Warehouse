@@ -71,7 +71,7 @@ final class CostEngineReviewR2Test extends ArrivalsTestCase
         $this->supplierItem($buyer, (int) $s['id'], $new, 1, '1.5000');
         $this->engine()->run();
         self::assertSame([15000, 'supplier_price'], [self::cost($new), (string) self::$db->value('SELECT start_source FROM item_cost WHERE sku_id = ?', [$new])],
-            'the supplier\'s price: CW\'s average holds receipts the job reads again');
+            'the supplier\'s price: no unit of it came in with a price (the report\'s figures are never read; PR59 of round 3)');
     }
 
     public function testTheMarkStopsShortOfTheFirstEventNotRead(): void

@@ -131,7 +131,8 @@ final class SnapshotBody
             $seenP[$ref] = true;
             $outParcels[] = [
                 'parcel_ref' => $ref,
-                'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true)),
+                'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true),
+                    (string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32), self::flag($p['manual'] ?? false, "{$f}.manual")),
                 'carrier' => (string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32),
                 'service_code' => (string) self::optText($p['service_code'] ?? null, "{$f}.service_code", 64, true),
                 'service' => (string) self::optText($p['service'] ?? null, "{$f}.service", 128),
@@ -174,16 +175,21 @@ final class SnapshotBody
      * Evri / Parcel2Go H + 15 letters or digits, UPS 1Z + 16. Anything else (a note typed by hand, a phone number, a name) is kept as null,
      * so no free text reaches CW (the Codex reviews of 92efa82 b12 and of 57d98ad).
      */
-    public static function tracking(?string $t): ?string
+    public static function tracking(?string $t, string $carrier = '', bool $manual = false): ?string
     {
         if ($t === null) {
             return null;
         }
         $n = strtoupper((string) preg_replace('/[\s-]+/', '', $t));
-        foreach (['/^[A-Z]{2}[0-9]{9}GB$/D', '/^[0-9]{10}$/D', '/^[0-9]{14}$/D', '/^H[A-Z0-9]{15}$/D', '/^1Z[A-Z0-9]{16}$/D'] as $shape) {
+        foreach (['/^[A-Z]{2}[0-9]{9}GB$/D', '/^H[A-Z0-9]{15}$/D', '/^1Z[A-Z0-9]{16}$/D'] as $shape) {
             if (preg_match($shape, $n) === 1) {
                 return $n;
             }
+        }
+        // Digits alone are DPD's shape only on a DPD label the shop made (never on a parcel marked by hand, whose number a person typed: a
+        // phone number has 10 or 11 digits; the Codex re-check of 37a2cf0, b12).
+        if (preg_match('/^([0-9]{10}|[0-9]{14})$/D', $n) === 1 && strtolower(trim($carrier)) === 'dpd' && !$manual) {
+            return $n;
         }
         return null;
     }

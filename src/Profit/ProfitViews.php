@@ -156,10 +156,28 @@ final class ProfitViews
                 . "LEFT JOIN sku s ON s.id = p.sku_id WHERE {$where} GROUP BY p.sku_id, s.name, s.code ORDER BY {$order}, p.sku_id LIMIT {$limit}", $params),
         };
         $more = count($rows) > self::ROW_LIMIT;
+        // Units waiting for their cost (minutes at most): their items' rows are incomplete too, and a list by margin puts them after the
+        // rows whose margin is known (the Codex re-check of 37a2cf0, c6).
+        $waiting = [];
+        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
+        foreach (match ($by) {
+            'shop' => $this->db->all("SELECT l.channel_id AS k, SUM(l.units) AS u FROM sale_line l WHERE {$lw} GROUP BY l.channel_id", $params),
+            'brand' => $this->db->all("SELECT COALESCE(NULLIF(s.brand, ''), '') AS k, SUM(l.units) AS u FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id WHERE {$lw} GROUP BY k",
+                $params),
+            'supplier' => $this->db->all('SELECT si.supplier_id AS k, SUM(l.units) AS u FROM sale_line l LEFT JOIN supplier_item si ON si.preferred_sku_id = l.sku_id '
+                . "WHERE {$lw} GROUP BY si.supplier_id", $params),
+            default => $this->db->all("SELECT l.sku_id AS k, SUM(l.units) AS u FROM sale_line l WHERE {$lw} GROUP BY l.sku_id", $params),
+        } as $w) {
+            $waiting[(string) $w['k']] = (int) $w['u'];
+        }
         $out = [];
         foreach (array_slice($rows, 0, self::ROW_LIMIT) as $r) {
             $id = $r['id'] === null ? null : (int) $r['id'];
-            $out[] = ['id' => $id, 'label' => (string) $r['label'], 'code' => $r['code'] === null ? null : (string) $r['code'], 'f' => self::figures($r)];
+            $out[] = ['id' => $id, 'label' => (string) $r['label'], 'code' => $r['code'] === null ? null : (string) $r['code'],
+                'f' => self::figures($r + ['pending' => $waiting[(string) ($by === 'brand' ? $r['label'] : $r['id'])] ?? 0])];
+        }
+        if (in_array($sort, ['margin', 'margin_low'], true)) {
+            usort($out, static fn (array $a, array $b): int => (int) $a['f']['incomplete'] <=> (int) $b['f']['incomplete']); // stable: the SQL order kept
         }
         return ['rows' => $out, 'more' => $more];
     }

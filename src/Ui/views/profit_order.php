@@ -35,7 +35,11 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
 <?php endif; ?>
     <tr><th scope="row"><?= $word('PROFIT', 'goods') ?></th><td class="num"><?= $money($sale / 100) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'cost') ?></th><td class="num"><?= $money($cost / 100) ?></td></tr>
-    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money(($sale - $cost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($sale - $cost, $sale))) ?>)<?php if ($o['paid_at'] !== null && $o['margin_bp'] === null && $sale > 0): ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td></tr>
+<?php if ($o['paid_at'] !== null && $o['margin_bp'] === null && $sale > 0): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span></td></tr>
+<?php else: ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money(($sale - $cost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($sale - $cost, $sale))) ?>)</td></tr>
+<?php endif; ?>
 <?php if ((int) $o['resends'] > 0): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'resend_cost') ?></th><td class="num"><?= $money($resendCost / 100) ?></td></tr>
     <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $money(($sale - $cost - $resendCost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct($o['margin_bp'] === null ? null : (int) $o['margin_bp'])) ?>)</td></tr>

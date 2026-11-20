@@ -18724,3 +18724,40 @@ the paid-time index, at most 93 days: a longer period is cut to its last 93 days
 (N11) A page cursor that is not a real time starts again from the first page.
 
 **PR56.** Left as it is (said in the README): the lists by product, brand and supplier over a long period still read every item-day row of it.
+
+### The Codex re-check of 37a2cf0 (`build/A/codex_r3.txt`): no HIGH; 6 new MEDIUM, 1 new LOW; each checked in the code, shown failing first (`runs/profit_r3fix_red.log`) and fixed (PR57-PR63)
+
+**PR57.** (R1, R2, a1/b1/b2 PARTLY) The cost job marks each delivery, supplier invoice and credit note it has read WHOLE
+(`item_cost_document`, also when it moves no price). Every run reads again the documents of the day before its window that are not marked
+(a booking that committed late; a document a stopped run read only in part: what is done is skipped by its key), at most 500 a run; at night
+(`bin/refresh_item_cost.php --reconcile`) every unmarked document since the start (at most 20,000). A document that moves nothing is read
+once and never fills a run again.
+
+**PR58.** (R3, a3 PARTLY) "The fewest units on hand since" looks at the level only between whole stock operations (the rows of one document or
+one idempotency key together): a transfer between two warehouses of ours (out of one, into the other in one transaction) is never a sell-out.
+(R4, N1/a5 PARTLY) A cancelled credit that a receipt took in is undone on every portion of that receipt (a line received into two warehouses
+is two rows), from the moment the last portion came in.
+
+**PR59.** (R5, b5 PARTLY) An item made after the start starts, at the run's own time, at CW's average of every unit of it that came in with a
+price up to that time (a stock in by hand at a price included; CostHints::average's rule), else the supplier's price, else none. A delivery
+booked before that time and read by the job afterwards is folded in BEFORE the start, which sets the price (the start already holds it):
+never counted twice.
+
+**PR60.** (R6, N2 PARTLY) The price at a moment is ONE indexed read: the item's last event up to the moment (a `replay` included), unless an
+event written after it has an earlier source (it came late), and only then the history folded. A late event stores the price at ITS place in
+the history (the fold of what comes before it, then it), so that read stays right. A cancellation keeps the units it reached even when it
+moved nothing when written, and a fold works out its move again from the event it undoes (`undoes_event_id`): a late event folded in later
+gives it its true move.
+
+**PR61.** (c6 PARTLY) Every list by shop, product, brand or supplier says when units wait for their cost and, sorted by margin, puts those
+rows after the rows whose margin is known. An order whose margin is not known shows its profit as "not known" (no percent worked out
+again on the page).
+
+**PR62.** (b12 PARTLY) An all-digit tracking number (DPD's 10 or 14 digits) is kept only on a DPD label the shop made (carrier `dpd`,
+`manual` false); on a parcel marked as sent by hand it may be a phone number: null. The lettered shapes stand on their own. On builder B's
+2-day sample all 2,338 numbers sent are kept. (R7) A page cursor is checked character by character before it is read as a time: a NUL byte
+starts again from the first page (never a 500).
+
+**PR63.** Left as they are (said in the README): an ERPNext purchase-line index (N10: the import reads the requested items' rows only, each
+once); a receipt line that brought two invoice lines of the item is priced by both together (their landed value over their units), not
+split by units; the lists by product, brand and supplier over a long period read every item-day row of it (PR56).

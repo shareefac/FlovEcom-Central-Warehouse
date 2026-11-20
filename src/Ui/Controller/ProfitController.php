@@ -147,7 +147,9 @@ final class ProfitController
             $keyOk = preg_match('/^-?[0-9]{1,18}$/D', $k) === 1;
         } else {
             // A real time, as the database writes it (the Codex review of 57d98ad, N11): anything else starts again from the first page.
-            $t = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s.u', $k, new \DateTimeZone('UTC'));
+            // Its shape first (a NUL or any other character never reaches the parser: the Codex re-check of 37a2cf0, R7).
+            $t = preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/D', $k) === 1
+                ? \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s.u', $k, new \DateTimeZone('UTC')) : false;
             $keyOk = $t !== false && $t->format('Y-m-d H:i:s.u') === $k;
         }
         return $keyOk && $c !== null && preg_match('/^[\x21-\x7e]{1,64}$/D', $r) === 1 ? [$k, $c, $r] : null;

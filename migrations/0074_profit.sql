@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS item_cost_event (
   price_e4         BIGINT          NULL COMMENT 'the unit price it applied (a delivery''s, an invoice''s landed price, a credit''s)',
   booked_e4        BIGINT          NULL COMMENT 'the unit price those units had before it (an invoice); a credit: what it takes off a unit',
   deferred         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1: a credit of goods still on their way: it moves nothing now, their receipt takes it in',
+  undoes_event_id  BIGINT UNSIGNED NULL COMMENT 'a cancellation: the event it undoes (its effect is read from the folded history each time)',
   old_cost_e4      BIGINT          NULL,
   new_cost_e4      BIGINT          NULL,
   note             VARCHAR(255)    NULL,
@@ -193,6 +194,13 @@ CREATE TABLE IF NOT EXISTS item_cost_event (
   CONSTRAINT ck_item_cost_event_deferred CHECK (deferred IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='every move of an item''s buying price (profit step 1): the cost on a past day is read from here; append-only';
+
+CREATE TABLE IF NOT EXISTS item_cost_document (
+  document_id  BIGINT UNSIGNED NOT NULL COMMENT 'a goods receipt, supplier invoice or credit note (or a cancellation of one) the cost job has read whole',
+  read_at      DATETIME(6)     NOT NULL,
+  PRIMARY KEY (document_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='the documents the cost job has read whole (also those that move no price): a booking that committed late is found by what is not here';
 
 CREATE TABLE IF NOT EXISTS profit_day (
   channel_id       SMALLINT UNSIGNED NOT NULL,

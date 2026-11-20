@@ -10,7 +10,8 @@ declare(strict_types=1);
  *
  *   php bin/refresh_item_cost.php [--force] [--status] [--reconcile]
  *
- *   --reconcile  also every unit back in stock whenever its return was booked (a full read: once a night)
+ *   --reconcile  also every delivery, invoice and credit note since the start not read whole yet, and every unit back in stock whenever its
+ *                return was booked (a full read: once a night)
  *
  * Exit codes: 0 done (also: switched off, not started yet, or another run holds the job's lock) · 2 usage · 3 cannot run.
  */
@@ -37,7 +38,8 @@ exit(Cli::main(CostEngine::JOB, ['force', 'status', 'reconcile'], 'usage: php bi
             $cli->log('switched off (setting profit.cost_refresh_on): nothing done');
             return Cli::OK;
         }
-        $r = $engine->run();
+        // Nightly (--reconcile): every document since the start not read whole yet, too (docs/decisions.md PR57).
+        $r = $engine->run(CostEngine::MAX_EVENTS, CostEngine::UNREAD_PER_RUN, array_key_exists('reconcile', $opts));
         $cli->log(isset($r['not_started']) ? 'not started yet (run bin/seed_item_cost.php first): nothing done' : 'cost ' . json_encode($r, JSON_UNESCAPED_SLASHES));
         // The sales stored before the job reached their paid time get their cost now (docs/decisions.md PR16).
         $cli->log('pending ' . json_encode((new PendingCosts($cli->db))->run(), JSON_UNESCAPED_SLASHES));

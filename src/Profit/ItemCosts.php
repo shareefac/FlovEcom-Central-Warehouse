@@ -61,14 +61,23 @@ final class ItemCosts
         foreach ($skuIds as $sku) {
             // The item's history up to the moment, folded in its sources' order with the job's own rule (ProfitMath::fold): the price at a
             // moment is the same whether the events came in order or one came late and was folded in since (the Codex review of 57d98ad, a6).
-            $events = $this->db->all("SELECT kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred FROM item_cost_event WHERE sku_id = ? AND source_at <= ? "
-                . "AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]);
-            $before = $events === [];
+            // The item's last event up to the moment (a `replay` included: it holds the folded price of all before it) has the price the fold
+            // gives, unless an event written after it has an earlier source (it came late: that event's price is out of date). One indexed
+            // read and one short check; only a moment a late event changed folds the history (the Codex re-check of 37a2cf0, R6).
+            $last = $this->db->one('SELECT id, at, source_at, new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND source_at <= ? ORDER BY source_at DESC, id DESC LIMIT 1',
+                [$sku, $atUtc]);
+            $before = $last === null;
+            $stale = !$before && $this->db->value("SELECT 1 FROM item_cost_event WHERE sku_id = ? AND at >= ? AND id > ? AND source_at < ? AND kind <> 'replay' LIMIT 1",
+                [$sku, $last['at'], (int) $last['id'], $last['source_at']]) !== null;
+            if ($stale) {
+                $e4 = ProfitMath::fold($this->db->all('SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event '
+                    . "WHERE sku_id = ? AND source_at <= ? AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]));
+            } else {
+                $e4 = $before || $last['new_cost_e4'] === null ? null : (int) $last['new_cost_e4'];
+            }
             if ($before) {
                 $first = $this->db->one("SELECT new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND kind = 'start' ORDER BY source_at, id LIMIT 1", [$sku]);
                 $e4 = $first === null || $first['new_cost_e4'] === null ? null : (int) $first['new_cost_e4'];
-            } else {
-                $e4 = ProfitMath::fold($events);
             }
             $out[$sku] = ['e4' => $e4, 'source' => $e4 === null ? 'none' : ($own && !$before ? 'cw_cost' : 'estimate')];
         }

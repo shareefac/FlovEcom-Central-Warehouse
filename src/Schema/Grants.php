@@ -215,7 +215,7 @@ final class Grants
         // 0074 (docs/decisions.md PR2, PR17): a store order's latest snapshot, its money, lines and parcels (replaced or marked removed, never
         // deleted), each item's buying price now and the profit jobs' marks. profit_day and profit_item_day keep FULL rights: a batch tool
         // rebuilds a day (DELETE + INSERT in one transaction).
-        'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job'];
+        'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */
