@@ -5474,6 +5474,15 @@ final class Words
         'unsold_shown' => 'Products not sold in a year are shown.',
         'unsold_hide' => 'Hide them',
         // ---- end of HU3
+        // ---- HI2 (hide-ignored, 20 Nov 2026): All leaves out the ignored products; its one quiet line, and the way to them (the Ignored choice).
+        'ignored_one' => '1 ignored product is not shown here.',
+        'ignored_many' => '%s ignored products are not shown here.',
+        'ignored_show' => 'Show them',
+        'ignored_show_one' => 'Show it',
+        // All lists nothing, but products are left out of it (ignored, or old and not sold in a year): not "this store has no products".
+        'empty_hidden' => 'No website product to show here.',
+        'empty_hidden_text' => 'The line below says which are not shown, and shows them.',
+        // ---- end of HI2
     ];
 
     /**

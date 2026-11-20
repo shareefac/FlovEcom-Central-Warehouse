@@ -1177,6 +1177,19 @@ final class WordsTest extends TestCase
         }
     }
 
+    /** Store Products' All leaves out the ignored products (docs/decisions.md HI2): its one quiet line in plain words, one and many, no code. */
+    public function testTheIgnoredProductsAllLeavesOutAreSaidInPlainWords(): void
+    {
+        self::assertSame('3 ignored products are not shown here.', Words::say('STORE_PRODUCTS', 'ignored_many', 3));
+        self::assertSame('1,200 ignored products are not shown here.', Words::say('STORE_PRODUCTS', 'ignored_many', 1200));
+        self::assertSame('1 ignored product is not shown here.', Words::STORE_PRODUCTS['ignored_one']);
+        self::assertSame(['Show them', 'Show it'], [Words::STORE_PRODUCTS['ignored_show'], Words::STORE_PRODUCTS['ignored_show_one']]);
+        foreach (array_filter(Words::STORE_PRODUCTS, static fn (string $k): bool => str_starts_with($k, 'ignored') || str_starts_with($k, 'empty_hidden'), ARRAY_FILTER_USE_KEY) as $text) {
+            self::assertNotSame('', trim($text));
+            self::assertDoesNotMatchRegularExpression('/channel_listing|status|\bstate=|unsold=|\bSKU\b/i', $text, 'no code on a screen (rule 2)');
+        }
+    }
+
     /** The lines' grid (docs/decisions.md KG): its words on the page, its keys named as on the keyboard, Cmd for a Mac. */
     public function testTheLinesGridNamesItsKeysInWords(): void
     {

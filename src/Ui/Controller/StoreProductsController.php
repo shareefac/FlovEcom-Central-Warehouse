@@ -6,6 +6,7 @@ namespace CW\Ui\Controller;
 
 use CW\Mapping\BulkDecisions;
 use CW\Mapping\OneAtATime;
+use CW\Ops\Snapshot;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -25,6 +26,10 @@ use CW\Ui\Words;
  * NF1, NF7): it posts the same ticks to its preview (StoreNewItemsController), and the "Not matched" filter (no warehouse product,
  * nothing suggested) with the search finds a family for it. An old product not matched yet that sold nothing in a year is left out of
  * Not matched, Suggested and All, and of their counts; ONE quiet line at the end says how many, with "Show them" (`unsold=1`; HU1-HU4).
+ * All also leaves out the ignored products (the owner, 20 Nov 2026: they confused staff; HI1-HI4), with or without a search, and its
+ * count and pages; the Ignored choice lists them with its count and its bulk actions, and ONE more quiet line at the end of All says how
+ * many it left out, with "Show them" to the Ignored choice (the search and the sort kept). Nothing is deleted: the stores send every
+ * product every night, so a deleted row would come back as not matched.
  */
 final class StoreProductsController
 {
@@ -43,27 +48,36 @@ final class StoreProductsController
         if ($store === null) {
             return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'groups' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
                 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null, 'next_link' => null, 'bulkActions' => [], 'bulkMax' => 0, 'bulkKeep' => [],
-                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null, 'unsold' => null, 'unsoldShown' => false], 200,
+                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null, 'unsold' => null, 'unsoldShown' => false,
+                'ignoredLine' => null], 200,
                 ['title' => Words::MENU['store_products'], 'active' => 'store_products']);
         }
         $state = in_array($req->param('state'), Queries::STORE_STATES, true) ? (string) $req->param('state') : null;
         $sort = isset(Queries::STORE_SORTS[(string) $req->param('sort')]) ? (string) $req->param('sort') : 'sold_30';
         $text = mb_substr(trim($req->param('q') ?? ''), 0, 100);
         $page = UiRequest::id($req->param('page')) ?? 1;
-        $counts = $q->storeStateCounts($store['id']);
         // HU3: an old product not matched yet that sold nothing in a year is left out of the two waiting states and All, and their counts,
         // unless "Show them" was chosen (`unsold=1`, which every link of the list then keeps) or the setting is off.
         $on = $q->unsoldOn();
         $showUnsold = $on && $req->param('unsold') === '1';
-        $hidden = $on && !$showUnsold ? $q->unsoldHidden($store['id']) : null;
-        if ($hidden !== null) {
-            $counts['suggested'] = max(0, $counts['suggested'] - Queries::unsoldOfState($hidden, 'suggested'));
-            $counts['not_matched'] = max(0, $counts['not_matched'] - Queries::unsoldOfState($hidden, 'not_matched'));
-        }
-        $result = $q->storeProducts($store['id'], $state, $text, $sort, $page, $counts, $hidden);
+        // HI5 (Codex's review of 17d1c52, MEDIUM): the counts, the hidden counts, the page's ids and their rows are read at ONE moment
+        // (Snapshot::read: REPEATABLE READ, a consistent snapshot, read only, no locks), so another person's Ignore or match while the
+        // list is read never gives a page the pager names with no rows, nor an Ignored row drawn on All.
+        [$counts, $hidden, $result] = Snapshot::read($ctx->db, static function () use ($q, $store, $on, $showUnsold, $state, $text, $sort, $page): array {
+            $counts = $q->storeStateCounts($store['id']);
+            $hidden = $on && !$showUnsold ? $q->unsoldHidden($store['id']) : null;
+            if ($hidden !== null) {
+                $counts['suggested'] = max(0, $counts['suggested'] - Queries::unsoldOfState($hidden, 'suggested'));
+                $counts['not_matched'] = max(0, $counts['not_matched'] - Queries::unsoldOfState($hidden, 'not_matched'));
+            }
+            return [$counts, $hidden, $q->storeProducts($store['id'], $state, $text, $sort, $page, $counts, $hidden)];
+        });
         $base = ['channel' => $store['code'], 'state' => $state, 'sort' => $sort === 'sold_30' ? null : $sort, 'q' => $text === '' ? null : $text,
             'unsold' => $showUnsold ? '1' : null];
-        $bulkActions = ReviewController::bulkActions('store', null, $me->roles, []);
+        // HI7 (Codex's review of 17d1c52, LOW): "Take off the ignored list" only on the Ignored choice: no other choice holds an ignored row
+        // that can be ticked (All leaves them out, HI1), so every row it took there was skipped. The Ignored choice keeps every action it had.
+        $bulkActions = array_values(array_filter(ReviewController::bulkActions('store', null, $me->roles, []),
+            static fn (array $a): bool => $a['action'] !== 'unignore' || $state === 'ignored'));
         $newItems = BulkDecisions::offered('new_item', BulkDecisions::STORE_NEW, null, $me->roles, []);
         if ($newItems) {
             $bulkActions[] = ['action' => 'new_item', 'label' => Words::STORE_NEW['button'], 'class' => 'primary', 'formaction' => StoreNewItemsController::PREVIEW];
@@ -130,7 +144,8 @@ final class StoreProductsController
             $order[$st] = [Words::tone('STORE_STATE', $st), Words::STORE_STATE[$st]];
         }
         $groups = Html::groups(array_map(static fn (array $r): array => $r + ['group' => $r['state']], $rows), $order);
-        $states = [['key' => null, 'label' => Words::STORE_STATE['all'], 'count' => array_sum($counts), 'href' => Html::url('/ui/review/store', ['state' => null] + $base),
+        // All's count leaves out the ignored products, as its list does (HI1); Ignored keeps its own count.
+        $states = [['key' => null, 'label' => Words::STORE_STATE['all'], 'count' => Queries::storeAllCount($counts), 'href' => Html::url('/ui/review/store', ['state' => null] + $base),
             'current' => $state === null]];
         foreach (Queries::STORE_STATES as $s) {
             if ($s === 'landing' && $counts[$s] === 0 && $state !== $s) {
@@ -170,6 +185,8 @@ final class StoreProductsController
             'unsold' => self::unsoldLine($hidden === null ? null : $result['hidden'], $showUnsold, $base),
             // ... and the search and sort form keeps "Show them" (Codex's review of d65d1f2, MEDIUM: a search or a sort dropped it)
             'unsoldShown' => $showUnsold,
+            // HI2: All's one quiet line: how many ignored products it left out (of this search), with "Show them" (the Ignored choice).
+            'ignoredLine' => self::ignoredLine($state === null ? $result['ignored'] : 0, $base),
         // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
         ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);
     }
@@ -193,6 +210,25 @@ final class StoreProductsController
         }
         return ['text' => $hidden === 1 ? Words::STORE_PRODUCTS['unsold_one'] : Words::say('STORE_PRODUCTS', 'unsold_many', $hidden),
             'link' => Words::STORE_PRODUCTS[$hidden === 1 ? 'unsold_show_one' : 'unsold_show'], 'href' => Html::url('/ui/review/store', array_replace($base, ['unsold' => '1']))];
+    }
+
+    /**
+     * All's one quiet line of the ignored products (docs/decisions.md HI2; the owner, 20 Nov 2026: hide Ignored from the normal list, show
+     * it only when someone picks Ignored): "3 ignored products are not shown here. Show them" ($left: how many of this search All left
+     * out; nothing when none is). "Show them" is the Ignored choice of the list as it is (store, sort, search, and "Show them" of HU3 when
+     * it is on), page 1.
+     *
+     * @param array<string, scalar|null> $base
+     * @return array{text: string, link: string, href: string}|null
+     */
+    public static function ignoredLine(int $left, array $base): ?array
+    {
+        if ($left <= 0) {
+            return null;
+        }
+        return ['text' => $left === 1 ? Words::STORE_PRODUCTS['ignored_one'] : Words::say('STORE_PRODUCTS', 'ignored_many', $left),
+            'link' => Words::STORE_PRODUCTS[$left === 1 ? 'ignored_show_one' : 'ignored_show'],
+            'href' => Html::url('/ui/review/store', array_replace($base, ['state' => 'ignored']))];
     }
 
     /**

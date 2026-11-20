@@ -18475,6 +18475,96 @@ after it) 4 OK alone. The script: `run_save.js` 118, `run_live.js` 122, `run_kg.
 staging yet (the plan's written script of step 4: different lines for two minutes, the same line at once, remove against change, the same
 product, confirm while the other types, cancel, the network off for 20 s, a phone and a laptop).
 
+## Store Products' All leaves out the ignored products (branch `hide-ignored`, 20 Nov 2026; HI1-HI4; no migration)
+
+The owner, 20 Nov 2026, of the three Vape and Go "Nic Nic" multipack pages, ignored in CW on purpose (since 4 Nov the shop sells them as
+single shots): "why are we keeping it still in CW to confuse staff". He chose: hide the ignored products from CW's normal product list, and
+show them only when someone picks "Ignored". CW does not delete the rows: the stores send every product every night, so a deleted row would
+come back as "not matched". Built from main `286055a` in `/root/cw-hideignored`. No migration, no setting, no new permission; nothing in the
+data is deleted or changed (the list reads one more condition). Code: `src/Ui/Queries.php` (`ALL_WHERE`, `storeAllCount()`, and
+`storeProducts()`' new `ignored`), `src/Ui/Controller/StoreProductsController.php` (`ignoredLine()`, All's count, the class docblock), the view
+`store_products`, `src/Ui/Words.php` (its marked HI2 block), `src/Ui/Controller/BulkController.php` (the batch page's way back, HI3). Tests: `tests/Integration/UiKernel/HideIgnoredScreenTest.php` (red first:
+`runs/hideign_red.log`); `BulkScreensTest` and `HideUnsoldScreenTest` changed where they listed an ignored product on All (it is now on
+the Ignored choice).
+
+**HI1. What All leaves out.** A website product whose state (`Queries::STORE_STATES`) is Ignored: status `ignored` and no decision waiting
+for a second OK (a waiting one is "Waiting for a second OK" and stays on All). The same on every store; with or without a search, whatever
+the search names (its exact store ID or barcode too: unlike HU4, the line of HI2 leads to it). All's count (`storeAllCount()`: the states'
+counts minus Ignored), its pages and the search note count what it lists. The Ignored choice keeps its count, lists them, and keeps its tick
+boxes and bulk actions (take off the ignored list). Left as they were: the store choice's figures (`productsByStore()`: every product of the
+store), the "By store" overview, New Variants, To review, Find and the product's own page.
+
+**HI2. One quiet line.** At the end of All, before the pager (after HU3's line when there is one): one plain paragraph
+(`p.muted.ignored-line`, `data-ignored`): "3 ignored products are not shown here. Show them" (one: "1 ignored product is not shown here.
+Show it"); nothing when none was left out, and never on another choice (no ignored product is in one). It counts what this search left out:
+without a search the Ignored count; with one, the search's own one pass says of each id it finds whether it is Ignored (one more column, no
+second pass, as HU3). "Show them" is the Ignored choice of the list as it is: the store, the sort, the search, and HU3's `unsold=1` when it
+is on; page 1. When both apply there are two lines, each saying one thing with its one link (HU3's line is unchanged). All listing nothing
+because everything was left out says "No website product to show here. The line below says which are not shown, and shows them." in place
+of "This store has no website products." No filter chip, no help paragraph.
+
+**HI3. With HU1-HU4, the bulk actions and StoreContext.** HU's hiding is unchanged: an ignored product was never hidden as "not sold in a
+year" (HU2) and is never counted there; on All the two conditions are both applied; with HU3's "Show them" the ignored ones are still left
+out and the line's link keeps `unsold=1`; the setting off changes nothing for them. StoreContext carries the state, so a row's Open from the
+Ignored choice leads back to it (its search, at its row), and from All back to All. A bulk action's way back carries the list too: a refused
+or confirmed request's (`BulkController::back`) as before, and now the batch page's as well (`BulkController::storeList`: the choice, the
+sort, the search and the page travel in the batch page's address, as a match-strength list's `show` does, U140, and are read there as the
+list reads them; a batch page opened with none of them, from Second approval, still leads to the store's All). Before, a batch done on the
+Ignored choice led back to All, which now leaves them out. HU3's `unsold=1` is not carried (HU3: the way back is the quiet default). A
+product ignored from All leaves All on the way back, and the line counts it; one taken off the ignored list from the Ignored choice is on
+All again.
+
+**HI4. Speed (EXPLAIN and EXPLAIN ANALYZE on the test machine: one store of 30,000 website products, 300 ignored, half first seen 400 days
+ago; `runs/hideign_explain_before.txt` on `286055a`, `runs/hideign_explain_after.txt`).** All's condition (`ALL_WHERE`) reads the status
+from the index the list already reads, and the OR stops at the status of every row that is not ignored: the waiting decision is looked up
+(`pw eq_ref uq_match_decision_pending`, "Using index") 300 times, once per ignored row. All, old ones hidden (the default): before and after
+`cl ref ix_channel_listing_unsold` "Using index" (30,000 index entries, the rows never read), `lp ref ix_listing_profile_units` "Using
+index"; 214 ms before, 228 ms after. All with "Show them": before `cl ref ix_channel_listing_status` "Using index" (149 ms); with the
+condition MySQL chose the unique (store, option number) index instead, which is not covering (every listing row read: caught by
+`testAllStaysOnTheStoresStatusIndex` on 5,000 rows), so the statement names `ix_channel_listing_status` (the hint of 0001's index, as
+`ArrivalCheck` and the quick match do): after, the same plan as before, 168 ms. A search on All: unchanged (`cl ref
+ix_channel_listing_unsold` "Using index"), with one more column. The Ignored choice: unchanged (`cl ref ix_channel_listing_status`,
+status = 'ignored': 300 entries, 2 ms). All's total is still the three narrow counts (no COUNT of its own); the line's count is the Ignored
+count without a search, and the search's one pass with one. `testAllStaysOnTheStoresStatusIndex` holds the plan (both ways: old ones hidden
+and shown) and that no COUNT is run.
+
+**Tests and review.** `HideIgnoredScreenTest` (6 tests) red first on `286055a` (`runs/hideign_red.log`: 6 of 6 failing), green on `24d0ba6`
+(`runs/hideign_green2.log`, with `HideUnsoldScreenTest`, `BulkScreensTest` and `StoreProductsPagerTest`: 22 OK); the plan test first failed on
+the "Show them" plan (`runs/hideign_green1.log`), which the hint answers. `WordsTest::testTheIgnoredProductsAllLeavesOutAreSaidInPlainWords`.
+Suites on `24d0ba6`: UiKernel 709 OK (`runs/hideign_final.uikernel.log`), Unit 645 OK (`runs/hideign_final.unit.log`). Three Codex reviews
+of `git diff 286055a..24d0ba6`, read-only and static, at once (`runs/hideign_codex_{a,b,c}.txt`: the query, counts, paging and index use;
+the view, words, escaping and links; the interplay with HU, the bulk actions and StoreContext): no HIGH, MEDIUM or LOW finding.
+
+### The review of `17d1c52` (Codex, read-only: `runs/hideign_codex_final_astra.txt`): 0 HIGH, 2 MEDIUM, 2 LOW, each fixed test-first (HI5-HI8)
+
+Red first: `runs/hideign_fix1_red.log` (8 failing in `HideIgnoredScreenTest`, `StoreNewItemsScreenTest`, `BulkScreensTest`).
+
+**HI5. All is read at one moment (MEDIUM).** The counts (`storeStateCounts`), the hidden counts (`unsoldHidden`), the page's ids and their
+rows were separate reads (CW runs READ COMMITTED, D20): another person's Ignore committed between the counts and the page gave "Page 2 of 2"
+with no rows; one committed between the ids and the rows drew an Ignored row on All. Store Products now reads those four inside ONE
+`Snapshot::read()` (`src/Ops/Snapshot.php`: REPEATABLE READ, START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY; no locks, so nothing
+waits; the session's own level is unchanged after). What the person sees is the list as it was at that moment; the other person's change
+shows on the next look. And `storeProducts()` guards itself: when counts it was given (a caller's, or read apart from the rows) promise a
+page the rows do not hold (no ids for a page after the first), it counts the rows themselves and shows the last page that has rows, never
+an empty page with a pager. `testAnIgnoreByAnotherPersonWhileAllIsReadNeverLeavesAnEmptyPageOrAnIgnoredRow` (another connection commits
+an Ignore after the counts, after the page's ids, and after a search's one pass) and
+`testAPageTheCountsPromiseButTheRowsDoNotHoldIsTheLastPageWithRows`.
+
+**HI6. "Create new warehouse products for these" leads back to its list (MEDIUM).** Its apply route sent the batch page's address with the
+batch alone, so its way back was the store's All. It now carries the list the rows were ticked on (the choice, the sort, the search, the
+page: `StoreNewItemsController::list()`, each value as the list reads it), which the batch page reads as for the other bulk actions (HI3,
+`BulkController::storeList`). `StoreNewItemsScreenTest` (the address and the way back; the same form again gets the same address).
+
+**HI7. "Take off the ignored list" only on the Ignored choice (LOW).** All (HI1) and every other choice hold no ignored row that can be
+ticked, so every row that action took there was skipped. The bar offers it on the Ignored choice only; the Ignored choice keeps every
+action it had (Ignore and Send back included, as before). A hand-made post of it elsewhere is still skipped row by row, as before
+(`BulkDecisions`). `HideIgnoredScreenTest`, `BulkScreensTest`, `StoreNewItemsScreenTest`.
+
+**HI8. A search on All that found only hidden products says so (LOW).** It said "No website product fits your search or filter ... Check
+the spelling" above the line "1 ignored product is not shown here. Show it". When All lists nothing and its lines say products were left
+out (ignored, or HU's old ones not sold in a year), it says "No website product to show here. The line below says which are not shown, and
+shows them." with Clear for the search; no spelling hint. Another choice that lists nothing is as before.
+
 ## Profit on every order, step 1: the money and the buying cost (branch `profit`, 19-20 Nov 2026; PR1-PR30; migration 0074)
 
 The owner, 19 Nov 2026: "on each order, I just want to know how much is the percentage of profit actually that we are getting ... you know

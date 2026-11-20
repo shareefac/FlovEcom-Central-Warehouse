@@ -197,11 +197,13 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get(self::STORE, ['channel' => 'electrofag']);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        self::assertSame([$new, $sold, $matched, $ignored, $waiting, $yearAgo], self::storeRows($page), 'the old products not sold in a year are left out; nothing else is');
+        // (HI1, 20 Nov 2026: All leaves out the ignored products too; the Ignored choice lists them, so an old ignored one is never "not sold in a year")
+        self::assertSame([$new, $sold, $matched, $waiting, $yearAgo], self::storeRows($page), 'the old products not sold in a year are left out; nothing else is (but Ignored, HI1)');
+        self::assertSame([$ignored], self::storeRows($web->get(self::STORE, ['channel' => 'electrofag', 'state' => 'ignored'])), 'an old ignored product is not hidden from Ignored');
         $pills = self::pills($page);
-        self::assertSame([Words::STORE_STATE['all'] => 6, Words::STORE_STATE['waiting'] => 1, Words::STORE_STATE['quarantined'] => 0, Words::STORE_STATE['ignored'] => 1,
+        self::assertSame([Words::STORE_STATE['all'] => 5, Words::STORE_STATE['waiting'] => 1, Words::STORE_STATE['quarantined'] => 0, Words::STORE_STATE['ignored'] => 1,
             Words::STORE_STATE['linked'] => 1, Words::STORE_STATE['suggested'] => 0, Words::STORE_STATE['not_matched'] => 3], $pills, 'the counts are of what is listed');
-        self::assertSame(6, self::xp($page)->query('//div[contains(@class, "doc-group")]//tbody/tr')->length, 'the board lists what is counted (W12.6)');
+        self::assertSame(5, self::xp($page)->query('//div[contains(@class, "doc-group")]//tbody/tr')->length, 'the board lists what is counted (W12.6)');
         $line = self::unsoldLine($page);
         self::assertSame(self::hiddenLine(3), $line['text'] ?? null, 'one quiet line says how many are hidden');
         self::assertSame(Words::STORE_PRODUCTS['unsold_show'], $line['link'] ?? null);
@@ -211,7 +213,7 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         // "Show them": every product, the counts as they are, and the line to hide them again; the choices keep showing them.
         $all = self::open($web, (string) $line['href']);
         self::assertSame(200, $all->status, $all->describe());
-        self::assertSame([$old, $bare, $oldSuggested, $new, $sold, $matched, $ignored, $waiting, $yearAgo], self::storeRows($all));
+        self::assertSame([$old, $bare, $oldSuggested, $new, $sold, $matched, $waiting, $yearAgo], self::storeRows($all));
         self::assertSame(1, self::pills($all)[Words::STORE_STATE['suggested']]);
         self::assertSame(5, self::pills($all)[Words::STORE_STATE['not_matched']]);
         $hide = self::unsoldLine($all);
@@ -227,7 +229,7 @@ final class HideUnsoldScreenTest extends KernelUiTestCase
         $searched = $web->get(self::STORE, array_replace($all->form(self::STORE), ['q' => 'old unsold']));
         self::assertSame([$old, $new], self::storeRows($searched), 'a search after "Show them" finds an old product by its name ("unsold" holds "old")');
         self::assertSame('1', $searched->form(self::STORE)['unsold'] ?? null);
-        self::assertSame([$old, $bare, $oldSuggested, $new, $sold, $matched, $ignored, $waiting, $yearAgo],
+        self::assertSame([$old, $bare, $oldSuggested, $new, $sold, $matched, $waiting, $yearAgo],
             self::storeRows($web->get(self::STORE, ['sort' => 'sold_365'] + $all->form(self::STORE))), 'and so does a new sort');
 
         // Each waiting state says how many of ITS rows are hidden; a state nothing is hidden from has no line.
