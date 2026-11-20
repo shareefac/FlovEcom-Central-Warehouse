@@ -56,10 +56,11 @@
 <?php endif; ?>
 
 <?php if ($rows === []): ?>
-<?php if ($text !== '' || $state !== null): ?>
+<?php if ($state === null && ($ignoredLine !== null || ($unsold !== null && !$unsoldShown))): ?>
+<?php /* All lists nothing, but what it (and its search) found is left out: the lines below say which (HI2, HI8): never "check the spelling" */ ?>
+<?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_hidden'], \CW\Ui\Words::STORE_PRODUCTS['empty_hidden_text'], $text !== '' ? $clear_search : null, $text !== '' ? \CW\Ui\Words::QUEUE['clear'] : null) ?>
+<?php elseif ($text !== '' || $state !== null): ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_filter'], \CW\Ui\Words::STORE_PRODUCTS['empty_filter_text'] . ($text !== '' ? ' ' . \CW\Ui\Words::FIND['try'] : ''), $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
-<?php elseif ($ignoredLine !== null || ($unsold !== null && !$unsoldShown)): ?>
-<?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_hidden'], \CW\Ui\Words::STORE_PRODUCTS['empty_hidden_text']) ?>
 <?php else: ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty'], \CW\Ui\Words::STORE_PRODUCTS['empty_text']) ?>
 <?php endif; ?>

@@ -18534,3 +18534,33 @@ the "Show them" plan (`runs/hideign_green1.log`), which the hint answers. `Words
 Suites on `24d0ba6`: UiKernel 709 OK (`runs/hideign_final.uikernel.log`), Unit 645 OK (`runs/hideign_final.unit.log`). Three Codex reviews
 of `git diff 286055a..24d0ba6`, read-only and static, at once (`runs/hideign_codex_{a,b,c}.txt`: the query, counts, paging and index use;
 the view, words, escaping and links; the interplay with HU, the bulk actions and StoreContext): no HIGH, MEDIUM or LOW finding.
+
+### The review of `17d1c52` (Codex, read-only: `runs/hideign_codex_final_astra.txt`): 0 HIGH, 2 MEDIUM, 2 LOW, each fixed test-first (HI5-HI8)
+
+Red first: `runs/hideign_fix1_red.log` (8 failing in `HideIgnoredScreenTest`, `StoreNewItemsScreenTest`, `BulkScreensTest`).
+
+**HI5. All is read at one moment (MEDIUM).** The counts (`storeStateCounts`), the hidden counts (`unsoldHidden`), the page's ids and their
+rows were separate reads (CW runs READ COMMITTED, D20): another person's Ignore committed between the counts and the page gave "Page 2 of 2"
+with no rows; one committed between the ids and the rows drew an Ignored row on All. Store Products now reads those four inside ONE
+`Snapshot::read()` (`src/Ops/Snapshot.php`: REPEATABLE READ, START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY; no locks, so nothing
+waits; the session's own level is unchanged after). What the person sees is the list as it was at that moment; the other person's change
+shows on the next look. And `storeProducts()` guards itself: when counts it was given (a caller's, or read apart from the rows) promise a
+page the rows do not hold (no ids for a page after the first), it counts the rows themselves and shows the last page that has rows, never
+an empty page with a pager. `testAnIgnoreByAnotherPersonWhileAllIsReadNeverLeavesAnEmptyPageOrAnIgnoredRow` (another connection commits
+an Ignore after the counts, after the page's ids, and after a search's one pass) and
+`testAPageTheCountsPromiseButTheRowsDoNotHoldIsTheLastPageWithRows`.
+
+**HI6. "Create new warehouse products for these" leads back to its list (MEDIUM).** Its apply route sent the batch page's address with the
+batch alone, so its way back was the store's All. It now carries the list the rows were ticked on (the choice, the sort, the search, the
+page: `StoreNewItemsController::list()`, each value as the list reads it), which the batch page reads as for the other bulk actions (HI3,
+`BulkController::storeList`). `StoreNewItemsScreenTest` (the address and the way back; the same form again gets the same address).
+
+**HI7. "Take off the ignored list" only on the Ignored choice (LOW).** All (HI1) and every other choice hold no ignored row that can be
+ticked, so every row that action took there was skipped. The bar offers it on the Ignored choice only; the Ignored choice keeps every
+action it had (Ignore and Send back included, as before). A hand-made post of it elsewhere is still skipped row by row, as before
+(`BulkDecisions`). `HideIgnoredScreenTest`, `BulkScreensTest`, `StoreNewItemsScreenTest`.
+
+**HI8. A search on All that found only hidden products says so (LOW).** It said "No website product fits your search or filter ... Check
+the spelling" above the line "1 ignored product is not shown here. Show it". When All lists nothing and its lines say products were left
+out (ignored, or HU's old ones not sold in a year), it says "No website product to show here. The line below says which are not shown, and
+shows them." with Clear for the search; no spelling hint. Another choice that lists nothing is as before.

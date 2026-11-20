@@ -153,7 +153,9 @@ final class StoreNewItemsController
         } catch (CwException $e) {
             return $ctx->error($e->httpStatus, $e->errorCode, self::refusal($e, count($rows), BulkDecisions::maxRows($ctx->db)), $back);
         }
-        return HtmlResponse::redirect('/ui/review/batches/' . $r['batch_id']);
+        // HI6 (Codex's review of 17d1c52, MEDIUM): the batch page leads back to the list the rows were ticked on (its choice, sort, search
+        // and page, each as the list reads it), as a bulk action's batch page does (HI3: BulkController reads them there).
+        return HtmlResponse::redirect(Html::url('/ui/review/batches/' . $r['batch_id'], self::list($ctx)));
     }
 
     /**

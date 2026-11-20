@@ -795,6 +795,15 @@ final class Queries
             $page = min(max(1, $page), $pages);
             $ids = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order . ' LIMIT ? OFFSET ?',
                 [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
+            if ($ids === [] && $page > 1) {
+                // HI5: the counts promised a page the rows do not hold (counts read apart from the rows: a caller's, or older): the rows
+                // are counted themselves and the last page that has rows is shown, never an empty page with a pager.
+                $total = (int) $this->db->value('SELECT COUNT(*) FROM channel_listing cl WHERE ' . implode(' AND ', $where), $params);
+                $pages = max(1, (int) ceil($total / self::PER_PAGE));
+                $page = min($page, $pages);
+                $ids = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order . ' LIMIT ? OFFSET ?',
+                    [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
+            }
         }
         $rows = $ids === [] ? [] : $this->db->all(
             'SELECT cl.id AS listing_id, cl.status, cl.sku_id, cl.units_per_item, cl.map_version, cl.external_variant_id, ' . self::STATE_SQL . ' AS state, '
