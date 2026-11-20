@@ -126,6 +126,20 @@ final class ProfitMathTest extends TestCase
         self::assertSame(4, ProfitMath::lowestLevel(4, []));
     }
 
+    /** The Codex re-check of e5d2e5a: the start comes first whatever its time; a receipt's price with units beyond the invoice. */
+    public function testTheStartFoldsFirstAndUnitsBeyondTheInvoiceComeAtTheReceiptsPrice(): void
+    {
+        $receipt = ['id' => 2, 'kind' => 'receipt', 'units' => 10, 'on_hand' => 0, 'price_e4' => 10000, 'booked_e4' => null];
+        $start = ['id' => 1, 'kind' => 'start', 'units' => 0, 'on_hand' => null, 'price_e4' => null, 'booked_e4' => null, 'new_cost_e4' => 30000];
+        self::assertSame(10000, ProfitMath::fold([$receipt, $start]), 'a delivery of before the start (read after it) on top of the start: £1.00');
+        self::assertSame(10000, ProfitMath::fold([$start, $receipt]));
+        // 20 billed at £4.00 (a credit of £10.00 on line 2's ten), 30 came on the receipt at £4.00: (80 - 10 + 40) / 30.
+        $lines = [1 => ['take' => 10, 'units' => 10, 'landed' => 40000, 'credits' => []], 2 => ['take' => 10, 'units' => 10, 'landed' => 40000, 'credits' => [7 => 100000]]];
+        self::assertSame(36667, ProfitMath::receiptPrice($lines, 30, 40000));
+        self::assertSame(35000, ProfitMath::receiptPrice($lines, 20, 40000), 'all came, nothing beyond');
+        self::assertNull(ProfitMath::receiptPrice([], 0, 40000));
+    }
+
     private static function body(array $over = []): array
     {
         return $over + ['v' => 1, 'version' => 1763586245123, 'order_no' => 'VPG1567469', 'status' => 'Completed', 'placed_at' => '2026-11-19T21:04:05Z',

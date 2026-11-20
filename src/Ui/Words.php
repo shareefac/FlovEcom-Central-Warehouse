@@ -10927,6 +10927,7 @@ final class Words
         'with_resends' => 'Profit with its re-sends',
         'no_cost_none' => 'Every product sold in these days has a buying price.',
         'no_cost_none_text' => 'Choose other days or another shop.',
+        'no_cost_waiting' => 'Some units sold in these days are still waiting for their buying price (the cost job fixes it within 10 minutes): they are not on this list until then.',
         'item_link' => 'Open the product',
         'variant' => 'Website product %s',
         'sale_of_these' => 'Goods sold (these units)',

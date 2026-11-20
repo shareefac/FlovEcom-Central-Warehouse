@@ -12,7 +12,7 @@ declare(strict_types=1);
  *   --channel  default: the setting erp_opening.listing_store (the store ERPNext's invoices are of)
  *   --apply    write; without it a dry run: the reconciliation lines only
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run.
+ * Exit codes: 0 done · 1 a day file refused (nothing applied) · 2 usage · 3 cannot run.
  */
 
 use CW\Ops\Cli;
@@ -40,6 +40,12 @@ exit(Cli::main('import_erp_sales_cost', ['dir:', 'channel:', 'from:', 'to:', 'ap
             : (string) json_decode((string) ($cli->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'") ?? '"vapeandgo"'));
         $r = (new ErpSalesImport($cli->db))->run($dir, $channel, $day($opts['from'] ?? null, 'from'), $day($opts['to'] ?? null, 'to'), array_key_exists('apply', $opts),
             $cli->log(...));
+        if ($r['refused'] > 0) {
+            // A day file that cannot be read whole stops the import (nothing applied): a problem, so a go-live step that checks the exit code
+            // stops here (the Codex re-check of e5d2e5a).
+            $cli->log(sprintf('refused: %d day file(s); nothing applied', $r['refused']));
+            return Cli::PROBLEM;
+        }
         $cli->log(sprintf('done: %d days, %d orders, %d lines costed%s', $r['days'], $r['orders'], $r['lines'], array_key_exists('apply', $opts) ? '' : ' (dry run)'));
         return Cli::OK;
     }, true, true));

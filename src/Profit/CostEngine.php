@@ -55,6 +55,8 @@ final class CostEngine
     public const UNREAD_PER_RUN = 500;
     /** ... and at night (--reconcile: since the start). */
     public const UNREAD_NIGHTLY = 20_000;
+    /** A time after every booking. */
+    private const FAR = '9999-12-31 23:59:59.999999';
 
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
@@ -519,28 +521,19 @@ final class CostEngine
         $refDoc = null;
         $refLine = null;
         $note = 'a delivery';
-        $share = $line === null ? null : $this->receiptShare($doc, $line, $sku, $at);
-        if ($share !== null) {
+        $basis = $line === null ? null : $this->receiptBasis($doc, $line, $sku, $at, $own);
+        if ($basis !== null) {
             // The units this receipt line brought are given to the invoice line(s) it received in line order, each at most its own units (the
             // arrival matching, Arrivals::missingOf: two lines keyed as one on the receipt and short take what came from the first line
-            // first; the Codex re-check of 6b8a7ee, F2). Its price is their landed value over those units, less the part of each credit
-            // given before the goods came that is on the units that came (a credit's value spread over its whole line: N1, F3).
-            $value = 0;
-            $units = 0;
-            $credits = 0;
-            foreach ($share['lines'] as $no => $take) {
-                [$priceE4, $lineUnits] = $share['landed'][$no];
-                $value += $priceE4 * $take;
-                $units += $take;
-                foreach ($this->deferredCredits($share['invoice'], $no, $sku, $at) as $c) {
-                    $credits += ProfitMath::divRound($c * $take, $lineUnits);
-                }
-            }
-            if ($units > 0) {
-                $price = max(0, ProfitMath::divRound($value - $credits, $units));
-                $refDoc = $share['invoice'];
-                $refLine = (int) array_key_first($share['lines']);
-                $note = 'a delivery of an invoice\'s goods on their way, at the invoice\'s landed price' . ($credits > 0 ? ', less its credits' : '');
+            // first; the Codex re-check of 6b8a7ee, F2); its price is their landed value less the part of each credit given before the goods
+            // came that is on the units that came (N1, F3), plus the units beyond the invoice at the receipt's own price (re-check of e5d2e5a).
+            $p = ProfitMath::receiptPrice($basis['lines'], $basis['came'], $own);
+            if ($p !== null) {
+                $price = $p;
+                $refDoc = $basis['invoice'];
+                $refLine = (int) array_key_first($basis['lines']);
+                $credited = array_filter($basis['lines'], static fn (array $l): bool => $l['credits'] !== []) !== [];
+                $note = 'a delivery of an invoice\'s goods on their way, at the invoice\'s landed price' . ($credited ? ', less its credits' : '');
             }
         }
         return [$this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => 'receipt', 'source_key' => 'ledger:' . (int) $r['id'], 'document_id' => $doc,
@@ -583,12 +576,13 @@ final class CostEngine
 
     /**
      * What one receipt line brought of the final invoice it was made from: its units (Arrivals::missingOf's rule: accepted, set aside to
-     * check or quarantined) given to the invoice lines it received in line order, each at most its own units; only the lines that got some.
+     * check or quarantined) given to the invoice lines it received in line order, each at most its own units (only the lines that got
+     * some), each with its landed price and the credits of it given while its goods were on their way and not cancelled by $at.
      *
-     * @return array{invoice: int, lines: non-empty-array<int, int>, landed: array<int, array{0: int, 1: int}>}|null invoice line => units taken;
-     *         landed: invoice line => [its landed price, its units]
+     * @return array{invoice: int, came: int, own: int, lines: non-empty-array<int, array{take: int, units: int, landed: int, credits: array<int, int>}>}|null
+     *         lines: invoice line => what it gave; credits: credit note document => its value (what it takes off a unit x the units it credits)
      */
-    private function receiptShare(int $grn, int $line, int $sku, string $at): ?array
+    private function receiptBasis(int $grn, int $line, int $sku, string $at, ?int $own = null): ?array
     {
         $inv = $this->invoiceLineOf($grn, $line, $sku, $at);
         if ($inv === null) {
@@ -601,6 +595,8 @@ final class CostEngine
             $came = (int) $this->db->value("SELECT COALESCE(SUM(qty_delta), 0) FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
                 . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
         }
+        $own ??= ProfitMath::e4((string) ($this->db->value("SELECT CAST(unit_cost AS CHAR) FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
+            . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0 AND unit_cost IS NOT NULL ORDER BY id LIMIT 1", [$grn, $line, $sku]) ?? '0')) ?? 0;
         $landed = [];
         foreach ($this->landed($inv[0]) as $g) {
             if (in_array($g['line_no'], $inv[1], true) && $g['price_e4'] !== null && $g['units'] > 0) {
@@ -608,58 +604,77 @@ final class CostEngine
             }
         }
         $lines = [];
+        $left = $came;
         foreach ($inv[1] as $no) {
-            if (!isset($landed[$no]) || $came <= 0) {
+            if (!isset($landed[$no]) || $left <= 0) {
                 continue;
             }
-            $take = min($landed[$no][1], $came);
-            $came -= $take;
-            $lines[$no] = $take;
+            $take = min($landed[$no][1], $left);
+            $left -= $take;
+            $lines[$no] = ['take' => $take, 'units' => $landed[$no][1], 'landed' => $landed[$no][0], 'credits' => $this->deferredCredits($inv[0], $no, $sku, $at)];
         }
-        return $lines === [] ? null : ['invoice' => $inv[0], 'lines' => $lines, 'landed' => $landed];
+        return $lines === [] ? null : ['invoice' => $inv[0], 'came' => $came, 'own' => $own, 'lines' => $lines];
     }
 
     /**
      * The value of each credit of an invoice line given while its goods were on their way (deferred) and not cancelled by $at: what it takes
-     * off a credited unit x the units it credits (GBP x 10,000).
+     * off a credited unit x the units it credits (GBP x 10,000), by credit note.
      *
-     * @return list<int>
+     * @return array<int, int>
      */
     private function deferredCredits(int $invoice, int $invLine, int $sku, string $at): array
     {
         $out = [];
         foreach ($this->db->all("SELECT e.booked_e4, e.units, e.document_id FROM item_cost_event e WHERE e.kind = 'credit_note' AND e.deferred = 1 "
-            . 'AND e.ref_document_id = ? AND e.ref_line = ? AND e.sku_id = ?', [$invoice, $invLine, $sku]) as $c) {
+            . 'AND e.ref_document_id = ? AND e.ref_line = ? AND e.sku_id = ? ORDER BY e.id', [$invoice, $invLine, $sku]) as $c) {
             $undone = $this->db->value("SELECT 1 FROM item_cost_event WHERE kind = 'credit_note_reversal' AND ref_document_id = ? AND sku_id = ? AND source_at <= ? "
                 . 'LIMIT 1', [(int) $c['document_id'], $sku, $at]);
             if ($undone === null) {
-                $out[] = (int) $c['booked_e4'] * (int) $c['units'];
+                $out[(int) $c['document_id']] = ($out[(int) $c['document_id']] ?? 0) + (int) $c['booked_e4'] * (int) $c['units'];
             }
         }
         return $out;
     }
 
     /**
-     * The receipt lines that took in goods of an invoice line (receipt events of that invoice whose line, by receiptShare, got units of it;
-     * a line received into several warehouses is several events, one line), up to $at: per receipt line its units in, its last portion's
-     * time, the units of the invoice line it took and the units its price was worked out over (the Codex re-check of 6b8a7ee, F3).
+     * The receipt lines still standing at $at (not taken back by then: the Codex re-check of e5d2e5a) that took in goods of an invoice line:
+     * receipt events of that invoice whose line, by receiptBasis, got units of it (a line received into several warehouses is several events,
+     * one line). Per receipt line: its units in, its first and last portion's times and its basis.
      *
-     * @return list<array{units: int, last_at: string, take: int, over: int, line_units: int}>
+     * @return list<array{units: int, first_at: string, last_at: string, basis: array<string, mixed>}>
      */
     private function receiptsTaking(int $invoice, int $invLine, int $sku, string $at): array
     {
         $out = [];
-        foreach ($this->db->all("SELECT document_id, document_line, COALESCE(SUM(units), 0) AS units, MIN(source_at) AS first_at, MAX(source_at) AS last_at "
-            . "FROM item_cost_event WHERE kind = 'receipt' AND ref_document_id = ? AND sku_id = ? AND source_at <= ? AND document_line IS NOT NULL "
-            . 'GROUP BY document_id, document_line ORDER BY first_at, document_id, document_line', [$invoice, $sku, $at]) as $g) {
-            $share = $this->receiptShare((int) $g['document_id'], (int) $g['document_line'], $sku, (string) $g['first_at']);
-            if ($share === null || $share['invoice'] !== $invoice || ($share['lines'][$invLine] ?? 0) <= 0) {
+        foreach ($this->db->all("SELECT e.document_id, e.document_line, COALESCE(SUM(e.units), 0) AS units, MIN(e.source_at) AS first_at, MAX(e.source_at) AS last_at "
+            . "FROM item_cost_event e WHERE e.kind = 'receipt' AND e.ref_document_id = ? AND e.sku_id = ? AND e.source_at <= ? AND e.document_line IS NOT NULL "
+            . "AND NOT EXISTS (SELECT 1 FROM document r WHERE r.reverses_id = e.document_id AND r.status = 'posted' AND r.posted_at <= ?) "
+            . 'GROUP BY e.document_id, e.document_line ORDER BY first_at, e.document_id, e.document_line', [$invoice, $sku, $at, $at]) as $g) {
+            $basis = $this->receiptBasis((int) $g['document_id'], (int) $g['document_line'], $sku, (string) $g['first_at']);
+            if ($basis === null || $basis['invoice'] !== $invoice || !isset($basis['lines'][$invLine])) {
                 continue;
             }
-            $out[] = ['units' => (int) $g['units'], 'last_at' => (string) $g['last_at'], 'take' => $share['lines'][$invLine],
-                'over' => array_sum($share['lines']), 'line_units' => $share['landed'][$invLine][1]];
+            $out[] = ['units' => (int) $g['units'], 'first_at' => (string) $g['first_at'], 'last_at' => (string) $g['last_at'], 'basis' => $basis];
         }
         return $out;
+    }
+
+    /**
+     * What one credit took (or would take) off a unit of a receipt line: the line's price without it less its price with it, both worked out
+     * as the receipt's (ProfitMath::receiptPrice, rounded as the receipt was): an undo gives back exactly what the receipt took off, and a
+     * credit's share is never worked out past an integer (the Codex re-check of e5d2e5a).
+     *
+     * @param array<string, mixed> $basis receiptBasis()'s
+     */
+    private static function creditShare(array $basis, int $invLine, int $creditDoc, int $value): int
+    {
+        $with = $basis['lines'];
+        $without = $basis['lines'];
+        $with[$invLine]['credits'][$creditDoc] = $value;
+        unset($without[$invLine]['credits'][$creditDoc]);
+        $a = ProfitMath::receiptPrice($without, (int) $basis['came'], (int) $basis['own']);
+        $b = ProfitMath::receiptPrice($with, (int) $basis['came'], (int) $basis['own']);
+        return $a === null || $b === null ? 0 : max(0, $a - $b);
     }
 
     /**
@@ -708,9 +723,31 @@ final class CostEngine
                 // (no delivery named, none received from it so far): deferred; their receipt takes it in (the Codex review of 92efa82, a5).
                 $inv = $h['credits_document_id'] === null ? null : (int) $h['credits_document_id'];
                 $invLine = $creditOf[$g['line_no']] ?? null;
-                // A receipt took that line's goods in when one of its lines got units of it (two lines keyed as one on the receipt: the line's
-                // goods came on the receipt's one line, whatever line the receipt's event names; the Codex re-check of 6b8a7ee, F3).
-                $deferred = $inv !== null && $invLine !== null && $g['grn'] === null && $this->receiptsTaking($inv, $invLine, $sku, '9999-12-31 23:59:59.999999') === [];
+                // On their way AT THE CREDIT'S TIME when no receipt standing then had taken that line's goods in (a receipt took them when one of
+                // its lines got units of the line: two lines keyed as one; the Codex re-checks of 6b8a7ee F3 and e5d2e5a: as of its own time,
+                // never of the order the job read things in).
+                $deferred = false;
+                $late = [];
+                if ($inv !== null && $invLine !== null && $g['grn'] === null && $this->receiptsTaking($inv, $invLine, $sku, $at) === []) {
+                    $late = $this->receiptsTaking($inv, $invLine, $sku, self::FAR);
+                    $deferred = $late === [];
+                }
+                if ($late !== []) {
+                    // The goods came after the credit, but the job read their receipt first (the credit's booking committed late): the receipt
+                    // was priced without it. It comes off those receipts' units when they came, by what it would have taken off each.
+                    $value = 0;
+                    $units = 0;
+                    $when = '';
+                    foreach ($late as $t) {
+                        $value += self::creditShare($t['basis'], $invLine, $id, $g['price_e4'] * $g['units']) * $t['units'];
+                        $units += $t['units'];
+                        $when = max($when, $t['last_at']);
+                    }
+                    $out[] = $this->write(['source_at' => $when, 'on_hand' => $this->onHandAt($sku, $when)] + $base + ['kind' => 'credit_note', 'ref_document_id' => $inv,
+                        'ref_line' => $invLine, 'units' => $units, 'price_e4' => 0, 'booked_e4' => $units > 0 ? ProfitMath::divRound($value, $units) : 0, 'deferred' => 0,
+                        'note' => 'a price credit of goods that came after it, read after their receipt: off them as they came']);
+                    continue;
+                }
                 $out[] = $this->write($base + ['kind' => 'credit_note', 'ref_document_id' => $inv, 'ref_line' => $invLine,
                     'units' => $deferred ? $g['units'] : ProfitMath::reach($g['units'], $onHand), 'price_e4' => 0, 'booked_e4' => $g['price_e4'], 'deferred' => $deferred ? 1 : 0,
                     'note' => $deferred ? 'a price credit of goods still on their way: their receipt takes it in' : 'a price credit']);
@@ -750,15 +787,15 @@ final class CostEngine
             $units = 0;
             $per = 0;
             if ((int) $e['deferred'] === 1) {
-                // Taken in by the receipt line(s) that got units of its invoice line (its value spread over the invoice line's units, the part on
-                // the units that came spread over the units the receipt's price was worked out over): undone on those receipts' units still
-                // here, the fewest on hand since their last portion came in (every portion: R4; the line found by what it took, not by the
-                // line its event names: the Codex re-check of 6b8a7ee, F3).
+                // Taken in by the receipt line(s) still standing that got units of its invoice line: undone by exactly what it took off a unit of
+                // each (its price without the credit less its price with it, as the receipt worked it out), on that receipt's units still
+                // here, the fewest on hand since its last portion came in (every portion: R4; the line found by what it took: F3; a receipt
+                // taken back counts nothing, and the share is never worked out past an integer: the Codex re-check of e5d2e5a).
                 $value = 0;
                 foreach ($this->receiptsTaking((int) $e['ref_document_id'], (int) $e['ref_line'], $sku, $at) as $t) {
                     $u = min($t['units'], $this->lowestOnHandSince($sku, $t['last_at'], $at));
-                    if ($u > 0 && $t['line_units'] > 0 && $t['over'] > 0) {
-                        $value += ProfitMath::divRound((int) $e['booked_e4'] * (int) $e['units'] * $t['take'] * $u, $t['line_units'] * $t['over']);
+                    if ($u > 0) {
+                        $value += self::creditShare($t['basis'], (int) $e['ref_line'], $orig, (int) $e['booked_e4'] * (int) $e['units']) * $u;
                         $units += $u;
                     }
                 }
@@ -792,47 +829,78 @@ final class CostEngine
     private function effectOf(array $e): int
     {
         $before = $this->db->all("SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event WHERE sku_id = ? "
-            . "AND kind <> 'replay' AND (source_at < ? OR (source_at = ? AND id < ?)) ORDER BY source_at, id", [(int) $e['sku_id'], $e['source_at'], $e['source_at'], (int) $e['id']]);
+            . "AND kind <> 'replay' AND (kind = 'start' OR source_at < ? OR (source_at = ? AND id < ?)) ORDER BY source_at, id",
+            [(int) $e['sku_id'], $e['source_at'], $e['source_at'], (int) $e['id']]);
         $from = ProfitMath::fold($before);
         $to = ProfitMath::step($from, $e);
         return $from === null || $to === null ? 0 : $to - $from;
     }
 
-    /** The fewest units of $sku on hand in our warehouses at any moment from $since to $until (from the ledger, every warehouse together). */
+    /**
+     * The fewest units of $sku on hand in our warehouses at any moment from $since to $until (from the ledger, every warehouse together),
+     * looked at only between whole operations in the item's commit order (ProfitMath::lowestLevel), and with every operation whole: one
+     * begun before $since counts whole at the start, one begun by $until counts whole (the Codex re-check of e5d2e5a: a moment between a
+     * transfer's two rows never cuts it in two). An operation's rows are booked within LAG_SECONDS of each other.
+     */
     private function lowestOnHandSince(int $sku, string $since, string $until): int
     {
-        $start = $this->db->value('SELECT id FROM stock_ledger WHERE created_at > ? ORDER BY created_at, id LIMIT 1', [$since]);
-        $end = $this->db->value('SELECT id FROM stock_ledger WHERE created_at > ? ORDER BY created_at, id LIMIT 1', [$until]);
-        $start = $start === null ? PHP_INT_MAX : (int) $start;
-        $end = $end === null ? PHP_INT_MAX : (int) $end;
-        $wh = $this->ownWarehouses();
-        if ($start >= $end || $wh === []) {
-            return max(0, $this->onHandBefore($sku, $start));
+        if ($this->ownWarehouses() === []) {
+            return 0;
         }
-        // The rows of the time, each with its place in the item's commit order (stock_value_seq) and its operation (its document, or its key
-        // within the caller's scope): the level is looked at only between whole operations, in the order they committed (the Codex re-checks
-        // of 37a2cf0 R3 and 6b8a7ee R3, F4: a transfer between two of our warehouses is never a sell-out, even with a sale booked between
-        // its two rows; two stores' "batch:1" are two operations).
-        $rows = $this->db->all('SELECT l.id, l.warehouse_id, l.qty_delta, l.balance_after, l.document_id, l.idem_key, l.channel_id, l.actor, s.seq FROM stock_ledger l '
-            . 'LEFT JOIN stock_value_seq s ON s.stock_ledger_id = l.id WHERE l.warehouse_id IN (' . implode(', ', array_fill(0, count($wh), '?'))
-            . ") AND l.sku_id = ? AND l.bucket = 'on_hand' AND l.id >= ? AND l.id < ?", [...$wh, $sku, $start, $end]);
-        // Each warehouse's level before the time: before its own first row of it (a warehouse's rows are in its own order by id), else its
-        // last row before it.
-        $first = [];
-        foreach ($rows as $r) {
-            $w = (int) $r['warehouse_id'];
-            if (!isset($first[$w]) || (int) $r['id'] < $first[$w][0]) {
-                $first[$w] = [(int) $r['id'], (int) $r['balance_after'] - (int) $r['qty_delta']];
+        $start = $this->idAfter($since);
+        $end = $this->idAfter($until);
+        $level = $this->onHandBefore($sku, $start);
+        $head = self::opsOf($this->opRows($sku, $this->idAfter(Clock::db(Clock::fromDb($since)->modify('-' . self::LAG_SECONDS . ' seconds'))), $start));
+        $after = $start === PHP_INT_MAX ? [] : $this->opRows($sku, $start, $this->idAfter(Clock::db(Clock::fromDb($until)->modify('+' . self::LAG_SECONDS . ' seconds'))));
+        $inWindow = self::opsOf(array_filter($after, static fn (array $r): bool => $r['id'] < $end));
+        $keep = [];
+        foreach ($after as $r) {
+            if ($r['op'] !== null && isset($head[$r['op']])) {
+                $level += $r['qty']; // whole at the start
+            } elseif ($r['id'] < $end || ($r['op'] !== null && isset($inWindow[$r['op']]))) {
+                $keep[] = $r; // in the time, or the rest of an operation begun in it
             }
         }
-        $level = 0;
-        foreach ($wh as $w) {
-            $level += $first[$w][1] ?? (int) ($this->db->value("SELECT balance_after FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND bucket = 'on_hand' AND id < ? "
-                . 'ORDER BY id DESC LIMIT 1', [$w, $sku, $start]) ?? 0);
+        return ProfitMath::lowestLevel($level, $keep);
+    }
+
+    /**
+     * The on-hand rows of $sku in our warehouses with $from <= id < $to, each with its place in the item's commit order (stock_value_seq)
+     * and its operation (ProfitMath::operation: its document, or its key within the caller's scope).
+     *
+     * @return list<array{id: int, seq: ?int, qty: int, op: ?string}>
+     */
+    private function opRows(int $sku, int $from, int $to): array
+    {
+        $wh = $this->ownWarehouses();
+        if ($wh === [] || $from >= $to) {
+            return [];
         }
-        return ProfitMath::lowestLevel($level, array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'seq' => $r['seq'] === null ? null : (int) $r['seq'],
-            'qty' => (int) $r['qty_delta'], 'op' => ProfitMath::operation($r['document_id'] === null ? null : (int) $r['document_id'],
-                $r['idem_key'] === null ? null : (string) $r['idem_key'], $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor'])], $rows));
+        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'seq' => $r['seq'] === null ? null : (int) $r['seq'], 'qty' => (int) $r['qty_delta'],
+            'op' => ProfitMath::operation($r['document_id'] === null ? null : (int) $r['document_id'], $r['idem_key'] === null ? null : (string) $r['idem_key'],
+                $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor'])],
+            $this->db->all('SELECT l.id, l.qty_delta, l.document_id, l.idem_key, l.channel_id, l.actor, s.seq FROM stock_ledger l LEFT JOIN stock_value_seq s ON s.stock_ledger_id = l.id '
+                . 'WHERE l.warehouse_id IN (' . implode(', ', array_fill(0, count($wh), '?')) . ") AND l.sku_id = ? AND l.bucket = 'on_hand' AND l.id >= ? AND l.id < ?",
+                [...$wh, $sku, $from, $to]));
+    }
+
+    /** @param iterable<array{op: ?string}> $rows @return array<string, true> the operations of the rows */
+    private static function opsOf(iterable $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            if ($r['op'] !== null) {
+                $out[$r['op']] = true;
+            }
+        }
+        return $out;
+    }
+
+    /** The first ledger row booked after $at (PHP_INT_MAX: none yet). */
+    private function idAfter(string $at): int
+    {
+        $id = $this->db->value('SELECT id FROM stock_ledger WHERE created_at > ? ORDER BY created_at, id LIMIT 1', [$at]);
+        return $id === null ? PHP_INT_MAX : (int) $id;
     }
 
     /**
@@ -905,7 +973,7 @@ final class CostEngine
                 // A late event keeps the price at ITS place in the history (the fold of what comes before it, then it), so "the price at a
                 // moment" can read it as it reads any other (ItemCosts::at); the item's price now is the whole history folded (below).
                 $before = $db->all("SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event WHERE sku_id = ? "
-                    . "AND source_at <= ? AND kind <> 'replay' ORDER BY source_at, id", [$sku, $at]);
+                    . "AND (source_at <= ? OR kind = 'start') AND kind <> 'replay' ORDER BY source_at, id", [$sku, $at]);
                 $old = ProfitMath::fold($before);
                 $new = ProfitMath::fold([...$before, ['id' => 0] + $e]);
             } else {
@@ -969,11 +1037,28 @@ final class CostEngine
         return $sum;
     }
 
-    /** Units of $sku on hand in our warehouses at a moment (every ledger row booked up to then). */
+    /**
+     * Units of $sku on hand in our warehouses at a moment: every ledger row booked up to then, and an operation with a row up to then counts
+     * whole (its rows booked just after it too: a moment between a transfer's two rows never cuts it in two; the Codex re-check of e5d2e5a).
+     */
     public function onHandAt(int $sku, string $at): int
     {
-        $next = $this->db->value('SELECT id FROM stock_ledger WHERE created_at > ? ORDER BY created_at, id LIMIT 1', [$at]);
-        return $this->onHandBefore($sku, $next === null ? PHP_INT_MAX : (int) $next);
+        $next = $this->idAfter($at);
+        $level = $this->onHandBefore($sku, $next);
+        if ($next === PHP_INT_MAX) {
+            return $level;
+        }
+        $tail = $this->opRows($sku, $next, $this->idAfter(Clock::db(Clock::fromDb($at)->modify('+' . self::LAG_SECONDS . ' seconds'))));
+        if ($tail === []) {
+            return $level;
+        }
+        $begun = self::opsOf($this->opRows($sku, $this->idAfter(Clock::db(Clock::fromDb($at)->modify('-' . self::LAG_SECONDS . ' seconds'))), $next));
+        foreach ($tail as $r) {
+            if ($r['op'] !== null && isset($begun[$r['op']])) {
+                $level += $r['qty'];
+            }
+        }
+        return $level;
     }
 
     /** @return list<int> */

@@ -121,7 +121,8 @@ final class ProfitController
         $stores = $views->stores();
         $store = self::store($ctx, $stores);
         [$period, $from, $to, $warn] = self::period($ctx);
-        return $ctx->page('profit_no_cost', ['rows' => $views->noCost($from, $to, $store), 'limit' => ProfitViews::ROW_LIMIT, 'period' => $period,
+        return $ctx->page('profit_no_cost', ['rows' => $views->noCost($from, $to, $store), 'pending' => array_sum($views->pending($from, $to, $store)),
+            'limit' => ProfitViews::ROW_LIMIT, 'period' => $period,
             'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_no_cost']]);
     }

@@ -18822,3 +18822,46 @@ finds its waiting units too.
 **PR71.** (N10 PARTLY) 0074 adds one index to erp_pi_line, ix_erp_pi_line_sku (sku_id, erp_pi_id, idx), INPLACE without a lock and only
 while it is not there (as 0056; 0074 is not live, so it fits it); the supplier's last price reads the items asked for by it and sends back
 only the newest line of each (a window function), a unit price of at least a hundredth of a penny as before.
+
+### The Codex re-check of e5d2e5a (three focused runs at once, `build/A/codex_r5{a,b,c}.txt`): PR64 confirmed right; F2-F5, R6, c6, N10 FIXED; no HIGH; 8 MEDIUM and 3 LOW new or left, each checked in the code, shown failing first on the code before (`runs/profit_r5fix_red.log`, run on a copy of e5d2e5a with the new tests) and fixed (PR72-PR78)
+
+**PR72.** (a: F1 PARTLY, b5) An item's start is its opening price: ProfitMath::fold takes the `start` first whatever its time, and every
+partial fold (a late event's price at its place, an event's effect, the price at a moment) reads it. A new item started at a run's time
+whose first delivery (ten at £1.00, the supplier's price £3.00) was booked before that time but committed after the run: £1.00 (it was
+£3.00: the start folded after the delivery reset it), and the invoice to £2.00 after it: £2.00 (it was £3.00 + £1.00).
+
+**PR73.** (a: late credit, taken-back receipts, overflow, rounding; a5/N1 PARTLY) A credit of an invoice line is "of goods on their way"
+as of ITS OWN time: no receipt standing then had taken the line in. When the goods came after it but their receipt was read first (the
+credit's booking committed late), the receipt was priced without it: the credit comes off those receipts' units as they came (one
+non-deferred credit event at the receipt's time, by what it would have taken off each unit): ten at £4.00, £1.00 a unit credited before
+they came, read after their receipt: £3.00 (it stayed £4.00). A receipt taken back no longer takes a credit in, nor counts in its undo:
+ten at £4.00 on the shelf, ten more received at £3.00 (a credit of £10.00), taken back, received again, the credit cancelled: £4.00 (it
+was £4.50: the taken-back receipt was undone too). The undo of a credit is what it really took off a unit of each receipt: the receipt's
+price without it less its price with it, worked out as the receipt worked it out (ProfitMath::receiptPrice; CostEngine::creditShare): a
+penny credited on 200 units at £1.00 (the receipt stays at £1.0000, half away from zero) is undone by nothing (it added £0.0001 a unit: £200.02);
+100,000 units credited £1.00 each are undone exactly (the old product of four numbers went past a 64-bit integer and stopped the job).
+
+**PR74.** (a: over-delivery; a13 PARTLY) Units a receipt line brought beyond what its invoice lines bill come in at the receipt's own price;
+the price of the line = (the invoice lines' landed value of the units they gave - their credits on those units + the units beyond x the
+receipt's price) / every unit that came. Two lines of 10 at £4.00 (a credit of £10.00 on line 2), 30 came at £4.00: £110.00 / 30 = £3.6667
+(it was £3.50 on all 30: £105.00).
+
+**PR75.** (a: R3/a3 PARTLY) A moment never cuts a stock operation in two: the units on hand at a moment count an operation with a row up to
+it whole (its rows booked just after it too, within LAG_SECONDS), and "the fewest on hand since" counts an operation begun before its start
+whole at the start and one begun before its end whole (CostEngine::onHandAt, lowestOnHandSince, opRows): 20 on hand, ten moved between two
+of our rooms, a moment between the transfer's two rows: 20 (it was 10).
+
+**PR76.** (b: S1, S2; c6/PR54/PR61 PARTLY) An order's page says "not known" exactly when units lack a price: its profit when its OWN units
+lack one (whatever it sold for: a free unit with no price is a loss not known, never £0.00), its profit with its re-sends when its own or
+a paid re-send's units lack one (never the sum as if known); its own profit is shown when only a re-send's price is missing (ProfitViews::
+order: own_incomplete, resends_incomplete). The No buying price page says when units still wait for their cost and never says "every product
+sold in these days has a buying price" while they wait (Words PROFIT no_cost_waiting).
+
+**PR77.** (c) bin/import_erp_sales_cost.php ends with exit 1 when a day file was refused (nothing applied), so a go-live step that checks the
+exit code stops; bin/seed_item_cost.php run again after the start was written (stopped before its replay) goes on with the replay and the
+sales that waited instead of refusing.
+
+**PR78.** Left as they are (said in the README; open questions there): the mark is not held back while documents older than the job's
+window are unread (a1/b1: a sale's cost is fixed once, PR16; a booking committed more than an hour late moves the price from its own time on,
+and the sales costed meanwhile keep theirs until bin/recost_sales.php); the lists by product, brand and supplier over a long period read every
+item-day row of it (PR45, PR56); the staff log-in tool's "all" list is outside the build (it was checked not to name finance).

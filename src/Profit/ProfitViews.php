@@ -275,12 +275,21 @@ final class ProfitViews
             return $l + ['profit' => $sale - $cost, 'margin_bp' => ProfitMath::marginBp($sale - $cost, $sale)];
         }, $this->db->all('SELECT l.*, s.code AS sku_code, s.name AS sku_name FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id '
             . 'WHERE l.channel_id = ? AND l.order_ref = ? ORDER BY l.removed_at IS NOT NULL, l.line_id', [$store, $ref]));
+        $resends = $this->db->all('SELECT o.order_ref, o.order_no, o.paid_at, o.cost, o.units, o.units_no_cost, (SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id '
+            . 'AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL) AS pending FROM sale_order o WHERE o.channel_id = ? AND o.parent_ref = ? '
+            . 'ORDER BY o.paid_at, o.order_ref', [$store, $ref]);
+        // Whether its own units, and its paid re-sends' units, all have their buying price (the Codex re-check of e5d2e5a, S1): the profit is
+        // "not known" exactly when they do not, whatever the order sold for.
+        $own = $o['paid_at'] !== null && ((int) $o['units_no_cost'] > 0
+            || array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null && (int) $l['units'] > 0) !== []);
+        $theirs = array_filter($resends, static fn (array $r): bool => $r['paid_at'] !== null && ((int) $r['units_no_cost'] > 0 || (int) $r['pending'] > 0)) !== [];
         return [
             'order' => $o,
             'lines' => $lines,
             'parcels' => $this->db->all('SELECT * FROM sale_parcel WHERE channel_id = ? AND order_ref = ? ORDER BY removed_at IS NOT NULL, label_at, parcel_ref', [$store, $ref]),
-            'resends' => $this->db->all('SELECT order_ref, order_no, paid_at, cost, units FROM sale_order WHERE channel_id = ? AND parent_ref = ? ORDER BY paid_at, order_ref',
-                [$store, $ref]),
+            'resends' => $resends,
+            'own_incomplete' => $own,
+            'resends_incomplete' => $theirs,
         ];
     }
 

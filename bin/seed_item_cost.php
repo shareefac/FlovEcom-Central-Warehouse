@@ -5,8 +5,9 @@ declare(strict_types=1);
 /**
  * The start of the buying prices (profit step 1; docs/decisions.md PR12-PR14; CW\Profit\CostEngine): each CW item's price on the day CW's
  * own price starts (ERPNext's Bin valuation, else CW's average so far, else the supplier's last price, else none), then the replay of
- * every delivery, invoice and credit note since then, then the cost of every stored sale that waited for it. Once: refused when the start
- * is done (the cost job has its mark); a start stopped half way is run again the same way and goes on with the items not written yet.
+ * every delivery, invoice and credit note since then, then the cost of every stored sale that waited for it. The start is written once; a
+ * start stopped half way is run again the same way and goes on with the items not written yet, or (stopped after the start was written)
+ * with the replay and the sales that waited.
  *
  *   php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--apply]
  *
@@ -15,7 +16,7 @@ declare(strict_types=1);
  *   --store  the store whose variant numbers ERPNext's item codes carry (default: the setting erp_opening.listing_store)
  *   --apply  write the start and replay since it; without it: a dry run that prints the counts and the items it could not price
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run (also: started already).
+ * Exit codes: 0 done · 2 usage · 3 cannot run.
  */
 
 use CW\Ops\Cli;
@@ -55,8 +56,14 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'apply'],
             return Cli::OK;
         }
         $startAt = \CW\Clock::db(ReportRefresh::bounds($day)[0]);
-        $n = $engine->seed($plan['prices'], $startAt);
-        $cli->log("started {$n} items at {$day} (UK); replaying since then");
+        if ($engine->state()['mark_at'] !== null) {
+            // Stopped after the start was written (it is written once): run again the same way, it goes on with the replay and the sales that
+            // waited (the Codex re-check of e5d2e5a).
+            $cli->log('the start was written before: going on with the replay since then');
+        } else {
+            $n = $engine->seed($plan['prices'], $startAt);
+            $cli->log("started {$n} items at {$day} (UK); replaying since then");
+        }
         do {
             $r = $engine->run();
             $cli->log('replay ' . json_encode($r, JSON_UNESCAPED_SLASHES));

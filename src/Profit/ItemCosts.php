@@ -73,7 +73,7 @@ final class ItemCosts
                 [$sku, $last['source_at'], (int) $last['id']]) !== null;
             if ($stale) {
                 $e4 = ProfitMath::fold($this->db->all('SELECT id, kind, units, on_hand, price_e4, booked_e4, new_cost_e4, deferred, undoes_event_id FROM item_cost_event '
-                    . "WHERE sku_id = ? AND source_at <= ? AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]));
+                    . "WHERE sku_id = ? AND (source_at <= ? OR kind = 'start') AND kind <> 'replay' ORDER BY source_at, id", [$sku, $atUtc]));
             } else {
                 $e4 = $before || $last['new_cost_e4'] === null ? null : (int) $last['new_cost_e4'];
             }

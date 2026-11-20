@@ -179,6 +179,10 @@ final class ProfitMath
      */
     public static function fold(array $events): ?int
     {
+        // The start is the item's opening price: it comes first whatever its time (an item made after the start of the buying prices starts
+        // at a run's time, and a delivery of before that time whose booking committed after the run comes later; it is folded on top of the
+        // start, never under it: the Codex re-check of e5d2e5a, F1).
+        usort($events, static fn (array $a, array $b): int => (int) ((string) $b['kind'] === 'start') <=> (int) ((string) $a['kind'] === 'start'));
         $cost = null;
         $moved = [];
         foreach ($events as $e) {
@@ -231,6 +235,31 @@ final class ProfitMath
             }
         }
         return max(0, $low);
+    }
+
+    /**
+     * The price of the units a receipt line brought of a final invoice (pack J), GBP x 10,000: the landed value of the units each invoice line
+     * gave it (`take` of its `units` at its landed price) less the part of each credit given before they came that is on those units (a
+     * credit's value x units taken / the line's units, each rounded), plus the units beyond the invoice at the receipt's own price, over every
+     * unit that came (the Codex re-checks of 6b8a7ee F2/F3 and e5d2e5a: over-delivery). Never below 0; null when nothing came.
+     *
+     * @param array<int, array{take: int, units: int, landed: int, credits: array<int, int>}> $lines invoice line => what it gave; credits: each
+     *        credit's value (what it takes off a credited unit x the units it credits)
+     */
+    public static function receiptPrice(array $lines, int $came, int $own): ?int
+    {
+        $value = 0;
+        $taken = 0;
+        foreach ($lines as $l) {
+            $value += $l['landed'] * $l['take'];
+            $taken += $l['take'];
+            foreach ($l['credits'] as $c) {
+                $value -= self::divRound($c * $l['take'], max(1, $l['units']));
+            }
+        }
+        $beyond = max(0, $came - $taken);
+        $all = $taken + $beyond;
+        return $all <= 0 ? null : max(0, self::divRound($value + $own * $beyond, $all));
     }
 
     /** How many units a correction reaches: the units billed that are still on hand. */

@@ -1,12 +1,18 @@
 <?php
 // Profit › No buying price (docs/decisions.md PR28): the products sold on the days and shop chosen whose units have no buying price (their
 // profit is not known): the units, what those units sold for ex VAT, and a link to the product's page (a website product with no CW
-// product is named by its number). The most units first; at most $limit rows.
+// product is named by its number). The most units first; at most $limit rows. Units still waiting for their cost (minutes) are said, never
+// "every product has a buying price" while they wait (the Codex re-check of e5d2e5a, S2).
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_no_cost'], intro: 'profit_no_cost', aside: $explain('profit_cost', \CW\Ui\Words::PROFIT['cost_from'])) ?>
 <?= $partial('profit_options', ['period' => $period, 'periods' => $periods, 'from' => $from, 'to' => $to, 'stores' => $stores, 'storeId' => $storeId, 'warn' => $warn]) ?>
+<?php if ($pending > 0): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'no_cost_waiting') ?></p>
+<?php endif; ?>
 <?php if ($rows === []): ?>
+<?php if ($pending === 0): ?>
 <?= $empty(\CW\Ui\Words::PROFIT['no_cost_none'], \CW\Ui\Words::PROFIT['no_cost_none_text']) ?>
+<?php endif; ?>
 <?php else: ?>
 <div class="table-wrap">
 <table class="stack rp-table profit-no-cost">
