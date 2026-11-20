@@ -204,8 +204,8 @@ final class ProfitImportsTest extends StockTestCase
         $kept = self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]);
         ProfitDays::rebuild(self::$db, (int) $site->channelId, $day);
         self::assertSame($kept, self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]));
-        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 3, 'refused' => 0], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
-            'run again: the same costs again');
+        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 0, 'refused' => 0], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
+            'run again: the same costs, left as they are (their time fixed not moved: the final review of 6d59eda, a-LOW)');
         self::assertSame('480', (string) self::$db->value('SELECT cost FROM profit_day WHERE day = ?', [$day]));
     }
 

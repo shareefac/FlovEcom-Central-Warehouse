@@ -1589,23 +1589,26 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR93; branch `profit`; migration 0074; 20 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR112; branch `profit`; migrations 0074, 0075; 20 Nov 2026)
 
 | File | What |
 |---|---|
 | `migrations/0074_profit.sql` | `order_snapshot`, `sale_order`, `sale_line`, `sale_parcel`, `item_cost`, `item_cost` / `item_cost_event` (`timeline`: an item's history in force, written again in time order when an event comes late), `item_cost_document` (the documents the cost job read whole), `profit_day`, `profit_item_day`, `profit_job`; five `profit.*` settings; the `profit.view` row of role_permission; `finance` in `staff_role.role`; `ix_erp_pi_line_sku` on erp_pi_line |
-| `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version) |
+| `migrations/0075_profit_queue.sql` | `order_snapshot_queue`: the orders whose latest snapshot the money job has not worked out (PR95) |
+| `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version); no free text (PR96: codes, numbers, fixed words, `SERVICE_WORDS`); `checkJsonShapes` |
 | `src/Profit/ProfitMath.php` | the money rules (ex VAT, a line, its cost, margin) and the moving average (`receive`, `correct`, `remove`, `step`, `fold`), `operation` / `lowestLevel` (the fewest on hand between whole operations), `receiptPrice` (a receipt line of a final invoice), `spread`, `e4` |
-| `src/Profit/OrderSnapshots.php` | `store` (same / older_ignored / stored), `apply` (order, lines, parcels, re-sends, day summaries), `recompute` (with a cost override) |
-| `src/Profit/ProfitDays.php` | `orderShare` (THE definition), `change` (the snapshot's increments), `rebuild` (a store's day from the rows) |
+| `src/Profit/OrderSnapshots.php` | `accept` (the API: stored and queued, one short transaction), `applyQueued` (the money job), `store` (both at once: bulk, tests), `apply` (order, lines, parcels, re-sends, day summaries), `recompute` (with a cost override) |
+| `src/Profit/ProfitDays.php` | `orderShare` (THE definition), `change` (the snapshot's increments), `rebuild` / `compute` / `differences` (a store's day from the rows; the check), `snapshot` (one consistent read) |
 | `src/Profit/CostEngine.php`, `ItemCosts.php`, `ProfitSettings.php` | the buying price: `plan` / `seed` (the start), `run` (deliveries, invoices, credits, reversals), `rebuild` (an item's history again, in time order, as its next timeline), `landed`, on hand in commit order (`onHandAt`, `onHandBefore`); the price at a moment; the settings |
 | `src/Profit/PendingCosts.php`, `ReturnsSweep.php`, `SnapshotImport.php`, `ErpSalesImport.php`, `RecostSales.php`, `ProfitViews.php` | the sales that waited for the cost job; units back in stock (`run`, nightly `reconcile`); the bulk files; ERPNext's cost at sale; the re-cost; the screens' reads |
-| `src/Api/Controller/OrderSnapshotController.php` | `PUT /v1/orders/{ref}/snapshot` (any mode; 256 KB) |
+| `src/Api/Controller/OrderSnapshotController.php`, `src/Api/Request.php` | `PUT /v1/orders/{ref}/snapshot` (any mode; 256 KB, kept before the body is read: `Request::body($max)`) |
 | `src/Ui/Controller/ProfitController.php`, `src/Ui/views/profit_*.php` | the Profit section (profit.view): summary, by day, by product, by order (+ one order), no buying price |
-| `bin/seed_item_cost.php`, `refresh_item_cost.php`, `import_order_snapshots.php`, `import_erp_sales_cost.php`, `recost_sales.php`, `rebuild_profit_days.php` | the tools (README of build/A: the order to run them on live, the cron lines) |
+| `bin/seed_item_cost.php`, `refresh_item_cost.php`, `import_order_snapshots.php`, `import_erp_sales_cost.php`, `recost_sales.php`, `rebuild_profit_days.php`, `apply_order_snapshots.php` | the tools (README of build/A: the order to run them on live); their cron lines in `deploy/{production,staging}/cw-*.cron` (PR112) |
+| `src/Auth/Permissions.php`, `src/Admin/RolePermissions.php`, `src/Ui/Controller/AccessController.php`, `src/Settings.php`, `src/Ops/Cli.php` | `LOOK_ONLY` (finance only looks, PR111); the VAT setting's rule (PR109); `Cli::BUSY` and `tryLock($waitSec)` (PR98) |
 
 - Tests: `tests/Unit/ProfitMathTest.php`, `tests/Integration/Profit/*Test.php` (the build's and each Codex round's, `*ReviewR{1,2,3,4,5,6}Test`, `ProfitToolsReviewR5Test` runs the bin tools),
   `tests/Integration/ApiKernel/OrderSnapshotRouteTest.php`, `tests/Integration/UiKernel/ProfitScreens*Test.php` (`ProfitScreensReviewR5Test`, `R6Test` too), `tests/Integration/Migration0074Test.php`;
+  the final review's: `tests/Unit/ProfitFinalReviewUnitTest.php`, `tests/Integration/Profit/FinalReview{Snapshot,Cost,Tools}Test.php`, `tests/Integration/Profit/RollbackReleaseTest.php` (the undo's recipe);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).

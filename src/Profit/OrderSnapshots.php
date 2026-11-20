@@ -16,8 +16,15 @@ use CW\Reports\ReportRefresh;
  * the deliberate re-cost, so the live feed, a backfill and a correction can never disagree. One transaction per order; nothing here
  * touches stock, reservations or documents (it only reads reservation_unit and channel_listing, without locks).
  *
- *  store()      the snapshot's content is the same as the one stored (whatever its version): "same" (a newer version is remembered);
- *               an older version: "older_ignored"; else it replaces the stored one ("stored") and apply() works the order out again.
+ *  accept()     THE API's path (PUT /v1/orders/{ref}/snapshot; the final review of 6d59eda, a-HIGH2, PR95): the snapshot checked and
+ *               stored whole in ONE short transaction (order_snapshot and its row in order_snapshot_queue), under the order's own intake
+ *               lock only: no day summary, no cost read, no row of sale_order / sale_line / profit_day is touched, so a store's checkout
+ *               (the stock API in the same PHP workers) never waits behind the money work. The same content (whatever its version):
+ *               "same" (a newer version is remembered); an older version: "older_ignored"; else it replaces the stored one ("stored").
+ *  applyQueued() the money work of what accept() stored (bin/apply_order_snapshots.php, every minute; bounded by orders and seconds):
+ *               each order applied in a transaction of its own under its guards, its queue row taken away only when the snapshot it
+ *               worked out is still the latest (a newer one stays queued).
+ *  store()      accept() and the order's apply at once (the bulk files, tests): the same result as the API, worked out now.
  *  apply()      the order (sale_order), its lines (sale_line) and parcels (sale_parcel), the re-send figures of the order it is a re-send
  *               of, and the day summaries (profit_day, profit_item_day: by the difference between what the order counted before and
  *               now, in key order).
@@ -28,8 +35,9 @@ use CW\Reports\ReportRefresh;
  * it, each writing its own costed_by. A line's item is fixed with its cost: the unit's own item at the sale (reservation_unit), else
  * the listing's link when the line is first stored.
  *
- * Lock order: order_snapshot, the order's sale_order and sale_line rows, its sale_parcel rows, the sale_order row of the order it is a
- * re-send of, then profit_item_day and profit_day rows in key order.
+ * Lock order (the money work): the order's guards (named locks), the profit_day rows of its days, its sale_order and sale_line rows, its
+ * sale_parcel rows, the sale_order row of the order it is a re-send of, profit_item_day and profit_day rows in key order, and last its
+ * order_snapshot_queue row. The money work never locks order_snapshot (accept() writes it under the intake lock alone).
  */
 final class OrderSnapshots
 {
@@ -53,11 +61,40 @@ final class OrderSnapshots
         $this->costs = new ItemCosts($db, $this->settings);
     }
 
+    /** How long accept() waits for another snapshot of the same order being stored (milliseconds of work): then 503 busy. */
+    public const INTAKE_WAIT_SEC = 5;
+    /** The most orders and seconds one run of the money work takes (bin/apply_order_snapshots.php, every minute). */
+    public const QUEUE_MAX_ORDERS = 2000;
+    public const QUEUE_MAX_SECONDS = 45;
+
     /**
+     * The snapshot stored and its order worked out now (the bulk files, the tests): accept(), then the order's money work at once (a
+     * refusal of the money work, a line of another order stored meanwhile, is thrown as bad_snapshot; its queue row says it).
+     *
      * @param array<string, mixed> $raw the decoded JSON object (a bulk line's `ref` is ignored here)
      * @return array{result: string, version: int}
      */
     public function store(int $channelId, string $ref, array $raw, string $source): array
+    {
+        $r = $this->accept($channelId, $ref, $raw, $source);
+        $ref = SnapshotBody::orderRef($ref, 'ref');
+        // Worked out now: what this call stored, or a stored snapshot still waiting for its money work (one that waited for a lock before).
+        if (($r['queued'] ?? false) === true
+            || $this->db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND failed = 0', [$channelId, $ref]) !== null) {
+            $this->applyOne($channelId, $ref, true);
+        }
+        unset($r['queued']);
+        return $r;
+    }
+
+    /**
+     * THE API's path: checked, compared and stored in one short transaction (order_snapshot and its queue row), nothing else written or
+     * locked (no day summary, no cost read): the money work is applyQueued()'s (the final review of 6d59eda, a-HIGH2, PR95).
+     *
+     * @param array<string, mixed> $raw the decoded JSON object
+     * @return array{result: string, version: int, queued?: bool}
+     */
+    public function accept(int $channelId, string $ref, array $raw, string $source): array
     {
         if (!in_array($source, self::SOURCES, true)) {
             throw new \InvalidArgumentException("unknown snapshot source {$source}");
@@ -68,36 +105,164 @@ final class OrderSnapshots
         if ($body['parent_ref'] === $ref) {
             throw new CwException('bad_snapshot', 'parent_ref must be another order', 400, ['field' => 'parent_ref']);
         }
+        // A line of another order (or a unit of another order in CW) is refused here, by reads that lock nothing; the money work checks
+        // again under its locks (two orders storing the same line at once).
+        self::foreignLines($this->db, $channelId, $ref, array_map(static fn (array $l): string => (string) $l['line_id'], $body['lines']));
         $hash = SnapshotBody::hash($body);
         $at = Clock::db($now);
-        return $this->guarded($channelId, $ref, $body['parent_ref'], fn (): array => $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash,
-            $source, $at): array {
-            $cur = $db->one('SELECT version, body_hash FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
-            if ($cur !== null) {
-                $stored = (int) $cur['version'];
-                if ($body['version'] < $stored) {
-                    return ['result' => 'older_ignored', 'version' => $stored];
-                }
-                if (hash_equals((string) $cur['body_hash'], $hash)) {
-                    if ($body['version'] > $stored) {
+        $lock = self::intakeLockName($channelId, $ref);
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$lock, min($this->lockWaitSec, self::INTAKE_WAIT_SEC)]) !== 1) {
+            throw new CwException('busy', 'another snapshot of this order is being stored; retry shortly', 503);
+        }
+        try {
+            return $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash, $source, $at): array {
+                $cur = $db->one('SELECT version, body_hash FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
+                if ($cur !== null) {
+                    $stored = (int) $cur['version'];
+                    if ($body['version'] < $stored) {
+                        return ['result' => 'older_ignored', 'version' => $stored];
+                    }
+                    if (hash_equals((string) $cur['body_hash'], $hash)) {
+                        if ($body['version'] <= $stored) {
+                            return ['result' => 'same', 'version' => $stored];
+                        }
+                        // A newer version of the same content: remembered, and the order's row takes it on the next money work.
                         $db->exec("UPDATE order_snapshot SET version = ?, body = JSON_SET(body, '$.version', ?) WHERE channel_id = ? AND order_ref = ?",
                             [$body['version'], $body['version'], $channelId, $ref]);
-                        $db->exec('UPDATE sale_order SET snapshot_version = ? WHERE channel_id = ? AND order_ref = ?', [$body['version'], $channelId, $ref]);
+                        self::enqueue($db, $channelId, $ref, $at);
+                        return ['result' => 'same', 'version' => $body['version'], 'queued' => true];
                     }
-                    return ['result' => 'same', 'version' => max($stored, $body['version'])];
                 }
+                $json = Idempotency::canonicalJson($body);
+                if ($cur === null) {
+                    $db->exec('INSERT INTO order_snapshot (channel_id, order_ref, version, body_hash, body, source, first_at, stored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$channelId, $ref, $body['version'], $hash, $json, $source, $at, $at]);
+                } else {
+                    $db->exec('UPDATE order_snapshot SET version = ?, body_hash = ?, body = ?, source = ?, stored_at = ? WHERE channel_id = ? AND order_ref = ?',
+                        [$body['version'], $hash, $json, $source, $at, $channelId, $ref]);
+                }
+                self::enqueue($db, $channelId, $ref, $at);
+                return ['result' => 'stored', 'version' => $body['version'], 'queued' => true];
+            });
+        } finally {
+            try {
+                $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
+            } catch (\Throwable) {
+                // the connection is gone: MySQL released it with the session
             }
-            $json = Idempotency::canonicalJson($body);
-            if ($cur === null) {
-                $db->exec('INSERT INTO order_snapshot (channel_id, order_ref, version, body_hash, body, source, first_at, stored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [$channelId, $ref, $body['version'], $hash, $json, $source, $at, $at]);
-            } else {
-                $db->exec('UPDATE order_snapshot SET version = ?, body_hash = ?, body = ?, source = ?, stored_at = ? WHERE channel_id = ? AND order_ref = ?',
-                    [$body['version'], $hash, $json, $source, $at, $channelId, $ref]);
+        }
+    }
+
+    /** The order's queue row: made, or its seq moved on (a newer snapshot to work out), its refusal forgotten. */
+    private static function enqueue(Db $db, int $channelId, string $ref, string $at): void
+    {
+        $db->exec('INSERT INTO order_snapshot_queue (channel_id, order_ref, seq, queued_at) VALUES (?, ?, 1, ?) AS n ON DUPLICATE KEY UPDATE '
+            . 'seq = order_snapshot_queue.seq + 1, queued_at = n.queued_at, failed = 0, error = NULL', [$channelId, $ref, $at]);
+    }
+
+    /** The name of an order's intake lock (accept() only; never the money work's guard, so the API never waits for it). */
+    public static function intakeLockName(int $channelId, string $ref): string
+    {
+        $name = 'cw_profit_in:' . $channelId . ':' . $ref;
+        return strlen($name) <= 64 ? $name : 'cw_profit_in:' . $channelId . ':' . sha1($ref);
+    }
+
+    /**
+     * The money work of the snapshots accept() stored (bin/apply_order_snapshots.php): the oldest first, at most $maxOrders orders and about
+     * $maxSeconds seconds, each order in a transaction of its own under its guards. A snapshot the work refuses (a line another order stored
+     * at the same moment) is marked on its queue row (failed, the reason) and left until a newer snapshot of the order comes.
+     *
+     * @return array{applied: int, refused: int, busy: int, left: int}
+     */
+    public function applyQueued(int $maxOrders = self::QUEUE_MAX_ORDERS, float $maxSeconds = self::QUEUE_MAX_SECONDS): array
+    {
+        $started = microtime(true);
+        $out = ['applied' => 0, 'refused' => 0, 'busy' => 0, 'left' => 0];
+        $rows = $this->db->all('SELECT channel_id, order_ref FROM order_snapshot_queue WHERE failed = 0 ORDER BY queued_at, channel_id, order_ref LIMIT ' . max(1, $maxOrders));
+        foreach ($rows as $q) {
+            if (microtime(true) - $started > $maxSeconds) {
+                break;
             }
-            $this->apply($db, $channelId, $ref, $body, $at);
-            return ['result' => 'stored', 'version' => $body['version']];
-        }));
+            try {
+                $r = $this->applyOne((int) $q['channel_id'], (string) $q['order_ref'], false);
+                if ($r !== 'none') {
+                    $out[$r]++;
+                }
+            } catch (CwException) {
+                $out['refused']++;
+            }
+        }
+        $out['left'] = (int) $this->db->value('SELECT COUNT(*) FROM order_snapshot_queue WHERE failed = 0');
+        return $out;
+    }
+
+    /**
+     * One order's money work from its stored snapshot, under its guards, in a transaction of its own: its queue row taken away only when
+     * the snapshot worked out is still the latest (read with the row's seq in ONE read; a newer one stored meanwhile keeps the row). A
+     * refusal is written on the queue row (failed) and thrown; another writer holding the order's guards: `busy` (thrown when $throw).
+     *
+     * @return string applied | none (nothing queued) | busy
+     */
+    private function applyOne(int $channelId, string $ref, bool $throw): string
+    {
+        try {
+            return $this->guarded($channelId, $ref, null, fn (): string => $this->db->transaction(function (Db $db) use ($channelId, $ref): string {
+                $q = $db->one('SELECT q.seq, CAST(s.body AS CHAR) AS body FROM order_snapshot_queue q JOIN order_snapshot s ON s.channel_id = q.channel_id '
+                    . 'AND s.order_ref = q.order_ref WHERE q.channel_id = ? AND q.order_ref = ?', [$channelId, $ref]);
+                if ($q === null) {
+                    return 'none';
+                }
+                $body = json_decode((string) $q['body'], true, 64, JSON_THROW_ON_ERROR);
+                $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()));
+                $db->exec('DELETE FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND seq = ?', [$channelId, $ref, (int) $q['seq']]);
+                return 'applied';
+            }));
+        } catch (CwException $e) {
+            if ($e->errorCode === 'busy') {
+                if ($throw) {
+                    throw $e;
+                }
+                return 'busy';
+            }
+            $this->db->exec('UPDATE order_snapshot_queue SET failed = 1, tries = tries + 1, error = ? WHERE channel_id = ? AND order_ref = ?',
+                [mb_substr($e->errorCode . ': ' . $e->getMessage(), 0, 255), $channelId, $ref]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Refuses a snapshot whose line ids are lines of another order of the store (sale_line) or units of another order in CW
+     * (reservation_unit), 400 bad_snapshot naming the line. Reads only.
+     *
+     * @param list<string> $ids
+     */
+    private static function foreignLines(Db $db, int $channelId, string $ref, array $ids): void
+    {
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $other = $db->value('SELECT line_id FROM sale_line WHERE channel_id = ? AND line_id IN (' . self::marks($chunk) . ') AND order_ref <> ? LIMIT 1',
+                [$channelId, ...$chunk, $ref]);
+            if ($other !== null) {
+                $i = self::indexOf($ids, (string) $other);
+                throw new CwException('bad_snapshot', "line {$other} belongs to another order", 400, ['field' => "lines[{$i}].line_id"]);
+            }
+            $unit = $db->value('SELECT u.unit_id FROM reservation_unit u JOIN reservation r ON r.id = u.reservation_id WHERE u.channel_id = ? AND u.unit_id IN ('
+                . self::marks($chunk) . ') AND r.order_ref <> ? LIMIT 1', [$channelId, ...$chunk, $ref]);
+            if ($unit !== null) {
+                $i = self::indexOf($ids, (string) $unit);
+                throw new CwException('bad_snapshot', "line {$unit} is a unit of another order", 400, ['field' => "lines[{$i}].line_id"]);
+            }
+        }
+    }
+
+    /** @param list<string> $ids */
+    private static function indexOf(array $ids, string $id): int
+    {
+        foreach ($ids as $i => $x) {
+            if (strcasecmp($x, $id) === 0) {
+                return $i;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -176,7 +341,9 @@ final class OrderSnapshots
     public function recompute(int $channelId, string $ref, array|\Closure $override = []): bool
     {
         return $this->guarded($channelId, $ref, null, fn (): bool => $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
-            $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
+            // Read without a lock: the API's accept() writes order_snapshot under its intake lock alone and must never wait for this work;
+            // the order's guards keep every money writer apart, and a snapshot stored meanwhile is queued (applyQueued works it out next).
+            $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
             if ($json === null) {
                 return false;
             }
@@ -211,14 +378,7 @@ final class OrderSnapshots
             $oldLines[(string) $r['line_id']] = $r;
         }
         $ids = array_map(static fn (array $l): string => (string) $l['line_id'], $body['lines']);
-        foreach (array_chunk($ids, 500) as $chunk) {
-            $other = $db->value('SELECT line_id FROM sale_line WHERE channel_id = ? AND line_id IN (' . self::marks($chunk) . ') AND order_ref <> ? LIMIT 1',
-                [$channelId, ...$chunk, $ref]);
-            if ($other !== null) {
-                $i = (int) array_search((string) $other, $ids, true);
-                throw new CwException('bad_snapshot', "line {$other} belongs to another order", 400, ['field' => "lines[{$i}].line_id"]);
-            }
-        }
+        self::foreignLines($db, $channelId, $ref, $ids);
         $vatBp = $old !== null ? (int) $old['vat_bp'] : $this->settings->vatBp();
         $paid = $body['paid_at'];
         $day = $paid === null ? null : ReportRefresh::ukDay((string) $paid);
@@ -230,10 +390,10 @@ final class OrderSnapshots
                 . 'WHERE u.channel_id = ? AND u.unit_id IN (' . self::marks($chunk) . ')', [$channelId, ...$chunk]) as $r) {
                 if ((string) $r['order_ref'] !== $ref) {
                     // The unit id is a unit of another order of the store in CW (the Codex review of 92efa82, b6): refused whole.
-                    $i = (int) array_search((string) $r['unit_id'], $ids, true);
+                    $i = self::indexOf($ids, (string) $r['unit_id']);
                     throw new CwException('bad_snapshot', "line {$r['unit_id']} is a unit of another order", 400, ['field' => "lines[{$i}].line_id"]);
                 }
-                $units[(string) $r['unit_id']] = $r;
+                $units[strtolower((string) $r['unit_id'])] = $r;
             }
         }
         $variants = array_values(array_unique(array_map(static fn (array $l): string => (string) $l['variant_id'], $body['lines'])));
@@ -241,7 +401,7 @@ final class OrderSnapshots
         foreach (array_chunk($variants, 500) as $chunk) {
             foreach ($db->all('SELECT id, external_variant_id, sku_id, units_per_item, status FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
                 . self::marks($chunk) . ')', [$channelId, ...$chunk]) as $r) {
-                $listings[(string) $r['external_variant_id']] = $r;
+                $listings[strtolower((string) $r['external_variant_id'])] = $r;
             }
         }
         $lines = [];
@@ -253,8 +413,8 @@ final class OrderSnapshots
             // A line stored on a paid order keeps the item, listing and units it was resolved to then, also while its cost waits for the
             // cost job (the Codex review of 57d98ad, N7).
             $resolved = $fixed || ($prev !== null && $prev['day'] !== null && $prev['removed_at'] === null);
-            $u = $units[$id] ?? null;
-            $li = $listings[(string) $l['variant_id']] ?? null;
+            $u = $units[strtolower($id)] ?? null;
+            $li = $listings[strtolower((string) $l['variant_id'])] ?? null;
             if (isset($override[$id]['sku'])) {
                 // A deliberate re-cost of a line that had no item: the item its listing is linked to now (RecostSales).
                 $sku = (int) $override[$id]['sku'];
@@ -359,7 +519,7 @@ final class OrderSnapshots
             $other = $db->value('SELECT line_id FROM sale_line WHERE channel_id = ? AND line_id IN (' . self::marks($chunk) . ') AND order_ref <> ? LIMIT 1',
                 [$channelId, ...$chunk, $ref]);
             if ($other !== null) {
-                $i = (int) array_search((string) $other, $ids, true);
+                $i = self::indexOf($ids, (string) $other);
                 throw new CwException('bad_snapshot', "line {$other} belongs to another order", 400, ['field' => "lines[{$i}].line_id"]);
             }
         }
@@ -399,8 +559,12 @@ final class OrderSnapshots
             $t['cost'] += (int) $r['cost'];
             $t['units_no_cost'] += self::unitsNoCost($r);
         }
+        // An order-level refund comes off at the lines' own ex-VAT rate (each line rounded on its own): taken off the lines' sale in
+        // proportion, so a refund of everything the lines sold takes their ex-VAT sale off exactly (ten 99p lines: 830p, not 825p; the final
+        // review of 6d59eda, c-LOW1, PR105); what is beyond the lines' sale comes off at the order's rate.
         $refund = (int) $body['order_refund_inc'];
-        $refundEx = ProfitMath::exVat($refund, $vatBp);
+        $within = $t['sale_inc'] > 0 ? min($refund, $t['sale_inc']) : 0;
+        $refundEx = ($within > 0 ? ProfitMath::divRound($t['sale_ex'] * $within, $t['sale_inc']) : 0) + ProfitMath::exVat($refund - $within, $vatBp);
         $t['sale_inc'] -= $refund;
         $t['sale_ex'] -= $refundEx;
         $d = $body['delivery'];
@@ -476,10 +640,10 @@ final class OrderSnapshots
             self::upsert($db, 'sale_parcel', $rows, ['channel_id', 'order_ref', 'parcel_ref', 'first_at']);
         }
         foreach ($have as $pref => $removed) {
-            if ($removed === null) {
-                $db->exec('UPDATE sale_parcel SET removed_at = ?, updated_at = ? WHERE channel_id = ? AND order_ref = ? AND parcel_ref = ?',
-                    [$now, $now, $channelId, $ref, (string) $pref]);
-            }
+            // A parcel gone from the snapshot keeps its codes and times and no text at all (its service name is cleared: the final review of
+            // 6d59eda, b-HIGH2, PR96).
+            $db->exec("UPDATE sale_parcel SET removed_at = COALESCE(removed_at, ?), service = '', updated_at = ? WHERE channel_id = ? AND order_ref = ? AND parcel_ref = ? "
+                . "AND (removed_at IS NULL OR service <> '')", [$now, $now, $channelId, $ref, (string) $pref]);
         }
     }
 

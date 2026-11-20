@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\ApiKernel;
 
+use CW\Profit\OrderSnapshots;
 use CW\Tests\Support\ApiKernelTestCase;
 
 /**
@@ -36,6 +37,9 @@ final class OrderSnapshotRouteTest extends ApiKernelTestCase
             self::assertSame(['result' => 'stored', 'version' => 1763586245200],
                 self::data($this->call('PUT', $uri, $key, self::body(['version' => 1763586245200, 'grand_inc' => 1]))), $mode);
             self::assertSame($mode, self::header($this->call('PUT', $uri, $key, self::body()), 'X-CW-Channel-Mode'));
+            // The API only stores (one short transaction): the money job works the order out (the final review of 6d59eda, a-HIGH2, PR95).
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM sale_order WHERE channel_id = ?', [$site->channelId]), 'nothing of the money in the request');
+            (new OrderSnapshots(self::$db))->applyQueued();
             self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM sale_order WHERE channel_id = ?', [$site->channelId]));
             self::assertSame('1', (string) self::$db->value('SELECT grand_inc FROM sale_order WHERE channel_id = ?', [$site->channelId]));
         }
@@ -56,6 +60,8 @@ final class OrderSnapshotRouteTest extends ApiKernelTestCase
         self::assertSame('ref', $bad(self::envelope($this->call('PUT', '/v1/orders/' . str_repeat('9', 65) . '/snapshot', $key, self::body()), 400, 'bad_snapshot')));
         self::envelope($this->call('PUT', $uri, $key, null, raw: '[1,2]', headers: ['Content-Type' => 'application/json']), 400, 'bad_json');
         self::envelope($this->call('PUT', $uri, $key, null, raw: '{"v":1}', headers: ['Content-Type' => 'text/plain']), 415, 'unsupported_media_type');
+        self::assertSame('lines', $bad(self::envelope($this->call('PUT', $uri, $key, null, raw: '{"v":1,"version":1,"currency":"GBP","paid_at":null,"lines":{}}',
+            headers: ['Content-Type' => 'application/json']), 400, 'bad_snapshot')), '{} is not a list of lines (it would take every line off the order)');
         $big = self::body(['padding' => str_repeat('x', 270_000)]);
         self::envelope($this->call('PUT', $uri, $key, $big), 413, 'body_too_large');
         self::envelope($this->call('PUT', $uri, null, self::body()), 401);

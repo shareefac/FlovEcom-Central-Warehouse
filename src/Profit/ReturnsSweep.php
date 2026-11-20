@@ -60,19 +60,18 @@ final class ReturnsSweep
         $from = Clock::db(Clock::fromDb((string) $mark)->modify('-' . CostEngine::OVERLAP_SECONDS . ' seconds'));
         $orders = [];
         $newMark = $cutoff;
-        $lo = $this->db->value('SELECT id FROM stock_ledger WHERE created_at >= ? ORDER BY created_at, id LIMIT 1', [$from]);
-        if ($lo !== null) {
-            foreach ($this->db->all("SELECT l.channel_id, l.order_ref, l.created_at FROM stock_ledger l "
-                . "JOIN sale_line s ON s.channel_id = l.channel_id AND s.line_id = l.unit_id AND s.restocked = 0 "
-                . "WHERE l.id >= ? AND l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'return' AND l.channel_id IS NOT NULL ORDER BY l.id",
-                [(int) $lo, $from, $cutoff]) as $r) {
-                $k = (int) $r['channel_id'] . "\0" . (string) $r['order_ref'];
-                if (!isset($orders[$k]) && count($orders) >= $maxOrders) {
-                    $newMark = (string) $r['created_at'];
-                    break;
-                }
-                $orders[$k] = [(int) $r['channel_id'], (string) $r['order_ref']];
+        // By the booking time alone (its own index), never from the id of the window's first row: ids are given at insert, so a return committed
+        // with an earlier id and a later time is still read (the final review of 6d59eda, c-M3, PR107).
+        foreach ($this->db->all("SELECT l.channel_id, l.order_ref, l.created_at FROM stock_ledger l FORCE INDEX (ix_stock_ledger_created) "
+            . "JOIN sale_line s ON s.channel_id = l.channel_id AND s.line_id = l.unit_id AND s.restocked = 0 "
+            . "WHERE l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'return' AND l.channel_id IS NOT NULL ORDER BY l.created_at, l.id",
+            [$from, $cutoff]) as $r) {
+            $k = (int) $r['channel_id'] . "\0" . (string) $r['order_ref'];
+            if (!isset($orders[$k]) && count($orders) >= $maxOrders) {
+                $newMark = (string) $r['created_at'];
+                break;
             }
+            $orders[$k] = [(int) $r['channel_id'], (string) $r['order_ref']];
         }
         $snapshots = new OrderSnapshots($this->db, $this->clock);
         $n = 0;

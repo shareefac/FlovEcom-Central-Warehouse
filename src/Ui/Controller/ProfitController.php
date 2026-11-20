@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Profit\ProfitDays;
 use CW\Profit\ProfitViews;
 use CW\Settings;
 use CW\Ui\Context;
@@ -44,7 +45,9 @@ final class ProfitController
         $store = self::store($ctx, $stores);
         [$period, $from, $to, $warn] = self::period($ctx);
         $by = in_array($ctx->req->param('by'), ProfitViews::GROUPS, true) ? (string) $ctx->req->param('by') : 'day';
-        return $ctx->page('profit_periods', ['rows' => $views->periods($from, $to, $store, $by), 'total' => $views->totals($from, $to, $store), 'by' => $by,
+        // The rows and the footer from ONE moment of the database (the final review of 6d59eda, c-M9, PR103).
+        [$rows, $total] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->periods($from, $to, $store, $by), $views->totals($from, $to, $store)]);
+        return $ctx->page('profit_periods', ['rows' => $rows, 'total' => $total, 'by' => $by,
             'groups' => ProfitViews::GROUPS, 'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn,
             'stores' => $stores, 'storeId' => $store], 200, ['title' => Words::MENU['profit_periods']]);
     }
@@ -58,7 +61,8 @@ final class ProfitController
         $by = in_array($ctx->req->param('by'), ProfitViews::BY, true) ? (string) $ctx->req->param('by') : 'product';
         $sort = in_array($ctx->req->param('sort'), ProfitViews::SORTS, true) ? (string) $ctx->req->param('sort') : 'profit';
         $query = ['by' => $by, 'period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $store];
-        $result = $views->breakdown($from, $to, $store, $by, $sort);
+        [$result, $orderRefunds, $pending] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->breakdown($from, $to, $store, $by, $sort),
+            $by === 'shop' ? 0 : $views->orderRefunds($from, $to, $store), array_sum($views->pending($from, $to, $store))]);
         $rows = array_map(static fn (array $r): array => $r + ['href' => match (true) {
             $by === 'product' && $r['id'] !== null && $r['id'] > 0 => '/ui/items/' . $r['id'],
             $by === 'shop' && $r['id'] !== null => Html::url(self::PATH . '/orders', ['period' => $query['period'], 'from' => $query['from'], 'to' => $query['to'],
@@ -66,8 +70,8 @@ final class ProfitController
             default => null,
         }], $result['rows']);
         return $ctx->page('profit_breakdown', ['rows' => $rows, 'more' => $result['more'], 'by' => $by, 'bys' => ProfitViews::BY, 'sort' => $sort,
-            'orderRefunds' => $by === 'shop' ? 0 : $views->orderRefunds($from, $to, $store),
-            'pending' => array_sum($views->pending($from, $to, $store)),
+            'orderRefunds' => $orderRefunds,
+            'pending' => $pending,
             'sorts' => ProfitViews::SORTS, 'sortLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/by', $query + ['sort' => $s]),
                 'current' => $s === $sort], ProfitViews::SORTS),
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store,
@@ -121,7 +125,8 @@ final class ProfitController
         $stores = $views->stores();
         $store = self::store($ctx, $stores);
         [$period, $from, $to, $warn] = self::period($ctx);
-        return $ctx->page('profit_no_cost', ['rows' => $views->noCost($from, $to, $store), 'pending' => array_sum($views->pending($from, $to, $store)),
+        [$noCost, $pending] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->noCost($from, $to, $store), array_sum($views->pending($from, $to, $store))]);
+        return $ctx->page('profit_no_cost', ['rows' => $noCost, 'pending' => $pending,
             'limit' => ProfitViews::ROW_LIMIT, 'period' => $period,
             'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_no_cost']]);

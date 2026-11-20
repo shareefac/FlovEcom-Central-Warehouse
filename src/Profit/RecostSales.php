@@ -50,11 +50,11 @@ final class RecostSales
         foreach ($orders as $o) {
             $ch = (int) $o['channel_id'];
             $ref = (string) $o['order_ref'];
-            $plan = static fn (Db $db): ?array => self::plan($db, $costs, $ch, $ref, $sources);
+            $plan = static fn (Db $db): ?array => self::plan($db, $costs, $ch, $ref, $sources, $from, $to);
             // What would move, read now (the dry run's figures); written under the order's locks from what is stored THEN (a line an import
             // fixed meanwhile is no longer of these sources and is left alone: the Codex review of 92efa82, a11/b11).
             $p = $plan($this->db);
-            if ($p === null) {
+            if ($p === null || $p['override'] === []) {
                 continue;
             }
             foreach ($p['moves'] as $k => $n) {
@@ -79,14 +79,17 @@ final class RecostSales
      * @param list<string> $sources
      * @return array{override: array<string, array<string, mixed>>, moves: array<string, int>}|null
      */
-    private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources): ?array
+    private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources, string $from, string $to): ?array
     {
-        $paid = $db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$ch, $ref]);
-        if ($paid === null) {
+        // Still paid on one of the days asked for, read again under the order's locks when it is written (a newer snapshot may have moved its
+        // payment to another day meanwhile: the final review of 6d59eda, c-M8, PR110).
+        $o = $db->one('SELECT paid_at, day FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$ch, $ref]);
+        if ($o === null || $o['paid_at'] === null || (string) $o['day'] < $from || (string) $o['day'] > $to) {
             return null;
         }
+        $paid = (string) $o['paid_at'];
         $in = implode(', ', array_fill(0, count($sources), '?'));
-        $lines = $db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
+        $lines = $db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.costed_by, l.unit_cost_e4, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
             . 'LEFT JOIN channel_listing c ON c.channel_id = l.channel_id AND c.external_variant_id = l.variant_id '
             . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})", [$ch, $ref, ...$sources]);
         if ($lines === []) {
@@ -109,7 +112,12 @@ final class RecostSales
             if ($c['source'] === ItemCosts::PENDING) {
                 continue; // the cost job has not reached its paid time: left as it is
             }
-            $override[(string) $l['line_id']] = ['e4' => $c['e4'], 'source' => $c['e4'] === null ? 'none' : $c['source'], 'by' => 'recost']
+            $source = $c['e4'] === null ? 'none' : $c['source'];
+            if (!$relinked && $l['costed_by'] === 'recost' && (string) $l['cost_source'] === $source
+                && ($l['unit_cost_e4'] === null ? null : (int) $l['unit_cost_e4']) === $c['e4']) {
+                continue; // re-costed to this very cost before: its time fixed stays (the final review of 6d59eda, a-LOW)
+            }
+            $override[(string) $l['line_id']] = ['e4' => $c['e4'], 'source' => $source, 'by' => 'recost']
                 + ($relinked ? ['sku' => (int) $l['now_sku'], 'upi' => max(1, (int) $l['now_upi'])] : []);
             $k = $l['cost_source'] . ' > ' . $override[(string) $l['line_id']]['source'];
             $moves[$k] = ($moves[$k] ?? 0) + 1;

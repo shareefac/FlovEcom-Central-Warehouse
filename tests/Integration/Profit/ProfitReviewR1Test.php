@@ -150,7 +150,9 @@ final class ProfitReviewR1Test extends StockTestCase
             self::$db->exec('SET SESSION innodb_lock_wait_timeout = 50');
         }
         $this->other->pdo()->exec('ROLLBACK');
-        self::assertSame('stored', $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 600)]), 'api')['result']);
+        // The snapshot itself was stored (the API's part, PR95); its money work waited and is done now.
+        self::assertSame('same', $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 600)]), 'api')['result']);
+        self::assertSame('500', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE channel_id = ? AND order_ref = '2'", [$site->channelId]));
     }
 
     public function testAReSendAndItsFirstOrderWaitForEachOther(): void

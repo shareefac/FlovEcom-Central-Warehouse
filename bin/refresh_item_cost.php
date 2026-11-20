@@ -11,9 +11,11 @@ declare(strict_types=1);
  *   php bin/refresh_item_cost.php [--force] [--status] [--reconcile]
  *
  *   --reconcile  also every delivery, invoice and credit note since the start not read whole yet, and every unit back in stock whenever its
- *                return was booked (a full read: once a night)
+ *                return was booked (a full read: once a night). It WAITS up to 15 minutes for a run of every 10 minutes that holds the job's
+ *                lock, so the night's full read is never skipped (the final review of 6d59eda, a-M4, PR98).
  *
- * Exit codes: 0 done (also: switched off, not started yet, or another run holds the job's lock) · 2 usage · 3 cannot run.
+ * Exit codes: 0 done (also: switched off, not started yet, or another run of every 10 minutes holds the job's lock) · 2 usage · 3 cannot
+ * run · 4 --reconcile not run: the lock was still held after 15 minutes (run it again).
  */
 
 use CW\Ops\Cli;
@@ -34,6 +36,15 @@ exit(Cli::main(CostEngine::JOB, ['force', 'status', 'reconcile'], 'usage: php bi
             $cli->log('status ' . json_encode($engine->state(), JSON_UNESCAPED_SLASHES));
             return Cli::OK;
         }
+        $reconcile = array_key_exists('reconcile', $opts);
+        if (!$cli->tryLock($reconcile ? 900 : 0)) {
+            if ($reconcile) {
+                $cli->error('the night\'s full read was not run: another run held the job\'s lock for 15 minutes; run this again');
+                return Cli::BUSY;
+            }
+            $cli->log('skipped: another run of this job holds its lock');
+            return Cli::OK;
+        }
         if (!(new ProfitSettings($cli->db))->refreshOn() && !array_key_exists('force', $opts)) {
             $cli->log('switched off (setting profit.cost_refresh_on): nothing done');
             return Cli::OK;
@@ -49,4 +60,4 @@ exit(Cli::main(CostEngine::JOB, ['force', 'status', 'reconcile'], 'usage: php bi
             $cli->log('returns reconciled ' . json_encode((new ReturnsSweep($cli->db))->reconcile(), JSON_UNESCAPED_SLASHES));
         }
         return Cli::OK;
-    }, true, true));
+    }, false, true));

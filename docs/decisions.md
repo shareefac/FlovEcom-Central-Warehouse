@@ -18701,7 +18701,8 @@ expenses, the connector (builder B), anything sent to a shop, any change to stoc
 **PR30.** Go-live order on live (README of build/A): migrate 0074; bin/seed_item_cost.php --bin (dry run, then --apply: the start and the
 replay since 16 Nov); the connector's bulk days through bin/import_order_snapshots.php; bin/import_erp_sales_cost.php (dry run, then
 --apply); bin/recost_sales.php for what is left without a price; bin/rebuild_profit_days.php as a check; then the cron lines. Undo: the
-release before is 286055a; 0074 only adds (its tables can stay, empty or not).
+release before is 286055a; 0074 only adds (its tables can stay, empty or not). (Superseded: the undo is PR94's rollback release, the go-live
+order and the cron lines PR112's.)
 
 ### The Codex review of 92efa82 (three focused runs at once, `build/A/codex_r1_{a,b,c}.txt`): 4 HIGH and 30 MEDIUM, each checked in the code, shown failing first (`runs/profit_r1fix_red1.log`, `red2.log`) and fixed (PR31-PR45)
 
@@ -19062,3 +19063,117 @@ at £1.00, the first note cancelled: £0.9999, £399.96; it gave £400.00). (LOW
 
 **PR93.** (LOW 3) Units waiting for their cost are counted on every summed row ("+1 waiting for their cost" beside the No price count), also
 when they are too few to say "incomplete" (PR85).
+
+### The final review of 6d59eda (three read-only runs of gpt-6.2-astra: `build/A/codex_final_astra_{a,b,c}.txt`; production safety, security and data, money): 7 HIGH (two the same), each checked in the code; every HIGH and the MEDIUMs below shown failing first with the reviewers' numbers on 6d59eda (`runs/profit_r9fix_red.log`, `red2.log`; the undo on the CW test box with c40c050's own code: `runs/profit_r9_rollback_rehearsal.log`) and fixed (PR94-PR112); what is left is a known limit in the README
+
+**PR94.** (a-HIGH1 / b-HIGH1, the undo) Once 0074 (and 0075, PR95) are recorded, the code of the release before refuses the schema: its CLI
+guard (Cli::requireCurrentSchema, every cron job: the reservation expiry stops with exit 3) and its installer's `bin/migrate.php --status`
+("schema has migration 0074_profit.sql but no such file exists"), shown with c40c050's own code on a scratch schema of the test box. The guard
+stays strict (a schema with migrations the code does not know is refused; accepting "later" migrations would let old code run on a schema it
+may not understand). The undo is a ROLLBACK RELEASE prepared before the go-live: c40c050's code with migrations/0074_profit.sql and
+migrations/0075_profit_queue.sql added byte for byte, no code: the same schema check then passes (the rehearsal: expiry exit 0, invariants ok,
+migrate --status nothing pending), the installer switches to it without --migrate, and its cron file has no profit job. It is made by the
+go-live kit (README of build/A, "Undo": the exact commands), as a commit on main whose tree is c40c050's plus the two files, pushed and
+installed the normal way, or in an emergency by switching /opt/cw-prod to a release directory built the same way on the box.
+`tests/Integration/Profit/RollbackReleaseTest.php` holds the recipe to the branch: every migration this branch adds after 0073 is in its list, and
+with exactly those files a schema migrated by this release passes the old guard, without them it is refused.
+
+**PR95.** (a-HIGH2, checkout isolation; b-LOW1) `PUT /v1/orders/{ref}/snapshot` only STORES: OrderSnapshots::accept checks the body, refuses a
+line of another order by reads that lock nothing, and in ONE short transaction under the order's own intake lock (`cw_profit_in:`, never the
+money work's guard) writes order_snapshot and its row in the new `order_snapshot_queue` (0075: one row per order whose latest snapshot is not
+worked out; `seq` moves on with each one stored). No day summary, no cost read, no row of sale_order / sale_line / profit_day is touched, so a
+store's checkout, whose stock calls share the ten PHP workers, never waits behind the money work. The money work is the new job
+bin/apply_order_snapshots.php (cron every minute; at most 2,000 orders or about 45 seconds a run; one transaction per order under its guards,
+as before): it reads the queue row's seq and the stored body in ONE read and takes the row away only while its seq is still that one (a newer
+snapshot stored meanwhile keeps it for the next run). A snapshot the work refuses (a line another order stored at the same moment) is marked
+on its row (failed, the reason) and never tried again until a newer snapshot of the order comes; `--status` lists the waiting and the refused.
+The money work never locks order_snapshot (recompute reads it without FOR UPDATE: the guards keep the money writers apart). OrderSnapshots::store
+(the bulk files, the tests) is accept and the order's money work at once (and the money work of a snapshot that waited). The items' cost at
+the paid time is read in one statement per 500 items (a dependent indexed read per item, then their prices by id): 1,000 items are about five
+statements, not 2,001 (the red log). The 256 KB cap is kept before the body is read (Request::body($max): a declared length over it is refused
+unread, never more than 256 KB + 1 byte read). The reviewer's other remedy, workers kept for the stock calls, is the server's pool and left as it
+is: nothing of the snapshot holds a worker beyond its milliseconds now.
+
+**PR96.** (b-HIGH2, personal data) No free text is kept from a snapshot. Ids and refs (line, variant, parent, sub order, parcel, the path's
+order) are codes (letters, digits and : _ . -, at most 64; anything else is refused: they are keys). The order number is a number with a few
+letters before it at most (the real files: "1567469"), else "". The delivery method id is digits, the service code a code with no run of 7
+digits, else null / "". The order's and the parcels' status, the payment way and the carrier are words of fixed lists, else "other". A
+delivery method or service name is kept only when every word of it is one of the carriers' service words (SnapshotBody::SERVICE_WORDS, from
+the real names: "Royal Mail Tracked 48 (2-4 Working Days)", "DPD Pickup (2 day Service)", "In Store Collection Preston", "EVRI International",
+"Return label") or a short number, else null / "": a name, an e-mail address, a phone number or a postal address can never be stored, whatever
+a connector maps into a field. A parcel gone from a newer snapshot keeps its codes and times and no text (its service name is cleared).
+
+**PR97.** (c-M1) A shop line is ONE unit: the connector sends one orders_items row per unit (`qty: 1` always); any other qty is refused
+(400 lines[i].qty), so a restock of one unit of a two-unit line can never erase the whole line's sale and cost.
+
+**PR98.** (a-M4, b-M) bin/import_order_snapshots.php that finds another import holding the job's lock reads nothing and ends with exit 4 (new
+Cli::BUSY: "not run, run it again"), never 0. bin/refresh_item_cost.php --reconcile (the night's full read) waits up to 15 minutes for a run of
+every ten minutes that holds the lock instead of being skipped; still held: exit 4.
+
+**PR99.** (c-HIGH1, a-M5, b-HIGH3: the start) The start is followed by the replay of every delivery, invoice and credit note since it, so no
+starting price may hold one of them. CostEngine::plan takes the start's moment (bin/seed_item_cost.php always gives it): ERPNext's Bin first;
+else CW's own average of what came in with a price BEFORE the start (the commit order, stock_value_seq), never today's report_item; else the
+supplier's last price known before the start (an ERPNext purchase invoice posted before its day, a supplier item's price or order price dated
+before it); else none until the item's first priced delivery. 10 at £1 before the start and 10 at £3 after it: £2.00 (it was £2.50 from a
+£2.00 opening). Every input is of before the start, so a seed stopped half way prices its later batches as its first. The Bin file is checked
+whole first: a row without the header's columns, or whose quantity or valuation is blank or not a number, is broken; while one is broken and
+not named by --allow-skips (its item code, or row:<n>) nothing is written, in the dry run too, and the tool ends with exit 1 naming every row.
+
+**PR100.** (c-HIGH2, a-M6) An invoice moves only the units of the delivery it bills that can still be on hand: at most the fewest units on hand
+since that delivery came, in the item's commit order (the receipt's last portion's operation to the invoice's place, as the reversals already
+do). A price credit the same, for the delivery its invoice line billed (or the receipts that took goods on their way in). 10 at £1 sold out,
+10 at £3, the first ten's invoice at £2: £3.00 (it was £4.00); a 50p credit of the first ten after they sold out, 10 at £4 on hand: £4.00 (it
+was £3.50); 4 of the first ten left: only those four move (£2.7143, it was £3.1429). The same rule in an item's history written again.
+
+**PR101.** (b-M, b-LOW) The snapshot's shapes: paid_at must be sent (null when not paid): a body without it is refused, never read as "not
+paid" (which took a paid sale off its day); `lines` and `parcels` must be JSON lists and `delivery` an object or null (`"lines": {}` decoded
+like `[]` and took every line off the order: SnapshotBody::checkJsonShapes, in the API and the bulk files); a line id (or parcel ref) in
+another case is the same line, as the database's key compares (L1 and l1: refused, never two lines in the order and one row); a time must carry
+its zone (Z or an offset): a London time without one is never read as UTC.
+
+**PR102.** (c-HIGH3, c-M10) Profit by order shows each order's OWN goods, cost and profit (what the day summaries count: a re-send's cost on
+the re-send's row and paid day), so the rows of a period add up to its day summary exactly (a parent £10 and £3, its free re-send £3: rows
+£6 cost and £4 profit, as the day; they added up to £9 and £1). A first order also shows its re-sends' cost and its profit with them (the
+detail page's own labels), and its margin stays the agreed one, with them (PR10). A profit that is not known (a unit of the order, or of a paid
+re-send for the figure with them, has no price or waits for one) is "not known", never a number (£10 shown for an order with an unpriced unit);
+a fully refunded parent with an unpriced re-send is incomplete.
+
+**PR103.** (c-M9) Each Profit page reads its figures and its waiting units from ONE moment of the database (ProfitDays::snapshot: CW\Ops\Snapshot's
+REPEATABLE READ, CONSISTENT SNAPSHOT, READ ONLY; nested reads join it): a cost fixed between two reads never shows a complete 100% margin.
+
+**PR104.** (c-LOW4, a-M8) bin/rebuild_profit_days.php compares by default (and with --check): every figure of a day or an item whose kept
+summary differs from what its orders add up to is printed with both values, nothing is written, exit 1 when one differs; --apply writes (the
+nightly cron line has it). The go-live "check" (README step 6) writes nothing.
+
+**PR105.** (c-LOW1) An order-level refund comes off the lines' sale ex VAT in proportion to their own rounded amounts: refunding everything the
+lines sold takes their ex-VAT sale off exactly (ten 99p lines: 830p, it left 5p); what is beyond the lines' sale comes off at the order's rate.
+
+**PR106.** (b-M) An import whose .sum file matches but has a refused line says "totals NOT CHECKED" apart from the file's match (it said
+".sum matches"); the exit stays 1.
+
+**PR107.** (c-M3) The cost job and the returns sweep read the window by the booking time alone (ix_stock_ledger_created), never from the id of
+the window's first row: a row given an earlier id but a later time is read in its own run.
+
+**PR108.** (c-M4) An invoice's charges over goods lines all worth nothing are spread by units (10 free samples and £20 freight: £2 a unit; the
+£20 was lost); by value otherwise, as before.
+
+**PR109.** (c-M5) The VAT setting: "5.0000" is 5% when read (trailing zeros after two decimals are the same percent; it fell back to 20%), and
+the settings tool checks it as a percent with at most two decimals and keeps it without trailing zeros ("5").
+
+**PR110.** (c-M6, c-M7, c-M8, b-M, a-LOW) ERPNext's cost at the sale: a variant is taken only when CW's lines of it that count hold exactly the
+units ERPNext priced (two CW units against one ERPNext unit: reported "units not matching", left as they were; £6 was written for £3 priced);
+only for orders paid inside ERPNext's history, from profit.erp_history_from to the start's recorded floor (the setting while there is none),
+both bounds checked again under each order's locks; a blank or strange docstatus or is_return is a broken day; a line that already has that
+cost from the import is left as it is (its time fixed is not moved). The deliberate re-cost reads the order's paid day again under its lock
+and leaves an order no longer paid on a day asked for; a line it re-costed to the same cost before is left as it is.
+
+**PR111.** (a-M7) Finance only looks, whatever the Roles and permissions page says: it is a look-only job (Permissions::LOOK_ONLY: the jobs admin
+may hold, and finance) that the page refuses to give a task that changes something (`acting_job`) and whose stored grant of one is dropped
+when it is read. Admin still may be combined only with viewer, accountant and auditor (ADMIN_COMPATIBLE, unchanged).
+
+**PR112.** (a-M1, the go-live) The profit cron lines are in deploy/production/cw-prod.cron and deploy/staging/cw-staging.cron (the jobs come
+with the release that has their code and go with the undo's: install_cron.sh installs the release's own file; lines added by hand to
+/etc/cron.d would be lost at the next install). Before the start every job does nothing harmful: refresh_item_cost says "not started", the
+money job works the orders out with their costs waiting (PendingCosts fixes them after the start). 0074 and 0075 go in through
+install_cron.sh --migrate, which pauses the public vhost and php-fpm while the schema changes: a short stock-API window, planned with the shops'
+quiet hour, with the long imports finished first and the rollback release ready (README of build/A, "At go-live").

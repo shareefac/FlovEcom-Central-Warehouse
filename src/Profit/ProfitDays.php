@@ -113,40 +113,120 @@ final class ProfitDays
     {
         return $db->transaction(static function (Db $db) use ($channelId, $day): array {
             self::guard($db, $channelId, [$day]);
-            $orders = [];
-            foreach ($db->all('SELECT * FROM sale_order WHERE day = ? AND channel_id = ?', [$day, $channelId]) as $o) {
-                $orders[(string) $o['order_ref']] = ['o' => $o, 'lines' => []];
-            }
-            foreach ($db->all('SELECT l.* FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
-                . 'WHERE o.day = ? AND o.channel_id = ?', [$day, $channelId]) as $l) {
-                $orders[(string) $l['order_ref']]['lines'][(string) $l['line_id']] = $l;
-            }
-            $days = [];
-            $items = [];
-            foreach ($orders as $x) {
-                $s = self::orderShare($x['o'], $x['lines']);
-                $days = self::add($days, $s['days'], self::DAY_FIELDS);
-                $items = self::add($items, $s['items'], self::ITEM_FIELDS);
-            }
+            ['day' => $f, 'items' => $items, 'any' => $any] = self::compute($db, $channelId, $day);
             $db->exec('DELETE FROM profit_item_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);
             $db->exec('DELETE FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);
-            ksort($items, SORT_STRING);
             foreach (array_chunk($items, 500, true) as $chunk) {
                 $params = [];
-                foreach ($chunk as $k => $f) {
-                    array_push($params, $channelId, $day, (int) explode('|', $k)[1], ...array_values($f));
+                foreach ($chunk as $sku => $g) {
+                    array_push($params, $channelId, $day, (int) $sku, ...array_values($g));
                 }
                 $db->exec('INSERT INTO profit_item_day (channel_id, day, sku_id, ' . implode(', ', self::ITEM_FIELDS) . ') VALUES '
                     . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ' . implode(', ', array_fill(0, count(self::ITEM_FIELDS), '?')) . ')')), $params);
             }
-            $f = $days[$day] ?? array_fill_keys(self::DAY_FIELDS, 0);
-            if (isset($days[$day])) {
+            if ($any) {
                 $db->exec('INSERT INTO profit_day (channel_id, day, ' . implode(', ', self::DAY_FIELDS) . ') VALUES (?, ?, '
                     . implode(', ', array_fill(0, count(self::DAY_FIELDS), '?')) . ')', [$channelId, $day, ...array_values($f)]);
             }
             return $f;
         });
     }
+
+    /**
+     * A store's day worked out from sale_order and sale_line (orderShare(), as rebuild()), nothing written.
+     *
+     * @return array{day: array<string, int>, items: array<int, array<string, int>>, any: bool} items by item id, in item order
+     */
+    public static function compute(Db $db, int $channelId, string $day): array
+    {
+        $orders = [];
+        foreach ($db->all('SELECT * FROM sale_order WHERE day = ? AND channel_id = ?', [$day, $channelId]) as $o) {
+            $orders[(string) $o['order_ref']] = ['o' => $o, 'lines' => []];
+        }
+        foreach ($db->all('SELECT l.* FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+            . 'WHERE o.day = ? AND o.channel_id = ?', [$day, $channelId]) as $l) {
+            $orders[(string) $l['order_ref']]['lines'][(string) $l['line_id']] = $l;
+        }
+        $days = [];
+        $items = [];
+        foreach ($orders as $x) {
+            $s = self::orderShare($x['o'], $x['lines']);
+            $days = self::add($days, $s['days'], self::DAY_FIELDS);
+            $items = self::add($items, $s['items'], self::ITEM_FIELDS);
+        }
+        $bySku = [];
+        foreach ($items as $k => $f) {
+            $bySku[(int) explode('|', (string) $k)[1]] = $f;
+        }
+        ksort($bySku);
+        return ['day' => $days[$day] ?? array_fill_keys(self::DAY_FIELDS, 0), 'items' => $bySku, 'any' => isset($days[$day])];
+    }
+
+    /**
+     * What a rebuild of a store's day would change, nothing written (bin/rebuild_profit_days.php without --apply: the go-live check, the
+     * final review of 6d59eda, c-LOW4 / a-M8, PR104): each figure of the day and of each item whose kept value differs from the worked-out
+     * one, read in one consistent snapshot. [] when the day's summaries are exactly what its orders add up to.
+     *
+     * @return list<string> "day: cost kept 9000, worked out 10000 (+1000)", "item 12: units kept 3, worked out 2 (-1)"
+     */
+    public static function differences(Db $db, int $channelId, string $day): array
+    {
+        $read = static function (Db $db) use ($channelId, $day): array {
+            $c = self::compute($db, $channelId, $day);
+            $keptDay = $db->one('SELECT ' . implode(', ', self::DAY_FIELDS) . ' FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);
+            $keptItems = [];
+            foreach ($db->all('SELECT sku_id, ' . implode(', ', self::ITEM_FIELDS) . ' FROM profit_item_day WHERE day = ? AND channel_id = ? ORDER BY sku_id', [$day, $channelId]) as $r) {
+                $keptItems[(int) $r['sku_id']] = array_map('intval', array_intersect_key($r, array_flip(self::ITEM_FIELDS)));
+            }
+            return [$c, $keptDay === null ? array_fill_keys(self::DAY_FIELDS, 0) : array_map('intval', $keptDay), $keptItems];
+        };
+        [$c, $keptDay, $keptItems] = $db->inTransaction() ? $read($db) : self::snapshot($db, $read);
+        $out = [];
+        foreach (self::DAY_FIELDS as $f) {
+            if ($keptDay[$f] !== $c['day'][$f]) {
+                $out[] = sprintf('day: %s kept %d, worked out %d (%+d)', $f, $keptDay[$f], $c['day'][$f], $c['day'][$f] - $keptDay[$f]);
+            }
+        }
+        $skus = array_unique([...array_keys($keptItems), ...array_keys($c['items'])]);
+        sort($skus);
+        foreach ($skus as $sku) {
+            foreach (self::ITEM_FIELDS as $f) {
+                $k = $keptItems[$sku][$f] ?? 0;
+                $w = $c['items'][$sku][$f] ?? 0;
+                if ($k !== $w) {
+                    $out[] = sprintf('item %d: %s kept %d, worked out %d (%+d)', $sku, $f, $k, $w, $w - $k);
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * $fn run on one consistent snapshot of the database (CW\Ops\Snapshot: REPEATABLE READ, WITH CONSISTENT SNAPSHOT, READ ONLY): every read
+     * it makes sees the same moment (the Profit screens' figures and their waiting units: the final review of 6d59eda, c-M9, PR103). Inside
+     * an open transaction, or a snapshot of its own, it runs in that one.
+     *
+     * @template T
+     * @param \Closure(Db): T $fn
+     * @return T
+     */
+    public static function snapshot(Db $db, \Closure $fn): mixed
+    {
+        $id = spl_object_id($db);
+        if (isset(self::$reading[$id]) || $db->inTransaction()) {
+            return $fn($db);
+        }
+        self::$reading[$id] = true;
+        try {
+            // REPEATABLE READ for this one transaction (CW's sessions read committed: CW\Ops\Snapshot), read only, no lock taken.
+            return \CW\Ops\Snapshot::read($db, $fn);
+        } finally {
+            unset(self::$reading[$id]);
+        }
+    }
+
+    /** @var array<int, true> the connections inside snapshot() (a snapshot asked for inside one joins it) */
+    private static array $reading = [];
 
     /**
      * new - old per key and field, the keys in order, the rows with no difference left out.

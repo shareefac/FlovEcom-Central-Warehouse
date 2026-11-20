@@ -19,7 +19,8 @@ use CW\Schema\Migrator;
  *   --help
  * Exit codes: 0 ok (also: skipped because another run of the job holds its lock), 1 the job
  * found a problem (invariant mismatch, stale channel, a reservation it could not expire),
- * 2 usage, 3 cannot run (config, connection, schema not migrated, unexpected error).
+ * 2 usage, 3 cannot run (config, connection, schema not migrated, unexpected error), 4 not run
+ * (a job asked for by hand found another run holding its lock and read nothing: run it again).
  * Log lines go to stdout ("<UTC time> <job> [<schema>] message"), errors to stderr; secrets never.
  */
 final class Cli
@@ -28,6 +29,8 @@ final class Cli
     public const PROBLEM = 1;
     public const USAGE = 2;
     public const CANNOT_RUN = 3;
+    /** A job run by hand that found its lock held (bin/import_order_snapshots.php, refresh_item_cost.php --reconcile): nothing done, run again. */
+    public const BUSY = 4;
 
     private function __construct(public readonly string $job, public readonly Db $db, public readonly string $schema)
     {
@@ -162,14 +165,14 @@ final class Cli
         }
     }
 
-    /** One run of this job per schema at a time: a server-wide named lock, freed on disconnect. */
-    public function tryLock(): bool
+    /** One run of this job per schema at a time: a server-wide named lock, freed on disconnect; waits up to $waitSec for it. */
+    public function tryLock(int $waitSec = 0): bool
     {
         $name = "cw_job:{$this->job}:{$this->schema}";
         if (strlen($name) > 64) {
             $name = 'cw_job:' . sha1($this->job . "\0" . $this->schema);
         }
-        return (int) $this->db->value('SELECT GET_LOCK(?, 0)', [$name]) === 1;
+        return (int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, max(0, $waitSec)]) === 1;
     }
 
     public function log(string $message): void

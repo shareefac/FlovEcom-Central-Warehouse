@@ -17,14 +17,52 @@ use CW\Reservations;
  * bad_snapshot with `field` naming it (lines[3].price_inc).
  *
  * hash() is the content's fingerprint WITHOUT the version: the same content sent again with a newer version is "same".
+ *
+ * No free text is ever kept (the final review of 6d59eda, b-HIGH2; docs/decisions.md PR96): every text field takes only the shapes the
+ * connector really sends. Ids and refs are codes (letters, digits and : _ . -, refused otherwise: they are keys); the order number is a
+ * number (a few letters before it at most), else ""; the delivery method id is digits, the service code a code without a long run of
+ * digits, else null / ""; statuses, the payment way and the carrier are words of a fixed list, else "other"; a delivery method or service
+ * name is kept only when every word of it is a word of the carriers' services (SERVICE_WORDS) or a short number, else null / "". So a name,
+ * an e-mail address, a phone number or a postal address can never be stored, whatever a connector maps into a field.
  */
 final class SnapshotBody
 {
     public const MAX_LINES = 1000;
     public const MAX_PARCELS = 50;
     public const MAX_BYTES = 256 * 1024;
-    /** The most of one line's qty (a shop line is one unit; a few are more). */
-    public const MAX_QTY = 100_000;
+    /** A shop line is ONE unit (one orders_items row: the connector always sends qty 1; the final review of 6d59eda, c-M1, PR97). */
+    public const LINE_QTY = 1;
+    /** An id or a ref: a code (the shops' ids with their store prefix), never a text with spaces or @. */
+    public const CODE = '/^[A-Za-z0-9][A-Za-z0-9:_.\-]{0,63}$/D';
+    /** The order number the customer sees: digits, a few letters before them at most (VPG1567469, 1567469), or "". */
+    public const ORDER_NO = '/^(?:[A-Za-z]{0,5}[1-9][0-9]{0,9})?$/D';
+    /** The shops' order statuses (lower case words); any other is kept as "other". */
+    public const ORDER_STATUSES = ['completed', 'cancelled', 'canceled', 'processing', 'failed', 'pending', 'pending_payment', 'awaiting_payment', 'refunded',
+        'partially_refunded', 'on_hold', 'hold', 'paid', 'dispatched', 'part_dispatched', 'partially_dispatched', 'shipped', 'partially_shipped', 'delivered',
+        'returned', 'draft', 'new', 'abandoned', 'expired', 'declined', 'error', 'fraud', 'awaiting_dispatch', 'packed', 'picked', 'ready', 'collected', 'backorder',
+        'back_order', 'pre_order', 'void', 'voided', 'archived', 'other'];
+    /** The parcels' statuses (lower case words); any other is kept as "other". */
+    public const PARCEL_STATUSES = ['generated', 'created', 'cancelled', 'canceled', 'error', 'failed', 'printed', 'dispatched', 'shipped', 'delivered', 'returned',
+        'void', 'voided', 'pending', 'manifested', 'collected', 'awaiting_label', 'label_created', 'in_transit', 'out_for_delivery', 'lost', 'damaged', 'held',
+        'booked', 'submitted', 'accepted', 'rejected', 'completed', 'processing', 'new', 'draft', 'ready', 'packed', 'other'];
+    /** The shops' payment ways (CONTRACT change 3); any other is kept as "other". */
+    public const GATEWAYS = ['', 'globalpay', 'pp', 'pphf', 'viva', 'payroc', 'office', 'paypal', 'worldpay', 'stripe', 'card', 'cash', 'bank_transfer', 'cod', 'other'];
+    /** The carriers (the connector's words); any other is kept as "other". */
+    public const CARRIERS = ['', 'royal_mail', 'dpd', 'dpd_local', 'manual', 'in_store', 'evri', 'hermes', 'parcel2go', 'ups', 'dhl', 'fedex', 'yodel', 'parcelforce',
+        'apc', 'tnt', 'amazon', 'inpost', 'collection', 'other'];
+    /**
+     * The words a delivery method or service name may be made of (the shops' shipping methods: "Royal Mail Tracked 48 (2-4 Working Days)",
+     * "DPD Pickup (2 day Service)", "In Store Collection Preston", "EVRI International", "Return label", ...), with short numbers. A name made of
+     * any other word is not kept (null): it could be a person's name or an address.
+     */
+    public const SERVICE_WORDS = ['royal', 'mail', 'tracked', 'signed', 'special', 'next', 'day', 'days', 'delivery', 'working', 'dpd', 'pickup', 'pick', 'up',
+        'service', 'services', 'international', 'evri', 'hermes', 'in', 'store', 'collection', 'collect', 'click', 'and', 'return', 'returns', 'label', 'labels',
+        'standard', 'express', 'first', 'second', 'class', 'saturday', 'sunday', 'weekend', 'local', 'parcel', 'parcels', 'parcel2go', 'ups', 'dhl', 'fedex',
+        'yodel', 'parcelforce', 'courier', 'free', 'shipping', 'economy', 'priority', 'europe', 'european', 'eu', 'world', 'worldwide', 'global', 'uk', 'by',
+        'before', 'am', 'pm', 'noon', 'midday', 'the', 'to', 'for', 'on', 'of', 'or', 'large', 'letter', 'small', 'packet', 'preston', 'office', 'shop', 'counter',
+        'manual', 'same', 'hour', 'hours', 'hr', 'hrs', 'guaranteed', 'recorded', 'tracking', 'signature', 'required', 'no', 'only', 'plus', 'premium', 'ireland',
+        'northern', 'highlands', 'islands', 'mainland', 'rest', 'air', 'road', 'ground', 'letterbox', 'drop', 'off', 'point', 'locker', 'inpost', 'home', 'trade',
+        'wholesale', 'pallet', 'collected', 'customer', 'own', 'arranged', 'other', 'apc', 'tnt', 'amazon', 'dpdlocal', 'tracked24', 'tracked48', 'x'];
     /** A negative discount (a coupon's rounding pennies) is at most this many pence (CONTRACT.md, change 1). */
     public const MAX_NEGATIVE_DISCOUNT = 10_000;
     /**
@@ -53,7 +91,12 @@ final class SnapshotBody
             throw self::bad('currency', 'currency must be GBP');
         }
         $placed = self::time($raw['placed_at'] ?? null, 'placed_at', $now, true);
-        $paid = self::time($raw['paid_at'] ?? null, 'paid_at', $now, true);
+        // paid_at is always sent (null when not paid): a body without it is refused, never read as "not paid", which would take a paid sale
+        // off its day (the final review of 6d59eda, b-M; PR101).
+        if (!array_key_exists('paid_at', $raw)) {
+            throw self::bad('paid_at', 'paid_at must be sent (null when the order is not paid)');
+        }
+        $paid = self::time($raw['paid_at'], 'paid_at', $now, true);
         $parent = $raw['parent_ref'] ?? null;
         if ($parent !== null) {
             $parent = self::ref($parent, 'parent_ref');
@@ -78,13 +121,14 @@ final class SnapshotBody
                 throw self::bad($f, "{$f} must be an object");
             }
             $id = self::ref($l['line_id'] ?? null, "{$f}.line_id");
-            if (isset($seen[$id])) {
+            // The same line in another case is the same line to the database (its key compares without case: the final review of 6d59eda, b-M).
+            if (isset($seen[strtolower($id)])) {
                 throw self::bad("{$f}.line_id", "line {$id} appears twice");
             }
-            $seen[$id] = true;
+            $seen[strtolower($id)] = true;
             $qty = $l['qty'] ?? null;
-            if (!is_int($qty) || $qty < 1 || $qty > self::MAX_QTY) {
-                throw self::bad("{$f}.qty", "{$f}.qty must be a whole number from 1 to " . self::MAX_QTY);
+            if ($qty !== self::LINE_QTY) {
+                throw self::bad("{$f}.qty", "{$f}.qty must be 1 (one shop order line is one unit)");
             }
             // A price may be a few pence below 0 (CONTRACT.md change 8, PR83: a spread remainder the shop stores next to free lines), down to
             // -MAX_NEGATIVE_PRICE.
@@ -116,8 +160,8 @@ final class SnapshotBody
         }
         $d ??= [];
         $delivery = [
-            'method_id' => self::optText($d['method_id'] ?? null, 'delivery.method_id', 64, true),
-            'method' => self::optText($d['method'] ?? null, 'delivery.method', 128),
+            'method_id' => self::digits(self::optText($d['method_id'] ?? null, 'delivery.method_id', 64, true)),
+            'method' => self::serviceName(self::optText($d['method'] ?? null, 'delivery.method', 128)),
             'charged_inc' => self::pence($d['charged_inc'] ?? 0, 'delivery.charged_inc'),
             'refund_inc' => self::pence($d['refund_inc'] ?? 0, 'delivery.refund_inc'),
         ];
@@ -136,18 +180,19 @@ final class SnapshotBody
                 throw self::bad($f, "{$f} must be an object");
             }
             $ref = self::ref($p['parcel_ref'] ?? null, "{$f}.parcel_ref");
-            if (isset($seenP[$ref])) {
+            if (isset($seenP[strtolower($ref)])) {
                 throw self::bad("{$f}.parcel_ref", "parcel {$ref} appears twice");
             }
-            $seenP[$ref] = true;
+            $seenP[strtolower($ref)] = true;
+            $carrier = self::word((string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32), self::CARRIERS);
             $outParcels[] = [
                 'parcel_ref' => $ref,
-                'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true),
-                    (string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32), self::flag($p['manual'] ?? false, "{$f}.manual")),
-                'carrier' => (string) self::optText($p['carrier'] ?? null, "{$f}.carrier", 32),
-                'service_code' => (string) self::optText($p['service_code'] ?? null, "{$f}.service_code", 64, true),
-                'service' => (string) self::optText($p['service'] ?? null, "{$f}.service", 128),
-                'status' => strtolower((string) self::optText($p['status'] ?? null, "{$f}.status", 32)),
+                'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true), $carrier,
+                    self::flag($p['manual'] ?? false, "{$f}.manual")),
+                'carrier' => $carrier,
+                'service_code' => self::serviceCode(self::optText($p['service_code'] ?? null, "{$f}.service_code", 64, true)),
+                'service' => (string) self::serviceName(self::optText($p['service'] ?? null, "{$f}.service", 128)),
+                'status' => self::word((string) self::optText($p['status'] ?? null, "{$f}.status", 32), self::PARCEL_STATUSES),
                 'label_at' => self::time($p['label_at'] ?? null, "{$f}.label_at", $now, true),
                 'shipped_at' => self::time($p['shipped_at'] ?? null, "{$f}.shipped_at", $now, true),
                 'manual' => self::flag($p['manual'] ?? false, "{$f}.manual"),
@@ -157,11 +202,11 @@ final class SnapshotBody
         return [
             'v' => 1,
             'version' => $version,
-            'order_no' => (string) self::optText($raw['order_no'] ?? null, 'order_no', 64),
-            'status' => strtolower((string) self::optText($raw['status'] ?? null, 'status', 32)),
+            'order_no' => self::orderNo(self::optText($raw['order_no'] ?? null, 'order_no', 64, true)),
+            'status' => self::word((string) self::optText($raw['status'] ?? null, 'status', 32), self::ORDER_STATUSES),
             'placed_at' => $placed,
             'paid_at' => $paid,
-            'gateway' => strtolower((string) self::optText($raw['gateway'] ?? null, 'gateway', 32)),
+            'gateway' => self::word((string) self::optText($raw['gateway'] ?? null, 'gateway', 32), self::GATEWAYS),
             'currency' => 'GBP',
             'parent_ref' => $parent,
             'sub_of' => $subOf,
@@ -220,10 +265,86 @@ final class SnapshotBody
             throw self::bad($field, "{$field} must be a string or a whole number");
         }
         try {
-            return Reservations::ref($v);
+            $v = Reservations::ref($v);
         } catch (CwException) {
             throw self::bad($field, "{$field} must be 1-64 printable characters");
         }
+        if (preg_match(self::CODE, $v) !== 1) {
+            throw self::bad($field, "{$field} must be a code: letters, digits and : _ . - (at most 64)");
+        }
+        return $v;
+    }
+
+    /**
+     * Whether a JSON body holds its lists as lists (`lines`, `parcels`) and its delivery as an object: decoded to PHP arrays, `{}` and `[]`
+     * look alike, so `"lines": {}` would read as an order with no lines and take every line off it (the final review of 6d59eda, b-M;
+     * PR101). 400 bad_snapshot naming the field.
+     */
+    public static function checkJsonShapes(string $json): void
+    {
+        try {
+            $o = json_decode($json, false, 64, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return; // the caller's own decode says what is wrong
+        }
+        if (!$o instanceof \stdClass) {
+            return;
+        }
+        foreach (['lines', 'parcels'] as $k) {
+            if (property_exists($o, $k) && !is_array($o->{$k})) {
+                throw self::bad($k, "{$k} must be a list");
+            }
+        }
+        if (property_exists($o, 'delivery') && $o->delivery !== null && !$o->delivery instanceof \stdClass) {
+            throw self::bad('delivery', 'delivery must be an object or null');
+        }
+    }
+
+    /** A word of $list (lower case, spaces as "_"), "" when there is none, else "other". */
+    private static function word(string $v, array $list): string
+    {
+        $w = trim((string) preg_replace('/[^a-z0-9]+/', '_', strtolower(trim($v))), '_');
+        if ($w === '') {
+            return '';
+        }
+        return in_array($w, $list, true) ? $w : 'other';
+    }
+
+    /** A delivery method or service name made only of SERVICE_WORDS and short numbers (else null). */
+    public static function serviceName(?string $v): ?string
+    {
+        if ($v === null || $v === '') {
+            return $v;
+        }
+        $v = (string) preg_replace('/\s+/', ' ', $v);
+        if (preg_match("/^[A-Za-z0-9 ()&+,.\/:'-]+$/D", $v) !== 1) {
+            return null;
+        }
+        foreach (preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $t) {
+            $t = strtolower($t);
+            if (!in_array($t, self::SERVICE_WORDS, true) && preg_match('/^[0-9]{1,4}(st|nd|rd|th|h|hr|hrs)?$/D', $t) !== 1) {
+                return null;
+            }
+        }
+        return $v;
+    }
+
+    /** A carrier's service code (letters, digits, _ . / - ^; never a long run of digits: a phone number), else "". */
+    private static function serviceCode(?string $v): string
+    {
+        return $v !== null && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.\/^-]{0,31}$/D', $v) === 1 && preg_match('/[0-9]{7}/', $v) !== 1 ? $v : '';
+    }
+
+    /** An id of digits (a shipping method's number), else null. */
+    private static function digits(?string $v): ?string
+    {
+        return $v !== null && preg_match('/^[0-9]{1,9}$/D', $v) === 1 ? $v : null;
+    }
+
+    /** The order number in its shape (ORDER_NO), else "". */
+    private static function orderNo(?string $v): string
+    {
+        return $v !== null && preg_match(self::ORDER_NO, $v) === 1 ? $v : '';
     }
 
     private static function pence(mixed $v, string $field, bool $signed = false): int
@@ -263,6 +384,11 @@ final class SnapshotBody
     {
         if ($v === null && $nullable) {
             return null;
+        }
+        // With its zone (Z or an offset): a time without one is never taken as UTC (a London time would move a sale to the next day: the
+        // final review of 6d59eda, b-LOW).
+        if (!is_string($v) || preg_match('/(Z|[+-][0-9]{2}:?[0-9]{2})$/D', $v) !== 1) {
+            throw self::bad($field, "{$field} must be an ISO-8601 time with its zone");
         }
         try {
             $t = Clock::parse($v, $field);

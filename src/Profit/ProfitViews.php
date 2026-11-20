@@ -61,15 +61,25 @@ final class ProfitViews
             'this_month' => [$t->format('Y-m-01'), $today],
             'last_month' => [$t->modify('first day of last month')->format('Y-m-d'), $t->modify('last day of last month')->format('Y-m-d')],
         ];
-        $out = [];
-        foreach ($periods as $k => [$from, $to]) {
-            $out[] = ['key' => $k, 'from' => $from, 'to' => $to, 'f' => $this->totals($from, $to, $store)];
-        }
-        return $out;
+        // Every period's figures and waiting units from ONE moment of the database (a cost fixed between two reads never shows a complete
+        // margin with its cost missing: the final review of 6d59eda, c-M9, PR103).
+        return ProfitDays::snapshot($this->db, function () use ($periods, $store): array {
+            $out = [];
+            foreach ($periods as $k => [$from, $to]) {
+                $out[] = ['key' => $k, 'from' => $from, 'to' => $to, 'f' => $this->totals($from, $to, $store)];
+            }
+            return $out;
+        });
     }
 
     /** @return array<string, int|null> the figures of the days $from..$to (one store, or all), with the units still waiting for their cost */
     public function totals(string $from, string $to, ?int $store): array
+    {
+        return ProfitDays::snapshot($this->db, fn (): array => $this->totalsNow($from, $to, $store));
+    }
+
+    /** @return array<string, int|null> totals() inside the caller's snapshot */
+    private function totalsNow(string $from, string $to, ?int $store): array
     {
         $r = $this->db->one('SELECT ' . self::SUMS . ' FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
             [$from, $to, ...($store === null ? [] : [$store])]) ?? [];
@@ -100,6 +110,12 @@ final class ProfitViews
      * @return list<array{from: string, to: string, f: array<string, int|null>}>
      */
     public function periods(string $from, string $to, ?int $store, string $by): array
+    {
+        return ProfitDays::snapshot($this->db, fn (): array => $this->periodsNow($from, $to, $store, $by));
+    }
+
+    /** @return list<array{from: string, to: string, f: array<string, int|null>}> periods() inside the caller's snapshot */
+    private function periodsNow(string $from, string $to, ?int $store, string $by): array
     {
         $groups = [];
         $pending = $this->pending($from, $to, $store);
@@ -189,10 +205,17 @@ final class ProfitViews
      */
     public function orders(string $from, string $to, ?int $store, string $q, bool $lowest, ?array $after = null): array
     {
+        // Its own units with no price or waiting for it, and its paid re-sends' (by ix_sale_order_parent), counted on each row: a profit that is
+        // not known is never printed as a number (the final review of 6d59eda, c-M10, PR102).
         $cols = 'o.channel_id, o.order_ref, o.order_no, o.status, o.paid_at, o.gateway, o.parent_ref, o.units, o.sale_ex, o.cost, o.resend_cost, o.resends, '
             . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store, '
             . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
-            . 'AND l.units > 0 AND l.restocked = 0) AS pending';
+            . 'AND l.units > 0 AND l.restocked = 0) AS pending, '
+            . 'IF(o.resends > 0, (SELECT COALESCE(SUM(r.units_no_cost), 0) FROM sale_order r WHERE r.channel_id = o.channel_id AND r.parent_ref = o.order_ref '
+            . 'AND r.paid_at IS NOT NULL AND r.order_ref <> o.order_ref), 0) AS resend_no_cost, '
+            . 'IF(o.resends > 0, (SELECT COUNT(*) FROM sale_order r JOIN sale_line l ON l.channel_id = r.channel_id AND l.order_ref = r.order_ref WHERE r.channel_id = o.channel_id '
+            . 'AND r.parent_ref = o.order_ref AND r.paid_at IS NOT NULL AND r.order_ref <> o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 '
+            . 'AND l.restocked = 0), 0) AS resend_pending';
         if ($q !== '') {
             $rows = [];
             foreach ($this->stores() as $s) {
@@ -248,18 +271,32 @@ final class ProfitViews
         return ['rows' => array_map(self::orderRow(...), $rows), 'total' => $total, 'next' => $next];
     }
 
-    /** @param array<string, mixed> $r @return array<string, mixed> */
+    /**
+     * One row of Profit by order. Its goods, cost and profit are the order's OWN (what the day summaries count: a re-send's cost is counted on
+     * the re-send's own row and day, so the rows of a period add up to its day summary exactly; the final review of 6d59eda, c-HIGH3, PR102);
+     * the cost of its paid re-sends and its profit with them are figures of their own (resend_cost, with_resends), and its margin is the
+     * agreed one, with its re-sends (PR10). A profit is null ("not known") when a unit it counts has no price or waits for one (c-M10).
+     *
+     * @param array<string, mixed> $r
+     * @return array<string, mixed>
+     */
     private static function orderRow(array $r): array
     {
         $sale = (int) $r['sale_ex'];
-        $cost = (int) $r['cost'] + (int) $r['resend_cost'];
+        $cost = (int) $r['cost'];
+        $resendCost = (int) $r['resend_cost'];
+        $ownUnknown = (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0;
+        $resendUnknown = (int) ($r['resend_no_cost'] ?? 0) > 0 || (int) ($r['resend_pending'] ?? 0) > 0;
         return ['store_id' => (int) $r['channel_id'], 'store' => (string) $r['store'], 'ref' => (string) $r['order_ref'], 'no' => (string) $r['order_no'],
             'status' => (string) $r['status'], 'paid_at' => $r['paid_at'] === null ? null : (string) $r['paid_at'], 'gateway' => (string) $r['gateway'],
             'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => (int) $r['units'], 'sale' => $sale, 'cost' => $cost,
-            'resends' => (int) $r['resends'], 'profit' => $sale - $cost, 'margin_bp' => $r['margin_bp'] === null ? null : (int) $r['margin_bp'],
+            'resends' => (int) $r['resends'], 'resend_cost' => $resendCost, 'profit' => $ownUnknown ? null : $sale - $cost,
+            'with_resends' => (int) $r['resends'] === 0 ? null : ($ownUnknown || $resendUnknown ? null : $sale - $cost - $resendCost),
+            'margin_bp' => $r['margin_bp'] === null ? null : (int) $r['margin_bp'],
             'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
-            // No margin on an order that sold something: some unit (its own or a re-send's) has no price or waits for it.
-            'incomplete' => (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0 || ($r['margin_bp'] === null && $sale > 0)];
+            'own_unknown' => $ownUnknown, 'resend_unknown' => $resendUnknown,
+            // Incomplete: some unit it counts, its own or a paid re-send's, has no price or waits for it.
+            'incomplete' => $ownUnknown || $resendUnknown];
     }
 
     /**

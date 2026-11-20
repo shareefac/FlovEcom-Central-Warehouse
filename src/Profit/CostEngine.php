@@ -82,14 +82,31 @@ final class CostEngine
     // ---- the start --------------------------------------------------------------------------------------------------------------------
 
     /**
-     * The starting price of every item (nothing written).
+     * The starting price of every item (nothing written), as of $startAt (the start's own moment, profit.cost_start; default: now).
+     *
+     * REPLAY-SAFE (the final review of 6d59eda, c-HIGH1 / a-M5 / b-HIGH3; docs/decisions.md PR99): the start is followed by the replay of every
+     * delivery, invoice and credit note since $startAt, so no starting price may already hold one of them. ERPNext's Bin valuation (frozen
+     * when purchases moved to CW) first; else CW's own average of what came in with a price BEFORE $startAt (never today's report_item: it
+     * holds the deliveries the replay adds again); else the supplier's last price known before $startAt (an ERPNext purchase invoice posted
+     * before it, a supplier item's price or order price dated before it); else none: the item's first priced delivery sets its price. Every
+     * input is of before $startAt, so a start stopped half way and run again prices its later batches exactly as its first.
+     *
+     * The Bin file is checked whole first: a row that does not have the header's columns, or whose quantity or valuation is blank or not a
+     * number, is BROKEN; `broken` names each (row number, item code, why) unless $allowSkips names it (its item code, or "row:<n>"): those are
+     * left out and listed in `skipped`. bin/seed_item_cost.php writes nothing while one is broken.
      *
      * @param string $binTsv ERPNext's Bin as tab-separated text: a header row naming item_code, warehouse, actual_qty, valuation_rate
-     * @return array{prices: array<int, array{e4: ?int, source: string}>, counts: array<string, int>, bin_rows: int, bin_unmatched: int}
+     * @param list<string> $allowSkips item codes (or row:<n>) whose broken rows may be left out
+     * @return array{prices: array<int, array{e4: ?int, source: string}>, counts: array<string, int>, bin_rows: int, bin_unmatched: int,
+     *         broken: list<array{row: int, item_code: string, why: string}>, skipped: list<array{row: int, item_code: string, why: string}>}
      */
-    public function plan(string $binTsv, string $listingStore): array
+    public function plan(string $binTsv, string $listingStore, ?string $startAt = null, array $allowSkips = []): array
     {
-        $erp = $this->binPrices($binTsv, $listingStore);
+        // Without a start (a look at today's figures): every input up to now. With one (bin/seed_item_cost.php always gives it): only what was
+        // known before it.
+        $bounded = $startAt !== null;
+        $startAt ??= Clock::db(($this->clock)());
+        $erp = $this->binPrices($binTsv, $listingStore, $allowSkips);
         $skus = array_map('intval', $this->db->column('SELECT id FROM sku ORDER BY id'));
         $prices = [];
         foreach ($skus as $s) {
@@ -98,11 +115,11 @@ final class CostEngine
             }
         }
         $rest = array_values(array_diff($skus, array_keys($prices)));
-        foreach ($rest === [] ? [] : $this->cwAverage($rest) as $s => $e4) {
+        foreach ($rest === [] ? [] : $this->cwAverageBefore($rest, $startAt) as $s => $e4) {
             $prices[$s] = ['e4' => $e4, 'source' => 'cw_average'];
         }
         $rest = array_values(array_diff($rest, array_keys($prices)));
-        foreach ($rest === [] ? [] : $this->supplierPrices($rest) as $s => $e4) {
+        foreach ($rest === [] ? [] : $this->supplierPrices($rest, $bounded ? $startAt : null) as $s => $e4) {
             $prices[$s] = ['e4' => $e4, 'source' => 'supplier_price'];
         }
         foreach (array_diff($rest, array_keys($prices)) as $s) {
@@ -113,7 +130,8 @@ final class CostEngine
         foreach ($prices as $p) {
             $counts[$p['source']]++;
         }
-        return ['prices' => $prices, 'counts' => $counts, 'bin_rows' => $erp['rows'], 'bin_unmatched' => $erp['unmatched']];
+        return ['prices' => $prices, 'counts' => $counts, 'bin_rows' => $erp['rows'], 'bin_unmatched' => $erp['unmatched'], 'broken' => $erp['broken'],
+            'skipped' => $erp['skipped']];
     }
 
     /**
@@ -158,11 +176,13 @@ final class CostEngine
     }
 
     /**
-     * @return array{prices: array<int, int>, rows: int, unmatched: int} item => price per CW unit (GBP x 10,000)
+     * @param list<string> $allowSkips item codes (or row:<n>) whose broken rows are left out
+     * @return array{prices: array<int, int>, rows: int, unmatched: int, broken: list<array<string, mixed>>, skipped: list<array<string, mixed>>}
+     *         item => price per CW unit (GBP x 10,000)
      */
-    private function binPrices(string $tsv, string $listingStore): array
+    private function binPrices(string $tsv, string $listingStore, array $allowSkips = []): array
     {
-        $rows = preg_split('/\r?\n/', trim($tsv)) ?: [];
+        $rows = preg_split('/\r?\n/', trim($tsv, "\r\n")) ?: []; // a last row's empty last column is a column (never trimmed away)
         $head = array_map('trim', explode("\t", (string) array_shift($rows)));
         $col = array_flip($head);
         foreach (['item_code', 'actual_qty', 'valuation_rate'] as $need) {
@@ -179,17 +199,39 @@ final class CostEngine
         }
         $byVariant = [];
         $n = 0;
-        foreach ($rows as $line) {
+        $broken = [];
+        $skipped = [];
+        $allow = array_fill_keys(array_map('trim', $allowSkips), true);
+        $number = '/^-?[0-9]+(\.[0-9]+)?$/D';
+        foreach ($rows as $i => $line) {
             if (trim($line) === '') {
                 continue;
             }
             $f = explode("\t", $line);
             $n++;
-            if (preg_match('/^P([0-9]{1,18})$/D', trim($f[$col['item_code']] ?? ''), $m) !== 1) {
+            $row = $i + 2; // the file's line number (the header is line 1)
+            $code = trim($f[$col['item_code']] ?? '');
+            // A broken row (the final review of 6d59eda, b-HIGH3; PR99): never skipped without a word, never read as a number it is not.
+            $why = match (true) {
+                count($f) !== count($head) => 'has ' . count($f) . ' columns, not ' . count($head),
+                preg_match($number, trim($f[$col['actual_qty']] ?? '')) !== 1 => 'its actual_qty is blank or not a number',
+                preg_match($number, trim($f[$col['valuation_rate']] ?? '')) !== 1 => 'its valuation_rate is blank or not a number',
+                default => null,
+            };
+            if ($why !== null) {
+                $entry = ['row' => $row, 'item_code' => mb_substr($code, 0, 40), 'why' => $why];
+                if (($code !== '' && isset($allow[$code])) || isset($allow['row:' . $row])) {
+                    $skipped[] = $entry;
+                } else {
+                    $broken[] = $entry;
+                }
                 continue;
             }
-            $rate = ProfitMath::e4(trim($f[$col['valuation_rate']] ?? ''));
-            $qty = (int) round((float) trim($f[$col['actual_qty']] ?? '0'));
+            if (preg_match('/^P([0-9]{1,18})$/D', $code, $m) !== 1) {
+                continue;
+            }
+            $rate = ProfitMath::e4(trim($f[$col['valuation_rate']]));
+            $qty = (int) round((float) trim($f[$col['actual_qty']]));
             if ($rate === null || $rate <= 0 || isset($placeholders[$rate])) {
                 continue;
             }
@@ -234,17 +276,27 @@ final class CostEngine
             $out[$sku] = $q > 0 ? ProfitMath::divRound($v, $q)
                 : ProfitMath::divRound(array_sum(array_column($list, 0)), count($list));
         }
-        return ['prices' => $out, 'rows' => $n, 'unmatched' => $unmatched];
+        return ['prices' => $out, 'rows' => $n, 'unmatched' => $unmatched, 'broken' => $broken, 'skipped' => $skipped];
     }
 
-    /** @param list<int> $skus @return array<int, int> CW's average so far (report_item) */
-    private function cwAverage(array $skus): array
+    /**
+     * CW's average price of each item (CostHints::average's rule: every unit that came in with a price) of what was made final before $before,
+     * read by the items' commit order (stock_value_seq: every on-hand row since CW priced stock): the replay adds what came after (PR99).
+     *
+     * @param list<int> $skus
+     * @return array<int, int>
+     */
+    private function cwAverageBefore(array $skus, string $before): array
     {
         $out = [];
         foreach (array_chunk($skus, 500) as $chunk) {
-            foreach ($this->db->all('SELECT sku_id, in_units, CAST(in_value AS CHAR) AS v FROM report_item WHERE in_units > 0 AND sku_id IN ('
-                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
-                $e4 = ProfitMath::e4(bcdiv((string) $r['v'], (string) $r['in_units'], 8));
+            foreach ($this->db->all('SELECT s.sku_id, CAST(SUM(l.qty_delta * l.unit_cost) AS CHAR) AS v, SUM(l.qty_delta) AS q FROM stock_value_seq s '
+                . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . 'AND l.unit_cost IS NOT NULL AND l.qty_delta > 0 AND s.created_at < ? GROUP BY s.sku_id', [...$chunk, $before]) as $r) {
+                if ((int) $r['q'] <= 0) {
+                    continue;
+                }
+                $e4 = ProfitMath::e4(bcdiv((string) $r['v'], (string) $r['q'], 8));
                 if ($e4 !== null && $e4 > 0) {
                     $out[(int) $r['sku_id']] = $e4;
                 }
@@ -253,9 +305,18 @@ final class CostEngine
         return $out;
     }
 
-    /** @param list<int> $skus @return array<int, int> the supplier's last price of one unit */
-    private function supplierPrices(array $skus): array
+    /**
+     * The supplier's last price of one unit; with $before (the start: PR99) only prices known before it (an ERPNext purchase invoice posted
+     * before its day, a supplier item's price or order price dated before it), never one a later invoice set.
+     *
+     * @param list<int> $skus
+     * @return array<int, int>
+     */
+    private function supplierPrices(array $skus, ?string $before = null): array
     {
+        if ($before !== null) {
+            return $this->supplierPricesBefore($skus, \CW\Reports\ReportRefresh::ukDay($before));
+        }
         $out = [];
         // The newest ERPNext purchase invoice line of each item asked for (a copy CW keeps; never a debit note; a unit price of at least a
         // hundredth of a penny), a chunk of items at a time, read by the items' own index (ix_erp_pi_line_sku, 0074) and only that line of each
@@ -280,6 +341,44 @@ final class CostEngine
         foreach (array_chunk($rest, 500) as $chunk) {
             foreach ($this->db->all('SELECT sku_id, CAST(last_po_pack_price AS CHAR) AS p, units_per_pack FROM supplier_item WHERE last_po_pack_price IS NOT NULL '
                 . 'AND sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY last_po_on, id', $chunk) as $r) {
+                $e4 = ProfitMath::e4(bcdiv((string) $r['p'], (string) max(1, (int) $r['units_per_pack']), 8));
+                if ($e4 !== null && $e4 > 0) {
+                    $out[(int) $r['sku_id']] = $e4;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * supplierPrices() as known before the UK day $day (the start).
+     *
+     * @param list<int> $skus
+     * @return array<int, int>
+     */
+    private function supplierPricesBefore(array $skus, string $day): array
+    {
+        $out = [];
+        foreach (array_chunk($skus, 500) as $chunk) {
+            $in = implode(', ', array_fill(0, count($chunk), '?'));
+            foreach ($this->db->all('SELECT t.sku_id, t.amount, t.units FROM (SELECT l.sku_id, CAST(l.net_amount AS CHAR) AS amount, l.units, ROW_NUMBER() OVER '
+                . '(PARTITION BY l.sku_id ORDER BY p.posting_date DESC, p.id DESC, l.idx DESC) AS n FROM erp_pi_line l JOIN erp_pi p ON p.id = l.erp_pi_id '
+                . "WHERE l.sku_id IN ({$in}) AND l.units > 0 AND l.net_amount > 0 AND l.net_amount * 20000 >= l.units "
+                . 'AND p.is_return = 0 AND p.docstatus = 1 AND p.posting_date < ?) t WHERE t.n = 1', [...$chunk, $day]) as $r) {
+                if (($e4 = ProfitMath::e4(bcdiv((string) $r['amount'], (string) $r['units'], 8))) !== null && $e4 > 0) {
+                    $out[(int) $r['sku_id']] = $e4;
+                }
+            }
+            $rest = array_values(array_diff($chunk, array_keys($out)));
+            if ($rest === []) {
+                continue;
+            }
+            $in = implode(', ', array_fill(0, count($rest), '?'));
+            // The newest price dated before the day wins (rows read oldest first, the last one kept).
+            foreach ($this->db->all("SELECT sku_id, CAST(last_pack_price AS CHAR) AS p, units_per_pack, last_price_on AS on_day FROM supplier_item WHERE sku_id IN ({$in}) "
+                . 'AND last_pack_price IS NOT NULL AND last_price_on IS NOT NULL AND last_price_on < ? '
+                . "UNION ALL SELECT sku_id, CAST(last_po_pack_price AS CHAR) AS p, units_per_pack, last_po_on AS on_day FROM supplier_item WHERE sku_id IN ({$in}) "
+                . 'AND last_po_pack_price IS NOT NULL AND last_po_on IS NOT NULL AND last_po_on < ? ORDER BY on_day', [...$rest, $day, ...$rest, $day]) as $r) {
                 $e4 = ProfitMath::e4(bcdiv((string) $r['p'], (string) max(1, (int) $r['units_per_pack']), 8));
                 if ($e4 !== null && $e4 > 0) {
                     $out[(int) $r['sku_id']] = $e4;
@@ -322,15 +421,14 @@ final class CostEngine
         $started = $this->startNewItems($cutoff);
         $from = max($floor, Clock::db(Clock::fromDb($mark)->modify('-' . self::OVERLAP_SECONDS . ' seconds')));
         $events = [];
-        $lo = $this->db->value('SELECT id FROM stock_ledger WHERE created_at >= ? ORDER BY created_at, id LIMIT 1', [$from]);
-        if ($lo !== null) {
-            foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
-                . "l.created_at, COALESCE(q.created_at, l.created_at) AS seq_at, d.reverses_id FROM stock_ledger l JOIN document d ON d.id = l.document_id "
-                . "JOIN warehouse w ON w.id = l.warehouse_id LEFT JOIN stock_value_seq q ON q.stock_ledger_id = l.id "
-                . "WHERE l.id >= ? AND l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' "
-                . "AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL AND w.stock_owner = 'own' ORDER BY l.id", [(int) $lo, $from, $cutoff]) as $r) {
-                $events[] = [(string) $r['seq_at'], 0, (int) $r['id'], 'ledger', $r];
-            }
+        // By the booking time alone (its own index): ids are given at insert, so a row committed with an earlier id and a later time than the
+        // window's first row is still read (the final review of 6d59eda, c-M3, PR107).
+        foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
+            . "l.created_at, COALESCE(q.created_at, l.created_at) AS seq_at, d.reverses_id FROM stock_ledger l FORCE INDEX (ix_stock_ledger_created) JOIN document d ON d.id = l.document_id "
+            . "JOIN warehouse w ON w.id = l.warehouse_id LEFT JOIN stock_value_seq q ON q.stock_ledger_id = l.id "
+            . "WHERE l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' "
+            . "AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL AND w.stock_owner = 'own' ORDER BY l.created_at, l.id", [$from, $cutoff]) as $r) {
+            $events[] = [(string) $r['seq_at'], 0, (int) $r['id'], 'ledger', $r];
         }
         foreach ($this->db->all("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d WHERE d.doc_type IN ('SINV', 'SCN') "
             . "AND d.status IN ('posted', 'reversed') AND d.posted_at >= ? AND d.posted_at <= ? ORDER BY d.posted_at, d.id", [$from, $cutoff]) as $r) {
@@ -762,9 +860,13 @@ final class CostEngine
                 // On their way AT THE CREDIT'S TIME when no receipt standing then had taken that line's goods in (a receipt took them when one of
                 // its lines got units of the line: two lines keyed as one; the Codex re-checks of 6b8a7ee F3 and e5d2e5a). A credit read after a
                 // receipt of a later time is older than the item's last event: write() rebuilds the item's history in time order (PR79).
-                $deferred = $inv !== null && $invLine !== null && $g['grn'] === null && $this->receiptsTaking($inv, $invLine, $sku, $at) === [];
+                $taking = $inv !== null && $invLine !== null ? $this->receiptsTaking($inv, $invLine, $sku, $at) : [];
+                $deferred = $inv !== null && $invLine !== null && $g['grn'] === null && $taking === [];
+                // Never onto other stock: at most the units of the credited delivery that can still be here, the fewest on hand since it came
+                // (the final review of 6d59eda, c-HIGH2, PR100).
+                $units = $deferred ? $g['units'] : min(ProfitMath::reach($g['units'], $onHand), $this->creditedStillHere($sku, $inv, $invLine, $g['grn'], $taking, $at));
                 $out[] = $this->write($base + ['kind' => 'credit_note', 'ref_document_id' => $inv, 'ref_line' => $invLine,
-                    'units' => $deferred ? $g['units'] : ProfitMath::reach($g['units'], $onHand), 'price_e4' => 0, 'booked_e4' => $g['price_e4'], 'deferred' => $deferred ? 1 : 0,
+                    'units' => $units, 'price_e4' => 0, 'booked_e4' => $g['price_e4'], 'deferred' => $deferred ? 1 : 0,
                     'note' => $deferred ? 'a price credit of goods still on their way: their receipt takes it in' : 'a price credit']);
                 continue;
             }
@@ -778,11 +880,61 @@ final class CostEngine
                 $booked = $b !== null ? (int) $b
                     : ProfitMath::e4((string) ($this->db->value('SELECT CAST(unit_cost AS CHAR) FROM document_line WHERE document_id = ? AND line_no = ?', [$gd, $gl]) ?? '0'));
             }
+            // The units it bills that are still on hand, never more than the units of the billed delivery that can still be here: the fewest on
+            // hand since that delivery came, in the item's commit order (the final review of 6d59eda, c-HIGH2 / a-M6, PR100: a delivery sold out
+            // and replaced is never repriced onto the replacement stock).
+            $units = $booked === null ? 0 : min(ProfitMath::reach($g['units'], $onHand), $this->receiptStillHere($sku, $g['grn'][0], $g['grn'][1], $at) ?? PHP_INT_MAX);
             $out[] = $this->write($base + ['kind' => 'invoice', 'ref_document_id' => $g['grn'][0] ?? null, 'ref_line' => $g['grn'][1] ?? null,
-                'units' => $booked === null ? 0 : ProfitMath::reach($g['units'], $onHand), 'price_e4' => $g['price_e4'], 'booked_e4' => $booked,
+                'units' => $units, 'price_e4' => $g['price_e4'], 'booked_e4' => $booked,
                 'note' => $booked === null ? 'invoiced before its goods arrived (the delivery takes this price)' : 'invoice price wins']);
         }
         return $out;
+    }
+
+    /**
+     * The units of one delivery line ($grn, line $line) of $sku that can still be on hand at $at: its units in, at most the fewest units on hand
+     * from just after it came (the end of its last portion's operation) to $at, in the item's commit order (lowestBetween). Null when the
+     * delivery line booked nothing of the item.
+     */
+    private function receiptStillHere(int $sku, int $grn, int $line, string $at): ?int
+    {
+        $r = $this->db->one("SELECT MAX(id) AS last_row, COALESCE(SUM(qty_delta), 0) AS units FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
+            . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
+        if ($r === null || $r['last_row'] === null) {
+            return null;
+        }
+        return max(0, min((int) $r['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $r['last_row'])), $this->position($sku, $at))));
+    }
+
+    /**
+     * The units a price credit of invoice $inv, line $invLine can still reach at $at: of the delivery that invoice line billed (the invoice made
+     * for a named delivery), else of the receipts that took its goods in (goods on their way), each at most what can still be here
+     * (receiptStillHere). No delivery known: no cap (the units on hand, as before).
+     *
+     * @param array{0: int, 1: int}|null $creditGrn the credit note line's own delivery, when it names one
+     * @param list<array<string, mixed>> $taking receiptsTaking()'s
+     */
+    private function creditedStillHere(int $sku, ?int $inv, ?int $invLine, ?array $creditGrn, array $taking, string $at): int
+    {
+        $grn = $creditGrn;
+        if ($grn === null && $inv !== null && $invLine !== null) {
+            foreach ($this->landed($inv) as $l) {
+                if ($l['line_no'] === $invLine) {
+                    $grn = $l['grn'];
+                }
+            }
+        }
+        if ($grn !== null) {
+            return $this->receiptStillHere($sku, $grn[0], $grn[1], $at) ?? PHP_INT_MAX;
+        }
+        if ($taking === []) {
+            return PHP_INT_MAX;
+        }
+        $n = 0;
+        foreach ($taking as $t) {
+            $n += max(0, min((int) $t['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $t['last_row'])), $this->position($sku, $at))));
+        }
+        return $n;
     }
 
     /**
@@ -1046,7 +1198,7 @@ final class CostEngine
                 $charges += $e2;
             }
         }
-        $shares = ProfitMath::spread($charges, array_map(static fn (array $g): int => $g['e2'], $goods));
+        $shares = ProfitMath::chargeShares($charges, array_map(static fn (array $g): int => $g['e2'], $goods), array_map(static fn (array $g): int => $g['units'], $goods));
         $out = [];
         foreach ($goods as $no => $g) {
             $landed = $g['e2'] + ($shares[$no] ?? 0);

@@ -56,7 +56,10 @@ final class CostEngineTest extends ArrivalsTestCase
         $this->listing($site, '500', $erp);
         $this->listing($site, '501', $pack, 2);
         $this->listing($site, '502', $none);
-        self::$db->exec('INSERT INTO report_item (sku_id, in_units, in_value) VALUES (?, 10, 15.000000)', [$avg]);
+        // CW's own average of what came in with a price BEFORE the start (the ledger, never report_item, which holds what the replay adds
+        // again: the final review of 6d59eda, c-HIGH1, PR99): 10 booked in at £1.50.
+        $this->book('goods_in', $avg, 10, 'MAIN', null, '1.500000');
+        self::$db->exec('INSERT INTO report_item (sku_id, in_units, in_value) VALUES (?, 20, 50.000000)', [$avg]); // today's figure: never read
         $this->supplierItem($buyer, (int) $s['id'], $sup, 10, '5.0000');
         $bin = "item_code\twarehouse\tactual_qty\tvaluation_rate\tstock_value\n"
             . "P500\tStores - VPG\t30.000000000\t1.200000000\t36.0\n"
@@ -64,7 +67,7 @@ final class CostEngineTest extends ArrivalsTestCase
             . "P501\tStores - VPG\t0.000000000\t3.000000000\t0\n"
             . "P502\tStores - VPG\t5.000000000\t1.000000000\t5\n" // a placeholder rate (erp_opening.placeholder_costs): no price
             . "P999\tStores - VPG\t5.000000000\t2.000000000\t10\n"; // no CW item
-        $plan = $this->engine()->plan($bin, 'vapeandgo');
+        $plan = $this->engine()->plan($bin, 'vapeandgo', Clock::db(Clock::now()->modify('+1 day')));
         self::assertSame(['e4' => 13000, 'source' => 'erp_bin'], $plan['prices'][$erp], '30 at £1.20 and 10 at £1.60: £1.30');
         self::assertSame(['e4' => 15000, 'source' => 'erp_bin'], $plan['prices'][$pack], '£3.00 for a pack of 2, none in stock: £1.50 a unit');
         self::assertSame(['e4' => 15000, 'source' => 'cw_average'], $plan['prices'][$avg]);

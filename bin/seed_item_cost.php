@@ -3,20 +3,26 @@
 declare(strict_types=1);
 
 /**
- * The start of the buying prices (profit step 1; docs/decisions.md PR12-PR14; CW\Profit\CostEngine): each CW item's price on the day CW's
- * own price starts (ERPNext's Bin valuation, else CW's average so far, else the supplier's last price, else none), then the replay of
+ * The start of the buying prices (profit step 1; docs/decisions.md PR12-PR14, PR99; CW\Profit\CostEngine): each CW item's price on the day
+ * CW's own price starts (ERPNext's Bin valuation, else CW's average of what came in BEFORE that day, else the supplier's last price known
+ * before it, else none: never a figure that holds a delivery the replay adds again), then the replay of
  * every delivery, invoice and credit note since then, then the cost of every stored sale that waited for it. The start is written once; a
  * start stopped half way is run again the same way and goes on with the items not written yet, or (stopped after the start was written)
  * with the replay and the sales that waited.
  *
- *   php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--apply]
+ *   php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--allow-skips=<code,code,row:N>] [--apply]
  *
- *   --bin    ERPNext's Bin as tab-separated text with a header row (item_code, warehouse, actual_qty, valuation_rate, ...)
- *   --start  the UK day the prices start (default: the setting profit.cost_start)
- *   --store  the store whose variant numbers ERPNext's item codes carry (default: the setting erp_opening.listing_store)
- *   --apply  write the start and replay since it; without it: a dry run that prints the counts and the items it could not price
+ *   --bin          ERPNext's Bin as tab-separated text with a header row (item_code, warehouse, actual_qty, valuation_rate, ...)
+ *   --start        the UK day the prices start (default: the setting profit.cost_start)
+ *   --store        the store whose variant numbers ERPNext's item codes carry (default: the setting erp_opening.listing_store)
+ *   --allow-skips  the broken Bin rows that may be left out, named by item code (or row:<n> for a row with none)
+ *   --apply        write the start and replay since it; without it: a dry run that prints the counts and the items it could not price
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run.
+ * The Bin file is checked whole first: a row without the header's columns, or whose actual_qty or valuation_rate is blank or not a number,
+ * is broken; while one is broken (and not named by --allow-skips) nothing is written, in the dry run too, and it ends with exit 1 naming
+ * every one (the final review of 6d59eda, b-HIGH3).
+ *
+ * Exit codes: 0 done · 1 the Bin file has broken rows · 2 usage · 3 cannot run.
  */
 
 use CW\Ops\Cli;
@@ -27,8 +33,8 @@ use CW\Reports\ReportRefresh;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'apply'],
-    'usage: php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--apply]',
+exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'apply'],
+    'usage: php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--allow-skips=<code,code,row:N>] [--apply]',
     static function (Cli $cli, array $opts): int {
         $bin = is_string($opts['bin'] ?? null) ? $opts['bin'] : throw new InvalidArgumentException('give --bin=<erp_bin.tsv>');
         if (!is_file($bin) || !is_readable($bin)) {
@@ -42,7 +48,21 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'apply'],
         $store = is_string($opts['store'] ?? null) ? $opts['store']
             : (string) json_decode((string) ($cli->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'") ?? '"vapeandgo"'));
         $engine = new CostEngine($cli->db);
-        $plan = $engine->plan((string) file_get_contents($bin), $store);
+        $startAt = \CW\Clock::db(ReportRefresh::bounds($day)[0]);
+        $allow = is_string($opts['allow-skips'] ?? null) ? array_values(array_filter(array_map('trim', explode(',', $opts['allow-skips'])), static fn (string $c): bool => $c !== '')) : [];
+        // Every price as of the start itself (PR99): what came in after it is the replay's, never in a starting price.
+        $plan = $engine->plan((string) file_get_contents($bin), $store, $startAt, $allow);
+        foreach ($plan['skipped'] as $b) {
+            $cli->log("Bin row {$b['row']} ({$b['item_code']}) left out as --allow-skips says: it {$b['why']}");
+        }
+        if ($plan['broken'] !== []) {
+            foreach (array_slice($plan['broken'], 0, 100) as $b) {
+                $cli->error("Bin row {$b['row']} (" . ($b['item_code'] === '' ? 'no item code' : $b['item_code']) . ") is broken: it {$b['why']}");
+            }
+            $cli->error(count($plan['broken']) . ' broken Bin row(s): nothing written. Export the Bin again, or name the rows that may be left out with '
+                . '--allow-skips=<item code,...> (row:<n> for a row with no item code)');
+            return Cli::PROBLEM;
+        }
         $cli->log(sprintf('items %d: ERPNext %d, CW average %d, supplier price %d, none %d (Bin rows %d, variants not matched to a CW item %d)',
             count($plan['prices']), $plan['counts']['erp_bin'], $plan['counts']['cw_average'], $plan['counts']['supplier_price'], $plan['counts']['none'],
             $plan['bin_rows'], $plan['bin_unmatched']));
@@ -55,7 +75,6 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'apply'],
             $cli->log('dry run: nothing written (add --apply)');
             return Cli::OK;
         }
-        $startAt = \CW\Clock::db(ReportRefresh::bounds($day)[0]);
         if ($engine->state()['mark_at'] !== null) {
             // Stopped after the start was written (it is written once): run again the same way, it goes on with the replay and the sales that
             // waited (the Codex re-check of e5d2e5a).

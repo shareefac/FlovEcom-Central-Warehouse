@@ -6,11 +6,14 @@ declare(strict_types=1);
  * The Profit screens' day summaries worked out again from the stored orders and lines (profit step 1; docs/decisions.md PR22;
  * CW\Profit\ProfitDays::rebuild): a safety net after a batch, and nightly for the last days. Each store and day in a transaction of its own.
  *
- *   php bin/rebuild_profit_days.php [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--days=N] [--channel=<store code>]
+ *   php bin/rebuild_profit_days.php [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--days=N] [--channel=<store code>] [--check | --apply]
  *
- *   --days  the last N UK days up to today (default 3) when --from / --to are not given
+ *   --days   the last N UK days up to today (default 3) when --from / --to are not given
+ *   --check  (also without --apply) compare only: every figure of a day or an item whose kept summary differs from what its orders add up
+ *            to, printed with both values; nothing written (the go-live check; the final review of 6d59eda, c-LOW4 / a-M8, PR104)
+ *   --apply  write: each day's summaries replaced by what its orders add up to (cron, nightly)
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run.
+ * Exit codes: 0 done (the check: no day differs) · 1 the check found a day that differs · 2 usage · 3 cannot run.
  */
 
 use CW\Ops\Cli;
@@ -19,8 +22,8 @@ use CW\Reports\ReportRefresh;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:'],
-    'usage: php bin/rebuild_profit_days.php [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--days=N] [--channel=<store code>]',
+exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:', 'check', 'apply'],
+    'usage: php bin/rebuild_profit_days.php [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--days=N] [--channel=<store code>] [--check | --apply]',
     static function (Cli $cli, array $opts): int {
         $today = ReportRefresh::ukDay(\CW\Clock::db(\CW\Clock::now()));
         $n = Cli::intOpt($opts, 'days', 3, 1, 3660);
@@ -40,13 +43,35 @@ exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:'],
         if ($channels === []) {
             throw new InvalidArgumentException('no such store');
         }
+        $apply = array_key_exists('apply', $opts);
+        if ($apply && array_key_exists('check', $opts)) {
+            throw new InvalidArgumentException('--check compares only and --apply writes: give one of them');
+        }
         $days = 0;
+        $differ = 0;
         for ($d = $from; $d <= $to; $d = ReportRefresh::nextDay($d)) {
             foreach ($channels as $ch) {
-                ProfitDays::rebuild($cli->db, (int) $ch, $d);
+                if ($apply) {
+                    ProfitDays::rebuild($cli->db, (int) $ch, $d);
+                    continue;
+                }
+                $diff = ProfitDays::differences($cli->db, (int) $ch, $d);
+                if ($diff !== []) {
+                    $differ++;
+                    foreach (array_slice($diff, 0, 50) as $line) {
+                        $cli->log("{$d} store {$ch} {$line}");
+                    }
+                    if (count($diff) > 50) {
+                        $cli->log("{$d} store {$ch}: " . (count($diff) - 50) . ' more differences');
+                    }
+                }
             }
             $days++;
         }
-        $cli->log("rebuilt {$days} days for " . count($channels) . ' stores');
-        return Cli::OK;
+        if ($apply) {
+            $cli->log("rebuilt {$days} days for " . count($channels) . ' stores');
+            return Cli::OK;
+        }
+        $cli->log("checked {$days} days for " . count($channels) . " stores: {$differ} store-days differ (nothing written" . ($differ > 0 ? '; --apply writes what the orders add up to)' : ')'));
+        return $differ > 0 ? Cli::PROBLEM : Cli::OK;
     }, true, true));

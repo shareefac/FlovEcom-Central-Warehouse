@@ -58,21 +58,45 @@ final class ItemCosts
             return $out;
         }
         $own = $atUtc >= $this->settings->costStartAt();
-        foreach ($skuIds as $sku) {
-            // The item's last event up to the moment in its timeline in force: a timeline is always in time order (an event the cost job meets
-            // late makes it write the item's whole history again: CostEngine::rebuild), so its price is the price at the moment. One indexed
-            // read (ix_item_cost_event_item, after the item's row), however long the history (the Codex re-checks of 37a2cf0 and 6b8a7ee, R6).
-            $tl = (int) ($this->db->value('SELECT timeline FROM item_cost WHERE sku_id = ?', [$sku]) ?? 0);
-            $last = $this->db->one('SELECT new_cost_e4 FROM item_cost_event FORCE INDEX (ix_item_cost_event_item) WHERE sku_id = ? AND timeline = ? AND source_at <= ? '
-                . 'ORDER BY source_at DESC, id DESC LIMIT 1',
-                [$sku, $tl, $atUtc]);
-            $before = $last === null;
-            $e4 = $before || $last['new_cost_e4'] === null ? null : (int) $last['new_cost_e4'];
-            if ($before) {
-                $first = $this->db->one("SELECT new_cost_e4 FROM item_cost_event WHERE sku_id = ? AND timeline = ? AND kind = 'start' ORDER BY source_at, id LIMIT 1", [$sku, $tl]);
-                $e4 = $first === null || $first['new_cost_e4'] === null ? null : (int) $first['new_cost_e4'];
+        // The item's last event up to the moment in its timeline in force: a timeline is always in time order (an event the cost job meets
+        // late makes it write the item's whole history again: CostEngine::rebuild), so its price is the price at the moment. One indexed read
+        // per item (ix_item_cost_event_item, after the item's row), however long the history (the Codex re-checks of 37a2cf0 and 6b8a7ee, R6),
+        // and ONE statement for up to 500 items (a lateral read per item: an order of 1,000 items is two statements, not 2,000; the final
+        // review of 6d59eda, a-HIGH2, PR95).
+        foreach (array_chunk($skuIds, 500) as $chunk) {
+            $asked = implode(' UNION ALL ', array_fill(0, count($chunk), 'SELECT ? AS sku_id'));
+            // Each item's last event up to the moment: a dependent read per item, backwards on its own index from the moment (one row).
+            $rows = $this->db->all('SELECT a.sku_id, COALESCE(c.timeline, 0) AS tl, (SELECT e.id FROM item_cost_event e FORCE INDEX (ix_item_cost_event_item) '
+                . 'WHERE e.sku_id = a.sku_id AND e.timeline = COALESCE(c.timeline, 0) AND e.source_at <= ? ORDER BY e.source_at DESC, e.id DESC LIMIT 1) AS last_id '
+                . 'FROM (' . $asked . ') a LEFT JOIN item_cost c ON c.sku_id = a.sku_id', [$atUtc, ...$chunk]);
+            $ids = array_values(array_filter(array_map(static fn (array $r): int => (int) ($r['last_id'] ?? 0), $rows)));
+            $price = [];
+            foreach ($ids === [] ? [] : $this->db->all('SELECT id, new_cost_e4 FROM item_cost_event WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')', $ids) as $e) {
+                $price[(int) $e['id']] = $e['new_cost_e4'] === null ? null : (int) $e['new_cost_e4'];
             }
-            $out[$sku] = ['e4' => $e4, 'source' => $e4 === null ? 'none' : ($own && !$before ? 'cw_cost' : 'estimate')];
+            // A moment before an item's first event: that first price (its start), as an estimate (rare: read only for those items).
+            $first = [];
+            $early = array_values(array_filter($rows, static fn (array $r): bool => $r['last_id'] === null));
+            if ($early !== []) {
+                $pairs = implode(' UNION ALL ', array_fill(0, count($early), 'SELECT ? AS sku_id, ? AS tl'));
+                $params = [];
+                foreach ($early as $r) {
+                    array_push($params, (int) $r['sku_id'], (int) $r['tl']);
+                }
+                foreach ($this->db->all('SELECT b.sku_id, (SELECT e.new_cost_e4 FROM item_cost_event e FORCE INDEX (ix_item_cost_event_item) WHERE e.sku_id = b.sku_id '
+                    . "AND e.timeline = b.tl AND e.kind = 'start' ORDER BY e.source_at, e.id LIMIT 1) AS e4 FROM ({$pairs}) b", $params) as $r) {
+                    $first[(int) $r['sku_id']] = $r['e4'] === null ? null : (int) $r['e4'];
+                }
+            }
+            foreach ($rows as $r) {
+                $sku = (int) $r['sku_id'];
+                $before = $r['last_id'] === null;
+                $e4 = $before ? ($first[$sku] ?? null) : ($price[(int) $r['last_id']] ?? null);
+                $out[$sku] = ['e4' => $e4, 'source' => $e4 === null ? 'none' : ($own && !$before ? 'cw_cost' : 'estimate')];
+            }
+        }
+        foreach ($skuIds as $sku) {
+            $out[$sku] ??= ['e4' => null, 'source' => 'none'];
         }
         return $out;
     }

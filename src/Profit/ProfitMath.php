@@ -33,10 +33,12 @@ final class ProfitMath
         return $a < 0 ? -$q : $q;
     }
 
-    /** "20" or "17.5" (percent) => basis points (2000, 1750); null when it is not a percent from 0 to 100 with at most two decimals. */
+    /** "20", "17.5" or "5.0000" (percent) => basis points (2000, 1750, 500); null when it is not a percent from 0 to 100 with at most two decimals. */
     public static function vatBp(string $percent): ?int
     {
-        if (preg_match('/^(0|[1-9][0-9]?|100)(?:\.([0-9]{1,2}))?$/D', trim($percent), $m) !== 1) {
+        // Trailing zeros after two decimals are the same percent ("5.0000" as the settings screen may keep it: the final review of 6d59eda,
+        // c-M5, PR109).
+        if (preg_match('/^(0|[1-9][0-9]?|100)(?:\.([0-9]{1,2})0*)?$/D', trim($percent), $m) !== 1) {
             return null;
         }
         $bp = (int) $m[1] * 100 + (int) str_pad($m[2] ?? '', 2, '0');
@@ -278,6 +280,19 @@ final class ProfitMath
         $frac = str_pad($m[3] ?? '', 5, '0');
         $v = (int) $m[2] * 10000 + (int) substr($frac, 0, 4) + ((int) $frac[4] >= 5 ? 1 : 0);
         return $m[1] === '-' ? -$v : $v;
+    }
+
+    /**
+     * An invoice's charges (carriage, duty, other) over its goods lines: by value; when every goods line is worth nothing (free samples), by
+     * units, so the charge always reaches the goods and the shares add up to it (the final review of 6d59eda, c-M4, PR108).
+     *
+     * @param array<int|string, int> $values
+     * @param array<int|string, int> $units
+     * @return array<int|string, int>
+     */
+    public static function chargeShares(int $charges, array $values, array $units): array
+    {
+        return array_sum($values) > 0 ? self::spread($charges, $values) : self::spread($charges, $units);
     }
 
     /** Spreads $total over $weights (non-negative) in proportion; the pennies left over go to the largest remainders. */

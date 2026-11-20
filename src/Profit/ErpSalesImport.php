@@ -48,7 +48,11 @@ final class ErpSalesImport
         // apply: those whose LAST day is in it (the Codex review of 57d98ad, a9).
         $files = self::files($dir, null, null);
         $settings = new ProfitSettings($this->db);
-        $until = $settings->costStartAt();
+        // ERPNext's cost at the sale belongs to the orders paid inside its history: from profit.erp_history_from to the moment CW's own price
+        // started (the start's recorded floor; the setting while there is none), both bounds checked again under each order's locks (the
+        // final review of 6d59eda, c-M7, PR110).
+        $since = $settings->historyFromAt();
+        $until = (string) ($this->db->value('SELECT floor_at FROM profit_job WHERE job = ?', [CostEngine::JOB]) ?? $settings->costStartAt());
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
         // Pass 1: each day read whole; each order's last day. A broken day stops the whole run before anything is written: an order whose
         // rows are on it could never be costed whole (N8).
@@ -80,7 +84,7 @@ final class ErpSalesImport
             }
             $d = $this->read($f);
             $r = $d['counts'] + ['cw_orders' => 0, 'cw_goods_e2' => 0, 'costed' => 0, 'no_line' => 0, 'not_in_cw' => 0, 'after_start' => 0, 'unpaid' => 0, 'rate_zero' => 0,
-                'held' => 0];
+                'held' => 0, 'before_history' => 0, 'qty_mismatch' => 0, 'same' => 0];
             $due = [];
             foreach ($d['orders'] as $ref => $variants) {
                 $ref = (string) $ref;
@@ -100,15 +104,16 @@ final class ErpSalesImport
             if (($from !== null && $day < $from) || ($to !== null && $day > $to)) {
                 continue; // read for the orders it holds; its own orders are not asked for
             }
-            $this->apply((int) $channel, $due, $until, $apply, $service, $r);
+            $this->apply((int) $channel, $due, $since, $until, $apply, $service, $r);
             $tot['days']++;
             $tot['orders'] += $r['cw_orders'];
             $tot['lines'] += $r['costed'];
-            $log(sprintf('%s erp orders %d goods %s cost %s | cw orders %d goods %s | lines costed %d, erp lines with no cw line %d, orders not in cw %d, '
-                . 'paid on or after the cost start %d, not paid in cw %d, returns %d (%s), no order id %d, rate 0 %d, held for a later day %d%s',
-                $day, $r['erp_orders'], self::gbp($r['erp_goods_e2']), self::gbp($r['erp_cost_e2']), $r['cw_orders'], self::gbp($r['cw_goods_e2']), $r['costed'],
-                $r['no_line'], $r['not_in_cw'], $r['after_start'], $r['unpaid'], $r['returns'], self::gbp($r['returns_e2']), $r['no_order_id'], $r['rate_zero'],
-                $r['held'], $apply ? '' : ' (dry run: nothing written)'));
+            $log(sprintf('%s erp orders %d goods %s cost %s | cw orders %d goods %s | lines costed %d (already so %d), erp lines with no cw line %d, units not matching %d, '
+                . 'orders not in cw %d, paid before the history %d, paid on or after the cost start %d, not paid in cw %d, returns %d (%s), no order id %d, rate 0 %d, '
+                . 'held for a later day %d%s',
+                $day, $r['erp_orders'], self::gbp($r['erp_goods_e2']), self::gbp($r['erp_cost_e2']), $r['cw_orders'], self::gbp($r['cw_goods_e2']), $r['costed'], $r['same'],
+                $r['no_line'], $r['qty_mismatch'], $r['not_in_cw'], $r['before_history'], $r['after_start'], $r['unpaid'], $r['returns'], self::gbp($r['returns_e2']),
+                $r['no_order_id'], $r['rate_zero'], $r['held'], $apply ? '' : ' (dry run: nothing written)'));
         }
         return $tot;
     }
@@ -171,7 +176,14 @@ final class ErpSalesImport
                 if (count($f) !== count($head)) {
                     return ['error' => "row {$row} has " . count($f) . ' columns, not ' . count($head)];
                 }
-                if (trim($f[$col['docstatus']]) !== '1') {
+                // Its status and return flag are read before anything is left out: a blank or strange one is a broken day, never a row
+                // skipped without a word (the final review of 6d59eda, b-M; PR110).
+                $status = trim($f[$col['docstatus']]);
+                $isReturn = trim($f[$col['is_return']]);
+                if (!in_array($status, ['0', '1', '2'], true) || !in_array($isReturn, ['0', '1'], true)) {
+                    return ['error' => "row {$row}: its docstatus or is_return is not 0, 1 (or 2)"];
+                }
+                if ($status !== '1') {
                     continue;
                 }
                 $qty = $num($f[$col['qty']]);
@@ -184,7 +196,7 @@ final class ErpSalesImport
                 $name = (string) $f[$col['name']];
                 $item = trim((string) $f[$col['item_code']]);
                 $netE2 = ProfitMath::divRound($net, 100);
-                if (trim((string) $f[$col['is_return']]) === '1') {
+                if ($isReturn === '1') {
                     $returns[$name] = true;
                     $counts['returns_e2'] += $item === self::SHIPPING ? 0 : $netE2;
                     continue;
@@ -228,7 +240,7 @@ final class ErpSalesImport
      * @param array<string, array<string, array{qty: int, value: int, rated_qty: int, zero: int}>> $due
      * @param array<string, int> $r the day's counts
      */
-    private function apply(int $channel, array $due, string $until, bool $apply, OrderSnapshots $service, array &$r): void
+    private function apply(int $channel, array $due, string $since, string $until, bool $apply, OrderSnapshots $service, array &$r): void
     {
         $refs = array_map('strval', array_keys($due));
         $known = [];
@@ -253,17 +265,23 @@ final class ErpSalesImport
                 $r['after_start']++;
                 continue;
             }
+            if ((string) $o['paid_at'] < $since) {
+                $r['before_history']++;
+                continue;
+            }
             $r['cw_orders']++;
             $r['cw_goods_e2'] += (int) $o['sale_ex'];
             $plan = self::override($this->lines($this->db, $channel, $ref), $variants);
             $r['costed'] += count($plan['override']);
             $r['no_line'] += $plan['no_line'];
             $r['rate_zero'] += $plan['rate_zero'];
+            $r['qty_mismatch'] += $plan['qty_mismatch'];
+            $r['same'] += $plan['same'];
             if ($apply && $plan['override'] !== []) {
-                $service->recompute($channel, $ref, function (Db $db, array $body) use ($channel, $ref, $variants, $until): ?array {
-                    // Again under the order's locks: still paid before the cost start, and its lines as they are now.
+                $service->recompute($channel, $ref, function (Db $db, array $body) use ($channel, $ref, $variants, $since, $until): ?array {
+                    // Again under the order's locks: still paid inside ERPNext's history (both bounds), and its lines as they are now.
                     $paid = $db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channel, $ref]);
-                    if ($paid === null || (string) $paid >= $until) {
+                    if ($paid === null || (string) $paid >= $until || (string) $paid < $since) {
                         return null;
                     }
                     $o = self::override($this->lines($db, $channel, $ref), $variants)['override'];
@@ -276,23 +294,29 @@ final class ErpSalesImport
     /** @return list<array<string, mixed>> */
     private function lines(Db $db, int $channel, string $ref): array
     {
-        return $db->all('SELECT line_id, variant_id, units_per_item FROM sale_line WHERE channel_id = ? AND order_ref = ? AND removed_at IS NULL', [$channel, $ref]);
+        return $db->all('SELECT line_id, variant_id, units_per_item, qty, cancelled, unit_cost_e4, cost_source, costed_by FROM sale_line WHERE channel_id = ? AND order_ref = ? '
+            . 'AND removed_at IS NULL', [$channel, $ref]);
     }
 
     /**
+     * The cost each line of the order takes from ERPNext. A variant is taken only when CW's lines of it that count (not cancelled) hold
+     * exactly the units ERPNext priced (the final review of 6d59eda, c-M6, PR110): two CW lines of a variant ERPNext priced one unit of are
+     * reported (`qty_mismatch`) and keep what they had. A line that already has that cost from this import is left as it is (`same`: its
+     * time fixed is not moved; a-LOW).
+     *
      * @param list<array<string, mixed>> $lines
      * @param array<string, array{qty: int, value: int, rated_qty: int, zero: int}> $variants
-     * @return array{override: array<string, array{e4: int, source: string, by: string}>, no_line: int, rate_zero: int}
+     * @return array{override: array<string, array{e4: int, source: string, by: string}>, no_line: int, rate_zero: int, qty_mismatch: int, same: int}
      */
     private static function override(array $lines, array $variants): array
     {
         $byVariant = [];
         foreach ($lines as $l) {
-            $byVariant[(string) $l['variant_id']][] = $l;
+            $byVariant[strtolower((string) $l['variant_id'])][] = $l;
         }
-        $out = ['override' => [], 'no_line' => 0, 'rate_zero' => 0];
+        $out = ['override' => [], 'no_line' => 0, 'rate_zero' => 0, 'qty_mismatch' => 0, 'same' => 0];
         foreach ($variants as $variant => $x) {
-            $mine = $byVariant[(string) $variant] ?? [];
+            $mine = $byVariant[strtolower((string) $variant)] ?? [];
             if ($mine === []) {
                 $out['no_line']++;
                 continue;
@@ -301,10 +325,19 @@ final class ErpSalesImport
                 $out['rate_zero']++;
                 continue;
             }
+            $cwQty = array_sum(array_map(static fn (array $l): int => (int) $l['cancelled'] === 1 ? 0 : (int) ($l['qty'] ?? 1), $mine));
+            if ($cwQty !== (int) $x['qty']) {
+                $out['qty_mismatch']++;
+                continue;
+            }
             $rate = ProfitMath::divRound($x['value'], $x['rated_qty']);
             foreach ($mine as $l) {
-                $out['override'][(string) $l['line_id']] = ['e4' => ProfitMath::divRound($rate, max(1, (int) $l['units_per_item'])), 'source' => 'erp_at_sale',
-                    'by' => 'erp_import'];
+                $e4 = ProfitMath::divRound($rate, max(1, (int) $l['units_per_item']));
+                if (($l['cost_source'] ?? null) === 'erp_at_sale' && ($l['costed_by'] ?? null) === 'erp_import' && $l['unit_cost_e4'] !== null && (int) $l['unit_cost_e4'] === $e4) {
+                    $out['same']++;
+                    continue;
+                }
+                $out['override'][(string) $l['line_id']] = ['e4' => $e4, 'source' => 'erp_at_sale', 'by' => 'erp_import'];
             }
         }
         return $out;

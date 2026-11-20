@@ -1,6 +1,8 @@
 <?php
 // Profit › Profit by order (docs/decisions.md PR27): the paid orders of the days and shop chosen, newest first or the lowest margin first,
-// or the orders with the number typed (any day); each opens its page. A re-send's cost is on its first order (shown with it). Paged.
+// or the orders with the number typed (any day); each opens its page. Goods, cost and profit are each order's own, so the rows add up to the
+// day summaries (a re-send's cost is on the re-send's row); a first order also shows its re-sends' cost and its profit with them, and its
+// margin is the one with them (PR10, PR102). A profit not known (a unit with no price) says so, never a number (PR102). Paged.
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_orders'], intro: 'profit_orders', aside: $explain('profit', \CW\Ui\Words::PROFIT['profit'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('PROFIT', 'find') ?>">
@@ -44,8 +46,8 @@
       <td data-label="<?= $word('PROFIT', 'paid') ?>"><?= $when($r['paid_at']) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'units') ?>"><?= $n($r['units']) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['sale'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['cost'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['profit'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['cost'] / 100) ?><?php if ($r['resends'] > 0): ?><br><span class="muted"><?= $word('PROFIT', 'resend_cost') ?>: <?= $money($r['resend_cost'] / 100) ?></span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?php if ($r['profit'] === null): ?><?= $word('PROFIT', 'unknown') ?><?php else: ?><?= $money($r['profit'] / 100) ?><?php endif; ?><?php if ($r['resends'] > 0): ?><br><span class="muted"><?= $word('PROFIT', 'with_resends') ?>: <?php if ($r['with_resends'] === null): ?><?= $word('PROFIT', 'unknown') ?><?php else: ?><?= $money($r['with_resends'] / 100) ?><?php endif; ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['margin_bp'])) ?><?php if ($r['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['delivery'] / 100) ?></td>
     </tr>

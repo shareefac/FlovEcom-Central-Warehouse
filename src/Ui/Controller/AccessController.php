@@ -123,7 +123,7 @@ final class AccessController
         $ticked = $typed['jobs'] ?? $row['holders'];
         $boxes = [];
         foreach (Words::JOB_ORDER as $role) {
-            $blocked = !$row['read_only'] && ($role === 'admin' || in_array($role, Permissions::ADMIN_COMPATIBLE, true));
+            $blocked = !$row['read_only'] && ($role === 'admin' || in_array($role, Permissions::LOOK_ONLY, true));
             // The People manager manages people and nothing else (PM3): its box is off on every other task.
             $pmNever = $role === 'people_manager' && !in_array($perm, Permissions::PEOPLE_MANAGER_TASKS, true);
             $always = in_array($role, $row['required'], true);

@@ -71,6 +71,13 @@ final class Permissions
     public const ADMIN_COMPATIBLE = ['viewer', 'accountant', 'auditor'];
 
     /**
+     * The jobs that only look, whatever the Roles and permissions page says: the read drops them from any task that changes something
+     * (sanitise()) and the page refuses to give them one (problems(): `acting_job`). The look-only jobs admin may hold, and Finance (0074:
+     * "reads the profit on every order; changes nothing"; the final review of 6d59eda, a-M7, PR111).
+     */
+    public const LOOK_ONLY = [...self::ADMIN_COMPATIBLE, 'finance'];
+
+    /**
      * Everything the People manager does (PM3): the people screens and what every job reads, and nothing else, whatever the Roles and
      * permissions page says: the read drops it from any other task (sanitise()), the page refuses to give it one (problems():
      * `people_manager_job`), and it keeps these four (three are LOCKED, staff.view REQUIRED).
@@ -434,7 +441,7 @@ final class Permissions
         }
         $set = array_values(array_filter($holders, static fn (mixed $r): bool => is_string($r) && in_array($r, self::ROLES, true)));
         if (!self::isReadOnly($perm)) {
-            $set = array_values(array_diff($set, ['admin'], self::ADMIN_COMPATIBLE));
+            $set = array_values(array_diff($set, ['admin'], self::LOOK_ONLY));
         }
         if (!in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {
             $set = array_values(array_diff($set, ['people_manager']));
@@ -469,7 +476,7 @@ final class Permissions
         if ($holders === []) {
             $out[] = 'no_holders';
         }
-        if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::ADMIN_COMPATIBLE]) !== []) {
+        if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::LOOK_ONLY]) !== []) {
             $out[] = 'acting_job';
         }
         if (in_array('people_manager', $holders, true) && !in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {

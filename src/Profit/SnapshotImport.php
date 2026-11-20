@@ -30,7 +30,7 @@ final class SnapshotImport
 
     /**
      * @param \Closure(string): void $log
-     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, read: array<string, int>}
+     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, totals_checked: bool, read: array<string, int>}
      */
     public function file(string $channelCode, string $path, bool $dryRun, \Closure $log): array
     {
@@ -72,7 +72,13 @@ final class SnapshotImport
         if (!$sumOk) {
             $log('the .sum names another file (its sha256 differs): nothing written');
         }
-        if ($sumOk && $check['refused'] === 0) {
+        // The money is compared only when every line could be read: with a line refused the day's totals are NOT checked, and that is said
+        // apart from the file's own match (the final review of 6d59eda, b-M; PR106).
+        $totalsChecked = $sumOk && $check['refused'] === 0;
+        if ($sumOk && $check['refused'] > 0) {
+            $log("the .sum's orders, lines, goods and delivery are NOT checked: {$check['refused']} line(s) refused");
+        }
+        if ($totalsChecked) {
             foreach (['orders', 'lines', 'goods_inc', 'delivery_inc'] as $k) {
                 if ((int) $sum[$k] !== $check['read'][$k]) {
                     $sumOk = false;
@@ -85,11 +91,12 @@ final class SnapshotImport
                 $this->pass($path, null, $channel, $now, $log); // the refusals, said
             }
             return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
-                'sum_ok' => $sumOk, 'read' => $check['read']];
+                'sum_ok' => $sumOk, 'totals_checked' => $totalsChecked && $sumOk, 'read' => $check['read']];
         }
         // Pass 2: stored, order by order.
         $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), $channel, $now, $log);
-        return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true, 'read' => $done['read']];
+        return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true,
+            'totals_checked' => $totalsChecked && $done['refused'] === 0, 'read' => $done['read']];
     }
 
     /**
@@ -132,6 +139,7 @@ final class SnapshotImport
                     if (!is_array($o) || ltrim($line)[0] !== '{') {
                         throw new CwException('bad_json', 'the line is not a JSON object', 400);
                     }
+                    SnapshotBody::checkJsonShapes($line);
                     $ref = SnapshotBody::orderRef($o['ref'] ?? null, 'ref');
                     $body = SnapshotBody::parse($o, $now);
                     $read['orders']++;
