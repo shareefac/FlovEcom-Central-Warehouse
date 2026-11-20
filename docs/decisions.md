@@ -18527,3 +18527,10 @@ ix_channel_listing_unsold` "Using index"), with one more column. The Ignored cho
 status = 'ignored': 300 entries, 2 ms). All's total is still the three narrow counts (no COUNT of its own); the line's count is the Ignored
 count without a search, and the search's one pass with one. `testAllStaysOnTheStoresStatusIndex` holds the plan (both ways: old ones hidden
 and shown) and that no COUNT is run.
+
+**Tests and review.** `HideIgnoredScreenTest` (6 tests) red first on `286055a` (`runs/hideign_red.log`: 6 of 6 failing), green on `24d0ba6`
+(`runs/hideign_green2.log`, with `HideUnsoldScreenTest`, `BulkScreensTest` and `StoreProductsPagerTest`: 22 OK); the plan test first failed on
+the "Show them" plan (`runs/hideign_green1.log`), which the hint answers. `WordsTest::testTheIgnoredProductsAllLeavesOutAreSaidInPlainWords`.
+Suites on `24d0ba6`: UiKernel 709 OK (`runs/hideign_final.uikernel.log`), Unit 645 OK (`runs/hideign_final.unit.log`). Three Codex reviews
+of `git diff 286055a..24d0ba6`, read-only and static, at once (`runs/hideign_codex_{a,b,c}.txt`: the query, counts, paging and index use;
+the view, words, escaping and links; the interplay with HU, the bulk actions and StoreContext): no HIGH, MEDIUM or LOW finding.
