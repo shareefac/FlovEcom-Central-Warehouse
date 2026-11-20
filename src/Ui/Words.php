@@ -10910,6 +10910,7 @@ final class Words
         'cancelled' => 'Cancelled',
         'free' => 'Free',
         'restocked' => 'Back in stock',
+        'refunded' => 'Refunded',
         'removed' => 'No longer on the order',
         'delivery_method' => 'Delivery',
         'delivery_refund' => 'Delivery refunded',

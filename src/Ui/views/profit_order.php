@@ -1,8 +1,8 @@
 <?php
 // Profit › one order (docs/decisions.md PR27): its money (goods sold ex VAT, buying cost, profit and margin, with its re-sends' cost when
-// it has re-sends; delivery charged and refunded; the refunds not on a line; what the customer paid), every line (sale ex VAT, the cost of
-// one unit and where it came from, the line's cost, profit and margin; cancelled, free, back in stock or no longer on the order said in
-// words), its parcels and its re-sends. Read only.
+// it has re-sends; delivery charged and refunded; the refunds not on a line; what the customer paid), its lines as one row per product,
+// cost of one unit, where the cost came from and state (PR84: their units counted; sale ex VAT, cost, profit and margin added up; cancelled,
+// free, back in stock, refunded or no longer on the order said in words), its parcels and its re-sends. Read only.
 $o = $order;
 $sale = (int) $o['sale_ex'];
 $cost = (int) $o['cost'];
@@ -79,7 +79,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
   <tbody>
 <?php foreach ($lines as $l): ?>
     <tr>
-      <th scope="row"><?php if ($l['sku_id'] !== null): ?><a href="<?= $u('/ui/items/' . (int) $l['sku_id']) ?>"><?= $e((string) ($l['sku_name'] ?? '')) ?></a> <span class="muted"><?= $e((string) ($l['sku_code'] ?? '')) ?></span><?php else: ?><?= $say('PROFIT', 'variant', (string) $l['variant_id']) ?><?php endif; ?><?php if ((int) $l['cancelled'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'cancelled') ?></span><?php endif; ?><?php if ((int) $l['is_free'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'free') ?></span><?php endif; ?><?php if ((int) $l['restocked'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'restocked') ?></span><?php endif; ?><?php if ($l['removed_at'] !== null): ?> <span class="muted"><?= $word('PROFIT', 'removed') ?></span><?php endif; ?></th>
+      <th scope="row"><?php if ($l['sku_id'] !== null): ?><a href="<?= $u('/ui/items/' . (int) $l['sku_id']) ?>"><?= $e((string) ($l['sku_name'] ?? '')) ?></a> <span class="muted"><?= $e((string) ($l['sku_code'] ?? '')) ?></span><?php else: ?><?= $say('PROFIT', 'variant', (string) $l['variant_id']) ?><?php endif; ?><?php if ((int) $l['cancelled'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'cancelled') ?></span><?php endif; ?><?php if ((int) $l['is_free'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'free') ?></span><?php endif; ?><?php if ((int) $l['restocked'] === 1): ?> <span class="muted"><?= $word('PROFIT', 'restocked') ?></span><?php endif; ?><?php if ((int) $l['refund_inc'] > 0): ?> <span class="muted"><?= $word('PROFIT', 'refunded') ?></span><?php endif; ?><?php if ($l['removed_at'] !== null): ?> <span class="muted"><?= $word('PROFIT', 'removed') ?></span><?php endif; ?></th>
       <td class="num" data-label="<?= $word('PROFIT', 'units') ?>"><?= $n($l['units']) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money((int) $l['sale_ex'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'unit_cost') ?>"><?php if ($l['unit_cost_e4'] !== null): ?><?= $e(\CW\Profit\ProfitViews::price((int) $l['unit_cost_e4'])) ?><?php endif; ?></td>

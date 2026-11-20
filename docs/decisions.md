@@ -18908,3 +18908,19 @@ profit. The money stays exact, line by line: goods = price - discount - refund, 
 two lines of -2p: £12.95 inc VAT, £10.79 ex VAT (£10.83 - 2p - 2p); four 49p lines less 1p and one 49p line less -99p: £3.40 inc VAT, £2.83
 ex VAT (4 x 40p + £1.23) (ProfitSnapshotShapesTest). A price below -£1.00, or a discount below minus (price + £1.00), is still refused, with
 its field. The bulk test's refused example is now a price of -£1.01 (its -5p is a real shape since change 8).
+
+### The lead's look at the screens on real data (51417a3 on a copy of live CW, 50 real days; PR84, PR85)
+
+**PR84.** An order's page shows its lines as one row per product (its CW item, else its website number), cost of one unit, where the cost
+came from and state (cancelled, free, back in stock, refunded, no longer on the order): its units counted, goods sold, cost and profit added
+up and its margin from those sums (ProfitViews::grouped; Words PROFIT refunded). An order of 20 identical units shows one row of 20, not 20
+rows; the rows add up to the order's own units, goods sold and cost exactly (21 units, £24.00, £10.50 in the test: 19 sold, 1 refunded but
+not back in stock, 1 cancelled, 1 of another product).
+
+**PR85.** Summed figures (the summary, by day / week / month, by shop / product / brand / supplier) say "incomplete" only when the units with
+no buying price or still waiting for one are more than 0.5% of their units (more than 1 in 200: ProfitViews::INCOMPLETE_PER, incomplete());
+the No price count column always shows the count. The units rule was chosen over a share of goods because both counts are on every row (no
+estimate needed) and it is the one the list's sort can use in SQL: a list by margin ranks a row as incomplete by the same rule (1 unit in
+1,000 without a price no longer pushes a 60% product after a 50% one). 5 of 1,000: not said; 6 of 1,000: said; 1 of 400 on a day: the count
+1, no "incomplete"; 3 of 400: "incomplete". One order is still incomplete with any unit without a price (its margin is not known).
+

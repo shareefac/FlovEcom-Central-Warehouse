@@ -26,6 +26,8 @@ final class ProfitViews
     public const ROW_LIMIT = 300;
     /** The summary's periods, in order. */
     public const SUMMARY = ['today', 'yesterday', 'last_7', 'last_30', 'this_month', 'last_month'];
+    /** Summed figures are "incomplete" when more than 1 unit in this many has no known cost (0.5%; PR85). */
+    public const INCOMPLETE_PER = 200;
     private const SUMS = 'COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(resends), 0) AS resends, COALESCE(SUM(units), 0) AS units, '
         . 'COALESCE(SUM(sale_ex), 0) AS sale_ex, COALESCE(SUM(order_refund_ex), 0) AS order_refund_ex, COALESCE(SUM(cost), 0) AS cost, '
         . 'COALESCE(SUM(units_no_cost), 0) AS units_no_cost, COALESCE(SUM(delivery_ex), 0) AS delivery_ex';
@@ -136,7 +138,8 @@ final class ProfitViews
         // incomplete row after the rows whose margin is known BEFORE the list is cut at ROW_LIMIT (the Codex re-checks of 37a2cf0 and 6b8a7ee,
         // c6); a brand's waiting units are matched by the database's own comparison, the one its rows are grouped by (case does not matter).
         $pending = 'COALESCE(MAX(w.u), 0)';
-        $incomplete = "(SUM(p.units_no_cost) > 0 OR {$pending} > 0)";
+        // Incomplete as figures() says it (PR85): more than 0.5% of the row's units without a known cost.
+        $incomplete = '((SUM(p.units_no_cost) + ' . $pending . ') * ' . self::INCOMPLETE_PER . ' > SUM(p.units))';
         $order = match ($sort) {
             'sale' => "{$goods} DESC",
             'cost' => 'SUM(p.cost) DESC',
@@ -288,12 +291,41 @@ final class ProfitViews
         $theirs = array_filter($resends, static fn (array $r): bool => $r['paid_at'] !== null && ((int) $r['units_no_cost'] > 0 || (int) $r['pending'] > 0)) !== [];
         return [
             'order' => $o,
-            'lines' => $lines,
+            'lines' => self::grouped($lines),
             'parcels' => $this->db->all('SELECT * FROM sale_parcel WHERE channel_id = ? AND order_ref = ? ORDER BY removed_at IS NOT NULL, label_at, parcel_ref', [$store, $ref]),
             'resends' => $resends,
             'own_incomplete' => $own,
             'resends_incomplete' => $theirs,
         ];
+    }
+
+    /**
+     * An order's lines as the page shows them (the lead's look at real data, PR84): one row per product (its CW item, else its website
+     * number), cost of one unit, where the cost came from and state (cancelled, free, back in stock, refunded, no longer on the order), its
+     * units, goods sold, cost and profit added up (so the order's totals stay what they are) and its margin from those sums.
+     *
+     * @param list<array<string, mixed>> $lines
+     * @return list<array<string, mixed>>
+     */
+    public static function grouped(array $lines): array
+    {
+        $out = [];
+        foreach ($lines as $l) {
+            $key = implode('|', [$l['sku_id'] === null ? 'v' . $l['variant_id'] : 's' . $l['sku_id'], $l['unit_cost_e4'] ?? '-', $l['cost_source'] ?? '-',
+                (int) $l['cancelled'], (int) $l['is_free'], (int) $l['restocked'], (int) $l['refund_inc'] > 0 ? 1 : 0, $l['removed_at'] === null ? 0 : 1]);
+            if (!isset($out[$key])) {
+                $out[$key] = $l + ['lines' => 0];
+                $out[$key]['units'] = 0;
+                $out[$key]['sale_ex'] = 0;
+                $out[$key]['cost'] = 0;
+            }
+            $out[$key]['lines']++;
+            $out[$key]['units'] += (int) $l['units'];
+            $out[$key]['sale_ex'] += (int) $l['sale_ex'];
+            $out[$key]['cost'] += (int) $l['cost'];
+        }
+        return array_values(array_map(static fn (array $g): array => ['profit' => $g['sale_ex'] - $g['cost'],
+            'margin_bp' => ProfitMath::marginBp($g['sale_ex'] - $g['cost'], $g['sale_ex'])] + $g, $out));
     }
 
     /**
@@ -335,7 +367,17 @@ final class ProfitViews
         return ['orders' => (int) ($r['orders'] ?? 0), 'resends' => (int) ($r['resends'] ?? 0), 'units' => (int) ($r['units'] ?? 0), 'goods' => $goods, 'cost' => $cost,
             'profit' => $goods - $cost, 'margin_bp' => ProfitMath::marginBp($goods - $cost, $goods), 'delivery' => (int) ($r['delivery_ex'] ?? 0),
             'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
-            'incomplete' => (int) ($r['units_no_cost'] ?? 0) > 0 || (int) ($r['pending'] ?? 0) > 0];
+            'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0))];
+    }
+
+    /**
+     * Whether summed figures are said "incomplete" (the lead's look at real data, PR85): the units with no buying price, or waiting for one,
+     * are more than 0.5% of the units (one in 200). Below that the margin moves by less than the units' share of the goods, and the count of
+     * those units is on the page anyway (the No price column). One order is incomplete with any unit (orderRow).
+     */
+    public static function incomplete(int $unknownUnits, int $units): bool
+    {
+        return $unknownUnits > 0 && $unknownUnits * self::INCOMPLETE_PER > $units;
     }
 
     /** Pence as a decimal amount of pounds ("-12.05"), for the money helper. */
