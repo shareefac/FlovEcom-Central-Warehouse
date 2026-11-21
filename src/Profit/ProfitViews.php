@@ -210,12 +210,17 @@ final class ProfitViews
         $cols = 'o.channel_id, o.order_ref, o.order_no, o.status, o.paid_at, o.gateway, o.parent_ref, o.units, o.sale_ex, o.cost, o.resend_cost, o.resends, '
             . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store, '
             . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
-            . 'AND l.units > 0 AND l.restocked = 0) AS pending, '
-            . 'IF(o.resends > 0, (SELECT COALESCE(SUM(r.units_no_cost), 0) FROM sale_order r WHERE r.channel_id = o.channel_id AND r.parent_ref = o.order_ref '
-            . 'AND r.paid_at IS NOT NULL AND r.order_ref <> o.order_ref), 0) AS resend_no_cost, '
-            . 'IF(o.resends > 0, (SELECT COUNT(*) FROM sale_order r JOIN sale_line l ON l.channel_id = r.channel_id AND l.order_ref = r.order_ref WHERE r.channel_id = o.channel_id '
-            . 'AND r.parent_ref = o.order_ref AND r.paid_at IS NOT NULL AND r.order_ref <> o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 '
-            . 'AND l.restocked = 0), 0) AS resend_pending';
+            . 'AND l.units > 0 AND l.restocked = 0) AS pending';
+        // Its re-sends' units with no price or waiting for one are those of its whole chain (a replacement of a replacement too: the second
+        // final review of 3c31d94, a-M9, c-M6, PR143), read for the rows that have re-sends (a few on a page).
+        $chain = function (array $rows): array {
+            foreach ($rows as $i => $r) {
+                $f = (int) $r['resends'] > 0 ? OrderSnapshots::resendFigures($this->db, (int) $r['channel_id'], (string) $r['order_ref']) : ['nc' => 0, 'open' => 0];
+                $rows[$i]['resend_no_cost'] = (int) $f['nc'];
+                $rows[$i]['resend_pending'] = (int) $f['open'];
+            }
+            return $rows;
+        };
         if ($q !== '') {
             $rows = [];
             foreach ($this->stores() as $s) {
@@ -230,7 +235,7 @@ final class ProfitViews
                 . ' LIMIT 50', [$q, ...($store === null ? [] : [$store])]) as $r) {
                 $rows[$r['channel_id'] . ':' . $r['order_ref']] = $r;
             }
-            return ['rows' => array_map(self::orderRow(...), array_values($rows)), 'total' => count($rows), 'next' => null];
+            return ['rows' => array_map(self::orderRow(...), $chain(array_values($rows))), 'total' => count($rows), 'next' => null];
         }
         $lo = \CW\Clock::db(ReportRefresh::bounds($from)[0]);
         $hi = \CW\Clock::db(ReportRefresh::bounds($to)[1]);
@@ -240,8 +245,10 @@ final class ProfitViews
             $where[] = 'o.channel_id = ?';
             $params[] = $store;
         }
-        // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2).
-        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where), $params) : null;
+        // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2); the lowest margin first counts the
+        // orders it can show, those with a margin (the second final review of 3c31d94, b-L1, c-L2, PR147: it counted the replacements too).
+        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where) . ($lowest ? ' AND o.margin_bp IS NOT NULL' : ''),
+            $params) : null;
         $hint = '';
         if ($lowest) {
             // The period's orders sorted (its paid-time index bounds them; the period is at most LOWEST_MAX_DAYS), never the whole history in
@@ -268,7 +275,7 @@ final class ProfitViews
             $last = $rows[self::PAGE - 1];
             $next = [$lowest ? (string) $last['margin_bp'] : (string) $last['paid_at'], (int) $last['channel_id'], (string) $last['order_ref']];
         }
-        return ['rows' => array_map(self::orderRow(...), $rows), 'total' => $total, 'next' => $next];
+        return ['rows' => array_map(self::orderRow(...), $chain($rows)), 'total' => $total, 'next' => $next];
     }
 
     /**
@@ -316,18 +323,30 @@ final class ProfitViews
             return $l + ['profit' => $sale - $cost, 'margin_bp' => ProfitMath::marginBp($sale - $cost, $sale)];
         }, $this->db->all('SELECT l.*, s.code AS sku_code, s.name AS sku_name FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id '
             . 'WHERE l.channel_id = ? AND l.order_ref = ? ORDER BY l.removed_at IS NOT NULL, l.line_id', [$store, $ref]));
-        $resends = $this->db->all('SELECT o.order_ref, o.order_no, o.paid_at, o.cost, o.units, o.units_no_cost, (SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id '
-            . 'AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 AND l.restocked = 0) AS pending FROM sale_order o '
-            . 'WHERE o.channel_id = ? AND o.parent_ref = ? '
-            . 'ORDER BY o.paid_at, o.order_ref', [$store, $ref]);
+        // Its re-sends: every replacement of its chain when it is a first order (a replacement of a replacement too, PR143); a replacement's
+        // own go on its first order.
+        $chain = $o['parent_ref'] === null ? OrderSnapshots::descendants($this->db, $store, (string) $o['order_ref']) : [];
+        $resends = $chain === [] ? [] : $this->db->all('SELECT o.order_ref, o.order_no, o.paid_at, o.cost, o.units, o.units_no_cost, (SELECT COUNT(*) FROM sale_line l '
+            . 'WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 AND l.restocked = 0) AS pending '
+            . 'FROM sale_order o WHERE o.channel_id = ? AND o.order_ref IN (' . implode(', ', array_fill(0, count($chain), '?')) . ') ORDER BY o.paid_at, o.order_ref',
+            [$store, ...$chain]);
         // Whether its own units, and its paid re-sends' units, all have their buying price (the Codex re-check of e5d2e5a, S1): the profit is
         // "not known" exactly when they do not, whatever the order sold for.
         $own = $o['paid_at'] !== null && ((int) $o['units_no_cost'] > 0
             || array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null && (int) $l['units'] > 0
                 && (int) $l['restocked'] === 0) !== []);
         $theirs = array_filter($resends, static fn (array $r): bool => $r['paid_at'] !== null && ((int) $r['units_no_cost'] > 0 || (int) $r['pending'] > 0)) !== [];
+        // A clone's price the shop has on it, as its page says it is not counted: its lines that count (a cancelled line, or one gone from the
+        // order, is none of it: the second final review of 3c31d94, Fable L7, PR147).
+        $cloneGoods = 0;
+        foreach ($lines as $l) {
+            if ((int) $l['cancelled'] === 0 && $l['removed_at'] === null) {
+                $cloneGoods += (int) $l['price_inc'] - (int) $l['discount_inc'];
+            }
+        }
         return [
             'order' => $o,
+            'clone_goods_inc' => $cloneGoods,
             'lines' => self::grouped($lines),
             'parcels' => $this->db->all('SELECT * FROM sale_parcel WHERE channel_id = ? AND order_ref = ? ORDER BY removed_at IS NOT NULL, label_at, parcel_ref', [$store, $ref]),
             'resends' => $resends,

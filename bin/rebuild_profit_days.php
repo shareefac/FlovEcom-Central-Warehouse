@@ -16,8 +16,11 @@ declare(strict_types=1);
  * The check takes no lock (it reads each store-day in one consistent snapshot), so it always compares; --apply takes the job's lock and, when
  * another run holds it, does nothing and says so (exit 4; the Codex check of c48683e).
  *
- * Exit codes: 0 done (the check: no day differs) · 1 the check found a day that differs · 2 usage · 3 cannot run · 4 --apply not run: another
- * run holds the job's lock.
+ * One store-day that cannot be read or rebuilt (its summary row held elsewhere longer than ProfitDays::REBUILD_LOCK_WAIT_SEC, any error) is
+ * named and the next goes on; the run then ends with exit 1 (the second final review of 3c31d94; docs/decisions.md PR132).
+ *
+ * Exit codes: 0 done (the check: no day differs) · 1 the check found a day that differs, or a store-day failed (named) · 2 usage · 3 cannot
+ * run · 4 --apply not run: another run holds the job's lock.
  */
 
 use CW\Ops\Cli;
@@ -55,15 +58,26 @@ exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:', 'che
             $cli->error('not run: another run of this job holds its lock; nothing written');
             return Cli::BUSY;
         }
+        if ($apply) {
+            // A store-day's row held elsewhere is waited for a few seconds, then named and left (the next day goes on).
+            $cli->db->exec('SET SESSION innodb_lock_wait_timeout = ' . ProfitDays::REBUILD_LOCK_WAIT_SEC);
+        }
         $days = 0;
         $differ = 0;
+        $failed = 0;
         for ($d = $from; $d <= $to; $d = ReportRefresh::nextDay($d)) {
             foreach ($channels as $ch) {
-                if ($apply) {
-                    ProfitDays::rebuild($cli->db, (int) $ch, $d);
+                try {
+                    if ($apply) {
+                        ProfitDays::rebuild($cli->db, (int) $ch, $d);
+                        continue;
+                    }
+                    $diff = ProfitDays::differences($cli->db, (int) $ch, $d);
+                } catch (Throwable $e) {
+                    $failed++;
+                    $cli->error("{$d} store {$ch} not " . ($apply ? 'rebuilt' : 'checked') . ': ' . Cli::describe($e) . ' (the next goes on; run it again for that day)');
                     continue;
                 }
-                $diff = ProfitDays::differences($cli->db, (int) $ch, $d);
                 if ($diff !== []) {
                     $differ++;
                     foreach (array_slice($diff, 0, 50) as $line) {
@@ -77,9 +91,10 @@ exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:', 'che
             $days++;
         }
         if ($apply) {
-            $cli->log("rebuilt {$days} days for " . count($channels) . ' stores');
-            return Cli::OK;
+            $cli->log("rebuilt {$days} days for " . count($channels) . ' stores' . ($failed > 0 ? "; {$failed} store-days failed (named above)" : ''));
+            return $failed > 0 ? Cli::PROBLEM : Cli::OK;
         }
-        $cli->log("checked {$days} days for " . count($channels) . " stores: {$differ} store-days differ (nothing written" . ($differ > 0 ? '; --apply writes what the orders add up to)' : ')'));
-        return $differ > 0 ? Cli::PROBLEM : Cli::OK;
+        $cli->log("checked {$days} days for " . count($channels) . " stores: {$differ} store-days differ (nothing written" . ($differ > 0 ? '; --apply writes what the orders add up to)' : ')')
+            . ($failed > 0 ? "; {$failed} store-days could not be read (named above)" : ''));
+        return $differ > 0 || $failed > 0 ? Cli::PROBLEM : Cli::OK;
     }, false, true));

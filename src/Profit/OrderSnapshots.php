@@ -68,6 +68,15 @@ final class OrderSnapshots
 
     /** How long accept() waits for another snapshot of the same order being stored (milliseconds of work): then 503 busy. */
     public const INTAKE_WAIT_SEC = 5;
+    /**
+     * The API's own waits (a web request in the PHP workers the stock calls share: the second final review of 3c31d94, a-M1, b-M10, PR134):
+     * at most about a second for the intake lock and a couple of seconds for the order's queue row (that request's session only), each then
+     * 503 busy (retryable); the bulk files keep the longer waits above.
+     */
+    public const API_INTAKE_WAIT_SEC = 1;
+    public const API_ROW_WAIT_SEC = 2;
+    /** A bulk file's order whose guards the minute job holds is tried again this many times, a second apart, before it is said busy (PR137). */
+    public const STORE_TRIES = 3;
     /** The most orders and seconds one run of the money work takes (bin/apply_order_snapshots.php, every minute). */
     public const QUEUE_MAX_ORDERS = 2000;
     public const QUEUE_MAX_SECONDS = 45;
@@ -88,10 +97,23 @@ final class OrderSnapshots
         $ref = SnapshotBody::orderRef($ref, 'ref');
         $q = $this->db->one('SELECT failed, error FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
         if ($q !== null && (int) $q['failed'] === 0) {
-            $this->applyOne($channelId, $ref, true);
-        } elseif ($q !== null && ($r['queued'] ?? false) === true) {
-            // What this call stored was refused by the money job, which ran in between: a refusal, as when this call works it out itself
-            // (never counted "stored" by the bulk file: the Codex check of 2b718e7).
+            // The minute job working the order out right now holds its guards: waited for and tried again a few times before it is said busy
+            // (the second final review of 3c31d94, Fable L3, PR137).
+            for ($try = 1; ; $try++) {
+                try {
+                    $this->applyOne($channelId, $ref, true);
+                    break;
+                } catch (\Throwable $e) {
+                    if (!self::isBusy($e) || $try >= self::STORE_TRIES) {
+                        throw $e;
+                    }
+                    usleep(1_000_000);
+                }
+            }
+        } elseif ($q !== null) {
+            // What CW holds of the order was refused by the money job (this call stored it and the job ran in between: the Codex check of
+            // 2b718e7; or the same snapshot sent again, "same": the second final review of 3c31d94, a-M7, PR137): a refusal, never counted
+            // "stored" or "same" by the bulk file.
             throw new CwException('bad_snapshot', 'refused by the money job: ' . (string) $q['error'], 400);
         }
         unset($r['queued']);
@@ -124,10 +146,17 @@ final class OrderSnapshots
         $hash = SnapshotBody::hash($body);
         $at = Clock::db($now);
         $lock = self::intakeLockName($channelId, $ref);
-        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$lock, min($this->lockWaitSec, self::INTAKE_WAIT_SEC)]) !== 1) {
+        $api = $source === 'api';
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$lock, min($this->lockWaitSec, $api ? self::API_INTAKE_WAIT_SEC : self::INTAKE_WAIT_SEC)]) !== 1) {
             throw new CwException('busy', 'another snapshot of this order is being stored; retry shortly', 503);
         }
+        $wait = null;
         try {
+            if ($api && !$this->db->inTransaction()) {
+                // The order's queue row waited for a couple of seconds at most, in this request's session only (put back after).
+                $wait = (int) $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+                $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . self::API_ROW_WAIT_SEC);
+            }
             return $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash, $source, $at): array {
                 // The newest CW holds: the one waiting (its row locked: the job takes it away only at the very end of its transaction), else
                 // the one worked out (read as committed; only the job writes it, from a queue row this read would have found).
@@ -157,8 +186,16 @@ final class OrderSnapshots
                 self::enqueue($db, $channelId, $ref, $body, $hash, $source, $at, $q !== null);
                 return ['result' => 'stored', 'version' => $body['version'], 'queued' => true];
             });
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) === 1205) {
+                throw new CwException('busy', 'another snapshot of this order is being worked out; retry shortly', 503);
+            }
+            throw $e;
         } finally {
             try {
+                if ($wait !== null) {
+                    $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
+                }
                 $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
             } catch (\Throwable) {
                 // the connection is gone: MySQL released it with the session
@@ -497,6 +534,11 @@ final class OrderSnapshots
         $newDay = $body['paid_at'] === null ? null : ReportRefresh::ukDay((string) $body['paid_at']);
         ProfitDays::guard($db, $channelId, array_values(array_filter([$oldDay === null ? null : (string) $oldDay, $newDay], static fn (?string $d): bool => $d !== null)));
         $old = $db->one('SELECT * FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
+        if ($old !== null) {
+            // The order's own ref as stored (the key compares without case): a snapshot sent as ord1 of ORD1 writes its new lines under ORD1, so
+            // the rebuild and every PHP comparison find them with their order (the second final review of 3c31d94, a-M8, c-M7, PR132).
+            $ref = (string) $old['order_ref'];
+        }
         $oldLines = [];
         // Keyed without case, as the table's key compares (L1 then l1 is the same line, never one removed and one new: the Codex check of
         // c48683e).
@@ -514,8 +556,9 @@ final class OrderSnapshots
         foreach (array_chunk($ids, 500) as $chunk) {
             foreach ($db->all('SELECT u.unit_id, u.listing_id, u.sku_id, u.units_per_item, u.state, r.order_ref FROM reservation_unit u JOIN reservation r ON r.id = u.reservation_id '
                 . 'WHERE u.channel_id = ? AND u.unit_id IN (' . self::marks($chunk) . ')', [$channelId, ...$chunk]) as $r) {
-                if ((string) $r['order_ref'] !== $ref) {
-                    // The unit id is a unit of another order of the store in CW (the Codex review of 92efa82, b6): refused whole.
+                if (strcasecmp((string) $r['order_ref'], $ref) !== 0) {
+                    // The unit id is a unit of another order of the store in CW (the Codex review of 92efa82, b6): refused whole. Compared without
+                    // case, as the database does (a reservation of vpg42 is order VPG42's: the second final review of 3c31d94, a-HIGH4, PR132).
                     $i = self::indexOf($ids, (string) $r['unit_id']);
                     throw new CwException('bad_snapshot', "line {$r['unit_id']} is a unit of another order", 400, ['field' => "lines[{$i}].line_id"]);
                 }
@@ -631,8 +674,10 @@ final class OrderSnapshots
             'parent_ref' => $body['parent_ref'], 'sub_of' => $body['sub_of'] ?? null, 'vat_bp' => $vatBp, 'snapshot_version' => (int) $body['version'],
             'first_at' => $old === null ? $now : (string) $old['first_at'], 'updated_at' => $now,
         ];
-        // Its re-sends (the cost that belongs to it), as stored now.
-        $rs = self::resendFigures($db, $channelId, $ref);
+        // Its re-sends (the cost that belongs to it), as stored now: every replacement of its chain (a replacement of a replacement too) when it
+        // is a first order; none when it is a replacement itself: theirs go on the first order of the chain (the owner's rule; the second final
+        // review of 3c31d94, a-M9, c-M6, PR143).
+        $rs = $body['parent_ref'] !== null ? ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0] : self::resendFigures($db, $channelId, $ref);
         $order['resends'] = (int) $rs['n'];
         $order['resend_cost'] = (int) $rs['c'];
         // No margin while some units have no buying price or wait for it (a figure that is not known is never ranked: the Codex review of
@@ -657,11 +702,18 @@ final class OrderSnapshots
             }
         }
         $this->parcels($db, $channelId, $ref, $body['parcels'], $now);
-        // The re-send figures of the order(s) this one is (or was) a re-send of.
-        $parents = array_values(array_unique(array_filter([$old['parent_ref'] ?? null, $body['parent_ref']], static fn (mixed $p): bool => $p !== null)));
-        sort($parents, SORT_STRING);
+        // The re-send figures of the first order(s) of the chain(s) this one is (or was) in: its parent followed up to the order that is none's
+        // re-send (PR143).
+        $parents = [];
+        foreach ([$old['parent_ref'] ?? null, $body['parent_ref']] as $p) {
+            if ($p !== null) {
+                $root = self::rootOf($db, $channelId, (string) $p);
+                $parents[strtolower($root)] = $root;
+            }
+        }
+        ksort($parents, SORT_STRING);
         foreach ($parents as $p) {
-            self::refreshParent($db, $channelId, (string) $p);
+            self::refreshParent($db, $channelId, $p);
         }
         // The day summaries: what the order counts now less what it counted before.
         ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines), ProfitDays::orderShare($order, $newLines));
@@ -722,11 +774,60 @@ final class OrderSnapshots
         return $r['removed_at'] === null && (int) $r['units'] > 0 && (int) $r['restocked'] === 0 && ($r['cost_source'] ?? null) === 'none' ? (int) $r['units'] : 0;
     }
 
-    /** The re-sends of $parent (paid, stored) and their cost on its row, and its margin with them. */
+    /** How far a chain of replacements is followed (a replacement of a replacement ...), up and down: bad data never loops. */
+    public const CHAIN_DEPTH = 10;
+
+    /**
+     * The first order of the chain $ref is in: its parent_ref followed up while the order is stored and names one, at most CHAIN_DEPTH steps,
+     * never round a loop (PR143). An order not stored yet is its own first order for now (its replacements' cost goes on it when it comes).
+     */
+    public static function rootOf(Db $db, int $channelId, string $ref): string
+    {
+        $seen = [strtolower($ref) => true];
+        for ($i = 0; $i < self::CHAIN_DEPTH; $i++) {
+            $p = $db->value('SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+            if ($p === null || isset($seen[strtolower((string) $p)])) {
+                return $ref;
+            }
+            $ref = (string) $p;
+            $seen[strtolower($ref)] = true;
+        }
+        return $ref;
+    }
+
+    /**
+     * Every replacement of $root's chain (stored): the orders naming it, the orders naming those, ... at most CHAIN_DEPTH levels, each once
+     * (PR143).
+     *
+     * @return list<string>
+     */
+    public static function descendants(Db $db, int $channelId, string $root): array
+    {
+        $seen = [strtolower($root) => true];
+        $out = [];
+        $level = [$root];
+        for ($depth = 0; $level !== [] && $depth < self::CHAIN_DEPTH; $depth++) {
+            $next = [];
+            foreach (array_chunk($level, 500) as $chunk) {
+                foreach ($db->column('SELECT order_ref FROM sale_order WHERE channel_id = ? AND parent_ref IN (' . self::marks($chunk) . ') ORDER BY order_ref',
+                    [$channelId, ...$chunk]) as $r) {
+                    if (!isset($seen[strtolower((string) $r)])) {
+                        $seen[strtolower((string) $r)] = true;
+                        $out[] = (string) $r;
+                        $next[] = (string) $r;
+                    }
+                }
+            }
+            $level = $next;
+        }
+        return $out;
+    }
+
+    /** The re-sends of $parent's chain (paid, stored) and their cost on its row, and its margin with them; a replacement holds none (PR143). */
     public static function refreshParent(Db $db, int $channelId, string $parent): void
     {
-        $p = $db->one('SELECT sale_ex, cost, units_no_cost, margin_bp FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $parent]);
-        if ($p === null) {
+        $p = $db->one('SELECT sale_ex, cost, units_no_cost, margin_bp, parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $parent]);
+        if ($p === null || $p['parent_ref'] !== null) {
             return;
         }
         $rs = self::resendFigures($db, $channelId, $parent);
@@ -742,18 +843,25 @@ final class OrderSnapshots
     }
 
     /**
-     * The paid re-sends of $parent as stored now: how many, their cost, their units with no price and their lines waiting for a cost.
+     * The paid re-sends of $parent's chain as stored now (descendants(): a replacement of a replacement too, PR143): how many, their cost,
+     * their units with no price and their lines waiting for a cost.
      *
      * @return array{n: int|string, c: int|string, nc: int|string, open: int|string}
      */
-    private static function resendFigures(Db $db, int $channelId, string $parent): array
+    public static function resendFigures(Db $db, int $channelId, string $parent): array
     {
-        $r = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
-            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ?', [$channelId, $parent, $parent]) ?? ['n' => 0, 'c' => 0, 'nc' => 0];
-        $r['open'] = $db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
-            . 'WHERE o.channel_id = ? AND o.parent_ref = ? AND o.paid_at IS NOT NULL AND o.order_ref <> ? AND l.cost_source IS NULL AND l.removed_at IS NULL AND l.units > 0 '
-            . 'AND l.restocked = 0',
-            [$channelId, $parent, $parent]) ?? 0;
+        $refs = self::descendants($db, $channelId, $parent);
+        $r = ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0];
+        foreach (array_chunk($refs, 500) as $chunk) {
+            $f = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
+                . 'WHERE o.channel_id = ? AND o.order_ref IN (' . self::marks($chunk) . ') AND o.paid_at IS NOT NULL', [$channelId, ...$chunk]) ?? [];
+            $r['n'] += (int) ($f['n'] ?? 0);
+            $r['c'] += (int) ($f['c'] ?? 0);
+            $r['nc'] += (int) ($f['nc'] ?? 0);
+            $r['open'] += (int) ($db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+                . 'WHERE o.channel_id = ? AND o.order_ref IN (' . self::marks($chunk) . ') AND o.paid_at IS NOT NULL AND l.cost_source IS NULL AND l.removed_at IS NULL '
+                . 'AND l.units > 0 AND l.restocked = 0', [$channelId, ...$chunk]) ?? 0);
+        }
         return $r;
     }
 

@@ -17,7 +17,11 @@ use CW\Db;
 final class ReturnsSweep
 {
     public const JOB = 'returns';
+    /** The nightly check's last summary (profit_job; bin/refresh_item_cost.php --status reads it). */
+    public const CHECK_JOB = 'returns_check';
     public const MAX_ORDERS = 5000;
+    /** The nightly check reads a store's returned units this many at a time (its (channel_id, state) index). */
+    public const PAGE = 2000;
 
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
@@ -30,24 +34,48 @@ final class ReturnsSweep
 
     /**
      * The nightly check (bin/refresh_item_cost.php --reconcile): every sale line whose unit is back in stock in CW and is not shown so, found
-     * whatever the time of its return (a return whose booking committed after the sweep's window: the Codex review of 57d98ad, b2). Reads
-     * every returned unit (a full read, once a night; a few hundred units a month come back).
+     * whatever the time of its return (a return whose booking committed after the sweep's window: the Codex review of 57d98ad, b2). One store
+     * at a time, its returned units read in pages on its (channel_id, state) index, at most $maxOrders orders a store (the second final review
+     * of 3c31d94, a-M3, PR149: one query over every store's units filtered on the state alone); an order whose work fails is counted and named,
+     * and the next goes on (PR132).
      *
-     * @return array{orders: int}
+     * @return array{orders: int, failed: int, errors: list<array<string, mixed>>}
      */
     public function reconcile(int $maxOrders = self::MAX_ORDERS): array
     {
-        $orders = $this->db->all("SELECT DISTINCT s.channel_id, s.order_ref FROM reservation_unit u JOIN sale_line s ON s.channel_id = u.channel_id AND s.line_id = u.unit_id "
-            . "WHERE u.state = 'returned' AND s.restocked = 0 AND s.removed_at IS NULL ORDER BY s.channel_id, s.order_ref LIMIT " . max(1, $maxOrders));
         $snapshots = new OrderSnapshots($this->db, $this->clock);
-        $n = 0;
-        foreach ($orders as $o) {
-            $n += $snapshots->recompute((int) $o['channel_id'], (string) $o['order_ref']) ? 1 : 0;
+        $out = ['orders' => 0, 'failed' => 0, 'errors' => []];
+        foreach (array_map('intval', $this->db->column('SELECT id FROM channel ORDER BY id')) as $ch) {
+            $orders = [];
+            $after = [0, ''];
+            do {
+                $page = $this->db->all("SELECT u.reservation_id, u.unit_id, s.order_ref, s.restocked, s.removed_at FROM reservation_unit u FORCE INDEX (ix_reservation_unit_store_state) "
+                    . "LEFT JOIN sale_line s ON s.channel_id = u.channel_id AND s.line_id = u.unit_id WHERE u.channel_id = ? AND u.state = 'returned' "
+                    . 'AND (u.reservation_id, u.unit_id) > (?, ?) ORDER BY u.reservation_id, u.unit_id LIMIT ' . self::PAGE, [$ch, $after[0], $after[1]]);
+                foreach ($page as $r) {
+                    if ($r['order_ref'] !== null && (int) $r['restocked'] === 0 && $r['removed_at'] === null) {
+                        $orders[strtolower((string) $r['order_ref'])] ??= (string) $r['order_ref'];
+                    }
+                }
+                $last = $page === [] ? null : $page[count($page) - 1];
+                if ($last !== null) {
+                    $after = [(int) $last['reservation_id'], (string) $last['unit_id']];
+                }
+            } while (count($page) === self::PAGE && count($orders) < $maxOrders);
+            ksort($orders, SORT_STRING);
+            foreach (array_slice($orders, 0, max(1, $maxOrders)) as $ref) {
+                try {
+                    $out['orders'] += $snapshots->recompute($ch, $ref) ? 1 : 0;
+                } catch (\Throwable $e) {
+                    PendingCosts::failed($out, $ch, $ref, $e);
+                }
+            }
         }
-        return ['orders' => $n];
+        PendingCosts::summary($this->db, self::CHECK_JOB, $out, $this->clock);
+        return $out;
     }
 
-    /** @return array{orders: int, mark_at: string} */
+    /** @return array{orders: int, failed: int, errors: list<array<string, mixed>>, mark_at: string} */
     public function run(int $maxOrders = self::MAX_ORDERS): array
     {
         $now = ($this->clock)();
@@ -66,7 +94,7 @@ final class ReturnsSweep
             . "JOIN sale_line s ON s.channel_id = l.channel_id AND s.line_id = l.unit_id AND s.restocked = 0 "
             . "WHERE l.created_at >= ? AND l.created_at <= ? AND l.movement_type = 'return' AND l.channel_id IS NOT NULL ORDER BY l.created_at, l.id",
             [$from, $cutoff]) as $r) {
-            $k = (int) $r['channel_id'] . "\0" . (string) $r['order_ref'];
+            $k = (int) $r['channel_id'] . "\0" . strtolower((string) $r['order_ref']); // one order, whatever the case of its ref (PR132)
             if (!isset($orders[$k]) && count($orders) >= $maxOrders) {
                 $newMark = (string) $r['created_at'];
                 break;
@@ -74,12 +102,18 @@ final class ReturnsSweep
             $orders[$k] = [(int) $r['channel_id'], (string) $r['order_ref']];
         }
         $snapshots = new OrderSnapshots($this->db, $this->clock);
-        $n = 0;
+        $out = ['orders' => 0, 'failed' => 0, 'errors' => []];
         foreach ($orders as [$ch, $ref]) {
-            $n += $snapshots->recompute($ch, $ref) ? 1 : 0;
+            // One order whose work fails is counted and named; the next goes on (PR132). The mark still moves on: the nightly check reads every
+            // returned unit again whatever its time.
+            try {
+                $out['orders'] += $snapshots->recompute($ch, $ref) ? 1 : 0;
+            } catch (\Throwable $e) {
+                PendingCosts::failed($out, $ch, $ref, $e);
+            }
         }
         $this->db->exec('INSERT INTO profit_job (job, mark_at, ran_at, summary) VALUES (?, ?, ?, ?) AS x ON DUPLICATE KEY UPDATE mark_at = x.mark_at, '
-            . 'ran_at = x.ran_at, summary = x.summary', [self::JOB, max((string) $mark, $newMark), Clock::db($now), json_encode(['orders' => $n], JSON_THROW_ON_ERROR)]);
-        return ['orders' => $n, 'mark_at' => max((string) $mark, $newMark)];
+            . 'ran_at = x.ran_at, summary = x.summary', [self::JOB, max((string) $mark, $newMark), Clock::db($now), json_encode($out, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)]);
+        return $out + ['mark_at' => max((string) $mark, $newMark)];
     }
 }

@@ -25,6 +25,8 @@ final class ProfitDays
 {
     public const DAY_FIELDS = ['orders', 'resends', 'units', 'sale_ex', 'order_refund_ex', 'cost', 'units_no_cost', 'delivery_ex'];
     public const ITEM_FIELDS = ['units', 'sale_ex', 'cost', 'units_no_cost'];
+    /** bin/rebuild_profit_days.php --apply waits at most this long for a store-day's row held elsewhere, then names it and goes on (PR132). */
+    public const REBUILD_LOCK_WAIT_SEC = 10;
 
     /**
      * @param array<string, mixed>|null $order a sale_order row (or the row about to be written)
@@ -143,13 +145,18 @@ final class ProfitDays
         foreach ($db->all('SELECT * FROM sale_order WHERE day = ? AND channel_id = ?', [$day, $channelId]) as $o) {
             $orders[(string) $o['order_ref']] = ['o' => $o, 'lines' => []];
         }
-        foreach ($db->all('SELECT l.* FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+        // Each line under the ref of the order it joins (the key compares without case: a line stored as ord1 of ORD1 is ORD1's, never an
+        // order of its own that the day loses: the second final review of 3c31d94, a-M8, c-M7, PR132).
+        foreach ($db->all('SELECT l.*, o.order_ref AS of_order FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
             . 'WHERE o.day = ? AND o.channel_id = ?', [$day, $channelId]) as $l) {
-            $orders[(string) $l['order_ref']]['lines'][(string) $l['line_id']] = $l;
+            $orders[(string) $l['of_order']]['lines'][strtolower((string) $l['line_id'])] = $l;
         }
         $days = [];
         $items = [];
         foreach ($orders as $x) {
+            if (!isset($x['o'])) {
+                continue;
+            }
             $s = self::orderShare($x['o'], $x['lines']);
             $days = self::add($days, $s['days'], self::DAY_FIELDS);
             $items = self::add($items, $s['items'], self::ITEM_FIELDS);

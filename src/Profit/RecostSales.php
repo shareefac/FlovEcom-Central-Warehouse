@@ -61,12 +61,14 @@ final class RecostSales
             if ($apply) {
                 // What was really written, worked out again under the order's locks (the Codex check of c48683e: never the plan read before).
                 $done = null;
-                $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done): ?array {
+                $wrote = $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done): ?array {
                     $again = $plan($db);
                     $done = $again === null || $again['override'] === [] ? null : $again;
                     return $done === null ? null : $again['override'];
                 });
-                if ($done === null) {
+                // Counted only when recompute() says it committed: a change rolled back at its commit (a snapshot of the order stored meanwhile)
+                // is left for later, `deferred`, whatever the function worked out (the second final review of 3c31d94, a-M6, b-M7, c-M4, PR136).
+                if (!$wrote || $done === null) {
                     $out['deferred'] += $service->deferred ? 1 : 0;
                     continue;
                 }
