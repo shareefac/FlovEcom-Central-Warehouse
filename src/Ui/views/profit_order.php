@@ -19,6 +19,10 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
 <?php elseif ($own_incomplete): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
 <?php endif; ?>
+<?php if ($o['parent_ref'] !== null && ((int) $o['goods_inc'] - (int) $o['discount_inc'] !== 0 || (int) $o['delivery_charged_inc'] !== 0)): ?>
+<p class="note" role="status"><?= $say('PROFIT', 'resend_not_counted', \CW\Ui\Html::money(((int) $o['goods_inc'] - (int) $o['discount_inc']) / 100),
+    \CW\Ui\Html::money((int) $o['delivery_charged_inc'] / 100)) ?></p>
+<?php endif; ?>
 <div class="table-wrap">
 <table class="stack rp-table profit-order-money">
   <tbody>

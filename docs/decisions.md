@@ -19275,3 +19275,20 @@ box ever had it (a test schema is made again each run); round 9's b-HIGH2 (a ser
 is given by the go-live step, not required), c-HIGH1 / MEDIUM 3 with a Bin opening (known limit 4), a-HIGH2 (a PUT waits for the money job's
 last commit of that order, milliseconds), MEDIUM 2 (a parent order whose ref is the word "null"), MEDIUM 7 (the 45-second budget is checked
 before each order; one order's lock waits add a few times 3 seconds).
+
+### The owner's rule for clones (21 Nov 2026 ~01:58 UK, "Yes, that's right"; README open question 5): a clone's price is never money in
+
+**PR129.** Every order with parent_ref (the shop's clone link) is a re-send, a replacement, whatever price staff left on it (as built). New:
+nothing on it counts as money in. Its lines sell nothing (sale_inc, sale_ex 0), its refunds take nothing off (never below 0), its delivery
+charge is none (delivery_ex 0), so its own row, its margin (none: no sale to measure against), the day and item-day summaries, Profit by order
+and the summary count no money from it; what the shop sent stays in the `_inc` fields as it sent it (goods_inc, discount_inc, refund_inc,
+delivery_charged_inc). Its goods cost is as built: on its first order (resends, resend_cost, that order's margin) and in the day's cost on the
+clone's own day; never counted as an order. The clone's page says so when the shop has a price on it ("not counted as money in"). A snapshot
+that takes the link away makes it the order's own sale again (and its first order's figures follow, as any change of parent did); one that
+puts it back, no money again. Why (the owner): staff often forget to set a replacement's price to 0, and a real payment for a replacement
+(postage) is a Viva link outside the shop, so a price on a clone is not money received; who pays comes with the Resend button (CW-1147). Real
+month (cw_realcopy, 20 Oct - 18 Nov): 143 paid clones, 66 with a price (GBP 1,534 ex VAT goods, about GBP 148 delivery) that no longer count.
+Left as built: a clone of a clone puts its cost on the clone it names (parent_ref is not followed up a chain); the ERPNext import's day
+reconciliation line compares CW's goods (now without the clones' prices) with ERPNext's invoices, which may hold them (printed only).
+Tests: tests/Integration/Profit/CloneNeverMoneyInTest.php, tests/Integration/UiKernel/ProfitScreensTest.php (red on 24e2017:
+`runs/profit_clone_red.log`; green `runs/profit_clone_green.log`).

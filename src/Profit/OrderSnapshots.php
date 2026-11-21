@@ -573,6 +573,12 @@ final class OrderSnapshots
             $l = $x['l'];
             $id = (string) $l['line_id'];
             $m = ProfitMath::line($l, $x['upi'], $x['restocked'], $vatBp);
+            if ($body['parent_ref'] !== null) {
+                // A clone (a re-send, a replacement): the price staff left on it is never money in; its units and cost count as before (the
+                // owner, 21 Nov 2026, PR129).
+                $m['sale_inc'] = 0;
+                $m['sale_ex'] = 0;
+            }
             $prev = $x['prev'];
             $e4 = null;
             $source = null;
@@ -689,10 +695,13 @@ final class OrderSnapshots
         // An order-level refund comes off at the lines' own ex-VAT rate (each line rounded on its own): taken off the lines' sale in
         // proportion, so a refund of everything the lines sold takes their ex-VAT sale off exactly (ten 99p lines: 830p, not 825p; the final
         // review of 6d59eda, c-LOW1, PR105); what is beyond the lines' sale comes off at the order's rate.
+        // A clone (parent_ref: a re-send) counts no money at all (the owner, 21 Nov 2026, PR129): its lines sell nothing (apply()), its refunds
+        // take nothing off (never below 0) and its delivery charge is none; what the shop sent stays in the _inc fields as it sent it.
+        $clone = ($body['parent_ref'] ?? null) !== null;
         $refund = (int) $body['order_refund_inc'];
         $within = $t['sale_inc'] > 0 ? min($refund, $t['sale_inc']) : 0;
-        $refundEx = ($within > 0 ? ProfitMath::mulDivRound($t['sale_ex'], $within, $t['sale_inc']) : 0) + ProfitMath::exVat($refund - $within, $vatBp);
-        $t['sale_inc'] -= $refund;
+        $refundEx = $clone ? 0 : ($within > 0 ? ProfitMath::mulDivRound($t['sale_ex'], $within, $t['sale_inc']) : 0) + ProfitMath::exVat($refund - $within, $vatBp);
+        $t['sale_inc'] -= $clone ? 0 : $refund;
         $t['sale_ex'] -= $refundEx;
         $d = $body['delivery'];
         return $t + [
@@ -702,7 +711,7 @@ final class OrderSnapshots
             'delivery_method' => $d['method'],
             'delivery_charged_inc' => (int) $d['charged_inc'],
             'delivery_refund_inc' => (int) $d['refund_inc'],
-            'delivery_ex' => ProfitMath::exVat((int) $d['charged_inc'] - (int) $d['refund_inc'], $vatBp),
+            'delivery_ex' => $clone ? 0 : ProfitMath::exVat((int) $d['charged_inc'] - (int) $d['refund_inc'], $vatBp),
             'grand_inc' => (int) $body['grand_inc'],
         ];
     }

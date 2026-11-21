@@ -10896,6 +10896,7 @@ final class Words
         'order' => 'Order',
         'paid' => 'Paid',
         'resend_of' => 'Re-send of %s',
+        'resend_not_counted' => 'A re-send (a replacement): the price the shop has on it, goods %s and delivery %s with VAT, is not counted as money in. Its goods cost goes on its first order.',
         'sub_of' => 'Added to order %s',
         'page' => 'Page %s of %s.',
         'older' => 'Next page',

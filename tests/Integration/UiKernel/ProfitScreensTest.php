@@ -98,6 +98,26 @@ final class ProfitScreensTest extends KernelUiTestCase
         self::assertSame(200, $this->signIn($this->uiUser(['finance', 'reviewer']))->get('/ui/profit/orders')->status, 'Finance goes with another job');
     }
 
+    /** The owner's rule of 21 Nov 2026 (PR129): a price staff left on a re-send is never money in; the re-send's page says it is not counted. */
+    public function testAPriceLeftOnAReSendIsNotCounted(): void
+    {
+        [$site] = $this->orders();
+        $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-20 seconds')->format('Y-m-d\TH:i:s\Z');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '103', ['v' => 1, 'version' => 1, 'order_no' => 'VPG103', 'status' => 'completed',
+            'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => '100',
+            'lines' => [['line_id' => '6', 'variant_id' => '11', 'qty' => 1, 'price_inc' => 120, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]],
+            'delivery' => ['method_id' => '1', 'method' => 'Royal Mail Tracked 48', 'charged_inc' => 360, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 480,
+            'parcels' => []], 'api');
+        $fin = $this->signIn($this->uiUser('finance'));
+        self::assertSame([Words::PROFIT['today'], '2', '£7.55', '£2.50', '£5.05', '66.9% ' . Words::PROFIT['incomplete'], '£6.00', '1'],
+            self::rows($fin->get('/ui/profit'), 'profit-summary')[0], 'the re-send\'s 50p cost counted, its £1.20 price and £3.60 delivery never');
+        $page = $fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '103']);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertStringContainsString(Words::say('PROFIT', 'resend_not_counted', '£1.20', '£3.60'), $page->text());
+        self::assertStringNotContainsString(Words::say('PROFIT', 'resend_not_counted', '£0.00', '£0.00'),
+            $fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '102'])->text(), 'a free re-send: nothing to say');
+    }
+
     public function testEveryPageDrawsItsFigures(): void
     {
         [$site, $a, $b] = $this->orders();
