@@ -30,9 +30,12 @@ final class SnapshotImport
 
     /**
      * @param \Closure(string): void $log
-     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, totals_checked: bool, read: array<string, int>}
+     * @param ?string $notBefore the store's first reservation in CW (UTC): an order placed before it is refused, the file whole, nothing written
+     *        (bin/import_order_snapshots.php without --allow-unreserved; the second final review of 3c31d94, c-HIGH3, PR148); null: no such check
+     * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, totals_checked: bool, read: array<string, int>,
+     *         file_refused: int}
      */
-    public function file(string $channelCode, string $path, bool $dryRun, \Closure $log): array
+    public function file(string $channelCode, string $path, bool $dryRun, \Closure $log, ?string $notBefore = null): array
     {
         $channel = $this->db->value('SELECT id FROM channel WHERE code = ?', [$channelCode]);
         if ($channel === null) {
@@ -46,13 +49,17 @@ final class SnapshotImport
             throw new \InvalidArgumentException("{$base} is a file of the store {$m[1]}, not {$channelCode}");
         }
         $sum = $this->sum($path, $channelCode, $m[2]);
-        // The file as it is now, copied aside: what is checked is what is stored (the Codex review of 57d98ad, b14).
+        // The file as it is now, copied aside: what is checked is what is stored (the Codex review of 57d98ad, b14). The copy is removed whatever
+        // happens, a copy that failed half way too (the second final review of 3c31d94, b-M9, PR151).
         $copy = tempnam(sys_get_temp_dir(), 'cw_snap_');
-        if ($copy === false || !@copy($path, $copy)) {
-            throw new \InvalidArgumentException("cannot read {$path}");
+        if ($copy === false) {
+            throw new \InvalidArgumentException("cannot make a copy of {$path}");
         }
         try {
-            return $this->checked($copy, $sum, (int) $channel, $dryRun, $log);
+            if (!@copy($path, $copy)) {
+                throw new \InvalidArgumentException("cannot read {$path}");
+            }
+            return $this->checked($copy, $sum, (int) $channel, $dryRun, $log, $m[2], $notBefore);
         } finally {
             @unlink($copy);
         }
@@ -63,11 +70,33 @@ final class SnapshotImport
      * @param \Closure(string): void $log
      * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, read: array<string, int>}
      */
-    private function checked(string $path, array $sum, int $channel, bool $dryRun, \Closure $log): array
+    private function checked(string $path, array $sum, int $channel, bool $dryRun, \Closure $log, string $day, ?string $notBefore): array
     {
         $now = $this->clock === null ? \CW\Clock::now() : ($this->clock)();
         // Pass 1: every line checked, nothing written.
         $check = $this->pass($path, null, $channel, $now, static fn (string $m) => null);
+        // The file holds each order once, each placed on the file's own London day (the connector's export: one file per day the orders were
+        // PLACED, CONTRACT change 7), none placed before the store's first reservation when asked: else nothing is written (the second final
+        // review of 3c31d94, a-L3, b-M5, PR138; c-HIGH3, PR148): two copies of a £12 order with a .sum of two orders and £24 passed.
+        $bad = [];
+        foreach ($check['orders'] as $o) {
+            if ($o['twice'] !== null) {
+                $bad[] = "line {$o['line']}: order {$o['ref']} is in the file twice (line {$o['twice']} has it already)";
+            } elseif ($o['day'] !== $day) {
+                $bad[] = "line {$o['line']}: order {$o['ref']} was placed on " . ($o['day'] ?? 'no day (no placed_at)') . ", not on the file's day {$day}";
+            } elseif ($notBefore !== null && ($o['placed'] === null || $o['placed'] < $notBefore)) {
+                $bad[] = "line {$o['line']}: order {$o['ref']} was placed before the store's first reservation in CW ({$notBefore} UTC): CW never held it "
+                    . '(--allow-unreserved loads it anyway)';
+            }
+        }
+        if ($bad !== []) {
+            foreach (array_slice($bad, 0, 50) as $b) {
+                $log($b);
+            }
+            $log(count($bad) . ' order(s) not of this file as it should be: nothing written');
+            return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
+                'sum_ok' => false, 'totals_checked' => false, 'read' => $check['read'], 'file_refused' => count($bad)];
+        }
         $sumOk = hash_equals(strtolower((string) $sum['file_sha256']), (string) hash_file('sha256', $path));
         if (!$sumOk) {
             $log('the .sum names another file (its sha256 differs): nothing written');
@@ -91,22 +120,25 @@ final class SnapshotImport
                 $this->pass($path, null, $channel, $now, $log); // the refusals, said
             }
             return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
-                'sum_ok' => $sumOk, 'totals_checked' => $totalsChecked && $sumOk, 'read' => $check['read']];
+                'sum_ok' => $sumOk, 'totals_checked' => $totalsChecked && $sumOk, 'read' => $check['read'], 'file_refused' => 0];
         }
         // Pass 2: stored, order by order.
         $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), $channel, $now, $log);
         return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true,
-            'totals_checked' => $totalsChecked && $done['refused'] === 0, 'read' => $done['read']];
+            'totals_checked' => $totalsChecked && $done['refused'] === 0, 'read' => $done['read'], 'file_refused' => 0];
     }
 
     /**
      * One pass over the file: each line read (a line past the cap drained to its end and refused once), checked, and stored when $service.
      *
      * @param \Closure(string): void $log
-     * @return array{lines: int, results: array<string, int>, refused: int, read: array<string, int>}
+     * @return array{lines: int, results: array<string, int>, refused: int, read: array<string, int>,
+     *         orders: list<array{line: int, ref: string, day: ?string, placed: ?string, twice: ?int}>}
      */
     private function pass(string $path, ?OrderSnapshots $service, int $channel, \DateTimeImmutable $now, \Closure $log): array
     {
+        $orders = [];
+        $seen = [];
         $fh = @fopen($path, 'rb');
         if ($fh === false) {
             throw new \InvalidArgumentException("cannot read {$path}");
@@ -142,6 +174,12 @@ final class SnapshotImport
                     SnapshotBody::checkJsonShapes($line);
                     $ref = SnapshotBody::orderRef($o['ref'] ?? null, 'ref');
                     $body = SnapshotBody::parse($o, $now);
+                    if ($service === null) {
+                        $placed = $body['placed_at'] === null ? null : (string) $body['placed_at'];
+                        $orders[] = ['line' => $n, 'ref' => $ref, 'day' => $placed === null ? null : \CW\Reports\ReportRefresh::ukDay($placed), 'placed' => $placed,
+                            'twice' => $seen[strtolower($ref)] ?? null];
+                        $seen[strtolower($ref)] ??= $n;
+                    }
                     $read['orders']++;
                     $read['lines'] += count($body['lines']);
                     foreach ($body['lines'] as $l) {
@@ -160,7 +198,7 @@ final class SnapshotImport
         } finally {
             fclose($fh);
         }
-        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read];
+        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read, 'orders' => $orders];
     }
 
     /**

@@ -24,7 +24,9 @@ declare(strict_types=1);
  * is broken; while one is broken (and not named by --allow-skips) nothing is written, in the dry run too, and it ends with exit 1 naming
  * every one (the final review of 6d59eda, b-HIGH3).
  *
- * Exit codes: 0 done · 1 the Bin file has broken rows · 2 usage · 3 cannot run.
+ * Exit codes: 0 done (with --apply: the start's mark checked after it was written) · 1 the Bin file has broken rows, or the start's mark is not
+ * there after it was written · 2 usage · 3 cannot run · 4 not run: another run of the cost job (or of this tool) holds its lock: nothing done
+ * (run it again; PR135).
  */
 
 use CW\Ops\Cli;
@@ -38,6 +40,12 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'rows:', 'apply'],
     'usage: php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--allow-skips=<code,code,row:N>] [--rows=N] [--apply]',
     static function (Cli $cli, array $opts): int {
+        // One run at a time (the job's lock): held by another run (the cost job of every ten minutes, a second copy of this tool), nothing is done
+        // and it says so with its own exit code, never 0 (the second final review of 3c31d94, a-M5, b-M1, c-M8; docs/decisions.md PR135).
+        if (!$cli->tryLock()) {
+            $cli->error('busy: another run of this job holds its lock: nothing done (run it again)');
+            return Cli::BUSY;
+        }
         $bin = is_string($opts['bin'] ?? null) ? $opts['bin'] : throw new InvalidArgumentException('give --bin=<erp_bin.tsv>');
         if (!is_file($bin) || !is_readable($bin)) {
             throw new InvalidArgumentException("cannot read {$bin}");
@@ -85,6 +93,12 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
             $cli->log('the start was written before: going on with the replay since then');
         } else {
             $n = $engine->seed($plan['prices'], $startAt);
+            // Checked as written: the job's mark and floor at the start (PR135; the go-live step reads "started N items").
+            $job = $cli->db->one('SELECT mark_at, floor_at FROM profit_job WHERE job = ?', [CostEngine::JOB]);
+            if ($job === null || $job['mark_at'] === null || (string) $job['floor_at'] !== $startAt) {
+                $cli->error("the start was not found written (the cost job's mark and floor at {$startAt}): run this again");
+                return Cli::PROBLEM;
+            }
             $cli->log("started {$n} items at {$day} (UK); replaying since then");
         }
         do {
@@ -96,4 +110,4 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
             $cli->log('sales costed that waited for the start: ' . $p['orders'] . ' orders');
         } while ($p['orders'] >= PendingCosts::MAX_ORDERS);
         return Cli::OK;
-    }, true, true));
+    }, false, true));

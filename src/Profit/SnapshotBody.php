@@ -63,8 +63,19 @@ final class SnapshotBody
         'yodel', 'parcelforce', 'courier', 'free', 'shipping', 'economy', 'priority', 'europe', 'european', 'eu', 'world', 'worldwide', 'global', 'uk', 'by',
         'before', 'am', 'pm', 'noon', 'midday', 'the', 'to', 'for', 'on', 'of', 'or', 'large', 'letter', 'small', 'packet', 'preston', 'office', 'shop', 'counter',
         'manual', 'same', 'hour', 'hours', 'hr', 'hrs', 'guaranteed', 'recorded', 'tracking', 'signature', 'required', 'no', 'only', 'plus', 'premium', 'ireland',
-        'northern', 'highlands', 'islands', 'mainland', 'rest', 'air', 'road', 'ground', 'letterbox', 'drop', 'off', 'point', 'locker', 'inpost', 'home', 'trade',
+        'northern', 'highlands', 'islands', 'mainland', 'rest', 'air', 'ground', 'letterbox', 'drop', 'off', 'point', 'locker', 'inpost', 'home', 'trade',
         'wholesale', 'pallet', 'collected', 'customer', 'own', 'arranged', 'other', 'apc', 'tnt', 'amazon', 'dpdlocal', 'tracked24', 'tracked48', 'x'];
+    /**
+     * The words that make a name a carrier's or a service's (one of them at least, besides SERVICE_WORDS for every word): "12 Preston" or
+     * "Northern Ireland" alone could be an address and is never kept; "Royal Mail Tracked 48", "DPD", "In Store Collection Preston" are (the
+     * second final review of 3c31d94, b-HIGH1, PR141; 'road', a street word, is no service word since).
+     */
+    public const SERVICE_ANCHORS = ['royal', 'mail', 'dpd', 'dpdlocal', 'evri', 'hermes', 'parcel2go', 'ups', 'dhl', 'fedex', 'yodel', 'parcelforce', 'apc', 'tnt',
+        'amazon', 'inpost', 'tracked', 'tracked24', 'tracked48', 'signed', 'special', 'delivery', 'collection', 'collect', 'pickup', 'courier', 'shipping', 'express',
+        'standard', 'economy', 'priority', 'international', 'return', 'returns', 'label', 'labels', 'letter', 'letterbox', 'packet', 'parcel', 'parcels', 'service',
+        'services', 'locker', 'pallet'];
+    /** A parcel's ref: the shop's dispatch row (odl:<id>) or return label (orl:<id>), CONTRACT change 4; nothing else (PR141). */
+    public const PARCEL_REF = '/^(?:odl|orl):[0-9]{1,18}$/iD';
     /** A negative discount (a coupon's rounding pennies) is at most this many pence (CONTRACT.md, change 1). */
     public const MAX_NEGATIVE_DISCOUNT = 10_000;
     /**
@@ -99,7 +110,12 @@ final class SnapshotBody
             throw self::bad('paid_at', 'paid_at must be sent (null when the order is not paid)');
         }
         $paid = self::time($raw['paid_at'], 'paid_at', $now, true);
-        $parent = $raw['parent_ref'] ?? null;
+        // parent_ref is always sent too (null when the order is no re-send): a body without it is refused, never read as "no parent", which
+        // would make a replacement its own sale again (the second final review of 3c31d94, b-M2, PR142; connector 0.4.17 always sends it).
+        if (!array_key_exists('parent_ref', $raw)) {
+            throw self::bad('parent_ref', 'parent_ref must be sent (null when the order is no re-send)');
+        }
+        $parent = $raw['parent_ref'];
         if ($parent !== null) {
             $parent = self::ref($parent, 'parent_ref');
         }
@@ -182,6 +198,10 @@ final class SnapshotBody
                 throw self::bad($f, "{$f} must be an object");
             }
             $ref = self::ref($p['parcel_ref'] ?? null, "{$f}.parcel_ref");
+            // Only the shop's own shapes: a name or any other text there is refused, never kept (it would stay after the parcel is gone).
+            if (preg_match(self::PARCEL_REF, $ref) !== 1) {
+                throw self::bad("{$f}.parcel_ref", "{$f}.parcel_ref must be odl:<number> or orl:<number>");
+            }
             if (isset($seenP[strtolower($ref)])) {
                 throw self::bad("{$f}.parcel_ref", "parcel {$ref} appears twice");
             }
@@ -323,13 +343,16 @@ final class SnapshotBody
         if (preg_match("/^[A-Za-z0-9 ()&+,.\/:'-]+$/D", $v) !== 1 || preg_match_all('/[0-9]/', $v) > self::TEXT_DIGITS) {
             return null;
         }
+        $anchored = false;
         foreach (preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $t) {
             $t = strtolower($t);
             if (!in_array($t, self::SERVICE_WORDS, true) && preg_match('/^[0-9]{1,4}(st|nd|rd|th|h|hr|hrs)?$/D', $t) !== 1) {
                 return null;
             }
+            $anchored = $anchored || in_array($t, self::SERVICE_ANCHORS, true);
         }
-        return $v;
+        // A carrier's or a service's word in it, else it may be an address ("12 Preston"): not kept (PR141).
+        return $anchored ? $v : null;
     }
 
     /** A carrier's service code (letters, digits, _ . / - ^; at most TEXT_DIGITS digits in all: never a phone number), else "". */

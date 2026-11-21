@@ -115,7 +115,8 @@ final class ProfitImportsReviewR1Test extends StockTestCase
     {
         $this->site('vapeandgo', 'live');
         $this->site('vapebig', 'live');
-        $line = static fn (string $ref): string => json_encode(['ref' => $ref] + self::body([self::sl('x' . $ref, '9', 100)]), JSON_THROW_ON_ERROR);
+        $line = static fn (string $ref, string $day = '2026-04-10'): string => json_encode(['ref' => $ref] + self::body([self::sl('x' . $ref, '9', 100)],
+            ['placed_at' => $day . 'T09:59:00Z']), JSON_THROW_ON_ERROR);
         $import = new SnapshotImport(self::$db);
         $quiet = static fn (string $m) => null;
         // A file whose name names no store: refused.
@@ -138,7 +139,7 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         self::assertSame(['stored' => 2, 'same' => 0, 'older_ignored' => 0], $import->file('vapebig', $file, false, $quiet)['results']);
         // A line longer than the cap is one refused line: what follows it on that line is never read as an order.
         $long = $this->dir . '/snapshots_vapebig_2026-04-11.jsonl';
-        file_put_contents($long, str_repeat('x', SnapshotImport::MAX_LINE_BYTES + 5) . $line('3') . "\n" . $line('4') . "\n");
+        file_put_contents($long, str_repeat('x', SnapshotImport::MAX_LINE_BYTES + 5) . $line('3', '2026-04-11') . "\n" . $line('4', '2026-04-11') . "\n");
         file_put_contents($this->dir . '/snapshots_vapebig_2026-04-11.sum', json_encode(['channel' => 'vapebig', 'day' => '2026-04-11', 'orders' => 1, 'lines' => 1,
             'goods_inc' => 100, 'delivery_inc' => 0, 'file_sha256' => hash_file('sha256', $long)]));
         $r = $import->file('vapebig', $long, false, $quiet);

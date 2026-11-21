@@ -113,7 +113,7 @@ final class ProfitReviewR1Test extends StockTestCase
         self::assertSame('stored', $s->store((int) $site->channelId, 'B', self::body([self::sl('u9', '1', 1200)], ['version' => 1005]), 'api')['result']);
         self::assertSame(['result' => 'older_ignored', 'version' => 1005], $s->store((int) $site->channelId, 'B', self::body([self::sl('u9', '1', 1200)]), 'api'),
             'an older version is older, whatever its content (CONTRACT)');
-        $parcel = static fn (?string $t): array => ['parcel_ref' => 'odl:' . bin2hex(random_bytes(3)), 'tracking_no' => $t, 'carrier' => 'dpd', 'service_code' => '',
+        $parcel = static fn (?string $t): array => ['parcel_ref' => 'odl:' . random_int(1, 999_999_999), 'tracking_no' => $t, 'carrier' => 'dpd', 'service_code' => '',
             'service' => '', 'status' => 'generated', 'label_at' => null, 'shipped_at' => null, 'manual' => false, 'partial' => false];
         $s->store((int) $site->channelId, 'C', self::body([self::sl('c1', '1', 100)], ['parcels' => [$parcel('15501234567890'), $parcel('customer@example.invalid'),
             $parcel('John Smith 12345'), $parcel('07123456789'), $parcel('ab 123 456 789 gb'), $parcel('1550-1234-56')]]), 'api');

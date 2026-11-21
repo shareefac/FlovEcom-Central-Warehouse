@@ -11,7 +11,7 @@ declare(strict_types=1);
  *   --source  one or more of none, estimate, cw_cost, erp_at_sale, or all (default: none: the lines with no buying price)
  *   --apply   write; without it a dry run that prints what would move
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run.
+ * Exit codes: 0 done · 2 usage · 3 cannot run · 4 not run: another re-cost holds the job's lock: nothing done (PR135).
  */
 
 use CW\Ops\Cli;
@@ -22,6 +22,12 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'apply'],
     'usage: php bin/recost_sales.php --from=YYYY-MM-DD --to=YYYY-MM-DD [--source=none,estimate,cw_cost,erp_at_sale|all] [--channel=<code>] [--apply]',
     static function (Cli $cli, array $opts): int {
+        // One run at a time (the job's lock): held by another run (the cost job of every ten minutes, a second copy of this tool), nothing is done
+        // and it says so with its own exit code, never 0 (the second final review of 3c31d94, a-M5, b-M1, c-M8; docs/decisions.md PR135).
+        if (!$cli->tryLock()) {
+            $cli->error('busy: another run of this job holds its lock: nothing done (run it again)');
+            return Cli::BUSY;
+        }
         $day = static function (mixed $v, string $name): string {
             if (!is_string($v) || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $v) !== 1) {
                 throw new InvalidArgumentException("give --{$name}=YYYY-MM-DD");
@@ -45,4 +51,4 @@ exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'apply'],
             $cli->log("{$r['deferred']} orders left: a newer snapshot of each waits for the money job (bin/apply_order_snapshots.php); run this again after it");
         }
         return Cli::OK;
-    }, true, true));
+    }, false, true));

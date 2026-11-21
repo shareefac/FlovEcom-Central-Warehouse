@@ -104,7 +104,7 @@ final class ProfitImportsTest extends StockTestCase
             $delivery += $b['delivery']['charged_inc'] ?? 0;
         }
         $lines[] = json_encode(['ref' => '504'] + self::body([self::sl('5', '1', -101)]), JSON_THROW_ON_ERROR); // refused: a price below -£1.00 (CONTRACT change 8)
-        $lines[] = json_encode(['ref' => '503'] + self::body([self::sl('4', '1', 1200)], ['version' => 6]), JSON_THROW_ON_ERROR); // older: ignored
+        // (An older version of 503 is a file of its own below: a day file holds each order once, PR138.)
         $file = $this->dir . '/snapshots_vapebig_2026-11-19.jsonl';
         file_put_contents($file, implode("\n", $lines) . "\n");
         // Its .sum (the connector's; its totals are not compared while a line is refused: its store, its day and the file's sha256 are).
@@ -114,8 +114,15 @@ final class ProfitImportsTest extends StockTestCase
         $r = (new SnapshotImport(self::$db))->file('vapebig', $file, false, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['stored' => 3, 'same' => 0, 'older_ignored' => 1], $r['results']);
+        self::assertSame(['stored' => 3, 'same' => 0, 'older_ignored' => 0], $r['results']);
         self::assertSame(1, $r['refused']);
+        // An older version of 503 (its own file of the same day): ignored.
+        $older = $this->dir . '/older/snapshots_vapebig_2026-11-19.jsonl';
+        mkdir(dirname($older));
+        file_put_contents($older, json_encode(['ref' => '503'] + self::body([self::sl('4', '1', 1200)], ['version' => 6]), JSON_THROW_ON_ERROR) . "\n");
+        file_put_contents(dirname($older) . '/snapshots_vapebig_2026-11-19.sum', json_encode(['channel' => 'vapebig', 'day' => '2026-11-19', 'orders' => 1, 'lines' => 1,
+            'goods_inc' => 1200, 'delivery_inc' => 599, 'file_sha256' => hash_file('sha256', $older)]));
+        self::assertSame(['stored' => 0, 'same' => 0, 'older_ignored' => 1], (new SnapshotImport(self::$db))->file('vapebig', $older, false, static fn (string $m) => null)['results']);
         self::assertStringContainsString('line 4: refused bad_snapshot (lines[0].price_inc)', implode("\n", $log));
         self::assertSame(self::stored($api), self::stored($bulk), 'the backfill and the live feed can never disagree');
         foreach (['2026-11-19'] as $day) {
@@ -124,7 +131,7 @@ final class ProfitImportsTest extends StockTestCase
                 [$bulk->channelId]), $day);
         }
         // The second run: the same again; a wrong store's file is refused; the .sum is checked.
-        self::assertSame(['stored' => 0, 'same' => 3, 'older_ignored' => 1], (new SnapshotImport(self::$db))->file('vapebig', $file, false, static fn (string $m) => null)['results']);
+        self::assertSame(['stored' => 0, 'same' => 3, 'older_ignored' => 0], (new SnapshotImport(self::$db))->file('vapebig', $file, false, static fn (string $m) => null)['results']);
         try {
             (new SnapshotImport(self::$db))->file('vapeandgo', $file, true, static fn (string $m) => null);
             self::fail('another store\'s file');
@@ -133,7 +140,7 @@ final class ProfitImportsTest extends StockTestCase
         }
         array_splice($lines, 3, 1); // without the refused line
         file_put_contents($file, implode("\n", $lines) . "\n");
-        $sum = ['channel' => 'vapebig', 'day' => '2026-11-19', 'orders' => 4, 'lines' => $lineCount + 1, 'goods_inc' => $goods + 1200, 'delivery_inc' => $delivery + 599,
+        $sum = ['channel' => 'vapebig', 'day' => '2026-11-19', 'orders' => 3, 'lines' => $lineCount, 'goods_inc' => $goods, 'delivery_inc' => $delivery,
             'file_sha256' => hash_file('sha256', $file)];
         file_put_contents($this->dir . '/snapshots_vapebig_2026-11-19.sum', json_encode($sum) . "\n");
         self::assertTrue((new SnapshotImport(self::$db))->file('vapebig', $file, true, static fn (string $m) => null)['sum_ok']);

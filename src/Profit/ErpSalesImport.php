@@ -44,9 +44,22 @@ final class ErpSalesImport
         if ($channel === null) {
             throw new \InvalidArgumentException("no store {$channelCode}");
         }
+        // The export names no shop (no company or customer column: final2's look at its header); its item codes are "P" + a variant of the
+        // store ERPNext's items are of (erp_opening.listing_store, the opening import's rule) and its order ids that store's: it is bound to that
+        // store, any other refused before a file is read (the second final review of 3c31d94, b-HIGH2, PR140).
+        $own = (string) json_decode((string) ($this->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'")
+            ?? '"vapeandgo"'));
+        if ($channelCode !== $own) {
+            throw new \InvalidArgumentException("ERPNext's sales export is of the store {$own} (its item codes are that store's variants): it never costs {$channelCode}'s orders");
+        }
         // Every day file of the folder is read (an order's rows may be on a day outside --from / --to); --from / --to choose the orders to
         // apply: those whose LAST day is in it (the Codex review of 57d98ad, a9).
         $files = self::files($dir, null, null);
+        // No day file in the days asked for: refused, never "0 days done" (PR139).
+        if (self::files($dir, $from, $to) === []) {
+            $log('no day file si_<day>.tsv(.gz) in ' . $dir . ($from !== null || $to !== null ? ' for ' . ($from ?? '...') . ' to ' . ($to ?? '...') : '') . ': nothing read');
+            return ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => 1, 'waiting' => 0];
+        }
         $settings = new ProfitSettings($this->db);
         // ERPNext's cost at the sale belongs to the orders paid inside its history: from profit.erp_history_from to the moment CW's own price
         // started (the start's recorded floor; the setting while there is none), both bounds checked again under each order's locks (the
@@ -105,18 +118,67 @@ final class ErpSalesImport
                 continue; // read for the orders it holds; its own orders are not asked for
             }
             $this->apply((int) $channel, $due, $since, $until, $apply, $service, $r);
+            $this->missing((int) $channel, $day, $since, $until, $last, $r);
             $tot['days']++;
             $tot['orders'] += $r['cw_orders'];
             $tot['lines'] += $r['costed'];
             $tot['waiting'] += $r['waiting'];
             $log(sprintf('%s erp orders %d goods %s cost %s | cw orders %d goods %s | lines costed %d (already so %d), erp lines with no cw line %d, units not matching %d, '
                 . 'orders not in cw %d, paid before the history %d, paid on or after the cost start %d, not paid in cw %d, returns %d (%s), no order id %d, rate 0 %d, '
-                . 'held for a later day %d, waiting for the money job %d (run again after it)%s',
+                . 'held for a later day %d, waiting for the money job %d (run again after it) | cw orders paid that day not in the export %d (%s), on another '
+                . 'invoice day %d%s',
                 $day, $r['erp_orders'], self::gbp($r['erp_goods_e2']), self::gbp($r['erp_cost_e2']), $r['cw_orders'], self::gbp($r['cw_goods_e2']), $r['costed'], $r['same'],
                 $r['no_line'], $r['qty_mismatch'], $r['not_in_cw'], $r['before_history'], $r['after_start'], $r['unpaid'], $r['returns'], self::gbp($r['returns_e2']),
-                $r['no_order_id'], $r['rate_zero'], $r['held'], $r['waiting'], $apply ? '' : ' (dry run: nothing written)'));
+                $r['no_order_id'], $r['rate_zero'], $r['held'], $r['waiting'], $r['cw_missing'], self::gbp($r['cw_missing_e2']), $r['cw_elsewhere'],
+                $apply ? '' : ' (dry run: nothing written)'));
+        }
+        // The days asked for (or the export's span) with CW orders paid inside the history and NO day file: their orders are missing from the
+        // export too (PR139).
+        $span = array_keys($files);
+        $lo = $from ?? ($span[0] ?? null);
+        $hi = $to ?? ($span[count($span) - 1] ?? null);
+        if ($lo !== null && $hi !== null) {
+            $gaps = [];
+            foreach ($this->db->all('SELECT day, COUNT(*) AS n, COALESCE(SUM(sale_ex), 0) AS e2 FROM sale_order WHERE channel_id = ? AND day BETWEEN ? AND ? AND paid_at >= ? '
+                . 'AND paid_at < ? GROUP BY day ORDER BY day', [(int) $channel, $lo, $hi, $since, $until]) as $g) {
+                if (!isset($files[(string) $g['day']])) {
+                    $gaps[] = $g;
+                }
+            }
+            if ($gaps !== []) {
+                $log(sprintf('%d day(s) with cw orders paid inside the history and no day file: %d orders, %s (%s%s)', count($gaps), array_sum(array_column($gaps, 'n')),
+                    self::gbp((int) array_sum(array_column($gaps, 'e2'))), implode(', ', array_slice(array_column($gaps, 'day'), 0, 20)), count($gaps) > 20 ? ', ...' : ''));
+            }
         }
         return $tot;
+    }
+
+    /**
+     * CW's own orders of the store paid on $day inside ERPNext's history, against the export (the second final review of 3c31d94, a-M4, b-M4,
+     * c-M3; PR139): those no day file holds (count and goods without VAT: their cost stays an estimate), apart from those on an invoice of
+     * another day (an order invoiced on another day: a date difference, not a missing order).
+     *
+     * @param array<string, string> $last every order of the export => its last day
+     * @param array<string, int> $r the day's counts
+     */
+    private function missing(int $channel, string $day, string $since, string $until, array $last, array &$r): void
+    {
+        $r['cw_missing'] = 0;
+        $r['cw_missing_e2'] = 0;
+        $r['cw_elsewhere'] = 0;
+        $inExport = [];
+        foreach ($last as $ref => $d) {
+            $inExport[strtolower((string) $ref)] = (string) $d;
+        }
+        foreach ($this->db->all('SELECT order_ref, sale_ex FROM sale_order WHERE channel_id = ? AND day = ? AND paid_at >= ? AND paid_at < ?', [$channel, $day, $since, $until]) as $o) {
+            $d = $inExport[strtolower((string) $o['order_ref'])] ?? null;
+            if ($d === null) {
+                $r['cw_missing']++;
+                $r['cw_missing_e2'] += (int) $o['sale_ex'];
+            } elseif ($d !== $day) {
+                $r['cw_elsewhere']++;
+            }
+        }
     }
 
     /**
@@ -248,12 +310,12 @@ final class ErpSalesImport
         foreach (array_chunk($refs, 500) as $chunk) {
             foreach ($this->db->all('SELECT order_ref, paid_at, sale_ex FROM sale_order WHERE channel_id = ? AND order_ref IN ('
                 . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$channel, ...$chunk]) as $o) {
-                $known[(string) $o['order_ref']] = $o;
+                $known[strtolower((string) $o['order_ref'])] = $o; // the key compares without case (PR132)
             }
         }
         foreach ($due as $ref => $variants) {
             $ref = (string) $ref;
-            $o = $known[$ref] ?? null;
+            $o = $known[strtolower($ref)] ?? null;
             if ($o === null) {
                 $r['not_in_cw']++;
                 continue;
