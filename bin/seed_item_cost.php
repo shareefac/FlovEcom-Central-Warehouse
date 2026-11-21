@@ -117,8 +117,9 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
             $r = $engine->run();
             $cli->log('replay ' . json_encode($r, JSON_UNESCAPED_SLASHES));
         } while (($r['events'] ?? 0) >= CostEngine::MAX_EVENTS);
-        // The sales that waited; one that fails is named and the run ends with a problem (the Codex check of the fix round, MEDIUM 2, PR152);
-        // a page is full when its orders done and failed fill it (a failed one never hides the next ones).
+        // The sales that waited; one that fails is named and the run ends with a problem (the Codex check of the fix round, MEDIUM 2, PR152).
+        // The next page is read only after a full page with no failure: a page with a failed order ends the loop (that order would come first
+        // again on every next page); the orders after it are costed by refresh_item_cost.php's own pass after each cost run (Fable L6, PR155).
         $failed = 0;
         do {
             $p = (new PendingCosts($cli->db))->run();

@@ -82,7 +82,8 @@ final class ProfitFinalReview2UnitTest extends TestCase
             'Return label'] as $real) {
             self::assertSame($real, SnapshotBody::serviceName($real), $real);
         }
-        self::assertNotContains('road', SnapshotBody::SERVICE_WORDS, 'a street word is no service word');
+        // Since PR155 the names are an exact list (SnapshotBody::SERVICE_NAMES; ProfitFinalReview4UnitTest), no word filter.
+        self::assertNotContains('12 Preston Road', SnapshotBody::SERVICE_NAMES);
     }
 
     /** F13 (b-M2): parent_ref must be sent (null when the order is no re-send), as paid_at: a body without it is refused, never read as "no parent". */

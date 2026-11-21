@@ -18,6 +18,9 @@ use CW\Db;
  * - A statement waits at most LOCK_WAIT_SEC for a table's metadata lock (the session's lock_wait_timeout while the files run, put back
  *   after; the third final review, a-HIGH3, PR154): a long transaction holding a table a migration alters makes that migration fail in
  *   about 30 s, naming the file and statement (not recorded), instead of waiting for it with the writers paused (MySQL's default is a year).
+ *   The step migrate() is given (bin/migrate.php: the app login's grants) runs after the files inside the same bound and the same migration
+ *   lock; the session's own value is put back only at the end of the run, after an error too (the final re-check of the fix round, p-M,
+ *   PR155: a backup's lock taken as the grants started kept the vhost off with the default wait).
  */
 final class Migrator
 {
@@ -80,8 +83,13 @@ final class Migrator
         return array_values(array_diff(array_keys($files), array_keys($applied)));
     }
 
-    /** Applies every pending file. @return list<string> the versions applied by this call */
-    public function migrate(): array
+    /**
+     * Applies every pending file, then $then (if given; it runs on every call, nothing pending too) with the session's lock wait still
+     * LOCK_WAIT_SEC and the migration lock still held. @return list<string> the versions applied by this call
+     *
+     * @param (callable(): void)|null $then
+     */
+    public function migrate(?callable $then = null): array
     {
         $schema = (string) $this->db->value('SELECT DATABASE()');
         if ($schema === '') {
@@ -100,6 +108,9 @@ final class Migrator
             foreach ($this->pending() as $version) {
                 $this->applyFile($version, $files[$version]);
                 $done[] = $version;
+            }
+            if ($then !== null) {
+                $then();
             }
             return $done;
         } finally {

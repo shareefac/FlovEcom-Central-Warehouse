@@ -144,6 +144,58 @@ final class MigratorTest extends TestCase
         self::assertSame(['0002_b.sql'], $m->migrate());
     }
 
+    /**
+     * The final re-check of the fix round (build/A/codex_final4_astra_p.txt, p-M; final2/FIX_BRIEF_A5.md F3, PR155): the step migrate() is
+     * given (bin/migrate.php: the app login's grants) runs after the files with the session's lock wait still the bound and the migration
+     * lock still held; the session's own value is put back only at the end of the run (an outage gap: the grants waited a year for a backup's
+     * lock with the writers paused).
+     */
+    public function testTheStepAfterTheFilesKeepsTheBoundedLockWaitToTheEnd(): void
+    {
+        $this->write('0001_a.sql', 'CREATE TABLE t (id INT PRIMARY KEY);');
+        $before = (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout');
+        self::assertNotSame(7, $before);
+        $seen = null;
+        $m = new Migrator(self::$db, $this->dir, null, lockWaitSec: 7);
+        $done = $m->migrate(static function () use (&$seen): void {
+            $seen = [(int) self::$db->value('SELECT @@SESSION.lock_wait_timeout'),
+                (int) self::$db->value('SELECT IS_USED_LOCK(?) = CONNECTION_ID()', ['cw_migrate:' . self::$schema]),
+                (int) self::$db->value('SELECT COUNT(*) FROM schema_migrations')];
+        });
+        self::assertSame(['0001_a.sql'], $done);
+        self::assertSame([7, 1, 1], $seen, 'the step ran after the files, with the bound and the migration lock');
+        self::assertSame($before, (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout'), 'put back at the end');
+        self::assertSame(1, (int) self::$db->value('SELECT IS_FREE_LOCK(?)', ['cw_migrate:' . self::$schema]), 'the migration lock let go');
+        // Nothing pending: the step still runs (bin/migrate.php converges the grants on every run).
+        $seen = null;
+        self::assertSame([], $m->migrate(static function () use (&$seen): void {
+            $seen = (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout');
+        }));
+        self::assertSame(7, $seen);
+        self::assertSame($before, (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout'));
+    }
+
+    /** ... and a step that fails: its error passes through, the session's value is put back and the migration lock let go all the same. */
+    public function testAStepThatFailsStillPutsTheLockWaitBack(): void
+    {
+        $this->write('0001_a.sql', 'CREATE TABLE t (id INT PRIMARY KEY);');
+        $before = (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout');
+        $ran = false;
+        try {
+            (new Migrator(self::$db, $this->dir))->migrate(static function () use (&$ran): void {
+                $ran = (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout') === Migrator::LOCK_WAIT_SEC;
+                throw new \RuntimeException('the grants failed');
+            });
+            self::fail('the step\'s error passes through');
+        } catch (\RuntimeException $e) {
+            self::assertSame('the grants failed', $e->getMessage());
+        }
+        self::assertTrue($ran, 'the step ran with LOCK_WAIT_SEC');
+        self::assertSame($before, (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout'), 'put back after the error');
+        self::assertSame(1, (int) self::$db->value('SELECT IS_FREE_LOCK(?)', ['cw_migrate:' . self::$schema]));
+        self::assertSame([], (new Migrator(self::$db, $this->dir))->pending(), 'the files were recorded before the step');
+    }
+
     private function write(string $name, string $sql): void
     {
         file_put_contents($this->dir . '/' . $name, $sql);

@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
  * profit_undo_b.sh (undo B, the emergency switch to the rollback release) and profit_drain_jobs.sh (undo A's step on the box). They keep the
  * box's absolute paths, as they run there (copied to /root at go-live step 1b): each test runs a COPY whose paths /opt/cw-prod-releases,
  * /opt/cw-prod-release, /opt/cw-prod, /etc/cron.d, /etc/cw and /run/lock are rewritten into a temporary tree, with a PATH of stubs first
- * (id, hostname, php, pgrep, kill, systemctl, a2query, a2ensite, apache2ctl, install, sleep: tests/fixtures/deploy_stubs/bin and
+ * (id, hostname, php, pgrep, kill, systemctl, a2query, a2ensite, apache2ctl, install, sleep, runuser, curl: tests/fixtures/deploy_stubs/bin and
  * .../profit_undo, each recording its call) and links to a short list of plain file and text tools after them, nothing else (bash's own kill
  * is turned off, so the stub is the one run). Each case checks what changed (the cron file, /opt/cw-prod, php-fpm, the public vhost, the
  * markers) and what did not. Needs Linux and bash: the test machine.
@@ -688,5 +688,123 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         self::assertSame(1, $code, $out . $err);
         self::assertStringNotContainsString('DRAINED AND INSTALLED', $out);
         self::assertStringContainsString('DRAIN STOPPED: /opt/cw-prod runs /opt/cw-prod-releases/' . $other . ', not the rollback commit', str_replace($this->root, '', $err));
+    }
+
+    // ---- the final re-check of the fix round (build/A/codex_final4_astra_p.txt, p-HIGH "undo B web readiness"; FIX_BRIEF_A5.md F2), shown failing first on 5e1fe37
+
+    /** A fresh box, as setUp() leaves it (for a test of several cases). */
+    private function freshBox(): void
+    {
+        $this->tearDownLock();
+        exec('rm -rf ' . escapeshellarg($this->root) . ' ' . escapeshellarg($this->stub));
+        foreach (['answers', 'state'] as $d) {
+            mkdir("{$this->stub}/{$d}", 0755, true);
+        }
+        touch($this->stub . '/calls.log');
+        foreach (['opt/cw-prod-releases', 'etc/cron.d', 'etc/cw', 'run/lock', 'etc/letsencrypt/live/warehouse.floverfy.com', 'home'] as $d) {
+            mkdir("{$this->root}/{$d}", 0755, true);
+        }
+        $this->box();
+    }
+
+    /** The API's probe as undo B runs it (the local listener, as enable_https.sh checks it). */
+    private const PROBE = 'curl -s -o /dev/null -w %{http_code} --max-time 3 --resolve warehouse.floverfy.com:443:127.0.0.1 https://warehouse.floverfy.com/v1/health';
+
+    /**
+     * F2 (a): ANY file or directory of the rollback release that www-data cannot read (not only public/index.php and vendor/autoload.php:
+     * a root-only src/Api/Kernel.php passed both checks and the root smoke run, then every shop's call was a 500) stops undo B BEFORE the
+     * switch, naming the first such path: the link, the cron file, php-fpm, Apache and the vhost untouched.
+     */
+    public function testUndoBStopsBeforeTheSwitchWhenWwwDataCannotReadAnyPartOfTheRollback(): void
+    {
+        $cases = [
+            'a root-only file' => [function (): void {
+                mkdir($this->root . self::RB . '/src/Api', 0755, true);
+                file_put_contents($this->root . self::RB . '/src/Api/Kernel.php', "<?php // the API's kernel\n");
+                chmod($this->root . self::RB . '/src/Api/Kernel.php', 0600);
+            }, self::RB . '/src/Api/Kernel.php'],
+            'a root-only directory' => [function (): void {
+                mkdir($this->root . self::RB . '/vendor/composer', 0755, true);
+                file_put_contents($this->root . self::RB . '/vendor/composer/autoload_real.php', "<?php\n");
+                chmod($this->root . self::RB . '/vendor/composer', 0700);
+            }, self::RB . '/vendor/composer'],
+            'a directory www-data cannot search' => [function (): void {
+                mkdir($this->root . self::RB . '/src', 0755, true);
+                file_put_contents($this->root . self::RB . '/src/Clock.php', "<?php\n");
+                chmod($this->root . self::RB . '/src', 0744);
+            }, ''],
+        ];
+        foreach ($cases as $what => [$arrange, $named]) {
+            $this->freshBox();
+            $arrange();
+            $before = $this->state();
+            [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+            $err = str_replace($this->root, '', $err);
+            self::assertSame(1, $code, "{$what}: {$out}{$err}");
+            self::assertStringContainsString('UNDO B STOPPED: www-data cannot read ' . $named, $err, $what);
+            self::assertStringNotContainsString('UNDO B DONE', $out, $what);
+            self::assertStringNotContainsString('the link is already switched', $err, $what);
+            $this->assertNothingChanged($before, $what);
+            self::assertSame($this->profitRunning(), self::withoutTree($before), "{$what}: the profit release still runs as it did");
+            self::assertStringContainsString('runuser -u www-data -- find ' . self::RB . ' ! -readable -print -quit', $this->calls(), $what);
+        }
+        // A rollback release www-data can read whole: the check passes and the undo goes on.
+        $this->freshBox();
+        mkdir($this->root . self::RB . '/src/Api', 0755, true);
+        file_put_contents($this->root . self::RB . '/src/Api/Kernel.php', "<?php // the API's kernel\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        self::assertInOrder($this->calls(), ['runuser -u www-data -- find ' . self::RB . ' ! -readable -print -quit', 'install -m 0644', 'pgrep -f']);
+    }
+
+    /**
+     * F2 (b): after the switch and Apache's start or reload, and BEFORE "UNDO B DONE", the API is asked through the local listener (GET
+     * /v1/health with no key, as enable_https.sh checks it): 401 = the web server runs the rollback release. A few tries over about 10 s (a
+     * reload settling); anything else stops undo B, "the link is already switched; run this again", no DONE; once put right, run again: DONE.
+     */
+    public function testUndoBAsksTheApiBeforeItSaysDone(): void
+    {
+        // The normal case: one probe, after Apache's reload and the vhost's check, before the smoke run and DONE.
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        $calls = $this->calls();
+        self::assertSame(1, substr_count($calls, 'curl '), $calls);
+        self::assertInOrder($calls, ['systemctl reload apache2', 'a2query -s cw-https', self::PROBE, 'php bin/expire_reservations.php']);
+        self::assertStringContainsString('GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 401', $out);
+        // A reload still settling: 503, no connection, then 401: DONE after the third try.
+        $this->freshBox();
+        $this->answer('health_codes', "503\n000\n401\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        self::assertSame(3, substr_count($this->calls(), 'curl '));
+        // The API answering 500 (the web server cannot run the rollback release): STOPPED after its tries, the link switched, no DONE.
+        $this->freshBox();
+        $this->answer('health_codes', "500\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('UNDO B STOPPED: the API does not answer as it should: GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 500, '
+            . 'expected 401', $err);
+        self::assertStringContainsString('(the link is already switched; run this again)', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertSame(self::RB, $this->state()['live'], 'the link is switched');
+        $calls = $this->calls();
+        self::assertSame(5, substr_count($calls, 'curl '), 'five tries (two seconds apart: the sleep stub returns at once)');
+        self::assertStringNotContainsString('expire_reservations', $calls, 'no smoke run before the API answers');
+        // Put right: the same script again, DONE.
+        unlink($this->stub . '/answers/health_codes');
+        unlink($this->stub . '/state/health_calls');
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        // Apache not answering at all (the stub: no connection while the vhost is off): 000 is no 401 either.
+        $this->freshBox();
+        $this->answer('health_codes', "000\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('-> HTTP 000, expected 401', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
     }
 }

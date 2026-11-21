@@ -15,10 +15,11 @@ final class ProfitCodexR11UnitTest extends TestCase
 {
     public function testThePlaceOfTheShopsCollectionPointIsKeptOnlyInItsCollectionsName(): void
     {
-        foreach (['Delivery 12 Preston', 'Tracked Preston 5', 'Preston Delivery'] as $address) {
+        // 'Click and Collect Preston' is no real name (PR155: the exact list of the real parcels' names): not kept either.
+        foreach (['Delivery 12 Preston', 'Tracked Preston 5', 'Preston Delivery', 'Click and Collect Preston'] as $address) {
             self::assertNull(SnapshotBody::serviceName($address), $address);
         }
-        foreach (['In Store Collection Preston', 'Click and Collect Preston', 'Royal Mail Tracked 48 (2-4 Working Days)'] as $real) {
+        foreach (['In Store Collection Preston', 'Royal Mail Tracked 48 (2-4 Working Days)'] as $real) {
             self::assertSame($real, SnapshotBody::serviceName($real), $real);
         }
     }

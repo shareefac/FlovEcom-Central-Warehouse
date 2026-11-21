@@ -1589,13 +1589,13 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR154; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR155; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
 
 | File | What |
 |---|---|
 | `migrations/0074_profit.sql` | `order_snapshot`, `sale_order`, `sale_line`, `sale_parcel`, `item_cost`, `item_cost` / `item_cost_event` (`timeline`: an item's history in force, written again in time order when an event comes late), `item_cost_document` (the documents the cost job read whole), `profit_day`, `profit_item_day`, `profit_job`; five `profit.*` settings; the `profit.view` row of role_permission; `finance` in `staff_role.role`; `ix_erp_pi_line_sku` on erp_pi_line |
 | `migrations/0075_profit_queue.sql` | `order_snapshot_queue`: per order the snapshot waiting for the money job (body, version, hash, seq); `order_snapshot` holds the one worked out (PR95, PR113) |
-| `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version); no free text (PR96: numbers, fixed words, `SERVICE_WORDS`); the four ids in the connector's real shapes (`ORDER_REF`, `LINE_ID`, `VARIANT_ID`, `PARENT_REF`, PR153); `checkJsonShapes` |
+| `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version); no free text (PR96: numbers, fixed words; a delivery method or service name only from `SERVICE_NAMES`, PR155); the four ids in the connector's real shapes (`ORDER_REF`, `LINE_ID`, `VARIANT_ID`, `PARENT_REF`, PR153); `checkJsonShapes` |
 | `src/Profit/ProfitMath.php` | the money rules (ex VAT, a line, its cost, margin) and the moving average (`receive`, `correct`, `remove`, `step`, `fold`), `operation` / `lowestLevel` (the fewest on hand between whole operations), `receiptPrice` (a receipt line of a final invoice), `spread`, `e4` |
 | `src/Profit/OrderSnapshots.php` | `accept` (the API: stored and queued, one short transaction), `applyQueued` (the money job), `store` (both at once: bulk, tests), `apply` (order, lines, parcels, re-sends, day summaries), `recompute` (with a cost override) |
 | `src/Profit/ProfitDays.php` | `orderShare` (THE definition), `change` (the snapshot's increments), `rebuild` / `compute` / `differences` (a store's day from the rows; the check), `snapshot` (one consistent read) |
@@ -1620,7 +1620,10 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   review's (PR154): `tests/Unit/ProfitFinalReview3UnitTest.php`, `tests/Integration/Profit/FinalReview3{Cost,Release,Api,Snapshot}Test.php`,
   `tests/Integration/MigratorTest.php` (the migration's metadata-lock wait: `Migrator::LOCK_WAIT_SEC`) and the undo test's new cases (a delivery's FIFO layer:
   `CostEngine::layerHere` / `ProfitMath::lowestLayer`; the live feed's boundary: `OrderSnapshots::OUT_OF_RANGE` / `firstReservation` /
-  `beforeFirstReservation`; the carriers' codes: `SnapshotBody::ROYAL_MAIL_CODES`; `RecostSales::ALL`);
+  `beforeFirstReservation`; the carriers' codes: `SnapshotBody::ROYAL_MAIL_CODES`; `RecostSales::ALL`); the last fix round's (PR155):
+  `tests/Unit/ProfitFinalReview4UnitTest.php` (the service names: `SnapshotBody::SERVICE_NAMES`; bin/migrate.php's grants inside the Migrator's run), two
+  more `MigratorTest` cases (`Migrator::migrate($then)`: the step keeps the bounded lock wait) and two more undo cases (www-data reads the whole rollback
+  release: the `runuser` stub's `find PATH ! -readable -print -quit`; the API's probe: the `profit_undo/curl` stub);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).

@@ -87,10 +87,13 @@ final class FinalReview3SnapshotTest extends StockTestCase
     {
         $site = $this->site('vapeandgo', 'live');
         $s = new OrderSnapshots(self::$db);
-        $parcel = ['parcel_ref' => 'odl:9500001', 'tracking_no' => null, 'carrier' => 'royal_mail', 'service_code' => 'TPL48HV', 'service' => 'Royal Mail Tracked 48',
-            'status' => 'generated', 'label_at' => '2026-11-19T11:00:00Z', 'shipped_at' => null, 'manual' => false, 'partial' => false];
+        $parcel = ['parcel_ref' => 'odl:9500001', 'tracking_no' => null, 'carrier' => 'royal_mail', 'service_code' => 'TPL48HV',
+            'service' => 'Royal Mail Tracked 48 (2-4 Working Days)', 'status' => 'generated', 'label_at' => '2026-11-19T11:00:00Z', 'shipped_at' => null,
+            'manual' => false, 'partial' => false];
         $s->store((int) $site->channelId, '9500002', self::body([self::sl('9500003', '1', 100)], ['parcels' => [$parcel]]), 'bulk');
-        self::assertSame('TPL48HV', (string) self::$db->value("SELECT service_code FROM sale_parcel WHERE order_ref = '9500002'"));
+        // A real name (PR155: the exact list), kept while the parcel is there.
+        self::assertSame(['TPL48HV', 'Royal Mail Tracked 48 (2-4 Working Days)'],
+            array_values((array) self::$db->one("SELECT service_code, service FROM sale_parcel WHERE order_ref = '9500002'")));
         $s->store((int) $site->channelId, '9500002', self::body([self::sl('9500003', '1', 100)], ['version' => 1001]), 'bulk');
         $p = (array) self::$db->one("SELECT service_code, service, carrier, removed_at FROM sale_parcel WHERE order_ref = '9500002'");
         self::assertNotNull($p['removed_at']);

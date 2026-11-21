@@ -24,8 +24,8 @@ use CW\Reservations;
  * variant_id digits, parent_ref and sub_of an order's number from 1 (the prefix at most) or null; a parcel ref is odl:/orl: + digits; the
  * order number is digits, else ""; the delivery method id is digits, the service code 1-3 digits or one of Royal Mail's
  * codes, else null / ""; statuses, the payment way and the carrier are words of a fixed list, else "other"; a delivery method or service
- * name is kept only when every word of it is a word of the carriers' services (SERVICE_WORDS) or a short number, else null / "". So a name,
- * an e-mail address, a phone number or a postal address can never be stored, whatever a connector maps into a field.
+ * name is kept only when it is one of the real names (SERVICE_NAMES, in its own spelling), else null / "" (PR155). So a name, an e-mail
+ * address, a phone number or a postal address can never be stored, whatever a connector maps into a field.
  */
 final class SnapshotBody
 {
@@ -54,8 +54,6 @@ final class SnapshotBody
      */
     public const VARIANT_ID = '/^(?:0|[1-9][0-9]{0,18})$/D';
     public const PARENT_REF = self::ORDER_REF;
-    /** The most digits a service name or code may hold in all (the real ones hold 4 at most: "Tracked 24(1-2 Working Days)", TPL48HV). */
-    public const TEXT_DIGITS = 6;
     /** The order number the customer sees: digits (1567469; all 65,363 orders of the real month), or "" (PR153: no letters before it). */
     public const ORDER_NO = '/^(?:[1-9][0-9]{0,9})?$/D';
     /** The shops' order statuses (lower case words); any other is kept as "other". */
@@ -73,27 +71,16 @@ final class SnapshotBody
     public const CARRIERS = ['', 'royal_mail', 'dpd', 'dpd_local', 'manual', 'in_store', 'evri', 'hermes', 'parcel2go', 'ups', 'dhl', 'fedex', 'yodel', 'parcelforce',
         'apc', 'tnt', 'amazon', 'inpost', 'collection', 'other'];
     /**
-     * The words a delivery method or service name may be made of (the shops' shipping methods: "Royal Mail Tracked 48 (2-4 Working Days)",
-     * "DPD Pickup (2 day Service)", "In Store Collection Preston", "EVRI International", "Return label", ...), with short numbers. A name made of
-     * any other word is not kept (null): it could be a person's name or an address.
+     * The delivery method and parcel service names CW keeps (the final re-check of the fix round, p-HIGH, PR155): every name seen 5 times or
+     * more on the parcels of the 50 real Vape and Go day files (1 Oct - 19 Nov 2026, 65,769 parcels; the rest were 4 rows of 2 odd shapes),
+     * the shop's shiping_master.shipm_providor (connector snapshot.php: a parcel's service and the order's delivery method alike), and the
+     * return label (CONTRACT change 4). A name is compared trimmed, its inner white space as one space, without case; it is stored in this
+     * spelling. Any other text is not kept (null / ""), never refused. Electrofag's and Vape Big's own names are not here yet: add them
+     * before those stores are switched on (README of build/A, known limit 41).
      */
-    public const SERVICE_WORDS = ['royal', 'mail', 'tracked', 'signed', 'special', 'next', 'day', 'days', 'delivery', 'working', 'dpd', 'pickup', 'pick', 'up',
-        'service', 'services', 'international', 'evri', 'hermes', 'in', 'store', 'collection', 'collect', 'click', 'and', 'return', 'returns', 'label', 'labels',
-        'standard', 'express', 'first', 'second', 'class', 'saturday', 'sunday', 'weekend', 'local', 'parcel', 'parcels', 'parcel2go', 'ups', 'dhl', 'fedex',
-        'yodel', 'parcelforce', 'courier', 'free', 'shipping', 'economy', 'priority', 'europe', 'european', 'eu', 'world', 'worldwide', 'global', 'uk', 'by',
-        'before', 'am', 'pm', 'noon', 'midday', 'the', 'to', 'for', 'on', 'of', 'or', 'large', 'letter', 'small', 'packet', 'preston', 'office', 'shop', 'counter',
-        'manual', 'same', 'hour', 'hours', 'hr', 'hrs', 'guaranteed', 'recorded', 'tracking', 'signature', 'required', 'no', 'only', 'plus', 'premium', 'ireland',
-        'northern', 'highlands', 'islands', 'mainland', 'rest', 'air', 'ground', 'letterbox', 'drop', 'off', 'point', 'locker', 'inpost', 'home', 'trade',
-        'wholesale', 'pallet', 'collected', 'customer', 'own', 'arranged', 'other', 'apc', 'tnt', 'amazon', 'dpdlocal', 'tracked24', 'tracked48', 'x'];
-    /**
-     * The words that make a name a carrier's or a service's (one of them at least, besides SERVICE_WORDS for every word): "12 Preston" or
-     * "Northern Ireland" alone could be an address and is never kept; "Royal Mail Tracked 48", "DPD", "In Store Collection Preston" are (the
-     * second final review of 3c31d94, b-HIGH1, PR141; 'road', a street word, is no service word since).
-     */
-    public const SERVICE_ANCHORS = ['royal', 'mail', 'dpd', 'dpdlocal', 'evri', 'hermes', 'parcel2go', 'ups', 'dhl', 'fedex', 'yodel', 'parcelforce', 'apc', 'tnt',
-        'amazon', 'inpost', 'tracked', 'tracked24', 'tracked48', 'signed', 'special', 'delivery', 'collection', 'collect', 'pickup', 'courier', 'shipping', 'express',
-        'standard', 'economy', 'priority', 'international', 'return', 'returns', 'label', 'labels', 'letter', 'letterbox', 'packet', 'parcel', 'parcels', 'service',
-        'services', 'locker', 'pallet'];
+    public const SERVICE_NAMES = ['Royal Mail Tracked 48 (2-4 Working Days)', 'DPD', 'Royal Mail Tracked 24(1-2 Working Days)', 'DPD Pickup (2 day Service)',
+        'Royal Mail Local Collect (1-2 Working days)', 'Royal Mail Special Next Day Delivery', 'DPD Weekend Delivery', 'EVRI International', 'DPD Sunday Delivery',
+        'In Store Collection Preston', 'DPD 2 Day Service', 'Return label', 'Royal Mail International Tracked'];
     /** A parcel's ref: the shop's dispatch row (odl:<id>) or return label (orl:<id>), CONTRACT change 4; nothing else (PR141). */
     public const PARCEL_REF = '/^(?:odl|orl):[0-9]{1,18}$/iD';
     /** A negative discount (a coupon's rounding pennies) is at most this many pence (CONTRACT.md, change 1). */
@@ -199,7 +186,7 @@ final class SnapshotBody
         $d ??= [];
         $delivery = [
             'method_id' => self::digits(self::optText($d['method_id'] ?? null, 'delivery.method_id', 64, true)),
-            'method' => self::serviceName(self::optText($d['method'] ?? null, 'delivery.method', 128)),
+            'method' => self::serviceName($d['method'] ?? null),
             'charged_inc' => self::pence($d['charged_inc'] ?? 0, 'delivery.charged_inc'),
             'refund_inc' => self::pence($d['refund_inc'] ?? 0, 'delivery.refund_inc'),
         ];
@@ -235,7 +222,8 @@ final class SnapshotBody
                 // Any code outside the carriers' list is "", never a refusal (a long or broken text too: the Codex check of the fix round, r13 b).
                 'service_code' => self::serviceCode(is_int($p['service_code'] ?? null) ? (string) $p['service_code']
                     : (is_string($p['service_code'] ?? null) ? trim($p['service_code']) : null)),
-                'service' => (string) self::serviceName(self::optText($p['service'] ?? null, "{$f}.service", 128)),
+                // Any name outside the list is "", never a refusal (the final re-check of the fix round, p-HIGH, PR155).
+                'service' => (string) self::serviceName($p['service'] ?? null),
                 'status' => self::word((string) self::optText($p['status'] ?? null, "{$f}.status", 32), self::PARCEL_STATUSES),
                 'label_at' => self::time($p['label_at'] ?? null, "{$f}.label_at", $now, true),
                 'shipped_at' => self::time($p['shipped_at'] ?? null, "{$f}.shipped_at", $now, true),
@@ -361,66 +349,19 @@ final class SnapshotBody
         return in_array($w, $list, true) ? $w : 'other';
     }
 
-    /** A delivery method or service name made only of SERVICE_WORDS and short numbers (else null). */
-    public static function serviceName(?string $v): ?string
+    /** A delivery method or service name: the SERVICE_NAMES name it is (trimmed, white space collapsed, without case), else null. */
+    public static function serviceName(mixed $v): ?string
     {
-        if ($v === null || $v === '') {
-            return $v;
-        }
-        $v = (string) preg_replace('/\s+/', ' ', $v);
-        // At most 6 digits in all: a phone number written in groups ("0770 0900 123") is never a service name (the Codex check of c48683e).
-        if (preg_match("/^[A-Za-z0-9 ()&+,.\/:'-]+$/D", $v) !== 1 || preg_match_all('/[0-9]/', $v) > self::TEXT_DIGITS) {
+        if (!is_string($v)) {
             return null;
         }
-        $anchored = false;
-        $place = false;
-        $collection = false;
-        $tokens = array_map('strtolower', preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: []);
-        foreach ($tokens as $t) {
-            if (!in_array($t, self::SERVICE_WORDS, true) && preg_match('/^[0-9]{1,4}(st|nd|rd|th|h|hr|hrs)?$/D', $t) !== 1) {
-                return null;
+        $key = strtolower(trim((string) preg_replace('/\s+/', ' ', $v)));
+        foreach (self::SERVICE_NAMES as $name) {
+            if (strtolower($name) === $key) {
+                return $name;
             }
-            $anchored = $anchored || in_array($t, self::SERVICE_ANCHORS, true);
-            $place = $place || $t === 'preston';
-            $collection = $collection || $t === 'collection' || $t === 'collect';
         }
-        // A number is a service's number only next to a word that numbers a service (Tracked 48, 2 Day, 1st Class, 48 Hour) or in a range
-        // of such numbers (2-4 Working Days): else it may be a house number ("Collection: 12 The Point, Preston": the Codex check of the fix
-        // round, r13 b, HIGH): not kept.
-        if (!self::numbersAreServices($tokens)) {
-            return null;
-        }
-        // A carrier's or a service's word in it, else it may be an address ("12 Preston"): not kept (PR141). The shop's own place (its
-        // collection point) only in the name of its collection: "Delivery 12 Preston" is never kept (the Codex check of the fix round, PR152).
-        return $anchored && (!$place || $collection) ? $v : null;
-    }
-
-    /** The words a service's number stands next to (SERVICE_WORDS all). */
-    public const NUMBER_WORDS = ['tracked', 'day', 'days', 'working', 'hour', 'hours', 'hr', 'hrs', 'class', 'service'];
-
-    /**
-     * Whether every number of a name's words stands next to a NUMBER_WORDS word, or next to such a number (a range: 2-4 Working Days).
-     *
-     * @param list<string> $tokens lower case
-     */
-    private static function numbersAreServices(array $tokens): bool
-    {
-        $isNumber = static fn (string $t): bool => preg_match('/^[0-9]/', $t) === 1;
-        $ok = [];
-        foreach ($tokens as $i => $t) {
-            $ok[$i] = !$isNumber($t) ? null : (in_array($tokens[$i - 1] ?? '', self::NUMBER_WORDS, true) || in_array($tokens[$i + 1] ?? '', self::NUMBER_WORDS, true));
-        }
-        // A number next to a number that is a service's (both ways, until nothing changes).
-        do {
-            $changed = false;
-            foreach ($ok as $i => $good) {
-                if ($good === false && (($ok[$i - 1] ?? null) === true || ($ok[$i + 1] ?? null) === true)) {
-                    $ok[$i] = true;
-                    $changed = true;
-                }
-            }
-        } while ($changed);
-        return !in_array(false, $ok, true);
+        return null;
     }
 
     /**

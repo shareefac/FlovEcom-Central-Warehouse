@@ -19555,3 +19555,27 @@ b) The import's copy is made only when its name could be removed at once (else r
 replacements reads the parent_ref CW keeps (an older copy CW ignored names nothing). (a, b MEDIUM) The live feed's first-reservation read
 stops after 1 s (MAX_EXECUTION_TIME), then 503 busy (no test: a stalled database cannot be held still); the README's known limits 13, 31,
 34, 37, 40, 41 and go-live step 0 / 1c say the rest.
+
+**PR155.** The last small fix round, after the final re-check of the fix round (`build/A/codex_final4_astra_{m,p}.txt`, two gpt-6.2-astra
+runs on bc7e248..5e1fe37: m GO, p HOLD; the lead's decisions in final2/FIX_BRIEF_A5.md), each fix with a test seen failing on 5e1fe37
+(`runs/profit_r14_red.log`, `profit_r14_red2.log`; tree build/A/redtree_r14). (p-HIGH, service name, CONFIRMED) **A delivery method or a
+parcel's service name is kept only when it is one of an exact list** (SnapshotBody::SERVICE_NAMES: the 13 names seen 5 times or more on the
+65,769 parcels of the 50 real Vape and Go day files, 1 Oct - 19 Nov, the return label among them), compared trimmed, inner white space as one
+space, without case, and stored in the list's own spelling; any other text (or a value that is no text, or one too long) is "" for a
+parcel and null for the method, never a refusal. Both come from the shop's shiping_master.shipm_providor (connector snapshot.php), so one
+list serves both. The word filter (SERVICE_WORDS, SERVICE_ANCHORS, NUMBER_WORDS, numbersAreServices, TEXT_DIGITS) is gone: it still kept
+"Collection Service: 12 The Point, Preston". Electrofag's and Vape Big's names are not on the list yet (their parcels show no name until
+they are added: a go-live step before those stores are switched on). (p-HIGH, undo B web readiness, CONFIRMED) **Undo B checks before the
+switch that www-data can read every file and directory of the rollback release** (`runuser -u www-data -- find "$RB" ! -readable -print
+-quit` prints nothing; else it stops naming the first such path, nothing changed: a root-only src/Api/Kernel.php passed the two-file check
+and the root smoke run), **and after the switch and Apache's start or reload, before "UNDO B DONE", it asks the API through the local
+listener as enable_https.sh does** (GET https://warehouse.floverfy.com/v1/health with the name pinned to 127.0.0.1, no key: 401), five
+tries two seconds apart; anything else is "UNDO B STOPPED: the API does not answer as it should ... (the link is already switched; run this
+again)". (p-M, the migration's lock wait) **The grants run inside the Migrator's run**: Migrator::migrate() takes a step (bin/migrate.php:
+the app login's grants) run after the files with the session's lock_wait_timeout still LOCK_WAIT_SEC and the migration lock still held;
+the session's own value is put back only at the end of the run, after an error too (a backup's lock taken as the grants started kept the
+vhost off with MySQL's year-long default). (Fable L6) bin/seed_item_cost.php's comment says what the loop does (a page with a failed order
+ends it). Not code (README of build/A): the canonical-id prefix (NOT REAL as a HIGH: the prefix is the shop's own config, '' on live; 0 of
+37,606 live reservations have a non-digit ref), undo A's push race, the shared workers in a metadata-lock stall, m-M1 a named supplier
+return, m-M2 two invoice lines received as one, m-M3 the repeated ledger reads, m-LOW the unused MAX(id) lookup, p-LOW batching the parent
+lookup, the boundary read's measured plan (known limit 31), Fable L7; CONTRACT.md: a 200 `out_of_range` is a final answer.

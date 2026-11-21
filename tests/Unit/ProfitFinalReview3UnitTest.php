@@ -143,12 +143,14 @@ final class ProfitFinalReview3UnitTest extends TestCase
     /**
      * r13 b (H4 PARTLY, HIGH): a delivery method or a parcel's service with a number that is no service's number (next to none of tracked, day,
      * days, working, hour, hours, hr, hrs, class, service, nor part of such a range) is never kept: "Collection: 12 The Point, Preston" (a
-     * house number and a street) is null; every real name stays.
+     * house number and a street) is null; every real name stays. Since PR155 (the final re-check, p-HIGH) the names are an exact list: the
+     * made-up service names that the word filter kept are null too.
      */
     public function testANumberInAServiceNameIsAServicesNumberOrTheNameIsNotKept(): void
     {
         foreach (['Collection: 12 The Point, Preston', 'Collection 12 The Point', 'Collect 4 Home Office', 'Delivery 12 Preston', 'Tracked Point 12',
-            'Royal Mail 12 Shop', 'In Store Collection 7 Preston'] as $address) {
+            'Royal Mail 12 Shop', 'In Store Collection 7 Preston', 'Royal Mail Tracked 48', 'Tracked 48', 'Click and Collect Preston', 'Royal Mail 1st Class',
+            'Royal Mail 2nd Class Signed For', '48 Hour Tracked', 'DPD Next Day (1-2 working days)'] as $address) {
             self::assertNull(SnapshotBody::serviceName($address), $address);
             $b = SnapshotBody::parse(self::body(['delivery' => ['method_id' => '12', 'method' => $address, 'charged_inc' => 0, 'refund_inc' => 0],
                 'parcels' => [self::parcel(['service' => $address])]]), self::now());
@@ -156,8 +158,7 @@ final class ProfitFinalReview3UnitTest extends TestCase
         }
         foreach (['DPD', 'DPD 2 Day Service', 'DPD Pickup (2 day Service)', 'In Store Collection Preston', 'Royal Mail International Tracked',
             'Royal Mail Special Next Day Delivery', 'Royal Mail Tracked 24(1-2 Working Days)', 'Royal Mail Tracked 48 (2-4 Working Days)', 'EVRI International',
-            'Return label', 'Royal Mail Tracked 48', 'Tracked 48', 'Click and Collect Preston', 'Royal Mail 1st Class', 'Royal Mail 2nd Class Signed For',
-            '48 Hour Tracked', 'DPD Next Day (1-2 working days)'] as $real) {
+            'Return label'] as $real) {
             self::assertSame($real, SnapshotBody::serviceName($real), $real);
         }
     }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Profit step 1, undo B (README of build/A, "Undo" B; the Codex check of the fix round, new HIGH 3): /opt/cw-prod switched to the rollback
 # release (c40c050's code + the final 0074 and 0075, prepared at go-live step 1b), the profit jobs fenced and drained, php-fpm, Apache and the
-# public vhost on, then the installer's own smoke run. Every path absolute; every prerequisite checked; stops at the first one that fails,
+# public vhost on, the API asked through the local listener (401, PR155), then the installer's own smoke run. Every path absolute; every
+# prerequisite checked (www-data reads every file of the rollback release, PR155); stops at the first one that fails,
 # before anything that runs is changed. Once /opt/cw-prod is switched, any failure says "UNDO B STOPPED: ... (the link is already switched;
 # run this again)" (the third final review, a-HIGH4, c-M8, Fable L3): it is safe to run again. No "UNDO B DONE" line = not finished.
 # Shipped in deploy/production; copied to /root at go-live step 1b (the rollback release has no copy of it). Run as root on the
@@ -31,9 +32,15 @@ done
 printf '%s  %s\n%s  %s\n' e4dea07d45d4ef271a6b92ebab218d13ef35c5ddbdb78d2f5f04c3fad66468e5 "$RB/migrations/0074_profit.sql" \
     7d90cfa7f6f62dbb2b248c58dfcb64173e64c7120cccd8216357f6935b78dcb8 "$RB/migrations/0075_profit_queue.sql" | sha256sum -c --quiet \
     || stop "the rollback release's 0074 / 0075 are not the files rehearsed"
-# The web server must be able to run it (as install_cron.sh checks a release before its switch).
+# The web server must be able to run it (as install_cron.sh checks a release before its switch) ...
 runuser -u www-data -- test -r "$RB/public/index.php" -a -r "$RB/vendor/autoload.php" \
     || stop "www-data cannot read $RB: the web server could not run it (prepare it again, go-live step 1b)"
+# ... every file and directory of it, not those two only: a root-only src/Api/Kernel.php passed both, and the root smoke run, and every
+# shop's call was a 500 after the switch (the final re-check of the fix round, p-HIGH, PR155). The first one www-data cannot read is named.
+if ! unreadable=$(runuser -u www-data -- find "$RB" ! -readable -print -quit); then
+    stop "www-data cannot read all of $RB (find as www-data failed${unreadable:+ at $unreadable}): the web server could not run it (prepare it again, go-live step 1b)"
+fi
+[[ -z $unreadable ]] || stop "www-data cannot read $unreadable: the web server could not run the rollback release (prepare it again, go-live step 1b)"
 # The installer's own lock, held to the end: no install or push meanwhile.
 exec 9>/run/lock/cw-prod-install.lock
 flock -n 9 || stop "an install (or a push) holds /run/lock/cw-prod-install.lock"
@@ -82,6 +89,21 @@ fi
 systemctl is-active --quiet php8.3-fpm || stop "php-fpm is not running"
 systemctl is-active --quiet apache2 || stop "Apache is not running"
 a2query -s cw-https >/dev/null 2>&1 || stop "the public vhost is not on"
+# The API asked through the local listener, as enable_https.sh checks it (the name pinned to 127.0.0.1): without a key it answers 401 when
+# the web server runs the release. A few tries over about 10 s (a reload settling); anything else stops here, before DONE (PR155).
+NAME=warehouse.floverfy.com
+code=000
+for try in $(seq 1 5); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 --resolve "$NAME:443:127.0.0.1" "https://$NAME/v1/health" || true)
+    if [[ $code == 401 ]]; then
+        break
+    fi
+    if [[ $try -lt 5 ]]; then
+        sleep 2
+    fi
+done
+echo "[undo_b] GET https://$NAME/v1/health (no key) -> HTTP $code"
+[[ $code == 401 ]] || stop "the API does not answer as it should: GET https://$NAME/v1/health (no key) -> HTTP $code, expected 401 (Apache's error log and php-fpm's log say why)"
 cd "$LIVE"
 # The installer's own smoke run (install_cron.sh, its smoke: step): each job once, as cron runs it, in the forms that write nothing.
 fail=0
@@ -96,4 +118,4 @@ for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.p
     fi
 done
 [[ $fail -eq 0 ]] || stop "a smoke job failed on the rollback release (its lines above)"
-echo "UNDO B DONE: $LIVE -> $RB; cron without the profit jobs; php-fpm, Apache and the public vhost on; smoke run ok. Then undo A (GitHub)."
+echo "UNDO B DONE: $LIVE -> $RB; cron without the profit jobs; php-fpm, Apache and the public vhost on; the API answers; smoke run ok. Then undo A (GitHub)."
