@@ -19491,3 +19491,52 @@ listing (`pgrep -af` finding nothing) stopped the script silently under set -e, 
 switched); the listing never stops it now. (F19 PARTLY) The early read has its own test: an order placed before the store's first
 reservation with a broken line (qty 2) next to a valid order refuses the day file whole, nothing written (failing on 973c8ff, passing on
 f2b6230: no code change).
+
+### The third final review of bc7e248 (three read-only gpt-6.2-astra runs: `build/A/codex_final3_astra_{a,b,c}.txt`, all HOLD; the top model's read, GO; the lead's fix brief `final2/FIX_BRIEF_A4.md` H1-H8 and its ALSO FIX list; builder A4, 21 Nov 2026): every finding checked in the code first, each code fix shown failing first on bc7e248 (`runs/profit_r13_red.log`) and then green
+
+**PR154.** (a-HIGH1, H1) **One unit on the shelf takes a later invoice or credit price at most once across all the deliveries of its
+item, the oldest sold first.** A delivery line's units that can still be on hand at a moment (CostEngine::receiptStillHere, used by the
+invoice and the credit paths, F1's places and shares, a delivery taken back, a deferred credit undone, the same in a history written again)
+are its FIFO layer (CostEngine::layerHere, ProfitMath::lowestLayer): at most its units, at most the fewest, over the ends of the operations
+from its own to that moment, of the units on hand LESS what the item's later deliveries brought by then (a later priced goods_in of ours,
+and its own cancellation, are left out of the walk; every other movement counts, an earlier delivery taken back too), at least 0; 0 once it
+was taken back. So the deliveries' units still here add up to the units on hand at most. Two deliveries of 50 at £1, 50 sold, each invoiced
+at £2: £2 (it said £3); the owner's rule (question 6): 100 at £2, 40 sold, invoiced at £2.20, in one delivery or in two of 50: only the 60
+move, £2.20 (two deliveries said £2.33). The walk reads the rows lowestBetween() read (the item's on-hand rows from the delivery to the
+moment, stock_value_seq by its primary key, each joined to its ledger row and its document by their primary keys), so a run's reads are
+bounded as before (README known limit 8). (c-M1, H2) A named delivery line that booked nothing of the item (all short) reaches 0 units in
+the invoice and the credit paths and the replay (it was "no bound": an invoice of ten all short at £3 moved the ten older units at £4 to
+£5). (c-HIGH1 / a-M1, H3) **The live feed keeps the backfill's boundary**: PUT /v1/orders/{ref}/snapshot of an order placed before its
+store's first reservation in CW (no reservation of the store made at or before its placed_at; no placed_at, or no reservation yet: before
+it, as the backfill reads it) is answered 200 `{"result":"out_of_range","version":N}`: nothing stored, nothing queued, nothing locked.
+The connector (0.4.17, cw_snapshot_on_answer) marks every 2xx answer but older_ignored as sent (state sent, last_result out_of_range), so
+it never sends that content again, never retries it. A backfill keeps it by refusing such a day file whole before anything is stored
+(PR148); --allow-unreserved stays the only way in; the importer reads the boundary through the same OrderSnapshots::firstReservation.
+(all three HIGH, H4) A parcel's service code is kept only when it is 1-3 digits (DPD's and the in-store codes; "0" by hand) or exactly one
+of Royal Mail's codes the 65,769 real parcels hold (TPL48HV, TPM24HV, SD1, TSS, TRN24, OTC; the repository names no other), else "" (never a
+refusal); a parcel a later snapshot drops loses its service code too. (b-HIGH2, H5) The ids are canonical integers, as the connector's
+(int) cast writes them: a variant_id `^(?:0|[1-9][0-9]{0,18})$`, the digits of an order ref, a line_id, parent_ref and sub_of
+`[1-9][0-9]{0,18}` (a proto copy's store prefix before them as before): "07700900123" is no id. (a-HIGH3, H6) The migration session waits
+at most Migrator::LOCK_WAIT_SEC (30 s) for a table's metadata lock (lock_wait_timeout while the files run, put back after; 0074 and 0075
+unchanged): a long transaction on a table a migration alters makes it fail in about 30 s, not recorded, with the writers paused as
+rehearsed (README step 1c: a read-only pre-check first, the recovery by running install_cron.sh --migrate again). (a-HIGH4, c-M8, Fable L3,
+H7) profit_undo_b.sh checks www-data can read the rollback release before the switch (as install_cron.sh does), starts Apache when it is not
+active (after configtest), checks it, and ends with install_cron.sh's own smoke run before UNDO B DONE; any failure after the switch says
+"UNDO B STOPPED: ... (the link is already switched; run this again)" (a stop or the ERR trap), never a bare tool error. (a-M, b-M6, Fable
+L1, H8) profit_drain_jobs.sh holds /run/lock/cw-prod-install.lock (flock -n) for its checks and the drain, checks REVISION again at the end
+under it, then lets it go and runs the rollback release's install_cron.sh itself at once (no --migrate): a push waits for the lock (push_code.sh
+flock -w 600) and cannot change the release copy meanwhile; one that takes the lock first after it is let go makes the installer refuse.
+ALSO: (a-M, c-M5) `recost_sales.php --source=all` is none, estimate and cw_cost (RecostSales::ALL): erp_at_sale only when named. (a-M,
+b-M2) seed_item_cost.php refuses a --store other than erp_opening.listing_store (exit 2), as the ERPNext sales import. (a-M, b-M1) A day
+file's line has its ref and placement recorded before any other field is checked (its lists' shapes too): a malformed second copy of an
+order refuses the file whole, nothing written. (a-M, b-M5) The import's copy of a day file is made, opened and unlinked at once, then filled
+and read (the sha256 and both passes) through the open handle: a run killed at any moment leaves no copy on disk. (b-M4) An ERPNext day
+there both as .tsv and .tsv.gz is refused, nothing read (exit 1). (c-M3) A priced release of another account's stock (REL) is in the cost
+job's look back for documents not read and in the mark's guard (it is a delivery to the job; the replay already read it by its ledger
+rows). (c-M7) The backfill names, at its end, the replacements of the file whose first order is not in CW (count and refs, the first 50).
+(b-L1) The dry run refuses an order whose parent_ref is itself. (c-L1) A re-send counts on its first order only with units that count, as
+on the day (a re-send whose every line was cancelled is none; the chain is still followed through it).
+Not code (README): known limit 13 rewritten (a-HIGH2, NOT REAL in practice: one sender per shop), the undo and go-live texts (Fable M-a, M-b,
+M-c, L2, L4, L5, a-L2), known limits for a-M new SKU opening timing (with c-M2), a-M one blocked store-day and the money job's budget, a-M
+the ten-minute job's repeated ledger reads, a-M undo after a later hotfix, b-M3 an omitted ERP line, c-M4 a withdrawn ERP cost, c-M6 penny
+rounding of ERP packs, a-L1 the seed's first 100 broken rows, and the live feed's boundary read.

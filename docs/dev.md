@@ -1589,7 +1589,7 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR153; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR154; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
 
 | File | What |
 |---|---|
@@ -1616,7 +1616,11 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `tests/Unit/ProfitCodexR11UnitTest.php`, `tests/Integration/Profit/CodexR11{Cost,Snapshot}Test.php`, `tests/Integration/UiKernel/ProfitScreensCodexR11Test.php`
   (a delivery line's places: `CostEngine::layoutOn` / `shares` / `freeHere`, what an event really moved: `applied`); the last fix round's (PR153):
   `tests/Unit/ProfitIdShapesUnitTest.php`, `tests/Integration/Profit/IdShapesAndEarlyReadTest.php`, `tests/Unit/ProfitUndoScriptsBehaviourTest.php` (runs
-  `deploy/production/profit_undo_b.sh` and `profit_drain_jobs.sh` on the stubs of `tests/fixtures/deploy_stubs/bin` and `.../profit_undo`);
+  `deploy/production/profit_undo_b.sh` and `profit_drain_jobs.sh` on the stubs of `tests/fixtures/deploy_stubs/bin` and `.../profit_undo`); the third final
+  review's (PR154): `tests/Unit/ProfitFinalReview3UnitTest.php`, `tests/Integration/Profit/FinalReview3{Cost,Release,Api,Snapshot}Test.php`,
+  `tests/Integration/MigratorTest.php` (the migration's metadata-lock wait: `Migrator::LOCK_WAIT_SEC`) and the undo test's new cases (a delivery's FIFO layer:
+  `CostEngine::layerHere` / `ProfitMath::lowestLayer`; the live feed's boundary: `OrderSnapshots::OUT_OF_RANGE` / `firstReservation` /
+  `beforeFirstReservation`; the carriers' codes: `SnapshotBody::ROYAL_MAIL_CODES`; `RecostSales::ALL`);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).
