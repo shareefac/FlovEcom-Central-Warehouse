@@ -59,7 +59,14 @@ final class ErpSalesImport
         }
         // Every day file of the folder is read (an order's rows may be on a day outside --from / --to); --from / --to choose the orders to
         // apply: those whose LAST day is in it (the Codex review of 57d98ad, a9).
-        $files = self::files($dir, null, null);
+        $files = self::files($dir, null, null, $twice);
+        // One file a day: a day there both as .tsv and .tsv.gz (an old file next to a corrected one) is refused, nothing read: never one of the
+        // two taken silently (the third final review, b-M4, PR154).
+        if ($twice !== []) {
+            $log('nothing read: ' . count($twice) . ' day(s) are in ' . $dir . ' twice, as si_<day>.tsv and si_<day>.tsv.gz (' . implode(', ', $twice)
+                . '): keep the one export of each day, then run this again');
+            return ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => count($twice), 'waiting' => 0];
+        }
         // No day file in the days asked for: refused, never "0 days done" (PR139).
         if (self::files($dir, $from, $to) === []) {
             $log('no day file si_<day>.tsv(.gz) in ' . $dir . ($from !== null || $to !== null ? ' for ' . ($from ?? '...') . ' to ' . ($to ?? '...') : '') . ': nothing read');
@@ -207,12 +214,15 @@ final class ErpSalesImport
     }
 
     /**
-     * The day files of $dir (si_<day>.tsv or .tsv.gz, one a day; the folder read as it is named, never as a pattern: b19).
+     * The day files of $dir (si_<day>.tsv or .tsv.gz, one a day; the folder read as it is named, never as a pattern: b19). $twice: the days
+     * there as both (PR154; run() refuses them).
      *
+     * @param list<string> $twice
      * @return array<string, string> day => path, in day order
      */
-    public static function files(string $dir, ?string $from, ?string $to): array
+    public static function files(string $dir, ?string $from, ?string $to, ?array &$twice = null): array
     {
+        $twice = [];
         $out = [];
         $names = @scandir($dir);
         if ($names === false) {
@@ -223,7 +233,11 @@ final class ErpSalesImport
             if (preg_match('/^si_(\d{4}-\d{2}-\d{2})\.tsv(\.gz)?$/D', $n, $m) !== 1 || ($from !== null && $m[1] < $from) || ($to !== null && $m[1] > $to)) {
                 continue;
             }
-            $out[$m[1]] ??= rtrim($dir, '/') . '/' . $n;
+            if (isset($out[$m[1]])) {
+                $twice[] = $m[1];
+                continue;
+            }
+            $out[$m[1]] = rtrim($dir, '/') . '/' . $n;
         }
         ksort($out, SORT_STRING);
         return $out;

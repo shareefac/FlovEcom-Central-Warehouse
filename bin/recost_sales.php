@@ -8,7 +8,8 @@ declare(strict_types=1);
  *
  *   php bin/recost_sales.php --from=YYYY-MM-DD --to=YYYY-MM-DD [--source=none,estimate,...] [--channel=<store code>] [--apply]
  *
- *   --source  one or more of none, estimate, cw_cost, erp_at_sale, or all (default: none: the lines with no buying price)
+ *   --source  one or more of none, estimate, cw_cost, erp_at_sale, or all (= none, estimate, cw_cost: erp_at_sale only when named;
+ *             default: none: the lines with no buying price)
  *   --apply   write; without it a dry run that prints what would move
  *
  * Exit codes: 0 done · 2 usage · 3 cannot run · 4 not run: another re-cost holds the job's lock: nothing done (PR135).
@@ -40,7 +41,8 @@ exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'apply'],
             throw new InvalidArgumentException('--from must not be after --to');
         }
         $src = is_string($opts['source'] ?? null) ? $opts['source'] : 'none';
-        $sources = $src === 'all' ? RecostSales::SOURCES : array_values(array_unique(array_map('trim', explode(',', $src))));
+        // all = none, estimate, cw_cost: never erp_at_sale (ERPNext's cost is withdrawn only when asked by name, PR154).
+        $sources = RecostSales::sources($src);
         $apply = array_key_exists('apply', $opts);
         $r = (new RecostSales($cli->db))->run($from, $to, $sources, is_string($opts['channel'] ?? null) ? $opts['channel'] : null, $apply);
         foreach ($r['moves'] as $move => $n) {

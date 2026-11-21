@@ -14,8 +14,8 @@ use CW\Db;
  *
  * The file proves its store before anything is written (the Codex review of 92efa82, b13, b14): its name is snapshots_<store>_<day>.jsonl
  * and names the store asked for, and its .sum line (next to it) is there, whole, names the same store and day, and matches the file (its
- * sha256; its orders, lines, goods and delivery when every line could be read). The file is read twice, line by line: once to check it
- * (nothing written when it does not match), once to store it. A line CW refuses is reported with its field and the rest go on; a line
+ * sha256; its orders, lines, goods and delivery when every line could be read). The file is read twice, line by line, from a copy that has
+ * no name on disk (PR154): once to check it (nothing written when it does not match), once to store it. A line CW refuses is reported with its field and the rest go on; a line
  * longer than the cap is ONE refused line, whatever follows on it (b15).
  */
 final class SnapshotImport
@@ -49,28 +49,58 @@ final class SnapshotImport
             throw new \InvalidArgumentException("{$base} is a file of the store {$m[1]}, not {$channelCode}");
         }
         $sum = $this->sum($path, $channelCode, $m[2]);
-        // The file as it is now, copied aside: what is checked is what is stored (the Codex review of 57d98ad, b14). The copy is removed whatever
-        // happens, a copy that failed half way too (the second final review of 3c31d94, b-M9, PR151).
-        $copy = tempnam(sys_get_temp_dir(), 'cw_snap_');
-        if ($copy === false) {
-            throw new \InvalidArgumentException("cannot make a copy of {$path}");
-        }
+        // The file as it is now, copied aside: what is checked is what is stored (the Codex review of 57d98ad, b14). The copy has no name from
+        // before a byte of the file is in it: made, opened and unlinked at once, then filled and read (both passes) through the open handle
+        // only, so a run killed at any moment leaves no copy of the day file on disk (the third final review, a-M / b-M5, PR154; the
+        // second final review's `finally` needed PHP to reach it).
+        $copy = $this->privateCopy($path);
         try {
-            if (!@copy($path, $copy)) {
-                throw new \InvalidArgumentException("cannot read {$path}");
-            }
             return $this->checked($copy, $sum, (int) $channel, $dryRun, $log, $m[2], $notBefore);
         } finally {
-            @unlink($copy);
+            fclose($copy);
         }
     }
 
     /**
+     * A copy of $path that exists only as an open handle (its name unlinked before anything is written to it), rewound.
+     *
+     * @return resource
+     */
+    private function privateCopy(string $path)
+    {
+        $name = tempnam(sys_get_temp_dir(), 'cw_snap_');
+        if ($name === false) {
+            throw new \InvalidArgumentException("cannot make a copy of {$path}");
+        }
+        $fh = @fopen($name, 'w+b');
+        @unlink($name);
+        if ($fh === false) {
+            throw new \InvalidArgumentException("cannot make a copy of {$path}");
+        }
+        $src = @fopen($path, 'rb');
+        if ($src === false) {
+            fclose($fh);
+            throw new \InvalidArgumentException("cannot read {$path}");
+        }
+        try {
+            if (stream_copy_to_stream($src, $fh) === false) {
+                fclose($fh);
+                throw new \InvalidArgumentException("cannot read {$path}");
+            }
+        } finally {
+            fclose($src);
+        }
+        rewind($fh);
+        return $fh;
+    }
+
+    /**
+     * @param resource $path the copy (privateCopy())
      * @param array<string, mixed> $sum
      * @param \Closure(string): void $log
      * @return array{lines: int, results: array<string, int>, refused: int, sum: array<string, mixed>, sum_ok: bool, read: array<string, int>}
      */
-    private function checked(string $path, array $sum, int $channel, bool $dryRun, \Closure $log, string $day, ?string $notBefore): array
+    private function checked($path, array $sum, int $channel, bool $dryRun, \Closure $log, string $day, ?string $notBefore): array
     {
         $now = $this->clock === null ? \CW\Clock::now() : ($this->clock)();
         // Pass 1: every line checked, nothing written.
@@ -97,7 +127,10 @@ final class SnapshotImport
             return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
                 'sum_ok' => false, 'totals_checked' => false, 'read' => $check['read'], 'file_refused' => count($bad)];
         }
-        $sumOk = hash_equals(strtolower((string) $sum['file_sha256']), (string) hash_file('sha256', $path));
+        rewind($path);
+        $h = hash_init('sha256');
+        hash_update_stream($h, $path);
+        $sumOk = hash_equals(strtolower((string) $sum['file_sha256']), hash_final($h));
         if (!$sumOk) {
             $log('the .sum names another file (its sha256 differs): nothing written');
         }
@@ -122,27 +155,53 @@ final class SnapshotImport
             return ['lines' => $check['lines'], 'results' => array_fill_keys(OrderSnapshots::RESULTS, 0), 'refused' => $check['refused'], 'sum' => $sum,
                 'sum_ok' => $sumOk, 'totals_checked' => $totalsChecked && $sumOk, 'read' => $check['read'], 'file_refused' => 0];
         }
-        // Pass 2: stored, order by order.
+        // Pass 2: stored, order by order (the first reservation's boundary was kept by pass 1: a file with an order before it never gets here).
         $done = $this->pass($path, new OrderSnapshots($this->db, $this->clock), $channel, $now, $log);
+        // The replacements of this file whose first order CW does not hold (its day not loaded, or before the boundary): their cost is on
+        // their own day, but no first order shows it until the original's day is loaded (the third final review, c-M7, PR154).
+        $orphans = $this->orphans($channel, $done['parents']);
+        if ($orphans !== []) {
+            $log(count($orphans) . " replacement(s) of this file whose first order is not in CW (load the first order's day file): "
+                . implode(', ', array_map(static fn (string $r, string $p): string => "{$r} (first order {$p})", array_keys(array_slice($orphans, 0, 50, true)),
+                    array_slice($orphans, 0, 50, true))) . (count($orphans) > 50 ? ', ...' : ''));
+        }
         return ['lines' => $done['lines'], 'results' => $done['results'], 'refused' => $done['refused'], 'sum' => $sum, 'sum_ok' => true,
-            'totals_checked' => $totalsChecked && $done['refused'] === 0, 'read' => $done['read'], 'file_refused' => 0];
+            'totals_checked' => $totalsChecked && $done['refused'] === 0, 'read' => $done['read'], 'file_refused' => 0, 'orphans' => count($orphans)];
+    }
+
+    /**
+     * Of the replacements stored ($parents: ref => the parent_ref it names), those whose chain's first order is not in CW (no sale_order row
+     * of the order its parent_ref chain reaches).
+     *
+     * @param array<string, string> $parents
+     * @return array<string, string> ref => the first order it names
+     */
+    private function orphans(int $channel, array $parents): array
+    {
+        $out = [];
+        foreach ($parents as $ref => $parent) {
+            $root = OrderSnapshots::rootOf($this->db, $channel, $parent);
+            if ($this->db->value('SELECT 1 FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channel, $root]) === null) {
+                $out[(string) $ref] = $root;
+            }
+        }
+        return $out;
     }
 
     /**
      * One pass over the file: each line read (a line past the cap drained to its end and refused once), checked, and stored when $service.
      *
+     * @param resource $fh the copy (privateCopy()), read from its start
      * @param \Closure(string): void $log
      * @return array{lines: int, results: array<string, int>, refused: int, read: array<string, int>,
-     *         orders: list<array{line: int, ref: string, day: ?string, placed: ?string, twice: ?int}>}
+     *         orders: list<array{line: int, ref: string, day: ?string, placed: ?string, twice: ?int}>, parents: array<string, string>}
      */
-    private function pass(string $path, ?OrderSnapshots $service, int $channel, \DateTimeImmutable $now, \Closure $log): array
+    private function pass($fh, ?OrderSnapshots $service, int $channel, \DateTimeImmutable $now, \Closure $log): array
     {
         $orders = [];
         $seen = [];
-        $fh = @fopen($path, 'rb');
-        if ($fh === false) {
-            throw new \InvalidArgumentException("cannot read {$path}");
-        }
+        $parents = [];
+        rewind($fh);
         $results = array_fill_keys(OrderSnapshots::RESULTS, 0);
         $read = ['orders' => 0, 'lines' => 0, 'goods_inc' => 0, 'delivery_inc' => 0];
         $refused = 0;
@@ -171,10 +230,10 @@ final class SnapshotImport
                     if (!is_array($o) || ltrim($line)[0] !== '{') {
                         throw new CwException('bad_json', 'the line is not a JSON object', 400);
                     }
-                    SnapshotBody::checkJsonShapes($line);
                     $ref = SnapshotBody::orderRef($o['ref'] ?? null, 'ref');
                     if ($service === null) {
-                        // Its ref and its placing read before the rest of it is checked: an order twice (one copy broken), of another day or before
+                        // Its ref and its placing read before ANY other field of it is checked (its lists' shapes too: a copy with "lines": {} is
+                        // still a copy; the third final review, a-M / b-M1, PR154): an order twice (one copy broken), of another day or before
                         // the first reservation refuses the file whole, whatever else is wrong with the line (the Codex check of the fix round, F9 /
                         // F19 PARTLY, PR152).
                         $placed = null;
@@ -189,7 +248,12 @@ final class SnapshotImport
                             'twice' => $seen[strtolower($ref)] ?? null];
                         $seen[strtolower($ref)] ??= $n;
                     }
+                    SnapshotBody::checkJsonShapes($line);
                     $body = SnapshotBody::parse($o, $now);
+                    // An order that names itself as its first order: refused in the dry run as in the write (the third final review, b-L1, PR154).
+                    if (strcasecmp((string) $body['parent_ref'], $ref) === 0) {
+                        throw new CwException('bad_snapshot', 'parent_ref must be another order', 400, ['field' => 'parent_ref']);
+                    }
                     $read['orders']++;
                     $read['lines'] += count($body['lines']);
                     foreach ($body['lines'] as $l) {
@@ -198,6 +262,9 @@ final class SnapshotImport
                     $read['delivery_inc'] += $body['delivery']['charged_inc'];
                     if ($service !== null) {
                         $results[$service->store($channel, $ref, $o, 'bulk')['result']]++;
+                        if ($body['parent_ref'] !== null) {
+                            $parents[$ref] = (string) $body['parent_ref'];
+                        }
                     }
                 } catch (CwException $e) {
                     $refused++;
@@ -214,9 +281,9 @@ final class SnapshotImport
                 }
             }
         } finally {
-            fclose($fh);
+            rewind($fh);
         }
-        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read, 'orders' => $orders];
+        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read, 'orders' => $orders, 'parents' => $parents];
     }
 
     /**

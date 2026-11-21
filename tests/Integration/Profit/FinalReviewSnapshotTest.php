@@ -254,7 +254,8 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $s->store((int) $site->channelId, '9100034', self::body([self::sl('9100010', '9100011', 100)], ['version' => 1001]), 'api');
         $p = self::$db->one("SELECT service, service_code, removed_at FROM sale_parcel WHERE order_ref = '9100034'");
         self::assertNotNull($p['removed_at']);
-        self::assertSame(['', 'TSS'], [(string) $p['service'], (string) $p['service_code']], 'a parcel gone keeps its codes, no text');
+        // The third final review (H4, PR154): a parcel gone keeps no service code either (its ref, carrier and times stay).
+        self::assertSame(['', ''], [(string) $p['service'], (string) $p['service_code']], 'a parcel gone keeps no text and no service code');
     }
 
     private static function tsv(array $rows): string

@@ -16,6 +16,21 @@ use CW\Db;
 final class RecostSales
 {
     public const SOURCES = ['none', 'estimate', 'cw_cost', 'erp_at_sale'];
+    /**
+     * What `--source=all` means: every source but ERPNext's own cost at the sale (erp_at_sale is corrected by the ERPNext import run again,
+     * never by CW's price; withdrawing it takes an explicit --source=erp_at_sale: the third final review, a-M / c-M5, PR154).
+     */
+    public const ALL = ['none', 'estimate', 'cw_cost'];
+
+    /**
+     * The sources a --source argument names: "all" is ALL; else the comma-separated list as given (each checked by run()).
+     *
+     * @return list<string>
+     */
+    public static function sources(string $arg): array
+    {
+        return $arg === 'all' ? self::ALL : array_values(array_unique(array_map('trim', explode(',', $arg))));
+    }
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, private readonly ?\Closure $clock = null)

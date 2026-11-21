@@ -44,6 +44,14 @@ use CW\Reports\ReportRefresh;
 final class OrderSnapshots
 {
     public const RESULTS = ['stored', 'same', 'older_ignored'];
+    /**
+     * The API's answer (200) for an order placed before its store's first reservation in CW (the third final review, c-HIGH1 / a-M1, PR154):
+     * taken and not counted, as the backfill leaves such an order out (bin/import_order_snapshots.php, PR148): nothing stored or queued. The
+     * connector (0.4.17, cw_snapshot_on_answer) marks every 2xx answer but older_ignored as sent (state sent, last_result out_of_range), so it
+     * never sends that content again; only a change of the order sends it again (out_of_range again). --allow-unreserved of the importer is
+     * the only way such an order comes in.
+     */
+    public const OUT_OF_RANGE = 'out_of_range';
     public const SOURCES = ['api', 'bulk'];
 
     /** @var \Closure(): \DateTimeImmutable */
@@ -134,10 +142,14 @@ final class OrderSnapshots
      * locked (no day summary, no cost read, no row of order_snapshot or the money tables, no foreign key): the money work is applyQueued()'s
      * (the final review of 6d59eda, a-HIGH2, PR95).
      *
+     * With $inRangeOnly (the API, always), an order placed before its store's first reservation in CW (beforeFirstReservation()) is
+     * answered OUT_OF_RANGE: nothing stored, nothing queued, nothing locked (PR154). A backfill keeps the same boundary by refusing such a
+     * day file whole before anything is stored (SnapshotImport, PR148; --allow-unreserved: the only way in).
+     *
      * @param array<string, mixed> $raw the decoded JSON object
      * @return array{result: string, version: int, queued?: bool}
      */
-    public function accept(int $channelId, string $ref, array $raw, string $source): array
+    public function accept(int $channelId, string $ref, array $raw, string $source, bool $inRangeOnly = false): array
     {
         if (!in_array($source, self::SOURCES, true)) {
             throw new \InvalidArgumentException("unknown snapshot source {$source}");
@@ -147,6 +159,11 @@ final class OrderSnapshots
         $body = SnapshotBody::parse($raw, $now);
         if (strcasecmp((string) $body['parent_ref'], $ref) === 0) {
             throw new CwException('bad_snapshot', 'parent_ref must be another order', 400, ['field' => 'parent_ref']);
+        }
+        // The backfill's boundary on the live feed too (PR154): an order CW never held (placed before the store's first reservation) is not
+        // counted, its returns are booked through the historical path, which the profit does not match.
+        if ($inRangeOnly && self::beforeFirstReservation($this->db, $channelId, $body['placed_at'])) {
+            return ['result' => self::OUT_OF_RANGE, 'version' => $body['version']];
         }
         // A line of another order (or a unit of another order in CW) is refused here, by reads that lock nothing; the money work checks
         // again under its locks (two orders storing the same line at once).
@@ -229,6 +246,31 @@ final class OrderSnapshots
         }
         $db->exec('INSERT INTO order_snapshot_queue (channel_id, order_ref, seq, version, body_hash, body, source, first_at, queued_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)',
             [$channelId, $ref, $body['version'], $hash, $json, $source, $at, $at]);
+    }
+
+    /**
+     * The store's first reservation in CW (UTC; null: none yet): the boundary of the backfill (bin/import_order_snapshots.php, PR148) and of
+     * the live feed (PR154). A reservation row is never deleted on live and its created_at is its insert time, so it never moves once there.
+     */
+    public static function firstReservation(Db $db, int $channelId): ?string
+    {
+        $v = $db->value('SELECT MIN(created_at) FROM reservation WHERE channel_id = ?', [$channelId]);
+        return $v === null ? null : (string) $v;
+    }
+
+    /**
+     * Whether an order placed at $placed (UTC; null: not known) is before its store's first reservation in CW: exactly "$placed < the first
+     * reservation" (firstReservation(); none yet: every order is before it; no placed_at: before it, as the backfill reads it), asked as "no
+     * reservation of the store made at or before $placed": one indexed read of the store's rows (uq_reservation_order) that stops at the
+     * first one found, so an order placed after the boundary (nearly every snapshot) costs a row or two; an order before it reads the store's
+     * reservation rows once (README of build/A, known limit 31).
+     */
+    public static function beforeFirstReservation(Db $db, int $channelId, ?string $placed): bool
+    {
+        if ($placed === null) {
+            return true;
+        }
+        return $db->value('SELECT 1 FROM reservation WHERE channel_id = ? AND created_at <= ? LIMIT 1', [$channelId, $placed]) === null;
     }
 
     /** The name of an order's intake lock (accept() only; never the money work's guard, so the API never waits for it). Case as the key's. */
@@ -874,7 +916,9 @@ final class OrderSnapshots
         $refs = self::descendants($db, $channelId, $parent);
         $r = ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0];
         foreach (array_chunk($refs, 500) as $chunk) {
-            $f = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
+            // Counted as the day counts a re-send (ProfitDays::orderShare): only with units that count (a re-send whose every line was cancelled is
+            // none on its first order either: the third final review, c-L1, PR154); the chain is still followed through it (descendants()).
+            $f = $db->one('SELECT COALESCE(SUM(o.units > 0), 0) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
                 . 'WHERE o.channel_id = ? AND o.order_ref IN (' . self::marks($chunk) . ') AND o.paid_at IS NOT NULL', [$channelId, ...$chunk]) ?? [];
             $r['n'] += (int) ($f['n'] ?? 0);
             $r['c'] += (int) ($f['c'] ?? 0);
@@ -905,10 +949,10 @@ final class OrderSnapshots
             self::upsert($db, 'sale_parcel', $rows, ['channel_id', 'order_ref', 'parcel_ref', 'first_at']);
         }
         foreach ($have as $pref) {
-            // A parcel gone from the snapshot keeps its codes and times and no text at all (its service name is cleared: the final review of
-            // 6d59eda, b-HIGH2, PR96).
-            $db->exec("UPDATE sale_parcel SET removed_at = COALESCE(removed_at, ?), service = '', updated_at = ? WHERE channel_id = ? AND order_ref = ? AND parcel_ref = ? "
-                . "AND (removed_at IS NULL OR service <> '')", [$now, $now, $channelId, $ref, (string) $pref]);
+            // A parcel gone from the snapshot keeps its ref, carrier, tracking number and times, and no text and no service code at all (its
+            // service name is cleared: the final review of 6d59eda, b-HIGH2, PR96; its service code too: the third final review, PR154).
+            $db->exec("UPDATE sale_parcel SET removed_at = COALESCE(removed_at, ?), service = '', service_code = '', updated_at = ? WHERE channel_id = ? AND order_ref = ? "
+                . "AND parcel_ref = ? AND (removed_at IS NULL OR service <> '' OR service_code <> '')", [$now, $now, $channelId, $ref, (string) $pref]);
         }
     }
 

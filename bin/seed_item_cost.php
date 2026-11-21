@@ -55,8 +55,14 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $day) !== 1 || !checkdate((int) substr($day, 5, 2), (int) substr($day, 8, 2), (int) substr($day, 0, 4))) {
             throw new InvalidArgumentException('--start must be a day, YYYY-MM-DD');
         }
-        $store = is_string($opts['store'] ?? null) ? $opts['store']
-            : (string) json_decode((string) ($cli->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'") ?? '"vapeandgo"'));
+        // ERPNext's Bin item codes are "P" + a variant of the store ERPNext's items are of (erp_opening.listing_store): the seed reads them through
+        // that store only; another --store is refused before the file is read (as the ERPNext sales import: the third final review, a-M / b-M2,
+        // PR154: another store's variant of the same number is another item).
+        $own = (string) json_decode((string) ($cli->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'") ?? '"vapeandgo"'));
+        $store = is_string($opts['store'] ?? null) ? $opts['store'] : $own;
+        if ($store !== $own) {
+            throw new InvalidArgumentException("ERPNext's Bin is of the store {$own} (its item codes are that store's variants): --store={$store} is refused");
+        }
         $engine = new CostEngine($cli->db);
         $startAt = \CW\Clock::db(ReportRefresh::bounds($day)[0]);
         $allow = is_string($opts['allow-skips'] ?? null) ? array_values(array_filter(array_map('trim', explode(',', $opts['allow-skips'])), static fn (string $c): bool => $c !== '')) : [];

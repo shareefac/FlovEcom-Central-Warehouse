@@ -288,6 +288,29 @@ final class ProfitMath
     }
 
     /** How many units a correction reaches: the units billed that are still on hand. */
+    /**
+     * One delivery's layer of an item's stock, the oldest sold first (CostEngine::layerHere(); the third final review, a-HIGH1, PR154): from
+     * $level (the units on hand just after the delivery's last row) through $rows (the item's rows after it, in its commit order), the fewest
+     * units at the end of an operation, a LATER delivery's rows left out (`later`: the units on hand less what later deliveries brought).
+     * $startCounts: the start is itself the end of an operation. Never below 0.
+     *
+     * @param list<array{qty: int, op: ?string, later?: bool}> $rows
+     */
+    public static function lowestLayer(int $level, array $rows, bool $startCounts = true): int
+    {
+        $low = $startCounts || $rows === [] ? $level : PHP_INT_MAX;
+        foreach ($rows as $i => $r) {
+            if (!($r['later'] ?? false)) {
+                $level += (int) $r['qty'];
+            }
+            $next = $rows[$i + 1] ?? null;
+            if ($r['op'] === null || $next === null || $next['op'] !== $r['op']) {
+                $low = min($low, $level); // the end of an operation
+            }
+        }
+        return max(0, $low);
+    }
+
     public static function reach(int $units, int $onHand): int
     {
         return max(0, min($units, $onHand));

@@ -22,8 +22,8 @@ use CW\Reservations;
  * connector really sends. The four ids are the connector's own shapes (connector 0.4.17; the Codex check of the fix round, F12 PARTLY,
  * PR153), refused otherwise (they are keys): the order ref and a line_id the shop's number with a proto copy's store prefix at most, a
  * variant_id digits, parent_ref and sub_of an order's number from 1 (the prefix at most) or null; a parcel ref is odl:/orl: + digits; the
- * order number is digits, else ""; the delivery method id is digits, the service code a code without a long run of
- * digits, else null / ""; statuses, the payment way and the carrier are words of a fixed list, else "other"; a delivery method or service
+ * order number is digits, else ""; the delivery method id is digits, the service code 1-3 digits or one of Royal Mail's
+ * codes, else null / ""; statuses, the payment way and the carrier are words of a fixed list, else "other"; a delivery method or service
  * name is kept only when every word of it is a word of the carriers' services (SERVICE_WORDS) or a short number, else null / "". So a name,
  * an e-mail address, a phone number or a postal address can never be stored, whatever a connector maps into a field.
  */
@@ -45,10 +45,15 @@ final class SnapshotBody
      * or null. The real month (65,363 orders, 781,037 lines of 1 Oct - 19 Nov) holds no other shape. So a person's name, an e-mail address or
      * an address is never stored as a key.
      */
-    public const ORDER_REF = '/^(?:[a-z][a-z0-9]{0,11}-)?[0-9]+$/D';
+    public const ORDER_REF = '/^(?:[a-z][a-z0-9]{0,11}-)?[1-9][0-9]{0,18}$/D';
     public const LINE_ID = self::ORDER_REF;
-    public const VARIANT_ID = '/^[0-9]+$/D';
-    public const PARENT_REF = '/^(?:[a-z][a-z0-9]{0,11}-)?[1-9][0-9]*$/D';
+    /**
+     * Canonical integers (the third final review, b-HIGH2, PR154): the connector writes each id with PHP's (int) cast, so its digits never
+     * start with 0 ("0" itself only for a variant: a row with none) and fit a 64-bit integer (at most 19 digits). "07700900123" (a phone
+     * number) is never an id, wherever it is sent.
+     */
+    public const VARIANT_ID = '/^(?:0|[1-9][0-9]{0,18})$/D';
+    public const PARENT_REF = self::ORDER_REF;
     /** The most digits a service name or code may hold in all (the real ones hold 4 at most: "Tracked 24(1-2 Working Days)", TPL48HV). */
     public const TEXT_DIGITS = 6;
     /** The order number the customer sees: digits (1567469; all 65,363 orders of the real month), or "" (PR153: no letters before it). */
@@ -382,10 +387,18 @@ final class SnapshotBody
         return $anchored && (!$place || $collection) ? $v : null;
     }
 
-    /** A carrier's service code (letters, digits, _ . / - ^; at most TEXT_DIGITS digits in all: never a phone number), else "". */
-    private static function serviceCode(?string $v): string
+    /**
+     * The carriers' service codes CW keeps (the third final review, all three b/c-HIGH and a-HIGH5, PR154): DPD's and the in-store codes are
+     * 1-3 digits (68, 72, 76, 11, 80, and "0" on a parcel marked by hand); Royal Mail's are exactly these Click & Drop codes (the 12 codes of
+     * the 65,769 real parcels of 1 Oct - 19 Nov hold no other; the repository names no further Royal Mail code). Anything else is "" (never a
+     * refusal): a name ("Jane.Smith"), a postcode ("SW1A1AA") or a word ("jane") a connector mapped into the field is never stored.
+     */
+    public const ROYAL_MAIL_CODES = ['TPL48HV', 'TPM24HV', 'SD1', 'TSS', 'TRN24', 'OTC'];
+
+    /** A carrier's service code: 1-3 digits or exactly one of ROYAL_MAIL_CODES, else "". */
+    public static function serviceCode(?string $v): string
     {
-        return $v !== null && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.\/^-]{0,31}$/D', $v) === 1 && preg_match_all('/[0-9]/', $v) <= self::TEXT_DIGITS ? $v : '';
+        return $v !== null && (preg_match('/^[0-9]{1,3}$/D', $v) === 1 || in_array($v, self::ROYAL_MAIL_CODES, true)) ? $v : '';
     }
 
     /** An id of digits (a shipping method's number), else null. */

@@ -492,7 +492,7 @@ final class CostEngine
         // The mark never passes a document not read yet (the lead, on the Codex check of e1f075c): while one is left before the window (more
         // than a run reads), it stays just before it (never going back: a sale costed already keeps its cost; bin/recost_sales.php is the
         // deliberate re-cost).
-        $left = $this->db->value("SELECT MIN(d.posted_at) FROM document d LEFT JOIN item_cost_document r ON r.document_id = d.id WHERE d.doc_type IN ('GRN', 'SINV', 'SCN') "
+        $left = $this->db->value("SELECT MIN(d.posted_at) FROM document d LEFT JOIN item_cost_document r ON r.document_id = d.id WHERE d.doc_type IN ('GRN', 'REL', 'SINV', 'SCN') "
             . "AND d.status IN ('posted', 'reversed') AND d.posted_at >= ? AND d.posted_at < ? AND r.document_id IS NULL", [$since, $from]);
         if ($left !== null) {
             $newMark = max($mark, min($newMark, Clock::db(Clock::fromDb((string) $left)->modify('-1 usec'))));
@@ -516,7 +516,7 @@ final class CostEngine
         // marked read (item_cost_document), also when it moves no price: a document partly read when a run stopped is read again, and
         // documents that move nothing never fill the run (the Codex re-check of 37a2cf0, R1, R2).
         foreach ($this->db->all("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d LEFT JOIN item_cost_document r ON r.document_id = d.id "
-            . "WHERE d.doc_type IN ('GRN', 'SINV', 'SCN') AND d.status IN ('posted', 'reversed') AND d.posted_at >= ? AND d.posted_at < ? AND r.document_id IS NULL "
+            . "WHERE d.doc_type IN ('GRN', 'REL', 'SINV', 'SCN') AND d.status IN ('posted', 'reversed') AND d.posted_at >= ? AND d.posted_at < ? AND r.document_id IS NULL "
             . 'ORDER BY d.posted_at, d.id LIMIT ' . max(1, $limit), [$since, $before]) as $d) {
             array_push($out, ...$this->readDocument($d));
         }
@@ -533,7 +533,9 @@ final class CostEngine
     private function readDocument(array $d): array
     {
         $out = [];
-        if ($d['doc_type'] !== 'GRN') {
+        // A receipt, or a priced release of another account's stock into ours (REL: its goods_in at the agreed price, a delivery to the job;
+        // the third final review, c-M3, PR154), read by its ledger rows; an invoice or a credit note by its lines.
+        if (!in_array($d['doc_type'], ['GRN', 'REL'], true)) {
             $out = $this->documentEvents($d);
         } else {
             foreach ($this->db->all("SELECT l.id, l.sku_id, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost, l.document_id, l.document_line, l.doc_ref, "
@@ -563,7 +565,7 @@ final class CostEngine
             // A rebuild reads every source of the item in time order (the original before its cancellation) and marks nothing.
             return [];
         }
-        $d = $this->db->one("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d WHERE d.id = ? AND d.doc_type IN ('GRN', 'SINV', 'SCN') "
+        $d = $this->db->one("SELECT d.id, d.doc_type, d.number, d.posted_at, d.reverses_id FROM document d WHERE d.id = ? AND d.doc_type IN ('GRN', 'REL', 'SINV', 'SCN') "
             . "AND d.status IN ('posted', 'reversed') AND d.reverses_id IS NULL", [$orig]);
         $this->floor ??= (string) ($this->db->value('SELECT floor_at FROM profit_job WHERE job = ?', [self::JOB]) ?? '');
         if ($d === null || (string) $d['posted_at'] < $this->floor) {
@@ -923,11 +925,12 @@ final class CostEngine
             // and replaced is never repriced onto the replacement stock), less the units of it the invoice lines posted before this one moved (the
             // second final review of 3c31d94, F1, PR130): 100 in at £2, 80 sold, two invoices of 50 at £3: the first moves the 20 left, the
             // second none (each moved the same 20 from £2: £4). In a history written again the same, in time order.
+            // A named delivery line that booked nothing of the item (all short) reaches none, never "no bound" (the third final review, c-M1,
+            // PR154). Its units still here are its layer of the item's stock, the oldest sold first (receiptStillHere(), a-HIGH1, PR154).
             $units = 0;
             if ($booked !== null) {
                 $here = $this->receiptStillHere($sku, $g['grn'][0], $g['grn'][1], $at);
-                $units = min(ProfitMath::reach($g['units'], $onHand),
-                    $here === null ? PHP_INT_MAX : self::freeHere($this->layoutOn($sku, $g['grn'][0], $g['grn'][1], $at, (string) $base['source_key']), $here));
+                $units = min(ProfitMath::reach($g['units'], $onHand), self::freeHere($this->layoutOn($sku, $g['grn'][0], $g['grn'][1], $at, (string) $base['source_key']), $here));
             }
             $out[] = $this->write($base + ['kind' => 'invoice', 'ref_document_id' => $g['grn'][0] ?? null, 'ref_line' => $g['grn'][1] ?? null,
                 'units' => $units, 'price_e4' => $g['price_e4'], 'booked_e4' => $booked,
@@ -937,16 +940,18 @@ final class CostEngine
     }
 
     /**
-     * The units of one delivery line ($grn, line $line) of $sku that can still be on hand at $at: its units in, at most the fewest units on hand
-     * from just after it came (the end of its last portion's operation) to $at, in the item's commit order (lowestBetween); 0 once it was taken
-     * back by then. Null when the delivery line booked nothing of the item.
+     * The units of one delivery line ($grn, line $line) of $sku that can still be on hand at $at: its layer of the item's stock, the oldest
+     * sold first (layerHere(): at most its units, at most the fewest on hand since it came less what the item's later deliveries brought by
+     * then; the third final review, a-HIGH1, PR154), so one unit on the shelf is ever the units of ONE delivery: two deliveries of 50 at £1,
+     * 50 sold, each invoiced at £2: the first has none left, the second its 50 (£2, never £3). 0 once it was taken back by then; 0 when the
+     * delivery line booked nothing of the item (all short: never "no bound", c-M1, PR154).
      */
-    private function receiptStillHere(int $sku, int $grn, int $line, string $at): ?int
+    private function receiptStillHere(int $sku, int $grn, int $line, string $at): int
     {
         $r = $this->db->one("SELECT MAX(id) AS last_row, COALESCE(SUM(qty_delta), 0) AS units FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
             . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
         if ($r === null || $r['last_row'] === null) {
-            return null;
+            return 0;
         }
         // Taken back by then (its reversal's stock made final by $at): none of its units can be here (the Codex check of c48683e: ten at £4
         // stay, ten received at £2 and taken back, a 50p credit of those ten never comes off the first ten).
@@ -954,7 +959,26 @@ final class CostEngine
             . "JOIN stock_value_seq vq ON vq.stock_ledger_id = vl.id WHERE v.reverses_id = ? AND v.status = 'posted' AND vq.created_at <= ? LIMIT 1", [$sku, $grn, $at]) !== null) {
             return 0;
         }
-        return max(0, min((int) $r['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $r['last_row'])), $this->position($sku, $at))));
+        return max(0, min((int) $r['units'], $this->layerHere($sku, (int) $r['last_row'], $this->position($sku, $at))));
+    }
+
+    /**
+     * The units of the delivery whose last portion is ledger row $lastRow that can still be on hand at place $to of the item's commit order,
+     * the oldest sold first (FIFO layers; the third final review, a-HIGH1, PR154): the fewest, over the ends of the operations from its own to
+     * $to, of the units on hand LESS the units the item's later deliveries brought by then (a priced goods_in of ours after it, less its own
+     * cancellation), never below 0 (its units in are the caller's cap). So the units on hand are given to the newest deliveries first and a
+     * sale takes the oldest: a unit is ever one delivery's, and the deliveries' units still here add up to the units on hand at most. Every
+     * other movement (a sale, a count, a return, a transfer, an earlier delivery taken back) counts as before. The same rows lowestBetween()
+     * reads (the item's on-hand rows from the delivery to $to, by the primary key of stock_value_seq), with their document's cancellation link.
+     */
+    private function layerHere(int $sku, int $lastRow, int $to): int
+    {
+        $s = $this->seqOf($lastRow);
+        $from = $this->opEnd($sku, $s);
+        $level = $this->levelAt($sku, $s);
+        $rows = $this->seqRows($sku, $s, max($to, $from), true);
+        $this->remember($sku, max($to, $from), $level + array_sum(array_column($rows, 'qty')));
+        return ProfitMath::lowestLayer($level, $rows, $s === $from);
     }
 
     /**
@@ -976,10 +1000,8 @@ final class CostEngine
             }
         }
         if ($grn !== null) {
+            // A named delivery line that booked nothing reaches none (c-M1, PR154).
             $here = $this->receiptStillHere($sku, $grn[0], $grn[1], $at);
-            if ($here === null) {
-                return PHP_INT_MAX;
-            }
             // Of a delivery line several invoice lines billed, only the units its own invoice line moved, as they stand in posting order (the
             // second final review of 3c31d94, F1, PR130): a credit of the second invoice whose units were all the first one's reaches none.
             $shares = $inv === null || $invLine === null ? [] : self::shares($this->layoutOn($sku, $grn[0], $grn[1], $at), $here);
@@ -994,7 +1016,7 @@ final class CostEngine
         foreach ($taking as $t) {
             // The units of the CREDITED line this receipt took (a receipt of two invoice lines keyed as one: ten of one line, two of the other).
             $mine = (int) ($t['basis']['lines'][(int) $invLine]['take'] ?? $t['units']);
-            $n += max(0, min($mine, $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $t['last_row'])), $this->position($sku, $at))));
+            $n += max(0, min($mine, $this->layerHere($sku, (int) $t['last_row'], $this->position($sku, $at))));
         }
         return $n;
     }
@@ -1054,7 +1076,7 @@ final class CostEngine
             if ($units === 0) {
                 continue;
             }
-            $here = $this->receiptStillHere($sku, $grn, $line, (string) $e['source_at']) ?? PHP_INT_MAX;
+            $here = $this->receiptStillHere($sku, $grn, $line, (string) $e['source_at']);
             $next = [];
             $pos = 0;
             foreach ($segs as [$k, $n]) {
@@ -1147,8 +1169,7 @@ final class CostEngine
         $refLine = (int) $e['ref_line'];
         if ($e['kind'] === 'invoice') {
             $here = $this->receiptStillHere($sku, $ref, $refLine, $at);
-            return $here === null ? PHP_INT_MAX
-                : (self::shares($this->layoutOn($sku, $ref, $refLine, $at), $here)[(int) $e['document_id'] . ':' . (int) $e['document_line']] ?? 0);
+            return self::shares($this->layoutOn($sku, $ref, $refLine, $at), $here)[(int) $e['document_id'] . ':' . (int) $e['document_line']] ?? 0;
         }
         // A credit: by its own line's delivery when it names one, else by its invoice line's (creditedStillHere()).
         $own = null;
@@ -1193,7 +1214,7 @@ final class CostEngine
         }
         $first = (int) ($this->db->value('SELECT MIN(q.seq) FROM stock_ledger l JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.document_id = '
             . '(SELECT document_id FROM stock_ledger WHERE id = ?) AND l.sku_id = ?', [$revRow, $sku]) ?? 0);
-        $here = $first <= 0 ? $n : max(0, min($n, $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $g['last_row'])), $first - 1)));
+        $here = $first <= 0 ? $n : max(0, min($n, $this->layerHere($sku, (int) $g['last_row'], $first - 1)));
         if ($here <= 0) {
             return 0;
         }
@@ -1262,7 +1283,7 @@ final class CostEngine
                 // rounding back once: the Codex check of 51417a3, L4).
                 $value = 0;
                 foreach ($this->receiptsTaking((int) $e['ref_document_id'], (int) $e['ref_line'], $sku, $at) as $t) {
-                    $u = min($t['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf($t['last_row'])), $this->position($sku, $at)));
+                    $u = min($t['units'], $this->layerHere($sku, (int) $t['last_row'], $this->position($sku, $at)));
                     if ($u > 0) {
                         $basis = $t['basis'];
                         foreach (array_keys($basis['lines']) as $no) {
@@ -1397,20 +1418,43 @@ final class CostEngine
      * The item's rows with $from < place <= $to in its commit order: each with its operation (ProfitMath::operation) and, for our own
      * warehouses' on-hand rows, its units (another owner's rows count 0: they are there to keep an operation together).
      *
-     * @return list<array{id: int, seq: int, qty: int, op: ?string}>
+     * With $layers (layerHere()), each row also says whether it is a LATER delivery's: a priced goods_in of ours (a delivery, as the job
+     * reads one) with qty in, or the cancellation of such a delivery met in these rows (its document reverses one whose goods_in came here).
+     *
+     * @return list<array{id: int, seq: int, qty: int, op: ?string, later?: bool}>
      */
-    private function seqRows(int $sku, int $from, int $to): array
+    private function seqRows(int $sku, int $from, int $to, bool $layers = false): array
     {
         if ($to <= $from) {
             return [];
         }
         $own = array_fill_keys($this->ownWarehouses(), true);
-        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'seq' => (int) $r['seq'],
+        $rows = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'seq' => (int) $r['seq'],
             'qty' => isset($own[(int) $r['warehouse_id']]) ? (int) $r['qty_delta'] : 0,
             'op' => ProfitMath::operation($r['document_id'] === null ? null : (int) $r['document_id'], $r['idem_key'] === null ? null : (string) $r['idem_key'],
-                $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor'])],
-            $this->db->all('SELECT STRAIGHT_JOIN s.seq, l.id, l.warehouse_id, l.qty_delta, l.document_id, l.idem_key, l.channel_id, l.actor FROM stock_value_seq s FORCE INDEX (PRIMARY) '
-                . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id = ? AND s.seq > ? AND s.seq <= ? ORDER BY s.seq', [$sku, $from, $to]));
+                $r['channel_id'] === null ? null : (int) $r['channel_id'], (string) $r['actor']),
+            'delivery' => isset($own[(int) $r['warehouse_id']]) && ($r['dlv'] ?? '0') === '1', 'doc' => $r['document_id'] === null ? null : (int) $r['document_id'],
+            'reverses' => ($r['reverses_id'] ?? null) === null ? null : (int) $r['reverses_id']],
+            $this->db->all('SELECT STRAIGHT_JOIN s.seq, l.id, l.warehouse_id, l.qty_delta, l.document_id, l.idem_key, l.channel_id, l.actor'
+                . ($layers ? ", IF(l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.cost_source = 'document' AND l.unit_cost IS NOT NULL, '1', '0') AS dlv, d.reverses_id" : '')
+                . ' FROM stock_value_seq s FORCE INDEX (PRIMARY) JOIN stock_ledger l ON l.id = s.stock_ledger_id'
+                . ($layers ? ' LEFT JOIN document d ON d.id = l.document_id' : '')
+                . ' WHERE s.sku_id = ? AND s.seq > ? AND s.seq <= ? ORDER BY s.seq', [$sku, $from, $to]));
+        if (!$layers) {
+            return array_map(static fn (array $r): array => ['id' => $r['id'], 'seq' => $r['seq'], 'qty' => $r['qty'], 'op' => $r['op']], $rows);
+        }
+        $later = [];
+        foreach ($rows as $i => $r) {
+            $mark = false;
+            if ($r['delivery'] && $r['qty'] > 0 && $r['doc'] !== null) {
+                $later[$r['doc']] = true;
+                $mark = true;
+            } elseif ($r['delivery'] && $r['qty'] < 0 && $r['reverses'] !== null && isset($later[$r['reverses']])) {
+                $mark = true; // a later delivery taken back: its units leave with it, never the earlier one's
+            }
+            $rows[$i] = ['id' => $r['id'], 'seq' => $r['seq'], 'qty' => $r['qty'], 'op' => $r['op'], 'later' => $mark];
+        }
+        return $rows;
     }
 
     /**

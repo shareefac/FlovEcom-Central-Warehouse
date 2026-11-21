@@ -43,7 +43,9 @@ exit(Cli::main('import_order_snapshots', ['channel:', 'file:', 'dry-run', 'allow
         // before it are refused unless --allow-unreserved (PR148).
         $notBefore = null;
         if (!array_key_exists('allow-unreserved', $opts)) {
-            $first = $cli->db->value('SELECT MIN(r.created_at) FROM reservation r JOIN channel c ON c.id = r.channel_id WHERE c.code = ?', [$channel]);
+            // The same boundary the API keeps (OrderSnapshots::firstReservation / beforeFirstReservation, PR154).
+            $chId = $cli->db->value('SELECT id FROM channel WHERE code = ?', [$channel]);
+            $first = $chId === null ? null : \CW\Profit\OrderSnapshots::firstReservation($cli->db, (int) $chId);
             $notBefore = $first === null ? '9999-12-31 00:00:00.000000' : (string) $first;
             $cli->log('the store\'s first reservation in CW: ' . ($first === null ? 'none yet (every order is before it)' : $notBefore . ' UTC'));
         }

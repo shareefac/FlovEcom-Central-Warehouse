@@ -29,6 +29,9 @@ final class OrderSnapshotRouteTest extends ApiKernelTestCase
     {
         foreach (['off', 'shadow', 'live'] as $i => $mode) {
             [$site, $key] = $this->apiSite('shop' . $i, $mode);
+            // The store's first reservation in CW before the order was placed (an order before it is out_of_range: PR154).
+            self::$db->exec("INSERT INTO reservation (channel_id, order_ref, status, committed_at, created_at) VALUES (?, '1500000', 'committed', ?, ?)",
+                [$site->channelId, '2026-10-28 10:28:00.000000', '2026-10-28 10:28:00.000000']);
             $uri = '/v1/orders/1567469/snapshot';
             self::assertSame(['result' => 'stored', 'version' => 1763586245123], self::data($this->call('PUT', $uri, $key, self::body())), $mode);
             self::assertSame(['result' => 'same', 'version' => 1763586245123], self::data($this->call('PUT', $uri, $key, self::body())), $mode);
