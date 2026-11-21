@@ -34,7 +34,7 @@ final class ProfitScreensReviewR3Test extends KernelUiTestCase
     private static function body(string $paid, string $variant, int $price): array
     {
         return ['v' => 1, 'version' => 1, 'order_no' => 'VPG1', 'status' => 'completed', 'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay',
-            'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => 'l' . $variant, 'variant_id' => $variant, 'qty' => 1, 'price_inc' => $price, 'discount_inc' => 0,
+            'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => '9100001' . $variant, 'variant_id' => $variant, 'qty' => 1, 'price_inc' => $price, 'discount_inc' => 0,
                 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => $price, 'parcels' => []];
     }
 

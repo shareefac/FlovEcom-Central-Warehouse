@@ -119,7 +119,7 @@ final class FinalReview2ToolsTest extends StockTestCase
     {
         $site = $this->site('vapeandgo', 'live');
         $log = [];
-        $f = $this->dayFile('2026-11-19', [self::body('5101', 'D1', 1200), self::body('5101', 'D1', 1200)]);
+        $f = $this->dayFile('2026-11-19', [self::body('5101', '9100005', 1200), self::body('5101', '9100005', 1200)]);
         $r = (new SnapshotImport(self::$db))->file('vapeandgo', $f, false, function (string $m) use (&$log): void {
             $log[] = $m;
         });
@@ -128,7 +128,7 @@ final class FinalReview2ToolsTest extends StockTestCase
         self::assertNull(self::$db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ?', [$site->channelId]), 'nothing written');
         self::assertNull(self::$db->value('SELECT 1 FROM sale_order WHERE channel_id = ?', [$site->channelId]));
         $log = [];
-        $f = $this->dayFile('2026-11-19', [self::body('5102', 'D2', 1200), self::body('5103', 'D3', 1200, ['placed_at' => '2026-11-18T23:30:00Z'])]);
+        $f = $this->dayFile('2026-11-19', [self::body('5102', '9100006', 1200), self::body('5103', '9100007', 1200, ['placed_at' => '2026-11-18T23:30:00Z'])]);
         $r = (new SnapshotImport(self::$db))->file('vapeandgo', $f, false, function (string $m) use (&$log): void {
             $log[] = $m;
         });
@@ -136,7 +136,7 @@ final class FinalReview2ToolsTest extends StockTestCase
         self::assertStringContainsString('placed on 2026-11-18', implode("\n", $log), 'the London day of its placing (23:30 UTC is still the 18th in winter)');
         self::assertNull(self::$db->value('SELECT 1 FROM sale_order WHERE channel_id = ?', [$site->channelId]), 'nothing written');
         // The same orders placed on the file's own day: stored.
-        $f = $this->dayFile('2026-11-19', [self::body('5102', 'D2', 1200), self::body('5103', 'D3', 1200, ['placed_at' => '2026-11-19T00:30:00Z'])]);
+        $f = $this->dayFile('2026-11-19', [self::body('5102', '9100006', 1200), self::body('5103', '9100007', 1200, ['placed_at' => '2026-11-19T00:30:00Z'])]);
         $r = (new SnapshotImport(self::$db))->file('vapeandgo', $f, false, static fn (string $m) => null);
         self::assertSame([true, true, 2], [$r['sum_ok'], $r['totals_checked'], $r['results']['stored']]);
     }
@@ -150,8 +150,8 @@ final class FinalReview2ToolsTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $a = $this->item('legacy', 5);
         $this->listing($site, '1', $a);
-        $this->ok($this->commit($site, 'FIRST', [self::line('1', 'f1')])); // the store's first reservation: now
-        $f = $this->dayFile('2026-11-19', [self::body('5201', 'E1', 1200)]);
+        $this->ok($this->commit($site, '9100004', [self::line('1', '9100001')])); // the store's first reservation: now
+        $f = $this->dayFile('2026-11-19', [self::body('5201', '9100008', 1200)]);
         $r = self::script('import_order_snapshots', '--channel=vapeandgo', '--file=' . $f);
         self::assertSame(1, $r['code'], 'refused: ' . $r['out']);
         self::assertStringContainsString('placed before the store\'s first reservation', $r['out']);
@@ -186,7 +186,7 @@ final class FinalReview2ToolsTest extends StockTestCase
         $s = new OrderSnapshots(self::$db);
         foreach (['1101' => 7200, '1102' => 4800] as $ref => $inc) {
             $s->store((int) $site->channelId, (string) $ref, ['v' => 1, 'version' => 1, 'order_no' => '', 'status' => 'completed', 'placed_at' => '2026-11-10T09:00:00Z',
-                'paid_at' => '2026-11-10T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => 'E' . $ref, 'variant_id' => '101',
+                'paid_at' => '2026-11-10T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => '9100002' . $ref, 'variant_id' => '101',
                 'qty' => 1, 'price_inc' => $inc, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0,
                 'grand_inc' => $inc, 'parcels' => []], 'bulk');
         }
@@ -250,9 +250,9 @@ final class FinalReview2ToolsTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
-        foreach (['2026-11-18' => 'G1', '2026-11-19' => 'G2'] as $day => $ref) {
+        foreach (['2026-11-18' => '9100041', '2026-11-19' => '9100042'] as $day => $ref) {
             $s->store($ch, $ref, ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed', 'placed_at' => $day . 'T09:00:00Z', 'paid_at' => $day . 'T10:00:00Z',
-                'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => $ref . 'L', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200,
+                'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => $ref . '1', 'variant_id' => '9100003', 'qty' => 1, 'price_inc' => 1200,
                 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200,
                 'parcels' => []], 'bulk');
         }

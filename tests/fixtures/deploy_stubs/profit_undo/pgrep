@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# pgrep -f PATTERN / pgrep -af PATTERN (tests/Unit/ProfitUndoScriptsBehaviourTest.php): the scenario's processes (answers/jobs:
+# "<checks left> <command line>" per line; the pid of a line is 4242 + its place, the first line 0) whose command line matches
+# PATTERN (extended regex, as pgrep's) and that are still running: their pids (with -a: pid and command line), exit 0, else exit 1.
+# Each call counts the ones it finds down by one check (a process ends after that many checks).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "pgrep $*"
+case ${1-} in
+    -f) list=0 ;;
+    -af) list=1 ;;
+    *) echo "pgrep stub: only pgrep -f PATTERN or pgrep -af PATTERN" >&2; exit 99 ;;
+esac
+[[ $# -eq 2 && -n $2 ]] || { echo "pgrep stub: one PATTERN" >&2; exit 99; }
+[[ -f $A/jobs ]] || exit 1
+found=1
+out=
+said=
+i=0
+while read -r left cmdline; do
+    if (( left > 0 )) && grep -qE -- "$2" <<<"$cmdline"; then
+        found=0
+        left=$((left - 1))
+        if (( list )); then said+="$((4242 + i)) $cmdline"$'\n'; else said+="$((4242 + i))"$'\n'; fi
+    fi
+    out+="$left $cmdline"$'\n'
+    i=$((i + 1))
+done < "$A/jobs"
+printf '%s' "$out" > "$A/jobs"
+printf '%s' "$said"
+exit $found

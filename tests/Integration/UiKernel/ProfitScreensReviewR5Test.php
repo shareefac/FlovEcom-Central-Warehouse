@@ -66,10 +66,10 @@ final class ProfitScreensReviewR5Test extends KernelUiTestCase
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-1 hour')->format('Y-m-d\TH:i:s\Z');
         $s = new OrderSnapshots(self::$db);
         // Order 1: one priced unit sold for £1.20 inc VAT (£1.00 ex), cost £0.50; its re-send 2 sends one unit that has no price.
-        $s->store((int) $site->channelId, '1', self::body($paid, null, [self::sl('l1', '1', 120)]), 'api');
-        $s->store((int) $site->channelId, '2', self::body($paid, '1', [self::sl('l2', '2', 0, true)]), 'api');
+        $s->store((int) $site->channelId, '1', self::body($paid, null, [self::sl('9100001', '1', 120)]), 'api');
+        $s->store((int) $site->channelId, '2', self::body($paid, '1', [self::sl('9100002', '2', 0, true)]), 'api');
         // Order 3: a free unit with no price (nothing sold).
-        $s->store((int) $site->channelId, '3', self::body($paid, null, [self::sl('l3', '2', 0, true)]), 'api');
+        $s->store((int) $site->channelId, '3', self::body($paid, null, [self::sl('9100003', '2', 0, true)]), 'api');
         $fin = $this->signIn($this->uiUser('finance'));
         $one = self::money($fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '1']));
         self::assertStringStartsWith('£0.50', $one[Words::PROFIT['profit']], 'its own profit is known: £1.00 - £0.50');
@@ -89,7 +89,7 @@ final class ProfitScreensReviewR5Test extends KernelUiTestCase
         self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('item_cost', ?)", [$now->modify('-10 minutes')->format('Y-m-d H:i:s.u')]);
         $this->listing($site, '1', $a);
         (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', self::body($now->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z'), null,
-            [self::sl('l1', '1', 120)]), 'api');
+            [self::sl('9100001', '1', 120)]), 'api');
         self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE order_ref = '1'"), 'it waits for the cost job');
         $fin = $this->signIn($this->uiUser('finance'));
         $page = $fin->get('/ui/profit/no-cost', ['period' => 'last_7']);

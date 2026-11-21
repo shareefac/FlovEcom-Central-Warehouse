@@ -19,8 +19,10 @@ use CW\Reservations;
  * hash() is the content's fingerprint WITHOUT the version: the same content sent again with a newer version is "same".
  *
  * No free text is ever kept (the final review of 6d59eda, b-HIGH2; docs/decisions.md PR96): every text field takes only the shapes the
- * connector really sends. Ids and refs are codes (letters, digits and : _ . -, refused otherwise: they are keys); the order number is a
- * number (a few letters before it at most), else ""; the delivery method id is digits, the service code a code without a long run of
+ * connector really sends. The four ids are the connector's own shapes (connector 0.4.17; the Codex check of the fix round, F12 PARTLY,
+ * PR153), refused otherwise (they are keys): the order ref and a line_id the shop's number with a proto copy's store prefix at most, a
+ * variant_id digits, parent_ref and sub_of an order's number from 1 (the prefix at most) or null; a parcel ref is odl:/orl: + digits; the
+ * order number is digits, else ""; the delivery method id is digits, the service code a code without a long run of
  * digits, else null / ""; statuses, the payment way and the carrier are words of a fixed list, else "other"; a delivery method or service
  * name is kept only when every word of it is a word of the carriers' services (SERVICE_WORDS) or a short number, else null / "". So a name,
  * an e-mail address, a phone number or a postal address can never be stored, whatever a connector maps into a field.
@@ -32,12 +34,25 @@ final class SnapshotBody
     public const MAX_BYTES = 256 * 1024;
     /** A shop line is ONE unit (one orders_items row: the connector always sends qty 1; the final review of 6d59eda, c-M1, PR97). */
     public const LINE_QTY = 1;
-    /** An id or a ref: a code (the shops' ids with their store prefix), never a text with spaces or @. */
+    /** A code (a parcel ref before its own shape below is checked), never a text with spaces or @. */
     public const CODE = '/^[A-Za-z0-9][A-Za-z0-9:_.\-]{0,63}$/D';
+    /**
+     * The four ids in the connector's real shapes (0.4.17, src/central_warehouse/snapshot.php and lib/config.php; README of build/A, "The four
+     * ids' real shapes"; the Codex check of the fix round, F12 PARTLY, PR153): the store prefix (ref_prefix) is '' on a live site and
+     * `[a-z][a-z0-9]{0,11}-` on a proto copy only. The order ref (the PUT path's {ref}, a bulk line's "ref": cw_order_ref = prefix + ord_id) and
+     * a line_id (prefix + ordi_id, the CW unit id) are the shop's number with that prefix at most; a variant_id is the shop's ordi_prodt_id,
+     * digits (no prefix; "0" when the row has none); parent_ref and sub_of (cw_snapshot_ref) an order's number from 1 with the prefix at most,
+     * or null. The real month (65,363 orders, 781,037 lines of 1 Oct - 19 Nov) holds no other shape. So a person's name, an e-mail address or
+     * an address is never stored as a key.
+     */
+    public const ORDER_REF = '/^(?:[a-z][a-z0-9]{0,11}-)?[0-9]+$/D';
+    public const LINE_ID = self::ORDER_REF;
+    public const VARIANT_ID = '/^[0-9]+$/D';
+    public const PARENT_REF = '/^(?:[a-z][a-z0-9]{0,11}-)?[1-9][0-9]*$/D';
     /** The most digits a service name or code may hold in all (the real ones hold 4 at most: "Tracked 24(1-2 Working Days)", TPL48HV). */
     public const TEXT_DIGITS = 6;
-    /** The order number the customer sees: digits, a few letters before them at most (VPG1567469, 1567469), or "". */
-    public const ORDER_NO = '/^(?:[A-Za-z]{0,5}[1-9][0-9]{0,9})?$/D';
+    /** The order number the customer sees: digits (1567469; all 65,363 orders of the real month), or "" (PR153: no letters before it). */
+    public const ORDER_NO = '/^(?:[1-9][0-9]{0,9})?$/D';
     /** The shops' order statuses (lower case words); any other is kept as "other". */
     public const ORDER_STATUSES = ['completed', 'cancelled', 'canceled', 'processing', 'failed', 'pending', 'pending_payment', 'awaiting_payment', 'refunded',
         'partially_refunded', 'on_hold', 'hold', 'paid', 'dispatched', 'part_dispatched', 'partially_dispatched', 'shipped', 'partially_shipped', 'delivered',
@@ -117,12 +132,12 @@ final class SnapshotBody
         }
         $parent = $raw['parent_ref'];
         if ($parent !== null) {
-            $parent = self::ref($parent, 'parent_ref');
+            $parent = self::ref($parent, 'parent_ref', self::PARENT_REF, self::PARENT_WORDS);
         }
         // An office "sub order" (CONTRACT.md, change 2): its own sale, kept to show the link.
         $subOf = $raw['sub_of'] ?? null;
         if ($subOf !== null) {
-            $subOf = self::ref($subOf, 'sub_of');
+            $subOf = self::ref($subOf, 'sub_of', self::PARENT_REF, self::PARENT_WORDS);
         }
         $lines = $raw['lines'] ?? null;
         if (!is_array($lines) || !array_is_list($lines)) {
@@ -138,7 +153,7 @@ final class SnapshotBody
             if (!is_array($l) || array_is_list($l) && $l !== []) {
                 throw self::bad($f, "{$f} must be an object");
             }
-            $id = self::ref($l['line_id'] ?? null, "{$f}.line_id");
+            $id = self::ref($l['line_id'] ?? null, "{$f}.line_id", self::LINE_ID, self::LINE_WORDS);
             // The same line in another case is the same line to the database (its key compares without case: the final review of 6d59eda, b-M).
             if (isset($seen[strtolower($id)])) {
                 throw self::bad("{$f}.line_id", "line {$id} appears twice");
@@ -163,7 +178,7 @@ final class SnapshotBody
             }
             $outLines[] = [
                 'line_id' => $id,
-                'variant_id' => self::ref($l['variant_id'] ?? null, "{$f}.variant_id"),
+                'variant_id' => self::ref($l['variant_id'] ?? null, "{$f}.variant_id", self::VARIANT_ID, self::VARIANT_WORDS),
                 'qty' => $qty,
                 'price_inc' => $price,
                 'discount_inc' => $discount,
@@ -272,13 +287,20 @@ final class SnapshotBody
         return null;
     }
 
-    /** The order ref of a path or a bulk line (1-64 printable characters, as the reservations). */
+    /** The order ref of a path or a bulk line: the shop's order number with a proto copy's store prefix at most (ORDER_REF; 1-64 characters). */
     public static function orderRef(mixed $v, string $field = 'ref'): string
     {
-        return self::ref($v, $field);
+        return self::ref($v, $field, self::ORDER_REF, self::ORDER_REF_WORDS);
     }
 
-    private static function ref(mixed $v, string $field): string
+    /** What each id's refusal says it must be (400 bad_snapshot naming the field, as a bad code always was). */
+    private const ORDER_REF_WORDS = "the shop's order number: digits, a proto copy's store prefix before them at most (1567469, proto1-1567469)";
+    private const LINE_WORDS = "the shop's line number: digits, a proto copy's store prefix before them at most (8812345, proto1-8812345)";
+    private const VARIANT_WORDS = "the shop's variant number: digits (40123)";
+    private const PARENT_WORDS = "another order's number: digits from 1, a proto copy's store prefix before them at most (1567000, proto1-1567000), or null";
+    private const CODE_WORDS = 'a code: letters, digits and : _ . - (at most 64)';
+
+    private static function ref(mixed $v, string $field, string $shape = self::CODE, string $words = self::CODE_WORDS): string
     {
         if (is_int($v) && $v >= 0) {
             $v = (string) $v;
@@ -291,8 +313,8 @@ final class SnapshotBody
         } catch (CwException) {
             throw self::bad($field, "{$field} must be 1-64 printable characters");
         }
-        if (preg_match(self::CODE, $v) !== 1) {
-            throw self::bad($field, "{$field} must be a code: letters, digits and : _ . - (at most 64)");
+        if (preg_match(self::CODE, $v) !== 1 || preg_match($shape, $v) !== 1) {
+            throw self::bad($field, "{$field} must be {$words}");
         }
         return $v;
     }

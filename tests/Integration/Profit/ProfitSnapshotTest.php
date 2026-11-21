@@ -251,16 +251,16 @@ final class ProfitSnapshotTest extends StockTestCase
         $a = $this->item('legacy', 10);
         self::price($a, 10000);
         $this->listing($site, '1', $a);
-        $this->ok($this->commit($site, '9001', [self::line('1', 'u1', 'u2')]));
-        $this->ok($this->ship($site, '9001', ['u1', 'u2']));
+        $this->ok($this->commit($site, '9001', [self::line('1', '9100001', '9100002')]));
+        $this->ok($this->ship($site, '9001', ['9100001', '9100002']));
         $s = $this->snapshots();
-        $s->store((int) $site->channelId, '9001', self::body([self::sl('u1', '1', 1200), self::sl('u2', '1', 1200, ['refund_inc' => 1200])]), 'api');
+        $s->store((int) $site->channelId, '9001', self::body([self::sl('9100001', '1', 1200), self::sl('9100002', '1', 1200, ['refund_inc' => 1200])]), 'api');
         self::assertSame('200', (string) self::order($site, '9001')['cost']);
         // The return reaches CW after the snapshot; the store sends nothing new. The sweep finds it.
-        $this->ok($this->res->returnUnits($site, '9001', ['u2'], $this->key('ret')));
+        $this->ok($this->res->returnUnits($site, '9001', ['9100002'], $this->key('ret')));
         $later = static fn (): \DateTimeImmutable => Clock::now()->modify('+1 hour');
         self::assertSame(1, (new ReturnsSweep(self::$db, $later))->run()['orders']);
-        $u2 = self::lineRow($site, 'u2');
+        $u2 = self::lineRow($site, '9100002');
         self::assertSame(['1', '0', '0'], [(string) $u2['restocked'], (string) $u2['cost'], (string) $u2['sale_ex']]);
         self::assertSame(['100', '1000'], [(string) self::order($site, '9001')['cost'], (string) self::order($site, '9001')['sale_ex']]);
         self::assertSame(0, (new ReturnsSweep(self::$db, $later))->run()['orders'], 'done once');
@@ -275,17 +275,17 @@ final class ProfitSnapshotTest extends StockTestCase
         self::price($a, 15000, '2026-11-18 00:00:00', 'start'); // a later price, as an absolute event
         $this->listing($site, '1', $a);
         $s = $this->snapshots();
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '1', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'api');
-        $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 1200)], ['paid_at' => '2026-11-01T10:00:00Z']), 'api');
-        $s->store((int) $site->channelId, '3', self::body([self::sl('L3', '1', 1200)], ['paid_at' => '2025-06-01T10:00:00Z']), 'api');
-        self::assertSame(['cw_cost', '10000'], [self::lineRow($site, 'L1')['cost_source'], (string) self::lineRow($site, 'L1')['unit_cost_e4']], 'the price on the day');
-        self::assertSame(['estimate', '10000'], [self::lineRow($site, 'L2')['cost_source'], (string) self::lineRow($site, 'L2')['unit_cost_e4']],
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100003', '1', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'api');
+        $s->store((int) $site->channelId, '2', self::body([self::sl('9100004', '1', 1200)], ['paid_at' => '2026-11-01T10:00:00Z']), 'api');
+        $s->store((int) $site->channelId, '3', self::body([self::sl('9100005', '1', 1200)], ['paid_at' => '2025-06-01T10:00:00Z']), 'api');
+        self::assertSame(['cw_cost', '10000'], [self::lineRow($site, '9100003')['cost_source'], (string) self::lineRow($site, '9100003')['unit_cost_e4']], 'the price on the day');
+        self::assertSame(['estimate', '10000'], [self::lineRow($site, '9100004')['cost_source'], (string) self::lineRow($site, '9100004')['unit_cost_e4']],
             'before CW\'s price: its start, as an estimate (ERPNext\'s history replaces it)');
-        self::assertSame(['estimate', '15000'], [self::lineRow($site, 'L3')['cost_source'], (string) self::lineRow($site, 'L3')['unit_cost_e4']],
+        self::assertSame(['estimate', '15000'], [self::lineRow($site, '9100005')['cost_source'], (string) self::lineRow($site, '9100005')['unit_cost_e4']],
             'before ERPNext\'s history: today\'s price, as an estimate');
         $this->setting('profit.before_history', '"none"');
         $s = $this->snapshots(); // settings are read once per instance (a request, a job)
-        $s->store((int) $site->channelId, '4', self::body([self::sl('L4', '1', 1200)], ['paid_at' => '2025-06-01T10:00:00Z']), 'api');
-        self::assertSame('none', self::lineRow($site, 'L4')['cost_source'], 'the owner\'s switch: none');
+        $s->store((int) $site->channelId, '4', self::body([self::sl('9100006', '1', 1200)], ['paid_at' => '2025-06-01T10:00:00Z']), 'api');
+        self::assertSame('none', self::lineRow($site, '9100006')['cost_source'], 'the owner\'s switch: none');
     }
 }

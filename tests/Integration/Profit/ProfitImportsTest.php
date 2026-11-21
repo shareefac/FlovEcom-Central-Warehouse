@@ -170,10 +170,10 @@ final class ProfitImportsTest extends StockTestCase
         $this->listing($site, '101', $a);
         $this->listing($site, '102', $b, 2);
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1001', self::body([self::sl('L1', '101', 1200), self::sl('L2', '101', 1200), self::sl('L3', '102', 2400)],
+        $s->store((int) $site->channelId, '1001', self::body([self::sl('9100001', '101', 1200), self::sl('9100002', '101', 1200), self::sl('9100003', '102', 2400)],
             ['paid_at' => '2026-04-10T10:00:00Z']), 'bulk');
-        $s->store((int) $site->channelId, '1002', self::body([self::sl('L4', '101', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'bulk');
-        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'L1'"));
+        $s->store((int) $site->channelId, '1002', self::body([self::sl('9100004', '101', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'bulk');
+        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '9100001'"));
         $day = '2026-04-10';
         $before = self::$db->one('SELECT cost FROM profit_day WHERE day = ?', [$day]);
         self::assertSame('400', (string) $before['cost'], '1 + 1 + 2 CW units at £1.00');
@@ -194,7 +194,7 @@ final class ProfitImportsTest extends StockTestCase
         $import->run($this->dir, 'vapeandgo', null, null, false, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'L1'"), 'a dry run writes nothing');
+        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '9100001'"), 'a dry run writes nothing');
         self::assertCount(2, $log, 'one line a day; a file still being written is not read');
         self::assertStringContainsString('2026-04-10 erp orders 2 goods GBP 44.99 cost GBP 5.70 | cw orders 1 goods GBP 40.00 | lines costed 3', $log[0]);
         self::assertStringContainsString('orders not in cw 1', $log[0]);
@@ -204,8 +204,8 @@ final class ProfitImportsTest extends StockTestCase
         $r = $import->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
         self::assertSame(['days' => 2, 'orders' => 1, 'lines' => 3, 'refused' => 0, 'waiting' => 0], $r);
         $rows = self::$db->all("SELECT line_id, unit_cost_e4, cost, cost_source, costed_by FROM sale_line WHERE order_ref IN ('1001', '1002') ORDER BY line_id");
-        self::assertSame([['L1', '9000', '90', 'erp_at_sale', 'erp_import'], ['L2', '9000', '90', 'erp_at_sale', 'erp_import'],
-            ['L3', '15000', '300', 'erp_at_sale', 'erp_import'], ['L4', '10000', '100', 'cw_cost', 'sale']],
+        self::assertSame([['9100001', '9000', '90', 'erp_at_sale', 'erp_import'], ['9100002', '9000', '90', 'erp_at_sale', 'erp_import'],
+            ['9100003', '15000', '300', 'erp_at_sale', 'erp_import'], ['9100004', '10000', '100', 'cw_cost', 'sale']],
             array_map(static fn (array $l): array => array_map('strval', array_values($l)), $rows), 'per CW unit: £3.00 for a pack of 2 is £1.50 each');
         self::assertSame('480', (string) self::$db->value('SELECT cost FROM profit_day WHERE day = ?', [$day]), 'the summary follows');
         $kept = self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]);
@@ -226,7 +226,7 @@ final class ProfitImportsTest extends StockTestCase
         $this->listing($site, '2', $b);
         $this->listing($site, '3', null);
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '1', 1200), self::sl('L2', '2', 1200), self::sl('L3', '3', 1200)]), 'api');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '1', 1200), self::sl('9100002', '2', 1200), self::sl('9100003', '3', 1200)]), 'api');
         self::assertSame(2, (int) self::$db->value("SELECT units_no_cost FROM sale_order WHERE order_ref = '1'"));
         // The two prices are found later: b gets one, and the listing of variant 3 is linked to a.
         self::price($b, 20000);
@@ -236,7 +236,7 @@ final class ProfitImportsTest extends StockTestCase
         self::assertSame(2, (int) self::$db->value("SELECT units_no_cost FROM sale_order WHERE order_ref = '1'"), 'a dry run writes nothing');
         (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['none'], 'vapeandgo', true);
         $rows = self::$db->all("SELECT line_id, sku_id, unit_cost_e4, cost_source, costed_by FROM sale_line WHERE order_ref = '1' ORDER BY line_id");
-        self::assertSame([['L1', (string) $a, '10000', 'cw_cost', 'sale'], ['L2', (string) $b, '20000', 'cw_cost', 'recost'], ['L3', (string) $a, '10000', 'cw_cost', 'recost']],
+        self::assertSame([['9100001', (string) $a, '10000', 'cw_cost', 'sale'], ['9100002', (string) $b, '20000', 'cw_cost', 'recost'], ['9100003', (string) $a, '10000', 'cw_cost', 'recost']],
             array_map(static fn (array $l): array => array_map('strval', array_values($l)), $rows));
         self::assertSame(['0', '400'], [(string) self::$db->value("SELECT units_no_cost FROM sale_order WHERE order_ref = '1'"),
             (string) self::$db->value("SELECT cost FROM sale_order WHERE order_ref = '1'")]);

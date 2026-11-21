@@ -38,12 +38,12 @@ final class ProfitSnapshotShapesTest extends StockTestCase
         self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES (?, '2030-01-01')", [CostEngine::JOB]);
         $s = new OrderSnapshots(self::$db);
         // Spread remainders: £12.99, two free lines, and two lines of -2p (orders like 1512210); one of -3p (like 1514739 / 1525078).
-        self::assertSame('stored', $s->store((int) $site->channelId, '9101', self::body([self::sl('a1', 1299), self::sl('a2', 0, 0, true), self::sl('a3', 0, 0, true),
-            self::sl('a4', -2), self::sl('a5', -2)]), 'api')['result']);
-        self::assertSame('stored', $s->store((int) $site->channelId, '9102', self::body([self::sl('b1', 1299), self::sl('b2', 0, 0, true), self::sl('b3', -3)]), 'api')['result']);
+        self::assertSame('stored', $s->store((int) $site->channelId, '9101', self::body([self::sl('9100001', 1299), self::sl('9100002', 0, 0, true), self::sl('9100003', 0, 0, true),
+            self::sl('9100004', -2), self::sl('9100005', -2)]), 'api')['result']);
+        self::assertSame('stored', $s->store((int) $site->channelId, '9102', self::body([self::sl('9100006', 1299), self::sl('9100007', 0, 0, true), self::sl('9100008', -3)]), 'api')['result']);
         // A coupon's pennies spread over five 49p lines (1p each), the remainder (-99p) on one line (like 1533139).
-        self::assertSame('stored', $s->store((int) $site->channelId, '9103', self::body([self::sl('c1', 49, 1), self::sl('c2', 49, 1), self::sl('c3', 49, 1),
-            self::sl('c4', 49, 1), self::sl('c5', 49, -99)]), 'api')['result']);
+        self::assertSame('stored', $s->store((int) $site->channelId, '9103', self::body([self::sl('9100009', 49, 1), self::sl('9100010', 49, 1), self::sl('9100011', 49, 1),
+            self::sl('9100012', 49, 1), self::sl('9100013', 49, -99)]), 'api')['result']);
         $o = static fn (string $ref): array => array_map('intval', (array) self::$db->one('SELECT goods_inc, discount_inc, sale_inc, sale_ex, units FROM sale_order WHERE order_ref = ?',
             [$ref]));
         // £12.99 - 2p - 2p = £12.95 inc VAT; ex VAT line by line: £10.83 (12.99 / 1.2 = 10.825), -2p (-1.67p) twice: £10.79.
@@ -52,7 +52,7 @@ final class ProfitSnapshotShapesTest extends StockTestCase
         // 4 x (49p - 1p) + (49p + 99p) = £3.40 inc VAT; ex VAT 4 x 40p (48 / 1.2) + £1.23 (148 / 1.2 = 123.3): £2.83.
         self::assertSame(['goods_inc' => 245, 'discount_inc' => -95, 'sale_inc' => 340, 'sale_ex' => 283, 'units' => 5], $o('9103'));
         self::assertSame([-2, -2], array_map('intval', self::$db->column("SELECT sale_ex FROM sale_line WHERE order_ref = '9101' AND price_inc < 0 ORDER BY line_id")));
-        self::assertSame(123, (int) self::$db->value("SELECT sale_ex FROM sale_line WHERE line_id = 'c5'"));
+        self::assertSame(123, (int) self::$db->value("SELECT sale_ex FROM sale_line WHERE line_id = '9100013'"));
         self::assertSame(1079 + 1080 + 283, (int) self::$db->value('SELECT SUM(sale_ex) FROM profit_day WHERE channel_id = ?', [(int) $site->channelId]),
             'the day adds up the same money');
     }

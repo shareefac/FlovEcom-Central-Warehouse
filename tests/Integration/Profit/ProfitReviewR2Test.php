@@ -53,15 +53,15 @@ final class ProfitReviewR2Test extends StockTestCase
         self::price($b, 30000);
         $listing = $this->listing($site, '1', $a);
         self::mark('2026-11-19 09:00:00');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', self::body([['line_id' => 'L1', 'variant_id' => '1', 'price_inc' => 1200]]), 'api');
-        self::assertSame([null, (string) $a], [self::row($site, 'L1')['cost_source'], (string) self::row($site, 'L1')['sku_id']]);
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', self::body([['line_id' => '9100002', 'variant_id' => '1', 'price_inc' => 1200]]), 'api');
+        self::assertSame([null, (string) $a], [self::row($site, '9100002')['cost_source'], (string) self::row($site, '9100002')['sku_id']]);
         // Before the cost job reaches the paid time, the listing is matched to another item of 2 units.
         self::$db->exec('UPDATE channel_listing SET sku_id = ?, units_per_item = 2 WHERE id = ?', [$b, $listing]);
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', self::body([['line_id' => 'L1', 'variant_id' => '1', 'price_inc' => 1200]], ['version' => 1001,
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', self::body([['line_id' => '9100002', 'variant_id' => '1', 'price_inc' => 1200]], ['version' => 1001,
             'grand_inc' => 1]), 'api');
         self::mark('2026-11-19 11:00:00');
         (new PendingCosts(self::$db))->run();
-        $l = self::row($site, 'L1');
+        $l = self::row($site, '9100002');
         self::assertSame([(string) $a, '1', '1', '100'], [(string) $l['sku_id'], (string) $l['units_per_item'], (string) $l['units'], (string) $l['cost']],
             'the item and units it was sold as, at their price');
     }
@@ -76,13 +76,13 @@ final class ProfitReviewR2Test extends StockTestCase
         $this->listing($site, '2', $b);
         self::mark('2030-01-01');
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, 'P', self::body([['line_id' => 'p1', 'variant_id' => '1', 'price_inc' => 1200]]), 'api');
-        self::assertSame(9000, (int) self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = 'P'"));
+        $s->store((int) $site->channelId, '9100005', self::body([['line_id' => '9100003', 'variant_id' => '1', 'price_inc' => 1200]]), 'api');
+        self::assertSame(9000, (int) self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = '9100005'"));
         // Its re-send sends an item with no price: the first order's margin is not known any more.
-        $s->store((int) $site->channelId, 'C', self::body([['line_id' => 'c1', 'variant_id' => '2', 'price_inc' => 0, 'free' => true]], ['parent_ref' => 'P']), 'api');
-        self::assertNull(self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = 'P'"));
-        $s->store((int) $site->channelId, 'D', self::body([['line_id' => 'd1', 'variant_id' => '2', 'price_inc' => 1200]]), 'api');
-        self::assertNull(self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = 'D'"), 'no price: no margin to rank');
+        $s->store((int) $site->channelId, '9100008', self::body([['line_id' => '9100004', 'variant_id' => '2', 'price_inc' => 0, 'free' => true]], ['parent_ref' => '9100005']), 'api');
+        self::assertNull(self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = '9100005'"));
+        $s->store((int) $site->channelId, '9100009', self::body([['line_id' => '9100006', 'variant_id' => '2', 'price_inc' => 1200]]), 'api');
+        self::assertNull(self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = '9100009'"), 'no price: no margin to rank');
     }
 
     public function testEveryUnitBackInStockIsFoundAtNight(): void
@@ -92,16 +92,16 @@ final class ProfitReviewR2Test extends StockTestCase
         self::price($a, 10000);
         self::mark('2030-01-01');
         $this->listing($site, '1', $a);
-        $this->ok($this->commit($site, 'R', [self::line('1', 'u1')]));
-        $this->ok($this->ship($site, 'R', ['u1']));
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'R', self::body([['line_id' => 'u1', 'variant_id' => '1', 'price_inc' => 1200, 'refund_inc' => 1200]]),
+        $this->ok($this->commit($site, '9100007', [self::line('1', '9100001')]));
+        $this->ok($this->ship($site, '9100007', ['9100001']));
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100007', self::body([['line_id' => '9100001', 'variant_id' => '1', 'price_inc' => 1200, 'refund_inc' => 1200]]),
             'api');
-        $this->ok($this->res->returnUnits($site, 'R', ['u1'], $this->key('ret')));
+        $this->ok($this->res->returnUnits($site, '9100007', ['9100001'], $this->key('ret')));
         // The sweep's window has moved past the return (as if its booking committed late).
         self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('returns', ?)", [Clock::db(Clock::now()->modify('+3 hours'))]);
         self::assertSame(0, (new ReturnsSweep(self::$db, static fn (): \DateTimeImmutable => Clock::now()->modify('+4 hours')))->run()['orders']);
         self::assertSame(1, (new ReturnsSweep(self::$db))->reconcile()['orders']);
-        self::assertSame(['1', '0'], [(string) self::row($site, 'u1')['restocked'], (string) self::row($site, 'u1')['cost']]);
+        self::assertSame(['1', '0'], [(string) self::row($site, '9100001')['restocked'], (string) self::row($site, '9100001')['cost']]);
         self::assertSame(0, (new ReturnsSweep(self::$db))->reconcile()['orders'], 'once');
     }
 }

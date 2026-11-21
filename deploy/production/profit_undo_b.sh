@@ -2,7 +2,8 @@
 # Profit step 1, undo B (README of build/A, "Undo" B; the Codex check of the fix round, new HIGH 3): /opt/cw-prod switched to the rollback
 # release (c40c050's code + the final 0074 and 0075, prepared at go-live step 1b), the profit jobs fenced and drained, php-fpm and the public
 # vhost on. Every path absolute; every prerequisite checked; stops at the first one that fails, before anything that runs is changed.
-# Run as root on the production box: bash /root/undo_profit_b.sh
+# Shipped in deploy/production; copied to /root at go-live step 1b (the rollback release has no copy of it). Run as root on the
+# production box: bash /root/profit_undo_b.sh (tests/Unit/ProfitUndoScriptsBehaviourTest.php runs it on stubs).
 set -euo pipefail
 RB=/opt/cw-prod-releases/rollback-profit
 LIVE=/opt/cw-prod
@@ -27,7 +28,8 @@ fi
 install -m 0644 -o root -g root "$RB/deploy/production/cw-prod.cron" /etc/cron.d/cw-prod
 for _ in $(seq 1 360); do pgrep -f "$J" >/dev/null || break; sleep 1; done
 if pgrep -f "$J" >/dev/null; then
-    pgrep -af "$J"
+    # A job that ended since the line above is no failure (set -e would stop here, silently, half way: the test of 21 Nov).
+    pgrep -af "$J" || true
     for p in $(pgrep -f "$J"); do kill -TERM "$p" 2>/dev/null || true; done
     for _ in $(seq 1 30); do pgrep -f "$J" >/dev/null || break; sleep 1; done
     if pgrep -af "$J"; then

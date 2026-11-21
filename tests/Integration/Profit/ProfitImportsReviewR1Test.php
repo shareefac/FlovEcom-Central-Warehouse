@@ -78,9 +78,9 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         self::price($a, 10000);
         $this->listing($site, '101', $a);
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '101', 1200), self::sl('L2', '101', 1200)]), 'bulk');
-        $s->store((int) $site->channelId, '2', self::body([self::sl('M1', '101', 1200), self::sl('M2', '101', 1200)]), 'bulk');
-        $s->store((int) $site->channelId, '3', self::body([self::sl('N1', '101', 1200)]), 'bulk');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '101', 1200), self::sl('9100002', '101', 1200)]), 'bulk');
+        $s->store((int) $site->channelId, '2', self::body([self::sl('9100003', '101', 1200), self::sl('9100004', '101', 1200)]), 'bulk');
+        $s->store((int) $site->channelId, '3', self::body([self::sl('9100005', '101', 1200)]), 'bulk');
         // Order 1: one unit invoiced on each of two days, at £1 and £3. Order 2: one unit at £2 and one at a rate of 0.
         file_put_contents($this->dir . '/si_2026-04-10.tsv', self::tsv([['SI-1', '1', 'P101', '1', '8.33', '1.0'], ['SI-2', '2', 'P101', '1', '8.33', '2.0'],
             ['SI-2', '2', 'P101', '1', '8.33', '0']], '2026-04-10'));
@@ -92,7 +92,7 @@ final class ProfitImportsReviewR1Test extends StockTestCase
             $log[] = $m;
         });
         self::assertSame(['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => 1, 'waiting' => 0], $r, 'a broken day stops the run before anything is written');
-        self::assertSame(['L1' => '10000/estimate', 'L2' => '10000/estimate'], self::costs('1'));
+        self::assertSame(['9100001' => '10000/estimate', '9100002' => '10000/estimate'], self::costs('1'));
         self::assertStringContainsString('2026-04-12 refused: row 2', implode("\n", $log));
         unlink($this->dir . '/si_2026-04-12.tsv');
         $log = [];
@@ -100,22 +100,22 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         $r = (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', '2026-04-11', '2026-04-11', true, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['L1' => '20000/erp_at_sale', 'L2' => '20000/erp_at_sale'], self::costs('1'), 'its two days together: (1 + 3) / 2 a unit');
-        self::assertSame(['M1' => '10000/estimate', 'M2' => '10000/estimate'], self::costs('2'), 'its last day is not asked for: left');
+        self::assertSame(['9100001' => '20000/erp_at_sale', '9100002' => '20000/erp_at_sale'], self::costs('1'), 'its two days together: (1 + 3) / 2 a unit');
+        self::assertSame(['9100003' => '10000/estimate', '9100004' => '10000/estimate'], self::costs('2'), 'its last day is not asked for: left');
         self::assertSame(1, $r['days']);
         (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['M1' => '10000/estimate', 'M2' => '10000/estimate'], self::costs('2'), 'a rate of 0 beside a priced one: the variant is left as it was');
+        self::assertSame(['9100003' => '10000/estimate', '9100004' => '10000/estimate'], self::costs('2'), 'a rate of 0 beside a priced one: the variant is left as it was');
         self::assertStringContainsString('rate 0 1', implode("\n", $log));
-        self::assertSame(['L1' => '20000/erp_at_sale', 'L2' => '20000/erp_at_sale'], self::costs('1'), 'run again: the same');
+        self::assertSame(['9100001' => '20000/erp_at_sale', '9100002' => '20000/erp_at_sale'], self::costs('1'), 'run again: the same');
     }
 
     public function testABulkFileProvesItsStoreAndItsSumBeforeAnythingIsWritten(): void
     {
         $this->site('vapeandgo', 'live');
         $this->site('vapebig', 'live');
-        $line = static fn (string $ref, string $day = '2026-04-10'): string => json_encode(['ref' => $ref] + self::body([self::sl('x' . $ref, '9', 100)],
+        $line = static fn (string $ref, string $day = '2026-04-10'): string => json_encode(['ref' => $ref] + self::body([self::sl('9100006' . $ref, '9', 100)],
             ['placed_at' => $day . 'T09:59:00Z']), JSON_THROW_ON_ERROR);
         $import = new SnapshotImport(self::$db);
         $quiet = static fn (string $m) => null;
@@ -139,7 +139,7 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         self::assertSame(['stored' => 2, 'same' => 0, 'older_ignored' => 0], $import->file('vapebig', $file, false, $quiet)['results']);
         // A line longer than the cap is one refused line: what follows it on that line is never read as an order.
         $long = $this->dir . '/snapshots_vapebig_2026-04-11.jsonl';
-        file_put_contents($long, str_repeat('x', SnapshotImport::MAX_LINE_BYTES + 5) . $line('3', '2026-04-11') . "\n" . $line('4', '2026-04-11') . "\n");
+        file_put_contents($long, str_repeat('9100006', SnapshotImport::MAX_LINE_BYTES + 5) . $line('3', '2026-04-11') . "\n" . $line('4', '2026-04-11') . "\n");
         file_put_contents($this->dir . '/snapshots_vapebig_2026-04-11.sum', json_encode(['channel' => 'vapebig', 'day' => '2026-04-11', 'orders' => 1, 'lines' => 1,
             'goods_inc' => 100, 'delivery_inc' => 0, 'file_sha256' => hash_file('sha256', $long)]));
         $r = $import->file('vapebig', $long, false, $quiet);

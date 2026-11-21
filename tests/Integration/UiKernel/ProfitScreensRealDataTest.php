@@ -58,10 +58,10 @@ final class ProfitScreensRealDataTest extends KernelUiTestCase
         // Twenty units of one product at £1.20 inc VAT, one of them refunded; one more cancelled; one unit of another product.
         $lines = [];
         for ($i = 1; $i <= 20; $i++) {
-            $lines[] = self::sl('a' . $i, '1', 120, $i === 20 ? ['refund_inc' => 120] : []);
+            $lines[] = self::sl('9100001' . $i, '1', 120, $i === 20 ? ['refund_inc' => 120] : []);
         }
-        $lines[] = self::sl('a21', '1', 120, ['cancelled' => true]);
-        $lines[] = self::sl('b1', '2', 600);
+        $lines[] = self::sl('9100002', '1', 120, ['cancelled' => true]);
+        $lines[] = self::sl('9100003', '2', 600);
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-1 hour')->format('Y-m-d\TH:i:s\Z');
         (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', ['v' => 1, 'version' => 1, 'order_no' => 'VPG1', 'status' => 'completed', 'placed_at' => $paid,
             'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => $lines, 'delivery' => null, 'order_refund_inc' => 0,

@@ -58,11 +58,12 @@ final class ProfitFinalReviewUnitTest extends TestCase
     public function testNoFreeTextIsEverKept(): void
     {
         // The shapes the connector really sends are kept as they are.
-        $b = SnapshotBody::parse(self::body(['order_no' => 'VPG1567469', 'parcels' => [self::parcel(), self::parcel(['parcel_ref' => 'odl:2', 'carrier' => 'dpd',
+        $b = SnapshotBody::parse(self::body(['order_no' => '1567469', 'parcels' => [self::parcel(), self::parcel(['parcel_ref' => 'odl:2', 'carrier' => 'dpd',
             'service_code' => '12', 'service' => 'DPD Pickup (2 day Service)']), self::parcel(['parcel_ref' => 'orl:55', 'service_code' => 'TSS', 'service' => 'Return label',
             'status' => 'created']), self::parcel(['parcel_ref' => 'odl:3', 'carrier' => 'in_store', 'service_code' => '', 'service' => 'In Store Collection Preston']),
             self::parcel(['parcel_ref' => 'odl:4', 'carrier' => 'evri', 'service' => 'EVRI International'])]]), self::now());
-        self::assertSame('VPG1567469', $b['order_no']);
+        self::assertSame('1567469', $b['order_no']);
+        self::assertSame('', SnapshotBody::parse(self::body(['order_no' => 'VPG1567469']), self::now())['order_no'], 'the order number is digits (PR153)');
         self::assertSame('Royal Mail Tracked 24(1-2 Working Days)', $b['delivery']['method']);
         self::assertSame('12', $b['delivery']['method_id']);
         self::assertSame(['Royal Mail Tracked 48 (2-4 Working Days)', 'DPD Pickup (2 day Service)', 'Return label', 'In Store Collection Preston', 'EVRI International'],
@@ -104,8 +105,9 @@ final class ProfitFinalReviewUnitTest extends TestCase
     public function testALineIdInAnotherCaseIsTheSameLine(): void
     {
         $l = self::body()['lines'][0];
-        self::assertSame('lines[1].line_id', self::field(self::body(['lines' => [['line_id' => 'L1'] + $l, ['line_id' => 'l1'] + $l]])),
-            'L1 and l1 are one row to the database: refused, never counted twice in the order and once in its lines');
+        self::assertSame('lines[1].line_id', self::field(self::body(['lines' => [['line_id' => 'proto1-9100001'] + $l, ['line_id' => 'PROTO1-9100001'] + $l]])),
+            'proto1-9100001 and PROTO1-9100001 would be one row to the database: the second is refused (PR153: a store prefix is lower case), never counted twice');
+        self::assertSame('lines[1].line_id', self::field(self::body(['lines' => [['line_id' => '9100001'] + $l, ['line_id' => '9100001'] + $l]])), 'the same line twice');
         self::assertSame('parcels[1].parcel_ref', self::field(self::body(['parcels' => [self::parcel(['parcel_ref' => 'ODL:1']), self::parcel(['parcel_ref' => 'odl:1'])]])));
     }
 

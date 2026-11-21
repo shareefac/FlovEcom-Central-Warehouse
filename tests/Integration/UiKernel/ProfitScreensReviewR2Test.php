@@ -45,8 +45,8 @@ final class ProfitScreensReviewR2Test extends KernelUiTestCase
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z');
         (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', ['v' => 1, 'version' => 1, 'order_no' => 'VPG1', 'status' => 'completed', 'placed_at' => $paid,
             'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [
-                ['line_id' => 'l1', 'variant_id' => '1', 'qty' => 1, 'price_inc' => 120, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false],
-                ['line_id' => 'l2', 'variant_id' => '2', 'qty' => 1, 'price_inc' => 600, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]],
+                ['line_id' => '9100001', 'variant_id' => '1', 'qty' => 1, 'price_inc' => 120, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false],
+                ['line_id' => '9100002', 'variant_id' => '2', 'qty' => 1, 'price_inc' => 600, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]],
             'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 720, 'parcels' => []], 'api');
         $fin = $this->signIn($this->uiUser('finance'));
         $lines = self::rows($fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '1']), 'profit-order-lines');

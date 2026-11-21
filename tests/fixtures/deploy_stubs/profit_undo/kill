@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# kill -TERM PID (tests/Unit/ProfitUndoScriptsBehaviourTest.php; the test turns bash's own kill off, `enable -n kill`, so this one is
+# run): the scenario's process with that pid (pgrep's: 4242 + its line in answers/jobs, the first line 0) ends at once (no check
+# left), unless answers/ignore_term is there (a process that ignores TERM).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "kill $*"
+[[ $# -eq 2 && $1 == -TERM && $2 =~ ^[0-9]+$ ]] || { echo "kill stub: only kill -TERM PID" >&2; exit 99; }
+[[ -f $A/jobs ]] || { echo "kill: ($2) - No such process" >&2; exit 1; }
+[[ ! -f $A/ignore_term ]] || exit 0
+n=$(( $2 - 4242 ))
+i=0
+out=
+while read -r left cmdline; do
+    (( i == n )) && left=0
+    out+="$left $cmdline"$'\n'
+    i=$((i + 1))
+done < "$A/jobs"
+printf '%s' "$out" > "$A/jobs"

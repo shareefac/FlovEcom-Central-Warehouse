@@ -41,7 +41,7 @@ final class ProfitScreensReviewR8Test extends KernelUiTestCase
         $this->listing($site, '1', $a);
         $paid = $now->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z');
         (new OrderSnapshots(self::$db))->store((int) $site->channelId, '1', ['v' => 1, 'version' => 1, 'order_no' => '', 'status' => 'completed', 'placed_at' => $paid,
-            'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => 'l1', 'variant_id' => '1', 'qty' => 1,
+            'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => '9100001', 'variant_id' => '1', 'qty' => 1,
             'price_inc' => 120, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0,
             'grand_inc' => 120, 'parcels' => []], 'api');
         // The day has 400 units (one of them waiting): too few to say "incomplete", never too few to count.

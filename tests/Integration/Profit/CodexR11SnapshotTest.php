@@ -104,11 +104,11 @@ final class CodexR11SnapshotTest extends StockTestCase
         $a = $this->item('legacy');
         self::price($a, 10000);
         $this->listing($site, '7', $a);
-        $this->storeOrder((int) $site->channelId, 'VPG42', '2026-11-10T10:00:00Z', [self::sl('L1', '7', 1200), self::sl('L2', '7', 1200)]);
-        file_put_contents($this->dir . '/si_2026-11-10.tsv', self::si('2026-11-10', [['SI-1', 'VPG42', 'P7', '1.000000000', '10.000000000', '2.000000000'],
-            ['SI-2', 'vpg42', 'P7', '1.000000000', '10.000000000', '4.000000000']]));
+        $this->storeOrder((int) $site->channelId, 'proto1-42', '2026-11-10T10:00:00Z', [self::sl('9100001', '7', 1200), self::sl('9100002', '7', 1200)]);
+        file_put_contents($this->dir . '/si_2026-11-10.tsv', self::si('2026-11-10', [['SI-1', 'PROTO1-42', 'P7', '1.000000000', '10.000000000', '2.000000000'],
+            ['SI-2', 'proto1-42', 'P7', '1.000000000', '10.000000000', '4.000000000']]));
         (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
-        self::assertSame(['30000', '30000'], array_map('strval', self::$db->column("SELECT unit_cost_e4 FROM sale_line WHERE order_ref = 'VPG42' ORDER BY line_id")),
+        self::assertSame(['30000', '30000'], array_map('strval', self::$db->column("SELECT unit_cost_e4 FROM sale_line WHERE order_ref = 'proto1-42' ORDER BY line_id")),
             'one order: (2 + 4) / 2 a unit');
     }
 
@@ -118,14 +118,14 @@ final class CodexR11SnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
         $this->listing($site, '1', $this->item('legacy'));
-        (new OrderSnapshots(self::$db))->store($ch, 'S1', self::body([self::sl('LS1', '1', 1200)]), 'api'); // its cost waits for the start
-        self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'LS1'"));
-        self::$db->exec("UPDATE order_snapshot SET body = JSON_OBJECT('paid_at', NULL, 'lines', 5) WHERE channel_id = ? AND order_ref = 'S1'", [$ch]);
+        (new OrderSnapshots(self::$db))->store($ch, '9100015', self::body([self::sl('9100003', '1', 1200)]), 'api'); // its cost waits for the start
+        self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '9100003'"));
+        self::$db->exec("UPDATE order_snapshot SET body = JSON_OBJECT('paid_at', NULL, 'lines', 5) WHERE channel_id = ? AND order_ref = '9100015'", [$ch]);
         $bin = $this->dir . '/erp_bin.tsv';
         file_put_contents($bin, "item_code\twarehouse\tactual_qty\tvaluation_rate\tstock_value\n");
         $r = self::script('seed_item_cost', '--bin=' . $bin, '--start=2026-11-16', '--apply');
         self::assertSame(1, $r['code'], 'a waiting sale failed: a problem, named; ' . $r['out']);
-        self::assertStringContainsString('S1', $r['out']);
+        self::assertStringContainsString('9100015', $r['out']);
         $r = self::script('seed_item_cost', '--bin=' . $bin, '--start=2026-11-17', '--apply');
         self::assertSame(1, $r['code'], 'the start resumed is of another day: never "done"; ' . $r['out']);
         self::assertStringContainsString('2026-11-16', $r['out']);
@@ -139,8 +139,8 @@ final class CodexR11SnapshotTest extends StockTestCase
         $a = $this->item('legacy');
         self::price($a, 30000);
         $this->listing($site, '1', $a);
-        $lines = [json_encode(['ref' => '6101'] + self::body([self::sl('M1', '1', 1200)]), JSON_THROW_ON_ERROR),
-            json_encode(['ref' => '6102'] + self::body([self::sl('M2', '1', 1200)], ['paid_at' => '2026-11-20T10:00:00Z']), JSON_THROW_ON_ERROR)];
+        $lines = [json_encode(['ref' => '6101'] + self::body([self::sl('9100004', '1', 1200)]), JSON_THROW_ON_ERROR),
+            json_encode(['ref' => '6102'] + self::body([self::sl('9100005', '1', 1200)], ['paid_at' => '2026-11-20T10:00:00Z']), JSON_THROW_ON_ERROR)];
         $file = $this->dir . '/snapshots_vapeandgo_2026-11-19.jsonl';
         file_put_contents($file, implode("\n", $lines) . "\n");
         file_put_contents($this->dir . '/snapshots_vapeandgo_2026-11-19.sum', json_encode(['channel' => 'vapeandgo', 'day' => '2026-11-19', 'orders' => 2, 'lines' => 2,
@@ -168,8 +168,8 @@ final class CodexR11SnapshotTest extends StockTestCase
     public function testAnOrderTwiceInADayFileIsRefusedWholeEvenWhenOneCopyIsBroken(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        $lines = [json_encode(['ref' => '42'] + self::body([self::sl('Q1', '1', 1200, ['qty' => 2])]), JSON_THROW_ON_ERROR),
-            json_encode(['ref' => '42'] + self::body([self::sl('Q1', '1', 1200)]), JSON_THROW_ON_ERROR)];
+        $lines = [json_encode(['ref' => '42'] + self::body([self::sl('9100006', '1', 1200, ['qty' => 2])]), JSON_THROW_ON_ERROR),
+            json_encode(['ref' => '42'] + self::body([self::sl('9100006', '1', 1200)]), JSON_THROW_ON_ERROR)];
         $file = $this->dir . '/snapshots_vapeandgo_2026-11-19.jsonl';
         file_put_contents($file, implode("\n", $lines) . "\n");
         file_put_contents($this->dir . '/snapshots_vapeandgo_2026-11-19.sum', json_encode(['channel' => 'vapeandgo', 'day' => '2026-11-19', 'orders' => 1, 'lines' => 1,
@@ -192,9 +192,9 @@ final class CodexR11SnapshotTest extends StockTestCase
         $ch = (int) $site->channelId;
         $a = $this->item('legacy');
         $this->listing($site, '101', $a);
-        $this->storeOrder($ch, '1201', '2026-11-11T10:00:00Z', [self::sl('N1', '101', 1200)]); // invoiced on the 11th and the 12th
-        $this->storeOrder($ch, '1202', '2026-11-13T10:00:00Z', [self::sl('N2', '101', 1200)]); // paid on the 13th (no file), invoiced on the 14th
-        $this->storeOrder($ch, '1203', '2026-11-13T11:00:00Z', [self::sl('N3', '101', 4800)]); // paid on the 13th, in no file: missing
+        $this->storeOrder($ch, '1201', '2026-11-11T10:00:00Z', [self::sl('9100007', '101', 1200)]); // invoiced on the 11th and the 12th
+        $this->storeOrder($ch, '1202', '2026-11-13T10:00:00Z', [self::sl('9100008', '101', 1200)]); // paid on the 13th (no file), invoiced on the 14th
+        $this->storeOrder($ch, '1203', '2026-11-13T11:00:00Z', [self::sl('9100009', '101', 4800)]); // paid on the 13th, in no file: missing
         file_put_contents($this->dir . '/si_2026-11-11.tsv', self::si('2026-11-11', [['SI-1', '1201', 'P101', '1.000000000', '10.000000000']]));
         file_put_contents($this->dir . '/si_2026-11-12.tsv', self::si('2026-11-12', [['SI-2', '1201', 'P101', '0.000000000', '0.000000000']]));
         file_put_contents($this->dir . '/si_2026-11-14.tsv', self::si('2026-11-14', [['SI-3', '1202', 'P101', '1.000000000', '10.000000000']]));
@@ -231,13 +231,13 @@ final class CodexR11SnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
-        $s->store($ch, '8400', self::body([self::sl('R1', '1', 1200)]), 'api');
-        $s->store($ch, '8401', self::body([self::sl('R2', '1', 0, ['free' => true])], ['parent_ref' => '8400']), 'api');
-        $s->store($ch, '8402', self::body([self::sl('R3', '1', 0, ['free' => true])], ['parent_ref' => '8401']), 'api');
+        $s->store($ch, '8400', self::body([self::sl('9100010', '1', 1200)]), 'api');
+        $s->store($ch, '8401', self::body([self::sl('9100011', '1', 0, ['free' => true])], ['parent_ref' => '8400']), 'api');
+        $s->store($ch, '8402', self::body([self::sl('9100012', '1', 0, ['free' => true])], ['parent_ref' => '8401']), 'api');
         $other = TestDb::connect();
         self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '8400')]));
         try {
-            (new OrderSnapshots(self::$db, lockWaitSec: 1))->store($ch, '8403', self::body([self::sl('R4', '1', 0, ['free' => true])], ['parent_ref' => '8402']), 'api');
+            (new OrderSnapshots(self::$db, lockWaitSec: 1))->store($ch, '8403', self::body([self::sl('9100013', '1', 0, ['free' => true])], ['parent_ref' => '8402']), 'api');
             self::fail('the first order of its chain is held: busy');
         } catch (CwException $e) {
             self::assertSame('busy', $e->errorCode);
@@ -257,8 +257,8 @@ final class CodexR11SnapshotTest extends StockTestCase
         self::price($a, 30000);
         $this->listing($site, '1', $a);
         $s = new OrderSnapshots(self::$db);
-        $s->store($ch, '8500', self::body([self::sl('U1', '1', 1200)]), 'api');
-        $s->store($ch, '8500', self::body([self::sl('U1', '1', 1200)], ['version' => 1001, 'paid_at' => null, 'status' => 'pending']), 'api');
+        $s->store($ch, '8500', self::body([self::sl('9100014', '1', 1200)]), 'api');
+        $s->store($ch, '8500', self::body([self::sl('9100014', '1', 1200)], ['version' => 1001, 'paid_at' => null, 'status' => 'pending']), 'api');
         $row = (new ProfitViews(self::$db))->orders(self::DAY, self::DAY, $ch, '8500', false)['rows'][0];
         self::assertSame([null, null], [$row['profit'], $row['margin_bp']], 'not paid: no profit (it showed £7, 70%)');
     }

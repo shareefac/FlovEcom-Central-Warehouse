@@ -19467,3 +19467,27 @@ by stage, the roll-forward after A); F7 LOW (a re-cost order an import fixed mea
 F16 an order refund larger than what is left of its lines is money out (-£1 on £13 refunded of a £12 sale; the owner's rule for whole-order
 refunds kept); new MEDIUM 1 (two invoices posted at the very same microsecond, read in two runs, may be placed in another order than a
 history written again); new MEDIUM 5 (known limit 11's recovery: correct the item's price by a CW document first).
+
+### The last fix round before the third final review (`final2/FIX_BRIEF_A3.md`, builder A3, 21 Nov 2026): the four ids in their real shapes (Codex r11 F12 PARTLY, HIGH), the undo scripts tested (new HIGH 3), F19's early read tested; each new test seen failing first (`runs/profit_r12_red.log`, `profit_r12_red_undo.log` on f2b6230 with the kit's scripts as they were; `profit_r12_red_g3.log` on 973c8ff); no Codex round (the third final review reads the whole change)
+
+**PR153.** (F12 PARTLY, HIGH, privacy) The four ids of a snapshot take only the connector's real shapes (0.4.17: `cw_order_ref`,
+`cw_unit_ref`, `(int) ordi_prodt_id`, `cw_snapshot_ref`; README of build/A, "The four ids' real shapes"): the order ref (the PUT path's
+{ref}, a bulk line's "ref") and a line_id are `^(?:[a-z][a-z0-9]{0,11}-)?[0-9]+$` (the shop's number, a proto copy's lower-case store
+prefix at most), a variant_id `^[0-9]+$`, parent_ref and sub_of `^(?:[a-z][a-z0-9]{0,11}-)?[1-9][0-9]*$` or null. A value outside its shape
+is refused exactly as a bad code was (400 bad_snapshot naming the field; only the shape and the words changed), on every way in (the API's
+accept, a bulk store, a day file's line), and nothing of it is stored; "Jane.Smith", "jane.smith" or "12 Preston Road" is never a key. The
+order number is digits only (else "", as before: "VPG1567469" or "Jane1" is not kept). The lead's real-data check (read only, the 50 real
+Vape and Go day files of 1 Oct - 19 Nov: 65,363 orders, 781,037 lines): every ref, line_id and variant_id matches, every parent_ref (290)
+and sub_of (342) set matches, every order_no is digits: 0 would be refused. Since a store prefix is lower case, a ref or a line id in
+another case can no longer arrive (the case-blind reads of PR117 / PR132 stay: the stock API's refs and ERPNext's custom_order_id keep
+any case). Not changed: the stock API, the reservations, the ERPNext import's refs, the connector, the parcel ref (odl:/orl:). The Profit
+tests' fixtures use digit ids now (one number for each old code, file by file); the tests of "a line / an order ref in another case"
+assert the refusal. (new HIGH 3) The undo scripts are in the repository: `deploy/production/profit_undo_b.sh` (undo B) and
+`profit_drain_jobs.sh` (undo A's step on the box), with the box's absolute paths, copied to /root at go-live step 1b (the rollback
+release holds neither); `tests/Unit/ProfitUndoScriptsBehaviourTest.php` runs them (a copy with the paths rewritten into a temporary tree,
+stubs first on PATH, bash's own kill turned off for the stub's) through every stop, the normal undo, a job TERMed, a stopped install's
+markers and a job that ignores TERM. It found one bug in both: a profit job that ended between the check after the 6-minute wait and its
+listing (`pgrep -af` finding nothing) stopped the script silently under set -e, half way (the rollback cron file in, /opt/cw-prod not
+switched); the listing never stops it now. (F19 PARTLY) The early read has its own test: an order placed before the store's first
+reservation with a broken line (qty 2) next to a valid order refuses the day file whole, nothing written (failing on 973c8ff, passing on
+f2b6230: no code change).

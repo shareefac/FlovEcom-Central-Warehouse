@@ -28,7 +28,7 @@ final class ProfitScreensReviewR1Test extends KernelUiTestCase
     private static function store(Caller $site, string $ref, array $lines, array $over = []): void
     {
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, $ref, $over + ['v' => 1, 'version' => 1, 'order_no' => 'N' . $ref, 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, $ref, $over + ['v' => 1, 'version' => 1, 'order_no' => '5' . $ref, 'status' => 'completed',
             'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => array_map(
                 static fn (array $l): array => $l + ['qty' => 1, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false], $lines),
             'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 0, 'parcels' => []], 'api');
@@ -58,11 +58,11 @@ final class ProfitScreensReviewR1Test extends KernelUiTestCase
         $this->listing($a, '1', $x);
         $this->listing($b, '1', $x);
         // Shop A: £100 ex VAT, £90 of it refunded on the order, cost £50: -400%. Shop B: £80 ex VAT, cost £50: 37.5%.
-        self::store($a, 'A1', [['line_id' => 'a1', 'variant_id' => '1', 'price_inc' => 12000]], ['order_refund_inc' => 10800, 'gateway' => 'pphf']);
-        self::store($b, 'B1', [['line_id' => 'b1', 'variant_id' => '1', 'price_inc' => 9600]]);
+        self::store($a, '9100005', [['line_id' => '9100001', 'variant_id' => '1', 'price_inc' => 12000]], ['order_refund_inc' => 10800, 'gateway' => 'pphf']);
+        self::store($b, '9100011', [['line_id' => '9100002', 'variant_id' => '1', 'price_inc' => 9600]]);
         // The same website number, no CW item, on both shops.
-        self::store($a, 'A2', [['line_id' => 'a2', 'variant_id' => '123', 'price_inc' => 1200]]);
-        self::store($b, 'B2', [['line_id' => 'b2', 'variant_id' => '123', 'price_inc' => 2400]]);
+        self::store($a, '9100012', [['line_id' => '9100003', 'variant_id' => '123', 'price_inc' => 1200]]);
+        self::store($b, '9100013', [['line_id' => '9100004', 'variant_id' => '123', 'price_inc' => 2400]]);
         $fin = $this->signIn($this->uiUser('finance'));
 
         self::assertSame(['SHOPA test site', 'SHOPB test site'], array_column(self::rows($fin->get('/ui/profit/by', ['by' => 'shop', 'sort' => 'margin_low']), 'profit-breakdown'), 0),
@@ -72,12 +72,12 @@ final class ProfitScreensReviewR1Test extends KernelUiTestCase
             array_column($none, 0), 'one row a store');
         $byProduct = $fin->get('/ui/profit/by', ['by' => 'product']);
         self::assertStringContainsString(Words::say('PROFIT', 'order_refunds_note', '£90.00'), $byProduct->text());
-        $one = $fin->get('/ui/profit/orders/view', ['store' => (string) $a->channelId, 'ref' => 'A1']);
+        $one = $fin->get('/ui/profit/orders/view', ['store' => (string) $a->channelId, 'ref' => '9100005']);
         self::assertStringContainsString(Words::PROFIT['gateway_pphf'], $one->text());
 
         // 52 orders more: the first page holds 50 and a link to the next, which holds the rest after its cursor.
         for ($i = 1; $i <= 52; $i++) {
-            self::store($b, 'P' . $i, [['line_id' => 'p' . $i, 'variant_id' => '1', 'price_inc' => 6000 + $i]]);
+            self::store($b, '92000' . $i, [['line_id' => '9100006' . $i, 'variant_id' => '1', 'price_inc' => 6000 + $i]]);
         }
         $page1 = $fin->get('/ui/profit/orders');
         self::assertCount(50, self::rows($page1, 'profit-orders'));
@@ -90,6 +90,6 @@ final class ProfitScreensReviewR1Test extends KernelUiTestCase
         $seen = array_merge(array_column(self::rows($page1, 'profit-orders'), 0), array_column(self::rows($page2, 'profit-orders'), 0));
         self::assertCount(56, array_unique($seen), 'no order twice, none missed');
         $low = $fin->get('/ui/profit/orders', ['low' => '1']);
-        self::assertSame('NA1', explode(' ', self::rows($low, 'profit-orders')[0][0])[0], 'the lowest margin first');
+        self::assertSame('59100005', explode(' ', self::rows($low, 'profit-orders')[0][0])[0], 'the lowest margin first');
     }
 }

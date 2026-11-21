@@ -87,7 +87,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $a = $this->item('legacy');
         self::price($a, 30000);
-        $this->listing($site, 'VA', $a);
+        $this->listing($site, '9100002', $a);
         $ch = (int) $site->channelId;
         // Another writer holds the day's summary row and the order's money guard (a rebuild, the money job on a big order).
         $other = TestDb::connect();
@@ -98,7 +98,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::$db->exec('SET SESSION innodb_lock_wait_timeout = 1');
         try {
             $t = microtime(true);
-            $r = (new OrderSnapshots(self::$db, null, null, 1))->accept($ch, '1', self::body([self::sl('L1', 'VA', 1200)]), 'api');
+            $r = (new OrderSnapshots(self::$db, null, null, 1))->accept($ch, '1', self::body([self::sl('9100001', '9100002', 1200)]), 'api');
             self::assertSame('stored', $r['result']);
             self::assertLessThan(0.9, microtime(true) - $t, 'the API never waits for a day summary or the money work');
         } finally {
@@ -117,14 +117,14 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::assertSame('1000', (string) self::$db->value('SELECT version FROM order_snapshot WHERE channel_id = ?', [$ch]), 'the snapshot worked out');
         // Two snapshots before the job runs: the newest is worked out, once.
         $s = new OrderSnapshots(self::$db);
-        $s->accept($ch, '1', self::body([self::sl('L1', 'VA', 1200)], ['version' => 1001, 'grand_inc' => 5]), 'api');
-        $s->accept($ch, '1', self::body([self::sl('L1', 'VA', 2400)], ['version' => 1002]), 'api');
+        $s->accept($ch, '1', self::body([self::sl('9100001', '9100002', 1200)], ['version' => 1001, 'grand_inc' => 5]), 'api');
+        $s->accept($ch, '1', self::body([self::sl('9100001', '9100002', 2400)], ['version' => 1002]), 'api');
         self::assertSame('2', (string) self::$db->value('SELECT seq FROM order_snapshot_queue WHERE channel_id = ?', [$ch]), 'one row, its seq moved on');
         self::assertSame(1, $s->applyQueued()['applied']);
         self::assertSame('2000', (string) self::$db->value('SELECT sale_ex FROM sale_order WHERE channel_id = ?', [$ch]));
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot_queue WHERE channel_id = ?', [$ch]));
         // While another writer holds the order's guards, the job leaves it for the next run.
-        $s->accept($ch, '1', self::body([self::sl('L1', 'VA', 1200)], ['version' => 1003]), 'api');
+        $s->accept($ch, '1', self::body([self::sl('9100001', '9100002', 1200)], ['version' => 1003]), 'api');
         self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '1')]));
         try {
             self::assertSame(['applied' => 0, 'refused' => 0, 'busy' => 1, 'left' => 1], (new OrderSnapshots(self::$db, null, null, 1))->applyQueued());
@@ -141,12 +141,12 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
         // Two orders send the same line before the job ran (each passes the API's read-only check).
-        $s->accept($ch, 'B', self::body([self::sl('X1', 'VA', 1200)]), 'api');
-        $s->accept($ch, 'A', self::body([self::sl('X1', 'VA', 1200)]), 'api');
+        $s->accept($ch, '9100026', self::body([self::sl('9100003', '9100002', 1200)]), 'api');
+        $s->accept($ch, '9100027', self::body([self::sl('9100003', '9100002', 1200)]), 'api');
         self::assertSame(['applied' => 1, 'refused' => 1, 'busy' => 0, 'left' => 0], $s->applyQueued());
-        self::assertStringContainsString('belongs to another order', (string) self::$db->value("SELECT error FROM order_snapshot_queue WHERE order_ref = 'A' AND failed = 1"));
+        self::assertStringContainsString('belongs to another order', (string) self::$db->value("SELECT error FROM order_snapshot_queue WHERE order_ref = '9100027' AND failed = 1"));
         self::assertSame(['applied' => 0, 'refused' => 0, 'busy' => 0, 'left' => 0], $s->applyQueued(), 'never tried again on its own');
-        $s->accept($ch, 'A', self::body([self::sl('X2', 'VA', 1200)], ['version' => 1001]), 'api');
+        $s->accept($ch, '9100027', self::body([self::sl('9100004', '9100002', 1200)], ['version' => 1001]), 'api');
         self::assertSame(1, $s->applyQueued()['applied'], 'a newer snapshot of the order is worked out');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot_queue'));
     }
@@ -183,11 +183,11 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $a = $this->item('legacy');
         self::price($a, 30000);
-        $this->listing($site, 'VA', $a);
+        $this->listing($site, '9100002', $a);
         $s = new OrderSnapshots(self::$db);
         // A parent sells £10 ex VAT at a cost of £3; its free re-send the same day costs £3.
-        $s->store((int) $site->channelId, 'P', self::body([self::sl('P1', 'VA', 1200)]), 'api');
-        $s->store((int) $site->channelId, 'R', self::body([self::sl('R1', 'VA', 0, ['free' => true])], ['parent_ref' => 'P', 'order_no' => 'VPG2']), 'api');
+        $s->store((int) $site->channelId, '9100025', self::body([self::sl('9100005', '9100002', 1200)]), 'api');
+        $s->store((int) $site->channelId, '9100032', self::body([self::sl('9100006', '9100002', 0, ['free' => true])], ['parent_ref' => '9100025', 'order_no' => 'VPG2']), 'api');
         $views = new ProfitViews(self::$db);
         $day = $views->totals(self::DAY, self::DAY, null);
         self::assertSame([1000, 600, 400], [$day['goods'], $day['cost'], $day['profit']], 'the day: £6 cost, £4 profit');
@@ -200,7 +200,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
         }
         self::assertSame(['sale' => $day['goods'], 'cost' => $day['cost'], 'profit' => $day['profit'], 'units' => $day['units'], 'delivery' => $day['delivery']], $sum,
             'the rows add up to the day summary (never £9 cost and £1 profit)');
-        $parent = array_values(array_filter($rows, static fn (array $r): bool => $r['ref'] === 'P'))[0];
+        $parent = array_values(array_filter($rows, static fn (array $r): bool => $r['ref'] === '9100025'))[0];
         self::assertSame([300, 700, 300, 400, 4000], [$parent['cost'], $parent['profit'], $parent['resend_cost'], $parent['with_resends'], $parent['margin_bp']],
             'its own cost and profit; its re-sends\' cost and its profit with them on their own; its margin with them (PR10)');
     }
@@ -211,21 +211,21 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $a = $this->item('legacy');
         $b = $this->item('legacy');
         self::price($a, 30000);
-        $this->listing($site, 'VA', $a);
-        $this->listing($site, 'VB', $b); // no buying price
+        $this->listing($site, '9100002', $a);
+        $this->listing($site, '9100008', $b); // no buying price
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, 'U', self::body([self::sl('U1', 'VB', 1200)]), 'api');
+        $s->store((int) $site->channelId, '9100033', self::body([self::sl('9100007', '9100008', 1200)]), 'api');
         // A parent refunded in full, its re-send of an item with no price.
-        $s->store((int) $site->channelId, 'P', self::body([self::sl('P1', 'VA', 1200, ['refund_inc' => 1200])]), 'api');
-        $s->store((int) $site->channelId, 'R', self::body([self::sl('R1', 'VB', 0, ['free' => true])], ['parent_ref' => 'P']), 'api');
+        $s->store((int) $site->channelId, '9100025', self::body([self::sl('9100005', '9100002', 1200, ['refund_inc' => 1200])]), 'api');
+        $s->store((int) $site->channelId, '9100032', self::body([self::sl('9100006', '9100008', 0, ['free' => true])], ['parent_ref' => '9100025']), 'api');
         $rows = [];
         foreach ((new ProfitViews(self::$db))->orders(self::DAY, self::DAY, null, '', false)['rows'] as $r) {
             $rows[$r['ref']] = $r;
         }
-        self::assertNull($rows['U']['profit'], 'a £10 sale with a unit of no price: "not known", never £10 profit');
-        self::assertTrue($rows['U']['incomplete']);
-        self::assertTrue($rows['P']['incomplete'], 'its re-send has a unit with no price: incomplete, whatever the parent sold');
-        self::assertNull($rows['P']['with_resends']);
+        self::assertNull($rows['9100033']['profit'], 'a £10 sale with a unit of no price: "not known", never £10 profit');
+        self::assertTrue($rows['9100033']['incomplete']);
+        self::assertTrue($rows['9100025']['incomplete'], 'its re-send has a unit with no price: incomplete, whatever the parent sold');
+        self::assertNull($rows['9100025']['with_resends']);
     }
 
     public function testAFullOrderRefundTakesTheSaleOffExactly(): void
@@ -233,10 +233,10 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $lines = [];
         for ($i = 1; $i <= 10; $i++) {
-            $lines[] = self::sl('F' . $i, 'NONE', 99);
+            $lines[] = self::sl('9100009' . $i, '9100011', 99);
         }
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'F', self::body($lines, ['order_refund_inc' => 990]), 'api');
-        $o = self::$db->one("SELECT sale_inc, sale_ex, order_refund_ex FROM sale_order WHERE order_ref = 'F'");
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100009', self::body($lines, ['order_refund_inc' => 990]), 'api');
+        $o = self::$db->one("SELECT sale_inc, sale_ex, order_refund_ex FROM sale_order WHERE order_ref = '9100009'");
         self::assertSame(['0', '0', '830'], [(string) $o['sale_inc'], (string) $o['sale_ex'], (string) $o['order_refund_ex']],
             'ten 99p lines are 830p ex VAT; refunding all £9.90 at order level leaves nothing (never 5p)');
         $kept = self::$db->one('SELECT sale_ex, order_refund_ex FROM profit_day WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY]);
@@ -249,10 +249,10 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $s = new OrderSnapshots(self::$db);
         $parcel = ['parcel_ref' => 'orl:9', 'tracking_no' => null, 'carrier' => 'royal_mail', 'service_code' => 'TSS', 'service' => 'Return label', 'status' => 'created',
             'label_at' => '2026-11-19T11:00:00Z', 'shipped_at' => null, 'manual' => false, 'partial' => false];
-        $s->store((int) $site->channelId, 'G', self::body([self::sl('G1', 'NONE', 100)], ['parcels' => [$parcel]]), 'api');
-        self::assertSame('Return label', (string) self::$db->value("SELECT service FROM sale_parcel WHERE order_ref = 'G'"));
-        $s->store((int) $site->channelId, 'G', self::body([self::sl('G1', 'NONE', 100)], ['version' => 1001]), 'api');
-        $p = self::$db->one("SELECT service, service_code, removed_at FROM sale_parcel WHERE order_ref = 'G'");
+        $s->store((int) $site->channelId, '9100034', self::body([self::sl('9100010', '9100011', 100)], ['parcels' => [$parcel]]), 'api');
+        self::assertSame('Return label', (string) self::$db->value("SELECT service FROM sale_parcel WHERE order_ref = '9100034'"));
+        $s->store((int) $site->channelId, '9100034', self::body([self::sl('9100010', '9100011', 100)], ['version' => 1001]), 'api');
+        $p = self::$db->one("SELECT service, service_code, removed_at FROM sale_parcel WHERE order_ref = '9100034'");
         self::assertNotNull($p['removed_at']);
         self::assertSame(['', 'TSS'], [(string) $p['service'], (string) $p['service_code']], 'a parcel gone keeps its codes, no text');
     }
@@ -277,10 +277,10 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $this->listing($site, '101', $a);
         $s = new OrderSnapshots(self::$db);
         // Two single-unit lines of one variant; ERPNext priced one unit at £3.
-        $s->store((int) $site->channelId, '2001', self::body([self::sl('M1', '101', 1200), self::sl('M2', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
+        $s->store((int) $site->channelId, '2001', self::body([self::sl('9100012', '101', 1200), self::sl('9100013', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
         // Paid on 14 Dec 2025, the day before ERPNext's history, with profit.before_history = none.
         $this->setting('profit.before_history', '"none"');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '2002', self::body([self::sl('M3', '101', 1200)], ['paid_at' => '2025-12-14T10:00:00Z']), 'bulk');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '2002', self::body([self::sl('9100014', '101', 1200)], ['paid_at' => '2025-12-14T10:00:00Z']), 'bulk');
         file_put_contents($this->dir . '/si_2025-12-15.tsv', self::tsv([['SI-1', '2001', 'P101', '1.000000000', '3.000000000', '1'],
             ['SI-2', '2002', 'P101', '1.000000000', '3.000000000', '1']]));
         $log = [];
@@ -288,7 +288,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
             $log[] = $m;
         });
         $src = self::$db->all("SELECT line_id, cost_source, cost FROM sale_line WHERE order_ref IN ('2001', '2002') ORDER BY line_id");
-        self::assertSame([['M1', 'estimate', '100'], ['M2', 'estimate', '100'], ['M3', 'none', '0']], array_map(static fn (array $r): array => array_map('strval', array_values($r)), $src),
+        self::assertSame([['9100012', 'estimate', '100'], ['9100013', 'estimate', '100'], ['9100014', 'none', '0']], array_map(static fn (array $r): array => array_map('strval', array_values($r)), $src),
             'two CW units against one ERPNext unit: never £6 of ERPNext cost for £3 it priced; before its history: never priced from it');
         self::assertStringContainsString('units not matching 1', $log[0]);
         self::assertStringContainsString('paid before the history 1', $log[0]);
@@ -302,19 +302,19 @@ final class FinalReviewSnapshotTest extends StockTestCase
     {
         $site = $this->site('vapeandgo', 'live');
         $a = $this->item('legacy');
-        $this->listing($site, 'VA', $a);
+        $this->listing($site, '9100002', $a);
         self::price($a, null);
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', 'VA', 1200)]), 'api');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '9100002', 1200)]), 'api');
         self::price($a, 30000, '2026-11-18 00:00:00');
         // The re-cost of 19 Nov chose the order; a newer snapshot moved its payment to 20 Nov before the re-cost took its lock. What the
         // re-cost works out under the lock (its plan, read again there) must leave it alone: it is not paid on a day asked for any more.
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', 'VA', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '9100002', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
         $plan = new \ReflectionMethod(RecostSales::class, 'plan');
         $got = $plan->invoke(null, self::$db, new ItemCosts(self::$db), (int) $site->channelId, '1', ['none'], self::DAY, self::DAY);
         self::assertNull($got, 'paid on 20 Nov now: the re-cost of 19 Nov never fixes its £3 price of 18 Nov on it');
         self::assertSame(0, (new RecostSales(self::$db))->run(self::DAY, self::DAY, ['none'], null, true)['orders']);
-        self::assertSame('none', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'L1'"));
+        self::assertSame('none', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '9100001'"));
     }
 
     public function testAVatOfFivePointZeroZeroIsSavedAndReadAsFivePercent(): void
@@ -333,14 +333,14 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::$db->exec("UPDATE app_setting SET value_json = CAST('\"5.0000\"' AS JSON) WHERE setting_key = 'profit.vat_rate_pct'");
         self::assertSame(500, (new ProfitSettings(self::$db))->vatBp(), 'a value kept as "5.0000" is read as 5%, never 20%');
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'V', self::body([self::sl('V1', 'NONE', 12600)]), 'api');
-        self::assertSame('12000', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = 'V'"), '£126 at 5% is £120 ex VAT (never £105)');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100029', self::body([self::sl('9100015', '9100011', 12600)]), 'api');
+        self::assertSame('12000', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = '9100029'"), '£126 at 5% is £120 ex VAT (never £105)');
     }
 
     public function testTheCheckOfTheDaySummariesWritesNothing(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'C', self::body([self::sl('C1', 'NONE', 1200)]), 'api');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100035', self::body([self::sl('9100016', '9100011', 1200)]), 'api');
         self::assertSame([], ProfitDays::differences(self::$db, (int) $site->channelId, self::DAY));
         self::$db->exec('UPDATE profit_day SET cost = cost + 1000 WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY]);
         self::assertSame(['day: cost kept 1000, worked out 0 (-1000)'], ProfitDays::differences(self::$db, (int) $site->channelId, self::DAY));
@@ -355,15 +355,15 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::price($a, 80000, '2025-01-01 00:00:00');
         $this->listing($site, '101', $a);
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '3001', self::body([self::sl('W1', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
+        $s->store((int) $site->channelId, '3001', self::body([self::sl('9100017', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
         // A correction moves its payment to 17 Nov 2026 (after CW's own price started); the money job has not worked it out yet.
-        $s->accept((int) $site->channelId, '3001', self::body([self::sl('W1', '101', 1200)], ['version' => 1001, 'paid_at' => '2026-11-17T10:00:00Z']), 'api');
+        $s->accept((int) $site->channelId, '3001', self::body([self::sl('9100017', '101', 1200)], ['version' => 1001, 'paid_at' => '2026-11-17T10:00:00Z']), 'api');
         file_put_contents($this->dir . '/si_2025-12-15.tsv', self::tsv([['SI-1', '3001', 'P101', '1.000000000', '3.000000000', '1']]));
         $log = [];
         $r = (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['estimate', '800'], array_map('strval', array_values((array) self::$db->one("SELECT cost_source, cost FROM sale_line WHERE line_id = 'W1'"))),
+        self::assertSame(['estimate', '800'], array_map('strval', array_values((array) self::$db->one("SELECT cost_source, cost FROM sale_line WHERE line_id = '9100017'"))),
             'never £3 of ERPNext cost written while a newer snapshot (paid after the start) waits');
         self::assertStringContainsString('waiting for the money job 1', $log[0]);
         // The Codex check of 2b718e7 (MEDIUM 4): what was written is counted, never the plan of an order left waiting.
@@ -371,18 +371,24 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::assertSame([0, 1], [$r['lines'], $r['waiting']]);
         $s->applyQueued();
         (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
-        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'W1'"), 'run again after the job: paid after the start now');
+        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '9100017'"), 'run again after the job: paid after the start now');
     }
 
     public function testALineWhoseIdChangesCaseIsTheSameLine(): void
     {
         $site = $this->site('vapeandgo', 'live');
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, 'K', self::body([self::sl('L1', 'NONE', 1200)]), 'api');
-        $s->store((int) $site->channelId, 'K', self::body([self::sl('l1', 'NONE', 1200)], ['version' => 1001]), 'api');
-        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM sale_line WHERE order_ref = 'K'"));
-        self::assertNull(self::$db->value("SELECT removed_at FROM sale_line WHERE order_ref = 'K'"), 'one row, still on the order (never marked removed)');
-        self::assertSame(['1000', '1000'], [(string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = 'K'"),
+        $s->store((int) $site->channelId, '9100036', self::body([self::sl('proto1-9100001', '9100011', 1200)]), 'api');
+        try {
+            // The same line in another case is refused since the ids' real shapes (PR153: a store prefix is lower case): never a second row.
+            $s->store((int) $site->channelId, '9100036', self::body([self::sl('PROTO1-9100001', '9100011', 1200)], ['version' => 1001]), 'api');
+            self::fail('a line id in another case is refused');
+        } catch (CwException $e) {
+            self::assertSame(['bad_snapshot', 'lines[0].line_id'], [$e->errorCode, $e->detail['field'] ?? null]);
+        }
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM sale_line WHERE order_ref = '9100036'"));
+        self::assertNull(self::$db->value("SELECT removed_at FROM sale_line WHERE order_ref = '9100036'"), 'one row, still on the order (never marked removed)');
+        self::assertSame(['1000', '1000'], [(string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = '9100036'"),
             (string) self::$db->value('SELECT sale_ex FROM profit_day WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY])]);
         self::assertSame([], ProfitDays::differences(self::$db, (int) $site->channelId, self::DAY));
     }
@@ -394,24 +400,24 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
         // A's first snapshot names X1; B stores X1 and is worked out first, so the money work refuses A's first snapshot.
-        $s->accept($ch, 'A', self::body([self::sl('X1', 'VA', 1200)]), 'api');
-        $s->store($ch, 'B', self::body([self::sl('X1', 'VA', 1200)]), 'api');
+        $s->accept($ch, '9100027', self::body([self::sl('9100003', '9100002', 1200)]), 'api');
+        $s->store($ch, '9100026', self::body([self::sl('9100003', '9100002', 1200)]), 'api');
         // While the job works A's first snapshot out, the shop sends its correction (the API, on another connection).
         $other = TestDb::connect();
         $fired = false;
         $clock = static function () use (&$fired, $other, $ch): \DateTimeImmutable {
             if (!$fired) {
                 $fired = true;
-                self::assertSame('stored', (new OrderSnapshots($other))->accept($ch, 'A', self::body([self::sl('X2', 'VA', 1200)], ['version' => 1001]), 'api')['result']);
+                self::assertSame('stored', (new OrderSnapshots($other))->accept($ch, '9100027', self::body([self::sl('9100004', '9100002', 1200)], ['version' => 1001]), 'api')['result']);
             }
             return Clock::now();
         };
         self::assertSame(['applied' => 0, 'refused' => 1, 'busy' => 0, 'left' => 1], (new OrderSnapshots(self::$db, $clock))->applyQueued(),
             'the first snapshot refused; the correction still waits');
         self::assertTrue($fired);
-        self::assertSame(['0', '2'], array_map('strval', array_values((array) self::$db->one("SELECT failed, seq FROM order_snapshot_queue WHERE order_ref = 'A'"))));
+        self::assertSame(['0', '2'], array_map('strval', array_values((array) self::$db->one("SELECT failed, seq FROM order_snapshot_queue WHERE order_ref = '9100027'"))));
         self::assertSame(1, $s->applyQueued()['applied'], 'the correction is worked out, never stranded');
-        self::assertSame(['X2'], self::$db->column("SELECT line_id FROM sale_line WHERE order_ref = 'A' AND removed_at IS NULL"));
+        self::assertSame(['9100004'], self::$db->column("SELECT line_id FROM sale_line WHERE order_ref = '9100027' AND removed_at IS NULL"));
     }
 
     /** The Codex check of c48683e (LOW 1): a day's row of zeros kept after its only order moved to another day is a difference. */
@@ -420,8 +426,8 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
-        $s->store($ch, 'Z', self::body([self::sl('Z1', 'NONE', 1200)]), 'api');
-        $s->store($ch, 'Z', self::body([self::sl('Z1', 'NONE', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
+        $s->store($ch, '9100028', self::body([self::sl('9100019', '9100011', 1200)]), 'api');
+        $s->store($ch, '9100028', self::body([self::sl('9100019', '9100011', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
         self::assertSame(['0', '0'], array_map('strval', array_values((array) self::$db->one('SELECT orders, sale_ex FROM profit_day WHERE channel_id = ? AND day = ?',
             [$ch, self::DAY]))), 'the old day keeps a row of zeros');
         self::assertSame(['day: a summary row of zeros kept with no paid order on the day (--apply removes it)',
@@ -436,23 +442,23 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
-        $s->accept($ch, 'V', self::body([self::sl('V1', 'NONE', 1200)], ['version' => 1010]), 'api');
+        $s->accept($ch, '9100029', self::body([self::sl('9100015', '9100011', 1200)], ['version' => 1010]), 'api');
         // While the job works 1010 out, the shop sends the same content as 1012 (the API, on another connection): CW says "same", 1012.
         $other = TestDb::connect();
         $fired = false;
         $clock = static function () use (&$fired, $other, $ch): \DateTimeImmutable {
             if (!$fired) {
                 $fired = true;
-                self::assertSame(['same', 1012], array_values(array_intersect_key((new OrderSnapshots($other))->accept($ch, 'V',
-                    self::body([self::sl('V1', 'NONE', 1200)], ['version' => 1012]), 'api'), ['result' => 1, 'version' => 1])));
+                self::assertSame(['same', 1012], array_values(array_intersect_key((new OrderSnapshots($other))->accept($ch, '9100029',
+                    self::body([self::sl('9100015', '9100011', 1200)], ['version' => 1012]), 'api'), ['result' => 1, 'version' => 1])));
             }
             return Clock::now();
         };
         self::assertSame(1, (new OrderSnapshots(self::$db, $clock))->applyQueued()['applied']);
         self::assertTrue($fired);
         self::assertSame(1, $s->applyQueued()['applied'], 'the acknowledged 1012 still waits, and is worked out');
-        self::assertSame('1012', (string) self::$db->value("SELECT version FROM order_snapshot WHERE order_ref = 'V'"));
-        self::assertSame('older_ignored', $s->accept($ch, 'V', self::body([self::sl('V1', 'NONE', 2400)], ['version' => 1011]), 'api')['result'],
+        self::assertSame('1012', (string) self::$db->value("SELECT version FROM order_snapshot WHERE order_ref = '9100029'"));
+        self::assertSame('older_ignored', $s->accept($ch, '9100029', self::body([self::sl('9100015', '9100011', 2400)], ['version' => 1011]), 'api')['result'],
             'a late 1011 is older than what CW acknowledged: never £20 of goods in place of £10');
     }
 
@@ -463,10 +469,10 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $ch = (int) $site->channelId;
         $s = new OrderSnapshots(self::$db);
         // Tried again (a newer snapshot clears the refusal, as the column says), never left refused while CW answers "same".
-        $s->accept($ch, 'A2', self::body([self::sl('Y1', 'NONE', 1200)]), 'api');
-        self::$db->exec("UPDATE order_snapshot_queue SET failed = 1, error = 'refused' WHERE order_ref = 'A2'");
-        self::assertSame('same', $s->accept($ch, 'A2', self::body([self::sl('Y1', 'NONE', 1200)], ['version' => 1001]), 'api')['result']);
-        $q = (array) self::$db->one("SELECT failed, error FROM order_snapshot_queue WHERE order_ref = 'A2'");
+        $s->accept($ch, '9100030', self::body([self::sl('9100020', '9100011', 1200)]), 'api');
+        self::$db->exec("UPDATE order_snapshot_queue SET failed = 1, error = 'refused' WHERE order_ref = '9100030'");
+        self::assertSame('same', $s->accept($ch, '9100030', self::body([self::sl('9100020', '9100011', 1200)], ['version' => 1001]), 'api')['result']);
+        $q = (array) self::$db->one("SELECT failed, error FROM order_snapshot_queue WHERE order_ref = '9100030'");
         self::assertSame(['0', null], [(string) $q['failed'], $q['error']]);
         self::assertSame(1, $s->applyQueued()['applied']);
     }
@@ -479,17 +485,17 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $a = $this->item('legacy');
         self::price($a, 80000, '2025-01-01 00:00:00');
         $this->listing($site, '101', $a);
-        (new OrderSnapshots(self::$db))->store($ch, '3002', self::body([self::sl('W2', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
+        (new OrderSnapshots(self::$db))->store($ch, '3002', self::body([self::sl('9100021', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
         $other = TestDb::connect();
         $service = new OrderSnapshots(self::$db);
         $wrote = $service->recompute($ch, '3002', static function (\CW\Db $db, array $body) use ($other, $ch): ?array {
             // The correction (paid on 17 Nov 2026, after CW's own price started) committed by the API while the tool works.
-            (new OrderSnapshots($other))->accept($ch, '3002', self::body([self::sl('W2', '101', 1200)], ['version' => 1001, 'paid_at' => '2026-11-17T10:00:00Z']), 'api');
-            return ['W2' => ['e4' => 30000, 'source' => 'erp_at_sale', 'by' => 'erp_import']];
+            (new OrderSnapshots($other))->accept($ch, '3002', self::body([self::sl('9100021', '101', 1200)], ['version' => 1001, 'paid_at' => '2026-11-17T10:00:00Z']), 'api');
+            return ['9100021' => ['e4' => 30000, 'source' => 'erp_at_sale', 'by' => 'erp_import']];
         });
         self::assertFalse($wrote, 'nothing written');
         self::assertTrue($service->deferred, 'left for after the money job');
-        self::assertSame(['estimate', '800'], array_map('strval', array_values((array) self::$db->one("SELECT cost_source, cost FROM sale_line WHERE line_id = 'W2'"))),
+        self::assertSame(['estimate', '800'], array_map('strval', array_values((array) self::$db->one("SELECT cost_source, cost FROM sale_line WHERE line_id = '9100021'"))),
             'never ERPNext\'s £3 fixed on an order whose correction moved it out of ERPNext\'s history');
     }
 
@@ -502,12 +508,12 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $b = $this->item('legacy');
         self::price($a, 30000);
         self::price($b, 30000);
-        $this->listing($site, 'VA', $a);
-        $this->listing($site, 'VB', $b);
+        $this->listing($site, '9100002', $a);
+        $this->listing($site, '9100008', $b);
         $s = new OrderSnapshots(self::$db);
-        $s->store($ch, 'Y1', self::body([self::sl('Y1L', 'VA', 1200)]), 'api');
-        $s->store($ch, 'Y2', self::body([self::sl('Y2L', 'VB', 1200)]), 'api');
-        $s->store($ch, 'Y1', self::body([self::sl('Y1L', 'VA', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
+        $s->store($ch, '9100020', self::body([self::sl('9100022', '9100002', 1200)]), 'api');
+        $s->store($ch, '9100031', self::body([self::sl('9100023', '9100008', 1200)]), 'api');
+        $s->store($ch, '9100020', self::body([self::sl('9100022', '9100002', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
         self::assertSame(['0', '0'], array_map('strval', array_values((array) self::$db->one('SELECT units, sale_ex FROM profit_item_day WHERE channel_id = ? AND day = ? AND sku_id = ?',
             [$ch, self::DAY, $a]))), 'the old day keeps a row of zeros for the item that moved');
         self::assertSame(["item {$a}: a row of zeros kept with no sale of it on the day (--apply removes it)"], ProfitDays::differences(self::$db, $ch, self::DAY));
@@ -520,12 +526,12 @@ final class FinalReviewSnapshotTest extends StockTestCase
         $a = $this->item('legacy');
         self::price($a, 10000, '2025-01-01 00:00:00');
         $this->listing($site, '101', $a);
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '2003', self::body([self::sl('C1', '101', 1200), self::sl('C2', '101', 1200, ['cancelled' => true])],
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '2003', self::body([self::sl('9100016', '101', 1200), self::sl('9100024', '101', 1200, ['cancelled' => true])],
             ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
         file_put_contents($this->dir . '/si_2025-12-15.tsv', self::tsv([['SI-1', '2003', 'P101', '1.000000000', '3.000000000', '1']]));
         (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
         $rows = self::$db->all("SELECT line_id, cost_source, cost FROM sale_line WHERE order_ref = '2003' ORDER BY line_id");
-        self::assertSame(['C1', 'erp_at_sale', '300'], array_map('strval', array_values($rows[0])), 'the one unit ERPNext priced');
+        self::assertSame(['9100016', 'erp_at_sale', '300'], array_map('strval', array_values($rows[0])), 'the one unit ERPNext priced');
         self::assertNotSame('erp_at_sale', (string) $rows[1]['cost_source'], 'the cancelled line never takes ERPNext\'s cost');
     }
 }

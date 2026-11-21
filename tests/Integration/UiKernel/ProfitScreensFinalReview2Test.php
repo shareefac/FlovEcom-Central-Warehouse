@@ -54,9 +54,9 @@ final class ProfitScreensFinalReview2Test extends KernelUiTestCase
         self::$db->exec("INSERT INTO item_cost_event (sku_id, at, source_at, kind, source_key, new_cost_e4) VALUES (?, '2026-11-16', '2026-11-16', 'start', ?, 30000)", [$a, 'start:' . $a]);
         self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('item_cost', '2030-01-01')");
         $this->listing($site, '1', $a);
-        self::snap((int) $site->channelId, 'U1', null, [self::pline('u1', 1200)]);
+        self::snap((int) $site->channelId, '9100005', null, [self::pline('9100001', 1200)]);
         $fin = $this->signIn($this->uiUser('finance'));
-        $m = self::money($fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => 'U1']));
+        $m = self::money($fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '9100005']));
         self::assertSame('not counted (not paid)', $m[Words::PROFIT['profit']] ?? null, 'no profit and no margin on an order not paid: ' . json_encode($m));
         self::assertArrayHasKey('Shop order total', $m, 'what the shop asked for, never "Customer paid"');
         self::assertArrayNotHasKey('Customer paid', $m);
@@ -66,10 +66,10 @@ final class ProfitScreensFinalReview2Test extends KernelUiTestCase
     {
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
-        self::snap($ch, 'P1', '2026-11-19T10:00:00Z', [self::pline('p1', 1200)]);
-        self::snap($ch, 'C1', '2026-11-19T11:00:00Z', [self::pline('c1', 1200), self::pline('c2', 800, true)], 'P1');
+        self::snap($ch, '9100007', '2026-11-19T10:00:00Z', [self::pline('9100002', 1200)]);
+        self::snap($ch, '9100006', '2026-11-19T11:00:00Z', [self::pline('9100003', 1200), self::pline('9100004', 800, true)], '9100007');
         $fin = $this->signIn($this->uiUser('finance'));
-        $text = (string) preg_replace('/\s+/u', ' ', $fin->get('/ui/profit/orders/view', ['store' => (string) $ch, 'ref' => 'C1'])->text());
+        $text = (string) preg_replace('/\s+/u', ' ', $fin->get('/ui/profit/orders/view', ['store' => (string) $ch, 'ref' => '9100006'])->text());
         self::assertStringContainsString(sprintf(Words::PROFIT['resend_not_counted'], Html::money(12.0), Html::money(0.0)), $text,
             'goods £12.00, the cancelled £8.00 line left out (it said £20.00)');
     }

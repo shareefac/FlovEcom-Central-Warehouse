@@ -32,7 +32,7 @@ final class ProfitScreensTest extends KernelUiTestCase
         $this->listing($site, '11', $a);
         $this->listing($site, '12', $b);
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z'); // today (UK)
-        $body = static fn (array $lines, array $over = []): array => $over + ['v' => 1, 'version' => 1, 'order_no' => 'VPG100', 'status' => 'completed',
+        $body = static fn (array $lines, array $over = []): array => $over + ['v' => 1, 'version' => 1, 'order_no' => '5671100', 'status' => 'completed',
             'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => $lines,
             'delivery' => ['method_id' => '1', 'method' => 'Royal Mail Tracked 48', 'charged_inc' => 360, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 0,
             'parcels' => [['parcel_ref' => 'odl:1', 'tracking_no' => '15501234567890', 'carrier' => 'dpd', 'service_code' => '12', 'service' => 'Next day',
@@ -42,8 +42,8 @@ final class ProfitScreensTest extends KernelUiTestCase
         $s = new OrderSnapshots(self::$db);
         // 100: two units of A at £1.20 (cost 50p each) and one of B (no price); 101: a low-margin order of A; 102: a re-send of 100.
         $s->store((int) $site->channelId, '100', $body([$line('1', '11', 120), $line('2', '11', 120), $line('3', '12', 600)]), 'api');
-        $s->store((int) $site->channelId, '101', $body([$line('4', '11', 66)], ['order_no' => 'VPG101']), 'api');
-        $s->store((int) $site->channelId, '102', $body([$line('5', '11', 0, ['free' => true])], ['order_no' => 'VPG102', 'parent_ref' => '100', 'delivery' => null,
+        $s->store((int) $site->channelId, '101', $body([$line('4', '11', 66)], ['order_no' => '5671101']), 'api');
+        $s->store((int) $site->channelId, '102', $body([$line('5', '11', 0, ['free' => true])], ['order_no' => '5671102', 'parent_ref' => '100', 'delivery' => null,
             'parcels' => []]), 'api');
         return [$site, $a, $b];
     }
@@ -103,7 +103,7 @@ final class ProfitScreensTest extends KernelUiTestCase
     {
         [$site] = $this->orders();
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-20 seconds')->format('Y-m-d\TH:i:s\Z');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '103', ['v' => 1, 'version' => 1, 'order_no' => 'VPG103', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '103', ['v' => 1, 'version' => 1, 'order_no' => '5671103', 'status' => 'completed',
             'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => '100',
             'lines' => [['line_id' => '6', 'variant_id' => '11', 'qty' => 1, 'price_inc' => 120, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]],
             'delivery' => ['method_id' => '1', 'method' => 'Royal Mail Tracked 48', 'charged_inc' => 360, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 480,
@@ -153,9 +153,9 @@ final class ProfitScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::phoneReady($list);
         self::assertCount(3, self::rows($list, 'profit-orders'));
-        self::assertSame('VPG101', explode(' ', self::rows($fin->get('/ui/profit/orders', ['low' => '1']), 'profit-orders')[0][0])[0], 'the lowest margin first');
-        self::assertSame([['VPG101', 'VAPEANDGO test site']], array_map(static fn (array $r): array => array_slice($r, 0, 2),
-            self::rows($fin->get('/ui/profit/orders', ['q' => 'VPG101']), 'profit-orders')), 'by the number the customer sees');
+        self::assertSame('5671101', explode(' ', self::rows($fin->get('/ui/profit/orders', ['low' => '1']), 'profit-orders')[0][0])[0], 'the lowest margin first');
+        self::assertSame([['5671101', 'VAPEANDGO test site']], array_map(static fn (array $r): array => array_slice($r, 0, 2),
+            self::rows($fin->get('/ui/profit/orders', ['q' => '5671101']), 'profit-orders')), 'by the number the customer sees');
         self::assertCount(1, self::rows($fin->get('/ui/profit/orders', ['q' => '100']), 'profit-orders'), 'by the shop\'s order id');
         self::assertSame(200, $fin->get('/ui/profit/orders', ['q' => "<script>'"])->status, 'a search that is no order number finds nothing, safely');
 
@@ -163,11 +163,11 @@ final class ProfitScreensTest extends KernelUiTestCase
         self::assertSame(200, $one->status, $one->describe());
         self::phoneReady($one);
         $text = $one->text();
-        foreach ([Words::PROFIT['source_cw_cost'], Words::PROFIT['source_none'], Words::PROFIT['resends_list'], 'VPG102', '15501234567890', Words::PROFIT['with_resends'],
+        foreach ([Words::PROFIT['source_cw_cost'], Words::PROFIT['source_none'], Words::PROFIT['resends_list'], '5671102', '15501234567890', Words::PROFIT['with_resends'],
             '£0.50'] as $want) {
             self::assertStringContainsString($want, $text);
         }
-        self::assertSame(404, $fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => 'nope'])->status);
+        self::assertSame(404, $fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '9100001'])->status);
         self::assertSame(404, $fin->get('/ui/profit/orders/view', ['store' => 'x', 'ref' => '100'])->status);
         $child = $fin->get('/ui/profit/orders/view', ['store' => (string) $site->channelId, 'ref' => '102']);
         self::assertStringContainsString(Words::say('PROFIT', 'resend_of', '100'), $child->text());

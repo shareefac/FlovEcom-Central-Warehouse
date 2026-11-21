@@ -104,9 +104,9 @@ final class FinalReviewToolsTest extends StockTestCase
     public function testTheGoLiveCheckOfTheDaySummariesWritesNothing(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'C', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100007', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
             'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => 'C1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+            'lines' => [['line_id' => '9100001', 'variant_id' => '9100002', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'bulk');
         $days = ['--from=2026-11-19', '--to=2026-11-19'];
         self::assertSame(0, self::script('rebuild_profit_days', ...$days)['code'], 'the summaries are what the orders add up to');
@@ -124,15 +124,15 @@ final class FinalReviewToolsTest extends StockTestCase
     public function testTheMoneyJobWorksOutWhatTheApiStored(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->accept((int) $site->channelId, 'Q', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->accept((int) $site->channelId, '9100008', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
             'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => 'Q1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+            'lines' => [['line_id' => '9100003', 'variant_id' => '9100002', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
         self::assertStringContainsString('waiting 1', self::script('apply_order_snapshots', '--status')['out']);
         $r = self::script('apply_order_snapshots');
         self::assertSame(0, $r['code'], $r['out']);
         self::assertStringContainsString('applied 1', $r['out']);
-        self::assertSame('1000', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = 'Q'"));
+        self::assertSame('1000', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = '9100008'"));
     }
 
     /** The Codex check of c48683e (MEDIUM 7): a run waits a few seconds at most for an order another writer holds; it is left for the next run. */
@@ -140,18 +140,18 @@ final class FinalReviewToolsTest extends StockTestCase
     {
         $site = $this->site('vapeandgo', 'live');
         $ch = (int) $site->channelId;
-        (new OrderSnapshots(self::$db))->accept($ch, 'H', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->accept($ch, '9100006', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
             'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => 'H1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+            'lines' => [['line_id' => '9100004', 'variant_id' => '9100002', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
         $other = TestDb::connect();
-        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, 'H')]));
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '9100006')]));
         try {
             $t = microtime(true);
             $r = self::script('apply_order_snapshots');
             $took = microtime(true) - $t;
         } finally {
-            $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, 'H')]);
+            $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, '9100006')]);
         }
         self::assertSame(0, $r['code'], $r['out']);
         self::assertStringContainsString('busy 1', $r['out']);
@@ -163,9 +163,9 @@ final class FinalReviewToolsTest extends StockTestCase
     public function testTheStatusAndARetryOfTheRefusedWhileTheMinuteJobRuns(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->accept((int) $site->channelId, 'R', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->accept((int) $site->channelId, '9100009', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
             'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => 'R1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+            'lines' => [['line_id' => '9100005', 'variant_id' => '9100002', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
         $other = TestDb::connect();
         $name = 'cw_job:apply_order_snapshots:' . TestDb::name();
@@ -189,9 +189,9 @@ final class FinalReviewToolsTest extends StockTestCase
     public function testTheCheckComparesWhileTheRebuildHoldsItsLock(): void
     {
         $site = $this->site('vapeandgo', 'live');
-        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'C', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '9100007', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
             'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => 'C1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+            'lines' => [['line_id' => '9100001', 'variant_id' => '9100002', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'bulk');
         self::$db->exec("UPDATE profit_day SET cost = 900 WHERE channel_id = ? AND day = '2026-11-19'", [$site->channelId]);
         $other = TestDb::connect();

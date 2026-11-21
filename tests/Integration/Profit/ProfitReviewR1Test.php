@@ -77,22 +77,22 @@ final class ProfitReviewR1Test extends StockTestCase
         self::price($a, 10000);
         self::mark('2026-11-19 09:00:00');
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '1', 1200)]), 'api');
-        $l = self::row($site, 'L1');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '1', 1200)]), 'api');
+        $l = self::row($site, '9100001');
         self::assertSame([null, '2026-11-19', '0'], [$l['cost_source'], $l['day'], (string) $l['cost']], 'paid after the job\'s mark: not fixed yet');
         // The job reads a delivery at 09:30 that moves the price to £2.00, then passes 10:00: the sale takes the price of its time.
         self::price($a, 20000, '2026-11-19 09:30:00', 'start'); // a later price, as an absolute event
         self::mark('2026-11-19 10:05:00');
         self::assertSame(1, (new PendingCosts(self::$db))->run()['orders']);
-        $l = self::row($site, 'L1');
+        $l = self::row($site, '9100001');
         self::assertSame(['cw_cost', '20000', '200', 'sale'], [$l['cost_source'], (string) $l['unit_cost_e4'], (string) $l['cost'], $l['costed_by']]);
         self::assertSame('200', (string) self::$db->value('SELECT cost FROM profit_day WHERE day = ?', ['2026-11-19']));
         self::assertSame(0, (new PendingCosts(self::$db))->run()['orders'], 'done once');
         // Never started: every paid line waits.
         self::$db->exec('DELETE FROM profit_job');
         $s = new OrderSnapshots(self::$db); // the job's mark is read once per service (a request, a run)
-        $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'api');
-        self::assertNull(self::row($site, 'L2')['cost_source']);
+        $s->store((int) $site->channelId, '2', self::body([self::sl('9100002', '1', 1200)], ['paid_at' => '2026-11-17T10:00:00Z']), 'api');
+        self::assertNull(self::row($site, '9100002')['cost_source']);
     }
 
     public function testTheSnapshotsChecksTheUnitsOrderTheVersionFirstAndTheTrackingNumber(): void
@@ -102,22 +102,22 @@ final class ProfitReviewR1Test extends StockTestCase
         $this->listing($site, '1', $a);
         self::price($a, 10000);
         self::mark('2026-11-20 00:00:00');
-        $this->ok($this->commit($site, 'B', [self::line('1', 'u9')]));
+        $this->ok($this->commit($site, '9100008', [self::line('1', '9100003')]));
         $s = new OrderSnapshots(self::$db);
         try {
-            $s->store((int) $site->channelId, 'A', self::body([self::sl('u9', '1', 1200)]), 'api');
+            $s->store((int) $site->channelId, '9100009', self::body([self::sl('9100003', '1', 1200)]), 'api');
             self::fail('a unit of order B sent on order A');
         } catch (CwException $e) {
             self::assertSame(['bad_snapshot', 'lines[0].line_id'], [$e->errorCode, $e->detail['field'] ?? null]);
         }
-        self::assertSame('stored', $s->store((int) $site->channelId, 'B', self::body([self::sl('u9', '1', 1200)], ['version' => 1005]), 'api')['result']);
-        self::assertSame(['result' => 'older_ignored', 'version' => 1005], $s->store((int) $site->channelId, 'B', self::body([self::sl('u9', '1', 1200)]), 'api'),
+        self::assertSame('stored', $s->store((int) $site->channelId, '9100008', self::body([self::sl('9100003', '1', 1200)], ['version' => 1005]), 'api')['result']);
+        self::assertSame(['result' => 'older_ignored', 'version' => 1005], $s->store((int) $site->channelId, '9100008', self::body([self::sl('9100003', '1', 1200)]), 'api'),
             'an older version is older, whatever its content (CONTRACT)');
         $parcel = static fn (?string $t): array => ['parcel_ref' => 'odl:' . random_int(1, 999_999_999), 'tracking_no' => $t, 'carrier' => 'dpd', 'service_code' => '',
             'service' => '', 'status' => 'generated', 'label_at' => null, 'shipped_at' => null, 'manual' => false, 'partial' => false];
-        $s->store((int) $site->channelId, 'C', self::body([self::sl('c1', '1', 100)], ['parcels' => [$parcel('15501234567890'), $parcel('customer@example.invalid'),
+        $s->store((int) $site->channelId, '9100010', self::body([self::sl('9100004', '1', 100)], ['parcels' => [$parcel('15501234567890'), $parcel('customer@example.invalid'),
             $parcel('John Smith 12345'), $parcel('07123456789'), $parcel('ab 123 456 789 gb'), $parcel('1550-1234-56')]]), 'api');
-        $tracks = array_column(json_decode((string) self::$db->value("SELECT CAST(body AS CHAR) FROM order_snapshot WHERE order_ref = 'C'"), true)['parcels'], 'tracking_no');
+        $tracks = array_column(json_decode((string) self::$db->value("SELECT CAST(body AS CHAR) FROM order_snapshot WHERE order_ref = '9100010'"), true)['parcels'], 'tracking_no');
         self::assertSame(['15501234567890', null, null, null, 'AB123456789GB', '1550123456'], $tracks,
             'only a carrier\'s own shape is kept (CONTRACT change 5b), as its invoice prints it: no free text, no phone number reaches CW');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM sale_parcel WHERE tracking_no LIKE '%@%' OR tracking_no LIKE '%Smith%'"));
@@ -125,8 +125,8 @@ final class ProfitReviewR1Test extends StockTestCase
         $big = $this->item('legacy');
         $this->listing($site, '2', $big);
         self::price($big, 30_000_000);
-        $s->store((int) $site->channelId, 'D', self::body([self::sl('d1', '2', 120, ['refund_inc' => 119])]), 'api');
-        self::assertSame(-2999990000, (int) self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = 'D'"));
+        $s->store((int) $site->channelId, '9100011', self::body([self::sl('9100005', '2', 120, ['refund_inc' => 119])]), 'api');
+        self::assertSame(-2999990000, (int) self::$db->value("SELECT margin_bp FROM sale_order WHERE order_ref = '9100011'"));
     }
 
     public function testASnapshotAndARebuildOfTheSameDayWaitForEachOther(): void
@@ -137,21 +137,21 @@ final class ProfitReviewR1Test extends StockTestCase
         self::price($a, 10000);
         self::mark('2026-11-20 00:00:00');
         $s = new OrderSnapshots(self::$db);
-        $s->store((int) $site->channelId, '1', self::body([self::sl('L1', '1', 1200)]), 'api');
+        $s->store((int) $site->channelId, '1', self::body([self::sl('9100001', '1', 1200)]), 'api');
         // Another session holds the day (as a rebuild does from its start): a snapshot of that day waits for it.
         $this->other = TestDb::connect();
         $this->other->pdo()->exec('START TRANSACTION');
         ProfitDays::guard($this->other, (int) $site->channelId, ['2026-11-19']);
         self::$db->exec('SET SESSION innodb_lock_wait_timeout = 1');
         try {
-            $code = self::mysqlError(fn () => $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 600)]), 'api'));
+            $code = self::mysqlError(fn () => $s->store((int) $site->channelId, '2', self::body([self::sl('9100002', '1', 600)]), 'api'));
             self::assertSame(1205, $code, 'the snapshot waits for the day');
         } finally {
             self::$db->exec('SET SESSION innodb_lock_wait_timeout = 50');
         }
         $this->other->pdo()->exec('ROLLBACK');
         // The snapshot itself was stored (the API's part, PR95); its money work waited and is done now.
-        self::assertSame('same', $s->store((int) $site->channelId, '2', self::body([self::sl('L2', '1', 600)]), 'api')['result']);
+        self::assertSame('same', $s->store((int) $site->channelId, '2', self::body([self::sl('9100002', '1', 600)]), 'api')['result']);
         self::assertSame('500', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE channel_id = ? AND order_ref = '2'", [$site->channelId]));
     }
 
@@ -168,14 +168,14 @@ final class ProfitReviewR1Test extends StockTestCase
         $s = new OrderSnapshots(self::$db, lockWaitSec: 1);
         foreach (['7002' => ['parent_ref' => '7001'], '7001' => []] as $ref => $over) {
             try {
-                $s->store((int) $site->channelId, (string) $ref, self::body([self::sl('x' . $ref, '1', 100)], $over), 'api');
+                $s->store((int) $site->channelId, (string) $ref, self::body([self::sl('9100006' . $ref, '1', 100)], $over), 'api');
                 self::fail("{$ref} did not wait");
             } catch (CwException $e) {
                 self::assertSame(['busy', 503], [$e->errorCode, $e->httpStatus], (string) $ref);
             }
         }
         $this->other->value('SELECT RELEASE_ALL_LOCKS()');
-        self::assertSame('stored', $s->store((int) $site->channelId, '7002', self::body([self::sl('x7002', '1', 0, ['free' => true])], ['parent_ref' => '7001']), 'api')['result']);
+        self::assertSame('stored', $s->store((int) $site->channelId, '7002', self::body([self::sl('9100007', '1', 0, ['free' => true])], ['parent_ref' => '7001']), 'api')['result']);
         self::assertSame(0, (int) self::$db->value('SELECT IS_USED_LOCK(?) IS NOT NULL', [OrderSnapshots::lockName((int) $site->channelId, '7002')]), 'released');
     }
 }
