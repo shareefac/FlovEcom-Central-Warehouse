@@ -1589,7 +1589,7 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR129; branch `profit`; migrations 0074, 0075; 20 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR151; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
 
 | File | What |
 |---|---|
@@ -1609,6 +1609,10 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
 - Tests: `tests/Unit/ProfitMathTest.php`, `tests/Integration/Profit/*Test.php` (the build's and each Codex round's, `*ReviewR{1,2,3,4,5,6}Test`, `ProfitToolsReviewR5Test` runs the bin tools),
   `tests/Integration/ApiKernel/OrderSnapshotRouteTest.php`, `tests/Integration/UiKernel/ProfitScreens*Test.php` (`ProfitScreensReviewR5Test`, `R6Test` too), `tests/Integration/Migration0074Test.php`;
   the final review's: `tests/Unit/ProfitFinalReviewUnitTest.php`, `tests/Integration/Profit/FinalReview{Snapshot,Cost,Tools}Test.php`, `tests/Integration/Profit/RollbackReleaseTest.php` (the undo's recipe);
+  the second final review's (PR130-PR151): `tests/Unit/ProfitFinalReview2UnitTest.php`, `tests/Integration/Profit/FinalReview2{Cost,Snapshot,Tools}Test.php`,
+  `tests/Integration/UiKernel/ProfitScreensFinalReview2Test.php` (a delivery line's units take one invoice's price: `CostEngine::claimsOn` / `shares`; a delivery
+  taken back leaves at the price it carries: `adjustmentOn`; a chain of replacements: `OrderSnapshots::rootOf` / `descendants`; each order's failure counted and
+  named: `PendingCosts::failed` / `summary`, profit_job rows `pending_costs`, `returns`, `returns_check`);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).

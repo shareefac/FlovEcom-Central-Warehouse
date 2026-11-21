@@ -19292,3 +19292,142 @@ Left as built: a clone of a clone puts its cost on the clone it names (parent_re
 reconciliation line compares CW's goods (now without the clones' prices) with ERPNext's invoices, which may hold them (printed only).
 Tests: tests/Integration/Profit/CloneNeverMoneyInTest.php, tests/Integration/UiKernel/ProfitScreensTest.php (red on 24e2017:
 `runs/profit_clone_red.log`; green `runs/profit_clone_green.log`).
+
+### The second final review of 3c31d94 (three read-only runs of gpt-6.2-astra: `build/A/codex_final2_astra_{a,b,c}.txt`, production safety, security and data, money; the lead's fix brief `final2/FIX_BRIEF.md` F1-F21): every finding checked in the code first, each code fix shown failing first on 3c31d94 (`runs/profit_r11_red.log`: 26 + 5 red; `runs/profit_r11_red2.log`: 3 red) and then green (`runs/profit_r11_green1.log`, `green2.log`, `green3.log`); F4 and F21 are the go-live kit's (README of build/A), F4 rehearsed on the CW test box (`runs/profit_r11_rollback_rehearsal.log`)
+
+**PR130.** (F1: a-HIGH2 = c-HIGH1) A delivery line's units take ONE invoice's price. An invoice line naming a delivery moves at most the units
+of it that can still be here LESS the units the invoice lines of the same delivery line posted before it moved (still standing: not
+cancelled by then), in posting order; a price credit of an invoice line of it reaches only that line's share of what is left (the shares
+filled in posting order, each at most the units its line moved); a cancellation the same, as of its own time. 100 in at £2, 80 sold, two
+invoices of 50 at £3: the 20 left are £3 (it said £4: each invoice moved the same 20 from £2). THE RULE CHOSEN for two prices (the brief
+left it to the builder): the units left go to the invoice lines in the order they were posted, each at most its own billed units: 50 at £3
+then 50 at £3.50 with 20 left: £3 (the 20 are the first invoice's), and a credit of the second reaches none of them. A history written again
+(rebuild) applies the same rule as it writes the events in time order. Left (a known limit): a claim is fixed at its invoice's time: an
+earlier invoice of the line cancelled after a later one gives its units back to the delivery's own price (not to the later invoice); the
+usual re-posting of the corrected invoice claims them again.
+
+**PR131.** (F2: a-HIGH3 = c-HIGH2, b-M8) A delivery taken back leaves at the price its units carry: the price it came in at plus the moves
+standing on that delivery line's units that can still be here just before (its invoices' shares with their credits; for goods that were on
+their way, its price worked out again with the credits standing then, so a deferred credit cancelled since gives its part back, and the
+credits given since they came), spread over every unit the line brought. Ten at £4, ten at £2 invoiced at £3 (£70), the second ten taken
+back: £40 for the ten that stay (it said £50); b-M8's ten at £4, ten at £3 after a deferred £1 credit, the credit cancelled (£80), then taken
+back: £40 (it said £50). An invoice or credit of that delivery cancelled afterwards finds none of its units here and takes nothing off again
+(exactly once). The round-8 test CostEngineReviewR8Test::testAReceiptTakenBackStopsTakingCreditsWhenItsStockLeaves expected the old rule
+(the ten leaving at £4.00 and the ten that stay taking the credit: £30.00); it now expects £40.00 (they leave at the £3.00 they carry).
+
+**PR132.** (F3: a-HIGH4, b-M3, c-M7, a-M8) An order's ref is compared without case everywhere PHP compares it, as the database does: the
+ownership check of a line's unit (a reservation of vpg42 is order VPG42's; it threw "a unit of another order" on every run), every row
+written under the order's ref as stored (a snapshot sent as ord1 of ORD1 writes its new lines under ORD1), the day rebuild groups each line
+by the ref of the order it joins (it lost the line: the day said £15, its products £10), the ERPNext import and the returns sweep look
+orders up without case. One order whose work fails never stops the others: PendingCosts, the returns sweep (its run and the nightly check)
+and bin/rebuild_profit_days.php catch an error per order (per store-day for the rebuild, whose row wait is 10 s), count it, name the order
+(the first 20) in the run's summary kept on its profit_job row (`pending_costs`, `returns`, `returns_check`; `bin/refresh_item_cost.php
+--status` prints them) and in the job's log, and go on; bin/refresh_item_cost.php runs each phase whatever the one before did and ends with
+exit 1 when an order or a phase failed. The returns sweep's mark still moves on past a failed order (its nightly check reads every returned
+unit again).
+
+**PR133.** (F4: a-HIGH1, a-M10, a-L1, a-L2, Fable M1, L4, L5) The go-live and undo steps (README of build/A, "At go-live" and "Undo"):
+the rollback release B is built and checked BEFORE step 1 (c40c050 + the final 0074 and 0075 files, sha256 checked); a step 1 stopped half
+way (the installer's exit with the writers paused: its pause markers /etc/cw/cw-prod.cron.paused, cw-https.paused, cw-fpm.stopped) is
+recovered with the PROFIT release's own `install_cron.sh --migrate` (it converges and resumes), never with an undo (B and A both refuse a
+schema with 0075 pending, and A's installer refuses while the markers are there); B brings the web back on if it is off (php-fpm started,
+the vhost enabled, the markers removed) and stops the profit jobs (the cron file first, then the running jobs waited for by name, at most 6
+minutes, any left listed and stopped by pid); A's check line is `git diff --cached --name-status c40c050` before its commit and a byte
+compare of both migration files after; the old People screen REVOKES Finance when a Finance holder's jobs are saved on c40c050 (README
+corrected: check and grant Finance again after a roll-forward); a roll-forward after an undo on which --migrate ran is installed with
+--migrate. Rehearsed on the CW test box with the final files (the normal undo and a step 1 stopped at 0075).
+
+**PR134.** (F5: a-M1, b-M10) The snapshot API's waits are bounded for the web request only: its intake lock about 1 s
+(OrderSnapshots::API_INTAKE_WAIT_SEC; it was 5), the order's queue row 2 s (the request's session innodb_lock_wait_timeout, put back after;
+API_ROW_WAIT_SEC), each then 503 `busy` (retryable). A PHP worker is held by a snapshot at most about 3 s of waits. The bulk files keep the
+longer waits.
+
+**PR135.** (F6: a-M5, b-M1, c-M8, Fable L2) bin/seed_item_cost.php, bin/import_erp_sales_cost.php and bin/recost_sales.php (and so every
+one-time tool that shares a job's lock) end with exit 4 "busy: ... nothing done" when another run holds the lock (they ended 0 with
+"skipped"); seed --apply reads the job's mark and floor back after writing the start and ends with exit 1 when they are not there; the go-live
+step 2 output must say "started N items".
+
+**PR136.** (F7: a-M6, b-M7, c-M4, Fable L1) The re-cost counts an order only when recompute() says it committed; any other end of a batch
+order counts `deferred` when the money job's queue or the API held it (a change rolled back at its commit was counted re-costed). Known limit
+2's recovery is the re-cost of the source that was costed (`--source=cw_cost`, or erp_at_sale / estimate) as a dry run, then with --apply.
+
+**PR137.** (F8: a-M7, Fable L3) A bulk file's snapshot of an order whose queue row is refused is refused (exit 1), also when CW answers
+"same" (the same snapshot sent again); an order whose guards the minute job holds is tried again 3 times a second apart before it is said busy.
+
+**PR138.** (F9: a-L3, b-M5) A day file holds each order once, each placed on the file's own London day (the connector's export: one file per
+UK day the orders were PLACED, ord_date in London time, CONTRACT change 7): checked in the first pass, else nothing is written and every such
+line is named (two copies of a £12 order with a .sum of two orders and £24 passed and stored £12). Two earlier tests sent an order twice in
+one file (an older version) or orders of another day: ProfitImportsTest reads the older version from a file of its own,
+ProfitImportsReviewR1Test places its second file's orders on that file's day.
+
+**PR139.** (F10: a-M4, b-M4, c-M3) ERPNext's reconciliation line of a day also compares CW's own orders of the store paid that UK day inside
+ERPNext's history with the whole export: those no day file holds ("cw orders paid that day not in the export N (GBP x)": their cost stays an
+estimate) apart from those on an invoice of another day; the days of the export's span (or the days asked for) with CW orders and no day
+file at all are one line. A folder with no day file in the days asked for is refused (exit 1; it finished with zero days).
+
+**PR140.** (F11: b-HIGH2) The ERPNext export carries no shop of its own: its header (name, posting_date, creation, custom_order_id,
+is_return, return_against, docstatus, net_total, total_taxes_and_charges, grand_total, discount_amount, idx, item_code, qty, rate, net_rate,
+net_amount, incoming_rate, warehouse) names no company, customer group or store, and its rows were not looked at. ERPNext is Vape and Go's:
+its item codes are "P" + a variant of the store erp_opening.listing_store names (the opening import's rule) and custom_order_id is that
+store's order id, so the import is bound to that store: any other --channel is refused before a file is read (exit 2). A --series would not
+bind it (a prefix the operator types says nothing of the store); a manifest of the export is a change of the export for later.
+
+**PR141.** (F12: b-HIGH1) A parcel ref is only the shop's own shapes, odl:<number> or orl:<number> (CONTRACT change 4; any case), else the
+snapshot is refused (400 parcels[i].parcel_ref): "Jane.Smith" is never stored (it stayed after the parcel was gone). A delivery method or
+service name is kept only when every word is a service word AND one of them is a carrier's or a service's (SERVICE_ANCHORS: royal, mail, dpd,
+evri, tracked, delivery, collection, return, label, ...): "12 Preston Road" and "12 Preston" are never stored; "road" is no service word any
+more; every name of the real day files is kept. The method id stays digits. DESIGN CHOICE: line_id, variant_id and the order refs keep the
+code shape (letters, digits and : _ . -, at most 64): they are the stock API's own keys of the order (its reservation's order_ref and unit ids,
+the listings' variant ids, stored by the stock API's rules for every reserved order), which the connector builds from integers
+(cw_snapshot_ref, (int) ordi_id); a digits-only shape here would refuse snapshots of keys CW's stock API holds and every test fixture's
+ids. A service code stays a shape (known limit 19).
+
+**PR142.** (F13: b-M2) parent_ref must be sent (an explicit null when the order is no re-send), as paid_at: a body without the key is
+refused (400 parent_ref), never read as an unlink. Connector 0.4.17 always sends it (App branch cw-profit, src/central_warehouse/snapshot.php
+cw_snapshot_assemble: `'parent_ref' => cw_snapshot_ref(...)`, string or null; cw_json keeps nulls; both 17-18 May sample day files: the key
+on every one of 2,680 lines), read only.
+
+**PR143.** (F14: a-M9, c-M6, Fable L6; the owner: the cost goes on the first order) A replacement of a replacement puts its cost and its
+missing-price state on the FIRST order of the chain: parent_ref is followed up (rootOf: while the order is stored and names one, at most
+CHAIN_DEPTH = 10 steps, never round a loop) and the first order's re-send figures are those of every replacement of its chain (descendants:
+down the chain, each once, at most 10 levels); a replacement holds none; the first order is worked out again whenever any order of its chain
+changes (an order arriving before the one it names is put on the chain when that one comes). £12 sale, £3 cost, two £3 replacements, the
+second naming the first: the first order's profit with them £1 (10%; it said £4). Each replacement's cost stays on its own day (the day
+totals unchanged); Profit by order and the order's page read the chain the same way.
+
+**PR144.** (F15: b-M6) A Bin file must have its warehouse column, every row a warehouse, and each item and warehouse once (a copy of
+warehouse A's row where B's was is broken, whatever --rows says): nothing is written while one is broken.
+
+**PR145.** (F16: c-M1) A unit back in stock and refunded keeps its line's balance after its own refund (never below 0), its cost 0, and an
+order-level refund comes off once: a £12 sale refunded £6 on the line and £6 on the order is £0 (it was -£5: the line was zeroed and the order
+refund came off again). Refunded in full on the line: £0 as before.
+
+**PR146.** (F17: c-L3) An invoice's charges are spread over its goods lines with exact quotients and remainders (bcmath): £40 million of goods
+and £40 million of charges pass PHP's integers as pence x pence (intdiv() was given a float and the cost job stopped on that invoice every
+run); the penny rule (the largest remainders) is kept.
+
+**PR147.** (F18: b-L1, c-L1, c-L2, Fable L7) The lowest margin first counts only the orders it can show (those with a margin); "Customer
+paid" is "Shop order total" (grand_inc is what the shop asked for); an order not paid shows "not counted (not paid)" for its profit, never a
+realised profit or margin; a clone's "not counted" price leaves its cancelled lines (and lines gone from the order) out.
+
+**PR148.** (F19: c-HIGH3 scope) bin/import_order_snapshots.php refuses a day file holding an order placed before the store's first
+reservation in CW (read from the database at run time; a store with none: every order) unless --allow-unreserved, nothing written: orders
+CW never held have their returns booked through the historical path (the shop unit id in the ledger's document reference, no reservation),
+which the profit does not match (a known limit). On live the first reservation is vapeandgo 28 Oct 2026 10:28 UK, electrofag 16 Nov 05:48,
+vapebig 16 Nov 05:00, so the backfill starts on the first whole day after it: vapeandgo 29 Oct, electrofag and vapebig 17 Nov 2026.
+
+**PR149.** (F20: a-M3) The nightly returns check reads one store at a time on its (channel_id, state) index (ix_reservation_unit_store_state),
+its returned units in pages of 2,000 ((reservation_id, unit_id) after the last), at most MAX_ORDERS orders a store: no store waits behind
+another's (with at most 2 a store, the second store's returned unit was never reached).
+
+**PR150.** (F21: Fable M3) Watching the money job after go-live (README "After go-live"): a daily read-only `php bin/apply_order_snapshots.php
+--db=cw_prod --status` (waiting, the oldest, refused) and `php bin/refresh_item_cost.php --db=cw_prod --status` (the cost job's mark and each
+phase's last summary with its failures); a refused snapshot or a failing run is only in its log and on those status lines.
+
+**PR151.** (the brief's known limits) c-M5 fixed as cheap: an item made after the start takes the supplier price known on the UK day it
+starts (its first delivery), never one dated later (ten unpriced and ten at £2, the price raised to £4 two days after: £2, it said £3); none
+known then: none (the first priced delivery sets it). b-M9 in part: the snapshot import's temporary copy is removed whatever happens, a copy
+that failed half way too; the other import limits are known limits. a-M2 measured from live's 20 Nov dump of stock_value_seq (counts only):
+401,009 on-hand rows of 9,648 items in 23 days, the busiest item 8,366 (p99 750): an invoice for a month-old receipt of the busiest item reads
+about 11,000 rows (a few MB), a year-old one about 130,000 (tens of MB); a known limit. c-M2 (a price credit after a named supplier return)
+a known limit.
