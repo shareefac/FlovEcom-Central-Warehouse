@@ -866,4 +866,65 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         self::assertStringNotContainsString('UNDO B DONE', $out);
         self::assertSame(5, substr_count($this->calls(), '/ui/login'));
     }
+
+    /** The sign-in page's 200 counts only when curl itself succeeded (the Codex check of 4b0571c, LOW: a 200 printed, then a timeout). */
+    public function testUndoBCountsTheSignInPageOnlyWhenCurlSucceeded(): void
+    {
+        $this->answer('login_exits', "28\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('GET https://warehouse.floverfy.com/ui/login -> HTTP 200 (curl exit 28), expected 200', $err);
+        self::assertStringContainsString('(the link is already switched; run this again)', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertSame(5, substr_count($this->calls(), '/ui/login'));
+    }
+
+    /**
+     * Undo B's web probe needs no seq (the Codex check of 4b0571c, MEDIUM: a failing seq left the probe loop empty and bash stopped on an
+     * unset variable after the switch, with no STOPPED line): on a box whose seq fails, the web is still asked (five tries at most) and
+     * the run ends DONE when it answers, STOPPED when it does not.
+     */
+    public function testUndoBProbesTheWebWithoutSeq(): void
+    {
+        // Only CW's own job runs (no profit job to wait for: the waits before the switch are not what this case is about).
+        $this->answer('jobs', "100000 php bin/expire_reservations.php --db=cw_prod\n");
+        $this->failing('seq');
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        self::assertSame(1, substr_count($this->calls(), '/ui/login'));
+        $this->freshBox();
+        $this->answer('jobs', "100000 php bin/expire_reservations.php --db=cw_prod\n");
+        $this->answer('login_codes', "503\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('UNDO B STOPPED: the web does not answer as it should', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertSame(5, substr_count($this->calls(), '/ui/login'));
+    }
+
+    /**
+     * The paused cron file left by a stopped install is renamed with the time, or undo B stops (the Codex check of 4b0571c, MEDIUM: a
+     * failing date gave the name an empty time and the run said DONE): STOPPED after the switch, the marker left where it was, no DONE.
+     */
+    public function testUndoBStopsWhenThePausedCronFileCannotBeNamed(): void
+    {
+        rename($this->root . '/etc/cron.d/cw-prod', $this->root . '/etc/cw/cw-prod.cron.paused');
+        $this->failing('date');
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('UNDO B STOPPED', $err);
+        self::assertStringContainsString('(the link is already switched; run this again)', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertFileExists($this->root . '/etc/cw/cw-prod.cron.paused');
+        self::assertSame([], glob($this->root . '/etc/cw/cw-prod.cron.replaced-*') ?: []);
+    }
+
+    /** A real tool of the box that fails for this test's runs (exit 1, prints nothing). */
+    private function failing(string $tool): void
+    {
+        unlink("{$this->base}/sys/{$tool}");
+        file_put_contents("{$this->base}/sys/{$tool}", "#!/bin/sh\nexit 1\n");
+        chmod("{$this->base}/sys/{$tool}", 0755);
+    }
 }

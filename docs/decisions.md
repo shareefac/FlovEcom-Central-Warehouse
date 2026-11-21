@@ -19590,3 +19590,9 @@ proxy (`curl -q ... --noproxy '*'`). (F2 (b) PARTLY) The API answers 401 before 
 that is no UTF-8 is not kept. Not code: F1 PARTLY (a body stored before this round copying an old name back on a recompute) is not real
 now: no snapshot is stored outside the test databases, production starts empty at go-live; the release walk does not follow symbolic
 links (README known limit 49).
+The Codex check of 4b0571c (`build/A/codex_r14b.txt`, default model: GO) fixed test-first by the lead: (MEDIUM) undo B's web probe counts
+its five tries in bash (`for try in 1 2 3 4 5`, the four answers set before the loop: a failing `seq` left the loop empty and bash stopped
+on an unset variable after the switch, with no STOPPED line); the paused cron file is renamed only with a time read first and checked
+(`date` failing or odd: STOPPED, the marker left; it gave a name with no time and DONE); (LOW) a test that the sign-in page's 200 counts
+only when curl itself succeeded. Not code (LOW, known limits): the connector trims a NUL before CW's list (CW's list still refuses what is
+not on it); the release walk does not follow directory links (known limit 49).

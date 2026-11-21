@@ -86,7 +86,10 @@ else
 fi
 rm -f /etc/cw/cw-https.paused
 if [[ -f /etc/cw/cw-prod.cron.paused ]]; then
-    mv /etc/cw/cw-prod.cron.paused "/etc/cw/cw-prod.cron.replaced-$(date -u +%Y%m%dT%H%M%SZ)"
+    # The time read first (a failing date stops here, the marker left as it is: never a name with no time; the Codex check of 4b0571c).
+    when=$(date -u +%Y%m%dT%H%M%SZ) || stop "the time for the paused cron file's new name could not be read (date)"
+    [[ $when =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || stop "the time for the paused cron file's new name could not be read (date said '$when')"
+    mv /etc/cw/cw-prod.cron.paused "/etc/cw/cw-prod.cron.replaced-$when"
 fi
 systemctl is-active --quiet php8.3-fpm || stop "php-fpm is not running"
 systemctl is-active --quiet apache2 || stop "Apache is not running"
@@ -98,7 +101,12 @@ a2query -s cw-https >/dev/null 2>&1 || stop "the public vhost is not on"
 # stops here, before DONE (PR155).
 NAME=warehouse.floverfy.com
 web=0
-for try in $(seq 1 5); do
+api=none
+api_rc=none
+ui=none
+ui_rc=none
+# Five tries counted by bash itself (no seq: a failing seq would leave the loop empty; the Codex check of 4b0571c).
+for try in 1 2 3 4 5; do
     api_rc=0
     api=$(curl -q -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 3 --resolve "$NAME:443:127.0.0.1" "https://$NAME/v1/health") || api_rc=$?
     ui_rc=0
