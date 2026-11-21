@@ -19431,3 +19431,39 @@ that failed half way too; the other import limits are known limits. a-M2 measure
 401,009 on-hand rows of 9,648 items in 23 days, the busiest item 8,366 (p99 750): an invoice for a month-old receipt of the busiest item reads
 about 11,000 rows (a few MB), a year-old one about 130,000 (tens of MB); a known limit. c-M2 (a price credit after a named supplier return)
 a known limit.
+
+### The Codex check of the fix round (`build/A/codex_r11_astra.txt`, one gpt-6.2-astra run on 3c31d94..973c8ff, read only; the last Codex round): F5, F13, F15, F17, F20 FIXED, the rest PARTLY; 3 HIGH, 5 MEDIUM and 2 LOW new; each checked in the code; the real HIGHs and the contained MEDIUMs fixed (PR152), each with a test seen failing first on 973c8ff (`runs/profit_r11_codex_red.log`: 15 red) except three races (fixed by reading, named below); what is left is a known limit in the README
+
+**PR152.** (F1 PARTLY, HIGH) A delivery line's units are places, the units still here its first places; each invoice of it takes the FREE
+places among the units still here at its own time (places a cancelled invoice gave back first, then the places after every one taken), and
+a cancellation frees its invoice's places, never handing them to an invoice posted before it (CostEngine::layoutOn, replayed in time order,
+the same in a history written again): 100 at £2, two invoices of 50 at £3 before any sale, 80 sold, both cancelled one after the other: £2
+(it said £1: the second took over the first one's 20 and undid them again); an invoice posted again afterwards claims them (£3). (F2
+PARTLY, HIGH) A delivery of before the start (inside the start, no receipt event) taken back leaves with the moves of the invoices that
+named it since (£40 for the ten that stay, it said £50). (new HIGH 1) A credit of goods that were on their way cancelled after every
+receipt of them was taken back reaches none of the stock that stays (it read "no receipt" as "no bound": £50 for £40). (new HIGH 2) What
+a delivery taken back carries is what each invoice and credit REALLY moved (never more in size than its price change over the units on hand
+then): a £8-a-unit credit on £2 goods that took the price to £0 leaves with the £60 it took (the ten that stay keep £40; it said £60). (F3
+PARTLY) The ERPNext import reads an order's ref without case in both passes (VPG42 and vpg42 are one order: £3 a unit, two "mismatches"
+before). (F6 PARTLY, new MEDIUM 2) The seed resumed checks that the start written is the one asked for (exit 1 naming it) and says each
+waiting sale that failed (exit 1). (F8 PARTLY) An order of a bulk file still held after its tries is one refused line (busy), the rest of the
+file goes on; a snapshot the minute job refuses between store()'s read and its work is said refused, never "stored" (fixed by reading: a
+race). (F9 / F19 PARTLY) A day file's order refs and placing are read before the rest of each line is checked, so an order twice with one
+copy broken refuses the file whole. (F10 PARTLY, new MEDIUM 4) The reconciliation keeps every day an order is invoiced on (read once, not
+per day): an order invoiced on its paid day and the next is no "other invoice day"; the CW orders of a day with no file are counted missing
+or invoiced on another day. (F11 PARTLY, HIGH) bin/import_erp_sales_cost.php --apply asks for --series (the naming series of the store's
+sales invoices: every row of the export must be of it, else its day is refused, nothing applied); the dry run names the series it saw
+(each name's digits as #, no name printed), on top of the store binding of PR140. (F12 PARTLY) The shop's own place word (Preston) is kept
+only in the name of its collection ("Delivery 12 Preston" is not); the ids keep the code shape (PR141's design choice: left, a known limit).
+(F14 PARTLY) An order's money work holds the guard of the FIRST order of its chain too (rootOf of each parent), so a reparent elsewhere in the
+chain and the work of a replacement of a replacement wait for each other (the guards in name order: no deadlock); the race itself (a
+reparent between two writers' reads) is fixed by reading. (F18 PARTLY) An order no longer paid shows no profit or margin on its lines,
+in the list and in the search ("not counted (not paid)"). (F21 PARTLY) The README's daily look greps for errors and nonzero failures only.
+(new MEDIUM 3) Profit by order reads its rows and their chains' figures in one consistent snapshot (fixed by reading: a race). (LOW 1) The
+API reads its session's row wait with the intake lock (one statement fewer). (LOW 2) An item made after the start takes the supplier price
+of its first delivery's own UK day (a delivery at 00:00 UK looked a microsecond earlier, the day before).
+Not fixed, known limits (README): F4's operator points are the go-live kit's (the undo B and drain scripts in build/A/golive, the recovery
+by stage, the roll-forward after A); F7 LOW (a re-cost order an import fixed meanwhile counts in neither); F12 the ids' shapes (design);
+F16 an order refund larger than what is left of its lines is money out (-£1 on £13 refunded of a £12 sale; the owner's rule for whole-order
+refunds kept); new MEDIUM 1 (two invoices posted at the very same microsecond, read in two runs, may be placed in another order than a
+history written again); new MEDIUM 5 (known limit 11's recovery: correct the item's price by a CW document first).

@@ -38,7 +38,12 @@ final class ErpSalesImport
      * @param \Closure(string): void $log
      * @return array{days: int, orders: int, lines: int, refused: int}
      */
-    public function run(string $dir, string $channelCode, ?string $from, ?string $to, bool $apply, \Closure $log): array
+    /**
+     * @param ?string $series the naming series every invoice of the export must be of (its name starts with it; bin/import_erp_sales_cost.php
+     *        asks for it with --apply: the Codex check of the fix round, F11 PARTLY, PR152): a row of another series refuses its day; null: not
+     *        checked; $showSeries: say the series seen (the tool's dry run)
+     */
+    public function run(string $dir, string $channelCode, ?string $from, ?string $to, bool $apply, \Closure $log, ?string $series = null, bool $showSeries = false): array
     {
         $channel = $this->db->value('SELECT id FROM channel WHERE code = ?', [$channelCode]);
         if ($channel === null) {
@@ -69,10 +74,14 @@ final class ErpSalesImport
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
         // Pass 1: each day read whole; each order's last day. A broken day stops the whole run before anything is written: an order whose
         // rows are on it could never be costed whole (N8).
+        // An order's ref compared without case (as CW's key: VPG42 and vpg42 are one order; the Codex check of the fix round, F3 PARTLY, PR152),
+        // and every day it is invoiced on kept, read once for the reconciliation (F10 PARTLY).
         $last = [];
+        $daysOf = [];
         $broken = [];
+        $seen = [];
         foreach ($files as $day => $f) {
-            $d = $this->read($f);
+            $d = $this->read($f, $series);
             if (isset($d['error'])) {
                 $broken[] = $day;
                 $log("{$day} refused: {$d['error']}");
@@ -80,7 +89,16 @@ final class ErpSalesImport
             }
             foreach (array_keys($d['orders']) as $ref) {
                 $last[(string) $ref] = $day;
+                $daysOf[(string) $ref][$day] = true;
             }
+            foreach ($d['series'] as $shape => $n) {
+                $seen[$shape] = ($seen[$shape] ?? 0) + $n;
+            }
+        }
+        if ($showSeries && $seen !== []) {
+            arsort($seen);
+            $log('invoice series seen (each name with its digits as #): ' . implode(', ', array_map(static fn (string $k, int $n): string => "{$k} ({$n} rows)",
+                array_keys(array_slice($seen, 0, 10, true)), array_slice($seen, 0, 10, true))) . (count($seen) > 10 ? ', ...' : ''));
         }
         if ($broken !== []) {
             $log('nothing applied: ' . count($broken) . ' day file(s) cannot be read whole (' . implode(', ', $broken) . '); export those days again, then run this again');
@@ -95,7 +113,7 @@ final class ErpSalesImport
             if ($to !== null && $day > $to) {
                 break; // an order whose last day is later is not asked for
             }
-            $d = $this->read($f);
+            $d = $this->read($f, $series);
             $r = $d['counts'] + ['cw_orders' => 0, 'cw_goods_e2' => 0, 'costed' => 0, 'no_line' => 0, 'not_in_cw' => 0, 'after_start' => 0, 'unpaid' => 0, 'rate_zero' => 0,
                 'held' => 0, 'before_history' => 0, 'qty_mismatch' => 0, 'same' => 0, 'waiting' => 0];
             $due = [];
@@ -118,7 +136,7 @@ final class ErpSalesImport
                 continue; // read for the orders it holds; its own orders are not asked for
             }
             $this->apply((int) $channel, $due, $since, $until, $apply, $service, $r);
-            $this->missing((int) $channel, $day, $since, $until, $last, $r);
+            $this->missing((int) $channel, $day, $since, $until, $daysOf, $r);
             $tot['days']++;
             $tot['orders'] += $r['cw_orders'];
             $tot['lines'] += $r['costed'];
@@ -138,16 +156,27 @@ final class ErpSalesImport
         $lo = $from ?? ($span[0] ?? null);
         $hi = $to ?? ($span[count($span) - 1] ?? null);
         if ($lo !== null && $hi !== null) {
+            // Each such order is either in no day file (missing) or on an invoice of another day (a date difference).
             $gaps = [];
-            foreach ($this->db->all('SELECT day, COUNT(*) AS n, COALESCE(SUM(sale_ex), 0) AS e2 FROM sale_order WHERE channel_id = ? AND day BETWEEN ? AND ? AND paid_at >= ? '
-                . 'AND paid_at < ? GROUP BY day ORDER BY day', [(int) $channel, $lo, $hi, $since, $until]) as $g) {
-                if (!isset($files[(string) $g['day']])) {
-                    $gaps[] = $g;
+            $g = ['n' => 0, 'missing' => 0, 'missing_e2' => 0, 'elsewhere' => 0];
+            foreach ($this->db->all('SELECT day, order_ref, sale_ex FROM sale_order WHERE channel_id = ? AND day BETWEEN ? AND ? AND paid_at >= ? AND paid_at < ? ORDER BY day',
+                [(int) $channel, $lo, $hi, $since, $until]) as $o) {
+                if (isset($files[(string) $o['day']])) {
+                    continue;
+                }
+                $gaps[(string) $o['day']] = true;
+                $g['n']++;
+                if (isset($daysOf[strtolower((string) $o['order_ref'])])) {
+                    $g['elsewhere']++;
+                } else {
+                    $g['missing']++;
+                    $g['missing_e2'] += (int) $o['sale_ex'];
                 }
             }
             if ($gaps !== []) {
-                $log(sprintf('%d day(s) with cw orders paid inside the history and no day file: %d orders, %s (%s%s)', count($gaps), array_sum(array_column($gaps, 'n')),
-                    self::gbp((int) array_sum(array_column($gaps, 'e2'))), implode(', ', array_slice(array_column($gaps, 'day'), 0, 20)), count($gaps) > 20 ? ', ...' : ''));
+                $log(sprintf('%d day(s) with cw orders paid inside the history and no day file: %d orders, of them not in the export %d (%s), on another invoice day %d (%s%s)',
+                    count($gaps), $g['n'], $g['missing'], self::gbp($g['missing_e2']), $g['elsewhere'], implode(', ', array_slice(array_keys($gaps), 0, 20)),
+                    count($gaps) > 20 ? ', ...' : ''));
             }
         }
         return $tot;
@@ -158,25 +187,21 @@ final class ErpSalesImport
      * c-M3; PR139): those no day file holds (count and goods without VAT: their cost stays an estimate), apart from those on an invoice of
      * another day (an order invoiced on another day: a date difference, not a missing order).
      *
-     * @param array<string, string> $last every order of the export => its last day
+     * @param array<string, array<string, true>> $daysOf every order of the export (its ref in lower case) => the days it is invoiced on
      * @param array<string, int> $r the day's counts
      */
-    private function missing(int $channel, string $day, string $since, string $until, array $last, array &$r): void
+    private function missing(int $channel, string $day, string $since, string $until, array $daysOf, array &$r): void
     {
         $r['cw_missing'] = 0;
         $r['cw_missing_e2'] = 0;
         $r['cw_elsewhere'] = 0;
-        $inExport = [];
-        foreach ($last as $ref => $d) {
-            $inExport[strtolower((string) $ref)] = (string) $d;
-        }
         foreach ($this->db->all('SELECT order_ref, sale_ex FROM sale_order WHERE channel_id = ? AND day = ? AND paid_at >= ? AND paid_at < ?', [$channel, $day, $since, $until]) as $o) {
-            $d = $inExport[strtolower((string) $o['order_ref'])] ?? null;
-            if ($d === null) {
+            $days = $daysOf[strtolower((string) $o['order_ref'])] ?? null;
+            if ($days === null) {
                 $r['cw_missing']++;
                 $r['cw_missing_e2'] += (int) $o['sale_ex'];
-            } elseif ($d !== $day) {
-                $r['cw_elsewhere']++;
+            } elseif (!isset($days[$day])) {
+                $r['cw_elsewhere']++; // invoiced, on another day only
             }
         }
     }
@@ -209,7 +234,7 @@ final class ErpSalesImport
      *
      * @return array{orders: array<string, array<string, array{qty: int, value: int, rated_qty: int, zero: int}>>, counts: array<string, int>}|array{error: string}
      */
-    private function read(string $file): array
+    private function read(string $file, ?string $series = null): array
     {
         $fh = @gzopen($file, 'rb');
         if ($fh === false) {
@@ -224,6 +249,7 @@ final class ErpSalesImport
                 }
             }
             $counts = ['erp_orders' => 0, 'erp_goods_e2' => 0, 'erp_cost_e2' => 0, 'returns' => 0, 'returns_e2' => 0, 'no_order_id' => 0];
+            $shapes = [];
             $orders = [];
             $returns = [];
             $noId = [];
@@ -241,6 +267,14 @@ final class ErpSalesImport
                 }
                 // Its status and return flag are read before anything is left out: a blank or strange one is a broken day, never a row
                 // skipped without a word (the final review of 6d59eda, b-M; PR110).
+                // Every row of the store's naming series when one is given (the export names no shop of its own: PR140, PR152), counted by its
+                // shape for the dry run (its digits as #, no name printed).
+                $name = (string) $f[$col['name']];
+                $shape = (string) preg_replace('/[0-9]/', '#', mb_substr(trim($name), 0, 40));
+                $shapes[$shape] = ($shapes[$shape] ?? 0) + 1;
+                if ($series !== null && !str_starts_with(trim($name), $series)) {
+                    return ['error' => "row {$row}: its invoice is not of the series {$series} (--series): another store's export, or another export"];
+                }
                 $status = trim($f[$col['docstatus']]);
                 $isReturn = trim($f[$col['is_return']]);
                 if (!in_array($status, ['0', '1', '2'], true) || !in_array($isReturn, ['0', '1'], true)) {
@@ -256,7 +290,6 @@ final class ErpSalesImport
                     return ['error' => "row {$row}: its quantity, net amount or incoming rate is not a number (or not a whole quantity)"];
                 }
                 $qty = intdiv($qty, 10000);
-                $name = (string) $f[$col['name']];
                 $item = trim((string) $f[$col['item_code']]);
                 $netE2 = ProfitMath::divRound($net, 100);
                 if ($isReturn === '1') {
@@ -272,7 +305,7 @@ final class ErpSalesImport
                 if ($item === self::SHIPPING || preg_match('/^P([0-9]{1,18})$/D', $item, $mm) !== 1) {
                     continue;
                 }
-                $x = &$orders[$oid][$mm[1]];
+                $x = &$orders[strtolower($oid)][$mm[1]]; // without case: one order (PR152)
                 $x ??= ['qty' => 0, 'value' => 0, 'rated_qty' => 0, 'zero' => 0];
                 $x['qty'] += $qty;
                 if ($rate > 0 && $qty > 0) {
@@ -291,7 +324,7 @@ final class ErpSalesImport
             $counts['erp_orders'] = count($orders);
             $counts['returns'] = count($returns);
             $counts['no_order_id'] = count($noId);
-            return ['orders' => $orders, 'counts' => $counts];
+            return ['orders' => $orders, 'counts' => $counts, 'series' => $shapes];
         } finally {
             gzclose($fh);
         }

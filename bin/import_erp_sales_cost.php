@@ -7,10 +7,12 @@ declare(strict_types=1);
  * day files si_<YYYY-MM-DD>.tsv of the read-only export; the lines of orders paid before CW's own price starts get ERPNext's incoming rate,
  * cost_source erp_at_sale. One reconciliation line per day. Returns are reported, not applied. Run again: the same costs again.
  *
- *   php bin/import_erp_sales_cost.php --dir=<folder> [--channel=<store code>] [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--apply]
+ *   php bin/import_erp_sales_cost.php --dir=<folder> [--channel=<store code>] [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--series=<prefix>] [--apply]
  *
  *   --channel  default: the setting erp_opening.listing_store (the store ERPNext's invoices are of); any other store is refused (PR140: the
  *              export names no shop of its own; its item codes are that store's variants)
+ *   --series   the naming series of the store's sales invoices in ERPNext (what every invoice name of the export starts with): required with
+ *              --apply; a row of another series refuses its day, nothing applied (PR152). The dry run without it prints the series it saw
  *   --apply    write; without it a dry run: the reconciliation lines only
  *
  * Exit codes: 0 done · 1 a day file refused, or no day file in the days asked for (nothing applied) · 2 usage (also: a --channel that is not the
@@ -22,8 +24,8 @@ use CW\Profit\ErpSalesImport;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main('import_erp_sales_cost', ['dir:', 'channel:', 'from:', 'to:', 'apply'],
-    'usage: php bin/import_erp_sales_cost.php --dir=<folder> [--channel=<store code>] [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--apply]',
+exit(Cli::main('import_erp_sales_cost', ['dir:', 'channel:', 'from:', 'to:', 'series:', 'apply'],
+    'usage: php bin/import_erp_sales_cost.php --dir=<folder> [--channel=<store code>] [--from=YYYY-MM-DD] [--to=YYYY-MM-DD] [--series=<prefix>] [--apply]',
     static function (Cli $cli, array $opts): int {
         // One run at a time (the job's lock): held by another run (the cost job of every ten minutes, a second copy of this tool), nothing is done
         // and it says so with its own exit code, never 0 (the second final review of 3c31d94, a-M5, b-M1, c-M8; docs/decisions.md PR135).
@@ -46,8 +48,12 @@ exit(Cli::main('import_erp_sales_cost', ['dir:', 'channel:', 'from:', 'to:', 'ap
         };
         $channel = is_string($opts['channel'] ?? null) ? $opts['channel']
             : (string) json_decode((string) ($cli->db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'erp_opening.listing_store'") ?? '"vapeandgo"'));
+        $series = is_string($opts['series'] ?? null) && trim($opts['series']) !== '' ? trim($opts['series']) : null;
+        if ($series === null && array_key_exists('apply', $opts)) {
+            throw new InvalidArgumentException('give --series=<the naming series of the store\'s sales invoices> with --apply (a dry run prints the series it saw)');
+        }
         $r = (new ErpSalesImport($cli->db))->run($dir, $channel, $day($opts['from'] ?? null, 'from'), $day($opts['to'] ?? null, 'to'), array_key_exists('apply', $opts),
-            $cli->log(...));
+            $cli->log(...), $series, $series === null);
         if ($r['refused'] > 0) {
             // A day file that cannot be read whole stops the import (nothing applied): a problem, so a go-live step that checks the exit code
             // stops here (the Codex re-check of e5d2e5a).

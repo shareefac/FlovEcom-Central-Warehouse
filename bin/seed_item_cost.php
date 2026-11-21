@@ -89,8 +89,14 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
         }
         if ($engine->state()['mark_at'] !== null) {
             // Stopped after the start was written (it is written once): run again the same way, it goes on with the replay and the sales that
-            // waited (the Codex re-check of e5d2e5a).
-            $cli->log('the start was written before: going on with the replay since then');
+            // waited (the Codex re-check of e5d2e5a). Only for the start asked for: one written for another day is said, nothing done (the
+            // Codex check of the fix round, F6 PARTLY, PR152).
+            $floor = (string) ($cli->db->value('SELECT floor_at FROM profit_job WHERE job = ?', [CostEngine::JOB]) ?? '');
+            if ($floor !== $startAt) {
+                $cli->error("the start was written for {$floor} UTC, not {$day} (UK, {$startAt} UTC): nothing done (give --start of the start written)");
+                return Cli::PROBLEM;
+            }
+            $cli->log("the start written for {$day} (UK) was checked: going on with the replay since then");
         } else {
             $n = $engine->seed($plan['prices'], $startAt);
             // Checked as written: the job's mark and floor at the start (PR135; the go-live step reads "started N items").
@@ -105,9 +111,16 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ro
             $r = $engine->run();
             $cli->log('replay ' . json_encode($r, JSON_UNESCAPED_SLASHES));
         } while (($r['events'] ?? 0) >= CostEngine::MAX_EVENTS);
+        // The sales that waited; one that fails is named and the run ends with a problem (the Codex check of the fix round, MEDIUM 2, PR152);
+        // a page is full when its orders done and failed fill it (a failed one never hides the next ones).
+        $failed = 0;
         do {
             $p = (new PendingCosts($cli->db))->run();
-            $cli->log('sales costed that waited for the start: ' . $p['orders'] . ' orders');
-        } while ($p['orders'] >= PendingCosts::MAX_ORDERS);
-        return Cli::OK;
+            $cli->log('sales costed that waited for the start: ' . $p['orders'] . ' orders' . ($p['failed'] > 0 ? ", {$p['failed']} failed" : ''));
+            foreach ($p['errors'] as $x) {
+                $cli->error("store {$x['store']} order {$x['order']} failed: {$x['error']}");
+            }
+            $failed += $p['failed'];
+        } while ($p['orders'] >= PendingCosts::MAX_ORDERS && $p['failed'] === 0);
+        return $failed > 0 ? Cli::PROBLEM : Cli::OK;
     }, false, true));

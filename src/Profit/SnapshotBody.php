@@ -344,15 +344,20 @@ final class SnapshotBody
             return null;
         }
         $anchored = false;
+        $place = false;
+        $collection = false;
         foreach (preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $t) {
             $t = strtolower($t);
             if (!in_array($t, self::SERVICE_WORDS, true) && preg_match('/^[0-9]{1,4}(st|nd|rd|th|h|hr|hrs)?$/D', $t) !== 1) {
                 return null;
             }
             $anchored = $anchored || in_array($t, self::SERVICE_ANCHORS, true);
+            $place = $place || $t === 'preston';
+            $collection = $collection || $t === 'collection' || $t === 'collect';
         }
-        // A carrier's or a service's word in it, else it may be an address ("12 Preston"): not kept (PR141).
-        return $anchored ? $v : null;
+        // A carrier's or a service's word in it, else it may be an address ("12 Preston"): not kept (PR141). The shop's own place (its
+        // collection point) only in the name of its collection: "Delivery 12 Preston" is never kept (the Codex check of the fix round, PR152).
+        return $anchored && (!$place || $collection) ? $v : null;
     }
 
     /** A carrier's service code (letters, digits, _ . / - ^; at most TEXT_DIGITS digits in all: never a phone number), else "". */

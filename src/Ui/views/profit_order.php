@@ -94,7 +94,10 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
       <td class="num" data-label="<?= $word('PROFIT', 'unit_cost') ?>"><?php if ($l['unit_cost_e4'] !== null): ?><?= $e(\CW\Profit\ProfitViews::price((int) $l['unit_cost_e4'])) ?><?php endif; ?></td>
       <td data-label="<?= $word('PROFIT', 'cost_from') ?>"><?= $e($l['cost_source'] === null ? \CW\Ui\Words::PROFIT['source_open'] : $sourceWords[(string) $l['cost_source']]) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money((int) $l['cost'] / 100) ?></td>
-<?php if ((int) $l['units'] > 0 && (int) $l['restocked'] === 0 && ($l['cost_source'] === null || $l['cost_source'] === 'none')): ?>
+<?php if ($o['paid_at'] === null): ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $word('PROFIT', 'unpaid_profit') ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $word('PROFIT', 'unpaid_profit') ?></td>
+<?php elseif ((int) $l['units'] > 0 && (int) $l['restocked'] === 0 && ($l['cost_source'] === null || $l['cost_source'] === 'none')): ?>
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $word('PROFIT', 'unknown') ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $word('PROFIT', 'unknown') ?></td>
 <?php else: ?>

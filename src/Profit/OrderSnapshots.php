@@ -101,13 +101,21 @@ final class OrderSnapshots
             // (the second final review of 3c31d94, Fable L3, PR137).
             for ($try = 1; ; $try++) {
                 try {
-                    $this->applyOne($channelId, $ref, true);
+                    $done = $this->applyOne($channelId, $ref, true);
                     break;
                 } catch (\Throwable $e) {
                     if (!self::isBusy($e) || $try >= self::STORE_TRIES) {
-                        throw $e;
+                        throw $e; // still held: the bulk file says it on this order's line and goes on (SnapshotImport, PR152)
                     }
                     usleep(1_000_000);
+                }
+            }
+            // Nothing waiting any more: worked out by the minute job meanwhile, or refused by it (its mark came after the read above): a
+            // refusal is said, never "stored" (F8 PARTLY, PR152).
+            if ($done === 'none') {
+                $q = $this->db->one('SELECT failed, error FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+                if ($q !== null && (int) $q['failed'] === 1) {
+                    throw new CwException('bad_snapshot', 'refused by the money job: ' . (string) $q['error'], 400);
                 }
             }
         } elseif ($q !== null) {
@@ -147,14 +155,17 @@ final class OrderSnapshots
         $at = Clock::db($now);
         $lock = self::intakeLockName($channelId, $ref);
         $api = $source === 'api';
-        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$lock, min($this->lockWaitSec, $api ? self::API_INTAKE_WAIT_SEC : self::INTAKE_WAIT_SEC)]) !== 1) {
+        // The intake lock and the session's own row wait read in one statement (the Codex check of the fix round, LOW 1: one statement fewer).
+        $got = $this->db->one('SELECT GET_LOCK(?, ?) AS got, @@SESSION.innodb_lock_wait_timeout AS wait',
+            [$lock, min($this->lockWaitSec, $api ? self::API_INTAKE_WAIT_SEC : self::INTAKE_WAIT_SEC)]);
+        if ((int) ($got['got'] ?? 0) !== 1) {
             throw new CwException('busy', 'another snapshot of this order is being stored; retry shortly', 503);
         }
         $wait = null;
         try {
             if ($api && !$this->db->inTransaction()) {
                 // The order's queue row waited for a couple of seconds at most, in this request's session only (put back after).
-                $wait = (int) $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+                $wait = (int) $got['wait'];
                 $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . self::API_ROW_WAIT_SEC);
             }
             return $this->db->transaction(function (Db $db) use ($channelId, $ref, $body, $hash, $source, $at): array {
@@ -196,6 +207,10 @@ final class OrderSnapshots
                 if ($wait !== null) {
                     $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
                 }
+            } catch (\Throwable) {
+                // the connection is gone: the session's settings went with it
+            }
+            try {
                 $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
             } catch (\Throwable) {
                 // the connection is gone: MySQL released it with the session
@@ -408,6 +423,12 @@ final class OrderSnapshots
                 $this->db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(body, '$.parent_ref')) FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ?", [$channelId, $ref])] as $p) {
                 if ($p !== null && $p !== 'null' && strcasecmp((string) $p, $ref) !== 0) {
                     $out[] = (string) $p;
+                    // ... and the first order of its chain, whose re-send figures this work changes (a reparent elsewhere in the chain holds
+                    // it too: the Codex check of the fix round, F14 PARTLY, PR152).
+                    $root = self::rootOf($this->db, $channelId, (string) $p);
+                    if (strcasecmp($root, $ref) !== 0) {
+                        $out[] = $root;
+                    }
                 }
             }
             return $out;

@@ -173,13 +173,23 @@ final class SnapshotImport
                     }
                     SnapshotBody::checkJsonShapes($line);
                     $ref = SnapshotBody::orderRef($o['ref'] ?? null, 'ref');
-                    $body = SnapshotBody::parse($o, $now);
                     if ($service === null) {
-                        $placed = $body['placed_at'] === null ? null : (string) $body['placed_at'];
+                        // Its ref and its placing read before the rest of it is checked: an order twice (one copy broken), of another day or before
+                        // the first reservation refuses the file whole, whatever else is wrong with the line (the Codex check of the fix round, F9 /
+                        // F19 PARTLY, PR152).
+                        $placed = null;
+                        if (is_string($o['placed_at'] ?? null) && preg_match('/(Z|[+-][0-9]{2}:?[0-9]{2})$/D', $o['placed_at']) === 1) {
+                            try {
+                                $placed = \CW\Clock::db(\CW\Clock::parse($o['placed_at'], 'placed_at'));
+                            } catch (CwException) {
+                                $placed = null;
+                            }
+                        }
                         $orders[] = ['line' => $n, 'ref' => $ref, 'day' => $placed === null ? null : \CW\Reports\ReportRefresh::ukDay($placed), 'placed' => $placed,
                             'twice' => $seen[strtolower($ref)] ?? null];
                         $seen[strtolower($ref)] ??= $n;
                     }
+                    $body = SnapshotBody::parse($o, $now);
                     $read['orders']++;
                     $read['lines'] += count($body['lines']);
                     foreach ($body['lines'] as $l) {
@@ -193,6 +203,14 @@ final class SnapshotImport
                     $refused++;
                     $field = is_string($e->detail['field'] ?? null) ? ' (' . $e->detail['field'] . ')' : '';
                     $log("line {$n}: refused {$e->errorCode}{$field}: {$e->getMessage()}");
+                } catch (\PDOException $e) {
+                    // An order whose rows another writer still held after its tries: this line is refused (busy: run the file again), the rest
+                    // of the file goes on (the Codex check of the fix round, F8 PARTLY, PR152; a lock wait stopped the whole file).
+                    if (!in_array(Db::driverCode($e), [1205, 1213], true)) {
+                        throw $e;
+                    }
+                    $refused++;
+                    $log("line {$n}: refused busy: the order is held by another writer (MySQL " . Db::driverCode($e) . '); run the file again');
                 }
             }
         } finally {

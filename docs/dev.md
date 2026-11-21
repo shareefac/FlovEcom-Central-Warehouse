@@ -1589,7 +1589,7 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR151; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR152; branch `profit`; migrations 0074, 0075; 20-21 Nov 2026)
 
 | File | What |
 |---|---|
@@ -1612,7 +1612,9 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   the second final review's (PR130-PR151): `tests/Unit/ProfitFinalReview2UnitTest.php`, `tests/Integration/Profit/FinalReview2{Cost,Snapshot,Tools}Test.php`,
   `tests/Integration/UiKernel/ProfitScreensFinalReview2Test.php` (a delivery line's units take one invoice's price: `CostEngine::claimsOn` / `shares`; a delivery
   taken back leaves at the price it carries: `adjustmentOn`; a chain of replacements: `OrderSnapshots::rootOf` / `descendants`; each order's failure counted and
-  named: `PendingCosts::failed` / `summary`, profit_job rows `pending_costs`, `returns`, `returns_check`);
+  named: `PendingCosts::failed` / `summary`, profit_job rows `pending_costs`, `returns`, `returns_check`); the Codex check of that round's (PR152):
+  `tests/Unit/ProfitCodexR11UnitTest.php`, `tests/Integration/Profit/CodexR11{Cost,Snapshot}Test.php`, `tests/Integration/UiKernel/ProfitScreensCodexR11Test.php`
+  (a delivery line's places: `CostEngine::layoutOn` / `shares` / `freeHere`, what an event really moved: `applied`);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).

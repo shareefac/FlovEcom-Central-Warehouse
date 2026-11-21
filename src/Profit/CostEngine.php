@@ -623,7 +623,7 @@ final class CostEngine
         // none, and ten unpriced units at £4 with ten at £2 gave £3); none known then: none (its first priced delivery sets it).
         $byDay = [];
         foreach (array_values(array_diff($skus, array_keys($prices))) as $sku) {
-            $byDay[ReportRefresh::ukDay($at[$sku])][] = $sku;
+            $byDay[ReportRefresh::ukDay($firstIn[$sku] ?? $at[$sku])][] = $sku; // the delivery's own day (at UK midnight too: LOW 2)
         }
         foreach ($byDay as $day => $group) {
             foreach ($this->supplierPricesBefore($group, ReportRefresh::nextDay((string) $day)) as $s => $e4) {
@@ -664,11 +664,11 @@ final class CostEngine
             $in = $line === null ? null : $this->db->value("SELECT price_e4 FROM item_cost_event WHERE kind = 'receipt' AND document_id = ? AND document_line = ? "
                 . 'AND sku_id = ? AND timeline = ? ORDER BY id DESC LIMIT 1', [$orig, $line, $sku, $this->tl($sku)]);
             $price = $in === null ? $own : (int) $in;
-            if ($in !== null) {
+            if ($line !== null) {
                 // ... with the moves its invoices and credits gave them since (the second final review of 3c31d94, F2, PR131): ten at £4, ten at £2
                 // invoiced at £3 (£70) taken back leave at £3 and the ten that stay keep £40 (it took £20 off, leaving £50). An invoice or credit
                 // of it cancelled later finds none of its units here (reachNow): the move comes off once.
-                $price += $this->adjustmentOn($sku, $orig, $line, (int) $r['id'], $at, (int) $in);
+                $price += $this->adjustmentOn($sku, $orig, $line, (int) $r['id'], $at, $price, $in !== null);
             }
             return [...$first, $this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => 'receipt_reversal', 'source_key' => 'ledger:' . (int) $r['id'], 'document_id' => $doc,
                 'document_line' => $line, 'doc_ref' => (string) $r['doc_ref'], 'ref_document_id' => $orig, 'ref_line' => $line, 'units' => -$qty, 'on_hand' => $onHand,
@@ -926,8 +926,8 @@ final class CostEngine
             $units = 0;
             if ($booked !== null) {
                 $here = $this->receiptStillHere($sku, $g['grn'][0], $g['grn'][1], $at);
-                $claimed = array_sum(array_column($this->claimsOn($sku, $g['grn'][0], $g['grn'][1], $at, (string) $base['source_key']), 'units'));
-                $units = min(ProfitMath::reach($g['units'], $onHand), $here === null ? PHP_INT_MAX : max(0, $here - $claimed));
+                $units = min(ProfitMath::reach($g['units'], $onHand),
+                    $here === null ? PHP_INT_MAX : self::freeHere($this->layoutOn($sku, $g['grn'][0], $g['grn'][1], $at, (string) $base['source_key']), $here));
             }
             $out[] = $this->write($base + ['kind' => 'invoice', 'ref_document_id' => $g['grn'][0] ?? null, 'ref_line' => $g['grn'][1] ?? null,
                 'units' => $units, 'price_e4' => $g['price_e4'], 'booked_e4' => $booked,
@@ -982,11 +982,13 @@ final class CostEngine
             }
             // Of a delivery line several invoice lines billed, only the units its own invoice line moved, as they stand in posting order (the
             // second final review of 3c31d94, F1, PR130): a credit of the second invoice whose units were all the first one's reaches none.
-            $shares = $inv === null || $invLine === null ? [] : self::shares($this->claimsOn($sku, $grn[0], $grn[1], $at), $here);
+            $shares = $inv === null || $invLine === null ? [] : self::shares($this->layoutOn($sku, $grn[0], $grn[1], $at), $here);
             return $shares[$inv . ':' . $invLine] ?? $here;
         }
         if ($taking === []) {
-            return PHP_INT_MAX;
+            // Goods that were on their way, no receipt of them standing (all taken back): none can be here (a credit of them cancelled after
+            // they left adds nothing to the stock that stays: the Codex check of the fix round, new HIGH 1, PR152). No invoice line: no bound.
+            return $inv !== null && $invLine !== null ? 0 : PHP_INT_MAX;
         }
         $n = 0;
         foreach ($taking as $t) {
@@ -998,47 +1000,135 @@ final class CostEngine
     }
 
     /**
-     * The invoice lines standing on one delivery line (receipt $grn, line $line) of $sku at $at, in the order they were posted (the second
-     * final review of 3c31d94, F1 / F2, PR130, PR131): each invoice event of the item's timeline billing that delivery line, of $at or before,
-     * not cancelled by then, with the units it moved and its move a unit (landed less the price they came in at). $except: the source being
-     * worked out now (never its own claim).
+     * Where the invoice lines of one delivery line (receipt $grn, line $line) of $sku sit among its units at $at (the second final review of
+     * 3c31d94, F1 / F2, PR130, PR131; the Codex check of the fix round, F1 PARTLY, PR152). Its units are places 0, 1, 2 ...; the units still
+     * here at a moment are its first places (the ones an invoice moved stay before the rest: PR130's posting order). The invoice events of the
+     * item's timeline billing that delivery line (of $at or before; $except left out: the one being worked out now) are replayed in time order:
+     * each takes the FREE places among the units still here at its own time first (places a cancelled invoice gave back), then the places
+     * after every one taken; a cancellation frees its invoice's places, never handing them to an invoice posted before it (two invoices
+     * cancelled one after the other undo their move once; one posted after it takes them again).
      *
-     * @return list<array{id: int, doc: int, line: int, units: int, delta: int}>
+     * @return array{segs: list<array{0: ?string, 1: int}>, claims: array<string, array<string, mixed>>} segs: the places in order, each an
+     *         owner ("invoice document:line" of an invoice standing at $at, or null: free) and a number of units; claims: those invoices' events
      */
-    private function claimsOn(int $sku, int $grn, int $line, string $at, ?string $except = null): array
+    private function layoutOn(int $sku, int $grn, int $line, string $at, ?string $except = null): array
     {
-        $out = [];
-        foreach ($this->db->all("SELECT e.id, e.document_id, e.document_line, e.units, e.price_e4, e.booked_e4, e.source_key FROM item_cost_event e WHERE e.ref_document_id = ? "
-            . "AND e.ref_line = ? AND e.kind = 'invoice' AND e.sku_id = ? AND e.timeline = ? AND e.source_at <= ? AND NOT EXISTS (SELECT 1 FROM item_cost_event r "
-            . "WHERE r.sku_id = e.sku_id AND r.timeline = e.timeline AND r.kind = 'invoice_reversal' AND r.undoes_event_id = e.id AND r.source_at <= ?) ORDER BY e.source_at, e.id",
-            [$grn, $line, $sku, $this->tl($sku), $at, $at]) as $e) {
+        $tl = $this->tl($sku);
+        $byId = [];
+        $events = [];
+        foreach ($this->db->all("SELECT e.id, e.document_id, e.document_line, e.units, e.price_e4, e.booked_e4, e.on_hand, e.old_cost_e4, e.new_cost_e4, e.source_key, e.source_at "
+            . "FROM item_cost_event e WHERE e.ref_document_id = ? AND e.ref_line = ? AND e.kind = 'invoice' AND e.sku_id = ? AND e.timeline = ? AND e.source_at <= ? "
+            . 'ORDER BY e.source_at, e.id', [$grn, $line, $sku, $tl, $at]) as $e) {
             if ($except !== null && (string) $e['source_key'] === $except) {
                 continue;
             }
-            $out[] = ['id' => (int) $e['id'], 'doc' => (int) $e['document_id'], 'line' => (int) $e['document_line'], 'units' => max(0, (int) $e['units']),
-                'delta' => $e['booked_e4'] === null || $e['price_e4'] === null ? 0 : (int) $e['price_e4'] - (int) $e['booked_e4']];
+            $byId[(int) $e['id']] = $e;
+            $events[] = [(string) $e['source_at'], (int) $e['id'], $e, false];
+        }
+        if ($byId !== []) {
+            foreach ($this->db->all("SELECT id, undoes_event_id, source_at FROM item_cost_event WHERE sku_id = ? AND timeline = ? AND kind = 'invoice_reversal' AND source_at <= ? "
+                . 'AND undoes_event_id IN (' . implode(', ', array_fill(0, count($byId), '?')) . ')', [$sku, $tl, $at, ...array_keys($byId)]) as $r) {
+                $events[] = [(string) $r['source_at'], (int) $r['id'], $r, true];
+            }
+        }
+        usort($events, static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+        $segs = [];
+        $claims = [];
+        foreach ($events as [, , $e, $cancel]) {
+            if ($cancel) {
+                $x = $byId[(int) $e['undoes_event_id']] ?? null;
+                if ($x !== null) {
+                    $key = (int) $x['document_id'] . ':' . (int) $x['document_line'];
+                    foreach ($segs as $i => $seg) {
+                        if ($seg[0] === $key) {
+                            $segs[$i][0] = null;
+                        }
+                    }
+                    unset($claims[$key]);
+                }
+                continue;
+            }
+            $key = (int) $e['document_id'] . ':' . (int) $e['document_line'];
+            $claims[$key] = $e;
+            $units = max(0, (int) $e['units']);
+            if ($units === 0) {
+                continue;
+            }
+            $here = $this->receiptStillHere($sku, $grn, $line, (string) $e['source_at']) ?? PHP_INT_MAX;
+            $next = [];
+            $pos = 0;
+            foreach ($segs as [$k, $n]) {
+                if ($k === null && $units > 0 && $pos < $here) {
+                    $take = min($n, $units, $here - $pos);
+                    $next[] = [$key, $take];
+                    if ($n > $take) {
+                        $next[] = [null, $n - $take];
+                    }
+                    $units -= $take;
+                } else {
+                    $next[] = [$k, $n];
+                }
+                $pos += $n;
+            }
+            if ($units > 0) {
+                $next[] = [$key, $units];
+            }
+            $segs = $next;
+        }
+        return ['segs' => $segs, 'claims' => $claims];
+    }
+
+    /**
+     * Of a delivery line's units still here ($here: its first places), each standing invoice line's (layoutOn()). "invoice document:line" => units.
+     *
+     * @param array{segs: list<array{0: ?string, 1: int}>, claims: array<string, array<string, mixed>>} $layout
+     * @return array<string, int>
+     */
+    private static function shares(array $layout, int $here): array
+    {
+        $out = array_fill_keys(array_map('strval', array_keys($layout['claims'])), 0);
+        $pos = 0;
+        foreach ($layout['segs'] as [$k, $n]) {
+            if ($k !== null && $pos < $here) {
+                $out[$k] = ($out[$k] ?? 0) + min($n, $here - $pos);
+            }
+            $pos += $n;
         }
         return $out;
     }
 
     /**
-     * The units of a delivery line that can still be here ($here) each standing invoice line of it has, in the order they were posted: each at
-     * most the units it moved, of what the lines before it left (PR130, the rule chosen for two invoices of one delivery line: a unit takes ONE
-     * invoice's price, never two; 50 at £3 then 50 at £3.50 with 20 left: the 20 are the first one's). "invoice document:line" => units.
+     * Of a delivery line's units still here ($here), those no standing invoice line has moved: the free places, then the places after every one.
      *
-     * @param list<array{id: int, doc: int, line: int, units: int, delta: int}> $claims claimsOn()'s
-     * @return array<string, int>
+     * @param array{segs: list<array{0: ?string, 1: int}>, claims: array<string, array<string, mixed>>} $layout
      */
-    private static function shares(array $claims, int $here): array
+    private static function freeHere(array $layout, int $here): int
     {
-        $out = [];
-        $left = max(0, $here);
-        foreach ($claims as $c) {
-            $n = min($c['units'], $left);
-            $out[$c['doc'] . ':' . $c['line']] = $n;
-            $left -= $n;
+        $free = 0;
+        $pos = 0;
+        foreach ($layout['segs'] as [$k, $n]) {
+            if ($k === null && $pos < $here) {
+                $free += min($n, $here - $pos);
+            }
+            $pos += $n;
         }
-        return $out;
+        return $free + max(0, $here - $pos);
+    }
+
+    /**
+     * What an invoice or credit event really moved, of $face (its move a unit x its units): never more in size than the item's price change
+     * over the units on hand then (a credit the price could not absorb, floored at 0, took less: the Codex check of the fix round, new HIGH 2,
+     * PR152).
+     *
+     * @param array<string, mixed> $e an item_cost_event row
+     */
+    private static function applied(array $e, int $face): int
+    {
+        if ($face === 0 || $e['old_cost_e4'] === null || $e['new_cost_e4'] === null || $e['on_hand'] === null) {
+            return $face;
+        }
+        $actual = ((int) $e['new_cost_e4'] - (int) $e['old_cost_e4']) * (int) $e['on_hand'];
+        return $face > 0 ? min($face, max(0, $actual)) : max($face, min(0, $actual));
     }
 
     /**
@@ -1058,21 +1148,28 @@ final class CostEngine
         if ($e['kind'] === 'invoice') {
             $here = $this->receiptStillHere($sku, $ref, $refLine, $at);
             return $here === null ? PHP_INT_MAX
-                : (self::shares($this->claimsOn($sku, $ref, $refLine, $at), $here)[(int) $e['document_id'] . ':' . (int) $e['document_line']] ?? 0);
+                : (self::shares($this->layoutOn($sku, $ref, $refLine, $at), $here)[(int) $e['document_id'] . ':' . (int) $e['document_line']] ?? 0);
         }
-        return $this->creditedStillHere($sku, $ref, $refLine, null, $this->receiptsTaking($ref, $refLine, $sku, $at), $at);
+        // A credit: by its own line's delivery when it names one, else by its invoice line's (creditedStillHere()).
+        $own = null;
+        foreach ($this->landed((int) $e['document_id']) as $l) {
+            if ($l['line_no'] === (int) $e['document_line']) {
+                $own = $l['grn'];
+            }
+        }
+        return $this->creditedStillHere($sku, $ref, $refLine, $own, $this->receiptsTaking($ref, $refLine, $sku, $at), $at);
     }
 
     /**
      * The price credits standing on one invoice line at $at (not deferred, not cancelled by then): what each takes off a unit and the units
      * it reached.
      *
-     * @return list<array{per: int, units: int}>
+     * @return list<array{per: int, units: int, row: array<string, mixed>}>
      */
     private function standingCredits(int $sku, int $invoice, int $invLine, string $at): array
     {
-        return array_map(static fn (array $c): array => ['per' => (int) $c['booked_e4'], 'units' => max(0, (int) $c['units'])],
-            $this->db->all("SELECT e.booked_e4, e.units FROM item_cost_event e WHERE e.ref_document_id = ? AND e.ref_line = ? AND e.kind = 'credit_note' AND e.deferred = 0 "
+        return array_map(static fn (array $c): array => ['per' => (int) $c['booked_e4'], 'units' => max(0, (int) $c['units']), 'row' => $c],
+            $this->db->all("SELECT e.booked_e4, e.units, e.on_hand, e.old_cost_e4, e.new_cost_e4 FROM item_cost_event e WHERE e.ref_document_id = ? AND e.ref_line = ? AND e.kind = 'credit_note' AND e.deferred = 0 "
                 . 'AND e.sku_id = ? AND e.timeline = ? AND e.source_at <= ? AND e.booked_e4 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM item_cost_event r WHERE r.sku_id = e.sku_id '
                 . "AND r.timeline = e.timeline AND r.kind = 'credit_note_reversal' AND r.undoes_event_id = e.id AND r.source_at <= ?) ORDER BY e.source_at, e.id",
                 [$invoice, $invLine, $sku, $this->tl($sku), $at, $at]));
@@ -1086,7 +1183,7 @@ final class CostEngine
      * standing now (a deferred credit cancelled since gives its part back: b-M8) and the credits given since they came. Spread over every unit
      * the line brought, as the reversal takes them all back.
      */
-    private function adjustmentOn(int $sku, int $grn, int $line, int $revRow, string $at, int $in): int
+    private function adjustmentOn(int $sku, int $grn, int $line, int $revRow, string $at, int $in, bool $withBasis = true): int
     {
         $g = $this->db->one("SELECT MAX(id) AS last_row, COALESCE(SUM(qty_delta), 0) AS units FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
             . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
@@ -1101,19 +1198,26 @@ final class CostEngine
             return 0;
         }
         $value = 0;
-        $claims = $this->claimsOn($sku, $grn, $line, $at);
-        $shares = self::shares($claims, $here);
-        foreach ($claims as $c) {
-            $mine = $shares[$c['doc'] . ':' . $c['line']] ?? 0;
-            if ($mine <= 0) {
+        $layout = $this->layoutOn($sku, $grn, $line, $at);
+        $shares = self::shares($layout, $here);
+        foreach ($layout['claims'] as $key => $c) {
+            $mine = $shares[$key] ?? 0;
+            $units = max(0, (int) $c['units']);
+            if ($mine <= 0 || $units <= 0) {
                 continue;
             }
-            $value += $c['delta'] * $mine;
-            foreach ($this->standingCredits($sku, $c['doc'], $c['line'], $at) as $cr) {
-                $value -= $cr['per'] * min($cr['units'], $mine);
+            // What it really moved a unit (a move the floor at 0 cut is never taken out in full: the Codex check of the fix round, PR152).
+            $delta = $c['booked_e4'] === null || $c['price_e4'] === null ? 0 : (int) $c['price_e4'] - (int) $c['booked_e4'];
+            $value += ProfitMath::mulDivRound(self::applied($c, $delta * $units), $mine, $units);
+            foreach ($this->standingCredits($sku, (int) $c['document_id'], (int) $c['document_line'], $at) as $cr) {
+                if ($cr['units'] > 0) {
+                    $value += ProfitMath::mulDivRound(self::applied($cr['row'], -$cr['per'] * $cr['units']), min($cr['units'], $mine), $cr['units']);
+                }
             }
         }
-        $basis = $this->receiptBasis($grn, $line, $sku, $at);
+        // A delivery of before the start (in the start's valuation, no receipt event: the Codex check of the fix round, F2 PARTLY) takes the
+        // moves of the invoices that name it since; its price as goods on their way is inside the start.
+        $basis = $withBasis ? $this->receiptBasis($grn, $line, $sku, $at) : null;
         if ($basis !== null) {
             $now = ProfitMath::receiptPrice($basis['lines'], (int) $basis['came'], (int) $basis['own']);
             if ($now !== null) {
@@ -1121,7 +1225,9 @@ final class CostEngine
             }
             foreach ($basis['lines'] as $no => $l) {
                 foreach ($this->standingCredits($sku, (int) $basis['invoice'], (int) $no, $at) as $cr) {
-                    $value -= $cr['per'] * min($cr['units'], (int) $l['take'], $here);
+                    if ($cr['units'] > 0) {
+                        $value += ProfitMath::mulDivRound(self::applied($cr['row'], -$cr['per'] * $cr['units']), min($cr['units'], (int) $l['take'], $here), $cr['units']);
+                    }
                 }
             }
         }

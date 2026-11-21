@@ -292,14 +292,17 @@ final class ProfitViews
         $sale = (int) $r['sale_ex'];
         $cost = (int) $r['cost'];
         $resendCost = (int) $r['resend_cost'];
-        $ownUnknown = (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0;
+        // An order not paid (any more) shows no profit and no margin, whatever its rows still hold (the Codex check of the fix round, F18 PARTLY,
+        // PR152: a sale paid with its cost fixed and then unpaid showed £7, 70%).
+        $unpaid = $r['paid_at'] === null;
+        $ownUnknown = $unpaid || (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0;
         $resendUnknown = (int) ($r['resend_no_cost'] ?? 0) > 0 || (int) ($r['resend_pending'] ?? 0) > 0;
         return ['store_id' => (int) $r['channel_id'], 'store' => (string) $r['store'], 'ref' => (string) $r['order_ref'], 'no' => (string) $r['order_no'],
             'status' => (string) $r['status'], 'paid_at' => $r['paid_at'] === null ? null : (string) $r['paid_at'], 'gateway' => (string) $r['gateway'],
             'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => (int) $r['units'], 'sale' => $sale, 'cost' => $cost,
             'resends' => (int) $r['resends'], 'resend_cost' => $resendCost, 'profit' => $ownUnknown ? null : $sale - $cost,
             'with_resends' => (int) $r['resends'] === 0 ? null : ($ownUnknown || $resendUnknown ? null : $sale - $cost - $resendCost),
-            'margin_bp' => $r['margin_bp'] === null ? null : (int) $r['margin_bp'],
+            'margin_bp' => $unpaid || $r['margin_bp'] === null ? null : (int) $r['margin_bp'], 'unpaid' => $unpaid,
             'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
             'own_unknown' => $ownUnknown, 'resend_unknown' => $resendUnknown,
             // Incomplete: some unit it counts, its own or a paid re-send's, has no price or waits for it.

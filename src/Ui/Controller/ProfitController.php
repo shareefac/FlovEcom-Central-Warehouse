@@ -92,7 +92,8 @@ final class ProfitController
             $warn = trim(($warn ?? '') . ' ' . Words::say('PROFIT', 'lowest_max', ProfitViews::LOWEST_MAX_DAYS));
         }
         $after = self::cursor($ctx, $low);
-        $r = $views->orders($from, $to, $store, $q, $low, $after);
+        // The rows and their chains' figures from ONE moment of the database (the Codex check of the fix round, MEDIUM 3, PR152).
+        $r = ProfitDays::snapshot($ctx->db, static fn (): array => $views->orders($from, $to, $store, $q, $low, $after));
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $store, 'q' => $q === '' ? null : $q,
             'low' => $low ? '1' : null];
         $rows = array_map(static fn (array $o): array => $o + ['href' => Html::url(self::PATH . '/orders/view', ['store' => $o['store_id'], 'ref' => $o['ref']]),
