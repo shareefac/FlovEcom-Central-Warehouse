@@ -6,6 +6,7 @@ namespace CW\Profit;
 
 use CW\Clock;
 use CW\Db;
+use CW\Reports\ReportRefresh;
 use CW\StockOps\CostHints;
 
 /**
@@ -191,7 +192,8 @@ final class CostEngine
         $rows = preg_split('/\r?\n/', trim($tsv, "\r\n")) ?: []; // a last row's empty last column is a column (never trimmed away)
         $head = array_map('trim', explode("\t", (string) array_shift($rows)));
         $col = array_flip($head);
-        foreach (['item_code', 'actual_qty', 'valuation_rate'] as $need) {
+        // The warehouse too: an item is valued over its warehouses, each once (the second final review of 3c31d94, b-M6, PR144).
+        foreach (['item_code', 'warehouse', 'actual_qty', 'valuation_rate'] as $need) {
             if (!isset($col[$need])) {
                 throw new \InvalidArgumentException("the Bin file has no column {$need}");
             }
@@ -209,6 +211,8 @@ final class CostEngine
         $skipped = [];
         $allow = array_fill_keys(array_map('trim', $allowSkips), true);
         $number = '/^-?[0-9]+(\.[0-9]+)?$/D';
+        /** @var array<string, int> item code + warehouse => the row that had it first */
+        $seen = [];
         foreach ($rows as $i => $line) {
             if (trim($line) === '') {
                 continue;
@@ -218,13 +222,22 @@ final class CostEngine
             $row = $i + 2; // the file's line number (the header is line 1)
             $code = trim($f[$col['item_code']] ?? '');
             // A broken row (the final review of 6d59eda, b-HIGH3; PR99): never skipped without a word, never read as a number it is not.
+            $where = trim($f[$col['warehouse']] ?? '');
+            // An item and warehouse twice: one copied over another warehouse's row (10 at £2 in A twice where B had 10 at £6) would pass a
+            // count of rows and give £2 for £4 (b-M6, PR144); refused, whatever --rows says.
+            $twice = $code !== '' && $where !== '' && isset($seen[$code . "\t" . $where]) ? $seen[$code . "\t" . $where] : null;
             $why = match (true) {
                 count($f) !== count($head) => 'has ' . count($f) . ' columns, not ' . count($head),
                 $code === '' => 'has no item_code',
+                $where === '' => 'has no warehouse',
+                $twice !== null => "holds its item and warehouse twice (row {$twice} has them already)",
                 preg_match($number, trim($f[$col['actual_qty']] ?? '')) !== 1 => 'its actual_qty is blank or not a number',
                 preg_match($number, trim($f[$col['valuation_rate']] ?? '')) !== 1 => 'its valuation_rate is blank or not a number',
                 default => null,
             };
+            if ($code !== '' && $where !== '' && $twice === null) {
+                $seen[$code . "\t" . $where] = $row;
+            }
             if ($why !== null) {
                 $entry = ['row' => $row, 'item_code' => mb_substr($code, 0, 40), 'why' => $why];
                 if (($code !== '' && isset($allow[$code])) || isset($allow['row:' . $row])) {
@@ -605,9 +618,17 @@ final class CostEngine
                 $prices[$sku] = ['e4' => $e4, 'source' => 'cw_average'];
             }
         }
-        $rest = array_values(array_diff($skus, array_keys($prices)));
-        foreach ($rest === [] ? [] : $this->supplierPrices($rest) as $s => $e4) {
-            $prices[$s] = ['e4' => $e4, 'source' => 'supplier_price'];
+        // The supplier's price known on the UK day the item starts (its first delivery), never one dated after it (the second final review of
+        // 3c31d94, c-M5, PR151: a price raised two days after its first delivery made its start £4 where the job on the day would have said
+        // none, and ten unpriced units at £4 with ten at £2 gave £3); none known then: none (its first priced delivery sets it).
+        $byDay = [];
+        foreach (array_values(array_diff($skus, array_keys($prices))) as $sku) {
+            $byDay[ReportRefresh::ukDay($at[$sku])][] = $sku;
+        }
+        foreach ($byDay as $day => $group) {
+            foreach ($this->supplierPricesBefore($group, ReportRefresh::nextDay((string) $day)) as $s => $e4) {
+                $prices[$s] = ['e4' => $e4, 'source' => 'supplier_price'];
+            }
         }
         $now = Clock::db(($this->clock)());
         foreach ($skus as $sku) {
@@ -643,6 +664,12 @@ final class CostEngine
             $in = $line === null ? null : $this->db->value("SELECT price_e4 FROM item_cost_event WHERE kind = 'receipt' AND document_id = ? AND document_line = ? "
                 . 'AND sku_id = ? AND timeline = ? ORDER BY id DESC LIMIT 1', [$orig, $line, $sku, $this->tl($sku)]);
             $price = $in === null ? $own : (int) $in;
+            if ($in !== null) {
+                // ... with the moves its invoices and credits gave them since (the second final review of 3c31d94, F2, PR131): ten at £4, ten at £2
+                // invoiced at £3 (£70) taken back leave at £3 and the ten that stay keep £40 (it took £20 off, leaving £50). An invoice or credit
+                // of it cancelled later finds none of its units here (reachNow): the move comes off once.
+                $price += $this->adjustmentOn($sku, $orig, $line, (int) $r['id'], $at, (int) $in);
+            }
             return [...$first, $this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => 'receipt_reversal', 'source_key' => 'ledger:' . (int) $r['id'], 'document_id' => $doc,
                 'document_line' => $line, 'doc_ref' => (string) $r['doc_ref'], 'ref_document_id' => $orig, 'ref_line' => $line, 'units' => -$qty, 'on_hand' => $onHand,
                 'price_e4' => $price, 'booked_e4' => null, 'note' => 'a delivery taken back'])];
@@ -893,8 +920,15 @@ final class CostEngine
             }
             // The units it bills that are still on hand, never more than the units of the billed delivery that can still be here: the fewest on
             // hand since that delivery came, in the item's commit order (the final review of 6d59eda, c-HIGH2 / a-M6, PR100: a delivery sold out
-            // and replaced is never repriced onto the replacement stock).
-            $units = $booked === null ? 0 : min(ProfitMath::reach($g['units'], $onHand), $this->receiptStillHere($sku, $g['grn'][0], $g['grn'][1], $at) ?? PHP_INT_MAX);
+            // and replaced is never repriced onto the replacement stock), less the units of it the invoice lines posted before this one moved (the
+            // second final review of 3c31d94, F1, PR130): 100 in at £2, 80 sold, two invoices of 50 at £3: the first moves the 20 left, the
+            // second none (each moved the same 20 from £2: £4). In a history written again the same, in time order.
+            $units = 0;
+            if ($booked !== null) {
+                $here = $this->receiptStillHere($sku, $g['grn'][0], $g['grn'][1], $at);
+                $claimed = array_sum(array_column($this->claimsOn($sku, $g['grn'][0], $g['grn'][1], $at, (string) $base['source_key']), 'units'));
+                $units = min(ProfitMath::reach($g['units'], $onHand), $here === null ? PHP_INT_MAX : max(0, $here - $claimed));
+            }
             $out[] = $this->write($base + ['kind' => 'invoice', 'ref_document_id' => $g['grn'][0] ?? null, 'ref_line' => $g['grn'][1] ?? null,
                 'units' => $units, 'price_e4' => $g['price_e4'], 'booked_e4' => $booked,
                 'note' => $booked === null ? 'invoiced before its goods arrived (the delivery takes this price)' : 'invoice price wins']);
@@ -942,7 +976,14 @@ final class CostEngine
             }
         }
         if ($grn !== null) {
-            return $this->receiptStillHere($sku, $grn[0], $grn[1], $at) ?? PHP_INT_MAX;
+            $here = $this->receiptStillHere($sku, $grn[0], $grn[1], $at);
+            if ($here === null) {
+                return PHP_INT_MAX;
+            }
+            // Of a delivery line several invoice lines billed, only the units its own invoice line moved, as they stand in posting order (the
+            // second final review of 3c31d94, F1, PR130): a credit of the second invoice whose units were all the first one's reaches none.
+            $shares = $inv === null || $invLine === null ? [] : self::shares($this->claimsOn($sku, $grn[0], $grn[1], $at), $here);
+            return $shares[$inv . ':' . $invLine] ?? $here;
         }
         if ($taking === []) {
             return PHP_INT_MAX;
@@ -954,6 +995,137 @@ final class CostEngine
             $n += max(0, min($mine, $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $t['last_row'])), $this->position($sku, $at))));
         }
         return $n;
+    }
+
+    /**
+     * The invoice lines standing on one delivery line (receipt $grn, line $line) of $sku at $at, in the order they were posted (the second
+     * final review of 3c31d94, F1 / F2, PR130, PR131): each invoice event of the item's timeline billing that delivery line, of $at or before,
+     * not cancelled by then, with the units it moved and its move a unit (landed less the price they came in at). $except: the source being
+     * worked out now (never its own claim).
+     *
+     * @return list<array{id: int, doc: int, line: int, units: int, delta: int}>
+     */
+    private function claimsOn(int $sku, int $grn, int $line, string $at, ?string $except = null): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT e.id, e.document_id, e.document_line, e.units, e.price_e4, e.booked_e4, e.source_key FROM item_cost_event e WHERE e.ref_document_id = ? "
+            . "AND e.ref_line = ? AND e.kind = 'invoice' AND e.sku_id = ? AND e.timeline = ? AND e.source_at <= ? AND NOT EXISTS (SELECT 1 FROM item_cost_event r "
+            . "WHERE r.sku_id = e.sku_id AND r.timeline = e.timeline AND r.kind = 'invoice_reversal' AND r.undoes_event_id = e.id AND r.source_at <= ?) ORDER BY e.source_at, e.id",
+            [$grn, $line, $sku, $this->tl($sku), $at, $at]) as $e) {
+            if ($except !== null && (string) $e['source_key'] === $except) {
+                continue;
+            }
+            $out[] = ['id' => (int) $e['id'], 'doc' => (int) $e['document_id'], 'line' => (int) $e['document_line'], 'units' => max(0, (int) $e['units']),
+                'delta' => $e['booked_e4'] === null || $e['price_e4'] === null ? 0 : (int) $e['price_e4'] - (int) $e['booked_e4']];
+        }
+        return $out;
+    }
+
+    /**
+     * The units of a delivery line that can still be here ($here) each standing invoice line of it has, in the order they were posted: each at
+     * most the units it moved, of what the lines before it left (PR130, the rule chosen for two invoices of one delivery line: a unit takes ONE
+     * invoice's price, never two; 50 at £3 then 50 at £3.50 with 20 left: the 20 are the first one's). "invoice document:line" => units.
+     *
+     * @param list<array{id: int, doc: int, line: int, units: int, delta: int}> $claims claimsOn()'s
+     * @return array<string, int>
+     */
+    private static function shares(array $claims, int $here): array
+    {
+        $out = [];
+        $left = max(0, $here);
+        foreach ($claims as $c) {
+            $n = min($c['units'], $left);
+            $out[$c['doc'] . ':' . $c['line']] = $n;
+            $left -= $n;
+        }
+        return $out;
+    }
+
+    /**
+     * The units an invoice or a price credit being cancelled can still reach at $at, by its delivery line (PR130, PR131): an invoice of a named
+     * delivery its share of what is left of it (shares(); none once the delivery was taken back: its move left with those units); a credit
+     * what creditedStillHere() gives its invoice line now. No delivery known: no bound (PHP_INT_MAX).
+     *
+     * @param array<string, mixed> $e the item_cost_event being cancelled
+     */
+    private function reachNow(array $e, int $sku, string $at): int
+    {
+        if ($e['ref_document_id'] === null || $e['ref_line'] === null) {
+            return PHP_INT_MAX;
+        }
+        $ref = (int) $e['ref_document_id'];
+        $refLine = (int) $e['ref_line'];
+        if ($e['kind'] === 'invoice') {
+            $here = $this->receiptStillHere($sku, $ref, $refLine, $at);
+            return $here === null ? PHP_INT_MAX
+                : (self::shares($this->claimsOn($sku, $ref, $refLine, $at), $here)[(int) $e['document_id'] . ':' . (int) $e['document_line']] ?? 0);
+        }
+        return $this->creditedStillHere($sku, $ref, $refLine, null, $this->receiptsTaking($ref, $refLine, $sku, $at), $at);
+    }
+
+    /**
+     * The price credits standing on one invoice line at $at (not deferred, not cancelled by then): what each takes off a unit and the units
+     * it reached.
+     *
+     * @return list<array{per: int, units: int}>
+     */
+    private function standingCredits(int $sku, int $invoice, int $invLine, string $at): array
+    {
+        return array_map(static fn (array $c): array => ['per' => (int) $c['booked_e4'], 'units' => max(0, (int) $c['units'])],
+            $this->db->all("SELECT e.booked_e4, e.units FROM item_cost_event e WHERE e.ref_document_id = ? AND e.ref_line = ? AND e.kind = 'credit_note' AND e.deferred = 0 "
+                . 'AND e.sku_id = ? AND e.timeline = ? AND e.source_at <= ? AND e.booked_e4 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM item_cost_event r WHERE r.sku_id = e.sku_id '
+                . "AND r.timeline = e.timeline AND r.kind = 'credit_note_reversal' AND r.undoes_event_id = e.id AND r.source_at <= ?) ORDER BY e.source_at, e.id",
+                [$invoice, $invLine, $sku, $this->tl($sku), $at, $at]));
+    }
+
+    /**
+     * What a unit of one delivery line (receipt $grn, line $line) carries beyond the price it came in at ($in), when it is taken back at $at
+     * (ledger row $revRow; the second final review of 3c31d94, F2, PR131): the moves standing then on its units that can still be here just
+     * before (the fewest on hand since it came, up to the operation that takes it back): each invoice naming it on its share (posting order)
+     * with the price credits of that invoice line on those units; for goods that were on their way, its price worked out again with the credits
+     * standing now (a deferred credit cancelled since gives its part back: b-M8) and the credits given since they came. Spread over every unit
+     * the line brought, as the reversal takes them all back.
+     */
+    private function adjustmentOn(int $sku, int $grn, int $line, int $revRow, string $at, int $in): int
+    {
+        $g = $this->db->one("SELECT MAX(id) AS last_row, COALESCE(SUM(qty_delta), 0) AS units FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? "
+            . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
+        $n = (int) ($g['units'] ?? 0);
+        if ($n <= 0 || $g['last_row'] === null) {
+            return 0;
+        }
+        $first = (int) ($this->db->value('SELECT MIN(q.seq) FROM stock_ledger l JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.document_id = '
+            . '(SELECT document_id FROM stock_ledger WHERE id = ?) AND l.sku_id = ?', [$revRow, $sku]) ?? 0);
+        $here = $first <= 0 ? $n : max(0, min($n, $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $g['last_row'])), $first - 1)));
+        if ($here <= 0) {
+            return 0;
+        }
+        $value = 0;
+        $claims = $this->claimsOn($sku, $grn, $line, $at);
+        $shares = self::shares($claims, $here);
+        foreach ($claims as $c) {
+            $mine = $shares[$c['doc'] . ':' . $c['line']] ?? 0;
+            if ($mine <= 0) {
+                continue;
+            }
+            $value += $c['delta'] * $mine;
+            foreach ($this->standingCredits($sku, $c['doc'], $c['line'], $at) as $cr) {
+                $value -= $cr['per'] * min($cr['units'], $mine);
+            }
+        }
+        $basis = $this->receiptBasis($grn, $line, $sku, $at);
+        if ($basis !== null) {
+            $now = ProfitMath::receiptPrice($basis['lines'], (int) $basis['came'], (int) $basis['own']);
+            if ($now !== null) {
+                $value += ($now - $in) * $here;
+            }
+            foreach ($basis['lines'] as $no => $l) {
+                foreach ($this->standingCredits($sku, (int) $basis['invoice'], (int) $no, $at) as $cr) {
+                    $value -= $cr['per'] * min($cr['units'], (int) $l['take'], $here);
+                }
+            }
+        }
+        return ProfitMath::divRound($value, $n);
     }
 
     /**
@@ -1004,7 +1176,9 @@ final class CostEngine
                 if ($reached > 0) {
                     // The units are kept even when it moved nothing (N2).
                     $per = $effect === 0 ? 0 : -ProfitMath::divRound($effect * (int) $e['on_hand'], $reached);
-                    $units = min($reached, $this->lowestOnHandSince($sku, (string) $e['source_at'], $at));
+                    // Never more than the units of its delivery line it still has (in posting order), none once that delivery was taken back:
+                    // its move left with those units (the second final review of 3c31d94, F1 / F2, PR130, PR131).
+                    $units = min($reached, $this->lowestOnHandSince($sku, (string) $e['source_at'], $at), $this->reachNow($e, $sku, $at));
                 }
             }
             $out[] = $this->write(['sku_id' => $sku, 'source_at' => $at, 'kind' => $credit ? 'credit_note_reversal' : 'invoice_reversal',

@@ -11,7 +11,7 @@ namespace CW\Profit;
  *  - ex VAT = inc VAT / (1 + rate); the rate is kept on each order in basis points (2000 = 20%).
  *  - a line's sale = price - discount - refund (coupons and points are in the discount: a price cut). A cancelled line counts nothing
  *    (no units, no sale, no cost). A free line counts its units and its cost with sale 0. A unit that came back to stock in CW (a
- *    return, restocked) has no cost, and no sale when it was refunded.
+ *    return, restocked) has no cost; refunded, its sale is what is left after its refund, never below 0 (PR145).
  *  - a line's cost = its CW units x the unit price fixed at the sale.
  *  - margin = profit / sale ex VAT.
  *  - the buying price of an item is a moving average over the units on hand: a delivery moves it with its unit price; an invoice
@@ -86,10 +86,16 @@ final class ProfitMath
             return ['counts' => false, 'units' => 0, 'sale_inc' => 0, 'sale_ex' => 0];
         }
         $units = $l['qty'] * max(1, $unitsPerItem);
-        if ($l['free'] || ($restocked && $l['refund_inc'] > 0)) {
+        if ($l['free']) {
             $inc = 0;
         } else {
             $inc = $l['price_inc'] - $l['discount_inc'] - $l['refund_inc'];
+            // A unit back in stock and refunded keeps what is left after its own refund (a £12 sale refunded £6 on the line keeps £6), never
+            // below 0: an order-level refund then comes off once (the second final review of 3c31d94, c-M1, PR145; it zeroed the line and the
+            // order refund came off again: -£5 on a £12 sale refunded in full).
+            if ($restocked && $l['refund_inc'] > 0) {
+                $inc = max(0, $inc);
+            }
         }
         return ['counts' => true, 'units' => $units, 'sale_inc' => $inc, 'sale_ex' => self::exVat($inc, $vatBp)];
     }
@@ -325,9 +331,12 @@ final class ProfitMath
         $rem = [];
         $given = 0;
         foreach ($weights as $k => $w) {
-            $share = intdiv($abs * $w, $sum);
+            // Exact quotient and remainder (bcmath): £40 million of goods and £40 million of charges pass PHP's integers as pence x pence (the
+            // second final review of 3c31d94, c-L3, PR146; intdiv() was given a float and the cost job stopped on that invoice every run).
+            $p = bcmul((string) $abs, (string) $w, 0);
+            $share = (int) bcdiv($p, (string) $sum, 0);
             $out[$k] = $share;
-            $rem[$k] = ($abs * $w) % $sum;
+            $rem[$k] = (int) bcmod($p, (string) $sum, 0);
             $given += $share;
         }
         arsort($rem);

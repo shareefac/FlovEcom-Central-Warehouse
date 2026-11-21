@@ -149,7 +149,9 @@ final class CostEngineReviewR8Test extends ArrivalsTestCase
         self::finalAt($rev->id, $sku, Clock::db(Clock::now()->modify('+2 minutes'))); // its stock leaves two minutes later
         $this->note($who, $p, [[10, '1.0000']], '10.00'); // between: the twenty are still on hand
         $this->engine(300)->run();
-        self::assertSame(30000, self::cost($sku), '£10.00 off the twenty (£3.50), then the ten leave at £4.00: £30.00 for ten, not £40.00');
+        // The ten leave at the £3.00 they carry with the credit (the second final review of 3c31d94, F2, PR131: they left at £4.00 and the
+        // ten that stay took the credit, £30.00).
+        self::assertSame(40000, self::cost($sku), '£10.00 off the ten received (£3.50 for the twenty), then they leave at £3.00: the ten that stay keep £40.00');
     }
 
     public function testTheUnitsOnHandAtAPlaceAreExactWhateverTheLedgersIds(): void
