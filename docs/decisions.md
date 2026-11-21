@@ -19540,3 +19540,18 @@ Not code (README): known limit 13 rewritten (a-HIGH2, NOT REAL in practice: one 
 M-c, L2, L4, L5, a-L2), known limits for a-M new SKU opening timing (with c-M2), a-M one blocked store-day and the money job's budget, a-M
 the ten-minute job's repeated ledger reads, a-M undo after a later hotfix, b-M3 an omitted ERP line, c-M4 a withdrawn ERP cost, c-M6 penny
 rounding of ERP packs, a-L1 the seed's first 100 broken rows, and the live feed's boundary read.
+**The Codex check of this fix round (r13, `build/A/codex_r13_{a,b,c}.txt`, three runs of the default model on bc7e248..9c15538; a HOLD, b
+HOLD, c GO), each point checked in the code, the real ones fixed with a test seen failing on 9c15538 (`runs/profit_r13_codex_red.log`).**
+(a HIGH) Undo B checks Apache's configuration on every run, then starts it (stopped) or reloads it (running): a run again after a stop
+half way reloads what an earlier run enabled on disk. (a MEDIUM) The drain checks, after the installer, that /opt/cw-prod runs the
+rollback commit's release (a push that took the lock as it was let go is said, never "DRAINED AND INSTALLED"). (a, c MEDIUM: H1 PARTLY)
+A delivery line's units still here are the sum of its portions' layers (CostEngine::lineHere: each ledger row of it into our warehouses,
+walked from its own row): two lines of an item on one receipt, the first partly set aside (VERIFY, booked after both lines' MAIN units),
+both invoiced at £2 gave £2.20 for £2.00. (b HIGH: H4 PARTLY) A delivery method or parcel service with a number is kept only when every
+number stands next to a word that numbers a service (SnapshotBody::NUMBER_WORDS) or in a range of such numbers ("Collection: 12 The Point,
+Preston" is null; every real name stays); any service code outside the list is "", a long or broken one too (never a 400). (b) A day
+file line over 256 KB refuses its file whole (its ref cannot be checked against the others; it was one refused line, the rest stored). (a,
+b) The import's copy is made only when its name could be removed at once (else refused, nothing read). (a, b LOW) The backfill's report of
+replacements reads the parent_ref CW keeps (an older copy CW ignored names nothing). (a, b MEDIUM) The live feed's first-reservation read
+stops after 1 s (MAX_EXECUTION_TIME), then 503 busy (no test: a stalled database cannot be held still); the README's known limits 13, 31,
+34, 37, 40, 41 and go-live step 0 / 1c say the rest.

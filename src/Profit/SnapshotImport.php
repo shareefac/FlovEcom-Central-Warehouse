@@ -73,9 +73,14 @@ final class SnapshotImport
             throw new \InvalidArgumentException("cannot make a copy of {$path}");
         }
         $fh = @fopen($name, 'w+b');
-        @unlink($name);
-        if ($fh === false) {
-            throw new \InvalidArgumentException("cannot make a copy of {$path}");
+        // Its name gone before a byte is written, or no copy at all (a temporary folder that lets a file be made but not removed: the Codex
+        // check of the fix round, r13 a, b).
+        $gone = @unlink($name);
+        if ($fh === false || !$gone) {
+            if ($fh !== false) {
+                fclose($fh);
+            }
+            throw new \InvalidArgumentException("cannot make a private copy of {$path} in " . sys_get_temp_dir() . ' (a file there cannot be removed at once)');
         }
         $src = @fopen($path, 'rb');
         if ($src === false) {
@@ -109,6 +114,12 @@ final class SnapshotImport
         // PLACED, CONTRACT change 7), none placed before the store's first reservation when asked: else nothing is written (the second final
         // review of 3c31d94, a-L3, b-M5, PR138; c-HIGH3, PR148): two copies of a £12 order with a .sum of two orders and £24 passed.
         $bad = [];
+        // A line over the cap cannot be checked against the others (its ref is never read): the day is refused whole (the Codex check of the
+        // fix round, r13 b: a second copy of an order over 256 KB let the first be written). The connector never sends an order that big
+        // (1,000 lines at most, CONTRACT): such a line is a broken export.
+        foreach ($check['long'] as $n) {
+            $bad[] = "line {$n}: larger than " . intdiv(self::MAX_LINE_BYTES, 1024) . ' KB: its order cannot be checked against the others (export the day again)';
+        }
         foreach ($check['orders'] as $o) {
             if ($o['twice'] !== null) {
                 $bad[] = "line {$o['line']}: order {$o['ref']} is in the file twice (line {$o['twice']} has it already)";
@@ -170,17 +181,22 @@ final class SnapshotImport
     }
 
     /**
-     * Of the replacements stored ($parents: ref => the parent_ref it names), those whose chain's first order is not in CW (no sale_order row
-     * of the order its parent_ref chain reaches).
+     * Of the file's orders ($refs: ref => true), the replacements whose chain's first order is not in CW: by the parent_ref CW keeps for each
+     * (sale_order, after the write: an older copy CW ignored names nothing; the Codex check of the fix round, r13 a, b), followed to the order
+     * that is none's re-send, which has no sale_order row.
      *
-     * @param array<string, string> $parents
+     * @param array<string, true> $refs
      * @return array<string, string> ref => the first order it names
      */
-    private function orphans(int $channel, array $parents): array
+    private function orphans(int $channel, array $refs): array
     {
         $out = [];
-        foreach ($parents as $ref => $parent) {
-            $root = OrderSnapshots::rootOf($this->db, $channel, $parent);
+        foreach (array_keys($refs) as $ref) {
+            $parent = $this->db->value('SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channel, (string) $ref]);
+            if ($parent === null) {
+                continue;
+            }
+            $root = OrderSnapshots::rootOf($this->db, $channel, (string) $parent);
             if ($this->db->value('SELECT 1 FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channel, $root]) === null) {
                 $out[(string) $ref] = $root;
             }
@@ -194,13 +210,14 @@ final class SnapshotImport
      * @param resource $fh the copy (privateCopy()), read from its start
      * @param \Closure(string): void $log
      * @return array{lines: int, results: array<string, int>, refused: int, read: array<string, int>,
-     *         orders: list<array{line: int, ref: string, day: ?string, placed: ?string, twice: ?int}>, parents: array<string, string>}
+     *         orders: list<array{line: int, ref: string, day: ?string, placed: ?string, twice: ?int}>, parents: array<string, true>, long: list<int>}
      */
     private function pass($fh, ?OrderSnapshots $service, int $channel, \DateTimeImmutable $now, \Closure $log): array
     {
         $orders = [];
         $seen = [];
         $parents = [];
+        $long = [];
         rewind($fh);
         $results = array_fill_keys(OrderSnapshots::RESULTS, 0);
         $read = ['orders' => 0, 'lines' => 0, 'goods_inc' => 0, 'delivery_inc' => 0];
@@ -214,6 +231,7 @@ final class SnapshotImport
                     // the rest of an over-long line: never read as a line of its own
                 }
                 if ($tooLong) {
+                    $long[] = $n;
                     $refused++;
                     $log("line {$n}: refused body_too_large: the line is larger than " . intdiv(self::MAX_LINE_BYTES, 1024) . ' KB');
                     continue;
@@ -262,9 +280,7 @@ final class SnapshotImport
                     $read['delivery_inc'] += $body['delivery']['charged_inc'];
                     if ($service !== null) {
                         $results[$service->store($channel, $ref, $o, 'bulk')['result']]++;
-                        if ($body['parent_ref'] !== null) {
-                            $parents[$ref] = (string) $body['parent_ref'];
-                        }
+                        $parents[$ref] = true;
                     }
                 } catch (CwException $e) {
                     $refused++;
@@ -283,7 +299,7 @@ final class SnapshotImport
         } finally {
             rewind($fh);
         }
-        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read, 'orders' => $orders, 'parents' => $parents];
+        return ['lines' => $n, 'results' => $results, 'refused' => $refused, 'read' => $read, 'orders' => $orders, 'parents' => $parents, 'long' => $long];
     }
 
     /**

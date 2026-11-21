@@ -252,4 +252,42 @@ final class FinalReview3SnapshotTest extends StockTestCase
         $r = self::script('seed_item_cost', '--bin=' . $bin, '--store=vapeandgo');
         self::assertSame(0, $r['code'], 'its own store: the dry run ' . $r['out']);
     }
+
+    // ---- the Codex check of this fix round (r13 b, build/A/codex_r13_b.txt), shown failing first on 9c15538 -----------------------------
+
+    /** r13 b: a line over 256 KB cannot be checked against the others (its ref is not read): the day file is refused whole, nothing written. */
+    public function testALineTooLongToCheckRefusesItsDayFileWhole(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $good = json_encode(['ref' => '5361'] + self::body([self::sl('9500071', '1', 1200)]), JSON_THROW_ON_ERROR);
+        $long = json_encode(['ref' => '5361', 'padding' => str_repeat('x', 270_000)] + self::body([self::sl('9500072', '1', 1200)]), JSON_THROW_ON_ERROR);
+        $f = $this->dayFile([$good, $long], 2, 2, 2400);
+        $log = [];
+        $r = (new SnapshotImport(self::$db))->file('vapeandgo', $f, false, function (string $m) use (&$log): void {
+            $log[] = $m;
+        });
+        self::assertSame(1, $r['file_refused'], implode("\n", $log));
+        self::assertStringContainsString('line 2', implode("\n", $log));
+        self::assertNull(self::$db->value("SELECT 1 FROM sale_order WHERE channel_id = ? AND order_ref = '5361'", [$site->channelId]), 'nothing written');
+    }
+
+    /**
+     * r13 b, a (LOW): the report reads the parent CW keeps: an older copy of an order CW holds with no parent (older_ignored) naming a missing
+     * first order is not reported; a new replacement whose first order is missing is (one, never two).
+     */
+    public function testTheBackfillsReportReadsTheParentCwKeeps(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '5371', self::body([self::sl('9500081', '1', 1200)], ['version' => 2000]), 'bulk');
+        $f = $this->dayFile([json_encode(['ref' => '5371'] + self::body([self::sl('9500081', '1', 1200)], ['version' => 1000, 'parent_ref' => '5369']), JSON_THROW_ON_ERROR),
+            json_encode(['ref' => '5372'] + self::body([self::sl('9500082', '1', 1200)], ['parent_ref' => '5368']), JSON_THROW_ON_ERROR)], 2, 2, 2400);
+        $log = [];
+        $r = (new SnapshotImport(self::$db))->file('vapeandgo', $f, false, function (string $m) use (&$log): void {
+            $log[] = $m;
+        });
+        self::assertSame([1, 1], [$r['results']['stored'], $r['results']['older_ignored']], implode("\n", $log));
+        self::assertSame(1, $r['orphans'] ?? null, implode("\n", $log));
+        self::assertStringContainsString('5372 (first order 5368)', implode("\n", $log));
+        self::assertStringNotContainsString('5369', implode("\n", $log), 'the ignored copy\'s parent is not CW\'s');
+    }
 }

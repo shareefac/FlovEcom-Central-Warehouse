@@ -811,7 +811,7 @@ final class CostEngine
      * receipt events of that invoice whose line, by receiptBasis, got units of it (a line received into several warehouses is several events,
      * one line). Per receipt line: its units in, its first and last portion's times and its basis.
      *
-     * @return list<array{units: int, first_at: string, last_at: string, last_row: int, basis: array<string, mixed>}>
+     * @return list<array{units: int, first_at: string, last_at: string, last_row: int, basis: array<string, mixed>, grn: int, line: int}>
      */
     private function receiptsTaking(int $invoice, int $invLine, int $sku, string $at): array
     {
@@ -828,7 +828,8 @@ final class CostEngine
             // Its last portion's row: "since it came" starts after the whole receipt in the item's commit order.
             $lastRow = (int) $this->db->value("SELECT MAX(id) FROM stock_ledger WHERE document_id = ? AND document_line = ? AND sku_id = ? AND movement_type = 'goods_in' "
                 . "AND bucket = 'on_hand' AND qty_delta > 0", [(int) $g['document_id'], (int) $g['document_line'], $sku]);
-            $out[] = ['units' => (int) $g['units'], 'first_at' => (string) $g['first_at'], 'last_at' => (string) $g['last_at'], 'last_row' => $lastRow, 'basis' => $basis];
+            $out[] = ['units' => (int) $g['units'], 'first_at' => (string) $g['first_at'], 'last_at' => (string) $g['last_at'], 'last_row' => $lastRow, 'basis' => $basis,
+                'grn' => (int) $g['document_id'], 'line' => (int) $g['document_line']];
         }
         return $out;
     }
@@ -959,12 +960,28 @@ final class CostEngine
             . "JOIN stock_value_seq vq ON vq.stock_ledger_id = vl.id WHERE v.reverses_id = ? AND v.status = 'posted' AND vq.created_at <= ? LIMIT 1", [$sku, $grn, $at]) !== null) {
             return 0;
         }
-        return max(0, min((int) $r['units'], $this->layerHere($sku, (int) $r['last_row'], $this->position($sku, $at))));
+        return max(0, min((int) $r['units'], $this->lineHere($sku, $grn, $line, $this->position($sku, $at))));
     }
 
     /**
-     * The units of the delivery whose last portion is ledger row $lastRow that can still be on hand at place $to of the item's commit order,
-     * the oldest sold first (FIFO layers; the third final review, a-HIGH1, PR154): the fewest, over the ends of the operations from its own to
+     * A delivery line's units still on hand at place $to: the sum of its portions' layers (each ledger row of it into our warehouses, e.g. its
+     * accepted units into MAIN and the ones set aside into VERIFY, which a receipt books after every line's MAIN units), each at most its own
+     * units (the Codex check of the fix round, r13 a and c: one walk from the line's last portion counted the units of a line booked between
+     * its portions as its own: two lines of an item on one receipt, the first partly set aside, both invoiced at £2 gave £2.20 for £2.00).
+     */
+    private function lineHere(int $sku, int $grn, int $line, int $to): int
+    {
+        $n = 0;
+        foreach ($this->db->all("SELECT l.id, l.qty_delta FROM stock_ledger l JOIN warehouse w ON w.id = l.warehouse_id WHERE l.document_id = ? AND l.document_line = ? "
+            . "AND l.sku_id = ? AND l.movement_type = 'goods_in' AND l.bucket = 'on_hand' AND l.qty_delta > 0 AND w.stock_owner = 'own' ORDER BY l.id", [$grn, $line, $sku]) as $p) {
+            $n += max(0, min((int) $p['qty_delta'], $this->layerHere($sku, (int) $p['id'], $to)));
+        }
+        return $n;
+    }
+
+    /**
+     * The units of the delivery portion that is ledger row $lastRow (lineHere() sums a line's portions) that can still be on hand at place $to
+     * of the item's commit order, the oldest sold first (FIFO layers; the third final review, a-HIGH1, PR154): the fewest, over the ends of the operations from its own to
      * $to, of the units on hand LESS the units the item's later deliveries brought by then (a priced goods_in of ours after it, less its own
      * cancellation), never below 0 (its units in are the caller's cap). So the units on hand are given to the newest deliveries first and a
      * sale takes the oldest: a unit is ever one delivery's, and the deliveries' units still here add up to the units on hand at most. Every
@@ -1016,7 +1033,7 @@ final class CostEngine
         foreach ($taking as $t) {
             // The units of the CREDITED line this receipt took (a receipt of two invoice lines keyed as one: ten of one line, two of the other).
             $mine = (int) ($t['basis']['lines'][(int) $invLine]['take'] ?? $t['units']);
-            $n += max(0, min($mine, $this->layerHere($sku, (int) $t['last_row'], $this->position($sku, $at))));
+            $n += max(0, min($mine, $this->lineHere($sku, (int) $t['grn'], (int) $t['line'], $this->position($sku, $at))));
         }
         return $n;
     }
@@ -1214,7 +1231,7 @@ final class CostEngine
         }
         $first = (int) ($this->db->value('SELECT MIN(q.seq) FROM stock_ledger l JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.document_id = '
             . '(SELECT document_id FROM stock_ledger WHERE id = ?) AND l.sku_id = ?', [$revRow, $sku]) ?? 0);
-        $here = $first <= 0 ? $n : max(0, min($n, $this->layerHere($sku, (int) $g['last_row'], $first - 1)));
+        $here = $first <= 0 ? $n : max(0, min($n, $this->lineHere($sku, $grn, $line, $first - 1)));
         if ($here <= 0) {
             return 0;
         }
@@ -1283,7 +1300,7 @@ final class CostEngine
                 // rounding back once: the Codex check of 51417a3, L4).
                 $value = 0;
                 foreach ($this->receiptsTaking((int) $e['ref_document_id'], (int) $e['ref_line'], $sku, $at) as $t) {
-                    $u = min($t['units'], $this->layerHere($sku, (int) $t['last_row'], $this->position($sku, $at)));
+                    $u = min($t['units'], $this->lineHere($sku, (int) $t['grn'], (int) $t['line'], $this->position($sku, $at)));
                     if ($u > 0) {
                         $basis = $t['basis'];
                         foreach (array_keys($basis['lines']) as $no) {

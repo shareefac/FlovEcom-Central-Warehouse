@@ -137,14 +137,17 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot'), 'a .sum that does not match: nothing written');
         file_put_contents($this->dir . '/snapshots_vapebig_2026-04-10.sum', json_encode($sum));
         self::assertSame(['stored' => 2, 'same' => 0, 'older_ignored' => 0], $import->file('vapebig', $file, false, $quiet)['results']);
-        // A line longer than the cap is one refused line: what follows it on that line is never read as an order.
+        // A line longer than the cap is one refused line: what follows it on that line is never read as an order; and since its order cannot be
+        // checked against the others (it could be a second copy), the day file is refused whole, nothing written (the Codex check of the third
+        // final review's fix round, r13 b, PR154; it stored the other line).
         $long = $this->dir . '/snapshots_vapebig_2026-04-11.jsonl';
         file_put_contents($long, str_repeat('9100006', SnapshotImport::MAX_LINE_BYTES + 5) . $line('3', '2026-04-11') . "\n" . $line('4', '2026-04-11') . "\n");
         file_put_contents($this->dir . '/snapshots_vapebig_2026-04-11.sum', json_encode(['channel' => 'vapebig', 'day' => '2026-04-11', 'orders' => 1, 'lines' => 1,
             'goods_inc' => 100, 'delivery_inc' => 0, 'file_sha256' => hash_file('sha256', $long)]));
         $r = $import->file('vapebig', $long, false, $quiet);
-        self::assertSame([1, 1], [$r['refused'], $r['results']['stored']]);
+        self::assertSame([1, 0, 1], [$r['refused'], $r['results']['stored'], $r['file_refused']]);
         self::assertNull(self::$db->value("SELECT 1 FROM order_snapshot WHERE order_ref = '3'"));
+        self::assertNull(self::$db->value("SELECT 1 FROM order_snapshot WHERE order_ref = '4'"), 'nothing of the day written');
     }
 
     private function refused(callable $fn, string $says): void

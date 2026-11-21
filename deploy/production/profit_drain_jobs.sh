@@ -9,6 +9,8 @@
 # (tests/Unit/ProfitUndoScriptsBehaviourTest.php runs it on stubs).
 set -euo pipefail
 REL=/opt/cw-prod-release
+LIVE=/opt/cw-prod
+RELEASES=/opt/cw-prod-releases
 LOCK=/run/lock/cw-prod-install.lock
 J='bin/(apply_order_snapshots|refresh_item_cost|rebuild_profit_days|import_order_snapshots|import_erp_sales_cost|recost_sales|seed_item_cost)\.php'
 stop() { echo "DRAIN STOPPED: $*" >&2; exit 1; }
@@ -38,10 +40,14 @@ fi
 [[ $(tr -cd '0-9a-f' < "$REL/REVISION") == "$1" ]] || stop "$REL changed during the drain: it is no longer the rollback commit $1; nothing installed (push it again, then run this again)"
 echo "DRAINED: no profit job runs; the installer of $1 now (without --migrate)"
 # The lock let go, and the installer (which takes it again at its start) run at once: a push waiting for the lock may take it first, then
-# the installer refuses (another install or push holds it) and nothing is installed: run this again.
+# the installer refuses (another install or push holds it) and nothing is installed: run this again. What the installer switched to is
+# checked after it: a push that took the lock and replaced the release copy before the installer started would have it install that
+# commit (the Codex check of the fix round, r13 a): said, never "DRAINED AND INSTALLED".
 flock -u 9
 exec 9>&-
 if bash "$REL/deploy/production/install_cron.sh"; then
+    now=$(readlink -f "$LIVE" || true)
+    [[ $now == "$RELEASES/$1" ]] || stop "$LIVE runs $now, not the rollback commit $1 (a push took the lock as it was let go): push the rollback again, then run this again"
     echo "DRAINED AND INSTALLED: $1 (the rollback release) runs; check its smoke lines above"
 else
     code=$?

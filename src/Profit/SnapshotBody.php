@@ -232,7 +232,9 @@ final class SnapshotBody
                 'tracking_no' => self::tracking(self::optText($p['tracking_no'] ?? null, "{$f}.tracking_no", 64, true), $carrier,
                     self::flag($p['manual'] ?? false, "{$f}.manual")),
                 'carrier' => $carrier,
-                'service_code' => self::serviceCode(self::optText($p['service_code'] ?? null, "{$f}.service_code", 64, true)),
+                // Any code outside the carriers' list is "", never a refusal (a long or broken text too: the Codex check of the fix round, r13 b).
+                'service_code' => self::serviceCode(is_int($p['service_code'] ?? null) ? (string) $p['service_code']
+                    : (is_string($p['service_code'] ?? null) ? trim($p['service_code']) : null)),
                 'service' => (string) self::serviceName(self::optText($p['service'] ?? null, "{$f}.service", 128)),
                 'status' => self::word((string) self::optText($p['status'] ?? null, "{$f}.status", 32), self::PARCEL_STATUSES),
                 'label_at' => self::time($p['label_at'] ?? null, "{$f}.label_at", $now, true),
@@ -373,8 +375,8 @@ final class SnapshotBody
         $anchored = false;
         $place = false;
         $collection = false;
-        foreach (preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $t) {
-            $t = strtolower($t);
+        $tokens = array_map('strtolower', preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: []);
+        foreach ($tokens as $t) {
             if (!in_array($t, self::SERVICE_WORDS, true) && preg_match('/^[0-9]{1,4}(st|nd|rd|th|h|hr|hrs)?$/D', $t) !== 1) {
                 return null;
             }
@@ -382,9 +384,43 @@ final class SnapshotBody
             $place = $place || $t === 'preston';
             $collection = $collection || $t === 'collection' || $t === 'collect';
         }
+        // A number is a service's number only next to a word that numbers a service (Tracked 48, 2 Day, 1st Class, 48 Hour) or in a range
+        // of such numbers (2-4 Working Days): else it may be a house number ("Collection: 12 The Point, Preston": the Codex check of the fix
+        // round, r13 b, HIGH): not kept.
+        if (!self::numbersAreServices($tokens)) {
+            return null;
+        }
         // A carrier's or a service's word in it, else it may be an address ("12 Preston"): not kept (PR141). The shop's own place (its
         // collection point) only in the name of its collection: "Delivery 12 Preston" is never kept (the Codex check of the fix round, PR152).
         return $anchored && (!$place || $collection) ? $v : null;
+    }
+
+    /** The words a service's number stands next to (SERVICE_WORDS all). */
+    public const NUMBER_WORDS = ['tracked', 'day', 'days', 'working', 'hour', 'hours', 'hr', 'hrs', 'class', 'service'];
+
+    /**
+     * Whether every number of a name's words stands next to a NUMBER_WORDS word, or next to such a number (a range: 2-4 Working Days).
+     *
+     * @param list<string> $tokens lower case
+     */
+    private static function numbersAreServices(array $tokens): bool
+    {
+        $isNumber = static fn (string $t): bool => preg_match('/^[0-9]/', $t) === 1;
+        $ok = [];
+        foreach ($tokens as $i => $t) {
+            $ok[$i] = !$isNumber($t) ? null : (in_array($tokens[$i - 1] ?? '', self::NUMBER_WORDS, true) || in_array($tokens[$i + 1] ?? '', self::NUMBER_WORDS, true));
+        }
+        // A number next to a number that is a service's (both ways, until nothing changes).
+        do {
+            $changed = false;
+            foreach ($ok as $i => $good) {
+                if ($good === false && (($ok[$i - 1] ?? null) === true || ($ok[$i + 1] ?? null) === true)) {
+                    $ok[$i] = true;
+                    $changed = true;
+                }
+            }
+        } while ($changed);
+        return !in_array(false, $ok, true);
     }
 
     /**

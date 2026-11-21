@@ -8,7 +8,6 @@
 # production box, from a plain root shell with no profit tool open: bash /root/profit_undo_b.sh (tests/Unit/ProfitUndoScriptsBehaviourTest.php
 # runs it on stubs).
 set -euo pipefail
-set -o errtrace  # the ERR trap below in functions and subshells too
 RB=/opt/cw-prod-releases/rollback-profit
 LIVE=/opt/cw-prod
 J='bin/(apply_order_snapshots|refresh_item_cost|rebuild_profit_days|import_order_snapshots|import_erp_sales_cost|recost_sales|seed_item_cost)\.php'
@@ -21,7 +20,8 @@ stop() {
     fi
     exit 1
 }
-# A command that fails after the switch is never a bare tool error: it names itself and says the link is switched.
+# A command that fails after the switch is never a bare tool error: it names itself and says the link is switched. (Not inherited by
+# command substitutions: a smoke job's own exit is read by the loop below, the Codex check of the fix round, r13.)
 trap 'rc=$?; if [[ $switched -eq 1 ]]; then echo "UNDO B STOPPED: \"$BASH_COMMAND\" failed (exit $rc) (the link is already switched; run this again)" >&2; fi; exit 1' ERR
 [[ $(id -u) -eq 0 && $(hostname) == cw-prod-lon1-01 ]] || stop "run as root on cw-prod-lon1-01"
 for f in bin/migrate.php bin/expire_reservations.php vendor/autoload.php public/index.php deploy/production/cw-prod.cron \
@@ -64,18 +64,16 @@ if [[ -f /etc/cw/cw-fpm.stopped ]] || ! systemctl is-active --quiet php8.3-fpm; 
 else
     systemctl reload php8.3-fpm
 fi
-site=0
 if [[ -f /etc/cw/cw-https.paused ]] || ! a2query -s cw-https >/dev/null 2>&1; then
     a2ensite -q cw-https
-    site=1
 fi
+# Apache's configuration checked on every run, then Apache started (stopped) or reloaded (running): a run again after a stop half way
+# reloads what an earlier run enabled on disk (the Codex check of the fix round, r13 a: it skipped the reload, DONE with the vhost not loaded).
+apache2ctl configtest || stop "Apache's configuration does not load (apache2ctl configtest): fix it, then run this again"
 if ! systemctl is-active --quiet apache2; then
-    # Apache stopped (the site enabled on disk or not): its configuration checked, then started.
-    apache2ctl configtest || stop "Apache's configuration does not load (apache2ctl configtest): fix it, then run this again"
     systemctl start apache2 || stop "Apache does not start (systemctl start apache2)"
-elif [[ $site -eq 1 ]]; then
-    apache2ctl configtest || stop "Apache's configuration does not load (apache2ctl configtest): fix it, then run this again"
-    systemctl reload apache2
+else
+    systemctl reload apache2 || stop "Apache does not reload (systemctl reload apache2)"
 fi
 rm -f /etc/cw/cw-https.paused
 if [[ -f /etc/cw/cw-prod.cron.paused ]]; then

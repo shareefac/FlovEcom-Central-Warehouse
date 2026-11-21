@@ -270,8 +270,21 @@ final class OrderSnapshots
         if ($placed === null) {
             return true;
         }
-        return $db->value('SELECT 1 FROM reservation WHERE channel_id = ? AND created_at <= ? LIMIT 1', [$channelId, $placed]) === null;
+        // Bounded (the Codex check of the fix round, r13 a: a web worker shared with the stock calls): the read stops after BOUNDARY_READ_MS,
+        // then 503 busy, which the connector retries; the store's rows read once take a few milliseconds (README known limit 31).
+        try {
+            return $db->value('SELECT /*+ MAX_EXECUTION_TIME(' . self::BOUNDARY_READ_MS . ') */ 1 FROM reservation WHERE channel_id = ? AND created_at <= ? LIMIT 1',
+                [$channelId, $placed]) === null;
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) === 3024) {
+                throw new CwException('busy', 'the store\'s first reservation could not be read in time; retry shortly', 503);
+            }
+            throw $e;
+        }
     }
+
+    /** The most milliseconds the live feed's boundary read may take (beforeFirstReservation()). */
+    public const BOUNDARY_READ_MS = 1000;
 
     /** The name of an order's intake lock (accept() only; never the money work's guard, so the API never waits for it). Case as the key's. */
     public static function intakeLockName(int $channelId, string $ref): string

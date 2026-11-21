@@ -179,4 +179,33 @@ final class FinalReview3CostTest extends ArrivalsTestCase
         self::assertSame(40000, self::cost($o['sku']), 'its credit reaches none either');
         self::assertSame(40000, $this->engine(120)->rebuild($o['sku']), 'nor the history written again');
     }
+
+    /**
+     * The Codex check of this fix round (r13 a and c, H1 PARTLY): one receipt with two lines of the item, the first line's 20 of 50 set aside
+     * (VERIFY, booked after both lines' units for MAIN), all at £1; 80 sold; every line invoiced at £2: the 50 left are 20 of the first line's
+     * set-aside units and 30 of the second line's: £2.00 (it said £2.20: the first line's walk from its last portion counted the second line's
+     * units as its own). A delivery line's units still here are the sum of its portions' layers.
+     */
+    public function testTwoLinesOfAnItemOnOneReceiptWithUnitsSetAsideMoveEachUnitOnce(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $this->grant($site, 'erp_sale');
+        $who = $this->people('Two Lines One Receipt Ltd');
+        $o = $this->approvedPoFor($who['buyer'], (int) $who['supplier']['id'], 130, 1, '1.0000');
+        $this->listing($site, '94000001', $o['sku']);
+        $this->start();
+        $line = ['sku_id' => $o['sku'], 'supplier_item_id' => (int) $o['si']['id'], 'units_per_pack' => 1, 'pack_price' => '1.00'];
+        $g = $this->delivered($who['desk'], (int) $who['supplier']['id'], [$line + ['packs' => 50], $line + ['packs' => 80]], null, [1 => ['damaged_units' => '20']]);
+        self::assertSame([[1, 30], [2, 80], [1, 20]], array_map(static fn (array $r): array => [(int) $r['document_line'], (int) $r['qty_delta']],
+            self::$db->all("SELECT l.document_line, l.qty_delta FROM stock_ledger l JOIN stock_value_seq q ON q.stock_ledger_id = l.id WHERE l.document_id = ? "
+                . "AND l.movement_type = 'goods_in' ORDER BY q.seq", [$g->id])), 'the first line\'s set-aside units booked after both lines\' MAIN units');
+        $this->sell($site, '94000001', 80);
+        $d = $this->invoices->createFromReceipt($who['desk'], $g->id)['document'];
+        $d = $this->invoices->saveLines($who['desk'], $d->id, $d->version, array_map(static fn (array $l): array => SupplierInvoicesTest::lineOf($l, ['pack_price' => '2.0000']),
+            $this->invoices->lines($d->id)));
+        $this->postWithTotals($who['desk'], $d, null, '0.00', ['invoice_number' => 'F3P-' . bin2hex(random_bytes(4)), 'invoice_date' => self::day('-1 day')]);
+        $this->engine()->run();
+        self::assertSame(20000, self::cost($o['sku']), 'the 50 left at £2 (never £2.20)');
+        self::assertSame(20000, $this->engine(60)->rebuild($o['sku']));
+    }
 }

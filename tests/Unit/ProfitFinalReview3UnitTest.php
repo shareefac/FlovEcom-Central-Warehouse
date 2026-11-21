@@ -126,4 +126,39 @@ final class ProfitFinalReview3UnitTest extends TestCase
         // A walk starting inside its operation counts only the operation's end.
         self::assertSame(10, ProfitMath::lowestLayer(10, [['qty' => 5, 'op' => 'd1', 'later' => true]], false));
     }
+
+    // ---- the Codex check of this fix round (r13, build/A/codex_r13_{a,b,c}.txt), shown failing first on 9c15538 ----------------------------
+
+    /** r13 b (H4 PARTLY): a service code longer than 64 characters or with a control character is "" too, never a 400. */
+    public function testAnyServiceCodeOutsideTheListIsNothingNeverARefusal(): void
+    {
+        foreach ([str_repeat('A', 65), "TSS\x01", str_repeat('Jane Smith 1 High Street ', 10)] as $code) {
+            $b = SnapshotBody::parse(self::body(['parcels' => [self::parcel(['service_code' => $code])]]), self::now());
+            self::assertSame('', $b['parcels'][0]['service_code'], 'never stored, never refused: ' . substr($code, 0, 20));
+        }
+        $b = SnapshotBody::parse(self::body(['parcels' => [self::parcel(['service_code' => 68, 'carrier' => 'dpd'])]]), self::now());
+        self::assertSame('68', $b['parcels'][0]['service_code'], 'a whole number as a number');
+    }
+
+    /**
+     * r13 b (H4 PARTLY, HIGH): a delivery method or a parcel's service with a number that is no service's number (next to none of tracked, day,
+     * days, working, hour, hours, hr, hrs, class, service, nor part of such a range) is never kept: "Collection: 12 The Point, Preston" (a
+     * house number and a street) is null; every real name stays.
+     */
+    public function testANumberInAServiceNameIsAServicesNumberOrTheNameIsNotKept(): void
+    {
+        foreach (['Collection: 12 The Point, Preston', 'Collection 12 The Point', 'Collect 4 Home Office', 'Delivery 12 Preston', 'Tracked Point 12',
+            'Royal Mail 12 Shop', 'In Store Collection 7 Preston'] as $address) {
+            self::assertNull(SnapshotBody::serviceName($address), $address);
+            $b = SnapshotBody::parse(self::body(['delivery' => ['method_id' => '12', 'method' => $address, 'charged_inc' => 0, 'refund_inc' => 0],
+                'parcels' => [self::parcel(['service' => $address])]]), self::now());
+            self::assertSame([null, ''], [$b['delivery']['method'], $b['parcels'][0]['service']], $address);
+        }
+        foreach (['DPD', 'DPD 2 Day Service', 'DPD Pickup (2 day Service)', 'In Store Collection Preston', 'Royal Mail International Tracked',
+            'Royal Mail Special Next Day Delivery', 'Royal Mail Tracked 24(1-2 Working Days)', 'Royal Mail Tracked 48 (2-4 Working Days)', 'EVRI International',
+            'Return label', 'Royal Mail Tracked 48', 'Tracked 48', 'Click and Collect Preston', 'Royal Mail 1st Class', 'Royal Mail 2nd Class Signed For',
+            '48 Hour Tracked', 'DPD Next Day (1-2 working days)'] as $real) {
+            self::assertSame($real, SnapshotBody::serviceName($real), $real);
+        }
+    }
 }
