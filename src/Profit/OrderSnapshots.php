@@ -86,8 +86,13 @@ final class OrderSnapshots
     {
         $r = $this->accept($channelId, $ref, $raw, $source);
         $ref = SnapshotBody::orderRef($ref, 'ref');
-        if ($this->db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND failed = 0', [$channelId, $ref]) !== null) {
+        $q = $this->db->one('SELECT failed, error FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+        if ($q !== null && (int) $q['failed'] === 0) {
             $this->applyOne($channelId, $ref, true);
+        } elseif ($q !== null && ($r['queued'] ?? false) === true) {
+            // What this call stored was refused by the money job, which ran in between: a refusal, as when this call works it out itself
+            // (never counted "stored" by the bulk file: the Codex check of 2b718e7).
+            throw new CwException('bad_snapshot', 'refused by the money job: ' . (string) $q['error'], 400);
         }
         unset($r['queued']);
         return $r;
@@ -137,10 +142,12 @@ final class OrderSnapshots
                         if ($body['version'] <= $stored) {
                             return ['result' => 'same', 'version' => $stored];
                         }
-                        // A newer version of the same content: remembered (the order's row takes it on the next money work).
+                        // A newer version of the same content: remembered (the order's row takes it on the next money work). Its seq moves on and
+                        // its refusal is forgotten, as for any newer snapshot: a job working the older version out meanwhile never takes the
+                        // row away with this version on it (the Codex check of 2b718e7: 1012 acknowledged, then lost, then a late 1011 taken).
                         if ($q !== null) {
-                            $db->exec("UPDATE order_snapshot_queue SET version = ?, body = JSON_SET(body, '$.version', ?) WHERE channel_id = ? AND order_ref = ?",
-                                [$body['version'], $body['version'], $channelId, $ref]);
+                            $db->exec("UPDATE order_snapshot_queue SET seq = seq + 1, version = ?, body = JSON_SET(body, '$.version', ?), failed = 0, error = NULL "
+                                . 'WHERE channel_id = ? AND order_ref = ?', [$body['version'], $body['version'], $channelId, $ref]);
                         } else {
                             self::enqueue($db, $channelId, $ref, $body, $hash, $source, $at, false);
                         }
@@ -229,38 +236,49 @@ final class OrderSnapshots
             }
             $parent = $pre['parent'] === null || $pre['parent'] === 'null' ? null : (string) $pre['parent'];
             $seq = (int) $pre['seq'];
+            $marked = false;
             try {
-                $r = $this->guarded($channelId, $ref, $parent, function () use ($channelId, $ref, $seq): string {
-                    return $this->db->transaction(function (Db $db) use ($channelId, $ref, $seq): string {
-                        $q = $db->one('SELECT seq, version, body_hash, source, first_at, CAST(body AS CHAR) AS body FROM order_snapshot_queue '
-                            . 'WHERE channel_id = ? AND order_ref = ? AND failed = 0', [$channelId, $ref]);
-                        if ($q === null) {
-                            return 'none';
+                $r = $this->guarded($channelId, $ref, $parent, function () use ($channelId, $ref, $seq, &$marked): string {
+                    try {
+                        return $this->db->transaction(function (Db $db) use ($channelId, $ref, $seq): string {
+                            $q = $db->one('SELECT seq, version, body_hash, source, first_at, CAST(body AS CHAR) AS body FROM order_snapshot_queue '
+                                . 'WHERE channel_id = ? AND order_ref = ? AND failed = 0', [$channelId, $ref]);
+                            if ($q === null) {
+                                return 'none';
+                            }
+                            if ((int) $q['seq'] !== $seq) {
+                                return 'changed'; // replaced since its guards were chosen: read again
+                            }
+                            $body = json_decode((string) $q['body'], true, 64, JSON_THROW_ON_ERROR);
+                            $now = Clock::db(($this->clock)());
+                            $this->apply($db, $channelId, $ref, $body, $now);
+                            $db->exec('INSERT INTO order_snapshot (channel_id, order_ref, version, body_hash, body, source, first_at, stored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+                                . 'AS n ON DUPLICATE KEY UPDATE version = n.version, body_hash = n.body_hash, body = n.body, source = n.source, stored_at = n.stored_at',
+                                [$channelId, $ref, (int) $q['version'], (string) $q['body_hash'], (string) $q['body'], (string) $q['source'], (string) $q['first_at'], $now]);
+                            $db->exec('DELETE FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND seq = ?', [$channelId, $ref, $seq]);
+                            return 'applied';
+                        });
+                    } catch (\Throwable $e) {
+                        // Marked while the order's guards are still held: no other money writer can work a newer snapshot out and take its row
+                        // away (and the API then make a new row with seq 1 again) before the mark (the Codex check of 2b718e7). A lock wait of
+                        // the mark itself is `busy` (the row stays waiting).
+                        if (!self::isBusy($e)) {
+                            $this->markRefused($channelId, $ref, $seq, $e);
+                            $marked = true;
                         }
-                        if ((int) $q['seq'] !== $seq) {
-                            return 'changed'; // replaced since its guards were chosen: read again
-                        }
-                        $body = json_decode((string) $q['body'], true, 64, JSON_THROW_ON_ERROR);
-                        $now = Clock::db(($this->clock)());
-                        $this->apply($db, $channelId, $ref, $body, $now);
-                        $db->exec('INSERT INTO order_snapshot (channel_id, order_ref, version, body_hash, body, source, first_at, stored_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
-                            . 'AS n ON DUPLICATE KEY UPDATE version = n.version, body_hash = n.body_hash, body = n.body, source = n.source, stored_at = n.stored_at',
-                            [$channelId, $ref, (int) $q['version'], (string) $q['body_hash'], (string) $q['body'], (string) $q['source'], (string) $q['first_at'], $now]);
-                        $db->exec('DELETE FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND seq = ?', [$channelId, $ref, $seq]);
-                        return 'applied';
-                    });
+                        throw $e;
+                    }
                 });
             } catch (\Throwable $e) {
-                $busy = ($e instanceof CwException && $e->errorCode === 'busy') || in_array(Db::driverCode($e), [1205, 1213], true);
-                if ($busy) {
+                if (self::isBusy($e)) {
                     if ($throw) {
                         throw $e;
                     }
                     return 'busy';
                 }
-                // Marked on the row only while it is still the snapshot that was refused: a newer one stored meanwhile is worked out next.
-                $this->db->exec('UPDATE order_snapshot_queue SET failed = 1, tries = tries + 1, error = ? WHERE channel_id = ? AND order_ref = ? AND seq = ?',
-                    [mb_substr(($e instanceof CwException ? $e->errorCode : get_class($e)) . ': ' . $e->getMessage(), 0, 255), $channelId, $ref, $seq]);
+                if (!$marked) {
+                    $this->markRefused($channelId, $ref, $seq, $e); // an error before the work (the guards' reads)
+                }
                 throw $e;
             }
             if ($r !== 'changed') {
@@ -318,6 +336,19 @@ final class OrderSnapshots
         $ref = strtolower($ref); // the key compares without case: ORD1 and ord1 are one order, one guard (the Codex check of c48683e)
         $name = 'cw_profit:' . $channelId . ':' . $ref;
         return strlen($name) <= 64 ? $name : 'cw_profit:' . $channelId . ':' . sha1($ref);
+    }
+
+    /** A lock another writer holds (the order's guards, a row): left for the next run, never a refusal. */
+    private static function isBusy(\Throwable $e): bool
+    {
+        return ($e instanceof CwException && $e->errorCode === 'busy') || in_array(Db::driverCode($e), [1205, 1213], true);
+    }
+
+    /** The refusal written on the queue row only while it is still the snapshot that was refused (seq): a newer one stored meanwhile is worked out next. */
+    private function markRefused(int $channelId, string $ref, int $seq, \Throwable $e): void
+    {
+        $this->db->exec('UPDATE order_snapshot_queue SET failed = 1, tries = tries + 1, error = ? WHERE channel_id = ? AND order_ref = ? AND seq = ?',
+            [mb_substr(($e instanceof CwException ? $e->errorCode : get_class($e)) . ': ' . $e->getMessage(), 0, 255), $channelId, $ref, $seq]);
     }
 
     /**
@@ -378,7 +409,9 @@ final class OrderSnapshots
 
     /**
      * apply() again with the stored snapshot, in a transaction of its own (or the caller's), holding the order's guards. False when the order
-     * has none, or when $override is a function that returns null (nothing to do).
+     * has none, or when $override is a function that returns null (nothing to do). A batch tool's function ($override a Closure) is only
+     * written while no newer snapshot of the order waits, checked again at its commit under the order's intake lock (else `deferred`, false);
+     * the batch tools call it outside any transaction of their own, so that check is at the real commit.
      *
      * @param array<string, array{e4: ?int, source: string, by: string}>|\Closure(Db, array<string, mixed>): ?array<string, array<string, mixed>> $override
      *        line id => the cost to fix on it now; or a function that works it out under the locks from the stored body
@@ -386,31 +419,65 @@ final class OrderSnapshots
     public function recompute(int $channelId, string $ref, array|\Closure $override = []): bool
     {
         $this->deferred = false;
-        return $this->guarded($channelId, $ref, null, fn (): bool => $this->db->transaction(function (Db $db) use ($channelId, $ref, $override): bool {
-            // The snapshot worked out last (the one the order's rows say): a batch tool checks and writes against the same version (a newer one
-            // waiting in the queue is worked out after it by the money job; the Codex check of c48683e). Only money writers, each holding the
-            // order's guards, write order_snapshot; the API never touches it.
-            $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
-            if ($json === null) {
-                return false;
+        $intake = null;
+        try {
+            return $this->guarded($channelId, $ref, null, function () use ($channelId, $ref, $override, &$intake): bool {
+                return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override, &$intake): bool {
+                    // The snapshot worked out last (the one the order's rows say): a batch tool checks and writes against the same version (a newer one
+                    // waiting in the queue is worked out after it by the money job; the Codex check of c48683e). Only money writers, each holding the
+                    // order's guards, write order_snapshot; the API never touches it.
+                    $json = $db->value('SELECT CAST(body AS CHAR) FROM order_snapshot WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
+                    if ($json === null) {
+                        return false;
+                    }
+                    // A batch tool's costs wait while a newer snapshot of the order waits for the money job: they are worked out against the version the
+                    // order's rows say, and a newer one could move its payment out of what the tool checked (the Codex check of c48683e). The tool
+                    // says so; run it again after the job.
+                    if ($override instanceof \Closure && $db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND failed = 0',
+                        [$channelId, $ref]) !== null) {
+                        $this->deferred = true;
+                        return false;
+                    }
+                    $body = json_decode((string) $json, true, 64, JSON_THROW_ON_ERROR);
+                    // A batch tool works its costs out here, under the order's locks, from what is stored now (the Codex review of 92efa82, a11/b11).
+                    $o = $override instanceof \Closure ? $override($db, $body) : $override;
+                    if ($o === null) {
+                        return false;
+                    }
+                    $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o);
+                    // The commit boundary of a batch tool's costs (the Codex check of 2b718e7): the order's intake lock taken without a wait
+                    // (the API storing a snapshot of it right now: left for later) and the queue read again under it, so a correction the API
+                    // stored while the tool worked is seen, and one it stores from now waits for this commit only (never for the work).
+                    if ($override instanceof \Closure) {
+                        if ($intake === null) {
+                            $name = self::intakeLockName($channelId, $ref);
+                            if ((int) $db->value('SELECT GET_LOCK(?, 0)', [$name]) !== 1) {
+                                throw new CwException('deferred', 'the API is storing a snapshot of this order', 409);
+                            }
+                            $intake = $name;
+                        }
+                        if ($db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND failed = 0', [$channelId, $ref]) !== null) {
+                            throw new CwException('deferred', 'a newer snapshot of this order waits for the money job', 409);
+                        }
+                    }
+                    return true;
+                });
+            });
+        } catch (CwException $e) {
+            if ($e->errorCode !== 'deferred') {
+                throw $e;
             }
-            // A batch tool's costs wait while a newer snapshot of the order waits for the money job: they are worked out against the version the
-            // order's rows say, and a newer one could move its payment out of what the tool checked (the Codex check of c48683e). The tool
-            // says so; run it again after the job.
-            if ($override instanceof \Closure && $db->value('SELECT 1 FROM order_snapshot_queue WHERE channel_id = ? AND order_ref = ? AND failed = 0',
-                [$channelId, $ref]) !== null) {
-                $this->deferred = true;
-                return false;
+            $this->deferred = true;
+            return false;
+        } finally {
+            if ($intake !== null) {
+                try {
+                    $this->db->value('SELECT RELEASE_LOCK(?)', [$intake]);
+                } catch (\Throwable) {
+                    // the connection is gone: MySQL released it with the session
+                }
             }
-            $body = json_decode((string) $json, true, 64, JSON_THROW_ON_ERROR);
-            // A batch tool works its costs out here, under the order's locks, from what is stored now (the Codex review of 92efa82, a11/b11).
-            $o = $override instanceof \Closure ? $override($db, $body) : $override;
-            if ($o === null) {
-                return false;
-            }
-            $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o);
-            return true;
-        }));
+        }
     }
 
     /**

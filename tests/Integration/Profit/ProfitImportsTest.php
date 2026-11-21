@@ -195,7 +195,7 @@ final class ProfitImportsTest extends StockTestCase
         self::assertStringContainsString('2026-11-17 erp orders 1', $log[1]);
         self::assertStringContainsString('paid on or after the cost start 1', $log[1]);
         $r = $import->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
-        self::assertSame(['days' => 2, 'orders' => 1, 'lines' => 3, 'refused' => 0], $r);
+        self::assertSame(['days' => 2, 'orders' => 1, 'lines' => 3, 'refused' => 0, 'waiting' => 0], $r);
         $rows = self::$db->all("SELECT line_id, unit_cost_e4, cost, cost_source, costed_by FROM sale_line WHERE order_ref IN ('1001', '1002') ORDER BY line_id");
         self::assertSame([['L1', '9000', '90', 'erp_at_sale', 'erp_import'], ['L2', '9000', '90', 'erp_at_sale', 'erp_import'],
             ['L3', '15000', '300', 'erp_at_sale', 'erp_import'], ['L4', '10000', '100', 'cw_cost', 'sale']],
@@ -204,7 +204,7 @@ final class ProfitImportsTest extends StockTestCase
         $kept = self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]);
         ProfitDays::rebuild(self::$db, (int) $site->channelId, $day);
         self::assertSame($kept, self::$db->all('SELECT * FROM profit_item_day WHERE day = ? ORDER BY sku_id', [$day]));
-        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 0, 'refused' => 0], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
+        self::assertSame(['days' => 1, 'orders' => 1, 'lines' => 0, 'refused' => 0, 'waiting' => 0], $import->run($this->dir, 'vapeandgo', $day, $day, true, static fn (string $m) => null),
             'run again: the same costs, left as they are (their time fixed not moved: the final review of 6d59eda, a-LOW)');
         self::assertSame('480', (string) self::$db->value('SELECT cost FROM profit_day WHERE day = ?', [$day]));
     }

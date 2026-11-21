@@ -19233,3 +19233,45 @@ is left for the next run; `--retry-refused` tries the refused ones again. bin/re
 compares (exit 0 only when it did and nothing differs); --apply with the lock held does nothing and ends with exit 4; a day's row of zeros
 with no paid order is a difference (--apply removes it). The ERPNext import never stamps a cancelled line. An order's page reads the order,
 its lines and its re-sends in one snapshot.
+
+### The Codex check of 2b718e7 (`build/A/codex_r10.txt`, one run, the default model; the last Codex round): of round 9's findings c-HIGH2, b-M2, c-M6, c-M9, new MEDIUM 4, 6, 8 FIXED, the rest PARTLY (MEDIUM 5 NOT FIXED: a known limit); 2 HIGH, 6 MEDIUM and 1 LOW new; each finding checked in the code; the real ones fixed (PR121-PR128), each with a test seen failing first on 2b718e7 (`runs/profit_r10fix_red.log`: 6 red, `runs/profit_r10fix_red2.log`: 1 red) except PR122 and PR128 (a moment between two statements that no test can hold still: fixed by reading); what is left is a known limit in the README
+
+**PR121.** (new HIGH 1) A newer version of the same content moves the queue row's seq on and forgets its refusal, as any newer snapshot does.
+It only changed the version before: a money job working the older version out meanwhile took the row away with the newer version on it (CW
+had answered "same, 1012"; order_snapshot kept 1010), and a late 1011 with other figures was then taken as newer (£20 of goods in place of
+£10). A refused snapshot sent again as a newer version of the same content is tried again.
+
+**PR122.** (round 9's new HIGH 1, PARTLY; new MEDIUM 5) A refusal is written on the queue row while the order's guards are still held, so no
+other money writer can work a newer snapshot out and take its row away (and the API then make a new row with seq 1 again, which the late mark
+would hit) before the mark. A lock wait of the mark itself counts as busy (the row stays waiting). bin/apply_order_snapshots.php sets its
+3-second lock wait before --retry-refused's update too.
+
+**PR123.** (new HIGH 2; c-M7, c-M8 PARTLY) A batch tool's costs (the ERPNext import, the re-cost: recompute() with a function) are checked
+again at their commit: after the order is worked out, the order's intake lock is taken without a wait (the API storing a snapshot of that order
+right now: the order is left, `deferred`) and the queue is read again under it; a correction the API stored while the tool worked leaves the
+costs unwritten (deferred). The API storing a snapshot of that order from then on waits for that commit only, never for the tool's work (it
+waits at most INTAKE_WAIT_SEC, then 503 busy, as before). No outer transaction: both tools call recompute() on their own, so the check is at
+the real commit.
+
+**PR124.** (new MEDIUM 4) The ERPNext import counts the lines it wrote, not the plan read before the order's locks (an order left waiting
+counts none); the run's result has `waiting`, and the tool prints how many orders are left to run it again for.
+
+**PR125.** (new MEDIUM 2) A CW item made after the start that matches an ERPNext Bin row keeps that price as its start (ERPNext held it at £4
+at the start: never an unknown cost); an item made after the start without one is still left to the job (PR117).
+
+**PR126.** (new LOW) bin/apply_order_snapshots.php takes the job's lock itself: --status reads without it (it never says "skipped" while the
+minute job runs); an asked-for --retry-refused that finds it held does nothing and ends with exit 4; the minute job's own run is skipped as
+before (exit 0).
+
+**PR127.** (round 9's LOW 1, PARTLY) The day check also reports an item's row of zeros kept on a day with no sale of it (its only sale moved
+to another day), which --apply removes; a day's row of zeros was reported already (PR120).
+
+**PR128.** (new MEDIUM 3) store() (the bulk files) reports a refusal of what it stored when the money job, running in between, refused it:
+never counted "stored" by the file.
+
+Not fixed, known limits (README): MEDIUM 1, a receipt booked in the milliseconds before the start whose value sequence is written just after
+it (the same transaction) is in the opening from the start's moment; MEDIUM 6, 0075 changed after c48683e: no database outside the test
+box ever had it (a test schema is made again each run); round 9's b-HIGH2 (a service code is a shape, not a carrier's list), b-HIGH3 (--rows
+is given by the go-live step, not required), c-HIGH1 / MEDIUM 3 with a Bin opening (known limit 4), a-HIGH2 (a PUT waits for the money job's
+last commit of that order, milliseconds), MEDIUM 2 (a parent order whose ref is the word "null"), MEDIUM 7 (the 45-second budget is checked
+before each order; one order's lock waits add a few times 3 seconds).

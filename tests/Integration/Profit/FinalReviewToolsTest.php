@@ -159,6 +159,32 @@ final class FinalReviewToolsTest extends StockTestCase
         self::assertStringContainsString('applied 1', self::script('apply_order_snapshots')['out']);
     }
 
+    /** The Codex check of 2b718e7 (LOW): --status reads while the minute job runs; an asked-for --retry-refused that cannot run says so (exit 4). */
+    public function testTheStatusAndARetryOfTheRefusedWhileTheMinuteJobRuns(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        (new OrderSnapshots(self::$db))->accept((int) $site->channelId, 'R', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+            'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
+            'lines' => [['line_id' => 'R1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
+        $other = TestDb::connect();
+        $name = 'cw_job:apply_order_snapshots:' . TestDb::name();
+        $name = strlen($name) > 64 ? 'cw_job:' . sha1("apply_order_snapshots\0" . TestDb::name()) : $name;
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [$name]));
+        try {
+            $st = self::script('apply_order_snapshots', '--status');
+            self::assertSame(0, $st['code'], $st['out']);
+            self::assertStringContainsString('waiting 1', $st['out'], 'the status read while the minute job runs');
+            $rr = self::script('apply_order_snapshots', '--retry-refused');
+            self::assertSame(4, $rr['code'], 'asked for, not run: never "done"; ' . $rr['out']);
+            $run = self::script('apply_order_snapshots');
+            self::assertSame(0, $run['code'], $run['out']);
+            self::assertStringContainsString('skipped', $run['out'], 'the minute job itself: skipped as before');
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [$name]);
+        }
+    }
+
     /** The Codex check of c48683e: the go-live check compares even while the nightly rebuild holds the lock. */
     public function testTheCheckComparesWhileTheRebuildHoldsItsLock(): void
     {

@@ -195,6 +195,12 @@ final class ProfitDays
         $skus = array_unique([...array_keys($keptItems), ...array_keys($c['items'])]);
         sort($skus);
         foreach ($skus as $sku) {
+            // An item's row kept with nothing of it sold on the day (its only sale moved to another day): a line of zeros on the lists by
+            // product that --apply takes away (the Codex check of 2b718e7).
+            if (isset($keptItems[$sku]) && !isset($c['items'][$sku]) && array_filter($keptItems[$sku]) === []) {
+                $out[] = "item {$sku}: a row of zeros kept with no sale of it on the day (--apply removes it)";
+                continue;
+            }
             foreach (self::ITEM_FIELDS as $f) {
                 $k = $keptItems[$sku][$f] ?? 0;
                 $w = $c['items'][$sku][$f] ?? 0;

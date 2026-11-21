@@ -47,5 +47,9 @@ exit(Cli::main('import_erp_sales_cost', ['dir:', 'channel:', 'from:', 'to:', 'ap
             return Cli::PROBLEM;
         }
         $cli->log(sprintf('done: %d days, %d orders, %d lines costed%s', $r['days'], $r['orders'], $r['lines'], array_key_exists('apply', $opts) ? '' : ' (dry run)'));
+        if ($r['waiting'] > 0) {
+            // Left, not costed (the Codex check of 2b718e7): a newer snapshot of each waits for the money job.
+            $cli->log("{$r['waiting']} orders left: a newer snapshot of each waits for the money job (bin/apply_order_snapshots.php); run this again after it");
+        }
         return Cli::OK;
     }, true, true));

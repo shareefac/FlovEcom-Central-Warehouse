@@ -71,12 +71,12 @@ final class ErpSalesImport
         }
         if ($broken !== []) {
             $log('nothing applied: ' . count($broken) . ' day file(s) cannot be read whole (' . implode(', ', $broken) . '); export those days again, then run this again');
-            return ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => count($broken)];
+            return ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => count($broken), 'waiting' => 0];
         }
         $ok = $files;
         $refused = 0;
         // Pass 2: the orders, each on its last day, with its rows of every day before it held until then.
-        $tot = ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => $refused];
+        $tot = ['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => $refused, 'waiting' => 0];
         $held = [];
         foreach ($ok as $day => $f) {
             if ($to !== null && $day > $to) {
@@ -108,6 +108,7 @@ final class ErpSalesImport
             $tot['days']++;
             $tot['orders'] += $r['cw_orders'];
             $tot['lines'] += $r['costed'];
+            $tot['waiting'] += $r['waiting'];
             $log(sprintf('%s erp orders %d goods %s cost %s | cw orders %d goods %s | lines costed %d (already so %d), erp lines with no cw line %d, units not matching %d, '
                 . 'orders not in cw %d, paid before the history %d, paid on or after the cost start %d, not paid in cw %d, returns %d (%s), no order id %d, rate 0 %d, '
                 . 'held for a later day %d, waiting for the money job %d (run again after it)%s',
@@ -272,23 +273,31 @@ final class ErpSalesImport
             $r['cw_orders']++;
             $r['cw_goods_e2'] += (int) $o['sale_ex'];
             $plan = self::override($this->lines($this->db, $channel, $ref), $variants);
-            $r['costed'] += count($plan['override']);
+            if (!$apply) {
+                $r['costed'] += count($plan['override']); // a dry run: what it would write
+            }
             $r['no_line'] += $plan['no_line'];
             $r['rate_zero'] += $plan['rate_zero'];
             $r['qty_mismatch'] += $plan['qty_mismatch'];
             $r['same'] += $plan['same'];
             if ($apply && $plan['override'] !== []) {
-                $service->recompute($channel, $ref, function (Db $db, array $body) use ($channel, $ref, $variants, $since, $until): ?array {
+                $done = 0;
+                $wrote = $service->recompute($channel, $ref, function (Db $db, array $body) use ($channel, $ref, $variants, $since, $until, &$done): ?array {
                     // Again under the order's locks: still paid inside ERPNext's history (both bounds), and its lines as they are now.
+                    $done = 0;
                     $paid = $db->value('SELECT paid_at FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channel, $ref]);
                     if ($paid === null || (string) $paid >= $until || (string) $paid < $since) {
                         return null;
                     }
                     $o = self::override($this->lines($db, $channel, $ref), $variants)['override'];
+                    $done = count($o);
                     return $o === [] ? null : $o;
                 });
                 if ($service->deferred) {
                     $r['waiting']++;
+                } elseif ($wrote) {
+                    // What was written, never the plan read before the order's locks (the Codex check of 2b718e7).
+                    $r['costed'] += $done;
                 }
             }
         }

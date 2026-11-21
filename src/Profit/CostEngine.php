@@ -109,15 +109,18 @@ final class CostEngine
         $startAt ??= Clock::db(($this->clock)());
         $erp = $this->binPrices($binTsv, $listingStore, $allowSkips, $expectRows);
         // An item made at or after the start is not in it: the job starts it just before its first delivery (startNewItems: what came in
-        // before that, PR65), never with an empty start at the start's moment (the Codex check of c48683e).
-        $skus = array_map('intval', $bounded ? $this->db->column('SELECT id FROM sku WHERE created_at < ? ORDER BY id', [$startAt])
-            : $this->db->column('SELECT id FROM sku ORDER BY id'));
+        // before that, PR65), never with an empty start at the start's moment (the Codex check of c48683e). Unless ERPNext's Bin prices it
+        // (a CW item made since for an ERPNext item that had its valuation at the start): that price is its start (the Codex check of
+        // 2b718e7: never an unknown cost where ERPNext knew £4).
+        $skus = array_map('intval', $this->db->column('SELECT id FROM sku ORDER BY id'));
+        $late = $bounded ? array_fill_keys(array_map('intval', $this->db->column('SELECT id FROM sku WHERE created_at >= ?', [$startAt])), true) : [];
         $prices = [];
         foreach ($skus as $s) {
             if (isset($erp['prices'][$s])) {
                 $prices[$s] = ['e4' => $erp['prices'][$s], 'source' => 'erp_bin'];
             }
         }
+        $skus = array_values(array_filter($skus, static fn (int $s): bool => isset($prices[$s]) || !isset($late[$s])));
         $rest = array_values(array_diff($skus, array_keys($prices)));
         foreach ($rest === [] ? [] : $this->cwAverageBefore($rest, $startAt) as $s => $e4) {
             $prices[$s] = ['e4' => $e4, 'source' => 'cw_average'];

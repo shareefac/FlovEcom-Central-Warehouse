@@ -213,6 +213,19 @@ final class FinalReviewCostTest extends ArrivalsTestCase
         self::assertSame(20000, self::cost($o['sku']), 'never the second delivery in neither the opening nor the replay');
     }
 
+    /** The Codex check of 2b718e7 (MEDIUM 2): a CW item made after the start that matches an ERPNext Bin row keeps that price in the start. */
+    public function testAnItemMadeAfterTheStartKeepsItsMatchedBinPrice(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $startAt = Clock::db(Clock::now()->modify('-1 hour'));
+        $mapped = self::makeSku('Mapped after the start');
+        $this->listing($site, '600', $mapped);
+        $plain = self::makeSku('Made after the start, no Bin row');
+        $plan = $this->engine()->plan(self::EMPTY_BIN . "P600\tStores - VPG\t5.000000000\t4.000000000\t20\n", 'vapeandgo', $startAt);
+        self::assertSame(['e4' => 40000, 'source' => 'erp_bin'], $plan['prices'][$mapped] ?? null, 'ERPNext held it at £4 at the start: never an unknown cost');
+        self::assertArrayNotHasKey($plain, $plan['prices'], 'no Bin row: started by the job before its first delivery');
+    }
+
     public function testABinRowWithNoItemCodeOrAFileCutShortIsRefused(): void
     {
         $bin = self::EMPTY_BIN . "\tStores - VPG\t5.000000000\t1.000000000\t5\n" . "P501\tStores - VPG\t5.000000000\t1.000000000\t5\n";

@@ -91,7 +91,7 @@ final class ProfitImportsReviewR1Test extends StockTestCase
         $r = (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
             $log[] = $m;
         });
-        self::assertSame(['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => 1], $r, 'a broken day stops the run before anything is written');
+        self::assertSame(['days' => 0, 'orders' => 0, 'lines' => 0, 'refused' => 1, 'waiting' => 0], $r, 'a broken day stops the run before anything is written');
         self::assertSame(['L1' => '10000/estimate', 'L2' => '10000/estimate'], self::costs('1'));
         self::assertStringContainsString('2026-04-12 refused: row 2', implode("\n", $log));
         unlink($this->dir . '/si_2026-04-12.tsv');
