@@ -38,8 +38,8 @@ final class SectionsTest extends TestCase
     public function testEveryPageIsALiveRouteGuardedByTheSamePermissionWithItsWords(): void
     {
         $gets = self::gets();
-        self::assertSame(['home', 'approvals', 'items', 'inventory', 'purchases', 'sales', 'listings', 'reports', 'profit', 'settings'], array_keys(Sections::MAP));
-        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Store listings', 'Reports', 'Profit', 'Settings'], array_values(Words::SECTION),
+        self::assertSame(['home', 'approvals', 'items', 'inventory', 'purchases', 'sales', 'listings', 'reports', 'settings'], array_keys(Sections::MAP));
+        self::assertSame(['Home', 'Approvals', 'Items', 'Inventory', 'Purchases', 'Sales', 'Store listings', 'Reports', 'Settings'], array_values(Words::SECTION),
             'the standard inventory names of Sidebar.dc.html, in its order');
         self::assertSame(['items', 'reports'], array_keys(array_filter(Sections::MAP, static fn (array $s): bool => ($s['gap'] ?? false) === true)),
             'a divider above Items and above Reports');

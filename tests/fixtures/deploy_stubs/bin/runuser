@@ -2,17 +2,12 @@
 # cw-deploy-stub
 # runuser -u USER -- test EXPR: answers as the plain file modes would for USER (the owner, group or other bits that apply to
 # USER's uid and gid; every directory above the path must be searchable), without changing user. test's -e -f -d -r -w -x,
-# joined by -a. runuser -u USER -- find PATH ! -readable -print -quit (profit_undo_b.sh, PR155): the first path USER cannot read,
-# PATH itself first, then what is in each directory (in name order; a symbolic link read as itself: the trees hold none), and exit 0; nothing when USER
-# can read all; a directory USER can read but not search: find's "Permission denied" and exit 1, as find says it; PATH itself out
-# of reach: the same; started in a directory USER cannot read and search (root's /root, 0700): GNU find's "Failed to restore initial
-# working directory" and exit 1, nothing printed (find 4.9.0 on the CW test box, runs/profit_r14_find_cwd_check.log). Anything else
-# is refused (exit 99): the test then fails rather than run as root a command the box would run as www-data.
+# joined by -a. Anything else is refused (exit 99): the test then fails rather than run as root a command the box would run as
+# www-data.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
 log "runuser $*"
-[[ ${1-} == -u && ${3-} == -- && ( ${4-} == test || ${4-} == find ) ]] || { echo "runuser stub: only 'runuser -u USER -- test ...' or '... find ...'" >&2; exit 99; }
+[[ ${1-} == -u && ${3-} == -- && ${4-} == test ]] || { echo "runuser stub: only 'runuser -u USER -- test ...'" >&2; exit 99; }
 user=$2
-tool=$4
 shift 4
 IFS=: read -r _ _ uid gid _ < <(getent passwd "$user") || { echo "runuser: user $user does not exist" >&2; exit 1; }
 # may BIT PATH: 4 read, 2 write, 1 search, by the class of bits that applies to USER
@@ -32,34 +27,6 @@ reach() {
     done
     may 1 /
 }
-if [[ $tool == find ]]; then
-    [[ $# -eq 5 && $2 == '!' && $3 == -readable && $4 == -print && $5 == -quit ]] || { echo "runuser stub: only 'find PATH ! -readable -print -quit'" >&2; exit 99; }
-    if ! { reach "$PWD" && may 4 "$PWD" && may 1 "$PWD"; }; then
-        echo "find: Failed to restore initial working directory: $PWD: Permission denied" >&2
-        exit 1
-    fi
-    reach "$1" && [[ -e $1 || -L $1 ]] || { echo "find: '$1': Permission denied" >&2; exit 1; }
-    # walk PATH: 0 = printed the first path USER cannot read; 1 = none under PATH; 2 = a directory that cannot be searched (said)
-    walk() {
-        local e rc
-        if ! may 4 "$1"; then
-            printf '%s\n' "$1"
-            return 0
-        fi
-        [[ -d $1 && ! -L $1 ]] || return 1
-        may 1 "$1" || { echo "find: '$1': Permission denied" >&2; return 2; }
-        for e in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-            [[ -e $e || -L $e ]] || continue
-            rc=0
-            walk "$e" || rc=$?
-            [[ $rc -eq 1 ]] || return "$rc"
-        done
-        return 1
-    }
-    rc=0
-    walk "$1" || rc=$?
-    case $rc in 0 | 1) exit 0 ;; *) exit 1 ;; esac
-fi
 ok=0
 while [[ $# -gt 0 ]]; do
     op=$1

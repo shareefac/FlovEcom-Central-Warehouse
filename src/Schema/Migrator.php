@@ -15,24 +15,15 @@ use CW\Db;
  * - MySQL DDL is not transactional: a file is recorded only after every statement succeeded;
  *   a failure stops the run and names the file and statement number.
  * - Concurrent runs on one schema are serialised with GET_LOCK.
- * - A statement waits at most LOCK_WAIT_SEC for a table's metadata lock (the session's lock_wait_timeout while the files run, put back
- *   after; the third final review, a-HIGH3, PR154): a long transaction holding a table a migration alters makes that migration fail in
- *   about 30 s, naming the file and statement (not recorded), instead of waiting for it with the writers paused (MySQL's default is a year).
- *   The step migrate() is given (bin/migrate.php: the app login's grants) runs after the files inside the same bound and the same migration
- *   lock; the session's own value is put back only at the end of the run, after an error too (the final re-check of the fix round, p-M,
- *   PR155: a backup's lock taken as the grants started kept the vhost off with the default wait).
  */
 final class Migrator
 {
     public const FILE_PATTERN = '/^\d{4}_[a-z0-9_]+\.sql$/';
 
-    /** How long a migration's statement waits for a table's metadata lock (seconds; the session's lock_wait_timeout while migrate() runs). */
-    public const LOCK_WAIT_SEC = 30;
-
     /** @var \Closure(string): void */
     private \Closure $log;
 
-    public function __construct(private readonly Db $db, private readonly string $dir, ?callable $log = null, private readonly int $lockWaitSec = self::LOCK_WAIT_SEC)
+    public function __construct(private readonly Db $db, private readonly string $dir, ?callable $log = null)
     {
         $this->log = $log !== null ? \Closure::fromCallable($log) : static function (string $m): void {
         };
@@ -83,13 +74,8 @@ final class Migrator
         return array_values(array_diff(array_keys($files), array_keys($applied)));
     }
 
-    /**
-     * Applies every pending file, then $then (if given; it runs on every call, nothing pending too) with the session's lock wait still
-     * LOCK_WAIT_SEC and the migration lock still held. @return list<string> the versions applied by this call
-     *
-     * @param (callable(): void)|null $then
-     */
-    public function migrate(?callable $then = null): array
+    /** Applies every pending file. @return list<string> the versions applied by this call */
+    public function migrate(): array
     {
         $schema = (string) $this->db->value('SELECT DATABASE()');
         if ($schema === '') {
@@ -99,28 +85,16 @@ final class Migrator
         if ((int) $this->db->value('SELECT GET_LOCK(?, 120)', [$lockName]) !== 1) {
             throw new \RuntimeException("could not take the migration lock for {$schema}");
         }
-        $wait = null;
         try {
-            $wait = (int) $this->db->value('SELECT @@SESSION.lock_wait_timeout');
-            $this->db->pdo()->exec('SET SESSION lock_wait_timeout = ' . max(1, $this->lockWaitSec));
             $done = [];
             $files = $this->files();
             foreach ($this->pending() as $version) {
                 $this->applyFile($version, $files[$version]);
                 $done[] = $version;
             }
-            if ($then !== null) {
-                $then();
-            }
             return $done;
         } finally {
-            try {
-                if ($wait !== null) {
-                    $this->db->pdo()->exec('SET SESSION lock_wait_timeout = ' . $wait);
-                }
-            } finally {
-                $this->db->value('SELECT RELEASE_LOCK(?)', [$lockName]);
-            }
+            $this->db->value('SELECT RELEASE_LOCK(?)', [$lockName]);
         }
     }
 

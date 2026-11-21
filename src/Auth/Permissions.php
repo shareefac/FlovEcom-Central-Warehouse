@@ -34,9 +34,9 @@ use CW\CwException;
  */
 final class Permissions
 {
-    /** Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end, 0074 finance after it). */
+    /** Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end). */
     public const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager'];
 
     /** Shown on the People and roles screen. */
     public const DESCRIPTIONS = [
@@ -55,7 +55,6 @@ final class Permissions
         'accountant' => 'reads stock values, exports (I-5)',
         'auditor' => 'read-only everywhere, people and roles list',
         'people_manager' => 'adds people, sets their jobs, switches them on/off and resets their sign-in; may be combined with any job',
-        'finance' => 'reads the profit on every order (0074): sale, buying cost, margin; changes nothing',
     ];
 
     /** The roles' groups on the People and roles form (every role in exactly one). */
@@ -63,19 +62,12 @@ final class Permissions
         'Linking' => ['viewer', 'mapper', 'mapping_lead'],
         'Purchasing and receiving' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk'],
         'Stock' => ['warehouse', 'manager', 'stock_controller'],
-        'Review and finance' => ['reviewer', 'accountant', 'auditor', 'finance'],
+        'Review and finance' => ['reviewer', 'accountant', 'auditor'],
         'Admin' => ['admin', 'people_manager'],
     ];
 
     /** The only roles admin may be combined with: they read, they never act (I12). */
     public const ADMIN_COMPATIBLE = ['viewer', 'accountant', 'auditor'];
-
-    /**
-     * The jobs that only look, whatever the Roles and permissions page says: the read drops them from any task that changes something
-     * (sanitise()) and the page refuses to give them one (problems(): `acting_job`). The look-only jobs admin may hold, and Finance (0074:
-     * "reads the profit on every order; changes nothing"; the final review of 6d59eda, a-M7, PR111).
-     */
-    public const LOOK_ONLY = [...self::ADMIN_COMPATIBLE, 'finance'];
 
     /**
      * Everything the People manager does (PM3): the people screens and what every job reads, and nothing else, whatever the Roles and
@@ -221,9 +213,6 @@ final class Permissions
         'handovers.pay' => ['purchasing_desk', 'purchasing_manager'],
         'duty.view' => ['goods_in', 'purchasing_desk', 'purchasing_manager', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
         // ---- end of pack H ----
-        // ---- Profit step 1 (0074; docs/decisions.md PR23): the Profit section, read only: what each order was sold for, what it cost to buy
-        // and the margin. Only the Finance job holds it, and nobody has that job until the owner says who (he names them).
-        'profit.view' => ['finance'],
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
@@ -441,7 +430,7 @@ final class Permissions
         }
         $set = array_values(array_filter($holders, static fn (mixed $r): bool => is_string($r) && in_array($r, self::ROLES, true)));
         if (!self::isReadOnly($perm)) {
-            $set = array_values(array_diff($set, ['admin'], self::LOOK_ONLY));
+            $set = array_values(array_diff($set, ['admin'], self::ADMIN_COMPATIBLE));
         }
         if (!in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {
             $set = array_values(array_diff($set, ['people_manager']));
@@ -476,7 +465,7 @@ final class Permissions
         if ($holders === []) {
             $out[] = 'no_holders';
         }
-        if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::LOOK_ONLY]) !== []) {
+        if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::ADMIN_COMPATIBLE]) !== []) {
             $out[] = 'acting_job';
         }
         if (in_array('people_manager', $holders, true) && !in_array($perm, self::PEOPLE_MANAGER_TASKS, true)) {

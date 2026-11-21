@@ -63,7 +63,7 @@ final class Words
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
-        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        'RD_MATCH', 'RD_MATCH_FILTER', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
         'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -144,12 +144,11 @@ final class Words
         'accountant' => 'Accountant',
         'auditor' => 'Auditor (look only)',
         'people_manager' => 'People manager', // 0069, docs/decisions.md PM1-PM7
-        'finance' => 'Finance', // 0074, docs/decisions.md PR23
     ];
 
     /** The order jobs are named in a sentence: the jobs that check and decide first. */
     public const JOB_ORDER = ['reviewer', 'mapping_lead', 'mapper', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller',
-        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor', 'finance'];
+        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor'];
 
     /** "This page is for <these>". */
     public const ROLE_PLURAL = [
@@ -168,7 +167,6 @@ final class Words
         'accountant' => 'Accountants',
         'auditor' => 'Auditors',
         'people_manager' => 'People managers',
-        'finance' => 'Finance staff',
     ];
 
     /** One line per job (People page, help). Permissions::DESCRIPTIONS keeps the short technical ones. */
@@ -189,7 +187,6 @@ final class Words
         'auditor' => 'Can look at everything, including staff. Changes nothing.',
         'people_manager' => 'Adds staff, gives and takes their jobs, stops or lets them sign in and resets their sign-in. Goes with any other job, '
             . 'never with Admin. Never changes their own access.',
-        'finance' => 'Sees the profit on every order: what it sold for, what it cost to buy and the margin. Changes nothing.',
     ];
 
     /** Permissions::ROLE_GROUPS label => the heading on the People form. */
@@ -218,7 +215,6 @@ final class Words
         'sales' => 'Sales',
         'listings' => 'Store listings',
         'reports' => 'Reports',
-        'profit' => 'Profit', // 0074 (docs/decisions.md PR23)
         'settings' => 'Settings',
     ];
 
@@ -305,12 +301,6 @@ final class Words
         // Pack H (0038): Stock > Hand-overs.
         'handovers' => 'Trade sales',
         'customers' => 'Customers',
-        // Profit (0074, docs/decisions.md PR23-PR28)
-        'profit_summary' => 'Profit summary',
-        'profit_periods' => 'Profit by day',
-        'profit_breakdown' => 'Profit by product',
-        'profit_orders' => 'Profit by order',
-        'profit_no_cost' => 'No buying price',
     ];
 
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
@@ -448,12 +438,6 @@ final class Words
         // ---- Pack E
         'stock_by_store' => 'What each store can sell now, product by product.',
         'sales_by_store' => 'Orders and units each store sold, day by day.',
-        // Profit (0074, docs/decisions.md PR23-PR28)
-        'profit_summary' => 'What the goods sold for, what they cost to buy, and the margin: today, this week, this month.',
-        'profit_periods' => 'The profit day by day, week by week or month by month.',
-        'profit_breakdown' => 'The profit by shop, product, brand or supplier, the biggest first.',
-        'profit_orders' => 'Every order with its profit and margin, the lowest margin first if you want.',
-        'profit_no_cost' => 'Products sold with no buying price: their profit is not known yet.',
         'low_stock' => 'Products a store can sell only a few of, or none.',
         'stock_value' => 'What the stock is worth at its average cost, by product, brand and warehouse.',
         'slow_stock' => 'Products in stock that have not sold for a long time.',
@@ -777,13 +761,6 @@ final class Words
         // ---- Pack E
         'stock_by_store' => ['What each store can sell now, from the warehouse it sells from.', 'Choose a store. Open a product to see every change to its stock.'],
         'sales_by_store' => ['Orders and units each store sold, day by day.', 'Choose the days. The figures come from the orders the stores send to CW.'],
-        // Profit (0074, docs/decisions.md PR23-PR28)
-        'profit_summary' => ['What the goods sold for, what they cost to buy, and the margin.', ''],
-        'profit_periods' => ['The profit day by day, week by week or month by month.', ''],
-        'profit_breakdown' => ['The profit by shop, product, brand or supplier.', ''],
-        'profit_orders' => ['Every paid order with its profit and margin.', ''],
-        'profit_order' => ['One order: every line with its sale, its buying cost and its margin.', ''],
-        'profit_no_cost' => ['Products sold with no buying price.', ''],
         'low_stock' => ['Products the stores can sell only a few of, or none.',
             'Order more, or check the shelf. A product\'s own "least stock to keep" is set on its reorder page.'],
         'stock_value' => ['What the stock is worth at its average cost, in pounds.', 'Look by product, by brand or by warehouse.'],
@@ -3034,14 +3011,6 @@ final class Words
             . '**Ran out of time:** nobody paid in time, so CW freed the stock.',
         // Wave w10 (docs/decisions.md W10): Sales by store's note under its boards, as its "?"
         'sales_by_store' => 'A **unit** is one warehouse product: a sale of a pack of 3 is 3 units. Each figure belongs to the day the store told CW about it.',
-        // Profit (0074, docs/decisions.md PR4-PR11)
-        'profit' => '**Goods sold** is what customers paid for the products, after coupons and points, less refunds, without VAT. **Buying cost** is what the '
-            . 'units cost us to buy, fixed on the day each order was paid. **Profit** is goods sold less buying cost; **margin** is the profit as a share of goods '
-            . 'sold. A cancelled line adds nothing; a free gift adds its cost; a re-sent order\'s cost belongs to the first order. Delivery charged is shown '
-            . 'on its own: what delivery costs us comes later. Each order belongs to the UK day it was paid.',
-        'profit_cost' => 'Where a buying price came from. **At the sale (ERPNext)**: ERPNext\'s cost when the order was paid. **CW price**: CW\'s average, which '
-            . 'follows the deliveries and the supplier invoices. **Estimate**: today\'s price, for a sale before any cost history. **None**: no price is known: '
-            . 'the product is on the No buying price list.',
         // Pack D (docs/decisions.md PD3, PD5)
         'sales_orders' => '**Paid (every sale)** is every order that was paid, whatever happened next. **With a unit sent, cancelled or returned** '
             . 'shows the orders that have at least one such unit. **Placed** is when the store first told CW about the order, in UK days. '
@@ -10770,7 +10739,6 @@ final class Words
         'handovers.customers' => 'Add and change the customers of hand-overs and their prices',
         'handovers.pay' => 'Record payments received from customers (Hand-overs > Balances)',
         'duty.view' => 'Look at the duty register',
-        'profit.view' => 'Look at the profit on every order', // 0074 (docs/decisions.md PR23)
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -10841,139 +10809,6 @@ final class Words
      * artboard's "All reports" list writes them, its groups, the head's Export, the options card and its Run report, the report's own head
      * and its totals. (Part C of the redesign's step 2.)
      */
-    /** The Profit screens (0074; docs/decisions.md PR23-PR28). */
-    public const PROFIT = [
-        'today' => 'Today',
-        'yesterday' => 'Yesterday',
-        'last_7' => 'Last 7 days',
-        'last_30' => 'Last 30 days',
-        'this_month' => 'This month',
-        'last_month' => 'Last month',
-        'period' => 'Period',
-        'orders' => 'Orders',
-        'resends' => 'Re-sends',
-        'units' => 'Units',
-        'goods' => 'Goods sold',
-        'cost' => 'Buying cost',
-        'profit' => 'Profit',
-        'margin' => 'Margin',
-        'delivery' => 'Delivery charged',
-        'no_cost' => 'Units with no buying price',
-        'no_cost_short' => 'No price',
-        'store' => 'Shop',
-        'all_stores' => 'All shops',
-        'show' => 'Show',
-        'run' => 'Show',
-        'days' => 'Days',
-        'from' => 'From',
-        'to' => 'To',
-        'total' => 'Total',
-        'options' => 'Choose what to show',
-        'by' => 'By',
-        'group_day' => 'Day',
-        'group_week' => 'Week from',
-        'group_month' => 'Month',
-        'by_shop' => 'Shop',
-        'by_product' => 'Product',
-        'by_brand' => 'Brand',
-        'by_supplier' => 'Main supplier',
-        'sort' => 'Biggest first by',
-        'sort_profit' => 'Profit',
-        'sort_sale' => 'Goods sold',
-        'sort_cost' => 'Buying cost',
-        'sort_margin' => 'Margin, highest first',
-        'sort_margin_low' => 'Margin, lowest first',
-        'sort_units' => 'Units',
-        'no_brand' => 'No brand',
-        'no_supplier' => 'No main supplier',
-        'no_item' => 'No CW item',
-        'top_only' => 'Only the first %s are shown.',
-        'nothing' => 'Nothing sold in these days.',
-        'nothing_text' => 'Choose other days or another shop.',
-        'search' => 'Order number',
-        'find' => 'Find',
-        'lowest_first' => 'Lowest margin first',
-        'order' => 'Order',
-        'paid' => 'Paid',
-        'resend_of' => 'Re-send of %s',
-        'resend_not_counted' => 'A re-send (a replacement): the price the shop has on it, goods %s and delivery %s with VAT, is not counted as money in. Its goods cost goes on its first order.',
-        'sub_of' => 'Added to order %s',
-        'page' => 'Page %s of %s.',
-        'older' => 'Next page',
-        'newer' => 'Previous page',
-        'no_orders' => 'No order fits.',
-        'no_orders_text' => 'Choose other days, another shop, or type the whole order number.',
-        'order_title' => 'Order %s',
-        'back' => 'Profit by order',
-        'status' => 'Status',
-        'gateway' => 'Paid by',
-        'placed' => 'Placed',
-        'lines' => 'Lines',
-        'line' => 'Line',
-        'item' => 'Product',
-        'qty' => 'Qty',
-        'price' => 'Price',
-        'discount' => 'Discount',
-        'refund' => 'Refunded',
-        'unit_cost' => 'Cost of one unit',
-        'cost_from' => 'Cost from',
-        'cancelled' => 'Cancelled',
-        'free' => 'Free',
-        'restocked' => 'Back in stock',
-        'refunded' => 'Refunded',
-        'waiting_count' => '+%s waiting for their cost',
-        'removed' => 'No longer on the order',
-        'delivery_method' => 'Delivery',
-        'delivery_refund' => 'Delivery refunded',
-        'order_refund' => 'Refunded, not on a line',
-        'grand' => 'Shop order total',
-        'unpaid_profit' => 'not counted (not paid)',
-        'resend_cost' => 'Re-sends\' cost',
-        'resends_list' => 'Re-sends of this order',
-        'parcels' => 'Parcels',
-        'tracking' => 'Tracking number',
-        'carrier' => 'Carrier',
-        'service' => 'Service',
-        'label_at' => 'Label made',
-        'no_parcels' => 'No parcel yet.',
-        'unpaid' => 'Not paid: this order counts nothing.',
-        'with_resends' => 'Profit with its re-sends',
-        'no_cost_none' => 'Every product sold in these days has a buying price.',
-        'no_cost_none_text' => 'Choose other days or another shop.',
-        'no_cost_waiting' => 'Some units sold in these days are still waiting for their buying price (the cost job fixes it within 10 minutes): they are not on this list until then.',
-        'item_link' => 'Open the product',
-        'variant' => 'Website product %s',
-        'sale_of_these' => 'Goods sold (these units)',
-        'source_erp_at_sale' => 'At the sale (ERPNext)',
-        'source_cw_cost' => 'CW price',
-        'source_estimate' => 'Estimate',
-        'source_none' => 'None',
-        'source_open' => 'Not fixed yet',
-        'see_orders' => 'See the orders',
-        'see_list' => 'See the list',
-        'today_is' => 'UK days; today is %s.',
-        // The Codex review of 92efa82 (c2, c6, c7, c8)
-        'orders_found' => '%s orders.',
-        'first_page' => 'First page',
-        'next_page' => 'Next page',
-        'incomplete' => 'incomplete',
-        'incomplete_note' => 'Incomplete: some units have no buying price yet, so their cost is missing and the profit is too high by it.',
-        'pending' => 'Units waiting for their cost',
-        'pending_note' => 'Some units were sold in the last minutes: their cost comes with the next run of the cost job, within 10 minutes. Until then they have no cost in these figures.',
-        'order_refunds_note' => 'Refunds kept on whole orders, not on a product, are left out of this list: %s. The summary and each order take them off.',
-        'no_margin' => 'Orders with no sale have no margin: they are not in this order.',
-        'gateway_globalpay' => 'Card (GlobalPay)',
-        'gateway_pp' => 'PayPal',
-        'gateway_pphf' => 'PayPal card fields',
-        'gateway_viva' => 'Viva',
-        'gateway_payroc' => 'Payroc',
-        'gateway_office' => 'Office order',
-        'gateway_none' => 'Not said',
-        'store_variant' => '%s: website product %s',
-        'lowest_max' => 'The lowest margin first looks at %s days at most: the days shown are the last of them.',
-        'unknown' => 'not known',
-    ];
-
     public const RD_REPORTS = [
         'all' => 'All reports',
         'export' => 'Export',

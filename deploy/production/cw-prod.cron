@@ -78,15 +78,3 @@ MAILTO=""
 # (GET only; app.env erp_read_url / erp_read_key / erp_read_secret) and kept as copies; a copy never adds stock and never feeds the cost.
 # Waiting ones are listed on Purchases > Supplier invoices > From ERPNext (never in Approvals). Never run by the installer (it writes).
 */30 * * * *  root  cd /opt/cw-prod && php bin/copy_erp_invoices.php --db=cw_prod --apply >> /var/log/cw/copy_erp_invoices.log 2>&1
-
-# ---- Profit on every order, step 1 (docs/decisions.md PR1-PR129) ----
-# The shops' order snapshots that PUT /v1/orders/{ref}/snapshot stored, worked out into the orders' money and the day summaries (PR95): every
-# minute, in this job and never in the web server's workers, at most 2000 orders or about 45 seconds a run. Exit 1 = a snapshot refused.
-* * * * *  root  cd /opt/cw-prod && php bin/apply_order_snapshots.php --db=cw_prod >> /var/log/cw/apply_order_snapshots.log 2>&1
-# The buying price: the deliveries, supplier invoices and credit notes since its last run, then the sales that waited for it and the units
-# back in stock (PR15); nothing before bin/seed_item_cost.php wrote the start, nothing while profit.cost_refresh_on is off. At night it also
-# reads every document since the start not read yet (it waits for a run of every ten minutes that holds the lock).
-*/10 * * * *  root  cd /opt/cw-prod && php bin/refresh_item_cost.php --db=cw_prod >> /var/log/cw/refresh_item_cost.log 2>&1
-25 3 * * *  root  cd /opt/cw-prod && php bin/refresh_item_cost.php --db=cw_prod --reconcile >> /var/log/cw/refresh_item_cost.log 2>&1
-# The Profit screens' day summaries of the last three days worked out again from the stored orders (PR22).
-40 3 * * *  root  cd /opt/cw-prod && php bin/rebuild_profit_days.php --db=cw_prod --days=3 --apply >> /var/log/cw/rebuild_profit_days.log 2>&1

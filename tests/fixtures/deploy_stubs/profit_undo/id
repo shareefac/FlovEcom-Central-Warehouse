@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# cw-deploy-stub
-# id -u (tests/Unit/ProfitUndoScriptsBehaviourTest.php): root's 0, or the scenario's answers/uid.
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
-log "id $*"
-[[ $* == -u ]] || { echo "id stub: only id -u" >&2; exit 99; }
-answer uid 0
-echo

@@ -45,9 +45,6 @@ final class Settings
         'po.over_delivery_tolerance_pct' => ['min' => 0, 'max' => 200],
         'po.board_recent_days' => ['min' => 1, 'max' => 365], // 0053 (PV18): the board's "Received or closed" group
         'po.draft_look' => ['in' => ['paper', 'form']], // 0071 (LP2): a draft and a new order on the paper, or on the old form (the way back)
-        // 0074 (profit step 1, PR4): the VAT in the shops' prices, a percent with at most two decimals that matter; kept without trailing zeros
-        // ("5.0000" is saved as "5"), so the profit code reads exactly what was saved (the final review of 6d59eda, c-M5, PR109).
-        'profit.vat_rate_pct' => ['min' => '0', 'max' => '100', 'percent' => true],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],
@@ -516,9 +513,6 @@ final class Settings
         if (isset($rule['in']) && !in_array($value, $rule['in'], true)) {
             throw $bad('must be one of ' . implode(', ', $rule['in']));
         }
-        if (($rule['percent'] ?? false) === true && \CW\Profit\ProfitMath::vatBp((string) $value) === null) {
-            throw $bad('must be a percent from 0 to 100 with at most two decimals, like 20 or 17.5');
-        }
         if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
             throw $bad('must be ' . ($rule['pattern_says'] ?? 'in the expected form'));
         }
@@ -597,9 +591,6 @@ final class Settings
             }
             $after = self::parse($type, $raw);
             $this->checkRule($key, $after);
-            if ((self::RULES[$key]['percent'] ?? false) === true && is_string($after) && str_contains($after, '.')) {
-                $after = rtrim(rtrim($after, '0'), '.'); // "5.0000" is "5", "17.50" is "17.5"
-            }
             $json = self::encode($type, $after);
             $was = (int) $row['provisional'];
             $provisional = $agreed === null ? $was : ($agreed ? 0 : 1);

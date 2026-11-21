@@ -11,8 +11,7 @@ declare(strict_types=1);
  *   php bin/migrate.php                            target = CW_DB_NAME or app.env db_name
  *
  * When the target is the app schema named in app.env (db_name) and app.env names the app login,
- * the app login's table grants are converged afterwards (Schema\Grants) unless --no-grants, inside the
- * Migrator's run (its bounded metadata-lock wait and its lock: PR155).
+ * the app login's table grants are converged afterwards (Schema\Grants) unless --no-grants.
  * Exit codes: 0 ok, 1 failure, 2 usage.
  */
 
@@ -61,20 +60,13 @@ try {
         exit(0);
     }
 
-    // The grants only for the schema named in app.env (never a CW_DB_NAME override such as a test schema). They run inside the Migrator's
-    // run, after the files: the same bounded metadata-lock wait (Migrator::LOCK_WAIT_SEC) and the same migration lock, the session's own
-    // wait put back only at the end (the final re-check of the fix round, p-M, PR155).
-    $appUser = $config->appFile('db_user');
-    $grants = null;
-    $changes = null;
-    if (!isset($opts['no-grants']) && $appUser !== null && $target === $config->appFile('db_name')) {
-        $grants = static function () use ($db, $target, $appUser, &$changes): void {
-            $changes = Grants::apply($db, $target, $appUser);
-        };
-    }
-    $done = $migrator->migrate($grants);
+    $done = $migrator->migrate();
     fwrite(STDOUT, "[{$target}] " . ($done === [] ? 'up to date' : count($done) . ' migration(s) applied') . "\n");
-    if ($changes !== null) {
+
+    // Only the schema named in app.env (never a CW_DB_NAME override such as a test schema).
+    $appUser = $config->appFile('db_user');
+    if (!isset($opts['no-grants']) && $appUser !== null && $target === $config->appFile('db_name')) {
+        $changes = Grants::apply($db, $target, $appUser);
         fwrite(STDOUT, "[{$target}] grants for {$appUser}: " . ($changes === [] ? 'unchanged' : implode('; ', $changes)) . "\n");
     }
     exit(0);

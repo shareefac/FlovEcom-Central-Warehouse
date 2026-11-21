@@ -120,7 +120,7 @@ final class RolePermissions
             'locked' => new CwException('permission_locked', "{$perm} is never changed on the screen: every job needs it, or it guards people and settings", 409),
             'bad_role' => new CwException('bad_role', 'a job must be one of ' . implode(', ', Permissions::ROLES), 400),
             'no_holders' => new CwException('no_holders', 'at least one job must hold a permission (to stop a task, give it to the fewest jobs)', 422),
-            'acting_job' => new CwException('acting_job', 'admin and the look-only jobs (' . implode(', ', Permissions::LOOK_ONLY)
+            'acting_job' => new CwException('acting_job', 'admin and the look-only jobs (' . implode(', ', Permissions::ADMIN_COMPATIBLE)
                 . ') never get a permission that changes anything', 422),
             'people_manager_job' => new CwException('people_manager_job', 'people_manager only manages people: it never gets another task', 422),
             'required' => new CwException('required_job', "{$perm} always stays with " . implode(', ', Permissions::REQUIRED[$perm] ?? []), 422,
