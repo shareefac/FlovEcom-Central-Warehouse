@@ -9,11 +9,13 @@ declare(strict_types=1);
  * checkout never waits behind it. The oldest first, each order in a transaction of its own, at most --max orders and about --seconds a run.
  * Cron runs it every minute; one run at a time (the job's lock: a second run started meanwhile does nothing).
  *
- *   php bin/apply_order_snapshots.php [--max=N] [--seconds=N] [--status]
+ *   php bin/apply_order_snapshots.php [--max=N] [--seconds=N] [--status | --retry-refused]
  *
- *   --max      the most orders a run works out (default 2000)
- *   --seconds  a run stops taking new orders after about this long (default 45)
- *   --status   reads only: how many snapshots wait, the oldest, and the refused ones
+ *   --max            the most orders a run works out (default 2000)
+ *   --seconds        a run stops taking new orders after about this long (default 45); a lock it waits for is waited for at most a few
+ *                    seconds (the order is left for the next run), so one order never holds the run up
+ *   --status         reads only: how many snapshots wait, the oldest, and the refused ones
+ *   --retry-refused  the refused snapshots are tried again on this run (after what refused them was put right)
  *
  * Exit codes: 0 done (also: nothing waiting, or another run holds the job's lock) · 1 a snapshot was refused (its queue row says why) · 2 usage
  * · 3 cannot run.
@@ -24,7 +26,8 @@ use CW\Profit\OrderSnapshots;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main('apply_order_snapshots', ['max:', 'seconds:', 'status'], 'usage: php bin/apply_order_snapshots.php [--max=N] [--seconds=N] [--status]',
+exit(Cli::main('apply_order_snapshots', ['max:', 'seconds:', 'status', 'retry-refused'],
+    'usage: php bin/apply_order_snapshots.php [--max=N] [--seconds=N] [--status | --retry-refused]',
     static function (Cli $cli, array $opts): int {
         if (array_key_exists('status', $opts)) {
             $s = $cli->db->one('SELECT SUM(failed = 0) AS waiting, SUM(failed = 1) AS refused, MIN(IF(failed = 0, queued_at, NULL)) AS oldest FROM order_snapshot_queue');
@@ -36,7 +39,13 @@ exit(Cli::main('apply_order_snapshots', ['max:', 'seconds:', 'status'], 'usage: 
         }
         $max = Cli::intOpt($opts, 'max', OrderSnapshots::QUEUE_MAX_ORDERS, 1, 100_000);
         $seconds = Cli::intOpt($opts, 'seconds', OrderSnapshots::QUEUE_MAX_SECONDS, 1, 3600);
-        $r = (new OrderSnapshots($cli->db))->applyQueued($max, $seconds);
+        if (array_key_exists('retry-refused', $opts)) {
+            $cli->log('refused snapshots to try again: ' . $cli->db->exec('UPDATE order_snapshot_queue SET failed = 0 WHERE failed = 1'));
+        }
+        // Short lock waits (an order's guards, a day's summary row a rebuild holds): such an order is left for the next run, never the run held
+        // up behind it (the Codex check of c48683e).
+        $cli->db->exec('SET SESSION innodb_lock_wait_timeout = ' . OrderSnapshots::QUEUE_LOCK_WAIT_SEC);
+        $r = (new OrderSnapshots($cli->db, null, null, OrderSnapshots::QUEUE_LOCK_WAIT_SEC))->applyQueued($max, $seconds);
         $cli->log(sprintf('applied %d, refused %d, busy %d (left for the next run), waiting %d', $r['applied'], $r['refused'], $r['busy'], $r['left']));
         return $r['refused'] > 0 ? Cli::PROBLEM : Cli::OK;
     }, true, true));

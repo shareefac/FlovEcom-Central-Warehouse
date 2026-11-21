@@ -16,6 +16,8 @@ declare(strict_types=1);
  *   --start        the UK day the prices start (default: the setting profit.cost_start)
  *   --store        the store whose variant numbers ERPNext's item codes carry (default: the setting erp_opening.listing_store)
  *   --allow-skips  the broken Bin rows that may be left out, named by item code (or row:<n> for a row with none)
+ *   --rows         the number of rows the export counted (ERPNext's own count of the Bin rows it wrote): a file with another number of rows
+ *                  is cut short or grown, and refused
  *   --apply        write the start and replay since it; without it: a dry run that prints the counts and the items it could not price
  *
  * The Bin file is checked whole first: a row without the header's columns, or whose actual_qty or valuation_rate is blank or not a number,
@@ -33,8 +35,8 @@ use CW\Reports\ReportRefresh;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'apply'],
-    'usage: php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--allow-skips=<code,code,row:N>] [--apply]',
+exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'rows:', 'apply'],
+    'usage: php bin/seed_item_cost.php --bin=<erp_bin.tsv> [--start=YYYY-MM-DD] [--store=<code>] [--allow-skips=<code,code,row:N>] [--rows=N] [--apply]',
     static function (Cli $cli, array $opts): int {
         $bin = is_string($opts['bin'] ?? null) ? $opts['bin'] : throw new InvalidArgumentException('give --bin=<erp_bin.tsv>');
         if (!is_file($bin) || !is_readable($bin)) {
@@ -51,13 +53,15 @@ exit(Cli::main(CostEngine::JOB, ['bin:', 'start:', 'store:', 'allow-skips:', 'ap
         $startAt = \CW\Clock::db(ReportRefresh::bounds($day)[0]);
         $allow = is_string($opts['allow-skips'] ?? null) ? array_values(array_filter(array_map('trim', explode(',', $opts['allow-skips'])), static fn (string $c): bool => $c !== '')) : [];
         // Every price as of the start itself (PR99): what came in after it is the replay's, never in a starting price.
-        $plan = $engine->plan((string) file_get_contents($bin), $store, $startAt, $allow);
+        $rows = array_key_exists('rows', $opts) ? Cli::intOpt($opts, 'rows', 0, 1, 10_000_000) : null;
+        $plan = $engine->plan((string) file_get_contents($bin), $store, $startAt, $allow, $rows);
         foreach ($plan['skipped'] as $b) {
             $cli->log("Bin row {$b['row']} ({$b['item_code']}) left out as --allow-skips says: it {$b['why']}");
         }
         if ($plan['broken'] !== []) {
             foreach (array_slice($plan['broken'], 0, 100) as $b) {
-                $cli->error("Bin row {$b['row']} (" . ($b['item_code'] === '' ? 'no item code' : $b['item_code']) . ") is broken: it {$b['why']}");
+                $cli->error($b['row'] === 0 ? "the Bin file {$b['why']}"
+                    : "Bin row {$b['row']} (" . ($b['item_code'] === '' ? 'no item code' : $b['item_code']) . ") is broken: it {$b['why']}");
             }
             $cli->error(count($plan['broken']) . ' broken Bin row(s): nothing written. Export the Bin again, or name the rows that may be left out with '
                 . '--allow-skips=<item code,...> (row:<n> for a row with no item code)');

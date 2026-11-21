@@ -13,7 +13,11 @@ declare(strict_types=1);
  *            to, printed with both values; nothing written (the go-live check; the final review of 6d59eda, c-LOW4 / a-M8, PR104)
  *   --apply  write: each day's summaries replaced by what its orders add up to (cron, nightly)
  *
- * Exit codes: 0 done (the check: no day differs) · 1 the check found a day that differs · 2 usage · 3 cannot run.
+ * The check takes no lock (it reads each store-day in one consistent snapshot), so it always compares; --apply takes the job's lock and, when
+ * another run holds it, does nothing and says so (exit 4; the Codex check of c48683e).
+ *
+ * Exit codes: 0 done (the check: no day differs) · 1 the check found a day that differs · 2 usage · 3 cannot run · 4 --apply not run: another
+ * run holds the job's lock.
  */
 
 use CW\Ops\Cli;
@@ -47,6 +51,10 @@ exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:', 'che
         if ($apply && array_key_exists('check', $opts)) {
             throw new InvalidArgumentException('--check compares only and --apply writes: give one of them');
         }
+        if ($apply && !$cli->tryLock()) {
+            $cli->error('not run: another run of this job holds its lock; nothing written');
+            return Cli::BUSY;
+        }
         $days = 0;
         $differ = 0;
         for ($d = $from; $d <= $to; $d = ReportRefresh::nextDay($d)) {
@@ -74,4 +82,4 @@ exit(Cli::main('rebuild_profit_days', ['from:', 'to:', 'days:', 'channel:', 'che
         }
         $cli->log("checked {$days} days for " . count($channels) . " stores: {$differ} store-days differ (nothing written" . ($differ > 0 ? '; --apply writes what the orders add up to)' : ')'));
         return $differ > 0 ? Cli::PROBLEM : Cli::OK;
-    }, true, true));
+    }, false, true));

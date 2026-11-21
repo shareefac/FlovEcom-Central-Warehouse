@@ -1589,12 +1589,12 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `StockOps/StockOpLineUidTest`, `Handovers/HandoverLineUidTest`, `Counts/CountLineUidTest` (`tests/Support/LineUids.php`). Runner:
   `/root/cw_work/runs/presence_run.sh`, `presence_full.sh <tag>`.
 
-### Profit on every order, step 1 (`docs/decisions.md` PR1-PR112; branch `profit`; migrations 0074, 0075; 20 Nov 2026)
+### Profit on every order, step 1 (`docs/decisions.md` PR1-PR120; branch `profit`; migrations 0074, 0075; 20 Nov 2026)
 
 | File | What |
 |---|---|
 | `migrations/0074_profit.sql` | `order_snapshot`, `sale_order`, `sale_line`, `sale_parcel`, `item_cost`, `item_cost` / `item_cost_event` (`timeline`: an item's history in force, written again in time order when an event comes late), `item_cost_document` (the documents the cost job read whole), `profit_day`, `profit_item_day`, `profit_job`; five `profit.*` settings; the `profit.view` row of role_permission; `finance` in `staff_role.role`; `ix_erp_pi_line_sku` on erp_pi_line |
-| `migrations/0075_profit_queue.sql` | `order_snapshot_queue`: the orders whose latest snapshot the money job has not worked out (PR95) |
+| `migrations/0075_profit_queue.sql` | `order_snapshot_queue`: per order the snapshot waiting for the money job (body, version, hash, seq); `order_snapshot` holds the one worked out (PR95, PR113) |
 | `src/Profit/SnapshotBody.php` | the contract's checks and the normalised body (`parse`, `hash` without the version); no free text (PR96: codes, numbers, fixed words, `SERVICE_WORDS`); `checkJsonShapes` |
 | `src/Profit/ProfitMath.php` | the money rules (ex VAT, a line, its cost, margin) and the moving average (`receive`, `correct`, `remove`, `step`, `fold`), `operation` / `lowestLevel` (the fewest on hand between whole operations), `receiptPrice` (a receipt line of a final invoice), `spread`, `e4` |
 | `src/Profit/OrderSnapshots.php` | `accept` (the API: stored and queued, one short transaction), `applyQueued` (the money job), `store` (both at once: bulk, tests), `apply` (order, lines, parcels, re-sends, day summaries), `recompute` (with a cost override) |

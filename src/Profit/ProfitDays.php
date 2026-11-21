@@ -178,10 +178,15 @@ final class ProfitDays
             foreach ($db->all('SELECT sku_id, ' . implode(', ', self::ITEM_FIELDS) . ' FROM profit_item_day WHERE day = ? AND channel_id = ? ORDER BY sku_id', [$day, $channelId]) as $r) {
                 $keptItems[(int) $r['sku_id']] = array_map('intval', array_intersect_key($r, array_flip(self::ITEM_FIELDS)));
             }
-            return [$c, $keptDay === null ? array_fill_keys(self::DAY_FIELDS, 0) : array_map('intval', $keptDay), $keptItems];
+            return [$c, $keptDay === null ? array_fill_keys(self::DAY_FIELDS, 0) : array_map('intval', $keptDay), $keptItems, $keptDay !== null];
         };
-        [$c, $keptDay, $keptItems] = $db->inTransaction() ? $read($db) : self::snapshot($db, $read);
+        [$c, $keptDay, $keptItems, $keptRow] = self::snapshot($db, $read);
         $out = [];
+        // A day's row kept with nothing to count (its last order moved to another day): a line of zeros on the pages that --apply takes away
+        // (the Codex check of c48683e).
+        if ($keptRow && !$c['any'] && array_filter($keptDay) === []) {
+            $out[] = 'day: a summary row of zeros kept with no paid order on the day (--apply removes it)';
+        }
         foreach (self::DAY_FIELDS as $f) {
             if ($keptDay[$f] !== $c['day'][$f]) {
                 $out[] = sprintf('day: %s kept %d, worked out %d (%+d)', $f, $keptDay[$f], $c['day'][$f], $c['day'][$f] - $keptDay[$f]);

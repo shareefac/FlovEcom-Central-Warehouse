@@ -108,7 +108,9 @@ final class ProfitController
     {
         $store = UiRequest::id($ctx->req->param('store'));
         $ref = (string) ($ctx->req->param('ref') ?? '');
-        $o = $store === null || preg_match('/^[\x21-\x7e]{1,64}$/D', $ref) !== 1 ? null : (new ProfitViews($ctx->db))->order($store, $ref);
+        // The order, its lines and its re-sends from ONE moment of the database (PR103; the Codex check of c48683e).
+        $o = $store === null || preg_match('/^[\x21-\x7e]{1,64}$/D', $ref) !== 1 ? null
+            : ProfitDays::snapshot($ctx->db, static fn (): ?array => (new ProfitViews($ctx->db))->order($store, $ref));
         if ($o === null) {
             return $ctx->error(404, 'not_found', 'there is no such order', [self::PATH . '/orders', Words::MENU['profit_orders']]);
         }

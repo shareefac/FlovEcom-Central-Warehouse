@@ -166,4 +166,60 @@ final class FinalReviewCostTest extends ArrivalsTestCase
         // The four still here move from £1 to £2: (34 + 4) / 14.
         self::assertSame(27143, self::cost($o['sku']), 'only the four of its ten that can still be here, never all ten on hand');
     }
+
+    /** The Codex check of c48683e: a credit of a delivery taken back reaches none of the stock that stays. */
+    public function testAPriceCreditOfADeliveryTakenBackNeverRepricesTheStockThatStays(): void
+    {
+        $this->site('vapeandgo', 'live');
+        $who = $this->people('Taken Back Credit Ltd');
+        $o = $this->approvedPoFor($who['buyer'], (int) $who['supplier']['id'], 20, 1, '1.0000');
+        $this->start();
+        $this->deliver($who, $o, 10, '4.00');
+        $second = $this->deliver($who, $o, 10, '2.00');
+        $inv = $this->invoiceAt($who, $second, '2.0000');
+        $this->engine()->run();
+        self::assertSame(30000, self::cost($o['sku']));
+        $this->docs->reverse($who['desk'], $second->id, 'entered_in_error', null);
+        $this->engine(60)->run();
+        self::assertSame(40000, self::cost($o['sku']), 'the second ten taken back at £2: the first ten at £4');
+        $this->credit($who, $inv, 1, 10, '0.5000');
+        $this->engine(120)->run();
+        self::assertSame(40000, self::cost($o['sku']), '50p off the ten taken back: the ten that stay keep £4 (never £3.50)');
+    }
+
+    /**
+     * The Codex check of c48683e (MEDIUM 3, 4): the opening takes what was BOOKED before the start, by the replay's clock (a delivery booked
+     * just before midnight and made final just after it is in the opening, never in neither); an item made after the start is not in it.
+     */
+    public function testTheOpeningUsesTheReplaysClockAndLeavesItemsMadeAfterTheStart(): void
+    {
+        $this->site('vapeandgo', 'live');
+        $who = $this->people('Opening Clock Ltd');
+        $o = $this->approvedPoFor($who['buyer'], (int) $who['supplier']['id'], 20, 1, '1.0000');
+        $this->deliver($who, $o, 10, '1.00');
+        $second = $this->deliver($who, $o, 10, '3.00');
+        usleep(20000);
+        $startAt = Clock::db(Clock::now());
+        usleep(20000);
+        // The second delivery booked before the start, its value sequence written just after it.
+        self::$db->exec('UPDATE stock_value_seq s JOIN stock_ledger l ON l.id = s.stock_ledger_id SET s.created_at = ? WHERE l.document_id = ?',
+            [Clock::db(Clock::now()), $second->id]);
+        $late = $this->approvedPoFor($who['buyer'], (int) $who['supplier']['id'], 20, 1, '1.0000');
+        $plan = $this->engine()->plan(self::EMPTY_BIN, 'vapeandgo', $startAt);
+        self::assertSame(['e4' => 20000, 'source' => 'cw_average'], $plan['prices'][$o['sku']] ?? null, 'both deliveries booked before the start: £2, never £1');
+        self::assertArrayNotHasKey($late['sku'], $plan['prices'], 'an item made after the start is started by the job before its first delivery');
+        $this->engine()->seed($plan['prices'], $startAt);
+        $this->engine(60)->run();
+        self::assertSame(20000, self::cost($o['sku']), 'never the second delivery in neither the opening nor the replay');
+    }
+
+    public function testABinRowWithNoItemCodeOrAFileCutShortIsRefused(): void
+    {
+        $bin = self::EMPTY_BIN . "\tStores - VPG\t5.000000000\t1.000000000\t5\n" . "P501\tStores - VPG\t5.000000000\t1.000000000\t5\n";
+        $plan = $this->engine()->plan($bin, 'vapeandgo');
+        self::assertSame([[2, '', 'has no item_code']], array_map(static fn (array $b): array => [$b['row'], $b['item_code'], $b['why']], $plan['broken']));
+        $plan = $this->engine()->plan($bin, 'vapeandgo', null, ['row:2'], 3);
+        self::assertSame([0], array_column($plan['broken'], 'row'), 'two rows where the export counted three: cut short');
+        self::assertSame([], $this->engine()->plan($bin, 'vapeandgo', null, ['row:2'], 2)['broken']);
+    }
 }

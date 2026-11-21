@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\Profit;
 
 use CW\Caller;
+use CW\Clock;
 use CW\CwException;
 use CW\Profit\ErpSalesImport;
 use CW\Profit\ItemCosts;
@@ -105,7 +106,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
             $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, '1')]);
             self::$db->exec('SET SESSION innodb_lock_wait_timeout = 50');
         }
-        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot WHERE channel_id = ?', [$ch]));
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot WHERE channel_id = ?', [$ch]), 'order_snapshot holds what is worked out');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM sale_order WHERE channel_id = ?', [$ch]), 'nothing of the money written by the API');
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM order_snapshot_queue WHERE channel_id = ? AND failed = 0', [$ch]));
         // The job works it out; its queue row goes.
@@ -113,6 +114,7 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::assertSame(['1000', '300'], [(string) self::$db->value('SELECT sale_ex FROM sale_order WHERE channel_id = ?', [$ch]),
             (string) self::$db->value('SELECT cost FROM sale_order WHERE channel_id = ?', [$ch])]);
         self::assertSame('300', (string) self::$db->value('SELECT cost FROM profit_day WHERE channel_id = ? AND day = ?', [$ch, self::DAY]));
+        self::assertSame('1000', (string) self::$db->value('SELECT version FROM order_snapshot WHERE channel_id = ?', [$ch]), 'the snapshot worked out');
         // Two snapshots before the job runs: the newest is worked out, once.
         $s = new OrderSnapshots(self::$db);
         $s->accept($ch, '1', self::body([self::sl('L1', 'VA', 1200)], ['version' => 1001, 'grand_inc' => 5]), 'api');
@@ -343,5 +345,99 @@ final class FinalReviewSnapshotTest extends StockTestCase
         self::$db->exec('UPDATE profit_day SET cost = cost + 1000 WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY]);
         self::assertSame(['day: cost kept 1000, worked out 0 (-1000)'], ProfitDays::differences(self::$db, (int) $site->channelId, self::DAY));
         self::assertSame('1000', (string) self::$db->value('SELECT cost FROM profit_day WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY]), 'nothing written');
+    }
+
+    /** The Codex check of c48683e: the order's rows, order_snapshot and the batch tools agree on one version. */
+    public function testABatchToolWaitsWhileANewerSnapshotWaitsForTheMoneyJob(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $a = $this->item('legacy');
+        self::price($a, 80000, '2025-01-01 00:00:00');
+        $this->listing($site, '101', $a);
+        $s = new OrderSnapshots(self::$db);
+        $s->store((int) $site->channelId, '3001', self::body([self::sl('W1', '101', 1200)], ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
+        // A correction moves its payment to 17 Nov 2026 (after CW's own price started); the money job has not worked it out yet.
+        $s->accept((int) $site->channelId, '3001', self::body([self::sl('W1', '101', 1200)], ['version' => 1001, 'paid_at' => '2026-11-17T10:00:00Z']), 'api');
+        file_put_contents($this->dir . '/si_2025-12-15.tsv', self::tsv([['SI-1', '3001', 'P101', '1.000000000', '3.000000000', '1']]));
+        $log = [];
+        (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, function (string $m) use (&$log): void {
+            $log[] = $m;
+        });
+        self::assertSame(['estimate', '800'], array_map('strval', array_values((array) self::$db->one("SELECT cost_source, cost FROM sale_line WHERE line_id = 'W1'"))),
+            'never £3 of ERPNext cost written while a newer snapshot (paid after the start) waits');
+        self::assertStringContainsString('waiting for the money job 1', $log[0]);
+        $s->applyQueued();
+        (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
+        self::assertSame('estimate', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'W1'"), 'run again after the job: paid after the start now');
+    }
+
+    public function testALineWhoseIdChangesCaseIsTheSameLine(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $s = new OrderSnapshots(self::$db);
+        $s->store((int) $site->channelId, 'K', self::body([self::sl('L1', 'NONE', 1200)]), 'api');
+        $s->store((int) $site->channelId, 'K', self::body([self::sl('l1', 'NONE', 1200)], ['version' => 1001]), 'api');
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM sale_line WHERE order_ref = 'K'"));
+        self::assertNull(self::$db->value("SELECT removed_at FROM sale_line WHERE order_ref = 'K'"), 'one row, still on the order (never marked removed)');
+        self::assertSame(['1000', '1000'], [(string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = 'K'"),
+            (string) self::$db->value('SELECT sale_ex FROM profit_day WHERE channel_id = ? AND day = ?', [$site->channelId, self::DAY])]);
+        self::assertSame([], ProfitDays::differences(self::$db, (int) $site->channelId, self::DAY));
+    }
+
+    /** The Codex check of c48683e (new HIGH 1): a refusal marks only the snapshot refused; a correction stored meanwhile is worked out next. */
+    public function testARefusalNeverStrandsACorrectionStoredMeanwhile(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $ch = (int) $site->channelId;
+        $s = new OrderSnapshots(self::$db);
+        // A's first snapshot names X1; B stores X1 and is worked out first, so the money work refuses A's first snapshot.
+        $s->accept($ch, 'A', self::body([self::sl('X1', 'VA', 1200)]), 'api');
+        $s->store($ch, 'B', self::body([self::sl('X1', 'VA', 1200)]), 'api');
+        // While the job works A's first snapshot out, the shop sends its correction (the API, on another connection).
+        $other = TestDb::connect();
+        $fired = false;
+        $clock = static function () use (&$fired, $other, $ch): \DateTimeImmutable {
+            if (!$fired) {
+                $fired = true;
+                self::assertSame('stored', (new OrderSnapshots($other))->accept($ch, 'A', self::body([self::sl('X2', 'VA', 1200)], ['version' => 1001]), 'api')['result']);
+            }
+            return Clock::now();
+        };
+        self::assertSame(['applied' => 0, 'refused' => 1, 'busy' => 0, 'left' => 1], (new OrderSnapshots(self::$db, $clock))->applyQueued(),
+            'the first snapshot refused; the correction still waits');
+        self::assertTrue($fired);
+        self::assertSame(['0', '2'], array_map('strval', array_values((array) self::$db->one("SELECT failed, seq FROM order_snapshot_queue WHERE order_ref = 'A'"))));
+        self::assertSame(1, $s->applyQueued()['applied'], 'the correction is worked out, never stranded');
+        self::assertSame(['X2'], self::$db->column("SELECT line_id FROM sale_line WHERE order_ref = 'A' AND removed_at IS NULL"));
+    }
+
+    /** The Codex check of c48683e (LOW 1): a day's row of zeros kept after its only order moved to another day is a difference. */
+    public function testTheCheckReportsADayRowOfZerosLeftByAnOrderThatMoved(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $ch = (int) $site->channelId;
+        $s = new OrderSnapshots(self::$db);
+        $s->store($ch, 'Z', self::body([self::sl('Z1', 'NONE', 1200)]), 'api');
+        $s->store($ch, 'Z', self::body([self::sl('Z1', 'NONE', 1200)], ['version' => 1001, 'paid_at' => '2026-11-20T10:00:00Z']), 'api');
+        self::assertSame(['0', '0'], array_map('strval', array_values((array) self::$db->one('SELECT orders, sale_ex FROM profit_day WHERE channel_id = ? AND day = ?',
+            [$ch, self::DAY]))), 'the old day keeps a row of zeros');
+        self::assertSame(['day: a summary row of zeros kept with no paid order on the day (--apply removes it)'], ProfitDays::differences(self::$db, $ch, self::DAY));
+        self::assertSame([], ProfitDays::differences(self::$db, $ch, '2026-11-20'));
+    }
+
+    /** The Codex check of c48683e (c-M6): ERPNext's cost is never stamped on a cancelled line (not one of the units it priced). */
+    public function testErpNextsCostNeverStampsACancelledLine(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $a = $this->item('legacy');
+        self::price($a, 10000, '2025-01-01 00:00:00');
+        $this->listing($site, '101', $a);
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, '2003', self::body([self::sl('C1', '101', 1200), self::sl('C2', '101', 1200, ['cancelled' => true])],
+            ['paid_at' => '2025-12-15T10:00:00Z']), 'bulk');
+        file_put_contents($this->dir . '/si_2025-12-15.tsv', self::tsv([['SI-1', '2003', 'P101', '1.000000000', '3.000000000', '1']]));
+        (new ErpSalesImport(self::$db))->run($this->dir, 'vapeandgo', null, null, true, static fn (string $m) => null);
+        $rows = self::$db->all("SELECT line_id, cost_source, cost FROM sale_line WHERE order_ref = '2003' ORDER BY line_id");
+        self::assertSame(['C1', 'erp_at_sale', '300'], array_map('strval', array_values($rows[0])), 'the one unit ERPNext priced');
+        self::assertNotSame('erp_at_sale', (string) $rows[1]['cost_source'], 'the cancelled line never takes ERPNext\'s cost');
     }
 }

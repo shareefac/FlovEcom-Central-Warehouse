@@ -134,4 +134,50 @@ final class FinalReviewToolsTest extends StockTestCase
         self::assertStringContainsString('applied 1', $r['out']);
         self::assertSame('1000', (string) self::$db->value("SELECT sale_ex FROM sale_order WHERE order_ref = 'Q'"));
     }
+
+    /** The Codex check of c48683e (MEDIUM 7): a run waits a few seconds at most for an order another writer holds; it is left for the next run. */
+    public function testTheMoneyJobWaitsAFewSecondsAtMostForAnOrderHeldElsewhere(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        $ch = (int) $site->channelId;
+        (new OrderSnapshots(self::$db))->accept($ch, 'H', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+            'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
+            'lines' => [['line_id' => 'H1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
+        $other = TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, 'H')]));
+        try {
+            $t = microtime(true);
+            $r = self::script('apply_order_snapshots');
+            $took = microtime(true) - $t;
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, 'H')]);
+        }
+        self::assertSame(0, $r['code'], $r['out']);
+        self::assertStringContainsString('busy 1', $r['out']);
+        self::assertLessThan(7.0, $took, 'a few seconds at most for one order held elsewhere, never a person\'s 10 s wait');
+        self::assertStringContainsString('applied 1', self::script('apply_order_snapshots')['out']);
+    }
+
+    /** The Codex check of c48683e: the go-live check compares even while the nightly rebuild holds the lock. */
+    public function testTheCheckComparesWhileTheRebuildHoldsItsLock(): void
+    {
+        $site = $this->site('vapeandgo', 'live');
+        (new OrderSnapshots(self::$db))->store((int) $site->channelId, 'C', ['v' => 1, 'version' => 1, 'order_no' => '1', 'status' => 'completed',
+            'placed_at' => '2026-11-19T09:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'pp', 'currency' => 'GBP', 'parent_ref' => null,
+            'lines' => [['line_id' => 'C1', 'variant_id' => 'NONE', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                'free' => false]], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'bulk');
+        self::$db->exec("UPDATE profit_day SET cost = 900 WHERE channel_id = ? AND day = '2026-11-19'", [$site->channelId]);
+        $other = TestDb::connect();
+        $name = 'cw_job:rebuild_profit_days:' . TestDb::name();
+        $name = strlen($name) > 64 ? 'cw_job:' . sha1("rebuild_profit_days\0" . TestDb::name()) : $name;
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [$name]));
+        try {
+            $r = self::script('rebuild_profit_days', '--from=2026-11-19', '--to=2026-11-19', '--check');
+            self::assertSame(1, $r['code'], 'compared (and found the day differs), never "done" without comparing; ' . $r['out']);
+            self::assertSame(4, self::script('rebuild_profit_days', '--from=2026-11-19', '--to=2026-11-19', '--apply')['code'], '--apply with the lock held: not run');
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [$name]);
+        }
+    }
 }

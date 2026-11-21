@@ -97,17 +97,21 @@ final class CostEngine
      *
      * @param string $binTsv ERPNext's Bin as tab-separated text: a header row naming item_code, warehouse, actual_qty, valuation_rate
      * @param list<string> $allowSkips item codes (or row:<n>) whose broken rows may be left out
+     * @param ?int $expectRows the export's own count of its rows: a file with another count is cut short or grown (one broken entry, row 0)
      * @return array{prices: array<int, array{e4: ?int, source: string}>, counts: array<string, int>, bin_rows: int, bin_unmatched: int,
      *         broken: list<array{row: int, item_code: string, why: string}>, skipped: list<array{row: int, item_code: string, why: string}>}
      */
-    public function plan(string $binTsv, string $listingStore, ?string $startAt = null, array $allowSkips = []): array
+    public function plan(string $binTsv, string $listingStore, ?string $startAt = null, array $allowSkips = [], ?int $expectRows = null): array
     {
         // Without a start (a look at today's figures): every input up to now. With one (bin/seed_item_cost.php always gives it): only what was
         // known before it.
         $bounded = $startAt !== null;
         $startAt ??= Clock::db(($this->clock)());
-        $erp = $this->binPrices($binTsv, $listingStore, $allowSkips);
-        $skus = array_map('intval', $this->db->column('SELECT id FROM sku ORDER BY id'));
+        $erp = $this->binPrices($binTsv, $listingStore, $allowSkips, $expectRows);
+        // An item made at or after the start is not in it: the job starts it just before its first delivery (startNewItems: what came in
+        // before that, PR65), never with an empty start at the start's moment (the Codex check of c48683e).
+        $skus = array_map('intval', $bounded ? $this->db->column('SELECT id FROM sku WHERE created_at < ? ORDER BY id', [$startAt])
+            : $this->db->column('SELECT id FROM sku ORDER BY id'));
         $prices = [];
         foreach ($skus as $s) {
             if (isset($erp['prices'][$s])) {
@@ -135,9 +139,8 @@ final class CostEngine
     }
 
     /**
-     * Writes the start (item_cost and one `start` event per item, at $startAt) and sets the job's mark and floor there. Refused once the
-     * start is done (the job has a mark). A start stopped half way (some batches written, no mark) goes on with the items not written yet
-     * (the Codex review of 92efa82, b4).
+     * Writes the start (item_cost and one `start` event per item, at $startAt) and sets the job's mark and floor there, in ONE transaction.
+     * Refused once the start is done (the job has a mark). Items already started (an item the job met first) are left as they are.
      *
      * @param array<int, array{e4: ?int, source: string}> $prices plan()'s
      * @return int the items written by this call
@@ -147,20 +150,20 @@ final class CostEngine
         if ($this->db->value('SELECT mark_at FROM profit_job WHERE job = ?', [self::JOB]) !== null) {
             throw new \RuntimeException('the buying prices are started already (the cost job has its mark): the start is done once');
         }
-        $have = array_fill_keys(array_map('intval', $this->db->column('SELECT sku_id FROM item_cost')), true);
         $now = Clock::db(($this->clock)());
-        $n = 0;
-        foreach (array_chunk(array_diff_key($prices, $have), 500, true) as $chunk) {
-            $this->db->transaction(function (Db $db) use ($chunk, $startAt, $now, &$n): void {
-                foreach ($chunk as $sku => $p) {
-                    $this->startItem($db, (int) $sku, $p['e4'], $p['source'], $startAt, $now);
-                    $n++;
-                }
-            });
-        }
-        $this->db->exec('INSERT INTO profit_job (job, mark_at, floor_at, ran_at, summary) VALUES (?, ?, ?, ?, ?) AS n ON DUPLICATE KEY UPDATE mark_at = n.mark_at, '
-            . 'floor_at = n.floor_at, ran_at = n.ran_at, summary = n.summary', [self::JOB, $startAt, $startAt, $now, json_encode(['seeded' => $n], JSON_THROW_ON_ERROR)]);
-        return $n;
+        // ONE transaction, the mark with it: a start is written whole or not at all, so a start run again is priced from one set of inputs
+        // (never half from one run and half from another: the Codex check of c48683e; a few thousand items, a few seconds, new rows only).
+        return $this->db->transaction(function (Db $db) use ($prices, $startAt, $now): int {
+            $have = array_fill_keys(array_map('intval', $db->column('SELECT sku_id FROM item_cost')), true);
+            $n = 0;
+            foreach (array_diff_key($prices, $have) as $sku => $p) {
+                $this->startItem($db, (int) $sku, $p['e4'], $p['source'], $startAt, $now);
+                $n++;
+            }
+            $db->exec('INSERT INTO profit_job (job, mark_at, floor_at, ran_at, summary) VALUES (?, ?, ?, ?, ?) AS n ON DUPLICATE KEY UPDATE mark_at = n.mark_at, '
+                . 'floor_at = n.floor_at, ran_at = n.ran_at, summary = n.summary', [self::JOB, $startAt, $startAt, $now, json_encode(['seeded' => $n], JSON_THROW_ON_ERROR)]);
+            return $n;
+        });
     }
 
     /** One item's start: its row and its `start` event (inside the caller's transaction; an item already started is left alone). */
@@ -180,7 +183,7 @@ final class CostEngine
      * @return array{prices: array<int, int>, rows: int, unmatched: int, broken: list<array<string, mixed>>, skipped: list<array<string, mixed>>}
      *         item => price per CW unit (GBP x 10,000)
      */
-    private function binPrices(string $tsv, string $listingStore, array $allowSkips = []): array
+    private function binPrices(string $tsv, string $listingStore, array $allowSkips = [], ?int $expectRows = null): array
     {
         $rows = preg_split('/\r?\n/', trim($tsv, "\r\n")) ?: []; // a last row's empty last column is a column (never trimmed away)
         $head = array_map('trim', explode("\t", (string) array_shift($rows)));
@@ -214,6 +217,7 @@ final class CostEngine
             // A broken row (the final review of 6d59eda, b-HIGH3; PR99): never skipped without a word, never read as a number it is not.
             $why = match (true) {
                 count($f) !== count($head) => 'has ' . count($f) . ' columns, not ' . count($head),
+                $code === '' => 'has no item_code',
                 preg_match($number, trim($f[$col['actual_qty']] ?? '')) !== 1 => 'its actual_qty is blank or not a number',
                 preg_match($number, trim($f[$col['valuation_rate']] ?? '')) !== 1 => 'its valuation_rate is blank or not a number',
                 default => null,
@@ -236,6 +240,9 @@ final class CostEngine
                 continue;
             }
             $byVariant[$m[1]][] = [$rate, $qty];
+        }
+        if ($expectRows !== null && $expectRows !== $n) {
+            $broken[] = ['row' => 0, 'item_code' => '', 'why' => "is one of {$n} rows, not the {$expectRows} the export counted (the file is cut short or grown)"];
         }
         // An ERPNext item is the CW item the opening import makes it (ErpItemResolver: CW's ERPNext link first, else the variant its code
         // names through the store's match; a merged item, an unmatched or quarantined listing resolve to nothing; docs/decisions.md RB10).
@@ -280,8 +287,9 @@ final class CostEngine
     }
 
     /**
-     * CW's average price of each item (CostHints::average's rule: every unit that came in with a price) of what was made final before $before,
-     * read by the items' commit order (stock_value_seq: every on-hand row since CW priced stock): the replay adds what came after (PR99).
+     * CW's average price of each item (CostHints::average's rule: every unit that came in with a price) of what was booked before $before:
+     * by the ledger's booking time, the clock the replay chooses its deliveries by (a delivery booked before the start and made final after it
+     * is in the opening, never in neither: the Codex check of c48683e), read through the items' value sequence (PR99).
      *
      * @param list<int> $skus
      * @return array<int, int>
@@ -292,7 +300,7 @@ final class CostEngine
         foreach (array_chunk($skus, 500) as $chunk) {
             foreach ($this->db->all('SELECT s.sku_id, CAST(SUM(l.qty_delta * l.unit_cost) AS CHAR) AS v, SUM(l.qty_delta) AS q FROM stock_value_seq s '
                 . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
-                . 'AND l.unit_cost IS NOT NULL AND l.qty_delta > 0 AND s.created_at < ? GROUP BY s.sku_id', [...$chunk, $before]) as $r) {
+                . 'AND l.unit_cost IS NOT NULL AND l.qty_delta > 0 AND l.created_at < ? GROUP BY s.sku_id', [...$chunk, $before]) as $r) {
                 if ((int) $r['q'] <= 0) {
                     continue;
                 }
@@ -893,8 +901,8 @@ final class CostEngine
 
     /**
      * The units of one delivery line ($grn, line $line) of $sku that can still be on hand at $at: its units in, at most the fewest units on hand
-     * from just after it came (the end of its last portion's operation) to $at, in the item's commit order (lowestBetween). Null when the
-     * delivery line booked nothing of the item.
+     * from just after it came (the end of its last portion's operation) to $at, in the item's commit order (lowestBetween); 0 once it was taken
+     * back by then. Null when the delivery line booked nothing of the item.
      */
     private function receiptStillHere(int $sku, int $grn, int $line, string $at): ?int
     {
@@ -902,6 +910,12 @@ final class CostEngine
             . "AND movement_type = 'goods_in' AND bucket = 'on_hand' AND qty_delta > 0", [$grn, $line, $sku]);
         if ($r === null || $r['last_row'] === null) {
             return null;
+        }
+        // Taken back by then (its reversal's stock made final by $at): none of its units can be here (the Codex check of c48683e: ten at £4
+        // stay, ten received at £2 and taken back, a 50p credit of those ten never comes off the first ten).
+        if ($this->db->value("SELECT 1 FROM document v JOIN stock_ledger vl ON vl.document_id = v.id AND vl.sku_id = ? AND vl.bucket = 'on_hand' "
+            . "JOIN stock_value_seq vq ON vq.stock_ledger_id = vl.id WHERE v.reverses_id = ? AND v.status = 'posted' AND vq.created_at <= ? LIMIT 1", [$sku, $grn, $at]) !== null) {
+            return 0;
         }
         return max(0, min((int) $r['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $r['last_row'])), $this->position($sku, $at))));
     }
@@ -932,7 +946,9 @@ final class CostEngine
         }
         $n = 0;
         foreach ($taking as $t) {
-            $n += max(0, min((int) $t['units'], $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $t['last_row'])), $this->position($sku, $at))));
+            // The units of the CREDITED line this receipt took (a receipt of two invoice lines keyed as one: ten of one line, two of the other).
+            $mine = (int) ($t['basis']['lines'][(int) $invLine]['take'] ?? $t['units']);
+            $n += max(0, min($mine, $this->lowestBetween($sku, $this->opEnd($sku, $this->seqOf((int) $t['last_row'])), $this->position($sku, $at))));
         }
         return $n;
     }

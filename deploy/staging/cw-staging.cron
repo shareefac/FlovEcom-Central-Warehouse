@@ -77,7 +77,7 @@ MAILTO=""
 # Waiting ones are listed on Purchases > Supplier invoices > From ERPNext (never in Approvals). Never run by the installer (it writes).
 */30 * * * *  root  cd /opt/cw-staging && php bin/copy_erp_invoices.php --db=cw_staging --apply >> /var/log/cw/copy_erp_invoices.log 2>&1
 
-# ---- Profit on every order, step 1 (docs/decisions.md PR1-PR112) ----
+# ---- Profit on every order, step 1 (docs/decisions.md PR1-PR120) ----
 # The shops' order snapshots that PUT /v1/orders/{ref}/snapshot stored, worked out into the orders' money and the day summaries (PR95): every
 # minute, in this job and never in the web server's workers, at most 2000 orders or about 45 seconds a run. Exit 1 = a snapshot refused.
 * * * * *  root  cd /opt/cw-staging && php bin/apply_order_snapshots.php --db=cw_staging >> /var/log/cw/apply_order_snapshots.log 2>&1

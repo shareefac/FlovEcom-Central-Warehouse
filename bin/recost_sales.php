@@ -41,5 +41,8 @@ exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'apply'],
             $cli->log("{$move}: {$n} lines");
         }
         $cli->log(sprintf('%d orders, %d lines %s', $r['orders'], $r['lines'], $apply ? 're-costed' : 'would be re-costed (dry run: add --apply)'));
+        if ($r['deferred'] > 0) {
+            $cli->log("{$r['deferred']} orders left: a newer snapshot of each waits for the money job (bin/apply_order_snapshots.php); run this again after it");
+        }
         return Cli::OK;
     }, true, true));

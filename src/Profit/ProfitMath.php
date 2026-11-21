@@ -33,6 +33,23 @@ final class ProfitMath
         return $a < 0 ? -$q : $q;
     }
 
+    /**
+     * a x b / c rounded half away from zero (c > 0), exact whatever the size of a x b (bcmath: two amounts of pence can pass PHP's integers;
+     * the Codex check of c48683e).
+     */
+    public static function mulDivRound(int $a, int $b, int $c): int
+    {
+        if ($c <= 0) {
+            throw new \InvalidArgumentException('divide by a positive number');
+        }
+        $p = bcmul((string) $a, (string) $b, 0);
+        $neg = str_starts_with($p, '-');
+        $abs = ltrim($p, '-');
+        // (2|p| + c) div 2c, as divRound
+        $q = bcdiv(bcadd(bcmul($abs, '2', 0), (string) $c, 0), bcmul((string) $c, '2', 0), 0);
+        return (int) ($neg && $q !== '0' ? '-' . $q : $q);
+    }
+
     /** "20", "17.5" or "5.0000" (percent) => basis points (2000, 1750, 500); null when it is not a percent from 0 to 100 with at most two decimals. */
     public static function vatBp(string $percent): ?int
     {

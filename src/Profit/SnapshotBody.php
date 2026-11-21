@@ -34,6 +34,8 @@ final class SnapshotBody
     public const LINE_QTY = 1;
     /** An id or a ref: a code (the shops' ids with their store prefix), never a text with spaces or @. */
     public const CODE = '/^[A-Za-z0-9][A-Za-z0-9:_.\-]{0,63}$/D';
+    /** The most digits a service name or code may hold in all (the real ones hold 4 at most: "Tracked 24(1-2 Working Days)", TPL48HV). */
+    public const TEXT_DIGITS = 6;
     /** The order number the customer sees: digits, a few letters before them at most (VPG1567469, 1567469), or "". */
     public const ORDER_NO = '/^(?:[A-Za-z]{0,5}[1-9][0-9]{0,9})?$/D';
     /** The shops' order statuses (lower case words); any other is kept as "other". */
@@ -317,7 +319,8 @@ final class SnapshotBody
             return $v;
         }
         $v = (string) preg_replace('/\s+/', ' ', $v);
-        if (preg_match("/^[A-Za-z0-9 ()&+,.\/:'-]+$/D", $v) !== 1) {
+        // At most 6 digits in all: a phone number written in groups ("0770 0900 123") is never a service name (the Codex check of c48683e).
+        if (preg_match("/^[A-Za-z0-9 ()&+,.\/:'-]+$/D", $v) !== 1 || preg_match_all('/[0-9]/', $v) > self::TEXT_DIGITS) {
             return null;
         }
         foreach (preg_split('/[^A-Za-z0-9]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $t) {
@@ -329,10 +332,10 @@ final class SnapshotBody
         return $v;
     }
 
-    /** A carrier's service code (letters, digits, _ . / - ^; never a long run of digits: a phone number), else "". */
+    /** A carrier's service code (letters, digits, _ . / - ^; at most TEXT_DIGITS digits in all: never a phone number), else "". */
     private static function serviceCode(?string $v): string
     {
-        return $v !== null && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.\/^-]{0,31}$/D', $v) === 1 && preg_match('/[0-9]{7}/', $v) !== 1 ? $v : '';
+        return $v !== null && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.\/^-]{0,31}$/D', $v) === 1 && preg_match_all('/[0-9]/', $v) <= self::TEXT_DIGITS ? $v : '';
     }
 
     /** An id of digits (a shipping method's number), else null. */

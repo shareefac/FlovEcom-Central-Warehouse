@@ -84,7 +84,7 @@ final class ErpSalesImport
             }
             $d = $this->read($f);
             $r = $d['counts'] + ['cw_orders' => 0, 'cw_goods_e2' => 0, 'costed' => 0, 'no_line' => 0, 'not_in_cw' => 0, 'after_start' => 0, 'unpaid' => 0, 'rate_zero' => 0,
-                'held' => 0, 'before_history' => 0, 'qty_mismatch' => 0, 'same' => 0];
+                'held' => 0, 'before_history' => 0, 'qty_mismatch' => 0, 'same' => 0, 'waiting' => 0];
             $due = [];
             foreach ($d['orders'] as $ref => $variants) {
                 $ref = (string) $ref;
@@ -110,10 +110,10 @@ final class ErpSalesImport
             $tot['lines'] += $r['costed'];
             $log(sprintf('%s erp orders %d goods %s cost %s | cw orders %d goods %s | lines costed %d (already so %d), erp lines with no cw line %d, units not matching %d, '
                 . 'orders not in cw %d, paid before the history %d, paid on or after the cost start %d, not paid in cw %d, returns %d (%s), no order id %d, rate 0 %d, '
-                . 'held for a later day %d%s',
+                . 'held for a later day %d, waiting for the money job %d (run again after it)%s',
                 $day, $r['erp_orders'], self::gbp($r['erp_goods_e2']), self::gbp($r['erp_cost_e2']), $r['cw_orders'], self::gbp($r['cw_goods_e2']), $r['costed'], $r['same'],
                 $r['no_line'], $r['qty_mismatch'], $r['not_in_cw'], $r['before_history'], $r['after_start'], $r['unpaid'], $r['returns'], self::gbp($r['returns_e2']),
-                $r['no_order_id'], $r['rate_zero'], $r['held'], $apply ? '' : ' (dry run: nothing written)'));
+                $r['no_order_id'], $r['rate_zero'], $r['held'], $r['waiting'], $apply ? '' : ' (dry run: nothing written)'));
         }
         return $tot;
     }
@@ -287,6 +287,9 @@ final class ErpSalesImport
                     $o = self::override($this->lines($db, $channel, $ref), $variants)['override'];
                     return $o === [] ? null : $o;
                 });
+                if ($service->deferred) {
+                    $r['waiting']++;
+                }
             }
         }
     }
@@ -332,6 +335,9 @@ final class ErpSalesImport
             }
             $rate = ProfitMath::divRound($x['value'], $x['rated_qty']);
             foreach ($mine as $l) {
+                if ((int) $l['cancelled'] === 1) {
+                    continue; // not one of the units ERPNext priced: never stamped with its cost (the Codex check of c48683e)
+                }
                 $e4 = ProfitMath::divRound($rate, max(1, (int) $l['units_per_item']));
                 if (($l['cost_source'] ?? null) === 'erp_at_sale' && ($l['costed_by'] ?? null) === 'erp_import' && $l['unit_cost_e4'] !== null && (int) $l['unit_cost_e4'] === $e4) {
                     $out['same']++;

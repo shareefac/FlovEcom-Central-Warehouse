@@ -225,7 +225,7 @@ final class ProfitImportsTest extends StockTestCase
         self::price($b, 20000);
         self::$db->exec("UPDATE channel_listing SET sku_id = ?, status = 'mapped' WHERE channel_id = ? AND external_variant_id = '3'", [$a, $site->channelId]);
         $dry = (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['none'], null, false);
-        self::assertSame(['orders' => 1, 'lines' => 2, 'moves' => ['none > cw_cost' => 2]], $dry);
+        self::assertSame(['orders' => 1, 'lines' => 2, 'moves' => ['none > cw_cost' => 2], 'deferred' => 0], $dry);
         self::assertSame(2, (int) self::$db->value("SELECT units_no_cost FROM sale_order WHERE order_ref = '1'"), 'a dry run writes nothing');
         (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['none'], 'vapeandgo', true);
         $rows = self::$db->all("SELECT line_id, sku_id, unit_cost_e4, cost_source, costed_by FROM sale_line WHERE order_ref = '1' ORDER BY line_id");
@@ -233,7 +233,8 @@ final class ProfitImportsTest extends StockTestCase
             array_map(static fn (array $l): array => array_map('strval', array_values($l)), $rows));
         self::assertSame(['0', '400'], [(string) self::$db->value("SELECT units_no_cost FROM sale_order WHERE order_ref = '1'"),
             (string) self::$db->value("SELECT cost FROM sale_order WHERE order_ref = '1'")]);
-        self::assertSame(['orders' => 0, 'lines' => 0, 'moves' => []], (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['none'], null, true), 'nothing left');
+        self::assertSame(['orders' => 0, 'lines' => 0, 'moves' => [], 'deferred' => 0], (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['none'], null, true),
+            'nothing left');
         $this->expectException(\InvalidArgumentException::class);
         (new RecostSales(self::$db))->run('2026-11-19', '2026-11-19', ['guess'], null, false);
     }

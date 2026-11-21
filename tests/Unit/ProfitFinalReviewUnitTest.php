@@ -7,6 +7,7 @@ namespace CW\Tests\Unit;
 use CW\Api\Request;
 use CW\Auth\Permissions;
 use CW\CwException;
+use CW\Profit\OrderSnapshots;
 use CW\Profit\ProfitMath;
 use CW\Profit\SnapshotBody;
 use PHPUnit\Framework\TestCase;
@@ -193,5 +194,34 @@ final class ProfitFinalReviewUnitTest extends TestCase
         self::assertNotContains('finance', Permissions::sanitise('doc.TRF.post', ['finance', 'stock_controller']),
             'a stored grant of it is dropped when it is read');
         self::assertSame([], Permissions::problems('profit.view', ['finance']));
+    }
+
+    /** The Codex check of c48683e. */
+    public function testAPhoneNumberInGroupsIsNoServiceName(): void
+    {
+        foreach (['0770 0900 123', '07700 900 123', 'DPD 0770 0900 123', 'Call 0770-090-0123'] as $phone) {
+            self::assertNull(SnapshotBody::serviceName($phone), $phone);
+        }
+        self::assertSame('Royal Mail Tracked 48 (2-4 Working Days)', SnapshotBody::serviceName('Royal Mail Tracked 48 (2-4 Working Days)'));
+        $b = SnapshotBody::parse(self::body(['parcels' => [self::parcel(['service_code' => '0770-0900-123'])]]), self::now());
+        self::assertSame('', $b['parcels'][0]['service_code'], 'a phone number in groups is no service code');
+    }
+
+    /** The Codex check of c48683e (MEDIUM 1): ORD1 and ord1 are one order (the key compares without case): one guard, one intake lock. */
+    public function testAnOrderRefInAnotherCaseTakesTheSameLocks(): void
+    {
+        self::assertSame(OrderSnapshots::lockName(3, 'ORD1'), OrderSnapshots::lockName(3, 'ord1'));
+        self::assertSame(OrderSnapshots::intakeLockName(3, 'ORD1'), OrderSnapshots::intakeLockName(3, 'ord1'));
+        $long = str_repeat('Ab', 30);
+        self::assertSame(OrderSnapshots::lockName(3, $long), OrderSnapshots::lockName(3, strtolower($long)), 'a long ref (hashed) the same');
+    }
+
+    public function testATenFiftyMillionPoundRefundSplitDoesNotOverflow(): void
+    {
+        self::assertSame(4_166_666_667, ProfitMath::mulDivRound(4_166_666_667, 5_000_000_000, 5_000_000_000));
+        self::assertSame(-415, ProfitMath::mulDivRound(-830, 495, 990));
+        self::assertSame(830, ProfitMath::mulDivRound(830, 990, 990));
+        self::assertSame(1, ProfitMath::mulDivRound(1, 1, 2), 'half away from zero');
+        self::assertSame(-1, ProfitMath::mulDivRound(-1, 1, 2));
     }
 }

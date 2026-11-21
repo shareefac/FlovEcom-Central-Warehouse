@@ -24,7 +24,8 @@ final class RecostSales
 
     /**
      * @param list<string> $sources
-     * @return array{orders: int, lines: int, moves: array<string, int>}
+     * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int} deferred: orders left because a newer snapshot waits for
+     *         the money job (run again after it)
      */
     public function run(string $from, string $to, array $sources, ?string $channelCode, bool $apply): array
     {
@@ -46,7 +47,7 @@ final class RecostSales
         $settings = new ProfitSettings($this->db);
         $costs = new ItemCosts($this->db, $settings);
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
-        $out = ['orders' => 0, 'lines' => 0, 'moves' => []];
+        $out = ['orders' => 0, 'lines' => 0, 'moves' => [], 'deferred' => 0];
         foreach ($orders as $o) {
             $ch = (int) $o['channel_id'];
             $ref = (string) $o['order_ref'];
@@ -57,17 +58,25 @@ final class RecostSales
             if ($p === null || $p['override'] === []) {
                 continue;
             }
+            if ($apply) {
+                // What was really written, worked out again under the order's locks (the Codex check of c48683e: never the plan read before).
+                $done = null;
+                $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done): ?array {
+                    $again = $plan($db);
+                    $done = $again === null || $again['override'] === [] ? null : $again;
+                    return $done === null ? null : $again['override'];
+                });
+                if ($done === null) {
+                    $out['deferred'] += $service->deferred ? 1 : 0;
+                    continue;
+                }
+                $p = $done;
+            }
             foreach ($p['moves'] as $k => $n) {
                 $out['moves'][$k] = ($out['moves'][$k] ?? 0) + $n;
             }
             $out['orders']++;
             $out['lines'] += count($p['override']);
-            if ($apply) {
-                $service->recompute($ch, $ref, static function (Db $db) use ($plan): ?array {
-                    $again = $plan($db);
-                    return $again === null || $again['override'] === [] ? null : $again['override'];
-                });
-            }
         }
         ksort($out['moves']);
         return $out;

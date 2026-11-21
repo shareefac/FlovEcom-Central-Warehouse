@@ -19177,3 +19177,59 @@ with the release that has their code and go with the undo's: install_cron.sh ins
 money job works the orders out with their costs waiting (PendingCosts fixes them after the start). 0074 and 0075 go in through
 install_cron.sh --migrate, which pauses the public vhost and php-fpm while the schema changes: a short stock-API window, planned with the shops'
 quiet hour, with the long imports finished first and the rollback release ready (README of build/A, "At go-live").
+
+### The Codex check of c48683e (`build/A/codex_r9.txt`, one run, the default model): of the final review's HIGHs 3 FIXED and 5 PARTLY; 2 HIGH, 8 MEDIUM and 1 LOW new; fixed (PR113-PR120), each with a test seen failing first on c48683e (`runs/profit_r9b_red.log`: 8 red, `runs/profit_r9b_red2.log`: 5 red, `runs/profit_r9b_red3.log`: 1 red) except four moments of a race or a read that no test can hold still, fixed by reading (named below); what is left is a known limit in the README
+
+Tests (tests/Unit/ProfitFinalReviewUnitTest.php, tests/Integration/Profit/FinalReview{Snapshot,Cost,Tools}Test.php): a refusal never strands the correction
+stored meanwhile (new HIGH 1); a batch tool waits while a newer snapshot waits (new HIGH 2); ORD1 and ord1 take the same locks (MEDIUM 1); a line
+id that changes case is the same line (b-M2); the opening by the replay's clock, items made after the start left out (MEDIUM 3, 4); a refund
+split of £50m (MEDIUM 6); the money job's few-second wait (MEDIUM 7); the check under the rebuild's lock (MEDIUM 8); a kept row of zeros
+(LOW 1); a phone number in groups (b-HIGH2); a Bin row with no item code / --rows (b-HIGH3); a credit of a delivery taken
+back (c-HIGH2); a cancelled line never stamped by the ERPNext import (c-M6); order_snapshot empty after accept (PR113). Fixed by reading only:
+the parent pinned with the seq before the guards (MEDIUM 2: a race between two statements), the credited line's `take` on a receipt of two
+invoice lines keyed as one (c-HIGH2's second half), the 3-second row-lock wait of the money job (the session's innodb_lock_wait_timeout), and
+the order page read in one snapshot (c-M9).
+
+**PR113.** (new HIGH 1, MEDIUM 1 and 2; a-HIGH2 PARTLY) The queue row holds the snapshot WAITING (its body, version and hash: 0075); order_snapshot
+holds the latest snapshot WORKED OUT (the one sale_order, sale_line and sale_parcel say), written by the money job in the transaction that
+works it out. accept() compares an incoming snapshot with the newest CW holds (the waiting one, else the worked-out one) and writes only the
+queue row: no row of order_snapshot, so no foreign-key lock on `channel` either (the selling-mode relay's lock never makes a PUT wait). A
+refused snapshot never reaches order_snapshot and is marked on its queue row only while its seq is the refused one (a corrected snapshot
+stored meanwhile was marked failed and stranded). The money job reads the waiting snapshot's seq and parent before it takes the guards and
+works it out only if its seq is still that one (a snapshot naming a new parent stored in between is read again, at most three times). The
+guards and the intake lock are named without case, as the key compares (ORD1 and ord1 are one order). Any error working an order out marks
+that order and the run goes on with the next.
+
+**PR114.** (new HIGH 2; c-M7, c-M8 PARTLY) recompute() works on the snapshot worked out (order_snapshot, FOR UPDATE under the guards), the
+version the order's rows say, so a batch tool checks and writes against one version. While a newer snapshot of the order waits for the money
+job, a batch tool's costs wait too (the ERPNext import says "waiting for the money job N (run again after it)", the re-cost `deferred`): a
+correction moving the payment after the start is worked out first, and the import run again leaves it alone. The re-cost counts what it
+wrote, not what it planned.
+
+**PR115.** (b-M2 PARTLY) An order's lines and parcels are matched between snapshots without case, as their keys compare: L1 then l1 is one line,
+never one marked removed while the order still counts it.
+
+**PR116.** (b-HIGH2 PARTLY) A delivery method or service name, and a service code, hold at most 6 digits in all (the real ones hold 4 at most):
+a phone number written in groups ("0770 0900 123") is never kept.
+
+**PR117.** (new MEDIUM 3, 4, 5; c-HIGH1, a-M5 PARTLY) The opening average takes what was BOOKED before the start, by the ledger's booking time,
+the clock the replay chooses its deliveries by (a delivery booked before midnight and made final after it was in neither). An item made at or
+after the start is not in the start: the job starts it just before its first delivery (PR65). The start is written in ONE transaction with
+its mark, so a start run again is priced from one set of inputs. Left (a known limit): a supplier price changed after the start is not looked
+up in history; that item starts with none and its first priced delivery sets it.
+
+**PR118.** (b-HIGH3 PARTLY) A Bin row with no item code is broken; `--rows=<n>` (the export's own count of its rows) refuses a file cut short
+between whole rows.
+
+**PR119.** (c-HIGH2 PARTLY) An invoice or a price credit of a delivery taken back by then reaches none of the stock that stays (ten at £4, ten
+received at £2 and taken back, a 50p credit of those: £4.00, it was £3.50); a credit of goods that were on their way is capped on each
+receipt by the units of the credited invoice line that receipt took, not all its units. The case is real: CW takes back a delivery that is
+invoiced (GoodsReceiptHandler::reverse works its invoices out again, PC10) and lets the supplier credit it afterwards (a credit note's line
+keeps its invoice line's delivery, whose status is not asked again: SupplierInvoiceHandler::linkProblems); the test does exactly that.
+
+**PR120.** (new MEDIUM 6, 7, 8 and the LOW; c-M6, c-M9 PARTLY) An order-level refund is split with exact arithmetic (bcmath: two amounts of
+pence can pass PHP's integers). The money job waits at most 3 seconds for a lock (an order's guards, a day's row a rebuild holds): that order
+is left for the next run; `--retry-refused` tries the refused ones again. bin/rebuild_profit_days.php's check takes no lock, so it always
+compares (exit 0 only when it did and nothing differs); --apply with the lock held does nothing and ends with exit 4; a day's row of zeros
+with no paid order is a difference (--apply removes it). The ERPNext import never stamps a cancelled line. An order's page reads the order,
+its lines and its re-sends in one snapshot.
