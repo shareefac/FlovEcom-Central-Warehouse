@@ -23,10 +23,10 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
     private const OWN_STUBS = __DIR__ . '/../fixtures/deploy_stubs/profit_undo';
     private const MIGRATIONS = __DIR__ . '/../../migrations';
     /** The stubs from deploy_stubs/bin the two scripts may meet (the rest are not on their PATH: "not found"). */
-    private const SHARED = ['hostname', 'systemctl', 'a2query', 'a2ensite', 'apache2ctl', 'sleep'];
+    private const SHARED = ['hostname', 'systemctl', 'a2query', 'a2ensite', 'apache2ctl', 'sleep', 'runuser', 'getent'];
     /** The real commands the scripts and the stubs may run (links in $base/sys). */
     private const TOOLS = ['bash', 'env', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'chmod', 'ln', 'readlink', 'dirname', 'basename', 'tr', 'grep', 'sed', 'awk', 'seq',
-        'date', 'touch', 'sha256sum', 'flock', 'head', 'tail', 'wc', 'true', 'false'];
+        'date', 'touch', 'sha256sum', 'flock', 'head', 'tail', 'wc', 'true', 'false', 'stat'];
     /** The box's paths the copies are rewritten from (a path of the box is never run here). */
     private const BOX = ['/opt/cw-prod-releases', '/opt/cw-prod-release', '/opt/cw-prod', '/etc/cron.d', '/etc/cw', '/run/lock'];
     /** What a run must never touch on this machine. */
@@ -55,10 +55,13 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         if (PHP_OS_FAMILY !== 'Linux' || !is_executable('/bin/bash')) {
             self::markTestSkipped('the scripts run in bash on Linux: the test machine runs these');
         }
-        foreach (self::TOOLS as $t) {
+        foreach ([...self::TOOLS, 'getent'] as $t) {
             if (self::real($t) === null) {
                 self::markTestSkipped("{$t} is missing");
             }
+        }
+        if (posix_getpwnam('www-data') === false) {
+            self::markTestSkipped('no user www-data');
         }
         foreach (self::OUTSIDE as $p) {
             $this->outsideBefore[$p] = file_exists($p) || is_link($p);
@@ -84,6 +87,9 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         foreach (self::TOOLS as $t) {
             symlink((string) self::real($t), "{$this->base}/sys/{$t}");
         }
+        // The real getent for the runuser stub's www-data (a directory only the stubs look in: CW_STUB_SYSPATH).
+        mkdir($this->base . '/private', 0755);
+        symlink((string) self::real('getent'), $this->base . '/private/getent');
         file_put_contents($this->base . '/bash_env', "enable -n kill\n");
         $this->box();
     }
@@ -138,6 +144,11 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         mkdir($this->root . '/opt/cw-prod-release/deploy/production', 0755, true);
         file_put_contents($this->root . '/opt/cw-prod-release/REVISION', self::ROLLBACK_COMMIT . "\n");
         file_put_contents($this->root . '/opt/cw-prod-release/deploy/production/cw-prod.cron', self::ROLLBACK_CRON);
+        // ... and its installer (a stand-in: it records its call and whether the install lock was free when it started).
+        file_put_contents($this->root . '/opt/cw-prod-release/deploy/production/install_cron.sh', "#!/usr/bin/env bash\n"
+            . 'if flock -n "$CW_DEPLOY_ROOT/run/lock/cw-prod-install.lock" true; then l=free; else l=held; fi' . "\n"
+            . 'echo "install_cron.sh of $(cat "$CW_DEPLOY_ROOT/opt/cw-prod-release/REVISION") $* (the install lock $l)" >> "$CW_STUB_DIR/calls.log"' . "\n"
+            . 'exit "$(cat "$CW_STUB_DIR/answers/install_exit" 2>/dev/null || echo 0)"' . "\n");
         $this->answer('migrate_status', self::APPLIED);
         $this->answer('jobs', self::JOBS);
     }
@@ -195,6 +206,7 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
             'BASH_ENV' => $this->base . '/bash_env',
             'CW_DEPLOY_ROOT' => $this->root,
             'CW_STUB_DIR' => $this->stub,
+            'CW_STUB_SYSPATH' => $this->base . '/private',
         ]);
         self::assertIsResource($p);
         $code = proc_close($p);
@@ -477,5 +489,151 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         self::assertStringContainsString('4242 php bin/rebuild_profit_days.php --db=cw_prod --apply', $out);
         self::assertStringContainsString('kill -TERM 4242', $this->calls());
         self::assertSame(self::ROLLBACK_CRON, $this->state()['cron'], 'the rollback cron is in: no profit job starts');
+    }
+
+    // ---- the third final review (final2/FIX_BRIEF_A4.md H7, H8; a-HIGH4, c-M8, Fable L3; a-M, b-M6, Fable L1) -----------------------------
+
+    private function apache(): string
+    {
+        return trim((string) @file_get_contents($this->stub . '/state/apache')) ?: 'active';
+    }
+
+    /**
+     * H7: Apache stopped while the public vhost is enabled on disk and no marker says so (a-HIGH4, c-M8): undo B checks Apache's configuration
+     * and starts it before it says DONE (it said DONE with Apache stopped: every shop's stock call still failing); then the installer's smoke
+     * run, every job of it, before DONE.
+     */
+    public function testUndoBStartsApacheWhenItIsNotRunning(): void
+    {
+        file_put_contents($this->stub . '/state/apache', "inactive\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        self::assertSame('active', $this->apache(), 'Apache runs');
+        $calls = $this->calls();
+        self::assertInOrder($calls, ['pgrep -f', 'systemctl reload php8.3-fpm', 'systemctl is-active --quiet apache2', 'apache2ctl configtest', 'systemctl start apache2',
+            'systemctl is-active --quiet apache2', 'a2query -s cw-https']);
+        self::assertStringNotContainsString('a2ensite', $calls, 'the vhost was enabled on disk');
+        $smoke = [];
+        foreach (['expire_reservations.php', 'prune_changes.php --dry-run', 'invariants.php', 'check_arrivals.php', 'apply_store_choices.php', 'refresh_reports.php --status',
+            'health_alert.php --no-send', 'housekeeping.php --dry-run'] as $job) {
+            $smoke[] = 'php bin/' . $job . ' --db=cw_prod (release ' . self::RB . ')';
+        }
+        self::assertInOrder($calls, ['systemctl start apache2', ...$smoke]);
+        self::assertStringContainsString('smoke: bin/housekeeping.php --dry-run -> exit 0', $out);
+    }
+
+    /** H7: a rollback release the web server cannot read (a file of it root's only) stops undo B BEFORE the switch: nothing that runs changes. */
+    public function testUndoBStopsBeforeTheSwitchWhenTheWebServerCannotReadTheRollback(): void
+    {
+        chmod($this->root . self::RB . '/public/index.php', 0600);
+        $before = $this->state();
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('UNDO B STOPPED: www-data cannot read ' . self::RB, str_replace($this->root, '', $err));
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertStringNotContainsString('the link is already switched', $err);
+        $this->assertNothingChanged($before, 'www-data cannot read the rollback');
+        self::assertStringContainsString('runuser -u www-data -- test -r ' . self::RB . '/public/index.php -a -r ' . self::RB . '/vendor/autoload.php', $this->calls());
+    }
+
+    /**
+     * H7: a failure after the switch says so and is safe to run again: Apache's configuration that does not load (its certificate gone), Apache
+     * that does not start, php-fpm that does not start (a bare tool error before: now the STOPPED line through the trap), a smoke job that fails;
+     * each "UNDO B STOPPED: ... (the link is already switched; run this again)", no DONE; once the cause is put right, the same script again: DONE.
+     */
+    public function testUndoBAfterTheSwitchSaysTheLinkIsSwitchedAndRunsAgain(): void
+    {
+        $cases = [
+            'the configuration does not load' => [function (): void {
+                file_put_contents($this->stub . '/state/apache', "inactive\n");
+                unlink($this->root . '/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem');
+            }, "UNDO B STOPPED: Apache's configuration does not load", function (): void {
+                file_put_contents($this->root . '/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem', "certificate\n");
+            }],
+            'Apache does not start' => [function (): void {
+                file_put_contents($this->stub . '/state/apache', "inactive\n");
+                $this->answer('apache_start_exit', '1');
+            }, 'UNDO B STOPPED: Apache does not start', fn () => unlink($this->stub . '/answers/apache_start_exit')],
+            'php-fpm does not start' => [function (): void {
+                file_put_contents($this->stub . '/state/fpm', "inactive\n");
+                $this->answer('fpm_start_exit', '1');
+            }, 'UNDO B STOPPED: "systemctl start php8.3-fpm" failed (exit 1)', fn () => unlink($this->stub . '/answers/fpm_start_exit')],
+            'a smoke job fails' => [fn () => $this->answer('invariants.php.exit', '1'), 'UNDO B STOPPED: a smoke job failed on the rollback release',
+                fn () => unlink($this->stub . '/answers/invariants.php.exit')],
+        ];
+        foreach ($cases as $what => [$arrange, $why, $repair]) {
+            exec('rm -rf ' . escapeshellarg($this->root) . ' ' . escapeshellarg($this->stub));
+            foreach (['answers', 'state'] as $d) {
+                mkdir("{$this->stub}/{$d}", 0755, true);
+            }
+            touch($this->stub . '/calls.log');
+            foreach (['opt/cw-prod-releases', 'etc/cron.d', 'etc/cw', 'run/lock', 'etc/letsencrypt/live/warehouse.floverfy.com', 'home'] as $d) {
+                mkdir("{$this->root}/{$d}", 0755, true);
+            }
+            $this->box();
+            $arrange();
+            [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+            self::assertSame(1, $code, "{$what}: {$out}{$err}");
+            self::assertStringContainsString($why, $err, $what);
+            self::assertStringContainsString('(the link is already switched; run this again)', $err, $what);
+            self::assertStringNotContainsString('UNDO B DONE', $out, $what);
+            self::assertSame(self::RB, $this->state()['live'], "{$what}: the link is switched");
+            $repair();
+            [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+            self::assertSame(0, $code, "{$what}, run again: {$out}{$err}");
+            self::assertStringContainsString('UNDO B DONE', $out, $what);
+            self::assertSame(['live' => self::RB, 'cron' => self::ROLLBACK_CRON, 'fpm' => 'active', 'sites' => ['cw-https']],
+                array_intersect_key(self::withoutTree($this->state()), array_flip(['live', 'cron', 'fpm', 'sites'])), $what);
+            self::assertSame('active', $this->apache(), $what);
+        }
+    }
+
+    /**
+     * H8: the drain holds the installer's lock for its checks and the drain, checks REVISION again at the end under it, lets it go and runs the
+     * rollback release's installer itself at once (without --migrate): the installer finds the lock free and is of the commit checked.
+     */
+    public function testTheDrainRunsTheRollbacksInstallerAtOnceWithTheLockLetGo(): void
+    {
+        [$code, $out, $err] = $this->runScript('profit_drain_jobs.sh', self::ROLLBACK_COMMIT);
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('DRAINED AND INSTALLED: ' . self::ROLLBACK_COMMIT, $out);
+        $calls = $this->calls();
+        self::assertInOrder($calls, ['id -u', 'install -m 0644 -o root -g root /opt/cw-prod-release/deploy/production/cw-prod.cron /etc/cron.d/cw-prod', 'pgrep -f',
+            'install_cron.sh of ' . self::ROLLBACK_COMMIT . '  (the install lock free)']);
+        self::assertSame(1, substr_count($calls, 'install_cron.sh of '), 'run once, without --migrate');
+        // The installer failing: the drain says so (its exit), never DRAINED AND INSTALLED.
+        file_put_contents($this->stub . '/calls.log', '');
+        $this->answer('install_exit', '3');
+        [$code, $out, $err] = $this->runScript('profit_drain_jobs.sh', self::ROLLBACK_COMMIT);
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('DRAIN STOPPED: the installer of ' . self::ROLLBACK_COMMIT . ' ended with exit 3', $err);
+        self::assertStringNotContainsString('DRAINED AND INSTALLED', $out);
+    }
+
+    /** H8: a push that lands while the drain waits (the release copy now another commit): the drain stops at its check under the lock, the installer never runs. */
+    public function testTheDrainStopsWhenTheReleaseCopyChangesDuringTheWait(): void
+    {
+        $other = 'ffffffffffffffffffffffffffffffffffffffff';
+        $this->answer('push_during_wait', $other . "\n");
+        [$code, $out, $err] = $this->runScript('profit_drain_jobs.sh', self::ROLLBACK_COMMIT);
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('DRAIN STOPPED: /opt/cw-prod-release changed during the drain', str_replace($this->root, '', $err));
+        self::assertStringNotContainsString('install_cron.sh of', $this->calls(), 'the installer never ran');
+        self::assertStringNotContainsString('DRAINED', $out);
+    }
+
+    /** H8: the installer's lock held (an install or a push running): the drain stops before anything changes; the installer never runs. */
+    public function testTheDrainStopsWhenTheInstallLockIsHeld(): void
+    {
+        $this->lock = fopen($this->root . '/run/lock/cw-prod-install.lock', 'c') ?: null;
+        self::assertNotNull($this->lock);
+        self::assertTrue(flock($this->lock, LOCK_EX | LOCK_NB));
+        $before = $this->state();
+        [$code, $out, $err] = $this->runScript('profit_drain_jobs.sh', self::ROLLBACK_COMMIT);
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('DRAIN STOPPED: an install (or a push) holds /run/lock/cw-prod-install.lock', str_replace($this->root, '', $err));
+        $this->assertNothingChanged($before, 'the lock held');
+        self::assertStringNotContainsString('install_cron.sh of', $this->calls());
     }
 }

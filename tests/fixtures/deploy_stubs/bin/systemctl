@@ -3,11 +3,20 @@
 # systemctl: php8.3-fpm's state is state/fpm: active; draining after `kill -s QUIT` (for answers/fpm_drain more is-active
 # checks: requests still finishing), then inactive. A reload of a php-fpm that is not running fails, as systemd's does.
 # apache2 will not reload with the HTTPS vhost enabled before its certificate exists (as apache2ctl configtest says).
+# apache2's state is state/apache (default active): a reload of an Apache that is not running fails, as systemd's does; a start
+# makes it active, unless answers/apache_start_exit says the exit of a start that fails. answers/fpm_start_exit: the same for
+# php8.3-fpm (tests/Unit/ProfitUndoScriptsBehaviourTest.php).
 # Everything else (enable, restart) is recorded only.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
 log "systemctl $*"
 fpm=$(cat "$S/fpm" 2>/dev/null || echo inactive)
+apache=$(cat "$S/apache" 2>/dev/null || echo active)
 case "$*" in
+    "is-active --quiet apache2") [[ $apache == active ]] || exit 3 ;;
+    "start apache2")
+        code=$(answer apache_start_exit 0)
+        [[ $code -eq 0 ]] || { echo "Job for apache2.service failed because the control process exited with error code." >&2; exit "$code"; }
+        echo active > "$S/apache" ;;
     "is-active --quiet php8.3-fpm")
         case $fpm in
             active) exit 0 ;;
@@ -27,9 +36,13 @@ case "$*" in
             answer fpm_drain 2 > "$S/fpm_drain"
         fi ;;
     "stop php8.3-fpm") echo inactive > "$S/fpm" ;;
-    "start php8.3-fpm") echo active > "$S/fpm" ;;
+    "start php8.3-fpm")
+        code=$(answer fpm_start_exit 0)
+        [[ $code -eq 0 ]] || { echo "Job for php8.3-fpm.service failed because the control process exited with error code." >&2; exit "$code"; }
+        echo active > "$S/fpm" ;;
     "reload php8.3-fpm") [[ $fpm == active ]] || { echo "php8.3-fpm.service is not active, cannot reload." >&2; exit 1; } ;;
     "reload apache2")
+        [[ $apache == active ]] || { echo "apache2.service is not active, cannot reload." >&2; exit 1; }
         if [[ -e $S/site_cw-https && ! -s $R/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem ]]; then
             echo "Job for apache2.service failed (the configuration does not load)." >&2
             exit 1

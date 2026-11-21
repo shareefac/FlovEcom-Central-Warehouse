@@ -103,6 +103,47 @@ final class MigratorTest extends TestCase
         (new Migrator(self::$db, $this->dir))->migrate();
     }
 
+    /**
+     * The third final review, a-HIGH3 (final2/FIX_BRIEF_A4.md H6, PR154): a migration's statement waits about 30 seconds at most for a table's
+     * metadata lock (MySQL's own default is a year: a long transaction kept the writers paused for as long as it ran). The session's
+     * lock_wait_timeout is LOCK_WAIT_SEC while the files run, and put back after.
+     */
+    public function testAMigrationWaitsAboutThirtySecondsForATableLock(): void
+    {
+        $this->write('0001_a.sql', 'CREATE TABLE t (id INT PRIMARY KEY, w BIGINT);');
+        $this->write('0002_b.sql', 'INSERT INTO t VALUES (1, @@SESSION.lock_wait_timeout);');
+        $before = (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout');
+        self::assertSame(['0001_a.sql', '0002_b.sql'], (new Migrator(self::$db, $this->dir))->migrate());
+        self::assertSame(30, Migrator::LOCK_WAIT_SEC);
+        self::assertSame(30, (int) self::$db->value('SELECT w FROM t WHERE id = 1'), 'the migration session waits 30 s for a metadata lock');
+        self::assertSame($before, (int) self::$db->value('SELECT @@SESSION.lock_wait_timeout'), 'put back after');
+    }
+
+    /** ... and a migration blocked by an open transaction on its table fails within that wait, names the file and statement, and is not recorded. */
+    public function testAMigrationBlockedByAnOpenTransactionFailsAndIsNotRecorded(): void
+    {
+        $this->write('0001_a.sql', 'CREATE TABLE t (id INT PRIMARY KEY);');
+        (new Migrator(self::$db, $this->dir))->migrate();
+        $other = Db::connect(TestDb::config()->dbAdmin()->withDatabase(self::$schema));
+        $other->pdo()->exec('START TRANSACTION');
+        $other->value('SELECT COUNT(*) FROM t'); // a report's long read: its transaction holds the table's metadata lock
+        $this->write('0002_b.sql', 'ALTER TABLE t ADD COLUMN x INT;');
+        $m = new Migrator(self::$db, $this->dir, null, lockWaitSec: 1);
+        $t = microtime(true);
+        try {
+            $m->migrate();
+            self::fail('the ALTER waits for the open transaction');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('0002_b.sql statement 1 failed', $e->getMessage());
+            self::assertStringContainsString('Lock wait timeout', $e->getMessage());
+        } finally {
+            $other->pdo()->exec('ROLLBACK');
+        }
+        self::assertLessThan(15.0, microtime(true) - $t, 'within the wait, never as long as the transaction');
+        self::assertSame(['0002_b.sql'], $m->pending(), 'not recorded: the next run applies it');
+        self::assertSame(['0002_b.sql'], $m->migrate());
+    }
+
     private function write(string $name, string $sql): void
     {
         file_put_contents($this->dir . '/' . $name, $sql);

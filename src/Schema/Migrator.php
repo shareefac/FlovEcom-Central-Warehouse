@@ -15,15 +15,21 @@ use CW\Db;
  * - MySQL DDL is not transactional: a file is recorded only after every statement succeeded;
  *   a failure stops the run and names the file and statement number.
  * - Concurrent runs on one schema are serialised with GET_LOCK.
+ * - A statement waits at most LOCK_WAIT_SEC for a table's metadata lock (the session's lock_wait_timeout while the files run, put back
+ *   after; the third final review, a-HIGH3, PR154): a long transaction holding a table a migration alters makes that migration fail in
+ *   about 30 s, naming the file and statement (not recorded), instead of waiting for it with the writers paused (MySQL's default is a year).
  */
 final class Migrator
 {
     public const FILE_PATTERN = '/^\d{4}_[a-z0-9_]+\.sql$/';
 
+    /** How long a migration's statement waits for a table's metadata lock (seconds; the session's lock_wait_timeout while migrate() runs). */
+    public const LOCK_WAIT_SEC = 30;
+
     /** @var \Closure(string): void */
     private \Closure $log;
 
-    public function __construct(private readonly Db $db, private readonly string $dir, ?callable $log = null)
+    public function __construct(private readonly Db $db, private readonly string $dir, ?callable $log = null, private readonly int $lockWaitSec = self::LOCK_WAIT_SEC)
     {
         $this->log = $log !== null ? \Closure::fromCallable($log) : static function (string $m): void {
         };
@@ -85,7 +91,10 @@ final class Migrator
         if ((int) $this->db->value('SELECT GET_LOCK(?, 120)', [$lockName]) !== 1) {
             throw new \RuntimeException("could not take the migration lock for {$schema}");
         }
+        $wait = null;
         try {
+            $wait = (int) $this->db->value('SELECT @@SESSION.lock_wait_timeout');
+            $this->db->pdo()->exec('SET SESSION lock_wait_timeout = ' . max(1, $this->lockWaitSec));
             $done = [];
             $files = $this->files();
             foreach ($this->pending() as $version) {
@@ -94,7 +103,13 @@ final class Migrator
             }
             return $done;
         } finally {
-            $this->db->value('SELECT RELEASE_LOCK(?)', [$lockName]);
+            try {
+                if ($wait !== null) {
+                    $this->db->pdo()->exec('SET SESSION lock_wait_timeout = ' . $wait);
+                }
+            } finally {
+                $this->db->value('SELECT RELEASE_LOCK(?)', [$lockName]);
+            }
         }
     }
 

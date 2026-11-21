@@ -6,6 +6,11 @@
 # Each call counts the ones it finds down by one check (a process ends after that many checks).
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
 log "pgrep $*"
+# answers/push_during_wait: a push that lands while the drain waits (its REVISION written over the release copy's at the first call).
+if [[ -f $A/push_during_wait ]]; then
+    cp "$A/push_during_wait" "$R/opt/cw-prod-release/REVISION"
+    rm -f "$A/push_during_wait"
+fi
 case ${1-} in
     -f) list=0 ;;
     -af) list=1 ;;
