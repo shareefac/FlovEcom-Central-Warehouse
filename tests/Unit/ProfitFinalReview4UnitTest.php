@@ -75,6 +75,19 @@ final class ProfitFinalReview4UnitTest extends TestCase
     }
 
     /**
+     * The Codex check of this round (r14, LOW), shown failing first on 3bdb294: only white space is taken off a name, never a NUL ("DPD\0" is
+     * no "DPD"); a no-break space counts as a space ("Return\u{00A0}label" is the return label).
+     */
+    public function testOnlyWhiteSpaceIsTakenOffAName(): void
+    {
+        self::assertSame([null, ''], self::kept("DPD\0"));
+        self::assertSame([null, ''], self::kept("\0DPD"));
+        self::assertSame(['Return label', 'Return label'], self::kept("Return\u{00A0}label"));
+        self::assertSame(['Return label', 'Return label'], self::kept("\u{00A0}Return label\u{00A0}"));
+        self::assertSame([null, ''], self::kept("DPD\xC3"), 'not UTF-8: not kept');
+    }
+
+    /**
      * F3 (p-M, the migration's lock wait): bin/migrate.php gives the grants step to the Migrator's run, so the grants run inside it, with the
      * session's lock wait still LOCK_WAIT_SEC (MigratorTest holds that a step given to migrate() sees the bound and that it is put back after).
      */

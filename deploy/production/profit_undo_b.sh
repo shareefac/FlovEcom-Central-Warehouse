@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Profit step 1, undo B (README of build/A, "Undo" B; the Codex check of the fix round, new HIGH 3): /opt/cw-prod switched to the rollback
 # release (c40c050's code + the final 0074 and 0075, prepared at go-live step 1b), the profit jobs fenced and drained, php-fpm, Apache and the
-# public vhost on, the API asked through the local listener (401, PR155), then the installer's own smoke run. Every path absolute; every
+# public vhost on, the API and the sign-in page asked through the local listener (401, 200: PR155), then the installer's own smoke run. Every path absolute; every
 # prerequisite checked (www-data reads every file of the rollback release, PR155); stops at the first one that fails,
 # before anything that runs is changed. Once /opt/cw-prod is switched, any failure says "UNDO B STOPPED: ... (the link is already switched;
 # run this again)" (the third final review, a-HIGH4, c-M8, Fable L3): it is safe to run again. No "UNDO B DONE" line = not finished.
@@ -37,7 +37,9 @@ runuser -u www-data -- test -r "$RB/public/index.php" -a -r "$RB/vendor/autoload
     || stop "www-data cannot read $RB: the web server could not run it (prepare it again, go-live step 1b)"
 # ... every file and directory of it, not those two only: a root-only src/Api/Kernel.php passed both, and the root smoke run, and every
 # shop's call was a 500 after the switch (the final re-check of the fix round, p-HIGH, PR155). The first one www-data cannot read is named.
-if ! unreadable=$(runuser -u www-data -- find "$RB" ! -readable -print -quit); then
+# Run from /: GNU find run as www-data from root's own directory (/root, 0700) fails to restore its working directory (exit 1, the r14
+# Codex check, HIGH: every undo from a plain root shell would stop here).
+if ! unreadable=$(cd / && runuser -u www-data -- find "$RB" ! -readable -print -quit); then
     stop "www-data cannot read all of $RB (find as www-data failed${unreadable:+ at $unreadable}): the web server could not run it (prepare it again, go-live step 1b)"
 fi
 [[ -z $unreadable ]] || stop "www-data cannot read $unreadable: the web server could not run the rollback release (prepare it again, go-live step 1b)"
@@ -89,21 +91,29 @@ fi
 systemctl is-active --quiet php8.3-fpm || stop "php-fpm is not running"
 systemctl is-active --quiet apache2 || stop "Apache is not running"
 a2query -s cw-https >/dev/null 2>&1 || stop "the public vhost is not on"
-# The API asked through the local listener, as enable_https.sh checks it (the name pinned to 127.0.0.1): without a key it answers 401 when
-# the web server runs the release. A few tries over about 10 s (a reload settling); anything else stops here, before DONE (PR155).
+# The web asked through the local listener, as enable_https.sh checks it (the name pinned to 127.0.0.1; no curlrc, no proxy): the API
+# without a key answers 401 once the web server runs the release, and the sign-in page 200 once it also read app.env, connected to the
+# database as cw_app and read ui_secret_key (the API's 401 comes before its database: the r14 Codex check). A probe counts only when curl
+# itself succeeded (a 401 printed and then a timeout is no answer: r14). A few tries over about 10 s (a reload settling); anything else
+# stops here, before DONE (PR155).
 NAME=warehouse.floverfy.com
-code=000
+web=0
 for try in $(seq 1 5); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 --resolve "$NAME:443:127.0.0.1" "https://$NAME/v1/health" || true)
-    if [[ $code == 401 ]]; then
+    api_rc=0
+    api=$(curl -q -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 3 --resolve "$NAME:443:127.0.0.1" "https://$NAME/v1/health") || api_rc=$?
+    ui_rc=0
+    ui=$(curl -q -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 3 --resolve "$NAME:443:127.0.0.1" "https://$NAME/ui/login") || ui_rc=$?
+    if [[ $api_rc -eq 0 && $api == 401 && $ui_rc -eq 0 && $ui == 200 ]]; then
+        web=1
         break
     fi
     if [[ $try -lt 5 ]]; then
         sleep 2
     fi
 done
-echo "[undo_b] GET https://$NAME/v1/health (no key) -> HTTP $code"
-[[ $code == 401 ]] || stop "the API does not answer as it should: GET https://$NAME/v1/health (no key) -> HTTP $code, expected 401 (Apache's error log and php-fpm's log say why)"
+said="GET https://$NAME/v1/health (no key) -> HTTP $api (curl exit $api_rc); GET https://$NAME/ui/login -> HTTP $ui (curl exit $ui_rc)"
+echo "[undo_b] $said"
+[[ $web -eq 1 ]] || stop "the web does not answer as it should: GET https://$NAME/v1/health (no key) -> HTTP $api (curl exit $api_rc), expected 401; GET https://$NAME/ui/login -> HTTP $ui (curl exit $ui_rc), expected 200 (Apache's error log and php-fpm's log say why)"
 cd "$LIVE"
 # The installer's own smoke run (install_cron.sh, its smoke: step): each job once, as cron runs it, in the forms that write nothing.
 fail=0
@@ -118,4 +128,4 @@ for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.p
     fi
 done
 [[ $fail -eq 0 ]] || stop "a smoke job failed on the rollback release (its lines above)"
-echo "UNDO B DONE: $LIVE -> $RB; cron without the profit jobs; php-fpm, Apache and the public vhost on; the API answers; smoke run ok. Then undo A (GitHub)."
+echo "UNDO B DONE: $LIVE -> $RB; cron without the profit jobs; php-fpm, Apache and the public vhost on; the API and the sign-in page answer; smoke run ok. Then undo A (GitHub)."

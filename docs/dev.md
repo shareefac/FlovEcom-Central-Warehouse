@@ -1623,7 +1623,8 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   `beforeFirstReservation`; the carriers' codes: `SnapshotBody::ROYAL_MAIL_CODES`; `RecostSales::ALL`); the last fix round's (PR155):
   `tests/Unit/ProfitFinalReview4UnitTest.php` (the service names: `SnapshotBody::SERVICE_NAMES`; bin/migrate.php's grants inside the Migrator's run), two
   more `MigratorTest` cases (`Migrator::migrate($then)`: the step keeps the bounded lock wait) and two more undo cases (www-data reads the whole rollback
-  release: the `runuser` stub's `find PATH ! -readable -print -quit`; the API's probe: the `profit_undo/curl` stub);
+  release: the `runuser` stub's `find PATH ! -readable -print -quit`, its working directory as GNU find needs it; the API's and the sign-in
+  page's probes: the `profit_undo/curl` stub) and Codex r14's (undo B from root's own directory, curl's exit counted, the sign-in page);
   `PermissionsTest`, `RoleMapTest`, `SectionsTest`, `ReportsUnitTest`, `Admin/RolePermissionsTest`, `Staff/Migration0069Test` know the new job, its
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).

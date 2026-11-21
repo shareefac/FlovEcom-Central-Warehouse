@@ -5,8 +5,9 @@
 # joined by -a. runuser -u USER -- find PATH ! -readable -print -quit (profit_undo_b.sh, PR155): the first path USER cannot read,
 # PATH itself first, then what is in each directory (in name order; a symbolic link read as itself: the trees hold none), and exit 0; nothing when USER
 # can read all; a directory USER can read but not search: find's "Permission denied" and exit 1, as find says it; PATH itself out
-# of reach: the same. Anything else is refused (exit 99): the test then fails rather than run as root a command the box would run
-# as www-data.
+# of reach: the same; started in a directory USER cannot read and search (root's /root, 0700): GNU find's "Failed to restore initial
+# working directory" and exit 1, nothing printed (find 4.9.0 on the CW test box, runs/profit_r14_find_cwd_check.log). Anything else
+# is refused (exit 99): the test then fails rather than run as root a command the box would run as www-data.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
 log "runuser $*"
 [[ ${1-} == -u && ${3-} == -- && ( ${4-} == test || ${4-} == find ) ]] || { echo "runuser stub: only 'runuser -u USER -- test ...' or '... find ...'" >&2; exit 99; }
@@ -33,6 +34,10 @@ reach() {
 }
 if [[ $tool == find ]]; then
     [[ $# -eq 5 && $2 == '!' && $3 == -readable && $4 == -print && $5 == -quit ]] || { echo "runuser stub: only 'find PATH ! -readable -print -quit'" >&2; exit 99; }
+    if ! { reach "$PWD" && may 4 "$PWD" && may 1 "$PWD"; }; then
+        echo "find: Failed to restore initial working directory: $PWD: Permission denied" >&2
+        exit 1
+    fi
     reach "$1" && [[ -e $1 || -L $1 ]] || { echo "find: '$1': Permission denied" >&2; exit 1; }
     # walk PATH: 0 = printed the first path USER cannot read; 1 = none under PATH; 2 = a directory that cannot be searched (said)
     walk() {

@@ -49,6 +49,8 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
     private array $outsideBefore = [];
     /** @var resource|null */
     private $lock = null;
+    /** The directory a run starts in (null: $base, which anyone can search). */
+    private ?string $cwd = null;
 
     protected function setUp(): void
     {
@@ -204,7 +206,7 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         $file = $this->copy($script);
         $out = $this->base . '/stdout';
         $err = $this->base . '/stderr';
-        $p = proc_open(['/bin/bash', $file, ...$args], [0 => ['file', '/dev/null', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']], $pipes, $this->base, [
+        $p = proc_open(['/bin/bash', $file, ...$args], [0 => ['file', '/dev/null', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']], $pipes, $this->cwd ?? $this->base, [
             'PATH' => $this->base . '/bin:' . $this->base . '/sys',
             'HOME' => $this->root . '/home',
             'LC_ALL' => 'C',
@@ -707,8 +709,9 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         $this->box();
     }
 
-    /** The API's probe as undo B runs it (the local listener, as enable_https.sh checks it). */
-    private const PROBE = 'curl -s -o /dev/null -w %{http_code} --max-time 3 --resolve warehouse.floverfy.com:443:127.0.0.1 https://warehouse.floverfy.com/v1/health';
+    /** The API's and the sign-in page's probes as undo B runs them (the local listener, as enable_https.sh checks them; no curlrc, no proxy). */
+    private const PROBE = 'curl -q -s -o /dev/null -w %{http_code} --noproxy * --max-time 3 --resolve warehouse.floverfy.com:443:127.0.0.1 https://warehouse.floverfy.com/v1/health';
+    private const PROBE_UI = 'curl -q -s -o /dev/null -w %{http_code} --noproxy * --max-time 3 --resolve warehouse.floverfy.com:443:127.0.0.1 https://warehouse.floverfy.com/ui/login';
 
     /**
      * F2 (a): ANY file or directory of the rollback release that www-data cannot read (not only public/index.php and vendor/autoload.php:
@@ -765,33 +768,35 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
      */
     public function testUndoBAsksTheApiBeforeItSaysDone(): void
     {
-        // The normal case: one probe, after Apache's reload and the vhost's check, before the smoke run and DONE.
+        // The normal case: one probe of each, after Apache's reload and the vhost's check, before the smoke run and DONE.
         [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
         self::assertSame(0, $code, $out . $err);
         self::assertStringContainsString('UNDO B DONE', $out);
         $calls = $this->calls();
-        self::assertSame(1, substr_count($calls, 'curl '), $calls);
-        self::assertInOrder($calls, ['systemctl reload apache2', 'a2query -s cw-https', self::PROBE, 'php bin/expire_reservations.php']);
-        self::assertStringContainsString('GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 401', $out);
+        self::assertSame([1, 1], [substr_count($calls, '/v1/health'), substr_count($calls, '/ui/login')], $calls);
+        self::assertInOrder($calls, ['systemctl reload apache2', 'a2query -s cw-https', self::PROBE, self::PROBE_UI, 'php bin/expire_reservations.php']);
+        self::assertStringContainsString('GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 401 (curl exit 0); '
+            . 'GET https://warehouse.floverfy.com/ui/login -> HTTP 200 (curl exit 0)', $out);
         // A reload still settling: 503, no connection, then 401: DONE after the third try.
         $this->freshBox();
         $this->answer('health_codes', "503\n000\n401\n");
+        $this->answer('health_exits', "0\n7\n0\n");
         [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
         self::assertSame(0, $code, $out . $err);
         self::assertStringContainsString('UNDO B DONE', $out);
-        self::assertSame(3, substr_count($this->calls(), 'curl '));
+        self::assertSame(3, substr_count($this->calls(), '/v1/health'));
         // The API answering 500 (the web server cannot run the rollback release): STOPPED after its tries, the link switched, no DONE.
         $this->freshBox();
         $this->answer('health_codes', "500\n");
         [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
         self::assertSame(1, $code, $out . $err);
-        self::assertStringContainsString('UNDO B STOPPED: the API does not answer as it should: GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 500, '
-            . 'expected 401', $err);
+        self::assertStringContainsString('UNDO B STOPPED: the web does not answer as it should: GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 500 '
+            . '(curl exit 0), expected 401', $err);
         self::assertStringContainsString('(the link is already switched; run this again)', $err);
         self::assertStringNotContainsString('UNDO B DONE', $out);
         self::assertSame(self::RB, $this->state()['live'], 'the link is switched');
         $calls = $this->calls();
-        self::assertSame(5, substr_count($calls, 'curl '), 'five tries (two seconds apart: the sleep stub returns at once)');
+        self::assertSame(5, substr_count($calls, '/v1/health'), 'five tries (two seconds apart: the sleep stub returns at once)');
         self::assertStringNotContainsString('expire_reservations', $calls, 'no smoke run before the API answers');
         // Put right: the same script again, DONE.
         unlink($this->stub . '/answers/health_codes');
@@ -799,12 +804,66 @@ final class ProfitUndoScriptsBehaviourTest extends TestCase
         [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
         self::assertSame(0, $code, $out . $err);
         self::assertStringContainsString('UNDO B DONE', $out);
-        // Apache not answering at all (the stub: no connection while the vhost is off): 000 is no 401 either.
+        // No connection at all (curl's 000, exit 7): no 401 either.
         $this->freshBox();
         $this->answer('health_codes', "000\n");
+        $this->answer('health_exits', "7\n");
         [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
         self::assertSame(1, $code, $out . $err);
-        self::assertStringContainsString('-> HTTP 000, expected 401', $err);
+        self::assertStringContainsString('-> HTTP 000 (curl exit 7), expected 401', $err);
         self::assertStringNotContainsString('UNDO B DONE', $out);
+    }
+
+    // ---- the Codex check of this round (r14, build/A/codex_r14.txt, the default model), shown failing first on 3bdb294 ----------------
+
+    /**
+     * r14 HIGH: undo B is run from a plain root shell, whose directory is /root (0700). GNU find run as www-data from there ends with "Failed
+     * to restore initial working directory" and exit 1 (find 4.9.0 on the CW test box: runs/profit_r14_find_cwd_check.log), so the readability
+     * check stopped every undo. It runs from / now: started in a directory only root can enter, the undo goes on, DONE.
+     */
+    public function testUndoBRunsFromADirectoryOnlyRootCanEnter(): void
+    {
+        $home = $this->base . '/roothome';
+        mkdir($home, 0700);
+        chmod($home, 0700);
+        $this->cwd = $home;
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('UNDO B DONE', $out);
+        self::assertStringNotContainsString('Failed to restore initial working directory', $err);
+        self::assertStringContainsString('runuser -u www-data -- find ' . self::RB . ' ! -readable -print -quit', $this->calls());
+        // ... and a root-only file is still found from there.
+        $this->freshBox();
+        mkdir($this->root . self::RB . '/src/Api', 0755, true);
+        file_put_contents($this->root . self::RB . '/src/Api/Kernel.php', "<?php\n");
+        chmod($this->root . self::RB . '/src/Api/Kernel.php', 0600);
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('UNDO B STOPPED: www-data cannot read ' . self::RB . '/src/Api/Kernel.php', str_replace($this->root, '', $err));
+    }
+
+    /**
+     * r14 MEDIUM: a probe counts only when curl itself succeeded (a 401 printed and then a timeout reading the body, curl's exit 28, is no
+     * answer), with no curlrc and no proxy (-q, --noproxy '*': an inherited proxy could answer for the box); and r14's F2 (b) PARTLY: the
+     * API answers 401 before it opens the database, so the sign-in page is asked too (GET /ui/login: 200 only once the web server read
+     * app.env, connected as cw_app and read ui_secret_key, as enable_https.sh checks it), else STOPPED.
+     */
+    public function testUndoBCountsAProbeOnlyWhenCurlSucceededAndTheSignInPageAnswers(): void
+    {
+        $this->answer('health_exits', "28\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('GET https://warehouse.floverfy.com/v1/health (no key) -> HTTP 401 (curl exit 28), expected 401', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertStringContainsString(self::PROBE, $this->calls(), 'no curlrc, no proxy');
+        // The sign-in page answering 503 (the database not reached as the web server): STOPPED, no DONE.
+        $this->freshBox();
+        $this->answer('login_codes', "503\n");
+        [$code, $out, $err] = $this->runScript('profit_undo_b.sh');
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('GET https://warehouse.floverfy.com/ui/login -> HTTP 503 (curl exit 0), expected 200', $err);
+        self::assertStringContainsString('(the link is already switched; run this again)', $err);
+        self::assertStringNotContainsString('UNDO B DONE', $out);
+        self::assertSame(5, substr_count($this->calls(), '/ui/login'));
     }
 }

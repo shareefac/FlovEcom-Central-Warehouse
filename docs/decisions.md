@@ -19579,3 +19579,14 @@ ends it). Not code (README of build/A): the canonical-id prefix (NOT REAL as a H
 37,606 live reservations have a non-digit ref), undo A's push race, the shared workers in a metadata-lock stall, m-M1 a named supplier
 return, m-M2 two invoice lines received as one, m-M3 the repeated ledger reads, m-LOW the unused MAX(id) lookup, p-LOW batching the parent
 lookup, the boundary read's measured plan (known limit 31), Fable L7; CONTRACT.md: a 200 `out_of_range` is a final answer.
+**The Codex check of this round (r14, `build/A/codex_r14.txt`, the default model, on 5e1fe37..3bdb294: HOLD, 1 HIGH), each point checked
+in the code (the HIGH on the CW test box: GNU find 4.9.0 run as www-data from /root ends "Failed to restore initial working directory",
+exit 1, `runs/profit_r14_find_cwd_check.log`), the real ones fixed with a test seen failing on 3bdb294 (`runs/profit_r14_codex_red.log`).**
+(HIGH) Undo B's readability check runs find from / (`cd / && runuser ...`): from a plain root shell (/root, 0700) it stopped every undo.
+(MEDIUM) A probe counts only when curl itself succeeded (a 401 printed and then a timeout, exit 28, is no answer), with no curlrc and no
+proxy (`curl -q ... --noproxy '*'`). (F2 (b) PARTLY) The API answers 401 before it opens the database, so the sign-in page is asked too
+(GET /ui/login: 200 only once the web server read app.env, connected as cw_app and read ui_secret_key; enable_https.sh checks both).
+(LOW) A name is compared with only white space (a no-break space too) taken off and collapsed, never a NUL ("DPD\0" is no "DPD"); a text
+that is no UTF-8 is not kept. Not code: F1 PARTLY (a body stored before this round copying an old name back on a recompute) is not real
+now: no snapshot is stored outside the test databases, production starts empty at go-live; the release walk does not follow symbolic
+links (README known limit 49).

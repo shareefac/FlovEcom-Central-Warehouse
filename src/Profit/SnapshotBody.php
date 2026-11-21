@@ -349,13 +349,16 @@ final class SnapshotBody
         return in_array($w, $list, true) ? $w : 'other';
     }
 
-    /** A delivery method or service name: the SERVICE_NAMES name it is (trimmed, white space collapsed, without case), else null. */
+    /**
+     * A delivery method or service name: the SERVICE_NAMES name it is (white space, a no-break space too, collapsed to one space and taken
+     * off both ends, never another character such as a NUL; without case), else null (a text that is no UTF-8 too: the r14 Codex check).
+     */
     public static function serviceName(mixed $v): ?string
     {
         if (!is_string($v)) {
             return null;
         }
-        $key = strtolower(trim((string) preg_replace('/\s+/', ' ', $v)));
+        $key = strtolower(trim((string) preg_replace('/[\s\x{00A0}]+/u', ' ', $v), ' '));
         foreach (self::SERVICE_NAMES as $name) {
             if (strtolower($name) === $key) {
                 return $name;
