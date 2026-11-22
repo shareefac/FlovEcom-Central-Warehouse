@@ -262,8 +262,9 @@ final class ReceiveRestScreensTest extends KernelUiTestCase
         $page = $desk->follow($r);
         $form = $page->form("/ui/receiving/{$id}/lines", true);
         self::assertNotSame([], $form, $page->describe());
-        $saved = $desk->post("/ui/receiving/{$id}/lines", ['fine' => '1', 'action' => 'save'] + $form);
+        $saved = $desk->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '1', 'fine' => '1', 'action' => 'save'] + $form);
         self::assertSame(303, $saved->status, $saved->describe());
+        self::assertStringStartsWith("/ui/receiving/{$id}?notice=saved", (string) $saved->location(), 'saved through the frozen lines');
         $page = $desk->follow($saved);
         $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + $page->form("/ui/receiving/{$id}/lines", true));
         self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
