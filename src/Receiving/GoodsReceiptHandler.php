@@ -199,7 +199,7 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
         //     arrival rows are received (linked to this receipt's line of each item), the invoice's match is worked out again, and the
         //     units it put in Incoming come out (`arrive`, booked with this receipt's goods_in below: what came is on hand, what did not
         //     is gone at once). FK rows before the stock (I21).
-        $arrival = \CW\Arrivals\ArrivalBooking::receiptPosted($db, $doc, $plan['lines'], $now, $caller);
+        $arrival = \CW\Arrivals\ArrivalBooking::receiptPosted($db, $doc, $plan['lines'], $now);
 
         // 6. LAST: the stock, in one bookForDocument (one lock(), one flush(): I7).
         $moves = [];
@@ -236,8 +236,6 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
 
     public function reverse(Db $db, Document $original, Document $reversal, array $lines, Caller $caller, string $opKey): void
     {
-        // CW-1155 (docs/decisions.md RR11): the first receipt of an invoice is not taken back while a later receipt of its rest stands.
-        \CW\Arrivals\ArrivalRest::refuseFirstReversal($db, $original);
         $gr = $db->one('SELECT * FROM goods_receipt WHERE document_id = ? FOR UPDATE', [$original->id])
             ?? throw new CwException('grn_header_missing', "{$original->label()} has no goods receipt header", 422);
         $back = [];
@@ -254,15 +252,13 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
             (new PurchaseOrders($db, new Documents($db, [])))->reverseReceipt($poId, $back, (string) $reversal->number, $caller);
             // --- end of pack PO
         }
-        // CW-1155 (RR12): the arrival rows of its invoice, after the order's rows and before the incidents (a posting's order).
-        \CW\Arrivals\ArrivalBooking::lockFor($db, $original->id);
         $now = Clock::db($this->now());
         $dismissed = $db->exec("UPDATE incident SET status = 'dismissed', resolution = ?, resolved_by = ?, resolved_actor = ?, resolved_at = ? WHERE document_id = ? AND status = 'open'",
             ["the receipt was reversed by {$reversal->number}", $caller->staffUserId, $caller->actor, $now, $original->id]);
         $db->exec('UPDATE goods_receipt SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [$now, $original->id]);
         // Pack J (docs/decisions.md PJ3): what this receipt took in from an invoice's Arriving is on its way again (the generic negation
         // puts the units back in Incoming), and that invoice is worked out again.
-        \CW\Arrivals\ArrivalBooking::receiptReversed($db, $original, $now, $caller);
+        \CW\Arrivals\ArrivalBooking::receiptReversed($db, $original, $now);
         // Pack C (docs/decisions.md PC10): the supplier invoices that bill this delivery are worked out again (it has nothing to invoice
         // now); after this receipt's own rows, before the stock.
         \CW\Invoices\InvoiceMatch::afterReceiptReversed($db, $original->id);

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CW\Invoices;
 
-use CW\Arrivals\ArrivalRest;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
@@ -987,14 +986,14 @@ final class SupplierInvoices
      * InvoiceMatch::fingerprint(); changed figures are refused under the receipt locks (409 match_changed). An invoice that no longer
      * needs review is not accepted (409 not_needs_review). It stays `accepted` while its match is what was accepted.
      */
-    public function accept(Caller $caller, int $id, string $note, string $fingerprint, ?string $owedKey = null): Document
+    public function accept(Caller $caller, int $id, string $note, string $fingerprint): Document
     {
         $note = trim($note);
         if (mb_strlen($note) < self::ACCEPT_NOTE_MIN || mb_strlen($note) > self::ACCEPT_NOTE_MAX) {
             throw new CwException('note_required', 'say in ' . self::ACCEPT_NOTE_MIN . ' to ' . self::ACCEPT_NOTE_MAX . ' characters why the differences are accepted', 400,
                 ['field' => 'note']);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint, $owedKey): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint): Document {
             if ($caller->staffUserId === null) {
                 throw new CwException('staff_required', 'invoices are checked by staff', 403);
             }
@@ -1015,14 +1014,6 @@ final class SupplierInvoices
             }
             $grns = SupplierInvoiceHandler::receiptIds($db, $id);
             $this->match->lockReceipts($grns);
-            // CW-1155 (docs/decisions.md RR9, RR12): its goods' arrival rows before its supplier_invoice row (a receipt's posting takes them in this
-            // order): what it still waits for is read under them, and a receipt of the rest being booked in is finished or cancelled first.
-            $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [$id]);
-            $restDraft = ArrivalRest::liveRestReceipt($db, $id);
-            if ($restDraft !== null) {
-                $label = $this->docs->get($restDraft)->label();
-                throw new CwException('rest_being_received', "{$label} is taking in the rest of this invoice. Book it in or cancel it first.", 409, ['receipt' => $restDraft]);
-            }
             $db->one('SELECT document_id FROM supplier_invoice WHERE document_id = ? FOR UPDATE', [$id]);
             $m = $this->match->compute($id);
             if ($m['state'] !== 'needs_review') {
@@ -1032,29 +1023,13 @@ final class SupplierInvoices
             if (!hash_equals(InvoiceMatch::fingerprint($m), $fingerprint)) {
                 throw new CwException('match_changed', 'the invoice differences changed: review the current figures before accepting', 409);
             }
-            // CW-1155 (RR9; the Codex check of a0d33a2, M4): the units still waited for are those the person saw (a claim cancelled meanwhile
-            // releases more: they look again).
-            $owedNow = ArrivalRest::owed($db, $id);
-            if ($owedKey !== null && !hash_equals(ArrivalRest::owedKey($owedNow), $owedKey)) {
-                throw new CwException('match_changed', 'the units still waited for changed: review the current figures before accepting', 409);
-            }
             $now = $this->nowDb();
             $db->exec('UPDATE supplier_invoice SET accepted_by = ?, accepted_actor = ?, accepted_at = ?, accept_note = ?, accepted_lines_off = ?, accepted_difference = ?, '
                 . 'accepted_fingerprint = ?, updated_at = ? WHERE document_id = ?', [$caller->staffUserId, $caller->actor, $now, $note, $m['lines_off'],
                     InvoiceMath::fromE2($m['difference_e2']), InvoiceMatch::fingerprint($m), $now, $id]);
             $this->match->refresh([$id], $now);
-            // CW-1155 (RR9): accepting the difference while units are still waited for stops waiting for exactly those units, for good (a later
-            // match that drops the acceptance does not bring them back).
-            $waived = [];
-            foreach ($owedNow as $o) {
-                $db->exec('INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, document_id, document_line_no, units, '
-                    . "created_by, created_actor, created_at) VALUES (?, ?, ?, ?, 'waive', NULL, NULL, ?, ?, ?, ?)",
-                    [$id, $o['line_no'], $o['first_grn'], $o['first_grn_line'], $o['units'], $caller->staffUserId, $caller->actor, $now]);
-                $waived[] = ['line' => $o['line_no'], 'sku' => $o['code'], 'units' => $o['units']];
-            }
             Audit::write($db, $caller, 'invoice.accept', 'document', (string) $id, null, ['number' => $doc['number'], 'lines_off' => $m['lines_off'],
-                'difference' => InvoiceMath::fromE2($m['difference_e2']), 'note' => $note] + ($switch['evidence'] === null ? [] : ['rule_evidence' => $switch['evidence']])
-                + ($waived === [] ? [] : ['stopped_waiting' => $waived]));
+                'difference' => InvoiceMath::fromE2($m['difference_e2']), 'note' => $note] + ($switch['evidence'] === null ? [] : ['rule_evidence' => $switch['evidence']]));
             return $this->docs->get($id);
         });
     }
@@ -1373,60 +1348,6 @@ final class SupplierInvoices
             . "WHERE si.match_state = ? AND d.status = 'posted'" . ($supplier === null ? '' : ' AND si.supplier_id = ?') . ' ORDER BY si.document_id LIMIT ' . self::LIST_LIMIT,
             $supplier === null ? [$show] : [$show, $supplier],
         );
-    }
-
-    /**
-     * CW-1155 (docs/decisions.md RR13): the posted invoices that may still wait for the rest of their goods (a line counted on arrival whose
-     * first receipt line brought fewer than its invoice lines billed, or none of its item), any match state, the newest REST_CANDIDATES: a
-     * superset ArrivalRest::waiting() narrows (settled ones drop out there, so the list's own limit applies after it). One grouped read.
-     *
-     * @return array<int, string> invoice id => its match state
-     */
-    public const REST_CANDIDATES = 500;
-
-    public function mayWaitForTheRest(): array
-    {
-        $out = [];
-        // Less what the rows settled that count (posted rest, waivers, live claims): an invoice whose rest came or was given up drops out here.
-        // A credit is left out where a receipt line is shared by several invoice lines (pooled, it could hide another line's shortfall: the Codex
-        // check of 66e16fa); the rows' units never exceed their own line's shortfall (J6), so they may be pooled.
-        foreach ($this->db->all('SELECT x.sinv, si.match_state FROM (SELECT a.sinv_document_id AS sinv, a.grn_document_id, a.grn_line_no, SUM(a.units) AS units, COUNT(*) AS n, '
-            . "SUM((SELECT COALESCE(SUM(r.units), 0) FROM invoice_arrival_rest r LEFT JOIN document rd ON rd.id = r.document_id WHERE r.sinv_document_id = a.sinv_document_id "
-            . "AND r.line_no = a.line_no AND r.first_grn_document_id = a.grn_document_id AND (r.kind = 'waive' OR (r.kind = 'rest' AND rd.status = 'posted') "
-            . "OR (r.kind = 'claim' AND rd.status IN ('draft', 'awaiting_approval', 'posted'))))) AS settled_rows, "
-            // ... and the credited units of the line by credit notes answering no claim (those answering one are the claim's)
-            . "SUM((SELECT COALESCE(SUM(cdl.qty), 0) FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl "
-            . "ON csl.document_id = c.document_id AND csl.kind = 'goods' AND csl.credit_of_line_no = a.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id "
-            . "AND cdl.line_no = csl.line_no WHERE c.credits_document_id = a.sinv_document_id AND c.kind = 'credit_note' AND c.debit_note_document_id IS NULL)) AS credits "
-            . 'FROM invoice_arrival a '
-            . "WHERE a.state = 'received' GROUP BY a.sinv_document_id, a.grn_document_id, a.grn_line_no) x LEFT JOIN grn_line g ON g.document_id = x.grn_document_id "
-            . "AND g.line_no = x.grn_line_no JOIN supplier_invoice si ON si.document_id = x.sinv JOIN document d ON d.id = x.sinv AND d.status = 'posted' "
-            . 'WHERE x.grn_line_no IS NULL AND x.units > x.settled_rows + IF(x.n = 1, x.credits, 0) '
-            . 'OR x.units > COALESCE(g.accepted_units, 0) + COALESCE(g.verify_units, 0) + COALESCE(g.quarantine_units, 0) + x.settled_rows + IF(x.n = 1, x.credits, 0) '
-            . 'GROUP BY x.sinv, si.match_state ORDER BY x.sinv DESC LIMIT ' . self::REST_CANDIDATES) as $r) {
-            $out[(int) $r['sinv']] = (string) $r['match_state'];
-        }
-        return $out;
-    }
-
-    /**
-     * The To match rows of these posted invoices (toMatch()'s columns), whatever their match state (CW-1155: an invoice within the quantity
-     * tolerance still waiting for the rest is listed too).
-     *
-     * @param list<int> $ids
-     * @return list<array<string, mixed>>
-     */
-    public function toMatchRows(array $ids): array
-    {
-        if ($ids === []) {
-            return [];
-        }
-        return $this->db->all(
-            'SELECT d.id, d.number, d.external_ref, d.doc_date, d.posted_at, si.supplier_id, s.name AS supplier_name, si.gross_total, si.match_state, si.match_lines_off, '
-            . 'si.match_difference, si.match_checked_at, si.accepted_at, si.accept_note, ab.display_name AS accepted_by_name, pb.display_name AS posted_by_name '
-            . 'FROM supplier_invoice si JOIN document d ON d.id = si.document_id JOIN supplier s ON s.id = si.supplier_id '
-            . 'LEFT JOIN staff_user ab ON ab.id = si.accepted_by LEFT JOIN staff_user pb ON pb.id = d.posted_by '
-            . "WHERE d.status = 'posted' AND si.document_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY si.document_id', $ids);
     }
 
     /** How many posted invoices need review now (the badge, for people who act on them). */

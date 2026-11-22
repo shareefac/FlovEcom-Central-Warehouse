@@ -502,7 +502,7 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
 <?php endif; ?>
 <?php endif; ?>
 
-<?php if ($arrival !== null && !$arrival['editable'] && ($arrival['rows'] !== [] || $arrival['receipt'] !== null || $arrival['at'] !== null || ($arrival['rest'] ?? null) !== null)): ?>
+<?php if ($arrival !== null && !$arrival['editable'] && ($arrival['rows'] !== [] || $arrival['receipt'] !== null || $arrival['at'] !== null)): ?>
 <section aria-labelledby="goods-h" id="goods">
   <h2 id="goods-h"><?= $word('ARRIVALS', 'on_way_title') ?><?php if ($arrival['mode'] !== null): ?> <?= $chip('info', \CW\Ui\Words::RECEIVE_MODE[$arrival['mode']]) ?><?php endif; ?></h2>
 <?php if ($arrival['at'] !== null): ?>
@@ -529,9 +529,6 @@ $theirs = !$editable && !$doc->isReversal() && $doc->externalRef !== null && $do
     </tbody>
   </table>
   </div>
-<?php endif; ?>
-<?php if (($arrival['rest'] ?? null) !== null): // CW-1155 (RR13) ?>
-<?= $partial('rest_box', ['rest' => $arrival['rest'], 'fromGrn' => null]) ?>
 <?php endif; ?>
 </section>
 <?php endif; ?>

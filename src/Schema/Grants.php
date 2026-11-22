@@ -72,8 +72,6 @@ final class Grants
         'counterparty_entry',
         // --- Pack J (0041): the receipt made from a supplier invoice (written once).
         'goods_receipt_invoice',
-        // CW-1155 (0076, docs/decisions.md RR1): what became later of the units an invoice line did not bring (received, claimed, waived).
-        'invoice_arrival_rest',
         // XA2, XA7: replacement ancestry is immutable; mode watermarks only advance their timestamp.
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.

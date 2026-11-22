@@ -203,9 +203,7 @@ final class InvoiceInvariants
         foreach ($db->all(
             "SELECT x.grn_document_id FROM (SELECT sl.grn_document_id FROM sinv_line sl JOIN document i ON i.id = sl.document_id AND i.status IN ('posted', 'reversed') "
             . "WHERE sl.grn_document_id IS NOT NULL UNION SELECT n.grn_document_id FROM dn_line n JOIN document r ON r.id = n.document_id AND r.status IN ('posted', 'reversed') "
-            . "WHERE n.grn_document_id IS NOT NULL "
-            // CW-1155 (RR32): a posted receipt of the rest is billed by its invoice (invoice_arrival_rest) and has its row too
-            . "UNION SELECT ar.document_id FROM invoice_arrival_rest ar WHERE ar.kind = 'rest') x JOIN document g ON g.id = x.grn_document_id AND g.status = 'posted' "
+            . "WHERE n.grn_document_id IS NOT NULL) x JOIN document g ON g.id = x.grn_document_id AND g.status = 'posted' "
             . 'LEFT JOIN grn_invoice_left gl ON gl.grn_document_id = x.grn_document_id WHERE gl.grn_document_id IS NULL ORDER BY x.grn_document_id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "V7 delivery {$r['grn_document_id']} is named by an invoice, credit note or return but has no stored figures left to invoice";

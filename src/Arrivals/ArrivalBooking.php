@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CW\Arrivals;
 
-use CW\Caller;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
@@ -84,30 +83,17 @@ final class ArrivalBooking
      * @param array<int, array<string, mixed>> $planLines the receipt's lines (line_no => at least sku_id), as its posting planned them
      * @return array{invoice: ?int, number: ?string, warehouse: ?string, lines: list<array{document_line: int, sku_id: int, qty: int}>}
      */
-    public static function receiptPosted(Db $db, Document $grn, array $planLines, string $now, ?Caller $caller = null): array
+    public static function receiptPosted(Db $db, Document $grn, array $planLines, string $now): array
     {
         $inv = $db->value('SELECT sinv_document_id FROM goods_receipt_invoice WHERE grn_document_id = ?', [$grn->id]);
         if ($inv === null) {
             return ['invoice' => null, 'number' => null, 'warehouse' => null, 'lines' => []];
         }
         $inv = (int) $inv;
-        // Every arrival row of the invoice under lock (line order), the open ones taken in below (CW-1155: the received ones are what a later
-        // receipt of the rest is checked against).
-        $all = $db->all('SELECT line_no, sku_id, units, sellable, warehouse_id, state, grn_document_id FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE',
+        $rows = $db->all("SELECT line_no, sku_id, units, sellable, warehouse_id FROM invoice_arrival WHERE sinv_document_id = ? AND state = 'open' ORDER BY line_no FOR UPDATE",
             [$inv]);
-        $rows = array_values(array_filter($all, static fn (array $r): bool => $r['state'] === 'open'));
         $number = (string) $db->value('SELECT number FROM document WHERE id = ?', [$inv]);
         if ($rows === []) {
-            // CW-1155 (docs/decisions.md RR5): a later receipt of an invoice whose goods another receipt took in brings the rest of what that
-            // one did not: only what the invoice still waits for (refused otherwise), recorded line by line; nothing was in Incoming for it.
-            if (array_filter($all, static fn (array $r): bool => $r['state'] === 'received' && (int) $r['grn_document_id'] !== $grn->id) !== []) {
-                ArrivalRest::posted($db, $grn, $inv, $planLines, $now, $caller ?? Caller::system('receive_rest'));
-                $match = new InvoiceMatch($db);
-                $match->refresh([$inv], $now);
-                // This receipt only: a part is billed for what it settled, nothing moves to another receipt (RR23; storing another receipt
-                // would S-lock its document row, which a claim or receiveRest may hold: the deadlocks ReceiveRestRaceTest saw).
-                $match->storeReceipts([$grn->id], $now);
-            }
             return ['invoice' => $inv, 'number' => $number, 'warehouse' => null, 'lines' => []];
         }
         // Review finding 1 (Codex, 15 Oct): the receipt's lines of each item, in line order, are given to the invoice's rows of that item
@@ -141,30 +127,8 @@ final class ArrivalBooking
         return ['invoice' => $inv, 'number' => $number, 'warehouse' => $warehouse, 'lines' => $out];
     }
 
-    /**
-     * The arrival rows of the invoice a receipt was made from, FOR UPDATE (line order): a receipt's reversal takes them after its order's rows
-     * and before its incidents (CW-1155, docs/decisions.md RR12: the lock order of a posting, so a reversal and the posting of a receipt of
-     * the rest never wait on each other in a circle).
-     */
-    public static function lockFor(Db $db, int $grnId): void
+    public static function receiptReversed(Db $db, Document $original, string $now): void
     {
-        $inv = $db->value('SELECT sinv_document_id FROM goods_receipt_invoice WHERE grn_document_id = ?', [$grnId]);
-        if ($inv !== null) {
-            self::lockInvoice($db, (int) $inv);
-        }
-    }
-
-    /** An invoice's arrival rows FOR UPDATE (line order); none: nothing. */
-    public static function lockInvoice(Db $db, int $invoiceId): void
-    {
-        $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [$invoiceId]);
-    }
-
-    public static function receiptReversed(Db $db, Document $original, string $now, ?Caller $caller = null): void
-    {
-        // CW-1155 (RR10): a receipt of the rest taken back: what it brought is owed again (its rows count no more), and the short incidents its
-        // rest resolved by themselves are open again. The invoice's match is worked out by InvoiceMatch::afterReceiptReversed.
-        ArrivalRest::reversed($db, $original, $now, $caller ?? Caller::system('receive_rest'));
         $invoices = array_map('intval', $db->column('SELECT DISTINCT sinv_document_id FROM invoice_arrival WHERE grn_document_id = ? ORDER BY sinv_document_id', [$original->id]));
         if ($invoices === []) {
             return;

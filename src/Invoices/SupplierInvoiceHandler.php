@@ -144,11 +144,6 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         $match = new InvoiceMatch($db);
         $match->lockReceipts(self::receiptIds($db, $doc->id, $credited));
-        if ($credited !== null) {
-            // CW-1155 (docs/decisions.md RR12; the Codex check of a0d33a2, H1): the credited invoice's arrival rows, as a receipt of its rest
-            // takes them before it reads what is still owed (a credit of that line lowers it).
-            ArrivalBooking::lockInvoice($db, $credited);
-        }
         $h = $db->one('SELECT * FROM supplier_invoice WHERE document_id = ? FOR UPDATE', [$doc->id])
             ?? throw new CwException('invoice_header_missing', "{$doc->label()} has no supplier invoice header", 422);
         // Again under the locks: a receipt reversed, or another credit note posted, since validate() read them.
@@ -255,9 +250,6 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $grns = self::receiptIds($db, $original->id, $credited);
         // The deliveries before any supplier_invoice row (PC10: a receipt's reversal holds its document row and then takes those rows).
         $match->lockReceipts($grns);
-        if ($credited !== null) {
-            ArrivalBooking::lockInvoice($db, $credited); // CW-1155 (RR12): a credit taken back raises what is owed
-        }
         $now = Clock::db(($this->clock)());
         // Pack J (PJ4): refused once a receipt took its goods in; else what is still on its way is cancelled (the generic negation takes
         // the units out of Incoming afterwards).
@@ -273,10 +265,6 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         $match->refresh($refresh, $now);
         $match->storeReceipts($grns, $now);
-        if ($credited !== null) {
-            // CW-1155 (RR32): the credit cancelled, its units are owed again: a short incident the rest resolved by itself is open again.
-            \CW\Arrivals\ArrivalRest::reopenWaited($db, $credited, (string) $reversal->number, $caller);
-        }
         Audit::write($db, $caller, $this->docType === 'SINV' ? 'invoice.reverse' : 'credit_note.reverse', 'document', (string) $original->id, $opKey . ':inv',
             ['number' => $original->number, 'reversed_by' => $reversal->number, 'reason' => $reversal->reasonCode, 'value_events_negated' => $n]);
     }
@@ -619,10 +607,6 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             }
             // Pack J (PJ8): the receipts that took its goods in from Arriving.
             foreach ($db->column('SELECT DISTINCT grn_document_id FROM invoice_arrival WHERE sinv_document_id = ? AND grn_document_id IS NOT NULL', [$d]) as $g) {
-                $ids[(int) $g] = true;
-            }
-            // CW-1155 (docs/decisions.md RR6): the receipts that took in the rest of its goods.
-            foreach ($db->column("SELECT DISTINCT document_id FROM invoice_arrival_rest WHERE sinv_document_id = ? AND kind = 'rest'", [$d]) as $g) {
                 $ids[(int) $g] = true;
             }
         }

@@ -115,9 +115,9 @@ final class GoodsReceipts
      *
      * @param array<string, mixed> $header
      */
-    public function createDraft(Caller $caller, int $supplierId, array $header = [], ?int $poId = null, bool $copyDown = false, ?int $restOf = null): Document
+    public function createDraft(Caller $caller, int $supplierId, array $header = [], ?int $poId = null, bool $copyDown = false): Document
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $supplierId, $header, $poId, $copyDown, $restOf): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $supplierId, $header, $poId, $copyDown): Document {
             $this->poster($caller);
             $h = $this->headerFields($header);
             unset($h['po_id'], $h['supplier_id']);
@@ -135,12 +135,11 @@ final class GoodsReceipts
             $now = Clock::db($this->now());
             $key = ReceiptMath::invoiceKey($h['invoice_number'] ?? null);
             // Pack PO (PO10): a number on another live receipt of the supplier is refused here, whatever part that one is.
-            // CW-1155 (docs/decisions.md RR4): the receipt of the rest of a CW invoice ($restOf, Arrivals::receiveRest) is its next part.
-            $part = $this->invoicePart($doc->id, $supplierId, $poId, $h['delivery_note'] ?? null, $key, null, 1, false, (string) ($h['invoice_number'] ?? ''), $restOf);
+            $this->invoicePart($doc->id, $supplierId, $poId, $h['delivery_note'] ?? null, $key, null, 1, false, (string) ($h['invoice_number'] ?? ''));
             try {
-                $db->exec('INSERT INTO goods_receipt (document_id, supplier_id, po_document_id, invoice_key, invoice_part, invoice_date, delivery_note, received_at, paper_sheet, '
-                    . 'backdate_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [$doc->id, $supplierId, $poId, $key === '' ? null : $key, $part, $h['invoice_date'] ?? null, $h['delivery_note'] ?? null, $received,
+                $db->exec('INSERT INTO goods_receipt (document_id, supplier_id, po_document_id, invoice_key, invoice_date, delivery_note, received_at, paper_sheet, '
+                    . 'backdate_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [$doc->id, $supplierId, $poId, $key === '' ? null : $key, $h['invoice_date'] ?? null, $h['delivery_note'] ?? null, $received,
                         ($h['paper_sheet'] ?? false) ? 1 : 0, $h['backdate_reason'] ?? null, $now, $now]);
             } catch (\PDOException $e) {
                 throw $this->duplicate($e, $supplierId, $key);
@@ -249,39 +248,7 @@ final class GoodsReceipts
                 throw new CwException('backdate_reason_required', 'a receipt keyed from a paper receiving sheet says why (CW was down, ...): fill in the reason', 422,
                     ['field' => 'backdate_reason']);
             }
-            // CW-1155 (docs/decisions.md RR32): the lines of a receipt of the rest keep their pack prices (the invoice's): a price typed (or sent by
-            // someone who does not read money) is not taken, so no save answers whether it matched the hidden one.
-            $restLines = $hasLines && \CW\Arrivals\ArrivalRest::restOf($db, $id) !== null;
-            if ($restLines && is_array($lines)) {
-                $prices = array_map('strval', $db->column('SELECT pack_price FROM grn_line WHERE document_id = ? ORDER BY line_no', [$id]));
-                foreach (array_values($lines) as $i => $in) {
-                    if (is_array($in) && isset($prices[$i])) {
-                        $lines[array_keys($lines)[$i]]['pack_price'] = $prices[$i];
-                    }
-                }
-            }
             $norm = $this->normaliseLines($id, $supplierId, $poId, $lines);
-            // CW-1155 (docs/decisions.md RR29): a receipt of the rest keeps the lines it was made with, one per invoice line still waited for (the
-            // item, units per pack, pack price and order line of each, in order); only the packs counted change. The bench says what came.
-            if ($restLines) {
-                $was = array_values($db->all('SELECT g.units_per_pack, g.pack_price, g.po_line_no, dl.sku_id FROM grn_line g JOIN document_line dl ON dl.document_id = g.document_id '
-                    . 'AND dl.line_no = g.line_no WHERE g.document_id = ? ORDER BY g.line_no', [$id]));
-                $same = count($was) === count($norm);
-                // ... and a line's bench findings stay its own: a line naming another stored line (`line_no`) is refused (the Codex check of ee969fd)
-                foreach (array_values(is_array($lines) ? $lines : []) as $i => $in) {
-                    $hint = is_array($in) ? ($in['line_no'] ?? null) : null;
-                    $same = $same && ($hint === null || $hint === '' || (int) $hint === $i + 1);
-                }
-                foreach (array_values($norm) as $i => $n) {
-                    $w = $was[$i] ?? null;
-                    $same = $same && $w !== null && (int) $w['sku_id'] === (int) $n['doc']['sku_id'] && (int) $w['units_per_pack'] === (int) $n['grn']['units_per_pack']
-                        && PoMath::e4((string) $w['pack_price']) === PoMath::e4((string) $n['grn']['pack_price']) && (int) ($w['po_line_no'] ?? 0) === (int) ($n['grn']['po_line_no'] ?? 0);
-                }
-                if (!$same) {
-                    throw new CwException('rest_lines_fixed', 'the lines of a receipt of the rest are what its invoice still waits for: count what came at the bench (mark the '
-                        . 'rest short); to change them, cancel it and start again', 409);
-                }
-            }
             $doc = $this->docs->updateDraft($caller, $id, $version, $docHeader);
             $doc = $this->docs->setLines($caller, $id, $doc->version, array_map(static fn (array $n): array => $n['doc'], $norm));
             $this->insertLines($id, $norm);
@@ -709,14 +676,11 @@ final class GoodsReceipts
                 $supplierId = (int) $db->value('SELECT supplier_id FROM goods_receipt WHERE document_id = ?', [$id]);
                 // Pack PO (PO10): the deliveries of one supplier invoice that covers several deliveries of an order share its copy.
                 $mine = (array) $db->one('SELECT invoice_key, po_document_id FROM goods_receipt WHERE document_id = ?', [$id]);
-                // CW-1155 (RR4): ... and the receipts made from one CW invoice (its first receipt and the receipts of its rest) share its copy.
                 $other = $db->one("SELECT d.id, d.number, d.status FROM document_file df JOIN goods_receipt g ON g.document_id = df.document_id AND g.supplier_id = ? "
                     . "JOIN document d ON d.id = df.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') WHERE df.file_id = ? AND df.role = 'supplier_invoice' "
-                    . 'AND df.document_id <> ? AND NOT (? IS NOT NULL AND ? IS NOT NULL AND g.invoice_key <=> ? AND g.po_document_id <=> ?) '
-                    . 'AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice i1 JOIN goods_receipt_invoice i2 ON i2.sinv_document_id = i1.sinv_document_id '
-                    . 'WHERE i1.grn_document_id = ? AND i2.grn_document_id = df.document_id) ORDER BY d.id LIMIT 1',
+                    . 'AND df.document_id <> ? AND NOT (? IS NOT NULL AND ? IS NOT NULL AND g.invoice_key <=> ? AND g.po_document_id <=> ?) ORDER BY d.id LIMIT 1',
                     [$supplierId, $stored['id'], $id, $mine['invoice_key'] ?? null, $mine['po_document_id'] ?? null, $mine['invoice_key'] ?? null,
-                        $mine['po_document_id'] ?? null, $id]);
+                        $mine['po_document_id'] ?? null]);
                 if ($other !== null) {
                     $label = $other['number'] ?? (str_replace('_', ' ', (string) $other['status']) . ' receipt #' . $other['id']);
                     throw new CwException('invoice_copy_elsewhere', "this file is already the supplier invoice of {$label}: a supplier's invoice is received once "
@@ -1467,7 +1431,7 @@ final class GoodsReceipts
      * the same part meet on the UNIQUE key (duplicate()).
      */
     private function invoicePart(int $self, int $supplierId, ?int $poId, ?string $deliveryNote, string $key, ?string $storedKey, int $storedPart, bool $split,
-        string $typed, ?int $restOf = null): int
+        string $typed): int
     {
         if ($key === '') {
             return 1;
@@ -1477,21 +1441,9 @@ final class GoodsReceipts
         }
         $others = $this->db->all('SELECT g.document_id, g.po_document_id, g.delivery_note, g.invoice_part, d.number, d.status, u.display_name FROM goods_receipt g '
             . 'JOIN document d ON d.id = g.document_id LEFT JOIN staff_user u ON u.id = d.created_by WHERE g.supplier_id = ? AND g.invoice_key = ? AND g.document_id <> ? '
-            // Only the receipts' own rows (CW-1155, the Codex check of a0d33a2, M3: locking their documents and their keyers too met a reversal
-            // of an earlier part of the rest, which holds its document and asks for its keyer's row).
-            . 'ORDER BY g.document_id FOR UPDATE OF g', [$supplierId, $key, $self]);
+            . 'ORDER BY g.document_id FOR UPDATE', [$supplierId, $key, $self]);
         if ($others === []) {
             return 1;
-        }
-        // CW-1155 (docs/decisions.md RR4): the receipt of the rest of CW invoice $restOf shares its number with the receipts made from that same
-        // invoice (goods_receipt_invoice), and only with them: then it is the next part. Any other receipt with the number refuses as below.
-        // A draft of the rest given its number again (setInvoice, saveDraft): the invoice it is linked to.
-        $restOf ??= \CW\Arrivals\ArrivalRest::restOf($this->db, $self);
-        if ($restOf !== null) {
-            $linked = array_map('intval', $this->db->column('SELECT grn_document_id FROM goods_receipt_invoice WHERE sinv_document_id = ?', [$restOf]));
-            if (array_filter($others, static fn (array $o): bool => !in_array((int) $o['document_id'], $linked, true)) === []) {
-                return max(array_map(static fn (array $o): int => (int) $o['invoice_part'], $others)) + 1;
-            }
         }
         $sameOrder = $poId !== null;
         $sameNote = false;

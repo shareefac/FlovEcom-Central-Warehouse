@@ -212,8 +212,6 @@ final class Settings
         'arrivals.late_hours' => ['min' => 1, 'max' => 720],
         'arrivals.default_mode' => ['in' => ['count', 'received']],
         // ---- end of pack J ----
-        // CW-1155 (0076; docs/decisions.md RR16): an invoice still waiting for the rest of its goods is late after this many days.
-        'arrivals.rest_late_days' => ['min' => 1, 'max' => 365],
         // ---- Pack RB (0046; docs/decisions.md RB2, RB4): the rollback file. The ERPNext names are typed as ERPNext writes them; one that
         // starts like a spreadsheet formula is refused (the files are read by ERPNext and opened by people). Empty: the file is not made.
         'rollback.cw_warehouses' => ['pattern' => '/^[A-Z][A-Z0-9_]{0,31}(,[A-Z][A-Z0-9_]{0,31})*$/D',

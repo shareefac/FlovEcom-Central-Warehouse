@@ -19,14 +19,10 @@ use CW\Tests\Support\MigrationFixture;
  */
 final class RollbackReleaseTest extends IntegrationTestCase
 {
-    /**
-     * The last migration of the release before. CW-1155 (docs/decisions.md RR20): the release before is now b35949d (profit step 1, live), whose
-     * last is 0075; the rollback release of CW-1155 is b35949d's code with 0076 added, byte for byte (profit step 1's was c40c050 with 0074 and
-     * 0075, the same recipe).
-     */
-    public const BEFORE_LAST = '0075_profit_queue.sql';
-    /** The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20). */
-    public const ROLLBACK_FILES = ['0076_receive_rest.sql'];
+    /** The last migration of the release before (c40c050). */
+    public const BEFORE_LAST = '0073_store_choice_existing.sql';
+    /** The migration files the rollback release takes from this release (README of build/A, "Undo"). */
+    public const ROLLBACK_FILES = ['0074_profit.sql', '0075_profit_queue.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;
@@ -57,7 +53,7 @@ final class RollbackReleaseTest extends IntegrationTestCase
         self::assertSame([], (new Migrator($db, $this->dir))->pending(), 'migrated by this release');
         $applied = array_map('strval', $db->column('SELECT version FROM schema_migrations'));
 
-        // The release before as it is: its migrations stop at BEFORE_LAST.
+        // The release before as it is: its migrations stop at 0073.
         $this->rollback = sys_get_temp_dir() . '/cw_rollback_' . bin2hex(random_bytes(4));
         mkdir($this->rollback, 0700);
         foreach ($files as $f) {
@@ -72,7 +68,7 @@ final class RollbackReleaseTest extends IntegrationTestCase
             $before->pending();
             self::fail('the installer\'s status of the release before refuses the schema');
         } catch (\RuntimeException $e) {
-            self::assertStringContainsString(self::ROLLBACK_FILES[0], $e->getMessage());
+            self::assertStringContainsString('0074_profit.sql', $e->getMessage());
         }
 
         // The rollback release: the same code with these files (byte for byte) added.

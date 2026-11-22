@@ -13,6 +13,7 @@ use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
 use CW\Files\FileStore;
+use CW\Invoices\InvoiceMath;
 use CW\Invoices\SupplierInvoices;
 use CW\Invoices\SupplierReturns;
 use CW\Receiving\GoodsReceipts;
@@ -169,79 +170,36 @@ final class Arrivals
 
     /**
      * What a receipt made from an invoice did not bring of that invoice, per invoice line: its units less what the receipt booked in of
-     * that item (accepted, set aside to check or quarantined: those have their own ways back), at the invoice's price. CW-1155 (docs/decisions.md
-     * RR2): less what came since on receipts of the rest, what the supplier credited of the line and what a person stopped waiting for
-     * (ArrivalRest::lines `missing`: one rule for the claim and the rest).
+     * that item (accepted, set aside to check or quarantined: those have their own ways back), at the invoice's price.
      *
      * @return list<array{line_no: int, sku_id: int, code: string, name: string, units: int, unit_cost: string, amount: string}>
      */
     public function missingOf(int $grnId): array
     {
+        $rows = $this->db->all('SELECT a.line_no, a.sku_id, a.units, a.grn_line_no, dl.unit_cost, s.code, s.name FROM invoice_arrival a '
+            . 'JOIN document_line dl ON dl.document_id = a.sinv_document_id AND dl.line_no = a.line_no JOIN sku s ON s.id = a.sku_id '
+            . "WHERE a.grn_document_id = ? AND a.state = 'received' ORDER BY a.sinv_document_id, a.line_no", [$grnId]);
+        $came = [];
+        foreach ($this->db->all('SELECT line_no, COALESCE(accepted_units, 0) + COALESCE(verify_units, 0) + COALESCE(quarantine_units, 0) AS units FROM grn_line WHERE document_id = ?',
+            [$grnId]) as $g) {
+            $came[(int) $g['line_no']] = (int) $g['units'];
+        }
         $out = [];
-        foreach (array_map('intval', $this->db->column("SELECT DISTINCT sinv_document_id FROM invoice_arrival WHERE grn_document_id = ? AND state = 'received' "
-            . 'ORDER BY sinv_document_id', [$grnId])) as $inv) {
-            $lines = array_filter(ArrivalRest::lines($this->db, $inv), static fn (array $l): bool => $l['first_grn'] === $grnId && $l['missing'] > 0);
-            $names = [];
-            foreach ($lines === [] ? [] : $this->db->all('SELECT id, code, name FROM sku WHERE id IN (' . implode(', ', array_fill(0, count($lines), '?')) . ')',
-                array_values(array_map(static fn (array $l): int => $l['sku_id'], $lines))) as $n) {
-                $names[(int) $n['id']] = $n;
+        foreach ($rows as $r) {
+            $line = $r['grn_line_no'] === null ? null : (int) $r['grn_line_no'];
+            $got = $line === null ? 0 : min((int) $r['units'], $came[$line] ?? 0);
+            if ($line !== null) {
+                $came[$line] = ($came[$line] ?? 0) - $got;
             }
-            foreach ($lines as $l) {
-                $out[] = ['line_no' => $l['line_no'], 'sku_id' => $l['sku_id'], 'code' => (string) ($names[$l['sku_id']]['code'] ?? ''),
-                    'name' => (string) ($names[$l['sku_id']]['name'] ?? ''), 'units' => $l['missing'], 'unit_cost' => $l['unit_cost'],
-                    'amount' => ArrivalRest::amount($l['missing'], $l['unit_cost'])];
+            $missing = (int) $r['units'] - $got;
+            if ($missing <= 0) {
+                continue;
             }
+            $cost = (string) ($r['unit_cost'] ?? '0');
+            $out[] = ['line_no' => (int) $r['line_no'], 'sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'units' => $missing,
+                'unit_cost' => $cost, 'amount' => InvoiceMath::fromE2(InvoiceMath::unitsAt($missing, InvoiceMath::e6($cost)))];
         }
         return $out;
-    }
-
-    /**
-     * CW-1155 (docs/decisions.md RR2): what a final invoice counted on arrival is still waiting for, per invoice line: the units its first
-     * receipt did not bring, less what came since, was credited, claimed or stopped waiting for; at the invoice's price. [] when nothing.
-     *
-     * @return list<array{line_no: int, sku_id: int, code: string, name: string, units: int, unit_cost: string, amount: string, first_grn: int, first_grn_line: ?int}>
-     */
-    public function owedOf(int $invoiceId): array
-    {
-        return ArrivalRest::owed($this->db, $invoiceId);
-    }
-
-    /**
-     * CW-1155 "Receive the rest" (docs/decisions.md RR3, RR4): a draft receipt, from the SAME supplier invoice, of only the units it is still
-     * waiting for (doc.GRN.post), the usual bench and stamp check and posting follow (its posting: ArrivalBooking::receiptPosted). A live
-     * receipt already made from the invoice: that one (pressed twice, or two people at once: the same draft). 409 claimed when what is
-     * missing was claimed (cancel the claim first), 409 nothing_owed when the invoice waits for nothing.
-     *
-     * Locks: the invoice's document row, then its first receipt's (as claimMissing() and SupplierInvoices::accept, RR12): one of them at a
-     * time per invoice; the first receipt's reversal waits too.
-     */
-    public function receiveRest(Caller $caller, int $invoiceId): Document
-    {
-        return $this->db->transaction(function (Db $db) use ($caller, $invoiceId): Document {
-            self::may($db, $caller, 'doc.GRN.post', 'receive goods');
-            $inv = $db->one("SELECT d.id, d.number, d.status, d.external_ref, d.doc_date, si.supplier_id FROM document d JOIN supplier_invoice si ON si.document_id = d.id "
-                . "AND si.kind = 'invoice' WHERE d.id = ? FOR UPDATE OF d", [$invoiceId]) ?? throw new CwException('unknown_document', 'there is no such supplier invoice', 404);
-            $live = $db->value("SELECT MAX(g.grn_document_id) FROM goods_receipt_invoice g JOIN document gd ON gd.id = g.grn_document_id AND gd.status IN ('draft', 'awaiting_approval') "
-                . 'WHERE g.sinv_document_id = ?', [$invoiceId]);
-            if ($live !== null) {
-                return $this->documents()->get((int) $live);
-            }
-            $first = ArrivalRest::firstReceipt($db, $invoiceId);
-            if ($inv['status'] !== 'posted' || $first === null) {
-                throw new CwException('nothing_owed', "{$inv['number']} is not waiting for anything", 409);
-            }
-            $db->one('SELECT id FROM document WHERE id = ? FOR UPDATE', [$first]);
-            $owed = ArrivalRest::owed($db, $invoiceId);
-            if ($owed === []) {
-                $claim = ArrivalRest::liveClaim($db, $first);
-                if ($claim !== null) {
-                    $dn = $this->documents()->get($claim)->label();
-                    throw new CwException('claimed', "The missing units were claimed on {$dn}. Cancel that claim first if the goods came after all.", 409, ['claim' => $claim]);
-                }
-                throw new CwException('nothing_owed', "{$inv['number']} is not waiting for anything", 409);
-            }
-            return $this->restReceiptOf($caller, $inv, $owed);
-        });
     }
 
     /**
@@ -253,27 +211,17 @@ final class Arrivals
     {
         return $this->db->transaction(function (Db $db) use ($caller, $grnId): Document {
             self::may($db, $caller, 'doc.DN.post', 'claim from a supplier');
-            // CW-1155 (docs/decisions.md RR12): the invoice's document row first, then the receipt's (as receiveRest()), then the invoice's
-            // arrival rows (as the postings): a claim and the receipt of the rest never take the same units.
-            $invOf = $db->value('SELECT sinv_document_id FROM goods_receipt_invoice WHERE grn_document_id = ?', [$grnId]);
-            if ($invOf !== null) {
-                $db->one('SELECT id FROM document WHERE id = ? FOR UPDATE', [(int) $invOf]);
-            }
             $g = $db->one("SELECT d.id, d.number, d.status, gri.sinv_document_id, gr.supplier_id FROM document d JOIN goods_receipt gr ON gr.document_id = d.id "
                 . 'LEFT JOIN goods_receipt_invoice gri ON gri.grn_document_id = d.id WHERE d.id = ? FOR UPDATE OF d', [$grnId])
                 ?? throw new CwException('unknown_document', 'there is no such receipt', 404);
             if ($g['sinv_document_id'] === null || $g['status'] !== 'posted') {
                 throw new CwException('not_from_invoice', "{$g['number']} was not received against a supplier invoice", 409);
             }
-            $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [(int) $g['sinv_document_id']]);
-            $live = ArrivalRest::liveClaim($db, $grnId);
+            $live = $db->value("SELECT MIN(r.document_id) FROM supplier_return r JOIN document d ON d.id = r.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') "
+                . 'AND d.reverses_id IS NULL WHERE r.grn_document_id = ? AND NOT EXISTS (SELECT 1 FROM document_line l WHERE l.document_id = r.document_id AND l.sku_id IS NOT NULL)',
+                [$grnId]);
             if ($live !== null) {
-                return $this->documents()->get($live);
-            }
-            $rest = ArrivalRest::liveRestReceipt($db, (int) $g['sinv_document_id']);
-            if ($rest !== null) {
-                $label = $this->documents()->get($rest)->label();
-                throw new CwException('rest_being_received', "{$label} is taking in the rest of this invoice. Book it in or cancel it first.", 409, ['receipt' => $rest]);
+                return $this->documents()->get((int) $live);
             }
             $missing = $this->missingOf($grnId);
             if ($missing === []) {
@@ -287,17 +235,6 @@ final class Arrivals
             $lines = array_map(static fn (array $m): array => ['amount' => $m['amount'], 'description' => mb_substr("Missing on arrival: {$m['units']} x {$m['code']} {$m['name']} "
                 . "({$number} line {$m['line_no']})", 0, 255)], $missing);
             $dn = $returns->saveLines($caller, $dn->id, $dn->version, $lines);
-            // CW-1155 (RR8): what it claims, line by line: those units are not waited for while the claim is live (draft, waiting, posted).
-            $firstLines = [];
-            foreach (ArrivalRest::lines($db, (int) $g['sinv_document_id']) as $l) {
-                $firstLines[$l['line_no']] = $l['first_grn_line'];
-            }
-            $now = Clock::db(($this->clock)());
-            foreach (array_values($missing) as $i => $m) {
-                $db->exec('INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, document_id, document_line_no, units, '
-                    . "created_by, created_actor, created_at) VALUES (?, ?, ?, ?, 'claim', ?, ?, ?, ?, ?, ?)",
-                    [(int) $g['sinv_document_id'], $m['line_no'], $grnId, $firstLines[$m['line_no']] ?? null, $dn->id, $i + 1, $m['units'], $caller->staffUserId, $caller->actor, $now]);
-            }
             Audit::write($db, $caller, 'arrival.claim', 'document', (string) $dn->id, null, ['receipt' => (string) $g['number'], 'invoice' => $number,
                 'missing' => array_map(static fn (array $m): array => ['line' => $m['line_no'], 'sku' => $m['code'], 'units' => $m['units'], 'amount' => $m['amount']], $missing)]);
             return $dn;
@@ -396,70 +333,6 @@ final class Arrivals
             [$grn->id, (int) $inv['id'], $auto ? 1 : 0, Clock::db(($this->clock)())]);
         Audit::write($db, $caller, $auto ? 'arrival.book_received' : 'arrival.receive', 'document', (string) $grn->id, null,
             ['invoice' => (string) $inv['number'] !== '' ? (string) $inv['number'] : (string) $inv['external_ref'], 'lines' => count($grnLines)]);
-        return $this->documents()->get($grn->id);
-    }
-
-    /**
-     * CW-1155 (RR3): the draft receipt of the rest: the supplier's invoice number as its next part (GoodsReceipts::createDraft $restOf), its
-     * date, its order when every owed line comes from one still receivable, one line per owed invoice line with the owed units (the invoice
-     * line's packs and pack price when they are whole packs of it, else single units at its unit price), the invoice's copy, and the link
-     * goods_receipt_invoice (auto 0). Audit arrival.receive_rest. In the caller's transaction.
-     *
-     * @param array<string, mixed> $inv
-     * @param list<array<string, mixed>> $owed ArrivalRest::owed()
-     */
-    private function restReceiptOf(Caller $caller, array $inv, array $owed): Document
-    {
-        $db = $this->db;
-        $nos = array_map(static fn (array $o): int => (int) $o['line_no'], $owed);
-        $units = array_combine($nos, array_map(static fn (array $o): int => (int) $o['units'], $owed));
-        $in = implode(', ', array_fill(0, count($nos), '?'));
-        $lines = $db->all("SELECT sl.line_no, sl.po_document_id, sl.po_line_no, sl.supplier_code, sl.purchase_unit, sl.units_per_pack, sl.pack_price, dl.sku_id, dl.unit_cost "
-            . "FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no WHERE sl.document_id = ? AND sl.line_no IN ({$in}) "
-            . 'ORDER BY sl.line_no', [(int) $inv['id'], ...$nos]);
-        $pos = array_values(array_unique(array_filter(array_map(static fn (array $l): ?int => $l['po_document_id'] === null ? null : (int) $l['po_document_id'], $lines))));
-        $po = count($pos) === 1 ? $pos[0] : null;
-        if ($po !== null && $db->value("SELECT 1 FROM purchase_order WHERE document_id = ? AND state IN ('approved', 'sent', 'part_received')", [$po]) === null) {
-            $po = null; // closed or fully received since: the receipt goes without it
-        }
-        $grns = new GoodsReceipts($db, $this->documents(), null, $this->files, $this->clock);
-        $grn = $grns->createDraft($caller, (int) $inv['supplier_id'], ['invoice_number' => $inv['external_ref'], 'invoice_date' => $inv['doc_date']], $po, false, (int) $inv['id']);
-        // The link first: the checks of one invoice number on several receipts and of its copy on them know it from here on.
-        $db->exec('INSERT INTO goods_receipt_invoice (grn_document_id, sinv_document_id, auto, created_at) VALUES (?, ?, 0, ?)',
-            [$grn->id, (int) $inv['id'], Clock::db(($this->clock)())]);
-        // An order line still has room for the units (another delivery may have filled it since: the Codex check of 3431461): else the line is
-        // not received against the order (the lines of a receipt of the rest are frozen, so this is decided here once).
-        $room = [];
-        if ($po !== null) {
-            foreach ($db->all("SELECT pl.line_no, dl.qty - pl.received_units AS room FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no "
-                . "WHERE pl.document_id = ? AND pl.kind = 'item'", [$po]) as $r) {
-                $room[(int) $r['line_no']] = (int) $r['room'];
-            }
-        }
-        $grnLines = [];
-        foreach ($lines as $l) {
-            $want = $units[(int) $l['line_no']];
-            $upp = max(1, (int) $l['units_per_pack']);
-            $whole = $want % $upp === 0;
-            $onPo = $po !== null && $l['po_document_id'] !== null && (int) $l['po_document_id'] === $po && ($room[(int) $l['po_line_no']] ?? 0) >= $want;
-            if ($onPo) {
-                $room[(int) $l['po_line_no']] -= $want;
-            }
-            $grnLines[] = ['sku_id' => (int) $l['sku_id'], 'supplier_code' => $l['supplier_code'], 'purchase_unit' => $whole ? ($l['purchase_unit'] ?? 'each') : 'each',
-                'units_per_pack' => $whole ? $upp : 1, 'packs' => $whole ? intdiv($want, $upp) : $want,
-                'pack_price' => $whole ? (string) $l['pack_price'] : SupplierInvoices::price4((string) $l['unit_cost']),
-                'po_line_no' => $onPo ? (int) $l['po_line_no'] : 0, 'entry' => $onPo ? 'po' : 'manual'];
-        }
-        $grn = $grns->saveDraft($caller, $grn->id, $grn->version, [], $grnLines);
-        $this->copyFiles($caller, (int) $inv['id'], $grn->id);
-        // Its record says which invoice line each of its lines is (receipt line i = lines[i-1]): the posting gives each line's units to that one
-        // (ArrivalRest::draftLines, RR27).
-        Audit::write($db, $caller, 'arrival.receive_rest', 'document', (string) $grn->id, null, ['invoice' => (string) $inv['number'],
-            'lines' => array_map(static fn (array $l): int => (int) $l['line_no'], $lines),
-            // ... and what each line is (item, units per pack, order line; never its price, which the audit screens show to people who do not read
-            // money: RR32): a line taken off and keyed again elsewhere is no longer it (RR28); its price is kept by the save itself (RR32)
-            'shape' => array_map(static fn (array $g): array => [(int) $g['sku_id'], (int) $g['units_per_pack'], (int) ($g['po_line_no'] ?? 0)], $grnLines),
-            'owed' => array_map(static fn (array $o): array => ['line' => $o['line_no'], 'sku' => $o['code'], 'units' => $o['units']], $owed)]);
         return $this->documents()->get($grn->id);
     }
 

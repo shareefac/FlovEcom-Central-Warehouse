@@ -141,19 +141,10 @@ final class InvoicesController
     {
         $show = $ctx->req->param('show') === 'accepted' ? 'accepted' : 'needs_review';
         $rows = $ctx->supplierInvoices()->toMatch($show);
-        // CW-1155 (RR13): what may still wait for the rest (one grouped read), worked out for those only; one still waiting that the list leaves
-        // out (within the quantity tolerance) is listed under its own state.
-        $maybe = $ctx->supplierInvoices()->mayWaitForTheRest();
-        $rest = self::restOnRows($ctx, array_keys($maybe));
-        if ($show === 'needs_review') {
-            $listed = array_map(static fn (array $r): int => (int) $r['id'], $rows);
-            $more = array_values(array_filter(array_keys($rest), static fn (int $id): bool => !in_array($id, $listed, true) && ($maybe[$id] ?? '') !== 'accepted'));
-            $rows = [...$rows, ...$ctx->supplierInvoices()->toMatchRows($more)];
-        }
         $claims = $ctx->supplierInvoices()->claimsOn(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         $notice = $ctx->req->param('notice');
         $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'], 'group' => (string) $r['match_state'],
-            'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? []), 'rest' => $rest[(int) $r['id']] ?? null], $rows);
+            'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? [])], $rows);
         $order = [];
         foreach (['needs_review', 'accepted', 'within_tolerance', 'matched'] as $m) {
             $order[$m] = [Words::tone('MATCH_STATE', $m), Words::MATCH_STATE[$m]];
@@ -172,44 +163,11 @@ final class InvoicesController
             ? Words::say('INVOICE_NOTICE', 'rechecked', (int) ($ctx->req->param('changed') ?? 0)) : null]);
     }
 
-    /**
-     * CW-1155 (docs/decisions.md RR13): what these invoices still wait for after their first receipt ("Waiting for the rest: 5 (£5.00)", the
-     * days, late; the late days read once).
-     *
-     * @param list<int> $ids
-     * @return array<int, array{text: string, days: string, late: bool}>
-     */
-    private static function restOnRows(Context $ctx, array $ids): array
-    {
-        $out = [];
-        $prices = $ctx->me()->can('invoices.view');
-        $late = \CW\Arrivals\ArrivalRest::lateDays($ctx->db);
-        $now = \CW\Clock::now();
-        foreach ($ids as $id) {
-            $w = \CW\Arrivals\ArrivalRest::waiting($ctx->db, (int) $id, $now, $late);
-            if ($w !== null) {
-                $out[(int) $id] = ['text' => $prices ? Words::say('ARRIVALS', 'rest_waiting', $w['units'], Html::money($w['amount']))
-                    : Words::say('ARRIVALS', 'rest_waiting_items', $w['units']), 'days' => ArrivalsController::daysText($w['days'], $w['late']), 'late' => $w['late']];
-            }
-        }
-        return $out;
-    }
-
-    /** @return array{rest_units: int, rest_owed: string} what an invoice still waits for, for its accept form (CW-1155, RR9) */
-    private static function restOwedView(Context $ctx, int $id): array
-    {
-        $owed = \CW\Arrivals\ArrivalRest::owed($ctx->db, $id);
-        return ['rest_units' => array_sum(array_column($owed, 'units')),
-            'rest_owed' => implode(',', array_map(static fn (array $o): string => $o['line_no'] . ':' . $o['units'], $owed))];
-    }
-
     /** POST to-match/recheck: works the listed invoices' matches out again with the tolerances now. */
     public function recheck(Context $ctx): HtmlResponse
     {
         $si = $ctx->supplierInvoices();
         $ids = array_map(static fn (array $r): int => (int) $r['id'], [...$si->toMatch('needs_review'), ...$si->toMatch('accepted')]);
-        // CW-1155 (RR13): and the invoices the list shows because they still wait for the rest (within the tolerance).
-        $ids = array_values(array_unique([...$ids, ...array_keys(self::restOnRows($ctx, array_keys($si->mayWaitForTheRest())))]));
         try {
             $changed = $si->recheck($ctx->caller(), $ids);
         } catch (CwException $e) {
@@ -652,10 +610,7 @@ final class InvoicesController
             return $this->notFound($ctx, 'invoice');
         }
         try {
-            $seen = $ctx->req->field('rest_owed'); // CW-1155 (RR9): the lines still waited for the form showed ("line:units", ...)
-            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''),
-                // a form without it (drawn before CW-1155, or made by hand) showed nothing waited for: '' (refused while something is)
-                is_string($seen) && preg_match('/^([0-9]{1,9}:[0-9]{1,9}(,[0-9]{1,9}:[0-9]{1,9})*)?$/D', $seen) === 1 ? $seen : '');
+            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''));
         } catch (CwException $e) {
             return $this->page($ctx, 'invoice', $id, $e->httpStatus, $e, null, ['typedAccept' => $note]);
         }
@@ -762,8 +717,7 @@ final class InvoicesController
                 'match' => $match['lines'][(int) $l['line_no']] ?? null], $lines),
             'sum' => $sum,
             'stock' => \CW\Ui\DocGrid::stock($ctx->db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
-            'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted')
-                + ($isInvoice && $doc->status === 'posted' ? self::restOwedView($ctx, $id) : ['rest_units' => 0, 'rest_owed' => '']), // CW-1155 (RR9)
+            'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted'),
             'storedMatch' => $isInvoice && $doc->status === 'posted' && $original ? (string) $rec['match_state'] : null,
             'problems' => $editable ? $si->problems($id) : [],
             'editable' => $editable,
@@ -1168,12 +1122,10 @@ final class InvoicesController
             $m = $match['lines'][(int) $l['line_no']] ?? [];
             $why = (array) ($m['why'] ?? []);
             $available = ($m['available'] ?? null) === null ? null : (int) $m['available'];
-            $restIn = (int) ($m['rest_accepted'] ?? 0); // CW-1155 (RR13): what the receipts of the rest brought of it into stock
             [$received, $receivedNote] = match (true) {
                 (bool) ($m['reversed'] ?? false) => [null, Words::DOC['delivery_cancelled']],
-                ($m['accepted'] ?? null) !== null => [(int) $m['accepted'] + $restIn, $available !== null && $available !== (int) $m['accepted'] + $restIn
+                ($m['accepted'] ?? null) !== null => [(int) $m['accepted'], $available !== null && $available !== (int) $m['accepted']
                     ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
-                $restIn > 0 => [$restIn, $available !== null && $available !== $restIn ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
                 (bool) ($m['arriving'] ?? false) => [null, Words::DOC['arriving']],
                 $available === 0 => [0, null], // received without it: nothing came (PJ8)
                 default => [null, null],
