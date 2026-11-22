@@ -9761,6 +9761,7 @@ final class Words
     /** Notices after a click on a delivery (ReceivingController::NOTICES, IncidentsController::NOTICES). */
     public const RECEIPT_NOTICE = [
         'from_invoice' => 'Started from the supplier invoice: everything still on its way. Attach the invoice if it is not here, check the goods, then book them in.', // pack J
+        'rest_from_invoice' => 'Started from the supplier invoice: only what it is still waiting for. Check the goods, then book them in.', // CW-1155
         'created' => 'Delivery started. Now add its products (copy the order, import the supplier\'s sheet or scan them), check each line and attach the invoice.',
         'saved' => 'Saved.',
         'added' => 'Added (and every change in the table saved).',
@@ -13571,6 +13572,22 @@ final class Words
         'claim' => 'Claim what did not come',
         'claim_open' => 'Open the claim',
         'nothing_missing' => 'Everything the invoice billed came.',
+        // CW-1155 (docs/decisions.md RR13): what came short, waited for and received on the same invoice later.
+        'rest_title' => 'Waiting for the rest',
+        'rest_waiting' => 'Waiting for the rest: %s (%s)',
+        'rest_waiting_items' => 'Waiting for the rest: %s', // without its money, for someone who does not read money (GV17)
+        'rest_today' => 'Waiting since today',
+        'rest_day' => '1 day waiting',
+        'rest_days' => '%s days waiting',
+        'rest_late' => 'Late · %s days waiting',
+        'rest_text' => 'The first receipt did not bring these. The shops do not sell them until they come. When they come, receive them here: once booked in, the shops '
+            . 'sell them again. If they will not come, claim them from the supplier.',
+        'rest_receive' => 'Receive the rest',
+        'rest_open' => 'Open the receipt of the rest',
+        'rest_received_on' => 'Received on %s: %s',
+        'rest_of' => 'This receipt takes in the rest of %s (first part: %s). Count what came: if fewer came, mark the others short and they keep waiting.',
+        'rest_claim' => 'It will not come: claim the missing units on %s',
+        'rest_accept' => 'Accepting the differences stops waiting for the %s units still waited for (you cannot receive those on this invoice afterwards).',
         // A supplier
         'supplier_title' => 'Goods on their way',
         'supplier_text' => 'What happens to the goods of this supplier\'s invoices that have not arrived yet.',
@@ -13608,6 +13625,12 @@ final class Words
         'not_book_as_received' => 'Only a draft booked as received books its receipt this way.',
         'nothing_to_receive' => 'Every goods line of this invoice came on a delivery already.',
         'receipt_not_posted' => 'Its receipt is not final: open it.',
+        // CW-1155 (RR13)
+        'nothing_owed' => 'This invoice is not waiting for anything.',
+        'claimed' => 'The missing units were claimed from the supplier. Cancel that claim first if the goods came after all.',
+        'rest_being_received' => 'A receipt is taking in the rest of this invoice. Book it in or cancel it first.',
+        'rest_received' => 'A later receipt took in the rest of this invoice. Cancel that receipt first.',
+        'not_owed' => 'This receipt only takes in what its invoice is still waiting for: take the other lines off and receive them as their own delivery.',
     ];
 
     // ---- end of pack J ----

@@ -148,6 +148,9 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
     </label>
 <?php if ($arrival !== null): ?>
     <div class="doc-field"><span class="gi-label"><?= $word('GI', 'against_invoice') ?></span><span class="gi-fixed"><a href="<?= $u('/ui/purchasing/invoices/' . $arrival['invoice']['id']) ?>"><?= $e($arrival['invoice']['number']) ?></a></span></div>
+<?php if (($arrival['restOf'] ?? null) !== null): // CW-1155 (RR13): a receipt of the rest ?>
+    <p class="note"><?= $say('ARRIVALS', 'rest_of', $arrival['invoice']['number'], $arrival['restOf']['number']) ?></p>
+<?php endif; ?>
 <?php endif; ?>
     <details class="gi-more-details" id="gi-more"<?php if ($backdated || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null || in_array($errorCode, ['backdate_reason_required', 'bad_field'], true)): ?> open<?php endif; ?>>
       <summary><?= $word('GI', 'more_details') ?></summary>

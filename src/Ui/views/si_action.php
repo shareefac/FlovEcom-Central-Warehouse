@@ -9,6 +9,9 @@
     <summary class="btn<?php if ($primary): ?> primary<?php endif; ?>"><?= $word('INVOICES', 'accept_title') ?></summary>
     <div class="doc-act-panel">
       <p class="muted"><?= $word('INVOICES', 'accept_text') ?></p>
+<?php if ((int) ($match['rest_units'] ?? 0) > 0): // CW-1155 (RR9) ?>
+      <p class="note"><?= $say('ARRIVALS', 'rest_accept', (int) $match['rest_units']) ?></p>
+<?php endif; ?>
       <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/accept') ?>">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="match_fingerprint" value="<?= $e($match['fingerprint']) ?>">

@@ -279,7 +279,7 @@ final class ArrivalScreensTest extends KernelUiTestCase
     {
         $web = $this->signIn($this->uiUser('purchasing_manager'));
         $posts = ['/ui/receiving/arriving/1/receive', '/ui/receiving/1/claim', '/ui/purchasing/suppliers/1/arrivals', '/ui/purchasing/invoices/1/receiving',
-            '/ui/purchasing/invoices/1/schedule'];
+            '/ui/purchasing/invoices/1/schedule', '/ui/receiving/arriving/1/receive-rest']; // CW-1155: "Receive the rest"
         foreach ($this->kernel()->router()->routes() as $route) {
             if ($route->method === 'POST' && preg_match('#^/ui/(receiving/arriving|receiving/\{id\}/claim|purchasing/suppliers/\{id\}/arrivals)#', $route->pattern) === 1) {
                 self::assertContains(str_replace('{id}', '1', $route->pattern), $posts, $route->pattern);

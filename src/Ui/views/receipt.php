@@ -168,7 +168,14 @@
 <section aria-labelledby="receipt-arrival-h" id="arrival">
   <h2 id="receipt-arrival-h"><?= $word('ARRIVALS', 'missing_title') ?></h2>
   <p><?= $word('ARRIVALS', 'against') ?> <a href="<?= $u('/ui/purchasing/invoices/' . $arrivalBox['invoice']['id']) ?>"><?= $e($arrivalBox['invoice']['number']) ?></a></p>
-<?php if ($doc->status === 'posted' && $arrivalBox['missing'] === []): ?>
+<?php if (($arrivalBox['restOf'] ?? null) !== null): // CW-1155 (RR13): a receipt of the rest ?>
+  <p class="note"><?= $say('ARRIVALS', 'rest_of', $arrivalBox['invoice']['number'], $arrivalBox['restOf']['number']) ?> <a href="<?= $u($arrivalBox['restOf']['href']) ?>"><?= $e($arrivalBox['restOf']['number']) ?></a></p>
+<?php endif; ?>
+<?php if (($arrivalBox['rest'] ?? null) !== null): ?>
+<?= $partial('rest_box', ['rest' => $arrivalBox['rest'], 'fromGrn' => $doc->id]) ?>
+<?php endif; ?>
+<?php if (($arrivalBox['restOf'] ?? null) !== null): ?>
+<?php elseif ($doc->status === 'posted' && $arrivalBox['missing'] === []): ?>
   <p class="muted"><?= $word('ARRIVALS', 'nothing_missing') ?></p>
 <?php elseif ($arrivalBox['missing'] !== []): ?>
   <p class="muted"><?= $word('ARRIVALS', 'missing_text') ?></p>

@@ -44,6 +44,8 @@ final class ArrivalsController
         $c = new self();
         $r->add('GET', self::ARRIVING, 'receiving.view', $c->arriving(...));
         $r->add('POST', self::ARRIVING . '/{id}/receive', 'doc.GRN.post', $c->receive(...));
+        // CW-1155 (docs/decisions.md RR13): "Receive the rest" of invoice {id} (Goods In's right).
+        $r->add('POST', self::ARRIVING . '/{id}/receive-rest', 'doc.GRN.post', $c->receiveRest(...));
         $r->add('POST', '/ui/receiving/{id}/claim', 'doc.DN.post', $c->claim(...));
         $r->add('GET', self::TIMED, 'invoices.view', $c->timed(...));
         $r->add('POST', '/ui/purchasing/suppliers/{id}/arrivals', 'suppliers.manage', $c->supplier(...));
@@ -74,6 +76,81 @@ final class ArrivalsController
             return $this->arriving($ctx, $e->httpStatus, $e);
         }
         return HtmlResponse::redirect(Html::url('/ui/receiving/' . $grn->id, ['notice' => 'from_invoice']));
+    }
+
+    /**
+     * POST arriving/{id}/receive-rest (CW-1155, RR3): the receipt of what invoice {id} is still waiting for; the person lands on it. Refused: the
+     * page it was pressed on again with the reason (the first receipt's, field from_grn; else the invoice's).
+     */
+    public function receiveRest(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        try {
+            $grn = self::service($ctx)->receiveRest($ctx->caller(), $id);
+        } catch (CwException $e) {
+            $from = UiRequest::id($ctx->req->field('from_grn'));
+            if ($from !== null) {
+                return (new ReceivingController())->page($ctx, $from, $e->httpStatus, $e);
+            }
+            return (new InvoicesController())->page($ctx, 'invoice', $id, $e->httpStatus, $e);
+        }
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $grn->id, ['notice' => 'rest_from_invoice']));
+    }
+
+    /**
+     * CW-1155 (RR13): what an invoice is still waiting for, for its page and its first receipt's: the units and money (money only for someone who
+     * reads it), the days, late, each owed line, the receipts of the rest (posted, or the one being received) and whether this person may
+     * "Receive the rest". Null when the invoice waits for nothing and no receipt of the rest was made.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function restBox(Context $ctx, int $invoiceId): ?array
+    {
+        $db = $ctx->db;
+        $receipts = [];
+        $live = null;
+        foreach ($db->all("SELECT d.id, d.number, d.status, (SELECT COALESCE(SUM(r.units), 0) FROM invoice_arrival_rest r WHERE r.kind = 'rest' AND r.document_id = d.id) AS units "
+            . 'FROM goods_receipt_invoice g JOIN document d ON d.id = g.grn_document_id WHERE g.sinv_document_id = ? AND g.grn_document_id <> COALESCE((SELECT MIN(a.grn_document_id) '
+            . "FROM invoice_arrival a WHERE a.sinv_document_id = g.sinv_document_id AND a.state = 'received'), 0) AND EXISTS (SELECT 1 FROM invoice_arrival a "
+            . "WHERE a.sinv_document_id = g.sinv_document_id AND a.state = 'received') ORDER BY d.id", [$invoiceId]) as $r) {
+            if (in_array($r['status'], ['draft', 'awaiting_approval'], true)) {
+                $live = ['href' => '/ui/receiving/' . (int) $r['id'], 'id' => (int) $r['id']];
+            } elseif ($r['status'] === 'posted') {
+                $receipts[] = ['href' => '/ui/receiving/' . (int) $r['id'], 'number' => (string) $r['number'], 'units' => (int) $r['units']];
+            }
+        }
+        $w = \CW\Arrivals\ArrivalRest::waiting($db, $invoiceId, \CW\Clock::now());
+        if ($w === null && $receipts === [] && $live === null) {
+            return null;
+        }
+        $prices = $ctx->me()->can('invoices.view');
+        $lines = $w === null ? [] : array_map(static fn (array $o): array => $o + ['amount_text' => Html::money($o['amount'])], \CW\Arrivals\ArrivalRest::owed($db, $invoiceId));
+        return [
+            'waiting' => $w,
+            'text' => $w === null ? null : ($prices ? Words::say('ARRIVALS', 'rest_waiting', $w['units'], Html::money($w['amount'])) : Words::say('ARRIVALS', 'rest_waiting_items', $w['units'])),
+            'days' => $w === null ? null : self::daysText($w['days'], $w['late']),
+            'late' => $w !== null && $w['late'],
+            'lines' => $lines,
+            'prices' => $prices,
+            'receipts' => $receipts,
+            'live' => $live,
+            'first' => $w === null ? null : ['href' => '/ui/receiving/' . $w['first_grn'], 'number' => $w['first_number']],
+            'canReceive' => $w !== null && Documents::mayPost($ctx->me()->roles, 'GRN'),
+            'invoiceId' => $invoiceId,
+        ];
+    }
+
+    /** "3 days waiting", "Late · 15 days waiting" (CW-1155, RR13, RR16). */
+    public static function daysText(int $days, bool $late): string
+    {
+        if ($late) {
+            return Words::say('ARRIVALS', 'rest_late', $days);
+        }
+        return match ($days) {
+            0 => Words::ARRIVALS['rest_today'],
+            1 => Words::ARRIVALS['rest_day'],
+            default => Words::say('ARRIVALS', 'rest_days', $days),
+        };
     }
 
     /** POST /ui/receiving/{id}/claim: the claim of what receipt {id} did not bring; the person lands on the draft return. */
@@ -132,7 +209,8 @@ final class ArrivalsController
     /**
      * The receipt page's box (ReceivingController): the invoice a receipt was made from, what it did not bring, and the claim.
      *
-     * @return array{invoice: array{id: int, number: string}, missing: list<array<string, mixed>>, claim: ?int, canClaim: bool}|null
+     * @return array{invoice: array{id: int, number: string}, missing: list<array<string, mixed>>, claim: ?int, canClaim: bool, rest: ?array<string, mixed>,
+     *   restOf: ?array{href: string, number: string}}|null
      */
     public static function receiptBox(Context $ctx, int $grnId, string $status): ?array
     {
@@ -145,9 +223,17 @@ final class ArrivalsController
         $claim = $ctx->db->value("SELECT MIN(r.document_id) FROM supplier_return r JOIN document d ON d.id = r.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') "
             . 'AND d.reverses_id IS NULL WHERE r.grn_document_id = ? AND NOT EXISTS (SELECT 1 FROM document_line l WHERE l.document_id = r.document_id AND l.sku_id IS NOT NULL)',
             [$grnId]);
+        // CW-1155 (RR13): the first receipt says what is still waited for and offers "Receive the rest"; a receipt of the rest says whose rest it is.
+        $first = \CW\Arrivals\ArrivalRest::firstReceipt($ctx->db, (int) $inv['id']);
+        $restOf = null;
+        if ($first !== null && $first !== $grnId) {
+            $restOf = ['href' => '/ui/receiving/' . $first, 'number' => (string) ($ctx->db->value('SELECT number FROM document WHERE id = ?', [$first]) ?? '')];
+        }
+        $rest = $first === $grnId && $status === 'posted' ? self::restBox($ctx, (int) $inv['id']) : null;
         return ['invoice' => ['id' => (int) $inv['id'], 'number' => (string) ($inv['number'] ?? $inv['external_ref'] ?? ('#' . $inv['id']))],
-            'missing' => array_map(static fn (array $m): array => $m + ['amount_text' => Html::money($m['amount'])], $missing),
-            'claim' => $claim === null ? null : (int) $claim, 'canClaim' => $missing !== [] && Documents::mayPost($ctx->me()->roles, 'DN')];
+            'missing' => $restOf === null ? array_map(static fn (array $m): array => $m + ['amount_text' => Html::money($m['amount'])], $missing) : [],
+            'claim' => $claim === null ? null : (int) $claim, 'canClaim' => $missing !== [] && $restOf === null && Documents::mayPost($ctx->me()->roles, 'DN'),
+            'rest' => $rest, 'restOf' => $restOf];
     }
 
     /**
@@ -197,6 +283,7 @@ final class ArrivalsController
             'failed' => $rec['submit_failed_at'] === null ? null : (string) $rec['submit_error'],
             'rows' => $rows,
             'receipt' => $receipt,
+            'rest' => $doc->status === 'posted' ? self::restBox($ctx, $doc->id) : null, // CW-1155 (RR13)
         ];
     }
 

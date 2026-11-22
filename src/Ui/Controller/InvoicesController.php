@@ -143,8 +143,9 @@ final class InvoicesController
         $rows = $ctx->supplierInvoices()->toMatch($show);
         $claims = $ctx->supplierInvoices()->claimsOn(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         $notice = $ctx->req->param('notice');
+        $rest = self::restOnRows($ctx, array_map(static fn (array $r): int => (int) $r['id'], $rows)); // CW-1155 (RR13)
         $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'], 'group' => (string) $r['match_state'],
-            'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? [])], $rows);
+            'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? []), 'rest' => $rest[(int) $r['id']] ?? null], $rows);
         $order = [];
         foreach (['needs_review', 'accepted', 'within_tolerance', 'matched'] as $m) {
             $order[$m] = [Words::tone('MATCH_STATE', $m), Words::MATCH_STATE[$m]];
@@ -161,6 +162,30 @@ final class InvoicesController
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::SEGMENT['to_match'], 'notice' => $notice === 'rechecked'
             ? Words::say('INVOICE_NOTICE', 'rechecked', (int) ($ctx->req->param('changed') ?? 0)) : null]);
+    }
+
+    /**
+     * CW-1155 (docs/decisions.md RR13): what the listed invoices still wait for after their first receipt ("Waiting for the rest: 5 (£5.00)",
+     * the days, late), only for those a receipt took in from Arriving (one indexed read picks them).
+     *
+     * @param list<int> $ids
+     * @return array<int, array{text: string, days: string, late: bool}>
+     */
+    private static function restOnRows(Context $ctx, array $ids): array
+    {
+        $out = [];
+        $prices = $ctx->me()->can('invoices.view');
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ($ctx->db->column("SELECT DISTINCT sinv_document_id FROM invoice_arrival WHERE state = 'received' AND sinv_document_id IN ("
+                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $id) {
+                $w = \CW\Arrivals\ArrivalRest::waiting($ctx->db, (int) $id, \CW\Clock::now());
+                if ($w !== null) {
+                    $out[(int) $id] = ['text' => $prices ? Words::say('ARRIVALS', 'rest_waiting', $w['units'], Html::money($w['amount']))
+                        : Words::say('ARRIVALS', 'rest_waiting_items', $w['units']), 'days' => ArrivalsController::daysText($w['days'], $w['late']), 'late' => $w['late']];
+                }
+            }
+        }
+        return $out;
     }
 
     /** POST to-match/recheck: works the listed invoices' matches out again with the tolerances now. */
@@ -717,7 +742,8 @@ final class InvoicesController
                 'match' => $match['lines'][(int) $l['line_no']] ?? null], $lines),
             'sum' => $sum,
             'stock' => \CW\Ui\DocGrid::stock($ctx->db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
-            'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted'),
+            'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted')
+                + ['rest_units' => $isInvoice && $doc->status === 'posted' ? array_sum(array_column(\CW\Arrivals\ArrivalRest::owed($ctx->db, $id), 'units')) : 0], // CW-1155 (RR9)
             'storedMatch' => $isInvoice && $doc->status === 'posted' && $original ? (string) $rec['match_state'] : null,
             'problems' => $editable ? $si->problems($id) : [],
             'editable' => $editable,

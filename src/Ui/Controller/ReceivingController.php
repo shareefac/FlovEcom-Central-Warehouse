@@ -2006,6 +2006,7 @@ final class ReceivingController
             $code === 'bad_field' && ($e->detail['field'] ?? null) === 'note' => Words::RECEIPT_ERROR['note_length'],
             isset(Words::RECEIPT_ERROR[$code]) && !str_contains(Words::RECEIPT_ERROR[$code], '%') => Words::RECEIPT_ERROR[$code],
             isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
+            isset(Words::ARRIVAL_ERROR[$code]) => Words::ARRIVAL_ERROR[$code], // pack J, CW-1155: the claim and the rest refused on a receipt's page
             default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),
         };
     }
