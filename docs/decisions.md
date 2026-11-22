@@ -19830,3 +19830,10 @@ more (HIGH: a pack line's over units settling a loose line's units; MEDIUM: the 
 two receipt lines of one invoice line cannot happen (RR24 M1). (M, NOT changed) To match's candidates: more than 500 invoices still waiting
 within the quantity tolerance would leave the oldest out (the list shows 200 anyway). (LOW, NOT changed) The panel of two invoice lines
 sharing a first receipt line shows that line's accepted units on both, as before CW-1155.
+
+**RR28. The Codex check of 60a32c2 (`cw_work/receive_rest_20261122/codex_r8.txt`, default model: HOLD, 1 HIGH, 1 MEDIUM, 1 LOW).** (HIGH) A
+receipt of the rest's record also keeps what each line is (item, units per pack, pack price: `shape`); a line taken off and keyed again
+elsewhere, or the lines keyed in another order, is refused as `rest_lines_changed` unless it is the same line (only its packs counted may
+change). Two lines alike in all three are the same to the stock, the price and the match. (MEDIUM, NOT changed) The record is an audit row:
+housekeeping keeps the audit log at least 7 years (housekeeping.audit_keep_years, minimum 7), far beyond any wait for the rest; the
+app login cannot delete it (append-only). (LOW) The test of a line counted short instead of taken off expects the £5 units on receipt line 2.

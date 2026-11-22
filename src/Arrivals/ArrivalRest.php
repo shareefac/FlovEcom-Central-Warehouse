@@ -280,11 +280,15 @@ final class ArrivalRest
         // Line by line (RR27): the receipt of the rest was made one line per invoice line still waited for (draftLines()); its lines stay those
         // (count what came, mark the others short: only the packs counted change), each at most what its invoice line still waits for.
         $map = self::draftLines($db, $grnId);
+        $shape = self::draftShape($db, $grnId);
         ksort($lines);
         $all = self::lines($db, $inv);
         $same = $map !== null && array_keys($lines) === array_keys($map);
         foreach ($lines as $no => $l) {
-            $same = $same && isset($all[$map[$no]]) && $all[$map[$no]]['sku_id'] === (int) $l['sku_id'];
+            // the same item, units per pack and pack price as when it was made (only the packs counted change: the Codex check of 60a32c2)
+            $was = $shape[$no] ?? null;
+            $same = $same && isset($all[$map[$no]]) && $all[$map[$no]]['sku_id'] === (int) $l['sku_id'] && $was !== null && $was[0] === (int) $l['sku_id']
+                && $was[1] === (int) $l['units_per_pack'] && \CW\PurchaseOrders\PoMath::e4($was[2]) === \CW\PurchaseOrders\PoMath::e4((string) $l['pack_price']);
         }
         if (!$same) {
             $out[] = ['code' => 'rest_lines_changed', 'message' => "A receipt of the rest of {$number} has one line per invoice line still waited for: put its lines back "
@@ -316,11 +320,35 @@ final class ArrivalRest
      */
     public static function draftLines(Db $db, int $grnId): ?array
     {
+        $j = self::draftRecord($db, $grnId);
+        $nos = is_array($j) && is_array($j['lines'] ?? null) ? array_values(array_map('intval', $j['lines'])) : [];
+        return $nos === [] ? null : array_combine(range(1, count($nos)), $nos);
+    }
+
+    /** @return array<int, array{0: int, 1: int, 2: string}> receipt line => [item, units per pack, pack price] as the draft was made */
+    private static function draftShape(Db $db, int $grnId): array
+    {
+        $j = self::draftRecord($db, $grnId);
+        $out = [];
+        foreach (is_array($j) && is_array($j['shape'] ?? null) ? array_values($j['shape']) : [] as $i => $x) {
+            if (is_array($x) && count($x) === 3) {
+                $out[$i + 1] = [(int) $x[0], (int) $x[1], (string) $x[2]];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The record of a receipt of the rest (audit arrival.receive_rest, kept at least 7 years: housekeeping.audit_keep_years), or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function draftRecord(Db $db, int $grnId): ?array
+    {
         $d = $db->value("SELECT CAST(detail AS CHAR) FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'arrival.receive_rest' ORDER BY id LIMIT 1",
             [(string) $grnId]);
         $j = $d === null ? null : json_decode((string) $d, true);
-        $nos = is_array($j) && is_array($j['lines'] ?? null) ? array_values(array_map('intval', $j['lines'])) : [];
-        return $nos === [] ? null : array_combine(range(1, count($nos)), $nos);
+        return is_array($j) ? $j : null;
     }
 
     /**
