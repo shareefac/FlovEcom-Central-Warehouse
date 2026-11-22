@@ -19884,3 +19884,6 @@ invoice already split over two deliveries of one order (PO10's split) makes "Rec
 when the credit comes BEFORE the rest on a first receipt line shared by two invoice lines ("Not invoiced yet" shows fewer); (g) the go-live
 kit: before any rollback, no draft or waiting receipt of the rest may be open (cancel them under the new code), and the grants are run
 from the 0076-aware release (the rollback release's own Grants would give the app login UPDATE and DELETE on invoice_arrival_rest).
+The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, default model: GO, one LOW, NOT changed): V7 does not ask a
+posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
+nothing accepted, so "Not invoiced yet" shows nothing for it either way.
