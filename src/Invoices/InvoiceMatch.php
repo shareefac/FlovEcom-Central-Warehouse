@@ -181,12 +181,14 @@ final class InvoiceMatch
                 $used[$key] = ($used[$key] ?? 0) + $units;
             }
             $restUnits = 0;
+            $restAccepted = 0;
             if ($l['arrival_state'] === 'received' && $relay === null) {
                 foreach ($rest[$no] ?? [] as $r) {
                     $rg = $grn[$r['key']] ?? null;
                     if ($rg === null || $rg['status'] !== 'posted') {
                         continue;
                     }
+                    $restAccepted += min($r['units'], $rg['accepted']); // what came into stock on it, before any went back (the panel's figure)
                     $take = max(0, min($r['units'], $rg['accepted'] - $rg['returned'] - $rg['invoiced_elsewhere'] - ($used[$r['key']] ?? 0)));
                     $used[$r['key']] = ($used[$r['key']] ?? 0) + $take;
                     $restUnits += $take;
@@ -227,7 +229,7 @@ final class InvoiceMatch
                 'credited_e2' => $credited['amount_e2'], 'available' => $available, 'accepted' => $g['accepted'] ?? null, 'returned' => $g['returned'] ?? null,
                 'invoiced_elsewhere' => $g['invoiced_elsewhere'] ?? null, 'ref_unit_e6' => $ref, 'ref_from' => $refFrom, 'reversed' => $reversed,
                 'arriving' => $relay === null && $key === null && $available !== null && $l['arrival_state'] !== 'received', 'po_key' => $poKey,
-                'relay' => $relay !== null, 'rest' => $restUnits] + $m;
+                'relay' => $relay !== null, 'rest' => $restUnits, 'rest_accepted' => $restAccepted] + $m;
         }
         $totalDiff = $inv === null || $inv['net_total'] === null ? 0 : $sum - InvoiceMath::e2((string) $inv['net_total']);
         if (!InvoiceMath::totalOk($sum, $sum - $totalDiff, count($lines), $rules['total_per_line_e2'])) {
@@ -527,21 +529,26 @@ final class InvoiceMatch
                 }
             }
             // CW-1155 (RR6, RR23): a receipt line that took in the rest of an invoice line is billed by that invoice for the units its rows settled
-            // (they were owed, so billed), at most what the line still bills net of its credit notes; not $invoiceId's own (its match gives them
-            // to its lines itself). Local to the part: nothing moves between the first receipt and the parts (a credit of units given after the
+            // (they were owed, so billed), at most what the line still bills net of its credit notes, that cap given once per receipt to its
+            // lines in order (the Codex check of 55a4a42: two receipt lines of one invoice line); not $invoiceId's own (its match gives them to
+            // its lines itself). Local to the part: nothing moves between the first receipt and the parts (a credit of units given after the
             // rest came is billed against the first receipt only: docs/decisions.md RR17).
-            foreach ($this->db->all(
-                'SELECT x.document_id, x.document_line_no, SUM(x.units) AS units FROM (SELECT r.document_id, r.document_line_no, LEAST(r.units, GREATEST(0, dl.qty - '
+            $cap = [];
+            foreach ($this->db->all('SELECT r.document_id, r.document_line_no, r.sinv_document_id, r.line_no, r.units, GREATEST(0, dl.qty - '
                 . "COALESCE((SELECT SUM(cdl.qty) FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl "
                 . "ON csl.document_id = c.document_id AND csl.kind = 'goods' AND csl.credit_of_line_no = r.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id "
-                . "AND cdl.line_no = csl.line_no WHERE c.credits_document_id = r.sinv_document_id AND c.kind = 'credit_note'), 0))) AS units FROM invoice_arrival_rest r "
+                . "AND cdl.line_no = csl.line_no WHERE c.credits_document_id = r.sinv_document_id AND c.kind = 'credit_note'), 0)) AS billed FROM invoice_arrival_rest r "
                 . "JOIN document d ON d.id = r.sinv_document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = r.sinv_document_id AND dl.line_no = r.line_no "
-                . "WHERE r.kind = 'rest' AND r.document_id IN ({$in}) AND r.sinv_document_id <> ?) x GROUP BY x.document_id, x.document_line_no",
+                . "WHERE r.kind = 'rest' AND r.document_id IN ({$in}) AND r.sinv_document_id <> ? ORDER BY r.document_id, r.id",
                 [...$chunk, $invoiceId],
             ) as $r) {
+                $c = $r['document_id'] . ':' . $r['sinv_document_id'] . ':' . $r['line_no'];
+                $cap[$c] ??= (int) $r['billed'];
+                $share = min((int) $r['units'], $cap[$c]);
+                $cap[$c] -= $share;
                 $k = $r['document_id'] . ':' . $r['document_line_no'];
-                if (isset($out[$k])) {
-                    $out[$k]['invoiced_elsewhere'] += (int) $r['units'];
+                if ($share > 0 && isset($out[$k])) {
+                    $out[$k]['invoiced_elsewhere'] += $share;
                 }
             }
         }

@@ -1391,7 +1391,12 @@ final class SupplierInvoices
         foreach ($this->db->all('SELECT x.sinv, si.match_state FROM (SELECT a.sinv_document_id AS sinv, a.grn_document_id, a.grn_line_no, SUM(a.units) AS units, '
             . "SUM((SELECT COALESCE(SUM(r.units), 0) FROM invoice_arrival_rest r LEFT JOIN document rd ON rd.id = r.document_id WHERE r.sinv_document_id = a.sinv_document_id "
             . "AND r.line_no = a.line_no AND r.first_grn_document_id = a.grn_document_id AND (r.kind = 'waive' OR (r.kind = 'rest' AND rd.status = 'posted') "
-            . "OR (r.kind = 'claim' AND rd.status IN ('draft', 'awaiting_approval', 'posted'))))) AS settled FROM invoice_arrival a "
+            . "OR (r.kind = 'claim' AND rd.status IN ('draft', 'awaiting_approval', 'posted'))))) "
+            // ... and the credited units of the line by credit notes answering no claim (those answering one are the claim's)
+            . "+ SUM((SELECT COALESCE(SUM(cdl.qty), 0) FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl "
+            . "ON csl.document_id = c.document_id AND csl.kind = 'goods' AND csl.credit_of_line_no = a.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id "
+            . "AND cdl.line_no = csl.line_no WHERE c.credits_document_id = a.sinv_document_id AND c.kind = 'credit_note' AND c.debit_note_document_id IS NULL)) AS settled "
+            . 'FROM invoice_arrival a '
             . "WHERE a.state = 'received' GROUP BY a.sinv_document_id, a.grn_document_id, a.grn_line_no) x LEFT JOIN grn_line g ON g.document_id = x.grn_document_id "
             . "AND g.line_no = x.grn_line_no JOIN supplier_invoice si ON si.document_id = x.sinv JOIN document d ON d.id = x.sinv AND d.status = 'posted' "
             . 'WHERE x.grn_line_no IS NULL AND x.units > x.settled OR x.units > COALESCE(g.accepted_units, 0) + COALESCE(g.verify_units, 0) + COALESCE(g.quarantine_units, 0) + x.settled '

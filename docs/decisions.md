@@ -19783,3 +19783,18 @@ that brought nothing). (M) To match: the candidates are narrowed by what the row
 500 taken, then what is still owed; "Check these again" takes the invoices listed because they wait for the rest. (LOW) J5: a fact's first
 receipt is a first part of its invoice's number (a receipt of the rest is part 2 on), even taken back. (LOW) The invoice's differences panel
 counts what the receipts of the rest brought as received.
+
+**RR24. The Codex check of 55a4a42 (`cw_work/receive_rest_20261122/codex_r4b.txt`; a first try, `codex_r4.txt`, was stopped by the tool's
+content filter before its answer; default model: HOLD, no HIGH, 4 MEDIUM, 2 LOW), each point checked in the code; fixed with a test seen
+failing on 55a4a42 (`runs/rest_r4_red.log`; ReceiveRestReviewR4Test) except where said.** (M) A part's cap (what the invoice line still bills)
+is given once per receipt to its lines in order: two receipt lines of one invoice line are billed once. (M) A posting never resolves its
+own receipt's short incidents (its shortfall did not come on it), and a later receipt's short line is about the invoice lines its rows name
+and the item's lines at its own unit price (the draft keeps each owed line's price; all the item's lines when none has it): a line that
+took in two owed lines of one price waits for both. (M, NOT changed) A credit note scanning its receipts while a new part is being posted,
+and that part taken back at the same moment: a three-way race the database breaks as a deadlock, Db::transaction retries the one it chose
+(no data changes; the race tests of two-way races see none). Locking the arrival rows before the receipts would make the common two-way
+race (a credit against a part's reversal) a deadlock instead. (M) To match's candidates leave out what credit notes answering no claim
+settled too (still a superset: a credit answering a claim is the claim's), so settled invoices take no slot. (LOW) J5 tells a receipt of
+the rest by its own record (audit `arrival.receive_rest`), not by its invoice number's part (a first receipt can be part 2 of a supplier
+invoice split over deliveries of one order). (LOW) The differences panel counts what the parts brought into stock before any went back,
+and says what is left to bill when that differs.

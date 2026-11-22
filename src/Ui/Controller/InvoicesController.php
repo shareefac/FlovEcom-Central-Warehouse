@@ -1168,12 +1168,12 @@ final class InvoicesController
             $m = $match['lines'][(int) $l['line_no']] ?? [];
             $why = (array) ($m['why'] ?? []);
             $available = ($m['available'] ?? null) === null ? null : (int) $m['available'];
-            $restIn = (int) ($m['rest'] ?? 0); // CW-1155 (RR13): what the receipts of the rest brought of it
+            $restIn = (int) ($m['rest_accepted'] ?? 0); // CW-1155 (RR13): what the receipts of the rest brought of it into stock
             [$received, $receivedNote] = match (true) {
                 (bool) ($m['reversed'] ?? false) => [null, Words::DOC['delivery_cancelled']],
                 ($m['accepted'] ?? null) !== null => [(int) $m['accepted'] + $restIn, $available !== null && $available !== (int) $m['accepted'] + $restIn
                     ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
-                $restIn > 0 => [$restIn, null],
+                $restIn > 0 => [$restIn, $available !== null && $available !== $restIn ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
                 (bool) ($m['arriving'] ?? false) => [null, Words::DOC['arriving']],
                 $available === 0 => [0, null], // received without it: nothing came (PJ8)
                 default => [null, null],

@@ -459,6 +459,9 @@ final class ArrivalRest
         $lines = self::lines($db, $invoiceId);
         $text = "The rest came on {$grn->number}.";
         foreach (self::incidentsOf($db, $invoiceId, $lines, 'open') as $i) {
+            if ($i['document_id'] === $grn->id) {
+                continue; // its own shortfall did not come on it
+            }
             if (array_intersect($i['lines'], $brought) === [] || array_filter($i['lines'], static fn (int $no): bool => ($lines[$no]['owed'] ?? 0) > 0) !== []) {
                 continue; // not about what came, or part of it is still waited for
             }
@@ -492,20 +495,23 @@ final class ArrivalRest
                 $about[(int) $r['document_id'] . ':' . (int) $r['document_line_no']][] = (int) $r['line_no'];
             }
         }
-        // A later receipt's line that brought none of it (all short: no row of its own) is about the invoice's lines of its item (the Codex
-        // checks of 3ae3345 and 6c78108: a line with its own rows is about those lines only).
-        $bySku = [];
-        foreach ($lines as $l) {
-            $bySku[$l['sku_id']][] = $l['line_no'];
-        }
+        // A later receipt's short line is about the invoice lines its rows name AND the item's invoice lines at its own unit price (the draft keeps
+        // each owed line's price; all the item's lines when none has it): its shortfall is of those (the Codex checks of 3ae3345, 6c78108 and
+        // 55a4a42: a line that brought nothing, a line kept for one owed line, a line that took in two lines of one price).
         $first = array_values(array_unique(array_map(static fn (array $l): int => $l['first_grn'], $lines)));
-        foreach ($db->all("SELECT g.document_id, g.line_no, dl.sku_id FROM goods_receipt_invoice l JOIN document d ON d.id = l.grn_document_id AND d.status = 'posted' "
+        foreach ($db->all("SELECT g.document_id, g.line_no, dl.sku_id, dl.unit_cost FROM goods_receipt_invoice l JOIN document d ON d.id = l.grn_document_id AND d.status = 'posted' "
             . 'JOIN grn_line g ON g.document_id = l.grn_document_id JOIN document_line dl ON dl.document_id = g.document_id AND dl.line_no = g.line_no '
             . 'WHERE l.sinv_document_id = ? AND g.short_units > 0', [$invoiceId]) as $g) {
-            if (!in_array((int) $g['document_id'], $first, true) && isset($bySku[(int) $g['sku_id']]) && !isset($about[(int) $g['document_id'] . ':' . (int) $g['line_no']])) {
-                $k = (int) $g['document_id'] . ':' . (int) $g['line_no'];
-                $about[$k] = array_values(array_unique([...($about[$k] ?? []), ...$bySku[(int) $g['sku_id']]]));
+            if (in_array((int) $g['document_id'], $first, true)) {
+                continue;
             }
+            $sku = array_values(array_filter($lines, static fn (array $l): bool => $l['sku_id'] === (int) $g['sku_id']));
+            if ($sku === []) {
+                continue;
+            }
+            $atPrice = array_values(array_filter($sku, static fn (array $l): bool => InvoiceMath::e6($l['unit_cost']) === InvoiceMath::e6((string) $g['unit_cost'])));
+            $k = (int) $g['document_id'] . ':' . (int) $g['line_no'];
+            $about[$k] = array_values(array_unique([...($about[$k] ?? []), ...array_column($atPrice === [] ? $sku : $atPrice, 'line_no')]));
         }
         if ($about === []) {
             return [];

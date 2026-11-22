@@ -91,8 +91,9 @@ final class ArrivalInvariants
             . "OR (a.state = 'received' AND a.grn_document_id = r.first_grn_document_id AND NOT (a.grn_line_no <=> r.first_grn_line_no)) "
             // ... and a fact of a receipt that is not the arrival row's is of one taken back (history), never of a later one still standing
             . "OR (a.state = 'received' AND a.grn_document_id <> r.first_grn_document_id AND NOT (fd.status <=> 'reversed')) "
-            // ... and was a first receipt: the first part of its invoice's number (a receipt of the rest is part 2 on)
-            . 'OR NOT EXISTS (SELECT 1 FROM goods_receipt fg WHERE fg.document_id = r.first_grn_document_id AND fg.invoice_part = 1) '
+            // ... and was never a receipt of the rest (made by "Receive the rest": audited arrival.receive_rest), even taken back
+            . "OR EXISTS (SELECT 1 FROM audit_log al WHERE al.entity_type = 'document' AND al.entity_id = CAST(r.first_grn_document_id AS CHAR) "
+            . "AND al.action = 'arrival.receive_rest') "
             . "OR (r.kind = 'rest' AND (NOT (g.sinv_document_id <=> r.sinv_document_id) OR r.document_id = r.first_grn_document_id OR NOT (gr.supplier_id <=> si.supplier_id) "
             . '  OR NOT (gl.sku_id <=> il.sku_id))) '
             // a claim row names a return (one whose delivery was changed by hand since reserves nothing: ArrivalRest::lines)
