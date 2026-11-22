@@ -19704,7 +19704,8 @@ first receipt was posted; late from that many days.
 
 **RR17. Known limits (for the owner).** "Not invoiced yet": a part of the rest is billed for the units it settled (RR23), so a credit of
 units of a line given AFTER its rest came is billed against the first receipt only and the list shows fewer units left to invoice than
-there are (10 came, 5 billed: it shows 1). A credit note line credits units in the match's eyes: a PRICE credit typed as units on an owed line
+there are (10 came, 5 billed: it shows 1 left instead of 5); the nightly checks (V7, J1-J6) stay clean on it (they work it out the same
+way: ReceiveRestReviewR1Test). Accepted by the lead, 22 Nov 2026. A credit note line credits units in the match's eyes: a PRICE credit typed as units on an owed line
 lowers what is waited for (as the match bills it). Claim rows say what was claimed when it was made (a claim's lines edited by hand later are
 not read). A part arrival with a price credit of that line given between the parts: the credit reaches the units already here (CostEngine's
 rule for any credit); the rest comes at the uncredited landed price. "Over" units on a rest receipt go to VERIFY as on any receipt.

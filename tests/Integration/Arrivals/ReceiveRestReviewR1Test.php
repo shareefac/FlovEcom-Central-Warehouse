@@ -73,6 +73,8 @@ final class ReceiveRestReviewR1Test extends ArrivalsTestCase
         $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 5, '1.0000');
         $this->postWithTotals($desk, $cn, '5.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
         self::assertSame([1, 0], [$this->left($g->id), $this->left($r->id)], 'the known limit (RR17): the part keeps what it settled');
+        // The lead's condition (22 Nov): the nightly checks (V7 "Not invoiced yet", J1-J6, ...) see this shape as it is stored: no alarm.
+        self::assertSame([], Invariants::check(self::$db));
     }
 
     public function testACreditNoteAnsweringAClaimIsCountedOnce(): void
