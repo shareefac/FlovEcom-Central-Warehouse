@@ -62,4 +62,40 @@ final class ReceiveRestReviewR4Test extends ArrivalsTestCase
         self::assertArrayNotHasKey($pa->id, $c, 'settled by its credit: no slot taken');
         self::assertArrayHasKey($pb->id, $c);
     }
+
+    /** The Codex check of 66e16fa (HIGH): a damaged line of a part, set aside, takes none of the billing of the good line beside it. */
+    public function testADamagedLineSetAsideTakesNoBillingOfTheGoodLineBesideIt(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('Damaged Beside Ltd');
+        $sku = self::makeSku('Damaged beside');
+        $p = $this->finalInvoice($desk, (int) $s['id'], [[$sku, 10, 1, '1.0000']]);
+        $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '10']]);
+        $r = $this->arrivals->receiveRest($desk, $p->id);
+        $this->grns->saveDraft($desk, $r->id, $r->version, [], [['sku_id' => $sku, 'packs' => 5, 'pack_price' => '1.0000', 'po_line_no' => 0],
+            ['sku_id' => $sku, 'packs' => 5, 'pack_price' => '1.0000', 'po_line_no' => 0]]);
+        $this->bench($this->staffUser('goods_in'), $r->id, [1 => ['damaged_units' => '5']]);
+        $r = $this->post($desk, $r->id);
+        self::assertSame([5, 5], [$this->onHand($sku), $this->onHand($sku, 'VERIFY')]);
+        $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['credits_id' => $p->id]);
+        $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 5, '1.0000');
+        $this->postWithTotals($desk, $cn, '5.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
+        self::assertSame(0, $this->left($r->id), 'five good on the shelf, five billed: nothing left (it said five)');
+    }
+
+    /** The Codex check of 66e16fa (M): a credit of one of two invoice lines sharing a receipt line never hides the other's shortfall. */
+    public function testACreditOfOneOfTwoLinesSharingAReceiptLineKeepsTheOtherACandidate(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('Shared Credit Ltd');
+        $sku = self::makeSku('Shared credit');
+        $p = $this->finalInvoice($desk, (int) $s['id'], [[$sku, 5, 1, '1.0000'], [$sku, 5, 1, '1.0000']]);
+        $g = $this->arrivals->receive($desk, $p->id);
+        $this->grns->saveDraft($desk, $g->id, $g->version, [], [['sku_id' => $sku, 'packs' => 10, 'pack_price' => '1.0000', 'po_line_no' => 0]]);
+        $this->bench($this->staffUser('goods_in'), $g->id, [1 => ['short_units' => '5']]);
+        $this->post($desk, $g->id);
+        $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['credits_id' => $p->id]);
+        $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 5, '1.0000');
+        $this->postWithTotals($desk, $cn, '5.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
+        self::assertSame([['line' => 2, 'units' => 5, 'amount' => '5.00']], $this->owed($p->id));
+        self::assertArrayHasKey($p->id, $this->invoices->mayWaitForTheRest(), 'still waiting: a candidate');
+    }
 }

@@ -151,6 +151,7 @@ final class InvoiceMatch
 
         $out = [];
         $used = [];
+        $usedAccepted = [];
         $states = [];
         $off = 0;
         $difference = 0;
@@ -188,7 +189,10 @@ final class InvoiceMatch
                     if ($rg === null || $rg['status'] !== 'posted') {
                         continue;
                     }
-                    $restAccepted += min($r['units'], $rg['accepted']); // what came into stock on it, before any went back (the panel's figure)
+                    // what came into stock on it, before any went back (the panel's figure), a receipt line's accepted units given once
+                    $acc = min($r['units'], max(0, $rg['accepted'] - ($usedAccepted[$r['key']] ?? 0)));
+                    $usedAccepted[$r['key']] = ($usedAccepted[$r['key']] ?? 0) + $acc;
+                    $restAccepted += $acc;
                     $take = max(0, min($r['units'], $rg['accepted'] - $rg['returned'] - $rg['invoiced_elsewhere'] - ($used[$r['key']] ?? 0)));
                     $used[$r['key']] = ($used[$r['key']] ?? 0) + $take;
                     $restUnits += $take;
@@ -533,7 +537,10 @@ final class InvoiceMatch
             // lines in order (the Codex check of 55a4a42: two receipt lines of one invoice line); not $invoiceId's own (its match gives them to
             // its lines itself). Local to the part: nothing moves between the first receipt and the parts (a credit of units given after the
             // rest came is billed against the first receipt only: docs/decisions.md RR17).
-            $cap = [];
+            // The cap goes first to the units the part took into stock and kept (accepted, less accepted units sent back: what "Not invoiced
+            // yet" counts), then to the rest of what its rows settled (the Codex check of 66e16fa: a damaged line set aside must not take the
+            // billing of the good line beside it).
+            $restRows = [];
             foreach ($this->db->all('SELECT r.document_id, r.document_line_no, r.sinv_document_id, r.line_no, r.units, GREATEST(0, dl.qty - '
                 . "COALESCE((SELECT SUM(cdl.qty) FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl "
                 . "ON csl.document_id = c.document_id AND csl.kind = 'goods' AND csl.credit_of_line_no = r.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id "
@@ -542,13 +549,31 @@ final class InvoiceMatch
                 . "WHERE r.kind = 'rest' AND r.document_id IN ({$in}) AND r.sinv_document_id <> ? ORDER BY r.document_id, r.id",
                 [...$chunk, $invoiceId],
             ) as $r) {
-                $c = $r['document_id'] . ':' . $r['sinv_document_id'] . ':' . $r['line_no'];
-                $cap[$c] ??= (int) $r['billed'];
-                $share = min((int) $r['units'], $cap[$c]);
-                $cap[$c] -= $share;
-                $k = $r['document_id'] . ':' . $r['document_line_no'];
-                if ($share > 0 && isset($out[$k])) {
-                    $out[$k]['invoiced_elsewhere'] += $share;
+                $restRows[] = $r;
+            }
+            $cap = [];
+            $kept = [];
+            foreach ([true, false] as $keptFirst) {
+                foreach ($restRows as $i => $r) {
+                    $c = $r['document_id'] . ':' . $r['sinv_document_id'] . ':' . $r['line_no'];
+                    $k = $r['document_id'] . ':' . $r['document_line_no'];
+                    $cap[$c] ??= (int) $r['billed'];
+                    if ($keptFirst) {
+                        $kept[$k] ??= isset($out[$k]) ? max(0, $out[$k]['accepted'] - $out[$k]['returned']) : 0;
+                        $want = min((int) $r['units'], $kept[$k]);
+                        $kept[$k] -= $want;
+                        $restRows[$i]['left'] = (int) $r['units'] - $want;
+                    } else {
+                        $want = (int) $restRows[$i]['left'];
+                    }
+                    $share = min($want, $cap[$c]);
+                    $cap[$c] -= $share;
+                    if ($keptFirst) {
+                        $restRows[$i]['left'] += $want - $share;
+                    }
+                    if ($share > 0 && isset($out[$k])) {
+                        $out[$k]['invoiced_elsewhere'] += $share;
+                    }
                 }
             }
         }

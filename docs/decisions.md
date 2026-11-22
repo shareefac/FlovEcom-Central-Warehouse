@@ -19798,3 +19798,14 @@ settled too (still a superset: a credit answering a claim is the claim's), so se
 the rest by its own record (audit `arrival.receive_rest`), not by its invoice number's part (a first receipt can be part 2 of a supplier
 invoice split over deliveries of one order). (LOW) The differences panel counts what the parts brought into stock before any went back,
 and says what is left to bill when that differs.
+
+**RR25. The Codex check of 66e16fa (`cw_work/receive_rest_20261122/codex_r5.txt`, default model: HOLD, 1 HIGH, 3 MEDIUM, 1 LOW), each checked in
+the code; fixed with a test seen failing on 66e16fa (`runs/rest_r5_red.log`) except where said.** (HIGH, from RR24's cap) A part's cap goes
+first to the units its lines took into stock and kept, then to the rest of what its rows settled: a damaged line set aside never takes the
+billing of the good line beside it (five good, five billed: nothing left). (M) To match's candidates leave a credit out where one receipt
+line is shared by several invoice lines (pooled, it could hide the other line's shortfall); the rows' units may be pooled (each at most its
+own line's shortfall, J6). (M, NOT changed) A credit answering a claim is not subtracted from a candidate: a settled invoice may take a slot
+(500 of them) but a waiting one is never left out; only more than 500 such could push one out. (M, NOT changed) Two owed lines of one item
+at one price: a part's short line is about both, so its incident closes when both are done, not before (late, never wrongly "came";
+RR24 chose this over a false close; a person closes it sooner on the incident register). (LOW) The panel gives a part's accepted units once
+per receipt line.
