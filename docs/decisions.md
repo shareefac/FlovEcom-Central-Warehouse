@@ -19818,3 +19818,15 @@ the units it settled, never capped, never moved**: "Not invoiced yet" never offe
 credit of units given after the rest came (RR17, accepted by the lead). The test of two part lines of one invoice line and a later credit
 says so (it shows 0, the nightly checks clean). (M) The price a part's line is matched to an owed line by is compared to the 4 decimals a
 pack price has (loose units of a pack line). (M, NOT changed) To match's candidates: a settled invoice may take one of 500 slots (RR25).
+
+**RR27. The Codex check of 7889a71 (`cw_work/receive_rest_20261122/codex_r7.txt`, default model: HOLD, 1 HIGH, 3 MEDIUM, 1 LOW): a receipt of the
+rest keeps its lines, one per invoice line still waited for (the builder's choice, as every round since RR21 found a new case in matching a
+changed draft's lines to owed lines by item, price or order).** Its record (audit `arrival.receive_rest`, written with the draft) names the
+invoice line of each of its lines (`lines`); the page and the posting refuse a draft whose lines were added, taken off or changed to another
+item (422 `rest_lines_changed`: "put its lines back as they were (count what came and mark the rest short), or cancel it and start again");
+only the packs counted change, each line at most what its own invoice line waits for (`not_owed`, `claimed` per line). The posting gives each
+line's units to its own invoice line; a later receipt's short incident is about its own line's invoice line. So no price is compared any
+more (HIGH: a pack line's over units settling a loose line's units; MEDIUM: the wrong line settled, an incident closed by another line) and
+two receipt lines of one invoice line cannot happen (RR24 M1). (M, NOT changed) To match's candidates: more than 500 invoices still waiting
+within the quantity tolerance would leave the oldest out (the list shows 200 anyway). (LOW, NOT changed) The panel of two invoice lines
+sharing a first receipt line shows that line's accepted units on both, as before CW-1155.

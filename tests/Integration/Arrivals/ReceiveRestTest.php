@@ -266,8 +266,8 @@ final class ReceiveRestTest extends ArrivalsTestCase
         $lines = $this->grns->lines($r->id);
         $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [...$lines, ['sku_id' => $b, 'packs' => 1, 'pack_price' => '2.0000', 'po_line_no' => 0]]);
         $this->bench($this->staffUser('goods_in'), $r->id);
-        self::assertContains('not_owed', array_column($this->grns->plan($r->id)['problems'], 'code'), 'said on the page before posting');
-        $this->refusedCode('not_owed', fn () => $this->post($desk, $r->id));
+        self::assertContains('rest_lines_changed', array_column($this->grns->plan($r->id)['problems'], 'code'), 'said on the page before posting (RR27)');
+        $this->refusedCode('rest_lines_changed', fn () => $this->post($desk, $r->id), 'one line per invoice line waited for');
         $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [['sku_id' => $a, 'packs' => 4, 'pack_price' => '1.0000', 'po_line_no' => 0]]);
         $this->bench($this->staffUser('goods_in'), $r->id);
         $this->refusedCode('not_owed', fn () => $this->post($desk, $r->id), 'four on the paperwork, three owed');

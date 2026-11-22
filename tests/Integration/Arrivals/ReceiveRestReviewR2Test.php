@@ -27,8 +27,11 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '4'], 2 => ['short_units' => '3']]);
         $r = $this->arrivals->receiveRest($desk, $p->id);
         $lines = $this->grns->lines($r->id);
-        $this->grns->saveDraft($desk, $r->id, $r->version, [], [$lines[1]]); // only the £5 line came
+        $this->grns->saveDraft($desk, $r->id, $r->version, [], [$lines[1]]); // only the £5 line came: taken off the draft ...
         $this->bench($this->staffUser('goods_in'), $r->id);
+        $this->refusedCode('rest_lines_changed', fn () => $this->post($desk, $r->id), '... refused (RR27): its lines stay one per owed line');
+        $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], $lines); // ... put back, the £2 line counted short
+        $this->bench($this->staffUser('goods_in'), $r->id, [1 => ['short_units' => '4']]);
         $r = $this->post($desk, $r->id);
         self::assertSame([[2, 1, 3]], array_map(static fn (array $x): array => array_map('intval', array_values($x)),
             self::$db->all("SELECT line_no, document_line_no, units FROM invoice_arrival_rest WHERE kind = 'rest' AND document_id = ?", [$r->id])), 'the £5 line\'s, at £5');

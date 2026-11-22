@@ -440,7 +440,10 @@ final class Arrivals
         }
         $grn = $grns->saveDraft($caller, $grn->id, $grn->version, [], $grnLines);
         $this->copyFiles($caller, (int) $inv['id'], $grn->id);
+        // Its record says which invoice line each of its lines is (receipt line i = lines[i-1]): the posting gives each line's units to that one
+        // (ArrivalRest::draftLines, RR27).
         Audit::write($db, $caller, 'arrival.receive_rest', 'document', (string) $grn->id, null, ['invoice' => (string) $inv['number'],
+            'lines' => array_map(static fn (array $l): int => (int) $l['line_no'], $lines),
             'owed' => array_map(static fn (array $o): array => ['line' => $o['line_no'], 'sku' => $o['code'], 'units' => $o['units']], $owed)]);
         return $this->documents()->get($grn->id);
     }
