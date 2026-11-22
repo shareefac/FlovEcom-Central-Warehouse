@@ -97,8 +97,8 @@ final class ReceiveRestReviewR1Test extends ArrivalsTestCase
         $fingerprint = InvoiceMatch::fingerprint($this->invoices->matchOf($p->id));
         self::assertSame([], $this->owed($p->id), 'the form shows nothing waited for');
         $this->returns->cancel($desk, $dn->id, $this->docs->get($dn->id)->version, 'Claimed by mistake');
-        $this->refusedCode('match_changed', fn () => $this->invoices->accept($desk, $p->id, 'Not coming', $fingerprint, 0), 'five released meanwhile');
-        $this->invoices->accept($desk, $p->id, 'Not coming', $fingerprint, 5);
+        $this->refusedCode('match_changed', fn () => $this->invoices->accept($desk, $p->id, 'Not coming', $fingerprint, ''), 'five released meanwhile');
+        $this->invoices->accept($desk, $p->id, 'Not coming', $fingerprint, '1:5');
         self::assertSame([], $this->owed($p->id));
     }
 

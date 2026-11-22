@@ -121,7 +121,10 @@ final class ReceiveRestRaceTest extends ArrivalsTestCase
                 self::assertSame([['line' => 1, 'units' => 3, 'amount' => '3.00']], $this->owed($x['invoice']->id), $what);
                 self::assertSame(0, $this->onHand($x['sku']), $what);
             } else {
-                self::assertSame([5, 'needs_review'], [$this->onHand($x['sku']), $this->stored($x['invoice']->id)['match_state']], $what . ': billed 3, 5 came');
+                // The rest first: five came, the credit leaves three billed: over-delivered is matched (only billed above what came is a difference),
+                // and two are left to invoice (the Codex check of 3ae3345, LOW).
+                $rest = (int) self::$db->value("SELECT MAX(document_id) FROM invoice_arrival_rest WHERE kind = 'rest' AND sinv_document_id = ?", [$x['invoice']->id]);
+                self::assertSame([5, 'matched', 2], [$this->onHand($x['sku']), $this->stored($x['invoice']->id)['match_state'], $this->left($rest)], $what);
             }
         }
     }

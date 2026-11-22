@@ -19,7 +19,8 @@ use CW\Db;
  *      CW\Invariants holding every balance to its ledger. No scan of the whole ledger here: the receipts' rows are read by document.)
  *  J5. (CW-1155, docs/decisions.md RR15) every invoice_arrival_rest row is about a first receipt made from that invoice (goods_receipt_invoice);
  *      a `rest` row names a line of another receipt made from the same invoice, of the same supplier and of the invoice line's item; a
- *      `claim` row names a return to the supplier about that first receipt and that invoice.
+ *      `claim` row names a return to the supplier (it reserves while that return still names the first receipt); a fact's first receipt is
+ *      the arrival row's, or one taken back (history), never a later receipt still standing.
  *  J6. (CW-1155) per invoice line, what the rows still counting say came later, was claimed or stopped waiting for (posted rest, live claims,
  *      waivers of its first receipt now) is never more than its first receipt did not bring (the newest REST_LIMIT invoices).
  */
@@ -82,15 +83,18 @@ final class ArrivalInvariants
             . 'LEFT JOIN goods_receipt_invoice g ON g.grn_document_id = r.document_id LEFT JOIN goods_receipt gr ON gr.document_id = r.document_id '
             . 'LEFT JOIN document_line gl ON gl.document_id = r.document_id AND gl.line_no = r.document_line_no '
             . 'LEFT JOIN supplier_return sr ON sr.document_id = r.document_id '
-            . 'LEFT JOIN invoice_arrival a ON a.sinv_document_id = r.sinv_document_id AND a.line_no = r.line_no '
+            . 'LEFT JOIN invoice_arrival a ON a.sinv_document_id = r.sinv_document_id AND a.line_no = r.line_no LEFT JOIN document fd ON fd.id = r.first_grn_document_id '
             . 'WHERE NOT (f.sinv_document_id <=> r.sinv_document_id) '
             // the first receipt is never itself a receipt of the rest, and while it is the arrival row's its line is the row's (the Codex check
             // of a0d33a2, LOW)
             . "OR EXISTS (SELECT 1 FROM invoice_arrival_rest x WHERE x.kind = 'rest' AND x.document_id = r.first_grn_document_id) "
             . "OR (a.state = 'received' AND a.grn_document_id = r.first_grn_document_id AND NOT (a.grn_line_no <=> r.first_grn_line_no)) "
+            // ... and a fact of a receipt that is not the arrival row's is of one taken back (history), never of a later one still standing
+            . "OR (a.state = 'received' AND a.grn_document_id <> r.first_grn_document_id AND NOT (fd.status <=> 'reversed')) "
             . "OR (r.kind = 'rest' AND (NOT (g.sinv_document_id <=> r.sinv_document_id) OR r.document_id = r.first_grn_document_id OR NOT (gr.supplier_id <=> si.supplier_id) "
             . '  OR NOT (gl.sku_id <=> il.sku_id))) '
-            . "OR (r.kind = 'claim' AND (NOT (sr.grn_document_id <=> r.first_grn_document_id) OR NOT (sr.invoice_document_id <=> r.sinv_document_id))) "
+            // a claim row names a return (one whose delivery was changed by hand since reserves nothing: ArrivalRest::lines)
+            . "OR (r.kind = 'claim' AND sr.document_id IS NULL) "
             . 'ORDER BY r.id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "J5 invoice {$r['sinv_document_id']} line {$r['line_no']}: its {$r['kind']} row {$r['id']} (document " . ($r['document_id'] ?? 'none') . ' line '

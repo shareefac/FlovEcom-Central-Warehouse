@@ -15,7 +15,7 @@
       <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/accept') ?>">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
         <input type="hidden" name="match_fingerprint" value="<?= $e($match['fingerprint']) ?>">
-        <input type="hidden" name="rest_units" value="<?= $e((int) ($match['rest_units'] ?? 0)) ?>">
+        <input type="hidden" name="rest_owed" value="<?= $e((string) ($match['rest_owed'] ?? '')) ?>">
         <label><?= $word('INVOICES', 'accept_why') ?> <input type="text" name="note" value="<?= $e($typedAccept) ?>" minlength="3" maxlength="500" required></label>
         <p class="actions"><button type="submit" class="btn primary"><?= $word('INVOICES', 'accept_button') ?></button></p>
       </form>

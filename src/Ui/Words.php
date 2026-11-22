@@ -13587,6 +13587,7 @@ final class Words
         'rest_received_on' => 'Received on %s: %s',
         'rest_of' => 'This receipt takes in the rest of %s (first part: %s). Count what came: if fewer came, mark the others short and they keep waiting.',
         'rest_claim' => 'It will not come: claim the missing units on %s',
+        'rest_nothing_waited' => 'Nothing of it is still waited for.',
         'rest_accept' => 'Accepting the differences stops waiting for the %s units still waited for (you cannot receive those on this invoice afterwards).',
         // A supplier
         'supplier_title' => 'Goods on their way',

@@ -104,6 +104,8 @@ final class ArrivalBooking
                 ArrivalRest::posted($db, $grn, $inv, $planLines, $now, $caller ?? Caller::system('receive_rest'));
                 $match = new InvoiceMatch($db);
                 $match->refresh([$inv], $now);
+                // This receipt (the billed units are given to the parts in id order: an earlier part keeps its share, the first receipt its own;
+                // storing those would S-lock their document rows, which a claim or receiveRest may hold: the deadlocks seen in ReceiveRestRaceTest).
                 $match->storeReceipts([$grn->id], $now);
             }
             return ['invoice' => $inv, 'number' => $number, 'warehouse' => null, 'lines' => []];
@@ -148,6 +150,9 @@ final class ArrivalBooking
     {
         $inv = $db->value('SELECT sinv_document_id FROM goods_receipt_invoice WHERE grn_document_id = ?', [$grnId]);
         if ($inv !== null) {
+            // A part of the rest taken back gives its billed units to the later parts: their document rows first, in id order (as an acceptance
+            // or a credit note's posting takes the receipts), then the arrival rows (CW-1155, RR22).
+            (new InvoiceMatch($db))->lockReceipts(ArrivalRest::laterParts($db, (int) $inv, $grnId));
             self::lockInvoice($db, (int) $inv);
         }
     }

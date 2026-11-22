@@ -92,6 +92,9 @@ final class ArrivalsController
             if ($from !== null) {
                 return (new ReceivingController())->page($ctx, $from, $e->httpStatus, $e);
             }
+            if (!$ctx->me()->can('invoices.view')) {
+                return $this->arriving($ctx, $e->httpStatus, $e); // never the invoice (its money) to someone who does not read invoices (the Codex check of 3ae3345, H1)
+            }
             return (new InvoicesController())->page($ctx, 'invoice', $id, $e->httpStatus, $e);
         }
         return HtmlResponse::redirect(Html::url('/ui/receiving/' . $grn->id, ['notice' => 'rest_from_invoice']));
@@ -230,10 +233,12 @@ final class ArrivalsController
             $restOf = ['href' => '/ui/receiving/' . $first, 'number' => (string) ($ctx->db->value('SELECT number FROM document WHERE id = ?', [$first]) ?? '')];
         }
         $rest = $first === $grnId && $status === 'posted' ? self::restBox($ctx, (int) $inv['id']) : null;
+        // Something came short on it and nothing is missing now (it came later, was credited or given up): never "everything came".
+        $wasShort = $first === $grnId && array_filter(\CW\Arrivals\ArrivalRest::lines($ctx->db, (int) $inv['id']), static fn (array $l): bool => $l['short'] > 0) !== [];
         return ['invoice' => ['id' => (int) $inv['id'], 'number' => (string) ($inv['number'] ?? $inv['external_ref'] ?? ('#' . $inv['id']))],
             'missing' => $restOf === null ? array_map(static fn (array $m): array => $m + ['amount_text' => Html::money($m['amount'])], $missing) : [],
             'claim' => $claim === null ? null : (int) $claim, 'canClaim' => $missing !== [] && $restOf === null && Documents::mayPost($ctx->me()->roles, 'DN'),
-            'rest' => $rest, 'restOf' => $restOf];
+            'rest' => $rest, 'restOf' => $restOf, 'wasShort' => $wasShort];
     }
 
     /**

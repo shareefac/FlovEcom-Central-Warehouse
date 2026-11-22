@@ -19734,3 +19734,30 @@ keyers (a new part against the reversal of an earlier part by the same person; t
 (M4) An acceptance carries the units still waited for that its form showed (`rest_units`; a claim cancelled meanwhile: 409 match_changed).
 (M5) The rest of one line resolves only incidents about the lines it brought (a line credited instead is never "came"). (LOW) J5: a fact
 never names a receipt of the rest as its first receipt, and while that receipt is the arrival row's, its line is the row's.
+
+**RR22. The Codex check of 3ae3345 (`cw_work/receive_rest_20261122/codex_r2.txt`, default model: HOLD, 3 HIGH, 8 MEDIUM, 3 LOW), each point
+checked in the code; fixed with a test seen failing on 3ae3345 (`runs/rest_r2_red.log`; ReceiveRestReviewR2Test, ReceiveRestScreensTest)
+except where said.** (H1) A refused "Receive the rest" pressed without the receipt it came from shows Goods In's Arriving with the reason,
+never the invoice page (its money), to someone who does not read invoices. (H2) A receipt line goes first to the owed line of its item at
+its own unit price (the draft keeps each invoice line's price), then the n-th to the n-th, then any: a line taken off the draft never moves
+the next line's units (and their price) to another line. (H3) The billed units a part is billed for are those beyond what the first
+receipt ACCEPTED and kept (accepted less accepted units sent back), never beyond what it set aside to check. (M) The parts are billed in id order:
+the reversal of a part stores "Not invoiced yet" again for the later posted parts (their document rows locked in id order after its order's
+rows and before the arrival rows, `ArrivalBooking::lockFor`, as an acceptance or a credit note takes the receipts); a posting stores only
+itself (an earlier part keeps its share, the first receipt is billed for its own: storing them would S-lock document rows a claim or
+receiveRest holds, the two deadlocks ReceiveRestRaceTest saw on the first try of this fix). (M) A received line whose first receipt line is shared by
+another invoice line of the item counts what the first receipt left it (at least 0) plus its own rest (only with rest rows: every other
+match as it was). (M) A credit note answering a live claim counts once with that claim, line by line, at most the claim's units. (M) A
+claim row reserves only while its return still names the first receipt (a return whose delivery was changed by hand reserves nothing; J5
+asks only that it names a return). NOT changed: a return made by hand about the first receipt while a draft of the rest is open is a claim
+of everything (RR2), so that draft's posting is refused (409 `claimed`): the two never both count. (M) The acceptance carries the owed
+lines its form showed ("line:units"), not only their total. (M) A later receipt's line of an owed item that brought nothing (all short)
+is about the invoice's lines of that item, so the delivery that brings it resolves its incident too. (M) To match lists an invoice still
+waiting for the rest in any state (within the quantity tolerance too), found by one grouped read of the received arrival rows, the late
+days read once. (LOW) J5: a fact's first receipt is the arrival row's, or one taken back (history), never a later receipt still standing.
+(LOW) A first receipt whose shortfall came later, was credited or given up says "Nothing of it is still waited for.", never "Everything
+the invoice billed came.". (LOW) The race of a credit and the posting: the rest first leaves three billed for five that came: matched (over
+delivered is not a difference), two left to invoice. NOT changed (M, the price): a credit of an invoice line given before its goods came is
+spread over the line's units as a price credit (the profit engine's rule N1 of PR, the same for the first receipt since step 1): a credit
+"for units that will not come" lowers the price of those that do. CW's credit note line does not say which it is; for the owner and the
+profit owner (RR17).

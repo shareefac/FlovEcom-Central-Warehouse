@@ -192,7 +192,9 @@ final class InvoiceMatch
                     $restUnits += $take;
                 }
                 if ($restUnits > 0 && $available !== null) {
-                    $available += $restUnits;
+                    // What the first receipt left for this line (another line of the item sharing its receipt line took it: below 0) is 0,
+                    // then its own rest (the Codex check of 3ae3345, M); without rest rows the figure is what it always was.
+                    $available = max(0, $available) + $restUnits;
                 }
             }
             $poKey = $l['po_document_id'] !== null ? $l['po_document_id'] . ':' . $l['po_line_no']

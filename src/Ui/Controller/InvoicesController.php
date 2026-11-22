@@ -141,9 +141,17 @@ final class InvoicesController
     {
         $show = $ctx->req->param('show') === 'accepted' ? 'accepted' : 'needs_review';
         $rows = $ctx->supplierInvoices()->toMatch($show);
+        // CW-1155 (RR13): what may still wait for the rest (one grouped read), worked out for those only; one still waiting that the list leaves
+        // out (within the quantity tolerance) is listed under its own state.
+        $maybe = $ctx->supplierInvoices()->mayWaitForTheRest();
+        $rest = self::restOnRows($ctx, array_keys($maybe));
+        if ($show === 'needs_review') {
+            $listed = array_map(static fn (array $r): int => (int) $r['id'], $rows);
+            $more = array_values(array_filter(array_keys($rest), static fn (int $id): bool => !in_array($id, $listed, true) && ($maybe[$id] ?? '') !== 'accepted'));
+            $rows = [...$rows, ...$ctx->supplierInvoices()->toMatchRows($more)];
+        }
         $claims = $ctx->supplierInvoices()->claimsOn(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         $notice = $ctx->req->param('notice');
-        $rest = self::restOnRows($ctx, array_map(static fn (array $r): int => (int) $r['id'], $rows)); // CW-1155 (RR13)
         $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'], 'group' => (string) $r['match_state'],
             'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? []), 'rest' => $rest[(int) $r['id']] ?? null], $rows);
         $order = [];
@@ -165,8 +173,8 @@ final class InvoicesController
     }
 
     /**
-     * CW-1155 (docs/decisions.md RR13): what the listed invoices still wait for after their first receipt ("Waiting for the rest: 5 (£5.00)",
-     * the days, late), only for those a receipt took in from Arriving (one indexed read picks them).
+     * CW-1155 (docs/decisions.md RR13): what these invoices still wait for after their first receipt ("Waiting for the rest: 5 (£5.00)", the
+     * days, late; the late days read once).
      *
      * @param list<int> $ids
      * @return array<int, array{text: string, days: string, late: bool}>
@@ -175,17 +183,24 @@ final class InvoicesController
     {
         $out = [];
         $prices = $ctx->me()->can('invoices.view');
-        foreach (array_chunk($ids, 500) as $chunk) {
-            foreach ($ctx->db->column("SELECT DISTINCT sinv_document_id FROM invoice_arrival WHERE state = 'received' AND sinv_document_id IN ("
-                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $id) {
-                $w = \CW\Arrivals\ArrivalRest::waiting($ctx->db, (int) $id, \CW\Clock::now());
-                if ($w !== null) {
-                    $out[(int) $id] = ['text' => $prices ? Words::say('ARRIVALS', 'rest_waiting', $w['units'], Html::money($w['amount']))
-                        : Words::say('ARRIVALS', 'rest_waiting_items', $w['units']), 'days' => ArrivalsController::daysText($w['days'], $w['late']), 'late' => $w['late']];
-                }
+        $late = \CW\Arrivals\ArrivalRest::lateDays($ctx->db);
+        $now = \CW\Clock::now();
+        foreach ($ids as $id) {
+            $w = \CW\Arrivals\ArrivalRest::waiting($ctx->db, (int) $id, $now, $late);
+            if ($w !== null) {
+                $out[(int) $id] = ['text' => $prices ? Words::say('ARRIVALS', 'rest_waiting', $w['units'], Html::money($w['amount']))
+                    : Words::say('ARRIVALS', 'rest_waiting_items', $w['units']), 'days' => ArrivalsController::daysText($w['days'], $w['late']), 'late' => $w['late']];
             }
         }
         return $out;
+    }
+
+    /** @return array{rest_units: int, rest_owed: string} what an invoice still waits for, for its accept form (CW-1155, RR9) */
+    private static function restOwedView(Context $ctx, int $id): array
+    {
+        $owed = \CW\Arrivals\ArrivalRest::owed($ctx->db, $id);
+        return ['rest_units' => array_sum(array_column($owed, 'units')),
+            'rest_owed' => implode(',', array_map(static fn (array $o): string => $o['line_no'] . ':' . $o['units'], $owed))];
     }
 
     /** POST to-match/recheck: works the listed invoices' matches out again with the tolerances now. */
@@ -635,9 +650,9 @@ final class InvoicesController
             return $this->notFound($ctx, 'invoice');
         }
         try {
-            $seen = $ctx->req->field('rest_units'); // CW-1155 (RR9): the units still waited for the form showed
+            $seen = $ctx->req->field('rest_owed'); // CW-1155 (RR9): the lines still waited for the form showed ("line:units", ...)
             $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''),
-                is_string($seen) && preg_match('/^[0-9]{1,9}$/D', $seen) === 1 ? (int) $seen : null);
+                is_string($seen) && preg_match('/^([0-9]{1,9}:[0-9]{1,9}(,[0-9]{1,9}:[0-9]{1,9})*)?$/D', $seen) === 1 ? $seen : null);
         } catch (CwException $e) {
             return $this->page($ctx, 'invoice', $id, $e->httpStatus, $e, null, ['typedAccept' => $note]);
         }
@@ -745,7 +760,7 @@ final class InvoicesController
             'sum' => $sum,
             'stock' => \CW\Ui\DocGrid::stock($ctx->db, array_column($lines, 'sku_id')), // each line's item's current stock (KG34), one query
             'match' => $match === null ? null : self::matchView($match, $doc->status === 'posted')
-                + ['rest_units' => $isInvoice && $doc->status === 'posted' ? array_sum(array_column(\CW\Arrivals\ArrivalRest::owed($ctx->db, $id), 'units')) : 0], // CW-1155 (RR9)
+                + ($isInvoice && $doc->status === 'posted' ? self::restOwedView($ctx, $id) : ['rest_units' => 0, 'rest_owed' => '']), // CW-1155 (RR9)
             'storedMatch' => $isInvoice && $doc->status === 'posted' && $original ? (string) $rec['match_state'] : null,
             'problems' => $editable ? $si->problems($id) : [],
             'editable' => $editable,

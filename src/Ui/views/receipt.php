@@ -176,7 +176,7 @@
 <?php endif; ?>
 <?php if (($arrivalBox['restOf'] ?? null) !== null): ?>
 <?php elseif ($doc->status === 'posted' && $arrivalBox['missing'] === []): ?>
-  <p class="muted"><?= $word('ARRIVALS', 'nothing_missing') ?></p>
+  <p class="muted"><?php if ($arrivalBox['wasShort'] ?? false): ?><?= $word('ARRIVALS', 'rest_nothing_waited') ?><?php else: ?><?= $word('ARRIVALS', 'nothing_missing') ?><?php endif; ?></p>
 <?php elseif ($arrivalBox['missing'] !== []): ?>
   <p class="muted"><?= $word('ARRIVALS', 'missing_text') ?></p>
   <ul>

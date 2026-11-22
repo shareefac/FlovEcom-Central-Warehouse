@@ -162,6 +162,61 @@ final class ReceiveRestScreensTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM goods_receipt_invoice WHERE sinv_document_id = ?', [$x['invoice']]), 'nothing made');
     }
 
+    /**
+     * The Codex check of 3ae3345: a refused "Receive the rest" never shows the invoice (its money) to Goods In (H1); an invoice within the
+     * quantity tolerance still waiting for the rest is on To match (M); a first receipt whose shortfall was given up never says "everything
+     * came" (LOW).
+     */
+    public function testTheReviewOfTheScreens(): void
+    {
+        $x = $this->shortInvoice();
+        $goodsIn = $this->signIn($this->uiUser('goods_in'));
+        $desk = $this->signIn($x['desk']);
+        $page = $desk->get('/ui/purchasing/invoices/' . $x['invoice']);
+        $fingerprint = (string) (new \DOMXPath($page->dom()))->evaluate('string(//input[@name="match_fingerprint"]/@value)');
+        $owedSeen = (string) (new \DOMXPath($page->dom()))->evaluate('string(//input[@name="rest_owed"]/@value)');
+        self::assertSame('1:5', $owedSeen, 'the accept form carries what it shows as waited for');
+        $r = $desk->post('/ui/purchasing/invoices/' . $x['invoice'] . '/accept', ['csrf' => $this->token($desk), 'note' => 'They will not send them',
+            'match_fingerprint' => $fingerprint, 'rest_owed' => $owedSeen]);
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $goodsIn->post('/ui/receiving/arriving/' . $x['invoice'] . '/receive-rest', ['csrf' => $this->token($goodsIn)]);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::ARRIVAL_ERROR['nothing_owed'], $r->text());
+        self::assertStringNotContainsString('£', $r->text(), 'Goods In is shown Arriving, never the invoice');
+        $receipt = $goodsIn->get('/ui/receiving/' . $x['grn']);
+        self::assertStringContainsString(Words::ARRIVALS['rest_nothing_waited'], $receipt->text());
+        self::assertStringNotContainsString(Words::ARRIVALS['nothing_missing'], $receipt->text());
+
+        // Within a 10% quantity tolerance: 1 of 20 short is "within", still waited for, and listed.
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"10\"' AS JSON) WHERE setting_key = 'invoices.qty_tolerance_pct'");
+        try {
+            $docs = new Documents(self::$db, DocumentHandlers::all(self::$db));
+            $si = new SupplierInvoices(self::$db, $docs, fn (): FileStore => $this->store());
+            $deskC = Caller::staff($x['desk']['id']);
+            $sku = self::makeSku('Tolerance item ' . bin2hex(random_bytes(3)));
+            (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $sku, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
+            $supplier = (int) self::$db->value('SELECT supplier_id FROM supplier_invoice WHERE document_id = ?', [$x['invoice']]);
+            $d = $si->createDraft($deskC, 'invoice', $supplier, ['invoice_number' => 'TOL-' . bin2hex(random_bytes(3)), 'invoice_date' => gmdate('Y-m-d', time() - 86400)]);
+            $d = $si->addItem($deskC, $d->id, $d->version, '', 20, '1.0000', $sku)['document'];
+            $pdf = $this->dir . '/tol-' . $d->id . '.pdf';
+            file_put_contents($pdf, (new \CW\Output\PdfWriter('Invoice ' . bin2hex(random_bytes(4)), 'test', true))->output());
+            $si->attach($deskC, $d->id, $pdf, 'invoice.pdf', 'supplier_invoice');
+            $d = $si->saveHeader($deskC, $d->id, $docs->get($d->id)->version, ['net_total' => '20.00', 'vat_total' => '0.00']);
+            $p = $si->submit($deskC, $d->id, $d->version);
+            $arr = new Arrivals(self::$db, $docs, fn (): FileStore => $this->store());
+            $grns = new GoodsReceipts(self::$db, $docs, null, fn (): FileStore => $this->store());
+            $g = $arr->receive($deskC, $p->id);
+            $grns->bench(Caller::staff($this->uiUser('goods_in')['id']), $g->id, $docs->get($g->id)->version, ['paperwork_ok' => '1'], [1 => ['short_units' => '1']]);
+            $grns->post($deskC, $g->id, $docs->get($g->id)->version);
+            self::assertSame('within_tolerance', (string) self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$p->id]));
+            $toMatch = $desk->get('/ui/purchasing/invoices/to-match');
+            self::assertStringContainsString((string) $p->number, $toMatch->text(), 'listed although within the tolerance');
+            self::assertStringContainsString(Words::say('ARRIVALS', 'rest_waiting', 1, '£1.00'), $toMatch->text());
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST('\"0\"' AS JSON) WHERE setting_key = 'invoices.qty_tolerance_pct'");
+        }
+    }
+
     /** The days waiting and the late mark (arrivals.rest_late_days, 14): from the first receipt's UK day. */
     public function testTheDaysAndTheLateMark(): void
     {

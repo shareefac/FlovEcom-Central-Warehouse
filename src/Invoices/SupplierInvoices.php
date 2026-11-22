@@ -987,14 +987,14 @@ final class SupplierInvoices
      * InvoiceMatch::fingerprint(); changed figures are refused under the receipt locks (409 match_changed). An invoice that no longer
      * needs review is not accepted (409 not_needs_review). It stays `accepted` while its match is what was accepted.
      */
-    public function accept(Caller $caller, int $id, string $note, string $fingerprint, ?int $owedUnits = null): Document
+    public function accept(Caller $caller, int $id, string $note, string $fingerprint, ?string $owedKey = null): Document
     {
         $note = trim($note);
         if (mb_strlen($note) < self::ACCEPT_NOTE_MIN || mb_strlen($note) > self::ACCEPT_NOTE_MAX) {
             throw new CwException('note_required', 'say in ' . self::ACCEPT_NOTE_MIN . ' to ' . self::ACCEPT_NOTE_MAX . ' characters why the differences are accepted', 400,
                 ['field' => 'note']);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint, $owedUnits): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint, $owedKey): Document {
             if ($caller->staffUserId === null) {
                 throw new CwException('staff_required', 'invoices are checked by staff', 403);
             }
@@ -1035,7 +1035,7 @@ final class SupplierInvoices
             // CW-1155 (RR9; the Codex check of a0d33a2, M4): the units still waited for are those the person saw (a claim cancelled meanwhile
             // releases more: they look again).
             $owedNow = ArrivalRest::owed($db, $id);
-            if ($owedUnits !== null && array_sum(array_column($owedNow, 'units')) !== $owedUnits) {
+            if ($owedKey !== null && !hash_equals(ArrivalRest::owedKey($db, $id), $owedKey)) {
                 throw new CwException('match_changed', 'the units still waited for changed: review the current figures before accepting', 409);
             }
             $now = $this->nowDb();
@@ -1373,6 +1373,46 @@ final class SupplierInvoices
             . "WHERE si.match_state = ? AND d.status = 'posted'" . ($supplier === null ? '' : ' AND si.supplier_id = ?') . ' ORDER BY si.document_id LIMIT ' . self::LIST_LIMIT,
             $supplier === null ? [$show] : [$show, $supplier],
         );
+    }
+
+    /**
+     * CW-1155 (docs/decisions.md RR13): the posted invoices that may still wait for the rest of their goods (a line counted on arrival whose
+     * first receipt line brought fewer than its invoice lines billed, or none of its item), any match state, at most LIST_LIMIT: a superset
+     * ArrivalRest::waiting() narrows. One grouped read of the received arrival rows.
+     *
+     * @return array<int, string> invoice id => its match state
+     */
+    public function mayWaitForTheRest(): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT x.sinv, si.match_state FROM (SELECT a.sinv_document_id AS sinv, a.grn_document_id, a.grn_line_no, SUM(a.units) AS units FROM invoice_arrival a '
+            . "WHERE a.state = 'received' GROUP BY a.sinv_document_id, a.grn_document_id, a.grn_line_no) x LEFT JOIN grn_line g ON g.document_id = x.grn_document_id "
+            . "AND g.line_no = x.grn_line_no JOIN supplier_invoice si ON si.document_id = x.sinv JOIN document d ON d.id = x.sinv AND d.status = 'posted' "
+            . 'WHERE x.grn_line_no IS NULL OR x.units > COALESCE(g.accepted_units, 0) + COALESCE(g.verify_units, 0) + COALESCE(g.quarantine_units, 0) '
+            . 'GROUP BY x.sinv, si.match_state ORDER BY x.sinv LIMIT ' . self::LIST_LIMIT) as $r) {
+            $out[(int) $r['sinv']] = (string) $r['match_state'];
+        }
+        return $out;
+    }
+
+    /**
+     * The To match rows of these posted invoices (toMatch()'s columns), whatever their match state (CW-1155: an invoice within the quantity
+     * tolerance still waiting for the rest is listed too).
+     *
+     * @param list<int> $ids
+     * @return list<array<string, mixed>>
+     */
+    public function toMatchRows(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        return $this->db->all(
+            'SELECT d.id, d.number, d.external_ref, d.doc_date, d.posted_at, si.supplier_id, s.name AS supplier_name, si.gross_total, si.match_state, si.match_lines_off, '
+            . 'si.match_difference, si.match_checked_at, si.accepted_at, si.accept_note, ab.display_name AS accepted_by_name, pb.display_name AS posted_by_name '
+            . 'FROM supplier_invoice si JOIN document d ON d.id = si.document_id JOIN supplier s ON s.id = si.supplier_id '
+            . 'LEFT JOIN staff_user ab ON ab.id = si.accepted_by LEFT JOIN staff_user pb ON pb.id = d.posted_by '
+            . "WHERE d.status = 'posted' AND si.document_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY si.document_id', $ids);
     }
 
     /** How many posted invoices need review now (the badge, for people who act on them). */
