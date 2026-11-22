@@ -246,6 +246,31 @@ final class ReceiveRestScreensTest extends KernelUiTestCase
             trim((string) $look->evaluate('string(//section[contains(@class, "doc-diff")]//td[@data-label="' . Words::DOC['invoiced'] . '"])'))], 'three of five came');
     }
 
+    /**
+     * RR29: the one-page receipt editor's own save of a receipt of the rest (its lines sent back unchanged, "All fine" on the line) passes the
+     * frozen lines, and the editor books it in.
+     */
+    public function testTheOnePageEditorSavesAndBooksAReceiptOfTheRest(): void
+    {
+        $x = $this->shortInvoice();
+        $desk = $this->signIn($x['desk']);
+        $action = '/ui/receiving/arriving/' . $x['invoice'] . '/receive-rest';
+        $r = $desk->post($action, $desk->get('/ui/purchasing/invoices/' . $x['invoice'])->form($action));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(1, preg_match('#^/ui/receiving/(\d+)#', (string) $r->location(), $m));
+        $id = (int) $m[1];
+        $page = $desk->follow($r);
+        $form = $page->form("/ui/receiving/{$id}/lines", true);
+        self::assertNotSame([], $form, $page->describe());
+        $saved = $desk->post("/ui/receiving/{$id}/lines", ['fine' => '1', 'action' => 'save'] + $form);
+        self::assertSame(303, $saved->status, $saved->describe());
+        $page = $desk->follow($saved);
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + $page->form("/ui/receiving/{$id}/lines", true));
+        self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
+        self::assertSame(['posted', 'matched'], [(string) self::$db->value('SELECT status FROM document WHERE id = ?', [$id]),
+            (string) self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$x['invoice']])]);
+    }
+
     /** The days waiting and the late mark (arrivals.rest_late_days, 14): from the first receipt's UK day. */
     public function testTheDaysAndTheLateMark(): void
     {
