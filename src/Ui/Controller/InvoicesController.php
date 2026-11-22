@@ -208,6 +208,8 @@ final class InvoicesController
     {
         $si = $ctx->supplierInvoices();
         $ids = array_map(static fn (array $r): int => (int) $r['id'], [...$si->toMatch('needs_review'), ...$si->toMatch('accepted')]);
+        // CW-1155 (RR13): and the invoices the list shows because they still wait for the rest (within the tolerance).
+        $ids = array_values(array_unique([...$ids, ...array_keys(self::restOnRows($ctx, array_keys($si->mayWaitForTheRest())))]));
         try {
             $changed = $si->recheck($ctx->caller(), $ids);
         } catch (CwException $e) {
@@ -652,7 +654,8 @@ final class InvoicesController
         try {
             $seen = $ctx->req->field('rest_owed'); // CW-1155 (RR9): the lines still waited for the form showed ("line:units", ...)
             $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''),
-                is_string($seen) && preg_match('/^([0-9]{1,9}:[0-9]{1,9}(,[0-9]{1,9}:[0-9]{1,9})*)?$/D', $seen) === 1 ? $seen : null);
+                // a form without it (drawn before CW-1155, or made by hand) showed nothing waited for: '' (refused while something is)
+                is_string($seen) && preg_match('/^([0-9]{1,9}:[0-9]{1,9}(,[0-9]{1,9}:[0-9]{1,9})*)?$/D', $seen) === 1 ? $seen : '');
         } catch (CwException $e) {
             return $this->page($ctx, 'invoice', $id, $e->httpStatus, $e, null, ['typedAccept' => $note]);
         }
@@ -1165,10 +1168,12 @@ final class InvoicesController
             $m = $match['lines'][(int) $l['line_no']] ?? [];
             $why = (array) ($m['why'] ?? []);
             $available = ($m['available'] ?? null) === null ? null : (int) $m['available'];
+            $restIn = (int) ($m['rest'] ?? 0); // CW-1155 (RR13): what the receipts of the rest brought of it
             [$received, $receivedNote] = match (true) {
                 (bool) ($m['reversed'] ?? false) => [null, Words::DOC['delivery_cancelled']],
-                ($m['accepted'] ?? null) !== null => [(int) $m['accepted'], $available !== null && $available !== (int) $m['accepted']
+                ($m['accepted'] ?? null) !== null => [(int) $m['accepted'] + $restIn, $available !== null && $available !== (int) $m['accepted'] + $restIn
                     ? Words::say('DOC', 'left_to_bill', max(0, $available)) : null],
+                $restIn > 0 => [$restIn, null],
                 (bool) ($m['arriving'] ?? false) => [null, Words::DOC['arriving']],
                 $available === 0 => [0, null], // received without it: nothing came (PJ8)
                 default => [null, null],

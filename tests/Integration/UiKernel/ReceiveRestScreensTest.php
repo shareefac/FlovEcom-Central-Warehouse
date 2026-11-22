@@ -212,9 +212,38 @@ final class ReceiveRestScreensTest extends KernelUiTestCase
             $toMatch = $desk->get('/ui/purchasing/invoices/to-match');
             self::assertStringContainsString((string) $p->number, $toMatch->text(), 'listed although within the tolerance');
             self::assertStringContainsString(Words::say('ARRIVALS', 'rest_waiting', 1, '£1.00'), $toMatch->text());
+            // The tolerance set back to exact and "Check these again": the listed one is checked again too (the Codex check of 6c78108, M).
+            self::$db->exec("UPDATE app_setting SET value_json = CAST('\"0\"' AS JSON) WHERE setting_key = 'invoices.qty_tolerance_pct'");
+            $r = $desk->post('/ui/purchasing/invoices/to-match/recheck', ['csrf' => $this->token($desk)]);
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertSame('needs_review', (string) self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$p->id]));
         } finally {
             self::$db->exec("UPDATE app_setting SET value_json = CAST('\"0\"' AS JSON) WHERE setting_key = 'invoices.qty_tolerance_pct'");
         }
+    }
+
+    /**
+     * The Codex check of 6c78108: an accept form without the lines waited for (drawn before CW-1155) is refused while something is waited for
+     * (M); the differences panel counts what the receipts of the rest brought as received (LOW).
+     */
+    public function testAnOldAcceptFormAndThePanelOfAPartArrival(): void
+    {
+        $x = $this->shortInvoice();
+        $desk = $this->signIn($x['desk']);
+        $path = '/ui/purchasing/invoices/' . $x['invoice'];
+        $fingerprint = (string) (new \DOMXPath($desk->get($path)->dom()))->evaluate('string(//input[@name="match_fingerprint"]/@value)');
+        $r = $desk->post($path . '/accept', ['csrf' => $this->token($desk), 'note' => 'They will not send them', 'match_fingerprint' => $fingerprint]);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertNull(self::$db->value('SELECT accepted_at FROM supplier_invoice WHERE document_id = ?', [$x['invoice']]), 'nothing waived unseen');
+        $docs = new Documents(self::$db, DocumentHandlers::all(self::$db));
+        $arr = new Arrivals(self::$db, $docs, fn (): FileStore => $this->store());
+        $grns = new GoodsReceipts(self::$db, $docs, null, fn (): FileStore => $this->store());
+        $g = $arr->receiveRest(Caller::staff($x['desk']['id']), $x['invoice']);
+        $grns->bench(Caller::staff($this->uiUser('goods_in')['id']), $g->id, $docs->get($g->id)->version, ['paperwork_ok' => '1'], [1 => ['short_units' => '2']]);
+        $grns->post(Caller::staff($x['desk']['id']), $g->id, $docs->get($g->id)->version);
+        $look = new \DOMXPath($desk->get($path)->dom());
+        self::assertSame(['3', '5'], [trim((string) $look->evaluate('string(//section[contains(@class, "doc-diff")]//td[@data-label="' . Words::DOC['received'] . '"])')),
+            trim((string) $look->evaluate('string(//section[contains(@class, "doc-diff")]//td[@data-label="' . Words::DOC['invoiced'] . '"])'))], 'three of five came');
     }
 
     /** The days waiting and the late mark (arrivals.rest_late_days, 14): from the first receipt's UK day. */

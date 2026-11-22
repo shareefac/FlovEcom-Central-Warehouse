@@ -122,59 +122,14 @@ final class ArrivalRest
     }
 
     /**
-     * What each invoice line still bills (its units less ALL its posted credit notes) beyond what its first receipt brought: the units its
-     * receipts of the rest are billed for, in their order (InvoiceMatch::receiptFacts, "Not invoiced yet").
+     * What an acceptance stops waiting for, as the person saw it: "line:units" of each owed line (SupplierInvoices::accept compares it with the
+     * rows it writes the waivers from).
      *
-     * @return array<int, int> line_no => units
+     * @param list<array{line_no: int, units: int}> $owed owed()
      */
-    public static function billedBeyondFirst(Db $db, int $invoiceId): array
+    public static function owedKey(array $owed): string
     {
-        $credits = [];
-        foreach ($db->all("SELECT sl.credit_of_line_no AS line_no, SUM(dl.qty) AS qty FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' "
-            . "JOIN sinv_line sl ON sl.document_id = c.document_id AND sl.kind = 'goods' AND sl.credit_of_line_no IS NOT NULL "
-            . 'JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no '
-            . "WHERE c.credits_document_id = ? AND c.kind = 'credit_note' GROUP BY sl.credit_of_line_no", [$invoiceId]) as $c) {
-            $credits[(int) $c['line_no']] = (int) $c['qty'];
-        }
-        // What the first receipt took into stock of each line and kept (accepted, less accepted units sent back), its lines shared in line
-        // order (the Codex check of 3ae3345: billed units go to accepted stock, never to units set aside to check).
-        $rows = $db->all("SELECT line_no, units, grn_document_id, grn_line_no FROM invoice_arrival WHERE sinv_document_id = ? AND state = 'received' ORDER BY line_no",
-            [$invoiceId]);
-        $kept = [];
-        foreach (array_values(array_unique(array_map(static fn (array $r): int => (int) $r['grn_document_id'], $rows))) as $g) {
-            foreach ((new \CW\Invoices\InvoiceMatch($db))->receiptFacts([$g]) as $k => $f) {
-                $kept[$k] = max(0, $f['accepted'] - $f['returned']);
-            }
-        }
-        $out = [];
-        foreach ($rows as $r) {
-            $k = $r['grn_document_id'] . ':' . ($r['grn_line_no'] ?? '-');
-            $took = min((int) $r['units'], $kept[$k] ?? 0);
-            if (isset($kept[$k])) {
-                $kept[$k] -= $took;
-            }
-            $out[(int) $r['line_no']] = max(0, (int) $r['units'] - ($credits[(int) $r['line_no']] ?? 0) - $took);
-        }
-        return $out;
-    }
-
-    /**
-     * The posted receipts of the rest of an invoice made after receipt $grnId (never its first receipt): what taking $grnId back moves billed
-     * units to ("Not invoiced yet" stored again for them; the parts are billed in id order, the first receipt for its own).
-     *
-     * @return list<int>
-     */
-    public static function laterParts(Db $db, int $invoiceId, int $grnId): array
-    {
-        $first = self::firstReceipt($db, $invoiceId) ?? 0;
-        return array_map('intval', $db->column("SELECT g.grn_document_id FROM goods_receipt_invoice g JOIN document d ON d.id = g.grn_document_id AND d.status = 'posted' "
-            . 'WHERE g.sinv_document_id = ? AND g.grn_document_id > ? AND g.grn_document_id <> ? ORDER BY g.grn_document_id', [$invoiceId, $grnId, $first]));
-    }
-
-    /** What an acceptance stops waiting for, as the person saw it: "line:units" of each owed line (SupplierInvoices::accept checks it). */
-    public static function owedKey(Db $db, int $invoiceId): string
-    {
-        return implode(',', array_map(static fn (array $o): string => $o['line_no'] . ':' . $o['units'], self::owed($db, $invoiceId)));
+        return implode(',', array_map(static fn (array $o): string => $o['line_no'] . ':' . $o['units'], $owed));
     }
 
     /**
@@ -460,9 +415,6 @@ final class ArrivalRest
                 Audit::write($db, $caller, 'incident.rest_reopened', 'incident', (string) $i['id'], null, ['receipt' => (string) $original->number,
                     'document_id' => $i['document_id'], 'line_no' => $i['line_no'], 'invoice' => $inv]);
             }
-            // What the later parts have left to invoice moves with it (the billed units are given to the parts in id order; their document rows
-            // were locked before the arrival rows, ArrivalBooking::lockFor).
-            (new \CW\Invoices\InvoiceMatch($db))->storeReceipts(self::laterParts($db, $inv, $original->id), $now);
         }
     }
 
@@ -540,7 +492,8 @@ final class ArrivalRest
                 $about[(int) $r['document_id'] . ':' . (int) $r['document_line_no']][] = (int) $r['line_no'];
             }
         }
-        // A later receipt's line that brought none of it (all short) is about the invoice's lines of its item (the Codex check of 3ae3345, M).
+        // A later receipt's line that brought none of it (all short: no row of its own) is about the invoice's lines of its item (the Codex
+        // checks of 3ae3345 and 6c78108: a line with its own rows is about those lines only).
         $bySku = [];
         foreach ($lines as $l) {
             $bySku[$l['sku_id']][] = $l['line_no'];
@@ -549,7 +502,7 @@ final class ArrivalRest
         foreach ($db->all("SELECT g.document_id, g.line_no, dl.sku_id FROM goods_receipt_invoice l JOIN document d ON d.id = l.grn_document_id AND d.status = 'posted' "
             . 'JOIN grn_line g ON g.document_id = l.grn_document_id JOIN document_line dl ON dl.document_id = g.document_id AND dl.line_no = g.line_no '
             . 'WHERE l.sinv_document_id = ? AND g.short_units > 0', [$invoiceId]) as $g) {
-            if (!in_array((int) $g['document_id'], $first, true) && isset($bySku[(int) $g['sku_id']])) {
+            if (!in_array((int) $g['document_id'], $first, true) && isset($bySku[(int) $g['sku_id']]) && !isset($about[(int) $g['document_id'] . ':' . (int) $g['line_no']])) {
                 $k = (int) $g['document_id'] . ':' . (int) $g['line_no'];
                 $about[$k] = array_values(array_unique([...($about[$k] ?? []), ...$bySku[(int) $g['sku_id']]]));
             }

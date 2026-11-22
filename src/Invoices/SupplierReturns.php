@@ -132,6 +132,13 @@ final class SupplierReturns
             $cur = $this->current($id);
             self::mayPost($db, $caller);
             $h = $this->header((int) $cur['supplier_id'], $header, $cur);
+            // CW-1155 (docs/decisions.md RR23): a claim of what did not come holds those units by its delivery and invoice: they are not changed
+            // (cancel it and claim again), or its units would be held for another receipt or come back after the rest came.
+            if (($h['grn_id'] !== ($cur['grn_document_id'] === null ? null : (int) $cur['grn_document_id'])
+                || $h['invoice_id'] !== ($cur['invoice_document_id'] === null ? null : (int) $cur['invoice_document_id']))
+                && $this->db->value("SELECT 1 FROM invoice_arrival_rest WHERE kind = 'claim' AND document_id = ? LIMIT 1", [$id]) !== null) {
+                throw new CwException('claim_fixed', 'this claim of what did not come keeps its delivery and invoice: cancel it and claim again', 409);
+            }
             $doc = $this->docs->updateDraft($caller, $id, $version, $this->docHeader($h));
             $db->exec('UPDATE supplier_return SET grn_document_id = ?, invoice_document_id = ?, updated_at = ? WHERE document_id = ?',
                 [$h['grn_id'], $h['invoice_id'], $this->nowDb(), $id]);

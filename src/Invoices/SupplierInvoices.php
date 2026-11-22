@@ -1035,7 +1035,7 @@ final class SupplierInvoices
             // CW-1155 (RR9; the Codex check of a0d33a2, M4): the units still waited for are those the person saw (a claim cancelled meanwhile
             // releases more: they look again).
             $owedNow = ArrivalRest::owed($db, $id);
-            if ($owedKey !== null && !hash_equals(ArrivalRest::owedKey($db, $id), $owedKey)) {
+            if ($owedKey !== null && !hash_equals(ArrivalRest::owedKey($owedNow), $owedKey)) {
                 throw new CwException('match_changed', 'the units still waited for changed: review the current figures before accepting', 409);
             }
             $now = $this->nowDb();
@@ -1377,19 +1377,25 @@ final class SupplierInvoices
 
     /**
      * CW-1155 (docs/decisions.md RR13): the posted invoices that may still wait for the rest of their goods (a line counted on arrival whose
-     * first receipt line brought fewer than its invoice lines billed, or none of its item), any match state, at most LIST_LIMIT: a superset
-     * ArrivalRest::waiting() narrows. One grouped read of the received arrival rows.
+     * first receipt line brought fewer than its invoice lines billed, or none of its item), any match state, the newest REST_CANDIDATES: a
+     * superset ArrivalRest::waiting() narrows (settled ones drop out there, so the list's own limit applies after it). One grouped read.
      *
      * @return array<int, string> invoice id => its match state
      */
+    public const REST_CANDIDATES = 500;
+
     public function mayWaitForTheRest(): array
     {
         $out = [];
-        foreach ($this->db->all('SELECT x.sinv, si.match_state FROM (SELECT a.sinv_document_id AS sinv, a.grn_document_id, a.grn_line_no, SUM(a.units) AS units FROM invoice_arrival a '
+        // Less what the rows settled that count (posted rest, waivers, live claims): an invoice whose rest came or was given up drops out here.
+        foreach ($this->db->all('SELECT x.sinv, si.match_state FROM (SELECT a.sinv_document_id AS sinv, a.grn_document_id, a.grn_line_no, SUM(a.units) AS units, '
+            . "SUM((SELECT COALESCE(SUM(r.units), 0) FROM invoice_arrival_rest r LEFT JOIN document rd ON rd.id = r.document_id WHERE r.sinv_document_id = a.sinv_document_id "
+            . "AND r.line_no = a.line_no AND r.first_grn_document_id = a.grn_document_id AND (r.kind = 'waive' OR (r.kind = 'rest' AND rd.status = 'posted') "
+            . "OR (r.kind = 'claim' AND rd.status IN ('draft', 'awaiting_approval', 'posted'))))) AS settled FROM invoice_arrival a "
             . "WHERE a.state = 'received' GROUP BY a.sinv_document_id, a.grn_document_id, a.grn_line_no) x LEFT JOIN grn_line g ON g.document_id = x.grn_document_id "
             . "AND g.line_no = x.grn_line_no JOIN supplier_invoice si ON si.document_id = x.sinv JOIN document d ON d.id = x.sinv AND d.status = 'posted' "
-            . 'WHERE x.grn_line_no IS NULL OR x.units > COALESCE(g.accepted_units, 0) + COALESCE(g.verify_units, 0) + COALESCE(g.quarantine_units, 0) '
-            . 'GROUP BY x.sinv, si.match_state ORDER BY x.sinv LIMIT ' . self::LIST_LIMIT) as $r) {
+            . 'WHERE x.grn_line_no IS NULL AND x.units > x.settled OR x.units > COALESCE(g.accepted_units, 0) + COALESCE(g.verify_units, 0) + COALESCE(g.quarantine_units, 0) + x.settled '
+            . 'GROUP BY x.sinv, si.match_state ORDER BY x.sinv DESC LIMIT ' . self::REST_CANDIDATES) as $r) {
             $out[(int) $r['sinv']] = (string) $r['match_state'];
         }
         return $out;

@@ -49,7 +49,8 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         self::assertSame([0, 0], [$this->left($g->id), $this->left($r->id)], 'seven accepted, seven billed (it said 2 left on the rest)');
     }
 
-    public function testAPartTakenBackMovesTheBilledUnitsToTheOtherParts(): void
+    /** RR23: a part is billed for what it settled: taking one back moves nothing to another (and V7 holds). */
+    public function testAPartTakenBackMovesNothingToTheOtherParts(): void
     {
         ['desk' => $desk, 'supplier' => $s] = $this->people('Parts Move Ltd');
         $sku = self::makeSku('Parts move');
@@ -60,9 +61,9 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['credits_id' => $p->id]);
         $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 2, '1.0000');
         $this->postWithTotals($desk, $cn, '2.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
-        self::assertSame([0, 2], [$this->left($r1->id), $this->left($r2->id)], 'eight billed: six and the first part\'s two');
+        self::assertSame([0, 0], [$this->left($r1->id), $this->left($r2->id)], 'each part billed for what it settled');
         $this->docs->reverse($desk, $r1->id, 'entered_in_error', null);
-        self::assertSame(0, $this->left($r2->id), 'the billed two now the second part\'s');
+        self::assertSame(0, $this->left($r2->id), 'nothing moved');
         self::assertSame([], Invariants::check(self::$db), 'V7: stored as worked out');
     }
 
@@ -98,7 +99,8 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         self::assertSame([['line' => 1, 'units' => 2, 'amount' => '2.00']], $this->owed($p->id), 'three credited (two of them the claim\'s): two owed (it said three)');
     }
 
-    public function testAClaimWhoseDeliveryWasChangedReservesNothing(): void
+    /** The Codex checks of 3ae3345 and 6c78108 (RR23): a claim keeps its delivery and invoice (cancel it and claim again). */
+    public function testAClaimKeepsItsDeliveryAndInvoice(): void
     {
         ['desk' => $desk, 'supplier' => $s] = $this->people('Claim Moved Ltd');
         $sku = self::makeSku('Claim moved');
@@ -106,9 +108,40 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         $g = $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '5']]);
         $dn = $this->arrivals->claimMissing($desk, $g->id);
         self::assertSame([], $this->owed($p->id));
-        $this->returns->saveHeader($desk, $dn->id, $this->docs->get($dn->id)->version, ['grn_id' => null]);
-        self::assertSame([['line' => 1, 'units' => 5, 'amount' => '5.00']], $this->owed($p->id), 'no longer a claim of that receipt');
-        self::assertSame([], Invariants::check(self::$db), 'J5: no alarm for it');
+        $this->refusedCode('claim_fixed', fn () => $this->returns->saveHeader($desk, $dn->id, $this->docs->get($dn->id)->version, ['grn_id' => null]));
+        $this->refusedCode('claim_fixed', fn () => $this->returns->saveHeader($desk, $dn->id, $this->docs->get($dn->id)->version, ['invoice_id' => null]));
+        $this->returns->saveHeader($desk, $dn->id, $this->docs->get($dn->id)->version, ['note' => 'Asked by phone']);
+        self::assertSame([], $this->owed($p->id), 'still claimed');
+    }
+
+    /** The Codex check of 6c78108 (M): an earlier part's line that brought some of its own line is about that line only. */
+    public function testAPartsIncidentIsAboutItsOwnLineOnly(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('Own Line Incident Ltd');
+        $sku = self::makeSku('Own line incident');
+        $p = $this->finalInvoice($desk, (int) $s['id'], [[$sku, 4, 1, '2.0000'], [$sku, 3, 1, '5.0000']]);
+        $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '4'], 2 => ['short_units' => '3']]);
+        $r1 = $this->restReceipt($desk, $p->id, [1 => ['short_units' => '2'], 2 => ['short_units' => '3']]);
+        $r2 = $this->restReceipt($desk, $p->id, [2 => ['short_units' => '3']]);
+        self::assertSame([['line' => 2, 'units' => 3, 'amount' => '15.00']], $this->owed($p->id));
+        self::assertSame(['resolved', "The rest came on {$r2->number}."], $this->shortIncident($r1->id, 1), 'the £2 line came: its incident is done');
+        self::assertSame(['open', null], $this->shortIncident($r1->id, 2), 'the £5 line still waited for');
+    }
+
+    /** The Codex check of 6c78108 (LOW): J5 finds a fact naming a receipt of the rest taken back as the first receipt. */
+    public function testJ5FindsAFactNamingAReversedPartAsTheFirst(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('J5 Reversed Part Ltd');
+        $sku = self::makeSku('J5 reversed part');
+        $p = $this->finalInvoice($desk, (int) $s['id'], [[$sku, 5, 1, '1.0000']]);
+        $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '5']]);
+        $r = $this->restReceipt($desk, $p->id, [1 => ['short_units' => '5']]);
+        $this->docs->reverse($desk, $r->id, 'entered_in_error', null);
+        self::$db->exec("INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, units, created_actor, created_at) "
+            . "VALUES (?, 1, ?, 1, 'waive', 1, 'test', NOW(6))", [$p->id, $r->id]);
+        $v = implode("\n", Invariants::check(self::$db));
+        self::$db->exec("DELETE FROM invoice_arrival_rest WHERE created_actor = 'test'");
+        self::assertStringContainsString("J5 invoice {$p->id} line 1: its waive row", $v);
     }
 
     public function testAnAcceptanceWaivesTheLinesThePersonSaw(): void

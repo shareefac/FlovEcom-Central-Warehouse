@@ -56,7 +56,12 @@ final class ReceiveRestReviewR1Test extends ArrivalsTestCase
         self::assertSame([['line' => 1, 'units' => 4, 'amount' => '8.00']], $this->owed($p->id));
     }
 
-    public function testNotInvoicedYetSpendsTheBilledUnitsOnceOverTheParts(): void
+    /**
+     * RR23 (the lead's choice of a part billed for what it settled, the Codex checks of 3ae3345 and 6c78108): nothing moves between the first
+     * receipt and the parts; a credit of units given AFTER the rest came is billed against the first receipt only, so "Not invoiced yet" shows
+     * fewer than are left (the known limit of RR17: ten came, five billed, it shows 1, not 5).
+     */
+    public function testACreditAfterTheRestCameIsBilledAgainstTheFirstReceiptOnly(): void
     {
         ['desk' => $desk, 'supplier' => $s] = $this->people('Billed Once Ltd');
         $sku = self::makeSku('Billed once');
@@ -67,7 +72,7 @@ final class ReceiveRestReviewR1Test extends ArrivalsTestCase
         $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['credits_id' => $p->id]);
         $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 5, '1.0000');
         $this->postWithTotals($desk, $cn, '5.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
-        self::assertSame(5, (int) $this->left($g->id) + (int) $this->left($r->id), 'ten came, five are billed: five left to invoice (it said 1)');
+        self::assertSame([1, 0], [$this->left($g->id), $this->left($r->id)], 'the known limit (RR17): the part keeps what it settled');
     }
 
     public function testACreditNoteAnsweringAClaimIsCountedOnce(): void
