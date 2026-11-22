@@ -256,6 +256,11 @@ final class GoodsReceipts
                 $was = array_values($db->all('SELECT g.units_per_pack, g.pack_price, g.po_line_no, dl.sku_id FROM grn_line g JOIN document_line dl ON dl.document_id = g.document_id '
                     . 'AND dl.line_no = g.line_no WHERE g.document_id = ? ORDER BY g.line_no', [$id]));
                 $same = count($was) === count($norm);
+                // ... and a line's bench findings stay its own: a line naming another stored line (`line_no`) is refused (the Codex check of ee969fd)
+                foreach (array_values(is_array($lines) ? $lines : []) as $i => $in) {
+                    $hint = is_array($in) ? ($in['line_no'] ?? null) : null;
+                    $same = $same && ($hint === null || $hint === '' || (int) $hint === $i + 1);
+                }
                 foreach (array_values($norm) as $i => $n) {
                     $w = $was[$i] ?? null;
                     $same = $same && $w !== null && (int) $w['sku_id'] === (int) $n['doc']['sku_id'] && (int) $w['units_per_pack'] === (int) $n['grn']['units_per_pack']

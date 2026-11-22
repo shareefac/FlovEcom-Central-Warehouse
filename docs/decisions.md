@@ -19845,3 +19845,9 @@ what came. So a line cannot be swapped, re-priced and put back with its bench fi
 the record's shape now holds the order line too, and the posting still checks it (a backstop). (M, NOT changed) A credit of an owed line
 posted while its draft of the rest is open leaves the draft above what is owed: lower its packs, or cancel it and start again (the message
 says so); a line in packs of ten cannot say seven.
+
+**RR30. The Codex check of ee969fd (`cw_work/receive_rest_20261122/codex_r10.txt`, default model: HOLD, 1 HIGH, 3 MEDIUM).** (HIGH) The freeze also
+refuses a saved line that names another stored line (`line_no`), so the bench's findings of one line never move to the other. (M, NOT
+changed) A supplier item's pack changed in the catalogue while its draft of the rest is open makes the unchanged draft unsaveable: cancel
+it and start again. (M, NOT changed) The selling mode chosen on a receipt of the rest is Goods In's choice as on any receipt. (M, NOT real)
+Drafts made by a commit between two review rounds of this branch, never deployed: none exists outside the test databases.
