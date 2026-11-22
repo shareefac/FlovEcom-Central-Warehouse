@@ -115,9 +115,9 @@ final class GoodsReceipts
      *
      * @param array<string, mixed> $header
      */
-    public function createDraft(Caller $caller, int $supplierId, array $header = [], ?int $poId = null, bool $copyDown = false): Document
+    public function createDraft(Caller $caller, int $supplierId, array $header = [], ?int $poId = null, bool $copyDown = false, ?int $restOf = null): Document
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $supplierId, $header, $poId, $copyDown): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $supplierId, $header, $poId, $copyDown, $restOf): Document {
             $this->poster($caller);
             $h = $this->headerFields($header);
             unset($h['po_id'], $h['supplier_id']);
@@ -135,11 +135,12 @@ final class GoodsReceipts
             $now = Clock::db($this->now());
             $key = ReceiptMath::invoiceKey($h['invoice_number'] ?? null);
             // Pack PO (PO10): a number on another live receipt of the supplier is refused here, whatever part that one is.
-            $this->invoicePart($doc->id, $supplierId, $poId, $h['delivery_note'] ?? null, $key, null, 1, false, (string) ($h['invoice_number'] ?? ''));
+            // CW-1155 (docs/decisions.md RR4): the receipt of the rest of a CW invoice ($restOf, Arrivals::receiveRest) is its next part.
+            $part = $this->invoicePart($doc->id, $supplierId, $poId, $h['delivery_note'] ?? null, $key, null, 1, false, (string) ($h['invoice_number'] ?? ''), $restOf);
             try {
-                $db->exec('INSERT INTO goods_receipt (document_id, supplier_id, po_document_id, invoice_key, invoice_date, delivery_note, received_at, paper_sheet, '
-                    . 'backdate_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [$doc->id, $supplierId, $poId, $key === '' ? null : $key, $h['invoice_date'] ?? null, $h['delivery_note'] ?? null, $received,
+                $db->exec('INSERT INTO goods_receipt (document_id, supplier_id, po_document_id, invoice_key, invoice_part, invoice_date, delivery_note, received_at, paper_sheet, '
+                    . 'backdate_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [$doc->id, $supplierId, $poId, $key === '' ? null : $key, $part, $h['invoice_date'] ?? null, $h['delivery_note'] ?? null, $received,
                         ($h['paper_sheet'] ?? false) ? 1 : 0, $h['backdate_reason'] ?? null, $now, $now]);
             } catch (\PDOException $e) {
                 throw $this->duplicate($e, $supplierId, $key);
@@ -676,11 +677,14 @@ final class GoodsReceipts
                 $supplierId = (int) $db->value('SELECT supplier_id FROM goods_receipt WHERE document_id = ?', [$id]);
                 // Pack PO (PO10): the deliveries of one supplier invoice that covers several deliveries of an order share its copy.
                 $mine = (array) $db->one('SELECT invoice_key, po_document_id FROM goods_receipt WHERE document_id = ?', [$id]);
+                // CW-1155 (RR4): ... and the receipts made from one CW invoice (its first receipt and the receipts of its rest) share its copy.
                 $other = $db->one("SELECT d.id, d.number, d.status FROM document_file df JOIN goods_receipt g ON g.document_id = df.document_id AND g.supplier_id = ? "
                     . "JOIN document d ON d.id = df.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') WHERE df.file_id = ? AND df.role = 'supplier_invoice' "
-                    . 'AND df.document_id <> ? AND NOT (? IS NOT NULL AND ? IS NOT NULL AND g.invoice_key <=> ? AND g.po_document_id <=> ?) ORDER BY d.id LIMIT 1',
+                    . 'AND df.document_id <> ? AND NOT (? IS NOT NULL AND ? IS NOT NULL AND g.invoice_key <=> ? AND g.po_document_id <=> ?) '
+                    . 'AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice i1 JOIN goods_receipt_invoice i2 ON i2.sinv_document_id = i1.sinv_document_id '
+                    . 'WHERE i1.grn_document_id = ? AND i2.grn_document_id = df.document_id) ORDER BY d.id LIMIT 1',
                     [$supplierId, $stored['id'], $id, $mine['invoice_key'] ?? null, $mine['po_document_id'] ?? null, $mine['invoice_key'] ?? null,
-                        $mine['po_document_id'] ?? null]);
+                        $mine['po_document_id'] ?? null, $id]);
                 if ($other !== null) {
                     $label = $other['number'] ?? (str_replace('_', ' ', (string) $other['status']) . ' receipt #' . $other['id']);
                     throw new CwException('invoice_copy_elsewhere', "this file is already the supplier invoice of {$label}: a supplier's invoice is received once "
@@ -1431,7 +1435,7 @@ final class GoodsReceipts
      * the same part meet on the UNIQUE key (duplicate()).
      */
     private function invoicePart(int $self, int $supplierId, ?int $poId, ?string $deliveryNote, string $key, ?string $storedKey, int $storedPart, bool $split,
-        string $typed): int
+        string $typed, ?int $restOf = null): int
     {
         if ($key === '') {
             return 1;
@@ -1444,6 +1448,14 @@ final class GoodsReceipts
             . 'ORDER BY g.document_id FOR UPDATE', [$supplierId, $key, $self]);
         if ($others === []) {
             return 1;
+        }
+        // CW-1155 (docs/decisions.md RR4): the receipt of the rest of CW invoice $restOf shares its number with the receipts made from that same
+        // invoice (goods_receipt_invoice), and only with them: then it is the next part. Any other receipt with the number refuses as below.
+        if ($restOf !== null) {
+            $linked = array_map('intval', $this->db->column('SELECT grn_document_id FROM goods_receipt_invoice WHERE sinv_document_id = ?', [$restOf]));
+            if (array_filter($others, static fn (array $o): bool => !in_array((int) $o['document_id'], $linked, true)) === []) {
+                return max(array_map(static fn (array $o): int => (int) $o['invoice_part'], $others)) + 1;
+            }
         }
         $sameOrder = $poId !== null;
         $sameNote = false;

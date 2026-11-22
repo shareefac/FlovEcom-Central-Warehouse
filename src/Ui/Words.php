@@ -2874,6 +2874,7 @@ final class Words
         'arrivals.late_hours' => 'Late after (hours)',
         'arrivals.sell_before_default' => 'Sell before it arrives (suppliers without their own choice)',
         'arrivals.default_mode' => 'How invoices come in (suppliers without their own choice)',
+        'arrivals.rest_late_days' => 'Waiting for the rest: late after (days)', // CW-1155 (0076)
         // --- Pack RB (0046): the rollback file.
         'rollback.cw_warehouses' => 'Warehouses ERPNext\'s stock stands for',
         'rollback.erp_warehouse' => 'ERPNext warehouse of the rollback file',
@@ -4367,6 +4368,9 @@ final class Words
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         // --- Pack J (0041)
         'arrivals.late_hours' => 'An invoice\'s goods that have not arrived this many hours after it was made final show as late on Goods in › Arriving.',
+        // CW-1155 (0076)
+        'arrivals.rest_late_days' => 'An invoice still waiting for units that came short is marked late (in red) on Purchase invoices › To match, on the invoice and on its '
+            . 'receipt this many days after its first receipt was booked in.',
         'arrivals.sell_before_default' => 'On: the goods on a final invoice of a supplier without its own choice are sold on the websites before they arrive '
             . '(customers can order overnight; the orders go out when the goods land). Off: they are sold once received. Each supplier can choose on its page.',
         'arrivals.default_mode' => 'count: the goods are counted on arrival by Goods in (they wait in Arriving). received: they are booked as received the moment '

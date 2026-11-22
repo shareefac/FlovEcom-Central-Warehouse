@@ -19596,3 +19596,124 @@ on an unset variable after the switch, with no STOPPED line); the paused cron fi
 (`date` failing or odd: STOPPED, the marker left; it gave a name with no time and DONE); (LOW) a test that the sign-in page's 200 counts
 only when curl itself succeeded. Not code (LOW, known limits): the connector trims a NUL before CW's list (CW's list still refuses what is
 not on it); the release walk does not follow directory links (known limit 49).
+
+## CW-1155 "Receive the rest": the rest of a short line received on the same invoice (branch `receive-rest`, 22 Nov 2026; RR1-RR20; migration 0076)
+
+<!-- ---- CW-1155 (0076): RR1-RR20. ---- -->
+The owner's words (22 Nov 2026, the CW chat): "until on goods received we keep it the same way as it is now. all stores take the 5 out as well.
+then it just stays on accept the difference section. then when the rest actually comes we should be able to add it on the same invoice and on
+booking it give the shops back that number to sell again ... if [the supplier says] it is not going to come ... then we do like what we do
+today like file a missing, credit note whatever it is." The real case: SINV-000632 line 19 (5 x CW-004020 at £1.00) booked 0 of 5 on
+GRN-000026. Plans: `cw_work/receive_rest_20261122/PLAN_fable.md` (built, flows B1-B6, same item only) and `PLAN_astra.md`; the lead's ten
+decisions in `BRIEF_BUILD.md` win where they differ. Code: `src/Arrivals/ArrivalRest.php` (new); changed `Arrivals`, `ArrivalBooking`,
+`ArrivalInvariants`, `Invoices/{InvoiceMatch, SupplierInvoices, SupplierInvoiceHandler}`, `Receiving/{GoodsReceipts, GoodsReceiptHandler,
+ReceiptPlan}`, `Profit/CostEngine` (one lookup), the receipt, invoice and To match screens, one marked block each in `Words`, `Settings`, `Grants`.
+
+**RR1. One append-only table of facts, `invoice_arrival_rest` (0076).** Per invoice line counted on arrival whose first receipt (the one its
+arrival row names) did not bring all of it: one row per later fact with its units: `rest` (a later receipt line of the same item brought them;
+written by that receipt's posting; counts while it is posted), `claim` (claimed from the supplier by "Claim what did not come"; counts while
+the claim is draft, waiting or posted), `waive` (a person accepted the invoice's difference while they were waited for; counts for good).
+Every row names the first receipt (and its line) it is about: rows of a first receipt taken back count no more. Never changed or removed
+(Grants: SELECT, INSERT); a cancellation or reversal changes the documents' status and every reader counts by it. No FK on the first receipt
+(a receipt of the rest is posted without that row's lock: an FK check would S-lock it and meet a claim holding it, a deadlock seen in
+ReceiveRestRaceTest; J5 checks it). The arrival rows are NEVER reopened: `open` means Incoming, and owed units are never sellable (the owner's rule).
+
+**RR2. "Still owed" is derived, never stored (the lead's decision 1).** owed = line units - units credited on the line (posted credit notes)
+- what the first receipt brought (accepted + set aside + quarantined, a receipt line shared by two invoice lines given to them in line order,
+Arrivals::missingOf's rule) - posted `rest` - live `claim` - `waive`, never below 0 (`ArrivalRest::lines`). A live claim of the first receipt
+with no rows (made before 0076, or by hand) claims everything. "What did not come" (the claim) is the same without the claims: ONE rule for
+the claim and the rest, so a claim never claims what came later, was credited or given up. So SINV-000632 shows "Waiting for the rest: 5
+(£5.00)" the moment the code is live, no data fix.
+
+**RR3. "Receive the rest" (`Arrivals::receiveRest`, doc.GRN.post).** A draft receipt of only the owed units, from the SAME invoice: its
+supplier number as the next part (RR4), its date, its order when every owed line comes from one still receivable (against the same order
+line: the order fills up), one line per owed invoice line (the line's packs and pack price when the owed units are whole packs, else single
+units at its unit price, 4 decimals), the invoice's copy, the link goods_receipt_invoice (auto 0), audit `arrival.receive_rest`. A live
+receipt made from the invoice already: that one (pressed twice, two people at once: the same draft). 409 `claimed` when what is missing is
+claimed, 409 `nothing_owed`. The person lands on the normal receipt page: bench, stamp, post as any receipt.
+
+**RR4. The duplicate-invoice guards widened for this proven link only.** A supplier invoice number is on one live receipt (PO10, I171):
+`GoodsReceipts::invoicePart` (with `$restOf`), `ReceiptPlan` `invoice_shared` and `invoice_copy_elsewhere`, and `GoodsReceipts::attach`
+let the receipts made from ONE CW invoice (both in goods_receipt_invoice with the same invoice) share its number and its copy; every other
+receipt is refused as before (tested: a receipt keyed by hand with the number, the copy on an unrelated receipt).
+
+**RR5. Posting a receipt of the rest (ArrivalBooking::receiptPosted, a new branch where it returned early).** A receipt made from an invoice
+with no open arrival row and rows received by another receipt is a receipt of the rest. Under the invoice's arrival rows' lock: every line's
+item is owed and the units on the paperwork per item are at most what is owed, else 422 `not_owed` (or 409 `claimed` when it was claimed;
+the receipt page lists the same as problems before posting: `ArrivalRest::problems` in ReceiptPlan); each line's units that came (accepted +
+set aside + quarantined) are given to the owed invoice lines of its item in line order, at most what each is owed, as `rest` rows; audit
+`arrival.rest_received`; the invoice's match is worked out again and the receipt's "not invoiced yet" stored (0). NO movement of Incoming
+(the owed units were never there): the receipt's own goods_in puts what came on hand in MAIN and its selling mode puts the item back on sale
+(an ordinary receipt for the shops' stock feed). Part arrivals: what did not come stays owed (its own short incident too).
+
+**RR6. The match and "Not invoiced yet".** InvoiceMatch::compute: a received line is "there" also in what posted rest rows brought (each
+rest receipt line's accepted units less returned and billed elsewhere, given to its rows in order); receiptFacts: a rest receipt line is
+billed by its invoice (its rows' units, at most what the line bills net of credits) so it has nothing left to invoice; invoicesOnReceipts and
+SupplierInvoiceHandler::receiptIds know the rest receipts (locks of an acceptance or a credit note, and a reversal's refresh). With no rows
+(every invoice on day one) every figure is what it was; V4 and V7 work them out with the same functions.
+
+**RR7. The short incident.** When nothing is owed any more for every invoice line a short incident's receipt line is about (the first
+receipt's line, and each rest receipt's line that brought some), the posting of the rest resolves it: "The rest came on GRN-x.", resolved
+by the poster, audit `incident.rest_resolved` (auto). A part arrival leaves it open. A rest receipt taken back opens again every incident the
+rest resolved by itself (its last close is `incident.rest_resolved`) whose lines are owed again (audit `incident.rest_reopened`); a person's
+own resolution stays.
+
+**RR8. A claim and the rest exclude each other (the lead's decision 4).** claimMissing: refused 409 `rest_being_received` while a draft of the
+rest is live; it writes one `claim` row per line it claims (its units), so those units are not waited for while it is live; cancelling or
+taking back the claim releases them. receiveRest offers only units not claimed (409 `claimed` when nothing else is owed); the posting
+checks again under the arrival rows' lock.
+
+**RR9. Accepting the difference while units are waited for (the lead's decision 3).** Allowed (invoices.accept, the note, the fingerprint);
+in the same transaction a `waive` row per owed line with exactly its units: we stop waiting (the reminder goes), for good (a later match that
+drops the acceptance does not bring them back). Units owed again later (a part of the rest taken back) can still be received. Refused
+409 `rest_being_received` while a draft of the rest is live (book it in or cancel it first: the waiver would take units the draft brings).
+
+**RR10. The rest taken back.** Its stock negated as any receipt; its rows count no more (owed again); the incidents as RR7; the invoice's match
+worked out again (InvoiceMatch::afterReceiptReversed through invoicesOnReceipts). Nothing goes to Incoming.
+
+**RR11. The first receipt is not taken back while a receipt of the rest stands** (posted, or a draft): 409 `rest_received` "GRN-y took in the
+rest of this invoice: cancel that receipt first", read before anything of the reversal is written. Without it the arrival rows would reopen
+(units on their way again) while the rest is on hand: double stock.
+
+**RR12. Locks (no cycle).** receiveRest, claimMissing and SupplierInvoices::accept take the invoice's document row first, then the first
+receipt's (accept: the receipts, lockReceipts), then (claim, accept) the invoice's arrival rows, then supplier_invoice rows: one of them at a
+time per invoice. A receipt's posting takes its own rows, its order's, then the arrival rows, then other receipts' incidents, then
+supplier_invoice; a receipt's reversal now takes the arrival rows after its order's rows and before its incidents (`ArrivalBooking::lockFor`)
+so a reversal and a posting of the rest wait in one order. ReceiveRestRaceTest: two receiveRest (one draft), receiveRest against a claim
+(exactly one), the posting of the rest against a claim, an acceptance and the first receipt's reversal (the posting books, the other is
+refused), held and at the same moment, no deadlock.
+
+**RR13. The screens (plain words; Words::REST).** Purchases › To match: under the match pill "Waiting for the rest: 5 (£5.00)" and "3 days
+waiting" / "Late · 15 days waiting" (red from arrivals.rest_late_days). The invoice page: the same line, per owed line, "Receive the rest"
+(doc.GRN.post) and the receipts of the rest ("Received on GRN-…: 3"). The first receipt's page ("What did not come"): the same, "Receive the
+rest" beside "Claim what did not come". A receipt of the rest: "This receipt takes in the rest of SINV-… (first part: GRN-…)". Every POST
+carries the CSRF token; the service checks the person again. No e-mail, no badge, no Arriving-board group (cheaper: cut first by the plan).
+
+**RR14. The buying price (the lead's decision 7).** CostEngine::invoiceLineOf: a receipt with `rest` rows takes the invoice lines its rows
+name, each at most the units the row settled (receiptBasis), never the n-th line of the item; the existing lookup stays for every other
+receipt. One item on two invoice lines at two prices, only the second short: the rest comes at the second's landed price (it gave the first's:
+ReceiveRestCostTest, red first). Each part is its own FIFO layer at that price (£1.00 in the real case); taken back, it leaves at that price.
+
+**RR15. The nightly checks.** J5: every row is about a first receipt made from that invoice; a `rest` row names a line of another receipt of
+the same invoice, supplier and item; a `claim` row a return about that first receipt and invoice. J6: per invoice line, posted rest + live
+claims + waivers of its first receipt never exceed what that receipt did not bring (the newest 2000 invoices with rows). J1-J4, G1-G8,
+V1-V8 unchanged and holding.
+
+**RR16. The reminder, `arrivals.rest_late_days` (14, 1-365, provisional; the lead's decision 6).** Days waiting = UK calendar days since the
+first receipt was posted; late from that many days.
+
+**RR17. Known limits (for the owner).** A credit note line credits units in the match's eyes: a PRICE credit typed as units on an owed line
+lowers what is waited for (as the match bills it). Claim rows say what was claimed when it was made (a claim's lines edited by hand later are
+not read). A part arrival with a price credit of that line given between the parts: the credit reaches the units already here (CostEngine's
+rule for any credit); the rest comes at the uncredited landed price. "Over" units on a rest receipt go to VERIFY as on any receipt.
+
+**RR18. Not in this build: a replacement (another item instead).** The seam: `kind` gains 'replacement' at the END of its ENUM (instant), a
+draft-time link of the replacing line, `ArrivalRest::posted` takes declared replacements, CostEngine prices them at their own typed price.
+
+**RR19. Not changed.** The first receipt's posting (same stock, incident, match), Goods In's Receive, the bench, the stamp rules, book as
+received, the receipt's posting order (the arrival step 5b before the stock), the shops' stock feed.
+
+**RR20. Go-live and rollback.** 0076: one CREATE TABLE IF NOT EXISTS + one setting with its baseline (seconds; nothing locked), Grants, the
+release. Rollback: the release symlink back; the empty table and setting stay. Once a receipt of the rest is posted, the old code shows its
+invoice as "needs review" and the receipt in "Not invoiced yet" and the nightly V4 / V7 report them (no stock is wrong): take the rest
+receipt back under the new code first, or fix forward. Before any rollback: `SELECT COUNT(*) FROM invoice_arrival_rest`.

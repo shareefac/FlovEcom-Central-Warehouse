@@ -609,6 +609,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             foreach ($db->column('SELECT DISTINCT grn_document_id FROM invoice_arrival WHERE sinv_document_id = ? AND grn_document_id IS NOT NULL', [$d]) as $g) {
                 $ids[(int) $g] = true;
             }
+            // CW-1155 (docs/decisions.md RR6): the receipts that took in the rest of its goods.
+            foreach ($db->column("SELECT DISTINCT document_id FROM invoice_arrival_rest WHERE sinv_document_id = ? AND kind = 'rest'", [$d]) as $g) {
+                $ids[(int) $g] = true;
+            }
         }
         $out = array_keys($ids);
         sort($out);

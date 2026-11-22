@@ -100,8 +100,8 @@ final class Migration0041Test extends IntegrationTestCase
     public function testTheSettings(): void
     {
         $s = [];
-        foreach (self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting WHERE setting_key LIKE 'arrivals.%' "
-            . 'ORDER BY setting_key') as $r) {
+        foreach (self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting WHERE setting_key IN "
+            . "('arrivals.default_mode', 'arrivals.late_hours', 'arrivals.sell_before_default') ORDER BY setting_key") as $r) {
             $s[(string) $r['setting_key']] = [$r['value_type'], $r['v'], (int) $r['provisional'], $r['decision']];
         }
         self::assertSame([
@@ -114,7 +114,7 @@ final class Migration0041Test extends IntegrationTestCase
         self::assertSame(['in' => ['count', 'received']], Settings::RULES['arrivals.default_mode']);
         self::assertSame(['min' => 1, 'max' => 720], Settings::RULES['arrivals.late_hours']);
         self::assertSame(3, (int) self::$db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND action = 'baseline' AND version = 1 "
-            . "AND actor = 'system:migrate' AND subject_key LIKE 'arrivals.%'"));
+            . "AND actor = 'system:migrate' AND subject_key IN ('arrivals.default_mode', 'arrivals.late_hours', 'arrivals.sell_before_default')"));
         self::assertSame([], ConfigInvariants::check(self::$db), 'K1-K4: the new rows have their history');
     }
 }

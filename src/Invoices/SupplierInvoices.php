@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Invoices;
 
+use CW\Arrivals\ArrivalRest;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
@@ -1014,6 +1015,14 @@ final class SupplierInvoices
             }
             $grns = SupplierInvoiceHandler::receiptIds($db, $id);
             $this->match->lockReceipts($grns);
+            // CW-1155 (docs/decisions.md RR9, RR12): its goods' arrival rows before its supplier_invoice row (a receipt's posting takes them in this
+            // order): what it still waits for is read under them, and a receipt of the rest being booked in is finished or cancelled first.
+            $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [$id]);
+            $restDraft = ArrivalRest::liveRestReceipt($db, $id);
+            if ($restDraft !== null) {
+                $label = $this->docs->get($restDraft)->label();
+                throw new CwException('rest_being_received', "{$label} is taking in the rest of this invoice. Book it in or cancel it first.", 409, ['receipt' => $restDraft]);
+            }
             $db->one('SELECT document_id FROM supplier_invoice WHERE document_id = ? FOR UPDATE', [$id]);
             $m = $this->match->compute($id);
             if ($m['state'] !== 'needs_review') {
@@ -1028,8 +1037,18 @@ final class SupplierInvoices
                 . 'accepted_fingerprint = ?, updated_at = ? WHERE document_id = ?', [$caller->staffUserId, $caller->actor, $now, $note, $m['lines_off'],
                     InvoiceMath::fromE2($m['difference_e2']), InvoiceMatch::fingerprint($m), $now, $id]);
             $this->match->refresh([$id], $now);
+            // CW-1155 (RR9): accepting the difference while units are still waited for stops waiting for exactly those units, for good (a later
+            // match that drops the acceptance does not bring them back).
+            $waived = [];
+            foreach (ArrivalRest::owed($db, $id) as $o) {
+                $db->exec('INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, document_id, document_line_no, units, '
+                    . "created_by, created_actor, created_at) VALUES (?, ?, ?, ?, 'waive', NULL, NULL, ?, ?, ?, ?)",
+                    [$id, $o['line_no'], $o['first_grn'], $o['first_grn_line'], $o['units'], $caller->staffUserId, $caller->actor, $now]);
+                $waived[] = ['line' => $o['line_no'], 'sku' => $o['code'], 'units' => $o['units']];
+            }
             Audit::write($db, $caller, 'invoice.accept', 'document', (string) $id, null, ['number' => $doc['number'], 'lines_off' => $m['lines_off'],
-                'difference' => InvoiceMath::fromE2($m['difference_e2']), 'note' => $note] + ($switch['evidence'] === null ? [] : ['rule_evidence' => $switch['evidence']]));
+                'difference' => InvoiceMath::fromE2($m['difference_e2']), 'note' => $note] + ($switch['evidence'] === null ? [] : ['rule_evidence' => $switch['evidence']])
+                + ($waived === [] ? [] : ['stopped_waiting' => $waived]));
             return $this->docs->get($id);
         });
     }

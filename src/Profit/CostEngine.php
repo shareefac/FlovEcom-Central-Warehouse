@@ -711,7 +711,8 @@ final class CostEngine
      * receipt: the n-th line of the item on the receipt is the n-th goods line of the item on the invoice (the receipt is made line for line
      * from it; a line left over shares the item's last line, as ArrivalBooking gives them).
      *
-     * @return array{0: int, 1: non-empty-list<int>}|null [invoice document id, its lines this receipt line received]
+     * @return array{0: int, 1: non-empty-list<int>, 2?: array<int, int>}|null [invoice document id, its lines this receipt line received, and for a
+     *         receipt of the rest the units of each it settled]
      */
     private function invoiceLineOf(int $grn, int $line, int $sku, string $at): ?array
     {
@@ -719,6 +720,22 @@ final class CostEngine
             . "AND d.status IN ('posted', 'reversed') AND d.posted_at <= ? WHERE g.grn_document_id = ?", [$at, $grn]);
         if ($inv === null || $this->isCopy((int) $inv['id'])) {
             return null;
+        }
+        // CW-1155 (docs/decisions.md RR14): a receipt of the REST of an invoice takes the invoice lines its rows name (written by its posting,
+        // never changed), each at most the units the row settled: never the n-th line of the item (two lines of one item at two prices, only
+        // the second owed: the second's price). A line of it no row names brought nothing of the invoice: its own price.
+        $rest = $this->db->all("SELECT line_no, units, document_line_no FROM invoice_arrival_rest WHERE kind = 'rest' AND document_id = ? AND sinv_document_id = ? "
+            . 'ORDER BY line_no, id', [$grn, (int) $inv['id']]);
+        if ($rest !== []) {
+            $got = [];
+            $caps = [];
+            foreach ($rest as $r) {
+                if ((int) $r['document_line_no'] === $line) {
+                    $got[] = (int) $r['line_no'];
+                    $caps[(int) $r['line_no']] = ($caps[(int) $r['line_no']] ?? 0) + (int) $r['units'];
+                }
+            }
+            return $got === [] ? null : [(int) $inv['id'], array_values(array_unique($got)), $caps];
         }
         $mine = array_map('intval', $this->db->column('SELECT line_no FROM document_line WHERE document_id = ? AND sku_id = ? ORDER BY line_no', [$grn, $sku]));
         // Only the invoice's lines that were on their way (an arrival row was made for each when the invoice was made final, and is never
@@ -774,7 +791,7 @@ final class CostEngine
             if (!isset($landed[$no]) || $left <= 0) {
                 continue;
             }
-            $take = min($landed[$no][1], $left);
+            $take = min($landed[$no][1], $inv[2][$no] ?? PHP_INT_MAX, $left);
             $left -= $take;
             $lines[$no] = ['take' => $take, 'units' => $landed[$no][1], 'landed' => $landed[$no][0], 'credits' => $this->deferredCredits($inv[0], $no, $sku, $at)];
         }

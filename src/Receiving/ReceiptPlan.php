@@ -132,9 +132,11 @@ final class ReceiptPlan
                 . 'Attach the right invoice, or cancel one of the two receipts.');
         }
         // --- Pack PO (PO10): an invoice shared by deliveries is shared by deliveries of ONE order (kept by GoodsReceipts; checked again here).
-        if ($gr['invoice_key'] !== null && $db->value('SELECT 1 FROM goods_receipt WHERE supplier_id = ? AND invoice_key = ? AND document_id <> ? '
-            . 'AND (? IS NULL OR po_document_id IS NULL OR po_document_id <> ?) LIMIT 1',
-            [(int) $gr['supplier_id'], $gr['invoice_key'], $documentId, $gr['po_document_id'], $gr['po_document_id']]) !== null) {
+        // CW-1155 (docs/decisions.md RR4): ... or by the receipts made from one CW invoice (its first receipt and the receipts of its rest).
+        if ($gr['invoice_key'] !== null && $db->value('SELECT 1 FROM goods_receipt g WHERE g.supplier_id = ? AND g.invoice_key = ? AND g.document_id <> ? '
+            . 'AND (? IS NULL OR g.po_document_id IS NULL OR g.po_document_id <> ?) AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice i1 JOIN goods_receipt_invoice i2 '
+            . 'ON i2.sinv_document_id = i1.sinv_document_id WHERE i1.grn_document_id = ? AND i2.grn_document_id = g.document_id) LIMIT 1',
+            [(int) $gr['supplier_id'], $gr['invoice_key'], $documentId, $gr['po_document_id'], $gr['po_document_id'], $documentId]) !== null) {
             $add('invoice_shared', 'This supplier invoice is also on a delivery of another order: one invoice is shared only by deliveries of the same order. '
                 . 'Correct the invoice number of one of them.');
         }
@@ -371,6 +373,14 @@ final class ReceiptPlan
             $warnings[] = "{$code}: nothing of it is accepted into MAIN, so its selling mode stays " . ($m['current']['mode'] ?? 'as it is')
                 . ' (a receipt sets the mode only of what it accepts).';
         }
+        // CW-1155 (docs/decisions.md RR5): a receipt of the rest of an invoice takes in only what that invoice still waits for (the posting checks
+        // it again under the arrival rows' lock).
+        foreach (\CW\Arrivals\ArrivalRest::problems($db, $documentId, $out) as $p) {
+            $add($p['code'], $p['message'], $p['line'] ?? null);
+            if (isset($p['line'], $out[$p['line']])) {
+                $out[$p['line']]['problems'][] = $p['message'];
+            }
+        }
         // The over-delivery tolerance per PO line (po.over_delivery_tolerance_pct, I52), over every line of this receipt on it.
         foreach ($byPoLine as $poNo => $parts) {
             $pl = $poLines[$poNo];
@@ -465,6 +475,9 @@ final class ReceiptPlan
             . 'JOIN goods_receipt mg ON mg.document_id = mine.document_id '
             . "WHERE mine.document_id = ? AND mine.role = 'supplier_invoice' "
             . 'AND NOT (mg.invoice_key IS NOT NULL AND mg.po_document_id IS NOT NULL AND g.invoice_key <=> mg.invoice_key AND g.po_document_id <=> mg.po_document_id) '
+            // CW-1155 (docs/decisions.md RR4): the receipts made from one CW invoice (its first receipt and the receipts of its rest) share its copy.
+            . 'AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice i1 JOIN goods_receipt_invoice i2 ON i2.sinv_document_id = i1.sinv_document_id '
+            . 'WHERE i1.grn_document_id = mine.document_id AND i2.grn_document_id = df.document_id) '
             . 'ORDER BY d.id LIMIT 5', [$supplierId, $documentId]) as $r) {
             $out[] = ['label' => $r['number'] ?? (str_replace('_', ' ', (string) $r['status']) . ' receipt #' . $r['id']), 'name' => (string) $r['original_name']];
         }

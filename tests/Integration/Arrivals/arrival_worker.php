@@ -15,6 +15,11 @@ declare(strict_types=1);
  *  post_invoice  SupplierInvoices::submit (the invoice made final: "count on arrival" books its units into Incoming)
  *  post_receipt  GoodsReceipts::post (a receipt made from an invoice: Incoming to on hand, the missing units out)
  *  reserve       Reservations::reserve as the site (a checkout hold: refused under the strict policy when short)
+ * CW-1155 (ReceiveRestRaceTest):
+ *  receive_rest  Arrivals::receiveRest (the draft receipt of the rest of invoice document_id)
+ *  claim         Arrivals::claimMissing (the claim of what receipt document_id did not bring)
+ *  accept        SupplierInvoices::accept (invoice document_id, with the fingerprint of its match now)
+ *  reverse       Documents::reverse (document_id, entered in error)
  */
 
 use CW\Caller;
@@ -59,6 +64,11 @@ try {
             'post_receipt' => ['id' => (new GoodsReceipts($db, $docs))->post(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], (int) $job['version'])->id],
             'reserve' => ['op' => $res->reserve(Caller::channel((int) $job['channel_id'], (string) $job['channel_code']), (string) $job['order_ref'], $job['lines'],
                 (string) $job['key'])],
+            'receive_rest' => ['id' => (new \CW\Arrivals\Arrivals($db, $docs))->receiveRest(Caller::staff((int) $job['staff_id']), (int) $job['document_id'])->id],
+            'claim' => ['id' => (new \CW\Arrivals\Arrivals($db, $docs))->claimMissing(Caller::staff((int) $job['staff_id']), (int) $job['document_id'])->id],
+            'accept' => ['id' => (new SupplierInvoices($db, $docs))->accept(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], 'Accepted in a race',
+                \CW\Invoices\InvoiceMatch::fingerprint((new \CW\Invoices\InvoiceMatch($db))->compute((int) $job['document_id'])))->id],
+            'reverse' => ['id' => $docs->reverse(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], 'entered_in_error', null)->id],
             default => throw new \InvalidArgumentException('unknown op'),
         };
     };
