@@ -249,10 +249,21 @@ final class GoodsReceipts
                 throw new CwException('backdate_reason_required', 'a receipt keyed from a paper receiving sheet says why (CW was down, ...): fill in the reason', 422,
                     ['field' => 'backdate_reason']);
             }
+            // CW-1155 (docs/decisions.md RR32): the lines of a receipt of the rest keep their pack prices (the invoice's): a price typed (or sent by
+            // someone who does not read money) is not taken, so no save answers whether it matched the hidden one.
+            $restLines = $hasLines && \CW\Arrivals\ArrivalRest::restOf($db, $id) !== null;
+            if ($restLines && is_array($lines)) {
+                $prices = array_map('strval', $db->column('SELECT pack_price FROM grn_line WHERE document_id = ? ORDER BY line_no', [$id]));
+                foreach (array_values($lines) as $i => $in) {
+                    if (is_array($in) && isset($prices[$i])) {
+                        $lines[array_keys($lines)[$i]]['pack_price'] = $prices[$i];
+                    }
+                }
+            }
             $norm = $this->normaliseLines($id, $supplierId, $poId, $lines);
             // CW-1155 (docs/decisions.md RR29): a receipt of the rest keeps the lines it was made with, one per invoice line still waited for (the
             // item, units per pack, pack price and order line of each, in order); only the packs counted change. The bench says what came.
-            if ($hasLines && \CW\Arrivals\ArrivalRest::restOf($db, $id) !== null) {
+            if ($restLines) {
                 $was = array_values($db->all('SELECT g.units_per_pack, g.pack_price, g.po_line_no, dl.sku_id FROM grn_line g JOIN document_line dl ON dl.document_id = g.document_id '
                     . 'AND dl.line_no = g.line_no WHERE g.document_id = ? ORDER BY g.line_no', [$id]));
                 $same = count($was) === count($norm);

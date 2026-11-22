@@ -88,14 +88,19 @@ final class ArrivalsController
         try {
             $grn = self::service($ctx)->receiveRest($ctx->caller(), $id);
         } catch (CwException $e) {
+            // The page it was pressed on again, only for someone who may see it (RR32: receiving.view for a receipt and Arriving, invoices.view
+            // for the invoice: never a page or its money to someone else, the Codex checks of 3ae3345 H1 and of 2db71ed b-H5).
             $from = UiRequest::id($ctx->req->field('from_grn'));
-            if ($from !== null) {
+            if ($from !== null && $ctx->me()->can('receiving.view')) {
                 return (new ReceivingController())->page($ctx, $from, $e->httpStatus, $e);
             }
-            if (!$ctx->me()->can('invoices.view')) {
-                return $this->arriving($ctx, $e->httpStatus, $e); // never the invoice (its money) to someone who does not read invoices (the Codex check of 3ae3345, H1)
+            if ($ctx->me()->can('invoices.view')) {
+                return (new InvoicesController())->page($ctx, 'invoice', $id, $e->httpStatus, $e);
             }
-            return (new InvoicesController())->page($ctx, 'invoice', $id, $e->httpStatus, $e);
+            if ($ctx->me()->can('receiving.view')) {
+                return $this->arriving($ctx, $e->httpStatus, $e);
+            }
+            return $ctx->error($e->httpStatus, $e->errorCode, InvoicesController::plain($e));
         }
         return HtmlResponse::redirect(Html::url('/ui/receiving/' . $grn->id, ['notice' => 'rest_from_invoice']));
     }

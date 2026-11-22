@@ -273,6 +273,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         $match->refresh($refresh, $now);
         $match->storeReceipts($grns, $now);
+        if ($credited !== null) {
+            // CW-1155 (RR32): the credit cancelled, its units are owed again: a short incident the rest resolved by itself is open again.
+            \CW\Arrivals\ArrivalRest::reopenWaited($db, $credited, (string) $reversal->number, $caller);
+        }
         Audit::write($db, $caller, $this->docType === 'SINV' ? 'invoice.reverse' : 'credit_note.reverse', 'document', (string) $original->id, $opKey . ':inv',
             ['number' => $original->number, 'reversed_by' => $reversal->number, 'reason' => $reversal->reasonCode, 'value_events_negated' => $n]);
     }

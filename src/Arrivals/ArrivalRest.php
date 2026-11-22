@@ -288,8 +288,7 @@ final class ArrivalRest
             // the same item, units per pack and pack price as when it was made (only the packs counted change: the Codex check of 60a32c2)
             $was = $shape[$no] ?? null;
             $same = $same && isset($all[$map[$no]]) && $all[$map[$no]]['sku_id'] === (int) $l['sku_id'] && $was !== null && $was[0] === (int) $l['sku_id']
-                && $was[1] === (int) $l['units_per_pack'] && \CW\PurchaseOrders\PoMath::e4($was[2]) === \CW\PurchaseOrders\PoMath::e4((string) $l['pack_price'])
-                && $was[3] === (int) ($l['po_line_no'] ?? 0);
+                && $was[1] === (int) $l['units_per_pack'] && $was[2] === (int) ($l['po_line_no'] ?? 0);
         }
         if (!$same) {
             $out[] = ['code' => 'rest_lines_changed', 'message' => "A receipt of the rest of {$number} has one line per invoice line still waited for: put its lines back "
@@ -326,14 +325,14 @@ final class ArrivalRest
         return $nos === [] ? null : array_combine(range(1, count($nos)), $nos);
     }
 
-    /** @return array<int, array{0: int, 1: int, 2: string, 3: int}> receipt line => [item, units per pack, pack price, order line] as the draft was made */
+    /** @return array<int, array{0: int, 1: int, 2: int}> receipt line => [item, units per pack, order line] as the draft was made (RR32: no price) */
     private static function draftShape(Db $db, int $grnId): array
     {
         $j = self::draftRecord($db, $grnId);
         $out = [];
         foreach (is_array($j) && is_array($j['shape'] ?? null) ? array_values($j['shape']) : [] as $i => $x) {
-            if (is_array($x) && count($x) === 4) {
-                $out[$i + 1] = [(int) $x[0], (int) $x[1], (string) $x[2], (int) $x[3]];
+            if (is_array($x) && count($x) === 3) {
+                $out[$i + 1] = [(int) $x[0], (int) $x[1], (int) $x[2]];
             }
         }
         return $out;
@@ -399,21 +398,31 @@ final class ArrivalRest
         $invoices = array_map('intval', $db->column("SELECT DISTINCT sinv_document_id FROM invoice_arrival_rest WHERE kind = 'rest' AND document_id = ? ORDER BY sinv_document_id",
             [$original->id]));
         foreach ($invoices as $inv) {
-            $lines = self::lines($db, $inv);
-            foreach (self::incidentsOf($db, $inv, $lines, 'resolved') as $i) {
-                if (array_filter($i['lines'], static fn (int $no): bool => ($lines[$no]['owed'] ?? 0) > 0) === []) {
-                    continue;
-                }
-                $last = $db->value("SELECT action FROM audit_log WHERE entity_type = 'incident' AND entity_id = ? AND action IN ('incident.resolve', 'incident.rest_resolved', "
-                    . "'incident.rest_reopened') ORDER BY id DESC LIMIT 1", [(string) $i['id']]);
-                if ($last !== 'incident.rest_resolved') {
-                    continue; // a person closed it: theirs
-                }
-                $db->exec("UPDATE incident SET status = 'open', resolution = NULL, resolved_by = NULL, resolved_actor = NULL, resolved_at = NULL WHERE id = ? AND status = 'resolved'",
-                    [$i['id']]);
-                Audit::write($db, $caller, 'incident.rest_reopened', 'incident', (string) $i['id'], null, ['receipt' => (string) $original->number,
-                    'document_id' => $i['document_id'], 'line_no' => $i['line_no'], 'invoice' => $inv]);
+            self::reopenWaited($db, $inv, (string) $original->number, $caller);
+        }
+    }
+
+    /**
+     * A short incident the rest resolved by itself is open again when its lines are owed again (a receipt of the rest taken back, RR10; a credit
+     * of the line cancelled, RR32), with an audit row naming what was taken back; a person's own resolution stays theirs. The invoice's arrival
+     * rows are held by the caller.
+     */
+    public static function reopenWaited(Db $db, int $inv, string $because, Caller $caller): void
+    {
+        $lines = self::lines($db, $inv);
+        foreach (self::incidentsOf($db, $inv, $lines, 'resolved') as $i) {
+            if (array_filter($i['lines'], static fn (int $no): bool => ($lines[$no]['owed'] ?? 0) > 0) === []) {
+                continue;
             }
+            $last = $db->value("SELECT action FROM audit_log WHERE entity_type = 'incident' AND entity_id = ? AND action IN ('incident.resolve', 'incident.rest_resolved', "
+                . "'incident.rest_reopened') ORDER BY id DESC LIMIT 1", [(string) $i['id']]);
+            if ($last !== 'incident.rest_resolved') {
+                continue; // a person closed it: theirs
+            }
+            $db->exec("UPDATE incident SET status = 'open', resolution = NULL, resolved_by = NULL, resolved_actor = NULL, resolved_at = NULL WHERE id = ? AND status = 'resolved'",
+                [$i['id']]);
+            Audit::write($db, $caller, 'incident.rest_reopened', 'incident', (string) $i['id'], null, ['receipt' => $because, 'document_id' => $i['document_id'],
+                'line_no' => $i['line_no'], 'invoice' => $inv]);
         }
     }
 

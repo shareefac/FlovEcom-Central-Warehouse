@@ -272,6 +272,26 @@ final class ReceiveRestScreensTest extends KernelUiTestCase
             (string) self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$x['invoice']])]);
     }
 
+    /** RR32 (the final review of 2db71ed, b-HIGH 5): a refused "Receive the rest" draws a receipt only for someone who may see receipts. */
+    public function testARefusalNeverDrawsAReceiptForSomeoneWhoMayNotSeeIt(): void
+    {
+        $x = $this->shortInvoice();
+        $other = $this->shortInvoice();
+        unset($x['grn']);
+        $was = (string) self::$db->value("SELECT roles FROM role_permission WHERE permission = 'receiving.view'");
+        self::assertNotSame('', $was);
+        $roles = implode(',', array_values(array_diff(explode(',', $was), ['purchasing_desk'])));
+        self::$db->exec("UPDATE role_permission SET roles = ? WHERE permission = 'receiving.view'", [$roles]);
+        try {
+            $desk = $this->signIn($x['desk']);
+            $r = $desk->post('/ui/receiving/arriving/999999999/receive-rest', ['csrf' => $this->token($desk), 'from_grn' => (string) $other['grn']]); // refused: no such invoice
+            self::assertNotSame(200, $r->status);
+            self::assertStringNotContainsString($other['grn_number'], $r->text(), 'not the other receipt\'s page');
+        } finally {
+            self::$db->exec("UPDATE role_permission SET roles = ? WHERE permission = 'receiving.view'", [$was]);
+        }
+    }
+
     /** The days waiting and the late mark (arrivals.rest_late_days, 14): from the first receipt's UK day. */
     public function testTheDaysAndTheLateMark(): void
     {

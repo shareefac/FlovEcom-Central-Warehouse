@@ -19864,3 +19864,23 @@ moves them into MAIN, and "another item came instead" is the replacement (step 2
 wrong-item line. A known limit (RR17); the workaround is the usual supplier return and credit of the wrong item. (MEDIUM) A receipt of the
 rest is received against its order line only while that line still has room for its units (another delivery may have filled it): else
 "not against the order", decided when the draft is made, its lines being frozen (ReceiveRestReviewR11Test, red on 3431461).
+
+**RR32. The final reviews of 2db71ed (`cw_work/receive_rest_20261122/final_astra_a.txt`, `final_astra_b.txt` (Codex, gpt-6.2-astra: HOLD,
+HOLD), `final_fable_review.md` (GO with conditions)); the lead's F1-F4, each fixed with a test seen failing on 2db71ed
+(`runs/rest_f_red.log`; ReceiveRestFinalReviewTest, ReceiveRestScreensTest).** (F1) A receipt of the rest keeps the invoice's pack prices:
+a save never takes a typed price for its lines (whoever sends it), so no save answers whether a hidden price matched; its record
+(audit `arrival.receive_rest`) holds no price (item, units per pack, order line), so the audit screens show none to people who do not read
+money. (F2) A refused "Receive the rest" draws the receipt it was pressed on only for someone holding receiving.view, the invoice only for
+invoices.view, Arriving for receiving.view, else a plain refusal page. (F3) V7 also asks its stored figures of every posted receipt of the
+rest. (F4) A credit note of an owed line cancelled: a short incident the rest resolved by itself is open again when its line is owed again
+(`ArrivalRest::reopenWaited`, as a receipt of the rest taken back).
+**Accepted by the lead (22 Nov) as known limits or for the go-live kit, not changed:** (a) a claim's debit note with a damaged item added
+by hand is no longer a claim to "Claim what did not come", which then offers a second claim (b35949d's rule of a claim, for the tracker);
+(b) the quick return of damaged goods from a receipt of the rest does not find its invoice's duty line (b35949d's quick return reads the
+receipt's own invoice lines; for the tracker); (c) a price credit of the line's first units can be moved by the cost engine onto the later
+layer when a receipt of the rest is taken back (profit, rare); (d) within a quantity tolerance an invoice listed as waiting cannot be
+accepted (Accept shows only for one that needs review): its units wait until they come or are claimed or credited; (e) a supplier
+invoice already split over two deliveries of one order (PO10's split) makes "Receive the rest" refuse as duplicate_invoice; (f) RR17 also
+when the credit comes BEFORE the rest on a first receipt line shared by two invoice lines ("Not invoiced yet" shows fewer); (g) the go-live
+kit: before any rollback, no draft or waiting receipt of the rest may be open (cancel them under the new code), and the grants are run
+from the 0076-aware release (the rollback release's own Grants would give the app login UPDATE and DELETE on invoice_arrival_rest).

@@ -31,10 +31,12 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         $v = $r->version;
         $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [$lines[1]]));
         $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [$lines[1], $lines[0]]));
-        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [['pack_price' => '5.0000'] + $lines[0], ['pack_price' => '2.0000'] + $lines[1]]));
         $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [['line_no' => 2] + $lines[0], ['line_no' => 1] + $lines[1]]),
             'a line naming the other line (its bench findings would move)');
-        $this->grns->saveDraft($desk, $r->id, $v, [], $lines); // ... the same lines saved again are fine; the £2 line is counted short at the bench
+        // ... their prices swapped are not taken (RR32: a receipt of the rest keeps the invoice's prices) ...
+        $this->grns->saveDraft($desk, $r->id, $v, [], [['pack_price' => '5.0000'] + $lines[0], ['pack_price' => '2.0000'] + $lines[1]]);
+        self::assertSame(['2.0000', '5.0000'], array_map('strval', self::$db->column('SELECT pack_price FROM grn_line WHERE document_id = ? ORDER BY line_no', [$r->id])));
+        $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], $lines); // ... the same lines saved again are fine; the £2 line counted short
         $this->bench($this->staffUser('goods_in'), $r->id, [1 => ['short_units' => '4']]);
         $r = $this->post($desk, $r->id);
         self::assertSame([[2, 2, 3]], array_map(static fn (array $x): array => array_map('intval', array_values($x)),
