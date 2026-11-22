@@ -27,13 +27,12 @@ final class ReceiveRestReviewR2Test extends ArrivalsTestCase
         $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '4'], 2 => ['short_units' => '3']]);
         $r = $this->arrivals->receiveRest($desk, $p->id);
         $lines = $this->grns->lines($r->id);
-        $this->grns->saveDraft($desk, $r->id, $r->version, [], [$lines[1]]); // only the £5 line came: taken off the draft ...
-        $this->bench($this->staffUser('goods_in'), $r->id);
-        $this->refusedCode('rest_lines_changed', fn () => $this->post($desk, $r->id), '... refused (RR27): its lines stay one per owed line');
-        $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [$lines[1], $lines[0]]); // ... or keyed again in another order
-        $this->bench($this->staffUser('goods_in'), $r->id);
-        $this->refusedCode('rest_lines_changed', fn () => $this->post($desk, $r->id), 'the £5 line in the £2 line\'s place (RR28)');
-        $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], $lines); // ... put back, the £2 line counted short
+        // Only the £5 line came: taking the £2 line off, keying them in another order or swapping their prices is refused at the save (RR29) ...
+        $v = $r->version;
+        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [$lines[1]]));
+        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [$lines[1], $lines[0]]));
+        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $v, [], [['pack_price' => '5.0000'] + $lines[0], ['pack_price' => '2.0000'] + $lines[1]]));
+        $this->grns->saveDraft($desk, $r->id, $v, [], $lines); // ... the same lines saved again are fine; the £2 line is counted short at the bench
         $this->bench($this->staffUser('goods_in'), $r->id, [1 => ['short_units' => '4']]);
         $r = $this->post($desk, $r->id);
         self::assertSame([[2, 2, 3]], array_map(static fn (array $x): array => array_map('intval', array_values($x)),

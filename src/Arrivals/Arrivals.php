@@ -445,7 +445,8 @@ final class Arrivals
         Audit::write($db, $caller, 'arrival.receive_rest', 'document', (string) $grn->id, null, ['invoice' => (string) $inv['number'],
             'lines' => array_map(static fn (array $l): int => (int) $l['line_no'], $lines),
             // ... and what each line is (item, units per pack, pack price): a line taken off and keyed again elsewhere is no longer it (RR28)
-            'shape' => array_map(static fn (array $g): array => [(int) $g['sku_id'], (int) $g['units_per_pack'], (string) $g['pack_price']], $grnLines),
+            'shape' => array_map(static fn (array $g): array => [(int) $g['sku_id'], (int) $g['units_per_pack'], (string) $g['pack_price'], (int) ($g['po_line_no'] ?? 0)],
+                $grnLines),
             'owed' => array_map(static fn (array $o): array => ['line' => $o['line_no'], 'sku' => $o['code'], 'units' => $o['units']], $owed)]);
         return $this->documents()->get($grn->id);
     }

@@ -288,7 +288,8 @@ final class ArrivalRest
             // the same item, units per pack and pack price as when it was made (only the packs counted change: the Codex check of 60a32c2)
             $was = $shape[$no] ?? null;
             $same = $same && isset($all[$map[$no]]) && $all[$map[$no]]['sku_id'] === (int) $l['sku_id'] && $was !== null && $was[0] === (int) $l['sku_id']
-                && $was[1] === (int) $l['units_per_pack'] && \CW\PurchaseOrders\PoMath::e4($was[2]) === \CW\PurchaseOrders\PoMath::e4((string) $l['pack_price']);
+                && $was[1] === (int) $l['units_per_pack'] && \CW\PurchaseOrders\PoMath::e4($was[2]) === \CW\PurchaseOrders\PoMath::e4((string) $l['pack_price'])
+                && $was[3] === (int) ($l['po_line_no'] ?? 0);
         }
         if (!$same) {
             $out[] = ['code' => 'rest_lines_changed', 'message' => "A receipt of the rest of {$number} has one line per invoice line still waited for: put its lines back "
@@ -325,14 +326,14 @@ final class ArrivalRest
         return $nos === [] ? null : array_combine(range(1, count($nos)), $nos);
     }
 
-    /** @return array<int, array{0: int, 1: int, 2: string}> receipt line => [item, units per pack, pack price] as the draft was made */
+    /** @return array<int, array{0: int, 1: int, 2: string, 3: int}> receipt line => [item, units per pack, pack price, order line] as the draft was made */
     private static function draftShape(Db $db, int $grnId): array
     {
         $j = self::draftRecord($db, $grnId);
         $out = [];
         foreach (is_array($j) && is_array($j['shape'] ?? null) ? array_values($j['shape']) : [] as $i => $x) {
-            if (is_array($x) && count($x) === 3) {
-                $out[$i + 1] = [(int) $x[0], (int) $x[1], (string) $x[2]];
+            if (is_array($x) && count($x) === 4) {
+                $out[$i + 1] = [(int) $x[0], (int) $x[1], (string) $x[2], (int) $x[3]];
             }
         }
         return $out;

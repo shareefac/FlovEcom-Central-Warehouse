@@ -13632,6 +13632,9 @@ final class Words
         'rest_being_received' => 'A receipt is taking in the rest of this invoice. Book it in or cancel it first.',
         'rest_received' => 'A later receipt took in the rest of this invoice. Cancel that receipt first.',
         'not_owed' => 'This receipt only takes in what its invoice is still waiting for: take the other lines off and receive them as their own delivery.',
+        'rest_lines_fixed' => 'The lines of a receipt of the rest are what its invoice still waits for: count what came at the bench and mark the rest short. '
+            . 'To change them, cancel it and start again.',
+        'rest_lines_changed' => 'The lines of this receipt of the rest were changed: put them back as they were, or cancel it and start again.',
     ];
 
     // ---- end of pack J ----

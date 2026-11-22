@@ -250,6 +250,22 @@ final class GoodsReceipts
                     ['field' => 'backdate_reason']);
             }
             $norm = $this->normaliseLines($id, $supplierId, $poId, $lines);
+            // CW-1155 (docs/decisions.md RR29): a receipt of the rest keeps the lines it was made with, one per invoice line still waited for (the
+            // item, units per pack, pack price and order line of each, in order); only the packs counted change. The bench says what came.
+            if ($hasLines && \CW\Arrivals\ArrivalRest::restOf($db, $id) !== null) {
+                $was = array_values($db->all('SELECT g.units_per_pack, g.pack_price, g.po_line_no, dl.sku_id FROM grn_line g JOIN document_line dl ON dl.document_id = g.document_id '
+                    . 'AND dl.line_no = g.line_no WHERE g.document_id = ? ORDER BY g.line_no', [$id]));
+                $same = count($was) === count($norm);
+                foreach (array_values($norm) as $i => $n) {
+                    $w = $was[$i] ?? null;
+                    $same = $same && $w !== null && (int) $w['sku_id'] === (int) $n['doc']['sku_id'] && (int) $w['units_per_pack'] === (int) $n['grn']['units_per_pack']
+                        && PoMath::e4((string) $w['pack_price']) === PoMath::e4((string) $n['grn']['pack_price']) && (int) ($w['po_line_no'] ?? 0) === (int) ($n['grn']['po_line_no'] ?? 0);
+                }
+                if (!$same) {
+                    throw new CwException('rest_lines_fixed', 'the lines of a receipt of the rest are what its invoice still waits for: count what came at the bench (mark the '
+                        . 'rest short); to change them, cancel it and start again', 409);
+                }
+            }
             $doc = $this->docs->updateDraft($caller, $id, $version, $docHeader);
             $doc = $this->docs->setLines($caller, $id, $doc->version, array_map(static fn (array $n): array => $n['doc'], $norm));
             $this->insertLines($id, $norm);

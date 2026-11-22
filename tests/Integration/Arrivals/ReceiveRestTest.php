@@ -106,6 +106,8 @@ final class ReceiveRestTest extends ArrivalsTestCase
         $r = $this->arrivals->receiveRest($desk, $p->id);
         self::assertSame([[$x['sku'], 4, 1]], array_map(static fn (array $l): array => [(int) $l['sku_id'], (int) $l['packs'], (int) $l['po_line_no']], $this->grns->lines($r->id)),
             'against the same order line');
+        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $r->version, [], [['po_line_no' => 0] + $this->grns->lines($r->id)[0]]),
+            'its order line stays (RR29)');
         $this->bench($this->staffUser('goods_in'), $r->id);
         $r = $this->post($desk, $r->id);
         self::assertSame([10, 0], [$this->onHand($x['sku']), $this->incoming($x['sku'])]);
@@ -264,10 +266,8 @@ final class ReceiveRestTest extends ArrivalsTestCase
         $this->firstReceipt($desk, $p->id, [1 => ['short_units' => '3']]);
         $r = $this->arrivals->receiveRest($desk, $p->id);
         $lines = $this->grns->lines($r->id);
-        $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [...$lines, ['sku_id' => $b, 'packs' => 1, 'pack_price' => '2.0000', 'po_line_no' => 0]]);
-        $this->bench($this->staffUser('goods_in'), $r->id);
-        self::assertContains('rest_lines_changed', array_column($this->grns->plan($r->id)['problems'], 'code'), 'said on the page before posting (RR27)');
-        $this->refusedCode('rest_lines_changed', fn () => $this->post($desk, $r->id), 'one line per invoice line waited for');
+        $this->refusedCode('rest_lines_fixed', fn () => $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [...$lines,
+            ['sku_id' => $b, 'packs' => 1, 'pack_price' => '2.0000', 'po_line_no' => 0]]), 'another item on a receipt of the rest (RR29)');
         $this->grns->saveDraft($desk, $r->id, $this->docs->get($r->id)->version, [], [['sku_id' => $a, 'packs' => 4, 'pack_price' => '1.0000', 'po_line_no' => 0]]);
         $this->bench($this->staffUser('goods_in'), $r->id);
         $this->refusedCode('not_owed', fn () => $this->post($desk, $r->id), 'four on the paperwork, three owed');

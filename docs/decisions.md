@@ -19837,3 +19837,11 @@ elsewhere, or the lines keyed in another order, is refused as `rest_lines_change
 change). Two lines alike in all three are the same to the stock, the price and the match. (MEDIUM, NOT changed) The record is an audit row:
 housekeeping keeps the audit log at least 7 years (housekeeping.audit_keep_years, minimum 7), far beyond any wait for the rest; the
 app login cannot delete it (append-only). (LOW) The test of a line counted short instead of taken off expects the £5 units on receipt line 2.
+
+**RR29. The Codex check of 282332d (`cw_work/receive_rest_20261122/codex_r9.txt`, default model: HOLD, 2 HIGH, 1 MEDIUM).** A receipt of the
+rest's lines are frozen at the save (`GoodsReceipts::saveDraft`, every path that writes a receipt's lines: 409 `rest_lines_fixed`): the same
+lines in the same order with the same item, units per pack, pack price and order line; only the packs counted may change; the bench says
+what came. So a line cannot be swapped, re-priced and put back with its bench findings (HIGH 2), nor moved to another order line (HIGH 1);
+the record's shape now holds the order line too, and the posting still checks it (a backstop). (M, NOT changed) A credit of an owed line
+posted while its draft of the rest is open leaves the draft above what is owed: lower its packs, or cancel it and start again (the message
+says so); a line in packs of ten cannot say seven.
