@@ -19705,7 +19705,9 @@ first receipt was posted; late from that many days.
 **RR17. Known limits (for the owner).** "Not invoiced yet": a part of the rest is billed for the units it settled (RR23), so a credit of
 units of a line given AFTER its rest came is billed against the first receipt only and the list shows fewer units left to invoice than
 there are (10 came, 5 billed: it shows 1 left instead of 5); the nightly checks (V7, J1-J6) stay clean on it (they work it out the same
-way: ReceiveRestReviewR1Test). Accepted by the lead, 22 Nov 2026. A credit note line credits units in the match's eyes: a PRICE credit typed as units on an owed line
+way: ReceiveRestReviewR1Test). Accepted by the lead, 22 Nov 2026. A wrong item set aside at the bench (VERIFY) counts as come for what is owed and for the claim, as today's "Claim what did not come"
+(RR31; the workaround: the usual return and credit of the wrong item; how it relates to the owed units is the replacement's, step 2).
+A credit note line credits units in the match's eyes: a PRICE credit typed as units on an owed line
 lowers what is waited for (as the match bills it). Claim rows say what was claimed when it was made (a claim's lines edited by hand later are
 not read). A part arrival with a price credit of that line given between the parts: the credit reaches the units already here (CostEngine's
 rule for any credit); the rest comes at the uncredited landed price. "Over" units on a rest receipt go to VERIFY as on any receipt.
@@ -19851,3 +19853,11 @@ refuses a saved line that names another stored line (`line_no`), so the bench's 
 changed) A supplier item's pack changed in the catalogue while its draft of the rest is open makes the unchanged draft unsaveable: cancel
 it and start again. (M, NOT changed) The selling mode chosen on a receipt of the rest is Goods In's choice as on any receipt. (M, NOT real)
 Drafts made by a commit between two review rounds of this branch, never deployed: none exists outside the test databases.
+
+**RR31. The final Codex check of 3431461 (`cw_work/receive_rest_20261122/codex_r11.txt`, default model: HOLD, 1 HIGH, 1 MEDIUM).** (HIGH, NOT
+changed: the lead, 22 Nov) Wrong items set aside count as come (decision 1's "accepted + set aside + quarantined", the same as today's claim
+on a first receipt, which stays exactly as it is): counting them as not come would double count when the bench later finds them right and
+moves them into MAIN, and "another item came instead" is the replacement (step 2), whose rules are designed there; live CW has never had a
+wrong-item line. A known limit (RR17); the workaround is the usual supplier return and credit of the wrong item. (MEDIUM) A receipt of the
+rest is received against its order line only while that line still has room for its units (another delivery may have filled it): else
+"not against the order", decided when the draft is made, its lines being frozen (ReceiveRestReviewR11Test, red on 3431461).

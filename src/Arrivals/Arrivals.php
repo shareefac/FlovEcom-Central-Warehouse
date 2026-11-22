@@ -427,16 +427,28 @@ final class Arrivals
         // The link first: the checks of one invoice number on several receipts and of its copy on them know it from here on.
         $db->exec('INSERT INTO goods_receipt_invoice (grn_document_id, sinv_document_id, auto, created_at) VALUES (?, ?, 0, ?)',
             [$grn->id, (int) $inv['id'], Clock::db(($this->clock)())]);
+        // An order line still has room for the units (another delivery may have filled it since: the Codex check of 3431461): else the line is
+        // not received against the order (the lines of a receipt of the rest are frozen, so this is decided here once).
+        $room = [];
+        if ($po !== null) {
+            foreach ($db->all("SELECT pl.line_no, dl.qty - pl.received_units AS room FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no "
+                . "WHERE pl.document_id = ? AND pl.kind = 'item'", [$po]) as $r) {
+                $room[(int) $r['line_no']] = (int) $r['room'];
+            }
+        }
         $grnLines = [];
         foreach ($lines as $l) {
             $want = $units[(int) $l['line_no']];
             $upp = max(1, (int) $l['units_per_pack']);
             $whole = $want % $upp === 0;
+            $onPo = $po !== null && $l['po_document_id'] !== null && (int) $l['po_document_id'] === $po && ($room[(int) $l['po_line_no']] ?? 0) >= $want;
+            if ($onPo) {
+                $room[(int) $l['po_line_no']] -= $want;
+            }
             $grnLines[] = ['sku_id' => (int) $l['sku_id'], 'supplier_code' => $l['supplier_code'], 'purchase_unit' => $whole ? ($l['purchase_unit'] ?? 'each') : 'each',
                 'units_per_pack' => $whole ? $upp : 1, 'packs' => $whole ? intdiv($want, $upp) : $want,
                 'pack_price' => $whole ? (string) $l['pack_price'] : SupplierInvoices::price4((string) $l['unit_cost']),
-                'po_line_no' => $po !== null && $l['po_document_id'] !== null && (int) $l['po_document_id'] === $po ? (int) $l['po_line_no'] : 0,
-                'entry' => $po !== null && $l['po_document_id'] !== null ? 'po' : 'manual'];
+                'po_line_no' => $onPo ? (int) $l['po_line_no'] : 0, 'entry' => $onPo ? 'po' : 'manual'];
         }
         $grn = $grns->saveDraft($caller, $grn->id, $grn->version, [], $grnLines);
         $this->copyFiles($caller, (int) $inv['id'], $grn->id);
