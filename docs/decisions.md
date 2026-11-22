@@ -19809,3 +19809,12 @@ own line's shortfall, J6). (M, NOT changed) A credit answering a claim is not su
 at one price: a part's short line is about both, so its incident closes when both are done, not before (late, never wrongly "came";
 RR24 chose this over a false close; a person closes it sooner on the incident register). (LOW) The panel gives a part's accepted units once
 per receipt line.
+
+**RR26. The Codex check of 446b754 (`cw_work/receive_rest_20261122/codex_r6.txt`, default model: HOLD, 1 HIGH, 2 MEDIUM): the builder's
+choice, taking RR23 literally.** Every cap on what a part is billed for (RR21's allocation, RR24's cap per receipt, RR25's cap to kept stock
+first) made one receipt line's figure depend on another line, a return or a credit note, and each round found a new case where that moved
+billed units onto a line another invoice billed (an over-report: stock offered to be invoiced twice). Now **each row of a part is billed for
+the units it settled, never capped, never moved**: "Not invoiced yet" never offers more than is unbilled; it under-reports only after a
+credit of units given after the rest came (RR17, accepted by the lead). The test of two part lines of one invoice line and a later credit
+says so (it shows 0, the nightly checks clean). (M) The price a part's line is matched to an owed line by is compared to the 4 decimals a
+pack price has (loose units of a pack line). (M, NOT changed) To match's candidates: a settled invoice may take one of 500 slots (RR25).

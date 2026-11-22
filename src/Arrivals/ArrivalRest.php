@@ -355,7 +355,7 @@ final class ArrivalRest
             // the draft never moves the next one's units to another price; the Codex check of 3ae3345, H2), then the n-th to the n-th.
             foreach ($nos as $no) {
                 foreach ($inv as $invLine) {
-                    if (\CW\Invoices\InvoiceMath::e6((string) $planLines[$no]['unit_cost']) === \CW\Invoices\InvoiceMath::e6($lines[$invLine]['unit_cost'])) {
+                    if (intdiv(InvoiceMath::e6((string) $planLines[$no]['unit_cost']) + 50, 100) === intdiv(InvoiceMath::e6($lines[$invLine]['unit_cost']) + 50, 100)) {
                         $give($no, $invLine);
                     }
                 }
@@ -509,7 +509,9 @@ final class ArrivalRest
             if ($sku === []) {
                 continue;
             }
-            $atPrice = array_values(array_filter($sku, static fn (array $l): bool => InvoiceMath::e6($l['unit_cost']) === InvoiceMath::e6((string) $g['unit_cost'])));
+            // at its price to the 4 decimals a pack price has (loose units of a pack line are priced to 4 decimals: the Codex check of 446b754)
+            $p4 = static fn (string $c): int => intdiv(InvoiceMath::e6($c) + 50, 100);
+            $atPrice = array_values(array_filter($sku, static fn (array $l): bool => $p4($l['unit_cost']) === $p4((string) $g['unit_cost'])));
             $k = (int) $g['document_id'] . ':' . (int) $g['line_no'];
             $about[$k] = array_values(array_unique([...($about[$k] ?? []), ...array_column($atPrice === [] ? $sku : $atPrice, 'line_no')]));
         }

@@ -13,7 +13,7 @@ final class ReceiveRestReviewR4Test extends ArrivalsTestCase
 {
     use RestFixtures;
 
-    public function testAPartsTwoLinesOfOneInvoiceLineAreBilledOnce(): void
+    public function testAPartsTwoLinesOfOneInvoiceLineAndACreditAfterwards(): void
     {
         ['desk' => $desk, 'supplier' => $s] = $this->people('Billed Once Per Part Ltd');
         $sku = self::makeSku('Two lines one part');
@@ -27,7 +27,10 @@ final class ReceiveRestReviewR4Test extends ArrivalsTestCase
         $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['credits_id' => $p->id]);
         $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 7, '1.0000');
         $this->postWithTotals($desk, $cn, '7.00', '0.00', ['invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
-        self::assertSame(7, $this->left($r->id), 'ten came, three billed: seven left (it said four: the three counted on each line)');
+        // RR26: each row billed for what it settled, never capped: the credit after the rest came is the RR17 limit (it shows 0, not 7), and
+        // nothing is ever offered twice; the nightly checks agree.
+        self::assertSame(0, $this->left($r->id), 'the known limit (RR17)');
+        self::assertSame([], \CW\Invariants::check(self::$db));
     }
 
     public function testAPartsOwnShortfallIsNeverSaidToHaveComeOnIt(): void
