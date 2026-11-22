@@ -19719,7 +19719,10 @@ draft-time link of the replacing line, `ArrivalRest::posted` takes declared repl
 received, the receipt's posting order (the arrival step 5b before the stock), the shops' stock feed.
 
 **RR20. Go-live and rollback.** 0076: one CREATE TABLE IF NOT EXISTS + one setting with its baseline (seconds; nothing locked), Grants, the
-release. Rollback: the release symlink back; the empty table and setting stay. Once a receipt of the rest is posted, the old code shows its
+release. Rollback: NOT a bare symlink back to b35949d: once 0076 is recorded in schema_migrations, b35949d's CLI guard
+(Cli::requireCurrentSchema: every cron job, the expiry of unpaid holds too) and its installer refuse the schema ("migrations this code does
+not have"). The rollback release is b35949d's code with `migrations/0076_receive_rest.sql` added byte for byte (profit step 1's recipe,
+PR94; RollbackReleaseTest holds it: BEFORE_LAST 0075, ROLLBACK_FILES [0076]); the empty table and setting stay. Once a receipt of the rest is posted, the old code shows its
 invoice as "needs review" and the receipt in "Not invoiced yet" and the nightly V4 / V7 report them (no stock is wrong): take the rest
 receipt back under the new code first, or fix forward. Before any rollback: `SELECT COUNT(*) FROM invoice_arrival_rest`.
 
