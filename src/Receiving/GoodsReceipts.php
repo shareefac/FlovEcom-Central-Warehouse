@@ -1445,12 +1445,16 @@ final class GoodsReceipts
         }
         $others = $this->db->all('SELECT g.document_id, g.po_document_id, g.delivery_note, g.invoice_part, d.number, d.status, u.display_name FROM goods_receipt g '
             . 'JOIN document d ON d.id = g.document_id LEFT JOIN staff_user u ON u.id = d.created_by WHERE g.supplier_id = ? AND g.invoice_key = ? AND g.document_id <> ? '
-            . 'ORDER BY g.document_id FOR UPDATE', [$supplierId, $key, $self]);
+            // Only the receipts' own rows (CW-1155, the Codex check of a0d33a2, M3: locking their documents and their keyers too met a reversal
+            // of an earlier part of the rest, which holds its document and asks for its keyer's row).
+            . 'ORDER BY g.document_id FOR UPDATE OF g', [$supplierId, $key, $self]);
         if ($others === []) {
             return 1;
         }
         // CW-1155 (docs/decisions.md RR4): the receipt of the rest of CW invoice $restOf shares its number with the receipts made from that same
         // invoice (goods_receipt_invoice), and only with them: then it is the next part. Any other receipt with the number refuses as below.
+        // A draft of the rest given its number again (setInvoice, saveDraft): the invoice it is linked to.
+        $restOf ??= \CW\Arrivals\ArrivalRest::restOf($this->db, $self);
         if ($restOf !== null) {
             $linked = array_map('intval', $this->db->column('SELECT grn_document_id FROM goods_receipt_invoice WHERE sinv_document_id = ?', [$restOf]));
             if (array_filter($others, static fn (array $o): bool => !in_array((int) $o['document_id'], $linked, true)) === []) {

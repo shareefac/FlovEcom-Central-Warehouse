@@ -635,7 +635,9 @@ final class InvoicesController
             return $this->notFound($ctx, 'invoice');
         }
         try {
-            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''));
+            $seen = $ctx->req->field('rest_units'); // CW-1155 (RR9): the units still waited for the form showed
+            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''),
+                is_string($seen) && preg_match('/^[0-9]{1,9}$/D', $seen) === 1 ? (int) $seen : null);
         } catch (CwException $e) {
             return $this->page($ctx, 'invoice', $id, $e->httpStatus, $e, null, ['typedAccept' => $note]);
         }

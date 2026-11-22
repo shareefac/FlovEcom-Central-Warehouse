@@ -20,6 +20,7 @@ declare(strict_types=1);
  *  claim         Arrivals::claimMissing (the claim of what receipt document_id did not bring)
  *  accept        SupplierInvoices::accept (invoice document_id, with the fingerprint of its match now)
  *  reverse       Documents::reverse (document_id, entered in error)
+ *  post_doc      SupplierInvoices::post (a credit note document_id at version)
  */
 
 use CW\Caller;
@@ -69,6 +70,7 @@ try {
             'accept' => ['id' => (new SupplierInvoices($db, $docs))->accept(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], 'Accepted in a race',
                 \CW\Invoices\InvoiceMatch::fingerprint((new \CW\Invoices\InvoiceMatch($db))->compute((int) $job['document_id'])))->id],
             'reverse' => ['id' => $docs->reverse(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], 'entered_in_error', null)->id],
+            'post_doc' => ['id' => (new SupplierInvoices($db, $docs))->post(Caller::staff((int) $job['staff_id']), (int) $job['document_id'], (int) $job['version'])->id],
             default => throw new \InvalidArgumentException('unknown op'),
         };
     };

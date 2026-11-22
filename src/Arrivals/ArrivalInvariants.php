@@ -82,7 +82,12 @@ final class ArrivalInvariants
             . 'LEFT JOIN goods_receipt_invoice g ON g.grn_document_id = r.document_id LEFT JOIN goods_receipt gr ON gr.document_id = r.document_id '
             . 'LEFT JOIN document_line gl ON gl.document_id = r.document_id AND gl.line_no = r.document_line_no '
             . 'LEFT JOIN supplier_return sr ON sr.document_id = r.document_id '
+            . 'LEFT JOIN invoice_arrival a ON a.sinv_document_id = r.sinv_document_id AND a.line_no = r.line_no '
             . 'WHERE NOT (f.sinv_document_id <=> r.sinv_document_id) '
+            // the first receipt is never itself a receipt of the rest, and while it is the arrival row's its line is the row's (the Codex check
+            // of a0d33a2, LOW)
+            . "OR EXISTS (SELECT 1 FROM invoice_arrival_rest x WHERE x.kind = 'rest' AND x.document_id = r.first_grn_document_id) "
+            . "OR (a.state = 'received' AND a.grn_document_id = r.first_grn_document_id AND NOT (a.grn_line_no <=> r.first_grn_line_no)) "
             . "OR (r.kind = 'rest' AND (NOT (g.sinv_document_id <=> r.sinv_document_id) OR r.document_id = r.first_grn_document_id OR NOT (gr.supplier_id <=> si.supplier_id) "
             . '  OR NOT (gl.sku_id <=> il.sku_id))) '
             . "OR (r.kind = 'claim' AND (NOT (sr.grn_document_id <=> r.first_grn_document_id) OR NOT (sr.invoice_document_id <=> r.sinv_document_id))) "

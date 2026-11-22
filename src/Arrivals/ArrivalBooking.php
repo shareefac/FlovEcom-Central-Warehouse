@@ -148,8 +148,14 @@ final class ArrivalBooking
     {
         $inv = $db->value('SELECT sinv_document_id FROM goods_receipt_invoice WHERE grn_document_id = ?', [$grnId]);
         if ($inv !== null) {
-            $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [(int) $inv]);
+            self::lockInvoice($db, (int) $inv);
         }
+    }
+
+    /** An invoice's arrival rows FOR UPDATE (line order); none: nothing. */
+    public static function lockInvoice(Db $db, int $invoiceId): void
+    {
+        $db->all('SELECT line_no FROM invoice_arrival WHERE sinv_document_id = ? ORDER BY line_no FOR UPDATE', [$invoiceId]);
     }
 
     public static function receiptReversed(Db $db, Document $original, string $now, ?Caller $caller = null): void

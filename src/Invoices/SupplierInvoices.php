@@ -987,14 +987,14 @@ final class SupplierInvoices
      * InvoiceMatch::fingerprint(); changed figures are refused under the receipt locks (409 match_changed). An invoice that no longer
      * needs review is not accepted (409 not_needs_review). It stays `accepted` while its match is what was accepted.
      */
-    public function accept(Caller $caller, int $id, string $note, string $fingerprint): Document
+    public function accept(Caller $caller, int $id, string $note, string $fingerprint, ?int $owedUnits = null): Document
     {
         $note = trim($note);
         if (mb_strlen($note) < self::ACCEPT_NOTE_MIN || mb_strlen($note) > self::ACCEPT_NOTE_MAX) {
             throw new CwException('note_required', 'say in ' . self::ACCEPT_NOTE_MIN . ' to ' . self::ACCEPT_NOTE_MAX . ' characters why the differences are accepted', 400,
                 ['field' => 'note']);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint, $owedUnits): Document {
             if ($caller->staffUserId === null) {
                 throw new CwException('staff_required', 'invoices are checked by staff', 403);
             }
@@ -1032,6 +1032,12 @@ final class SupplierInvoices
             if (!hash_equals(InvoiceMatch::fingerprint($m), $fingerprint)) {
                 throw new CwException('match_changed', 'the invoice differences changed: review the current figures before accepting', 409);
             }
+            // CW-1155 (RR9; the Codex check of a0d33a2, M4): the units still waited for are those the person saw (a claim cancelled meanwhile
+            // releases more: they look again).
+            $owedNow = ArrivalRest::owed($db, $id);
+            if ($owedUnits !== null && array_sum(array_column($owedNow, 'units')) !== $owedUnits) {
+                throw new CwException('match_changed', 'the units still waited for changed: review the current figures before accepting', 409);
+            }
             $now = $this->nowDb();
             $db->exec('UPDATE supplier_invoice SET accepted_by = ?, accepted_actor = ?, accepted_at = ?, accept_note = ?, accepted_lines_off = ?, accepted_difference = ?, '
                 . 'accepted_fingerprint = ?, updated_at = ? WHERE document_id = ?', [$caller->staffUserId, $caller->actor, $now, $note, $m['lines_off'],
@@ -1040,7 +1046,7 @@ final class SupplierInvoices
             // CW-1155 (RR9): accepting the difference while units are still waited for stops waiting for exactly those units, for good (a later
             // match that drops the acceptance does not bring them back).
             $waived = [];
-            foreach (ArrivalRest::owed($db, $id) as $o) {
+            foreach ($owedNow as $o) {
                 $db->exec('INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, document_id, document_line_no, units, '
                     . "created_by, created_actor, created_at) VALUES (?, ?, ?, ?, 'waive', NULL, NULL, ?, ?, ?, ?)",
                     [$id, $o['line_no'], $o['first_grn'], $o['first_grn_line'], $o['units'], $caller->staffUserId, $caller->actor, $now]);

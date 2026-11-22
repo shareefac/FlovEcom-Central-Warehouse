@@ -524,20 +524,22 @@ final class InvoiceMatch
                     $out[$k]['invoiced_elsewhere'] += (int) $r['units'];
                 }
             }
-            // CW-1155 (RR6): a receipt line that took in the rest of an invoice line is billed by that invoice: the units it settled, at most
-            // what the line still bills (net of its credit notes); not $invoiceId's own (its match gives them to its lines itself).
-            foreach ($this->db->all(
-                'SELECT x.document_id, x.document_line_no, SUM(x.units) AS units FROM (SELECT r.document_id, r.document_line_no, LEAST(r.units, GREATEST(0, dl.qty - '
-                . "COALESCE((SELECT SUM(cdl.qty) FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl "
-                . "ON csl.document_id = c.document_id AND csl.kind = 'goods' AND csl.credit_of_line_no = r.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id "
-                . "AND cdl.line_no = csl.line_no WHERE c.credits_document_id = r.sinv_document_id AND c.kind = 'credit_note'), 0))) AS units FROM invoice_arrival_rest r "
-                . "JOIN document d ON d.id = r.sinv_document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = r.sinv_document_id AND dl.line_no = r.line_no "
-                . "WHERE r.kind = 'rest' AND r.document_id IN ({$in}) AND r.sinv_document_id <> ?) x GROUP BY x.document_id, x.document_line_no",
-                [...$chunk, $invoiceId],
-            ) as $r) {
-                $k = $r['document_id'] . ':' . $r['document_line_no'];
-                if (isset($out[$k])) {
-                    $out[$k]['invoiced_elsewhere'] += (int) $r['units'];
+            // CW-1155 (RR6): a receipt line that took in the rest of an invoice line is billed by that invoice: what the line still bills (net of
+            // ALL its credit notes) beyond what its first receipt brought, given to its posted rest rows in order (the Codex check of a0d33a2, M1:
+            // the billed units spent once over the first receipt and the parts); not $invoiceId's own (its match gives them to its lines itself).
+            $restInv = array_map('intval', $this->db->column("SELECT DISTINCT r.sinv_document_id FROM invoice_arrival_rest r JOIN document d ON d.id = r.sinv_document_id "
+                . "AND d.status = 'posted' WHERE r.kind = 'rest' AND r.document_id IN ({$in}) AND r.sinv_document_id <> ?", [...$chunk, $invoiceId]));
+            foreach ($restInv as $inv) {
+                $cap = \CW\Arrivals\ArrivalRest::billedBeyondFirst($this->db, $inv);
+                foreach ($this->db->all("SELECT r.line_no, r.document_id, r.document_line_no, r.units FROM invoice_arrival_rest r JOIN document d ON d.id = r.document_id "
+                    . "AND d.status = 'posted' WHERE r.sinv_document_id = ? AND r.kind = 'rest' ORDER BY r.id", [$inv]) as $r) {
+                    $no = (int) $r['line_no'];
+                    $share = min((int) $r['units'], $cap[$no] ?? 0);
+                    $cap[$no] = ($cap[$no] ?? 0) - $share;
+                    $k = $r['document_id'] . ':' . $r['document_line_no'];
+                    if ($share > 0 && isset($out[$k])) {
+                        $out[$k]['invoiced_elsewhere'] += $share;
+                    }
                 }
             }
         }

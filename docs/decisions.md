@@ -19717,3 +19717,20 @@ received, the receipt's posting order (the arrival step 5b before the stock), th
 release. Rollback: the release symlink back; the empty table and setting stay. Once a receipt of the rest is posted, the old code shows its
 invoice as "needs review" and the receipt in "Not invoiced yet" and the nightly V4 / V7 report them (no stock is wrong): take the rest
 receipt back under the new code first, or fix forward. Before any rollback: `SELECT COUNT(*) FROM invoice_arrival_rest`.
+
+**RR21. The Codex check of a0d33a2 (`cw_work/receive_rest_20261122/codex_r1.txt`, default model: HOLD, 3 HIGH, 5 MEDIUM, 1 LOW), each point
+checked in the code, every one real, each fixed with a test seen failing on 83b03f0 (`runs/rest_r1_red.log`; ReceiveRestReviewR1Test and
+ReceiveRestRaceTest).** (H1) A credit note's posting and reversal take the credited invoice's arrival rows after its receipts and before its
+supplier_invoice row (`ArrivalBooking::lockInvoice`), so a receipt of the rest reads what is owed after a credit of that line (two
+connections: the credit held, the rest refused `not_owed`). (H2) A receipt of the rest keeps its invoice's supplier and supplier number
+(`rest_invoice_changed`) and no delivery note of another receipt of it (`rest_same_delivery`, 409): listed on the page, refused at posting;
+a draft of the rest given its number again keeps its part (invoicePart finds its link). (H3) The n-th receipt line of an item takes the n-th
+owed invoice line of it first, then the item's other owed lines (one item on two owed lines, the first counted short on the rest: the
+units are the second's, and so is their price). (M1) A rest receipt line is billed for what its invoice line bills net of ALL its credits
+beyond what the first receipt brought, given to the posted rest rows in order (`ArrivalRest::billedBeyondFirst`): the billed units are
+spent once ("Not invoiced yet": ten came, five billed, five left). (M2) A credit note answering a live claim with rows credits the units the
+claim settles: counted once. (M3) invoicePart locks only the other receipts' own rows (`FOR UPDATE OF g`), never their documents and
+keyers (a new part against the reversal of an earlier part by the same person; the race test runs it, no deadlock seen either way).
+(M4) An acceptance carries the units still waited for that its form showed (`rest_units`; a claim cancelled meanwhile: 409 match_changed).
+(M5) The rest of one line resolves only incidents about the lines it brought (a line credited instead is never "came"). (LOW) J5: a fact
+never names a receipt of the rest as its first receipt, and while that receipt is the arrival row's, its line is the row's.

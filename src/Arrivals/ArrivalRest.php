@@ -62,11 +62,15 @@ final class ArrivalRest
             }
         }
         $credited = [];
+        // A credit note that answers a live claim with rows credits the units that claim settles already (the Codex check of a0d33a2, M2):
+        // counted once, as the claim.
         foreach ($db->all('SELECT sl.credit_of_line_no AS line_no, SUM(dl.qty) AS qty FROM supplier_invoice c '
             . "JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' "
             . "JOIN sinv_line sl ON sl.document_id = c.document_id AND sl.kind = 'goods' AND sl.credit_of_line_no IS NOT NULL "
             . 'JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no '
-            . "WHERE c.credits_document_id = ? AND c.kind = 'credit_note' GROUP BY sl.credit_of_line_no", [$invoiceId]) as $c) {
+            . "WHERE c.credits_document_id = ? AND c.kind = 'credit_note' AND NOT (c.debit_note_document_id IS NOT NULL AND EXISTS (SELECT 1 FROM invoice_arrival_rest x "
+            . "JOIN document xd ON xd.id = x.document_id AND xd.status IN ('draft', 'awaiting_approval', 'posted') WHERE x.kind = 'claim' "
+            . 'AND x.document_id = c.debit_note_document_id)) GROUP BY sl.credit_of_line_no', [$invoiceId]) as $c) {
             $credited[(int) $c['line_no']] = (int) $c['qty'];
         }
         $facts = [];
@@ -100,6 +104,28 @@ final class ArrivalRest
             $out[$no] = ['line_no' => $no, 'sku_id' => (int) $r['sku_id'], 'units' => (int) $r['units'], 'unit_cost' => (string) ($r['unit_cost'] ?? '0'), 'first_grn' => $g,
                 'first_grn_line' => $line, 'came' => $got, 'short' => $short, 'credited' => $credited[$no] ?? 0, 'rest' => $f['rest'] ?? 0, 'claimed' => $f['claim'] ?? 0,
                 'waived' => $f['waive'] ?? 0, 'legacy_claim' => $legacy[$g] ?: null, 'owed' => $legacy[$g] > 0 ? 0 : max(0, $missing - ($f['claim'] ?? 0)), 'missing' => $missing];
+        }
+        return $out;
+    }
+
+    /**
+     * What each invoice line still bills (its units less ALL its posted credit notes) beyond what its first receipt brought: the units its
+     * receipts of the rest are billed for, in their order (InvoiceMatch::receiptFacts, "Not invoiced yet").
+     *
+     * @return array<int, int> line_no => units
+     */
+    public static function billedBeyondFirst(Db $db, int $invoiceId): array
+    {
+        $credits = [];
+        foreach ($db->all("SELECT sl.credit_of_line_no AS line_no, SUM(dl.qty) AS qty FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' "
+            . "JOIN sinv_line sl ON sl.document_id = c.document_id AND sl.kind = 'goods' AND sl.credit_of_line_no IS NOT NULL "
+            . 'JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no '
+            . "WHERE c.credits_document_id = ? AND c.kind = 'credit_note' GROUP BY sl.credit_of_line_no", [$invoiceId]) as $c) {
+            $credits[(int) $c['line_no']] = (int) $c['qty'];
+        }
+        $out = [];
+        foreach (self::lines($db, $invoiceId) as $no => $l) {
+            $out[$no] = max(0, $l['units'] - ($credits[$no] ?? 0) - $l['came']);
         }
         return $out;
     }
@@ -227,6 +253,28 @@ final class ArrivalRest
             return [];
         }
         $number = (string) ($db->value('SELECT COALESCE(number, external_ref) FROM document WHERE id = ?', [$inv]) ?? '');
+        $out = [];
+        // It stays the rest of THAT invoice (the Codex check of a0d33a2, H2): the invoice's supplier and supplier number, and no delivery
+        // note of another receipt of it (the same delivery keyed twice).
+        $mine = $db->one('SELECT g.supplier_id, g.invoice_key, g.delivery_note, d.external_ref FROM goods_receipt g JOIN document d ON d.id = g.document_id WHERE g.document_id = ?',
+            [$grnId]) ?? [];
+        $theirs = $db->one('SELECT si.supplier_id, d.external_ref FROM supplier_invoice si JOIN document d ON d.id = si.document_id WHERE si.document_id = ?', [$inv]) ?? [];
+        if ((int) ($mine['supplier_id'] ?? 0) !== (int) ($theirs['supplier_id'] ?? -1)
+            || \CW\Receiving\ReceiptMath::invoiceKey((string) ($mine['external_ref'] ?? '')) !== \CW\Receiving\ReceiptMath::invoiceKey((string) ($theirs['external_ref'] ?? ''))) {
+            $out[] = ['code' => 'rest_invoice_changed', 'message' => "This receipt takes in the rest of {$number}: its supplier and supplier invoice number are that invoice's "
+                . '(' . (string) ($theirs['external_ref'] ?? '') . '). Put them back, or cancel it and receive the delivery as its own.'];
+        }
+        $note = mb_strtoupper(trim((string) ($mine['delivery_note'] ?? '')));
+        if ($note !== '') {
+            foreach ($db->all("SELECT d.id, d.number, g.delivery_note FROM goods_receipt_invoice l JOIN goods_receipt g ON g.document_id = l.grn_document_id JOIN document d "
+                . "ON d.id = g.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') WHERE l.sinv_document_id = ? AND l.grn_document_id <> ?", [$inv, $grnId]) as $o) {
+                if (mb_strtoupper(trim((string) $o['delivery_note'])) === $note) {
+                    $out[] = ['code' => 'rest_same_delivery', 'message' => 'This delivery note is on ' . ($o['number'] ?? ('receipt #' . $o['id']))
+                        . ' already: it is the same delivery. Correct the delivery note, or cancel this receipt.'];
+                    break;
+                }
+            }
+        }
         $all = self::lines($db, $inv);
         $owed = [];
         $claimed = [];
@@ -236,7 +284,6 @@ final class ArrivalRest
                 $claimed[$l['sku_id']] = $l['legacy_claim'] ?? self::claimOf($db, $inv, $l['line_no'], $l['first_grn']);
             }
         }
-        $out = [];
         ksort($lines);
         $left = $owed;
         foreach ($lines as $no => $l) {
@@ -270,7 +317,7 @@ final class ArrivalRest
     {
         $first = self::problems($db, $grn->id, $planLines);
         if ($first !== []) {
-            throw new CwException($first[0]['code'], $first[0]['message'], $first[0]['code'] === 'claimed' ? 409 : 422, ['problems' => $first]);
+            throw new CwException($first[0]['code'], $first[0]['message'], in_array($first[0]['code'], ['claimed', 'rest_same_delivery'], true) ? 409 : 422, ['problems' => $first]);
         }
         $lines = self::lines($db, $invoiceId);
         $owed = [];
@@ -281,30 +328,56 @@ final class ArrivalRest
         }
         $left = array_map(static fn (array $l): int => $l['owed'], $lines);
         ksort($planLines);
-        $written = [];
+        // The receipt was made line for line from the owed invoice lines (Arrivals::restReceiptOf): the n-th line of an item takes the n-th owed
+        // invoice line of that item first (the Codex check of a0d33a2, H3: one item on two lines at two prices, the first counted short on the
+        // receipt, the second's units are the second's), then what is left of it goes to the item's other owed lines in line order.
+        $came = [];
+        $bySku = [];
         foreach ($planLines as $no => $l) {
             $s = $l['split'];
-            $came = (int) $s['accepted'] + (int) $s['verify'] + (int) $s['quarantine'];
-            foreach ($owed[(int) $l['sku_id']] ?? [] as $invLine) {
-                if ($came <= 0) {
-                    break;
+            $came[(int) $no] = (int) $s['accepted'] + (int) $s['verify'] + (int) $s['quarantine'];
+            $bySku[(int) $l['sku_id']][] = (int) $no;
+        }
+        $take = [];
+        foreach ($bySku as $sku => $nos) {
+            $inv = $owed[$sku] ?? [];
+            foreach ($nos as $i => $no) {
+                if (isset($inv[$i])) {
+                    $t = min($came[$no], $left[$inv[$i]]);
+                    $take[$no][$inv[$i]] = $t;
+                    $came[$no] -= $t;
+                    $left[$inv[$i]] -= $t;
                 }
-                $take = min($came, $left[$invLine]);
-                if ($take <= 0) {
+            }
+            foreach ($nos as $no) {
+                foreach ($inv as $invLine) {
+                    $t = min($came[$no], $left[$invLine]);
+                    if ($t > 0) {
+                        $take[$no][$invLine] = ($take[$no][$invLine] ?? 0) + $t;
+                        $came[$no] -= $t;
+                        $left[$invLine] -= $t;
+                    }
+                }
+            }
+        }
+        ksort($take);
+        $written = [];
+        foreach ($take as $no => $parts) {
+            ksort($parts);
+            foreach ($parts as $invLine => $units) {
+                if ($units <= 0) {
                     continue;
                 }
-                $came -= $take;
-                $left[$invLine] -= $take;
                 $db->exec('INSERT INTO invoice_arrival_rest (sinv_document_id, line_no, first_grn_document_id, first_grn_line_no, kind, document_id, document_line_no, units, '
                     . "created_by, created_actor, created_at) VALUES (?, ?, ?, ?, 'rest', ?, ?, ?, ?, ?, ?)",
-                    [$invoiceId, $invLine, $lines[$invLine]['first_grn'], $lines[$invLine]['first_grn_line'], $grn->id, (int) $no, $take, $caller->staffUserId, $caller->actor,
+                    [$invoiceId, $invLine, $lines[$invLine]['first_grn'], $lines[$invLine]['first_grn_line'], $grn->id, (int) $no, $units, $caller->staffUserId, $caller->actor,
                         $now]);
-                $written[] = ['line' => $invLine, 'receipt_line' => (int) $no, 'units' => $take];
+                $written[] = ['line' => $invLine, 'receipt_line' => (int) $no, 'units' => $units];
             }
         }
         $number = (string) ($db->value('SELECT number FROM document WHERE id = ?', [$invoiceId]) ?? '');
         Audit::write($db, $caller, 'arrival.rest_received', 'document', (string) $grn->id, null, ['invoice' => $number, 'rest' => $written]);
-        self::resolveIncidents($db, $caller, $grn, $invoiceId, $now);
+        self::resolveIncidents($db, $caller, $grn, $invoiceId, $now, array_values(array_unique(array_column($written, 'line'))));
     }
 
     /**
@@ -364,14 +437,19 @@ final class ArrivalRest
 
     // ------------------------------------------------------------------------------------------
 
-    /** Resolves each open short incident of the invoice's lines once nothing is owed for any line it is about. */
-    private static function resolveIncidents(Db $db, Caller $caller, Document $grn, int $invoiceId, string $now): void
+    /**
+     * Resolves each open short incident about an invoice line this receipt brought some of ($brought) once nothing is owed for any line it
+     * is about (another line settled otherwise, a credit, is never said to have come: the Codex check of a0d33a2, M5).
+     *
+     * @param list<int> $brought
+     */
+    private static function resolveIncidents(Db $db, Caller $caller, Document $grn, int $invoiceId, string $now, array $brought): void
     {
         $lines = self::lines($db, $invoiceId);
         $text = "The rest came on {$grn->number}.";
         foreach (self::incidentsOf($db, $invoiceId, $lines, 'open') as $i) {
-            if (array_filter($i['lines'], static fn (int $no): bool => ($lines[$no]['owed'] ?? 0) > 0) !== []) {
-                continue; // part of it is still waited for
+            if (array_intersect($i['lines'], $brought) === [] || array_filter($i['lines'], static fn (int $no): bool => ($lines[$no]['owed'] ?? 0) > 0) !== []) {
+                continue; // not about what came, or part of it is still waited for
             }
             $n = $db->exec("UPDATE incident SET status = 'resolved', resolution = ?, resolved_by = ?, resolved_actor = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
                 [$text, $caller->staffUserId, $caller->actor, $now, $i['id']]);

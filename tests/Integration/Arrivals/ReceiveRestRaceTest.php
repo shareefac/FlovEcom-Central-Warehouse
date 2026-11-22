@@ -97,6 +97,53 @@ final class ReceiveRestRaceTest extends ArrivalsTestCase
         }
     }
 
+    /**
+     * The Codex check of a0d33a2, H1: a credit of the owed line and the posting of the rest at once: the credit note takes the invoice's arrival
+     * rows too, so the posting reads what is owed after it (refused: more on the paperwork than is owed), or posts first (the credit then
+     * leaves the line billed for fewer than came: the match says so).
+     */
+    public function testACreditOfTheOwedLineAgainstThePostingOfTheRest(): void
+    {
+        foreach (['credit held first' => true, 'at the same moment' => false] as $round => $creditFirst) {
+            $x = $this->shortInvoice('Race Credit Rest ' . ($creditFirst ? 'A' : 'B') . ' Ltd');
+            $post = $this->restPosting($x);
+            $cn = $this->invoices->createDraft($x['desk'], 'credit_note', (int) $x['supplier']['id'], ['credits_id' => $x['invoice']->id]);
+            $cn = $this->invoices->addCredit($x['desk'], $cn->id, $cn->version, 1, 2, '1.0000');
+            $cn = $this->invoices->saveHeader($x['desk'], $cn->id, $this->docs->get($cn->id)->version, ['net_total' => '2.00', 'vat_total' => '0.00',
+                'invoice_number' => 'CN-' . bin2hex(random_bytes(3)), 'invoice_date' => self::day('-1 day')]);
+            $credit = ['op' => 'post_doc', 'staff_id' => $x['desk']->staffUserId, 'document_id' => $cn->id, 'version' => $cn->version];
+            $res = $creditFirst ? self::race([$credit + ['hold_ms' => 800], $post + ['after_lock' => 'invoice_arrival']]) : self::race([$credit, $post]);
+            $what = $round . ': ' . json_encode($res);
+            self::assertSame(0, $res[0]['deadlocks'] + $res[1]['deadlocks'], $what);
+            self::assertSame(200, $res[0]['status'], $what);
+            if ($creditFirst || $res[1]['status'] !== 200) {
+                self::assertSame([422, 'not_owed'], [$res[1]['status'], $res[1]['error']], $what . ': three owed, five on the paperwork');
+                self::assertSame([['line' => 1, 'units' => 3, 'amount' => '3.00']], $this->owed($x['invoice']->id), $what);
+                self::assertSame(0, $this->onHand($x['sku']), $what);
+            } else {
+                self::assertSame([5, 'needs_review'], [$this->onHand($x['sku']), $this->stored($x['invoice']->id)['match_state']], $what . ': billed 3, 5 came');
+            }
+        }
+    }
+
+    /** The Codex check of a0d33a2, M3: a new part of the rest started while an earlier part is taken back, by the same person: no deadlock. */
+    public function testANewPartAgainstTheReversalOfAnEarlierPart(): void
+    {
+        foreach (['reversal held first' => true, 'at the same moment' => false] as $round => $reverseFirst) {
+            $x = $this->shortInvoice('Race Part Back ' . ($reverseFirst ? 'A' : 'B') . ' Ltd');
+            $r1 = $this->restReceipt($x['desk'], $x['invoice']->id, [1 => ['short_units' => '2']]);
+            $back = ['op' => 'reverse', 'staff_id' => $x['desk']->staffUserId, 'document_id' => $r1->id];
+            $next = ['op' => 'receive_rest', 'staff_id' => $x['desk']->staffUserId, 'document_id' => $x['invoice']->id];
+            $res = $reverseFirst ? self::race([$back + ['hold_ms' => 800], $next + ['after_lock' => 'invoice_arrival']]) : self::race([$back, $next]);
+            $what = $round . ': ' . json_encode($res);
+            self::assertSame(0, $res[0]['deadlocks'] + $res[1]['deadlocks'], $what);
+            self::assertSame([200, 200], [$res[0]['status'], $res[1]['status']], $what);
+            $units = (int) self::$db->value('SELECT qty FROM document_line WHERE document_id = ?', [$res[1]['id']]);
+            self::assertContains($units, [2, 5], $what . ': what was owed when it read it (fewer than owed is a part arrival: the rest stays owed)');
+            self::assertSame([['line' => 1, 'units' => 5, 'amount' => '5.00']], $this->owed($x['invoice']->id), $what);
+        }
+    }
+
     public function testThePostingOfTheRestAgainstAClaimAnAcceptanceAndTheFirstReceiptsReversal(): void
     {
         foreach (['claim', 'accept', 'reverse'] as $other) {
