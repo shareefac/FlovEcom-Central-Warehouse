@@ -19,6 +19,12 @@ use CW\Db;
  *  DB5. every bill of one carrier account that is not undone names the same shop (an undone bill is no evidence of its shop, DL8).
  *  DB6. a superseded bill was replaced by exactly one bill of the same carrier, account and number, uploaded after it; a bill names as
  *       replaced only a superseded one of its own key.
+ * The pooled bills (Royal Mail, 0078; docs/decisions.md DL67): DB3 is the per-parcel carriers' (a pooled bill has rows, not lines), and
+ *  DB7. per live pooled bill, its rows add up to its net exactly, and there are as many as it says.
+ *  DB8. per row of a live pooled bill, its live allocations add up to its net exactly (every penny somewhere, none twice).
+ *  DB9. a bill that is not live has no live allocation (undo and replace end them).
+ *  DB10. an allocation's label is a label of its bill's own carrier account (a parcel of another account never takes its money).
+ *  DB11. a flat label holds one live price at most across the rows of its day (the day book puts every label on one row).
  * Their cost (the Codex check r1, LOW 2): DB1, DB2 and DB3 read every line (DPD: about 10,000 a month, 120,000 a year: a second or two a
  * night); a carrier with a line per parcel at ten times that would want them by the bills uploaded since the last run.
  */
@@ -48,7 +54,8 @@ final class DeliveryInvariants
                 . ' is not in CW';
         }
         foreach ($db->all("SELECT i.id, i.invoice_no, i.net_pence, i.line_count, COALESCE(SUM(l.cost), 0) AS total, COUNT(l.line_no) AS n FROM carrier_invoice i "
-            . "LEFT JOIN carrier_invoice_line l ON l.invoice_id = i.id WHERE i.status = 'live' GROUP BY i.id, i.invoice_no, i.net_pence, i.line_count "
+            . "LEFT JOIN carrier_invoice_line l ON l.invoice_id = i.id WHERE i.status = 'live' AND i.carrier IN (SELECT code FROM carrier WHERE family = 'per_parcel') "
+            . 'GROUP BY i.id, i.invoice_no, i.net_pence, i.line_count '
             . 'HAVING total <> i.net_pence OR n <> i.line_count ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB3 bill {$r['id']} ({$r['invoice_no']}): its {$r['n']} lines add up to {$r['total']}p, it says {$r['line_count']} lines and {$r['net_pence']}p net";
         }
@@ -66,6 +73,29 @@ final class DeliveryInvariants
             . "HAVING (o.status = 'superseded' AND replaced_by <> 1) OR (o.status <> 'superseded' AND replaced_by <> 0) OR COALESCE(other, 0) > 0 "
             . 'ORDER BY o.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB6 bill {$r['id']} ({$r['status']}): named as replaced by {$r['replaced_by']} bills" . ((int) ($r['other'] ?? 0) > 0 ? ', some of another bill or uploaded before it' : '');
+        }
+        foreach ($db->all("SELECT i.id, i.invoice_no, i.net_pence, i.line_count, COALESCE(SUM(r.net_pence), 0) AS total, COUNT(r.row_no) AS n FROM carrier_invoice i "
+            . "LEFT JOIN carrier_bill_row r ON r.invoice_id = i.id WHERE i.status = 'live' AND i.carrier IN (SELECT code FROM carrier WHERE family = 'pooled') "
+            . 'GROUP BY i.id, i.invoice_no, i.net_pence, i.line_count HAVING total <> i.net_pence OR n <> i.line_count ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB7 bill {$r['id']} ({$r['invoice_no']}): its {$r['n']} rows add up to {$r['total']}p, it says {$r['line_count']} rows and {$r['net_pence']}p net";
+        }
+        foreach ($db->all("SELECT r.invoice_id, r.row_no, r.net_pence, COALESCE(SUM(a.pence), 0) AS total FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id "
+            . "AND i.status = 'live' LEFT JOIN carrier_allocation a ON a.invoice_id = r.invoice_id AND a.row_no = r.row_no AND a.ended_at IS NULL "
+            . 'GROUP BY r.invoice_id, r.row_no, r.net_pence HAVING total <> r.net_pence ORDER BY r.invoice_id, r.row_no LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB8 bill {$r['invoice_id']} row {$r['row_no']}: its live allocations add up to {$r['total']}p, the row's net is {$r['net_pence']}p";
+        }
+        foreach ($db->all("SELECT i.id, i.status, COUNT(*) AS n FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id WHERE a.ended_at IS NULL "
+            . "AND i.status <> 'live' GROUP BY i.id, i.status ORDER BY i.id LIMIT " . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB9 bill {$r['id']} ({$r['status']}): {$r['n']} allocations still live";
+        }
+        foreach ($db->all('SELECT a.id FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id JOIN carrier_label l ON l.id = a.label_id '
+            . 'JOIN carrier_account ca ON ca.id = l.account_id WHERE a.ended_at IS NULL AND (ca.carrier <> i.carrier OR ca.account_no <> i.account) '
+            . 'ORDER BY a.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB10 allocation {$r['id']}: its label is of another carrier account than its bill";
+        }
+        foreach ($db->all("SELECT a.label_id, COUNT(*) AS n FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+            . "WHERE a.ended_at IS NULL AND a.kind = 'label' AND a.how = 'flat' GROUP BY a.label_id HAVING n > 1 ORDER BY a.label_id LIMIT " . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB11 label {$r['label_id']}: {$r['n']} live day prices";
         }
         return $v;
     }

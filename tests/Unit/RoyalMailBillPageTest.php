@@ -64,8 +64,9 @@ final class RoyalMailBillPageTest extends TestCase
         $lines = self::week();
         $page = RoyalMailBillPage::parse(RmBill::page($lines), RmBill::PRODUCTS);
         $text = RoyalMailBillPage::parse(RmBill::text($lines), RmBill::PRODUCTS);
-        unset($page['sha256'], $text['sha256']);
-        self::assertSame($page, $text);
+        self::assertSame($page, $text, 'the fingerprint too: it is of what was read, not of the bytes');
+        self::assertSame($page, RoyalMailBillPage::parse(RmBill::page($lines, ['session' => 'saved again']), RmBill::PRODUCTS), 'a page saved again (a new session token)');
+        self::assertNotSame($page['sha256'], RoyalMailBillPage::parse(RmBill::page([...$lines, RmBill::line('2026-11-09', 'TPL', 1, 254, '1')]), RmBill::PRODUCTS)['sha256']);
     }
 
     public function testThousandsAndZeroRatedLinesAndNoSummary(): void

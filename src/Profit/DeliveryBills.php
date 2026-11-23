@@ -166,6 +166,10 @@ final class DeliveryBills
         $this->locked(function () use ($caller, $invoiceId): void {
             $this->guarded(function (Db $db) use ($caller, $invoiceId): array {
                 $inv = $db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
+                if (!in_array((string) $inv['carrier'], self::CARRIERS, true)) {
+                    // A pooled bill (Royal Mail) is undone with its allocations (RoyalMailBills::undo, DL65): never here.
+                    throw new CwException('other_carrier', 'this bill is undone on its own page (RoyalMailBills): nothing was changed.', 409);
+                }
                 if ($inv['status'] !== 'live') {
                     throw new CwException('not_live', 'this bill is no longer in the profit: nothing to undo.', 409);
                 }
@@ -192,6 +196,49 @@ final class DeliveryBills
     {
         $this->authorise($caller); // a server job, or a person holding delivery.upload; never a store (Codex r1 LOW 1)
         return $this->locked(fn (): int => $this->rematchAll($caller));
+    }
+
+    /**
+     * The delivery lock (one bill write at a time) for another bills service (RoyalMailBills, 0078: DL64): the same lock, the same wait.
+     *
+     * @template T
+     * @param \Closure(): T $fn
+     * @return T
+     */
+    public function inLock(\Closure $fn): mixed
+    {
+        return $this->locked($fn);
+    }
+
+    /**
+     * One guarded delivery write (DL13, DL37, DL41) for another bills service (RoyalMailBills, 0078: DL64): its plan's facts are counted on the
+     * profit days exactly as DPD's lines (state matched: on an order; not_matched: a shop's "not on an order" on its date, in inv_ch).
+     *
+     * @template T
+     * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, write: \Closure(Db): T} $plan
+     * @return T
+     */
+    public function guardedWrite(\Closure $plan): mixed
+    {
+        return $this->guarded($plan);
+    }
+
+    /** Only a person holding delivery.upload (the Delivery bills job) or a server job, never admin (DL31): for RoyalMailBills (DL64). */
+    public function authoriseWrite(Caller $caller): void
+    {
+        $this->authorise($caller);
+    }
+
+    /**
+     * Whether a label of $shop on $day is before CW start (DL10, DL30): the day on or before the shop's start day (none yet: always), or its
+     * reference an order number below the shop's first order in CW. For RoyalMailBills (DL58).
+     *
+     * @param array{0: ?int, 1: int, 2: int}|null $first the shop's first order, read once (pass the same variable for one shop)
+     */
+    public static function beforeStart(Db $db, int $shop, string $day, ?string $ref, ?array &$first): bool
+    {
+        $start = self::startDay($db, $shop);
+        return $start === null || $day <= $start || self::beforeFirstOrder($db, $shop, $ref, $first);
     }
 
     /**
@@ -249,8 +296,12 @@ final class DeliveryBills
      */
     public static function orderCost(Db $db, int $channelId, string $ref): int
     {
+        // DPD's lines on the order, and the pooled bills' (Royal Mail's) live allocations on it (0078, DL63: one source for the order's cost,
+        // the day figures and the rebuild).
         return (int) $db->value("SELECT COALESCE(SUM(l.cost), 0) FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' "
-            . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.match_state IN ('matched', 'collection')", [$channelId, $ref]);
+            . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.match_state IN ('matched', 'collection')", [$channelId, $ref])
+            + (int) $db->value("SELECT COALESCE(SUM(a.pence), 0) FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+            . "WHERE a.channel_id = ? AND a.order_ref = ? AND a.dest = 'order' AND a.ended_at IS NULL", [$channelId, $ref]);
     }
 
     /**
@@ -269,7 +320,16 @@ final class DeliveryBills
         }
         $o = $db->one("SELECT COALESCE(SUM(l.cost), 0) AS c, COUNT(*) AS n FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' "
             . "AND i.channel_id = ? WHERE l.match_state IN ('not_matched', 'ambiguous') AND l.line_date = ?", [$channelId, $day]) ?? [];
-        return ['orders' => $orders, 'other' => (int) ($o['c'] ?? 0), 'other_lines' => (int) ($o['n'] ?? 0)];
+        // The pooled bills' (Royal Mail's) live allocations (0078, DL63): on the day's paid orders, and a shop's "not on an order" in the
+        // ALLOCATION's shop (an account serves several shops: its bill's shop is only its main one), on its service day.
+        foreach ($db->all("SELECT o.order_ref, SUM(a.pence) AS c FROM sale_order o JOIN carrier_allocation a ON a.channel_id = o.channel_id AND a.order_ref = o.order_ref "
+            . "AND a.dest = 'order' AND a.ended_at IS NULL JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE o.day = ? AND o.channel_id = ? "
+            . 'GROUP BY o.order_ref', [$day, $channelId]) as $r) {
+            $orders[strtolower((string) $r['order_ref'])] = ($orders[strtolower((string) $r['order_ref'])] ?? 0) + (int) $r['c'];
+        }
+        $a = $db->one("SELECT COALESCE(SUM(a.pence), 0) AS c, COUNT(*) AS n FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+            . "WHERE a.dest = 'shop' AND a.day = ? AND a.channel_id = ? AND a.ended_at IS NULL", [$day, $channelId]) ?? [];
+        return ['orders' => $orders, 'other' => (int) ($o['c'] ?? 0) + (int) ($a['c'] ?? 0), 'other_lines' => (int) ($o['n'] ?? 0) + (int) ($a['n'] ?? 0)];
     }
 
     // ---- the work ------------------------------------------------------------------------------------------------------------------
@@ -927,7 +987,9 @@ final class DeliveryBills
         }
         if ($db->value('SELECT 1 FROM sale_order WHERE day = ? AND channel_id = ? LIMIT 1', [$day, $channelId]) !== null
             || $db->value("SELECT 1 FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' AND i.channel_id = ? "
-                . "WHERE l.match_state IN ('not_matched', 'ambiguous') AND l.line_date = ? LIMIT 1", [$channelId, $day]) !== null) {
+                . "WHERE l.match_state IN ('not_matched', 'ambiguous') AND l.line_date = ? LIMIT 1", [$channelId, $day]) !== null
+            || $db->value("SELECT 1 FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.dest = 'shop' AND a.day = ? "
+                . 'AND a.channel_id = ? AND a.ended_at IS NULL LIMIT 1', [$day, $channelId]) !== null) {
             return;
         }
         $db->exec('DELETE FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);

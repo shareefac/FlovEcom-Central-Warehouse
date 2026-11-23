@@ -82,9 +82,11 @@ final class RoyalMailBillPage
         }
         self::vat($rows, $out['summary'], $head['vat']);
         $days = array_column($rows, 'service_date');
-        return ['carrier' => self::CARRIER, 'account' => $head['account'], 'invoice_no' => $head['invoice_no'], 'invoice_date' => $head['date'],
-            'period_from' => min($days), 'period_to' => max($days), 'net' => $head['net'], 'vat' => $head['vat'], 'gross' => $head['gross'],
-            'sha256' => hash('sha256', $bytes), 'rows' => $rows];
+        $bill = ['carrier' => self::CARRIER, 'account' => $head['account'], 'invoice_no' => $head['invoice_no'], 'invoice_date' => $head['date'],
+            'period_from' => min($days), 'period_to' => max($days), 'net' => $head['net'], 'vat' => $head['vat'], 'gross' => $head['gross'], 'rows' => $rows];
+        // The fingerprint of what was READ, not of the bytes (DL54): a page saved twice holds a new session token each time, and the pasted text of
+        // the same bill is other bytes; the same bill read again is "the same file".
+        return $bill + ['sha256' => hash('sha256', json_encode($bill, JSON_THROW_ON_ERROR))];
     }
 
     /**

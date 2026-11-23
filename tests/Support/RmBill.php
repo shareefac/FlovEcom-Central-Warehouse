@@ -73,7 +73,8 @@ final class RmBill
         foreach ($lines as $l) {
             [$y, $m, $d] = explode('-', $l['day']);
             $form = $l['sales'] === null ? '' : '<form method="post" action="getOrderDetails.sap"><input type="submit" value="' . $l['sales'] . '"></form>'
-                . '<input type="hidden" name="sapSession" value="SESSION-' . bin2hex(random_bytes(6)) . ' Customer Test Person, 1 Made Up Street">';
+                . '<input type="hidden" name="sapSession" value="SESSION-' . substr(sha1(json_encode($l, JSON_THROW_ON_ERROR) . ($over['session'] ?? '')), 0, 12)
+                . ' Customer Test Person, 1 Made Up Street">';
             $rows .= "<tr><td>{$d}:{$m}:{$y}</td><td>{$l['product']}</td><td>" . number_format($l['qty'], 3, '.', '') . '</td><td>A DESCRIPTION OF THE PRODUCT</td>'
                 . $form . '<td>' . ($l['sales'] === null ? '' : '/ ') . htmlspecialchars((string) $l['ref']) . '</td><td>' . self::gbp($l['net']) . '</td><td>'
                 . self::gbp($l['gross']) . '</td><td>' . $l['vat'] . "</td></tr>\n";
