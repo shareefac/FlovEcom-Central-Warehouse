@@ -932,6 +932,60 @@ final class DeliveryBillsTest extends StockTestCase
     }
 
     /**
+     * The astra re-check of a33d184 (item 8; DL41): one deadline for the whole guarded write, row waits included. A day row held elsewhere is
+     * never waited for while the bill holds order guards longer than a snapshot waits for its guard (OrderSnapshots::QUEUE_LOCK_WAIT_SEC): the
+     * bill lets every guard go at once and tries again within GUARD_BUDGET_SEC, then busy; the snapshot writer waiting meanwhile gets its guard
+     * within its own wait; nothing is written.
+     */
+    public function testABlockedDayRowNeverKeepsASnapshotFromItsGuard(): void
+    {
+        [$ch, $bytes] = $this->week();
+        $other = TestDb::connect();
+        $other->pdo()->beginTransaction();
+        $other->one("SELECT * FROM profit_day WHERE channel_id = ? AND day = '2026-11-04' FOR UPDATE", [$ch]);
+        $name = OrderSnapshots::lockName($ch, '1000');
+        $worker = null;
+        $pipes = [];
+        // Once the bill holds its guards (the statement after it took them), the snapshot writer of one of its orders starts waiting for its guard.
+        HookedStatement::$before = ['SELECT GET_LOCK(?, 0) AS g0' => static function () use ($name, &$worker, &$pipes): void {
+            HookedStatement::$before[''] = static function () use ($name, &$worker, &$pipes): void {
+                $worker = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', __DIR__ . '/snapshot_guard_worker.php'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'],
+                    2 => ['pipe', 'w']], $pipes, dirname(__DIR__, 3), ['CW_SLOT' => (string) getenv('CW_SLOT'), 'CW_DB_NAME' => TestDb::name()] + getenv());
+                fwrite($pipes[0], json_encode(['name' => $name, 'wait' => OrderSnapshots::QUEUE_LOCK_WAIT_SEC, 'hold_ms' => 50], JSON_THROW_ON_ERROR) . "\n");
+                fclose($pipes[0]);
+                fgets($pipes[1]); // "waiting": it is about to ask for the guard
+                usleep(200_000);
+            };
+        }];
+        $bills = self::hookedBills();
+        $t = microtime(true);
+        try {
+            $bills->upload(self::system(), 'dpd', $bytes);
+            self::fail('busy');
+        } catch (CwException $e) {
+            self::assertSame(['busy', 503], [$e->errorCode, $e->httpStatus]);
+        } finally {
+            HookedStatement::$before = [];
+            $other->pdo()->rollBack();
+        }
+        $took = microtime(true) - $t;
+        self::assertIsResource($worker, 'the bill held its guards');
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($worker), $err);
+        $w = json_decode(trim($out), true);
+        self::assertIsArray($w, $out . $err);
+        self::assertTrue($w['seen'], 'the bill held the guard when the snapshot writer asked');
+        self::assertSame(1, $w['got'], 'the snapshot writer gets its guard within its own wait');
+        self::assertLessThan(OrderSnapshots::QUEUE_LOCK_WAIT_SEC * 1000, $w['waited_ms']);
+        self::assertLessThan(DeliveryBills::GUARD_BUDGET_SEC + 2.5, $took, 'busy within the budget');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice_line'));
+    }
+
+    /**
      * The final review (astra item 8; DL37): a bill write never waits holding order guards: when one is held elsewhere it lets every guard go at
      * once and tries again, so the whole wait is bounded (GUARD_BUDGET_SEC), then busy; at a week's volume (2,500 orders) it is written whole.
      */

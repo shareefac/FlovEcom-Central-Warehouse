@@ -194,7 +194,7 @@ final class DpdInvoiceFileTest extends TestCase
     public function testTheMoneyColumnsAreReadByTheirNamesWhereverTheyAre(): void
     {
         $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420), DpdCsv::line('05/11/2026', '6599195041/0', 0, ['money' => ['Peak Charge' => 99, 'Revenue' => 250],
-            'Delivery Notes' => 'Leave with Test Person, 9.99'])];
+            'Delivery Notes' => 'Leave with Test Person'])]; // a column CW does not know with a digit in it refuses the file (DL40)
         $cols = [...array_values(array_diff(DpdCsv::COLUMNS, ['Fuel and Energy Charge', 'Global Energy Charge'])), 'Fuel and Energy Charge', 'Delivery Notes', 'Peak Charge'];
         $bill = DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => $cols, 'net' => 420 - 9 + 349, 'vat' => intdiv((420 - 9 + 349) * 2 + 5, 10)]), 2000);
         self::assertSame([420 - 9, 349], array_column($bill['lines'], 'cost'), 'Global Energy (9p) is not on this file; the rest counted wherever it is');
@@ -258,6 +258,49 @@ final class DpdInvoiceFileTest extends TestCase
         // A column CW does not know that holds no amount (a note) refuses nothing and is never read.
         $note = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Notes' => 'Leave with Test Person'])];
         self::assertSame(420, DpdInvoiceFile::parse(DpdCsv::file($note, ['columns' => [...DpdCsv::COLUMNS, 'Notes']]), 2000)['net']);
+    }
+
+    /**
+     * The astra re-check of a33d184 (item 4; DL40): an amount in a column CW does not know refuses the file however it is written (in pounds,
+     * in brackets, the minus after it): any cell there with a digit in it; +£5 on one line and -£5 on another (they tie) the same.
+     */
+    public function testAColumnCwDoesNotKnowWithAmountsWrittenAnyWayRefusesTheFile(): void
+    {
+        $want = 'DPD bill not read: the file has a column we do not know, column 43, with amounts in it: tell the CW team. Nothing was saved.';
+        foreach ([['£5.00', '-£5.00'], ['£5.00', '£-5.00'], ['5.00', '(5.00)'], ['5.00', '5.00-'], ['GBP 5', 'GBP -5'], ['5.00 CR', ''], ['0.00', '']] as [$a, $b]) {
+            $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 1000, ['Test Person' => $a]), DpdCsv::line('05/11/2026', '6599195041/0', 1000, ['Test Person' => $b])];
+            try {
+                DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Test Person']]), 2000);
+                self::fail("refused: {$a} {$b}");
+            } catch (CwException $e) {
+                self::assertSame($want, $e->getMessage(), "{$a} {$b}");
+            }
+        }
+        // A column CW does not know with words only (no digit) refuses nothing and is never read.
+        $note = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Notes' => 'Leave with neighbour - £ n/a'])];
+        self::assertSame(420, DpdInvoiceFile::parse(DpdCsv::file($note, ['columns' => [...DpdCsv::COLUMNS, 'Notes']]), 2000)['net']);
+    }
+
+    /**
+     * The astra re-check of a33d184 (LOW; DL40): the currency after a total is looked for up to the next label only: a top row with net, VAT
+     * and gross side by side and no currency is read, never refused as "not in pounds"; a currency printed after one of them still counts.
+     */
+    public function testTotalsSideBySideWithNoCurrencyAreRead(): void
+    {
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420)];
+        $row = static fn (array $totals): array => [['Account No', '3012002', 'Invoice No', '62368793'], $totals];
+        foreach ([['Nett Invoice Value', '4.20', 'VAT', '0.84', 'Gross Invoice Value', '5.04'],
+            ['Nett Invoice Value:', '4.20', '', 'VAT Value', '0.84', 'Gross Invoice Value', '5.04', 'GBP'],
+            ['Nett Invoice Value', '4.20', 'GBP', 'VAT', '0.84', 'GBP', 'Gross Invoice Value', '5.04', 'GBP']] as $totals) {
+            $b = DpdInvoiceFile::parse(DpdCsv::file($lines, ['top' => $row($totals)]), 2000);
+            self::assertSame([420, 84, 504], [$b['net'], $b['vat'], $b['gross']], implode(',', $totals));
+        }
+        try {
+            DpdInvoiceFile::parse(DpdCsv::file($lines, ['top' => $row(['Nett Invoice Value', '4.20', 'VAT', '0.84', 'EUR', 'Gross Invoice Value', '5.04'])]), 2000);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('DPD bill not read: the totals at the top of the file are not all in pounds (GBP). Nothing was saved.', $e->getMessage());
+        }
     }
 
     /** The final review (astra, item 5; DL34): the currency beside the totals must be GBP on all three. */

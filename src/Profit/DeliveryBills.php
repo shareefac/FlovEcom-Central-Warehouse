@@ -71,6 +71,12 @@ final class DeliveryBills
     public const LOCK_WAIT_SEC = 10;
     /** The most a bill write spends trying for the order guards it needs, never waiting while it holds any (a snapshot holds one for milliseconds). */
     public const GUARD_BUDGET_SEC = 5;
+    /**
+     * While a bill write holds order guards: a row wait (its database lock wait) is at most this, in seconds, and it begins no row wait once it
+     * has held them this long; so its waits while holding them are at most twice this (2 s), within the 3 s a snapshot waits for its guard
+     * (OrderSnapshots::QUEUE_LOCK_WAIT_SEC; the astra re-check of a33d184, item 8; DL41).
+     */
+    public const HOLD_WAIT_SEC = 1;
     /** Snapshot guards taken per statement. */
     public const GUARD_CHUNK = 200;
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
@@ -695,9 +701,10 @@ final class DeliveryBills
     private function guarded(\Closure $plan): mixed
     {
         $since = microtime(true);
-        // A day row held elsewhere is waited for GUARD_BUDGET_SEC at most while this write holds its guards (then tried again, then busy).
+        // One deadline for the whole write, row waits included (the astra re-check of a33d184, item 8; DL41): a row held elsewhere is waited for
+        // HOLD_WAIT_SEC at most (then every guard let go, tried again within GUARD_BUDGET_SEC, then busy).
         $rowWait = $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
-        $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . min((int) $rowWait, self::GUARD_BUDGET_SEC));
+        $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . min((int) $rowWait, self::HOLD_WAIT_SEC));
         try {
             return $this->attempts($plan, $since);
         } finally {
@@ -734,6 +741,7 @@ final class DeliveryBills
                     }
                     $names = array_values(array_unique($names));
                     sort($names, SORT_STRING);
+                    $heldSince = microtime(true);
                     // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), none waited for: one held
                     // elsewhere (a snapshot working it out: milliseconds) means every guard is let go at once and the write tried again a moment
                     // later, so this write never waits while it holds any, and its whole wait is GUARD_BUDGET_SEC at most (the Codex check r3;
@@ -769,9 +777,18 @@ final class DeliveryBills
                         [$dayB, $chB] = explode('|', $b);
                         return [$dayA, (int) $chA] <=> [$dayB, (int) $chB];
                     });
+                    // Each day row: the one there taken without waiting (NOWAIT: held elsewhere = 3572, every guard let go and tried again); a
+                    // missing one put in, which waits HOLD_WAIT_SEC at most (another session putting in the same day), and none begun once the
+                    // guards have been held HOLD_WAIT_SEC: so this write's waits while it holds them stay within a snapshot's wait for its guard
+                    // (the astra re-check of a33d184, item 8; DL41).
                     foreach ($pairs as $pair) {
                         [$day, $ch] = explode('|', $pair);
-                        ProfitDays::guard($db, (int) $ch, [$day]);
+                        if ($db->value('SELECT 1 FROM profit_day WHERE day = ? AND channel_id = ? FOR UPDATE NOWAIT', [$day, (int) $ch]) === null) {
+                            if (microtime(true) - $heldSince >= self::HOLD_WAIT_SEC) {
+                                throw new CwException(self::GUARD_BUSY, 'a day of these lines is being stored right now', 409);
+                            }
+                            ProfitDays::guard($db, (int) $ch, [$day]);
+                        }
                     }
                     // The orders, read again now that what keeps them still is held: one paid meanwhile, or moved, means the plan is old; and the
                     // plan's matching taken again: a parcel removed, or a second one of a number stored, means it is old too.
@@ -802,8 +819,12 @@ final class DeliveryBills
             } catch (\Throwable $e) {
                 $this->release($held);
                 $held = [];
-                if ($e instanceof CwException && $e->errorCode === self::GUARD_BUSY) {
-                    // An order's guard held elsewhere: tried again a moment later, every guard let go meanwhile, within GUARD_BUDGET_SEC.
+                // Any wait for another session (the astra re-check of a33d184, item 8; DL41): an order's guard held elsewhere, a day row held
+                // elsewhere (3572: NOWAIT; 1205: a row wait ran out), the database's deadlock (1213) or MySQL's named-lock one (3058): every guard
+                // let go at once (above) and the whole write tried again a moment later, within GUARD_BUDGET_SEC from its start, then said
+                // "busy, try again" (the final review, Fable L3: never an error page).
+                $code = Db::driverCode($e);
+                if (($e instanceof CwException && $e->errorCode === self::GUARD_BUSY) || Db::isDeadlock($e) || in_array($code, [1205, 3058, 3572], true)) {
                     if (microtime(true) - $since >= self::GUARD_BUDGET_SEC) {
                         throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
                     }
@@ -811,10 +832,7 @@ final class DeliveryBills
                     $try--;
                     continue;
                 }
-                // 3058: MySQL found two sessions waiting for each other's named locks; 1205: a row wait (a day row held elsewhere) ran out (the
-                // final review, Fable L3: said "busy, try again", never an error page).
-                $code = Db::driverCode($e);
-                if (!($e instanceof CwException && $e->errorCode === self::RETRY) && !Db::isDeadlock($e) && $code !== 3058 && $code !== 1205) {
+                if (!($e instanceof CwException && $e->errorCode === self::RETRY)) {
                     throw $e;
                 }
                 if ($try >= self::TRIES) {

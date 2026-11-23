@@ -180,8 +180,9 @@ final class DpdInvoiceFile
         ];
         $width = count($names);
         // The columns CW does not know (neither money nor DPD's others, a column with no heading too): never read into a line; one that holds
-        // amounts refuses the whole file, even when the lines tie (+£5 on one line and -£5 on another would move cost between orders unseen),
-        // named by its NUMBER only: a heading CW does not know may be anything, a name too (the final review, astra items 3 and 4; DL33).
+        // amounts (any digit: DL40) refuses the whole file, even when the lines tie (+£5 on one line and -£5 on another would move cost between
+        // orders unseen), named by its NUMBER only: a heading CW does not know may be anything, a name too (the final review, astra items 3 and 4;
+        // DL33).
         $known = array_map('strtolower', [...self::MONEY, ...self::OTHER_COLUMNS]);
         $unknown = [];
         foreach ($names as $i => $n) {
@@ -207,9 +208,10 @@ final class DpdInvoiceFile
                 throw self::refuse('row ' . $row . ' has more cells than the file has column names: the file is not read', ['row' => $row]);
             }
             $cells = array_pad($cells, $width, '');
+            // Any cell there with a digit in it counts as an amount, however it is written ("£5.00", "(5.00)", "5.00-", "0.00"): the astra
+            // re-check of a33d184, item 4 (DL40).
             foreach ($unknown as $i => $label) {
-                $p = self::pence($cells[$i]);
-                if ($p !== null && $p !== 0) {
+                if (preg_match('/[0-9]/', $cells[$i]) === 1) {
                     $unknownMoney[$i] = $label;
                 }
             }
@@ -297,6 +299,12 @@ final class DpdInvoiceFile
             'sha256' => $sha, 'lines' => $lines];
     }
 
+    /** A top-row cell as a label is looked up (lower case, spaces as one, no ":" or "." after it). */
+    private static function label(string $cell): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', rtrim($cell, ':. '))));
+    }
+
     /**
      * What the top rows say: each label ("Account No", "Nett Invoice Value", ...) and the next cell after it that is not empty.
      *
@@ -310,18 +318,20 @@ final class DpdInvoiceFile
         foreach ($rows as $cells) {
             $count = count($cells);
             for ($i = 0; $i < $count; $i++) {
-                $label = strtolower(trim((string) preg_replace('/\s+/', ' ', rtrim($cells[$i], ':. '))));
-                $what = self::LABELS[$label] ?? null;
+                $what = self::LABELS[self::label($cells[$i])] ?? null;
                 if ($what === null || isset($found[$what])) {
                     continue;
                 }
                 for ($j = $i + 1; $j < $count; $j++) {
                     if ($cells[$j] !== '') {
                         $found[$what] = $cells[$j];
-                        // The currency DPD prints after a total ("GBP"), when there is one.
+                        // The currency DPD prints after a total ("GBP"), when there is one: looked for up to the next label only (net, VAT and
+                        // gross side by side on one row, no currency: none; the astra re-check of a33d184, LOW; DL40).
                         for ($k = $j + 1; $k < $count; $k++) {
                             if (trim($cells[$k]) !== '') {
-                                $currency[$what] = strtoupper(trim($cells[$k]));
+                                if (!isset(self::LABELS[self::label($cells[$k])])) {
+                                    $currency[$what] = strtoupper(trim($cells[$k]));
+                                }
                                 break;
                             }
                         }

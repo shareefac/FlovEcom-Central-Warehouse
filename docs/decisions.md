@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL39; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL41; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL39. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL41. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -20141,3 +20141,19 @@ not counted as waiting (its cost is not in yet: the owner is told separately). T
 
 **DL39. Senders Ref at most 9 digits; the first order from digits-only numbers (Fable L4, L2).** A longer reference (a phone number typed as
 one) is not kept (empty) and never said; the shop's first order (DL30) is the lowest of its digits-only order numbers.
+
+**DL40. Any digit in a column CW does not know refuses the file; a total's currency is looked for up to the next label (astra re-check of
+a33d184, item 4 and LOW).** An amount there may be written any way ("£5.00", "-£5.00", "(5.00)", "5.00-", "5.00 CR", "0.00"), so a cell
+there with a digit in it refuses the file as DL33 says (by the column's number); words only refuse nothing and are never read. DPD's real
+headings are all known (the four address columns and the extract's 38 checked), so a real bill is not refused by it. The currency after
+net, VAT or gross (DL34) is the next cell that is not empty unless that cell is itself a label: net, VAT and gross side by side on one row
+with no currency are pounds.
+
+**DL41. One deadline for the whole guarded write, row waits included (astra re-check of a33d184, item 8).** Supersedes DL37's "a day row is
+waited for 5 s". While the write runs, a row wait is HOLD_WAIT_SEC (1 s) at most; with the order guards held, each day row there is taken
+without waiting (FOR UPDATE NOWAIT) and a missing one is put in (a wait of 1 s at most), none begun once the guards have been held 1 s: so
+the write's waits while it holds guards are 2 s at most, within the 3 s a snapshot waits for its guard (OrderSnapshots::QUEUE_LOCK_WAIT_SEC).
+Any wait for another session (a guard held, a day row held: 3572 / 1205, a deadlock 1213, a named-lock deadlock 3058) lets every guard go at
+once and tries the whole write again a moment later, within GUARD_BUDGET_SEC (5 s) from its start, then "busy, try again" (503). An order
+that changed while it was read is tried again TRIES times as before. Tested with a day row held elsewhere and a snapshot writer waiting for
+one of the bill's guards: it gets it within its own 3 s, the bill is busy within the budget and writes nothing.
