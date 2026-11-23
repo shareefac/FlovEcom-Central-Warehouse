@@ -10,7 +10,9 @@ use CW\Invariants;
 use CW\Profit\DeliveryBills;
 use CW\Profit\OrderSnapshots;
 use CW\Profit\ProfitDays;
+use CW\Profit\ProfitViews;
 use CW\Tests\Support\DpdCsv;
+use CW\Tests\Support\HookedStatement;
 use CW\Tests\Support\StockTestCase;
 use CW\Tests\Support\TestDb;
 
@@ -315,9 +317,12 @@ final class DeliveryBillsTest extends StockTestCase
             DpdCsv::line('12/11/2026', '6599195081/0', 100), // 11 days: not
             DpdCsv::line('07/11/2026', '6599195082/0', 100), // 3 days before: matched
             DpdCsv::line('07/11/2026', '6599195083/0', 100), // 4 days before: not
-            DpdCsv::line('06/11/2026', '6599195099/0', 100, ['Parcel No' => '15976599195084']), // the parcel number is the tracking number CW holds
+            // The consignment only (the lead's decision 4; Codex r1 MEDIUM 3): DPD's parcel number never matches, nor makes a line ambiguous.
+            DpdCsv::line('06/11/2026', '6599195099/0', 100, ['Parcel No' => '15976599195084']),
+            DpdCsv::line('06/11/2026', '6599195080/0', 100, ['Parcel No' => '15976599195084']),
         ]));
-        self::assertSame(['matched', 'not_matched', 'matched', 'not_matched', 'matched'], self::states($bill['invoice_id']));
+        self::assertSame(['matched', 'not_matched', 'matched', 'not_matched', 'not_matched', 'matched'], self::states($bill['invoice_id']));
+        self::assertSame('odl:40', (string) self::$db->value('SELECT parcel_ref FROM carrier_invoice_line WHERE invoice_id = ? AND line_no = 6', [$bill['invoice_id']]));
         // A parcel of another carrier, or a manual one, with the same number is never DPD's.
         self::order($ch, '1041', '1356111', '2026-11-01T09:00:00Z', [self::parcel('odl:45', '6599195085', '2026-11-05T10:00:00Z', ['carrier' => 'royal_mail'])]);
         $rm = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('06/11/2026', '6599195085/0', 100)], ['invoice' => '62999002']));
@@ -422,6 +427,16 @@ final class DeliveryBillsTest extends StockTestCase
             . "'undone', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ef, str_repeat('a', 64)]);
         self::assertContains('DB5 dpd account 3012002: its bills name 2 shops', Invariants::check(self::$db));
         self::$db->exec("DELETE FROM carrier_invoice WHERE invoice_no = '1'");
+        // A replacement uploaded before the bill it replaces (Codex r1 LOW 2): named.
+        $early = self::$db->insert("INSERT INTO carrier_invoice (carrier, account, invoice_no, period_from, period_to, channel_id, net_pence, vat_pence, gross_pence, "
+            . "line_count, file_sha256, status, uploaded_actor, uploaded_at, ended_actor, ended_at) VALUES ('dpd', '3012002', '7', '2026-11-01', '2026-11-01', ?, 0, 0, 0, 0, ?, "
+            . "'undone', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ch, str_repeat('d', 64)]);
+        $late = self::$db->insert("INSERT INTO carrier_invoice (carrier, account, invoice_no, period_from, period_to, channel_id, net_pence, vat_pence, gross_pence, "
+            . "line_count, file_sha256, status, uploaded_actor, uploaded_at, ended_actor, ended_at) VALUES ('dpd', '3012002', '7', '2026-11-01', '2026-11-01', ?, 0, 0, 0, 0, ?, "
+            . "'superseded', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ch, str_repeat('e', 64)]);
+        self::$db->exec('UPDATE carrier_invoice SET supersedes_id = ? WHERE id = ?', [$late, $early]);
+        self::assertContains("DB6 bill {$late} (superseded): named as replaced by 1 bills, some of another bill or uploaded before it", Invariants::check(self::$db));
+        self::$db->exec('DELETE FROM carrier_invoice WHERE id IN (?, ?)', [$early, $late]);
         // The database itself refuses the rest: two live bills of one key, a line in two states' shapes, a matched line on no parcel.
         self::assertSame(1062, self::mysqlError(static fn () => self::$db->exec("INSERT INTO carrier_invoice (carrier, account, invoice_no, period_from, period_to, "
             . "channel_id, net_pence, vat_pence, gross_pence, line_count, file_sha256, uploaded_actor, uploaded_at) VALUES ('dpd', '3012002', '62368793', '2026-11-01', "
@@ -461,6 +476,165 @@ final class DeliveryBillsTest extends StockTestCase
         } finally {
             exec('rm -rf ' . escapeshellarg($dir));
         }
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r1, HIGH 2: only a line put on ONE parcel in the window says which shop a new account bills: a number another shop used
+     * months ago says nothing; two shops as many: the person chooses; an undone bill says nothing either.
+     */
+    public function testAnOldNumberOfAnotherShopOrAnUndoneBillNeverDecidesTheShopOfAnAccount(): void
+    {
+        $vpg = $this->shop();
+        $ef = $this->shop('electrofag');
+        self::order($ef, '2000', '2356063', '2026-09-01T09:00:00Z', [self::parcel('odl:200', '6599100099', '2026-09-01T10:00:00Z')]);
+        $file = DpdCsv::file([DpdCsv::line('09/11/2026', '6599100099/0', 420)], ['account' => '4000005', 'invoice' => '1']);
+        try {
+            self::bills()->upload(self::system(), 'dpd', $file);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('account_shop_unknown', $e->errorCode, 'Electrofag\'s number of September is no evidence');
+        }
+        $a = self::bills()->upload(self::system(), 'dpd', $file, $vpg);
+        self::assertSame((string) $vpg, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$a['invoice_id']]));
+        self::assertSame(['not_matched'], self::states($a['invoice_id']));
+        // Two shops as many parcels: the person chooses.
+        self::order($vpg, '1050', '1356150', '2026-11-08T09:00:00Z', [self::parcel('odl:50', '6599100050', '2026-11-08T10:00:00Z')]);
+        self::order($ef, '2001', '2356064', '2026-11-08T09:00:00Z', [self::parcel('odl:201', '6599100051', '2026-11-08T10:00:00Z')]);
+        $tie = DpdCsv::file([DpdCsv::line('09/11/2026', '6599100050/0', 420), DpdCsv::line('09/11/2026', '6599100051/0', 420)], ['account' => '4000006', 'invoice' => '1']);
+        try {
+            self::bills()->upload(self::system(), 'dpd', $tie);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('account_shop_unknown', $e->errorCode);
+            self::assertStringContainsString('as many one shop\'s as another\'s', $e->getMessage());
+        }
+        $t = self::bills()->upload(self::system(), 'dpd', $tie, $ef);
+        self::assertSame((string) $ef, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$t['invoice_id']]));
+        // A bill uploaded for the wrong shop and undone binds nothing.
+        $w = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100009/0', 420)], ['account' => '4000007', 'invoice' => '1']), $ef);
+        self::bills()->undo(self::system(), $w['invoice_id']);
+        $r = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100009/0', 420)], ['account' => '4000007', 'invoice' => '1']), $vpg);
+        self::assertSame((string) $vpg, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
+        self::$db->exec('DELETE FROM carrier_invoice_line WHERE invoice_id = ?', [$w['invoice_id']]); // the nightly DB5 would name the two shops of 4000007
+        self::$db->exec('DELETE FROM carrier_invoice WHERE id = ?', [$w['invoice_id']]);
+        self::assertDaysRebuild($vpg);
+        self::assertDaysRebuild($ef);
+    }
+
+    /** A service on its own connection whose statements run HookedStatement::$before (another session's write between a read and a write). */
+    private static function hookedBills(int $wait = DeliveryBills::LOCK_WAIT_SEC): DeliveryBills
+    {
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        return new DeliveryBills($conn, null, null, $wait);
+    }
+
+    /**
+     * The Codex check r1, HIGH 3: the parcel a line was put on is removed by its order's snapshot while the bill waits for the days it counts on:
+     * the decisions are taken again once the orders are held, the plan is old, the bill is tried again and the line is not matched.
+     */
+    public function testAParcelRemovedWhileTheBillWaitsIsNotMatched(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1060', '1356160', '2026-11-08T09:00:00Z', [self::parcel('odl:60', '6599100060', '2026-11-08T10:00:00Z')]);
+        HookedStatement::$before = ['INSERT INTO profit_day (channel_id, day) VALUES' => static function () use ($ch): void {
+            self::order($ch, '1060', '1356160', '2026-11-08T09:00:00Z', [], ['version' => 2]);
+        }];
+        try {
+            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100060/0', 420)]), $ch);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertSame(['not_matched'], self::states($r['invoice_id']), 'its parcel was gone before the bill was written');
+        self::assertSame(['2026-11-09|delivery_other' => 420], self::days($ch));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r1, HIGH 3 / MEDIUM 4: while a bill is written, an order not paid that a line is on is held by its snapshot guard (no row
+     * lock): a snapshot that would pay it waits, and here gives up (busy); the bill is written with the order not paid.
+     */
+    public function testASnapshotOfAnUnpaidOrderWaitsForTheBill(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1070', '1356170', null, [self::parcel('odl:70', '6599100070', '2026-11-08T10:00:00Z')]);
+        $busy = null;
+        HookedStatement::$before = ['INSERT INTO carrier_invoice (' => static function () use ($ch, &$busy): void {
+            try {
+                (new OrderSnapshots(self::$db, null, null, 1))->store($ch, '1070', ['v' => 1, 'version' => 2, 'order_no' => '1356170', 'status' => 'completed',
+                    'placed_at' => '2026-11-01T09:00:00Z', 'paid_at' => '2026-11-08T09:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null,
+                    'lines' => [['line_id' => '8001070', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false,
+                        'refund_inc' => 0, 'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'DPD', 'charged_inc' => 499, 'refund_inc' => 0],
+                    'order_refund_inc' => 0, 'grand_inc' => 1699, 'parcels' => [self::parcel('odl:70', '6599100070', '2026-11-08T10:00:00Z')]], 'api');
+            } catch (CwException $e) {
+                $busy = $e->errorCode;
+            }
+        }];
+        try {
+            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100070/0', 420)]), $ch);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertSame('busy', $busy, 'the snapshot waited for the bill\'s hold on the order and gave up');
+        self::assertSame(['matched'], self::states($r['invoice_id']));
+        self::assertSame([], self::days($ch), 'not paid when the bill was written: nothing on a day');
+        self::assertDaysRebuild($ch);
+        // The snapshot again (the minute job works out the one waiting): the order is paid and its delivery cost comes along.
+        (new OrderSnapshots(self::$db))->applyQueued();
+        self::assertSame(['2026-11-08|delivery_cost' => 420], self::days($ch));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r1, MEDIUM 5: a bill stored is said stored even when the re-match of the other bills after it cannot run (an order of theirs
+     * held elsewhere): the nightly run does it.
+     */
+    public function testABillStoredIsSaidStoredWhenTheReMatchAfterItCannotRun(): void
+    {
+        $ch = $this->shop();
+        $first = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100080/0', 420)]), $ch);
+        self::assertSame(['not_matched'], self::states($first['invoice_id']));
+        self::order($ch, '1080', '1356180', null, [self::parcel('odl:80', '6599100080', '2026-11-08T10:00:00Z')]);
+        $other = TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 5)', [OrderSnapshots::lockName($ch, '1080')]));
+        try {
+            $r = (new DeliveryBills(self::$db, null, null, 1))->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100081/0', 420)],
+                ['invoice' => '62999009']), $ch);
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, '1080')]);
+        }
+        self::assertSame(['stored', null], [$r['result'], $r['rematched']]);
+        self::assertStringContainsString('try again', (string) $r['rematch_error']);
+        self::assertSame('live', (string) self::$db->value('SELECT status FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
+        self::assertSame(1, self::bills()->rematch(self::system()), 'the nightly run puts it on its parcel');
+        self::assertSame(['matched'], self::states($first['invoice_id']));
+        // A store is no server job: it never re-matches (Codex r1 LOW 1).
+        try {
+            self::bills()->rematch(Caller::channel($ch, 'vapeandgo'));
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('staff_required', $e->errorCode);
+        }
+        self::assertDaysRebuild($ch);
+    }
+
+    /** A re-send's parcels, and its re-send's (PR143), are on the first order's page; each counts on its own day. */
+    public function testTheFirstOrdersPageShowsItsReSendsDeliveryCostDownTheChain(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1090', '1356190', '2026-11-04T10:00:00Z', [self::parcel('odl:90', '6599100090', '2026-11-04T12:00:00Z')]);
+        self::order($ch, '1091', '1356191', '2026-11-05T10:00:00Z', [self::parcel('odl:91', '6599100091', '2026-11-05T12:00:00Z')], ['parent_ref' => '1090']);
+        self::order($ch, '1092', '1356192', '2026-11-06T10:00:00Z', [self::parcel('odl:92', '6599100092', '2026-11-06T12:00:00Z')], ['parent_ref' => '1091']);
+        self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('05/11/2026', '6599100090/0', 420), DpdCsv::line('06/11/2026', '6599100091/0', 310),
+            DpdCsv::line('07/11/2026', '6599100092/0', 290)]), $ch);
+        $first = (new ProfitViews(self::$db))->order($ch, '1090');
+        self::assertNotNull($first);
+        self::assertSame([420, 1, 600, 2, 0], [$first['delivery']['cost'], $first['delivery']['lines'], $first['delivery']['resend_cost'], $first['delivery']['resend_lines'],
+            $first['delivery']['not_billed']]);
+        $middle = (array) (new ProfitViews(self::$db))->order($ch, '1091');
+        self::assertSame([310, 0], [$middle['delivery']['cost'], $middle['delivery']['resend_cost']], 'a re-send holds no re-sends\' cost (PR143)');
+        self::assertSame(['2026-11-04|delivery_cost' => 420, '2026-11-05|delivery_cost' => 310, '2026-11-06|delivery_cost' => 290], self::days($ch));
         self::assertDaysRebuild($ch);
     }
 

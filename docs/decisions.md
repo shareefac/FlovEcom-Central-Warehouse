@@ -19887,3 +19887,147 @@ from the 0076-aware release (the rollback release's own Grants would give the ap
 The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, default model: GO, one LOW, NOT changed): V7 does not ask a
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
+
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL24; migration 0077; tracker CW-1142)
+
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL24. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
+PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
+lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
+DeliveryInvariants}.php` (new), `ProfitDays` (two day figures), `OrderSnapshots::apply` (its last lines), `ProfitViews`, the Profit screens,
+`Ui/Controller/DeliveryBillsController.php` (new), `bin/delivery_bill.php`, `bin/match_delivery_bills.php` (new), one marked block each in
+`Permissions`, `Grants`, `Words`, `Sections`, `Kernel`, `Invariants` and the two cron files. Every test uses SYNTHETIC DPD files
+(`tests/Support/DpdCsv.php`: DPD's real layout, made-up names and addresses); the real files hold customer addresses and are never read by a
+test or a note.
+
+**DL1. `carrier_invoice` (0077): one row per bill read from its file.** Carrier (dpd; royal_mail later), account and number as printed, the
+first and last line date, the shop the account bills (DL8), net / VAT / gross pence as printed, the line count, the file's sha256, who
+uploaded it and when, and its status: `live` (in the profit), `superseded` (a corrected file replaced it: `supersedes_id` on the new one) or
+`undone` ("Undo this upload"), with who ended it and when. One live bill per carrier, account and number (a UNIQUE generated key that is
+NULL when not live). Never deleted, its content never rewritten (Grants: SELECT, INSERT, UPDATE of status and the three ended columns).
+
+**DL2. `carrier_invoice_line` (0077): the bill's lines, only what the matching and the screens need.** Date, consignment (digits: DPD's `/0`
+and its marks taken off), parcel and header parcel numbers (digits), DPD's product and service (its own names only, DL4), weight, items,
+the Senders Ref when it is digits (the order number the label carried), VAT code, DPD's `#` / `*` marks as flags, the money columns that are
+not 0 (JSON, pence), the cost (pence ex VAT, signed). Each line is in exactly ONE state with exactly what that state points at (a CHECK):
+`matched` (a CW parcel: channel, order, parcel), `collection` (an order), `before_start`, `not_matched` (nothing), `ambiguous` (nothing, 2 or
+more candidates). Foreign keys to the order and the parcel (rows CW never deletes: a parcel a later snapshot removes keeps its row). Never
+deleted; only the match columns are ever written after the insert (Grants).
+
+**DL3. DPD's CSV read by column NAME (`DpdInvoiceFile`).** Its top rows ("Account No", <account>, "Invoice No", <number>; "Nett Invoice
+Value", "", <net>, "GBP"; "VAT" ...; "Gross Invoice Value" ...; an "Invoice Date" when it has one, refused when it is not a day) are read by
+their labels; the row naming its columns is the first naming Consignment and Revenue; a UTF-8 BOM or none, CRLF or LF; the empty last row
+skipped. The layout was taken from the printed output of the research parser in the session log (never from the files).
+
+**DL4. Privacy (the lead's decision 3).** Kept: only DL2's fields. Never read into anything: Delivery, Delivery Address, Collection,
+Collection Post Code, Second Ref, Third Ref, Country, Depot No, Surcharge, and any column CW does not know. DPD's product and service are
+kept only when they are DPD's own names (`PRODUCTS`, `SERVICES`), their codes only as 1-3 digits, so a name or an address shifted into
+those columns is never kept (the Codex check r1, HIGH 1). The file itself is NOT kept (no FileStore row): its sha256 only; the owner keeps
+DPD's original. A refusal names a row and DPD's column, never what a cell holds (its shape only: "9 aaaa aaaaaa"); two columns of the same
+name are named by their numbers. The server tool prints totals per state, never a line (DL21).
+
+**DL5. A line's cost = the sum of DPD's named money columns, wherever they are (`MONEY`: Revenue, Fuel and Energy Charge, Third Party
+Collection, ... Global Energy Charge, Peak Charge (the March sample's), Relabel Charge, Cover).** Never "Surcharge" (a letter code: AS, AES,
+APS ...). A consignment of two parcels is two rows, the second with no money: kept, cost 0. A credit (negative money) is kept as it is (the
+four real bills hold six, -£18.08). The `#` and `*` after a consignment (meaning not known: 5-15 a week) are taken off for the matching and
+kept as flags.
+
+**DL6. The WHOLE file is refused, nothing stored, when:** a column the matching needs is missing (Date, Consignment, Senders Ref, VAT Code,
+Revenue, Fuel and Energy Charge, Third Party Collection, Cover); a money cell is not pounds and pence (at most two decimals; £1,000,000,000
+or more is no line); a date is not a day; a row has more cells than there are names; the lines do not add up to the printed net EXACTLY; the
+VAT is not the shops' rate (profit.vat_rate_pct) on the S lines' total rounded once, Z lines at 0% (all four real bills tie this way to the
+penny: 62328011 £1,981.84 with two Z lines), any other VAT code refused; the gross is not net + VAT; no lines. The same bytes as a live bill:
+"same", nothing changes (DL16).
+
+**DL7. Matching (the lead's decision 4).** A line is `matched` when its CONSIGNMENT (only: DPD's parcel number is kept for the page, never
+matched: the Codex check r1, MEDIUM 3) is the tracking number of exactly ONE CW parcel of carrier dpd / dpd_local, not removed, with a label
+time, whose UK label day is at most 10 days before the line's date and at most 3 after it (DPD uses numbers again after months). The four
+real bills against the research's packing dates: the line is 0-4 days after the label, once 10. Two or more such parcels: `ambiguous` (the
+bill's page lists the orders that fit). A line put on a parcel or an order is NEVER moved to another one.
+
+**DL8. The shop an account bills.** Its earlier bills' shop (live or replaced; an undone bill is no evidence: Codex r1, HIGH 2); for an
+account new to CW, the shop most of the file's lines matched to ONE parcel in the window are parcels of (a number another shop used months
+ago is outside the window: no evidence); two shops as many, or none: the shop chosen on the upload form; none chosen: refused ("choose the
+shop the account bills"). A shop chosen that the evidence contradicts is refused. Its start is that shop's first reservation in CW
+(OrderSnapshots::firstReservation, read from CW, never a constant; Vape and Go on live: 28 Oct 2026 10:28 UTC).
+
+**DL9. A collection.** No parcel, money in Third Party Collection and a Senders Ref (digits) that is the number (order_no) of exactly ONE
+order of the account's shop: `collection` on that order (a return DPD collected; its cost on the order). Two such orders: `ambiguous`.
+
+**DL10. Before CW start, not matched, re-match.** Else: the line's date ON OR BEFORE the start's UK day: `before_start` (shown, never in the
+profit: CW holds no orders before it; the start day itself counts as before because CW holds only part of it); else `not_matched`. Every
+`not_matched` and `ambiguous` line of a live bill is tried again after each upload (its own transaction: a failure there never fails the
+upload, which says so: Codex r1, MEDIUM 5) and nightly (bin/match_delivery_bills.php, 03:35, before the 03:40 rebuild), so a parcel that
+reaches CW after its bill takes its line then.
+
+**DL11. The profit days (the lead's decisions 5-7): two new figures of profit_day.** `delivery_cost`: the live matched and collection lines
+of the orders paid that day, by the order the line is on (a re-send's parcel on the re-send's own day, as its goods; an order not paid counts
+nothing yet, as its goods, and its lines come in when it is paid). `delivery_other`: the live not_matched and ambiguous lines dated that day,
+in the shop the account bills ("charges not on an order"). before_start lines nowhere. So a month's delivery is its bills from the start
+date, less the lines on orders not paid (the bill's page shows them).
+
+**DL12. A snapshot carries its order's delivery cost.** OrderSnapshots::apply passes the order's own live line cost
+(`DeliveryBills::orderCost`) to `ProfitDays::orderShare` for what it counted before and what it counts now: the same amount both ways, so an
+order paid, or moved to another day, takes it along, and a new snapshot never wipes it (the lines are not the snapshot's).
+
+**DL13. Every bill write (upload, replace, undo, re-match) under one protocol (`DeliveryBills::guarded`), one at a time (a named lock per
+schema).** The plan reads (no lock); then, in the order every snapshot takes them (guards, then day rows, then rows): the snapshot guard
+(OrderSnapshots::lockName) of each order NOT paid that a line is on, so none is paid meanwhile; the day rows the lines count on before and
+after, in key order (ProfitDays::guard, THE lock of a store's day), so no paid order moves off them meanwhile; then the orders' days read
+again and the plan's matching taken again: when either changed, the transaction is rolled back and tried again (5 times, then 503 busy).
+Then the writes, the day figures by the difference, and a day row left with nothing to show removed. No row lock is taken on an order (the
+Codex check r1, MEDIUM 4: a shared lock on an unpaid parent could cycle with a snapshot of its re-send) and a parcel removed while the bill
+waited is never matched (HIGH 3). A parcel of ANOTHER order of the same number stored at that very moment is the one race left: the line stays
+on the first parcel, as when that parcel comes a minute later (never re-matched).
+
+**DL14. The rebuild from scratch (PR104).** `ProfitDays::compute` works both figures out from the lines (`DeliveryBills::dayFigures`): the
+live on-order lines of the day's paid orders, and the live lines on no order dated that day in the shop; `bin/rebuild_profit_days.php`
+(--check, --apply, nightly) and its check need no change. The tests check every day after every kind of write.
+
+**DL15. A new job `delivery_bills` (0077: the 17th of the staff_role ENUM, at its end) and two permissions.** `delivery.view` (Finance and
+the new job: Profit > Delivery bills) and `delivery.upload` (the new job: upload, replace, undo). The lead's "admin has it" is NOT built:
+admin acts on people and roles only (I12; Permissions::sanitise drops admin from any permission that acts) and Finance only looks (PR111);
+admin GIVES the job (Settings > Users, bin/grant_role.php). Nobody holds it until the owner says who. The new job sees no profit (only the
+bills); a person can hold Finance and the new job. The service checks the job again inside its write transaction (Codex r1, LOW 1).
+
+**DL16. Upload.** The carrier (DPD only in this version), the file (10 MiB, the UI's limit), and the shop only for an account CW does not know.
+The same bytes as the live bill: "this very file is loaded already", nothing changes (the re-match runs). Another file of a live bill
+(same carrier, account, number): refused, "uploaded on <date>: to load a corrected file, open the bill and use Replace with a corrected
+file"; never replaced by accident. A refused file stores nothing at all.
+
+**DL17. Replace with a corrected file (the bill's page).** Only a file of the SAME carrier, account and number; the old bill superseded (kept,
+its lines kept, out of the profit), the new one live naming it, in ONE transaction with the day figures. Not a live bill: refused.
+
+**DL18. Undo this upload (the bill's page, a box to tick).** The bill undone (kept with its lines, out of the profit); the days follow. Its
+file may be uploaded again as a new bill.
+
+**DL19. Re-sends (PR129, PR143).** A re-send's parcel line is on the re-send (its own day in the day figures, as its goods); the first order's
+page shows its re-sends' delivery cost down the whole chain (OrderSnapshots::descendants) and delivery after its cost with them.
+
+**DL20. The nightly checks DB1-DB6 (`DeliveryInvariants`, in CW\Invariants).** A line in exactly one state with what it points at; a matched
+line's parcel and a collection's order in CW; each live bill's lines adding up to its net and its line count; one live bill per key; one shop
+per account; a superseded bill replaced by exactly one later bill of its key. The day figures are the rebuild check's (DL14).
+
+**DL21. The tools.** `bin/delivery_bill.php --file=... [--shop=<code>] [--upload | --replace=<id>]`: checks a file on the server (nothing
+written), prints its top, its shop and per state its lines and pounds, never a line; with --upload or --replace stores it as the screen
+does (as system:delivery_cli). `bin/match_delivery_bills.php`: the nightly re-match (DL10), its cron line in both cron files.
+
+**DL22. Go-live and undo.** Migrate 0077 (it only adds; the profit_day columns by ALGORITHM = INSTANT), then the release; the cron line comes
+with the release. Undo: the release before (b54163a) with 0077 added byte for byte (RollbackReleaseTest); the tables, columns and rows stay,
+unused. AFTER such an undo and before this release goes back live: the release before's nightly rebuild writes profit_day rows with the two
+delivery figures at 0, so run `bin/rebuild_profit_days.php --from=<the first bill line's date> --apply` with this release, and its --check,
+before any bill is uploaded, replaced or undone again (the Codex check r1, MEDIUM 6: an undo would otherwise take a bill off a 0).
+
+**DL23. The screens (Profit section).** "Delivery bills" (delivery.view): the bills newest upload first (bill, shop, days, net, on orders, not
+on an order, before CW start, uploaded by, status) and the upload for the new job; one bill's page: its sentence ("DPD bill 62368793 (5 Nov -
+14 Nov 2026): £8,790.28 - on orders £8,638.29 (2,364 lines), not on an order £151.99 (15 lines)"), its facts, where its money went (the five
+states adding up to its net, said so), its lines by state a page at a time (the lines on no order the dearest first; an ambiguous line with
+the orders that fit), and for the new job Replace with a corrected file and Undo this upload. An order's page: a Delivery table of its own
+(delivery charged without VAT less refunded, its bill lines' cost, its re-sends' when it has some, delivery after its cost), each parcel's
+bill line or "not billed yet" (no estimate in this version), the collections on it. The summary: a Delivery table (charged, cost, charges
+not on an order, delivery after its cost); Profit by day and by shop: the same as columns. Never in the goods margin.
+
+**DL24. Royal Mail later (the lead's decision 10).** The tables and the service take a carrier (`carrier_invoice.carrier` allows
+royal_mail; `DeliveryBills::CARRIERS` lists what is read: dpd); Royal Mail's bill has no tracking numbers (lines per day and service),
+so its lines will need states of their own and its parser; nothing of it is built. Electrofag and Vape Big need nothing: their DPD
+parcels match through their own parcels, and an account's shop is DL8's.

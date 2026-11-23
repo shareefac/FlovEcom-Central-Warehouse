@@ -70,8 +70,12 @@ final class DeliveryBills
     private readonly \Closure $clock;
     private readonly ProfitSettings $settings;
 
-    /** @param (\Closure(): \DateTimeImmutable)|null $clock */
-    public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null)
+    /**
+     * @param (\Closure(): \DateTimeImmutable)|null $clock
+     * @param int $lockWaitSec how long a write waits for the bills' lock and for an order's snapshot guard (the tests: shorter)
+     */
+    public function __construct(private readonly Db $db, ?\Closure $clock = null, ?ProfitSettings $settings = null,
+        private readonly int $lockWaitSec = self::LOCK_WAIT_SEC)
     {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
         $this->settings = $settings ?? new ProfitSettings($db);
@@ -81,7 +85,7 @@ final class DeliveryBills
      * A bill read from its file and stored (DL3-DL6, DL16).
      *
      * @param ?int $shop the shop the account bills, when CW does not know the account yet and none of its parcels are CW's
-     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: int}
+     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: ?int, rematch_error: ?string}
      */
     public function upload(Caller $caller, string $carrier, string $bytes, ?int $shop = null): array
     {
@@ -91,24 +95,23 @@ final class DeliveryBills
             $live = $this->db->one('SELECT id, file_sha256, uploaded_at FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
             if ($live !== null) {
                 if ($live['file_sha256'] === $bill['sha256']) {
-                    return ['result' => 'same', 'invoice_id' => (int) $live['id'], 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $live['uploaded_at'],
-                        'rematched' => 0];
+                    return ['result' => 'same', 'invoice_id' => (int) $live['id'], 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $live['uploaded_at']]
+                        + $this->rematchAfter($caller);
                 }
-                throw new CwException('already_uploaded', sprintf('DPD bill %s was uploaded on %s and counts already. To load a corrected file of it, open the bill '
+                throw new CwException('already_uploaded', sprintf('DPD bill %s was uploaded on %s and is in the profit already. To load a corrected file of it, open the bill '
                     . 'and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
                     ['invoice_id' => (int) $live['id']]);
             }
             $id = $this->store($caller, $bill, $shop, null);
-            $n = $this->rematchAll($caller);
             return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id]), 'rematched' => $n];
+                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id])] + $this->rematchAfter($caller);
         });
     }
 
     /**
      * A corrected file of a live bill (DL17): the old one superseded (its lines kept, counting nothing), the new one live, one transaction.
      *
-     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: int}
+     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: ?int, rematch_error: ?string}
      */
     public function replace(Caller $caller, int $invoiceId, string $bytes): array
     {
@@ -118,7 +121,7 @@ final class DeliveryBills
         return $this->locked(function () use ($caller, $invoiceId, $bill): array {
             $old = (array) $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]);
             if ($old['status'] !== 'live') {
-                throw new CwException('not_live', 'this bill does not count any more (' . ($old['status'] === 'undone' ? 'its upload was undone' : 'a corrected file replaced it')
+                throw new CwException('not_live', 'this bill is no longer in the profit (' . ($old['status'] === 'undone' ? 'its upload was undone' : 'a corrected file replaced it')
                     . '): upload the file as a new bill instead. Nothing was saved.', 409);
             }
             if (self::key($bill) !== (string) $old['live_key']) {
@@ -126,12 +129,12 @@ final class DeliveryBills
                     $bill['account'], (string) $old['invoice_no'], (string) $old['account']), 422);
             }
             if ($bill['sha256'] === $old['file_sha256']) {
-                return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at'], 'rematched' => 0];
+                return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at']]
+                    + $this->rematchAfter($caller);
             }
             $id = $this->store($caller, $bill, (int) $old['channel_id'], $old);
-            $n = $this->rematchAll($caller);
             return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id]), 'rematched' => $n];
+                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id])] + $this->rematchAfter($caller);
         });
     }
 
@@ -141,9 +144,10 @@ final class DeliveryBills
         $this->authorise($caller);
         $this->locked(function () use ($caller, $invoiceId): void {
             $this->guarded(function (Db $db) use ($caller, $invoiceId): array {
+                $this->authorise($caller); // again in the write's transaction: a job taken away while it waited counts (Codex r1 LOW 1)
                 $inv = $db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
                 if ($inv['status'] !== 'live') {
-                    throw new CwException('not_live', 'this bill does not count any more: nothing to undo.', 409);
+                    throw new CwException('not_live', 'this bill is no longer in the profit: nothing to undo.', 409);
                 }
                 $before = self::facts($db, [$invoiceId], true);
                 return ['before' => $before, 'after' => [], 'write' => function (Db $db) use ($caller, $inv): void {
@@ -164,10 +168,23 @@ final class DeliveryBills
      */
     public function rematch(Caller $caller): int
     {
-        if ($caller->staffUserId !== null) {
-            $this->authorise($caller);
-        }
+        $this->authorise($caller); // a server job, or a person holding delivery.upload; never a store (Codex r1 LOW 1)
         return $this->locked(fn (): int => $this->rematchAll($caller));
+    }
+
+    /**
+     * The re-match after an upload or a replacement, in its own transaction: the bill is stored whatever happens to it (an order of another bill
+     * held elsewhere: the nightly run does it), and the caller is told (Codex r1 MEDIUM 5).
+     *
+     * @return array{rematched: ?int, rematch_error: ?string}
+     */
+    private function rematchAfter(Caller $caller): array
+    {
+        try {
+            return ['rematched' => $this->rematchAll($caller), 'rematch_error' => null];
+        } catch (CwException $e) {
+            return ['rematched' => null, 'rematch_error' => $e->getMessage()];
+        }
     }
 
     /**
@@ -181,7 +198,7 @@ final class DeliveryBills
     {
         $bill = self::read($carrier, $bytes, $this->settings->vatBp());
         $hits = self::parcels($this->db, $bill['lines']);
-        $channel = self::accountShop($this->db, (string) $bill['carrier'], (string) $bill['account'], $hits, $shop);
+        $channel = self::accountShop($this->db, (string) $bill['carrier'], (string) $bill['account'], self::votes(self::onParcels($bill['lines'], $hits)), $shop);
         $match = self::decide($this->db, $bill['lines'], $hits, $channel, self::startDay($this->db, $channel));
         $states = array_fill_keys(self::STATES, ['lines' => 0, 'pence' => 0]);
         foreach ($bill['lines'] as $i => $l) {
@@ -252,9 +269,11 @@ final class DeliveryBills
     private function store(Caller $caller, array $bill, ?int $shop, ?array $old): int
     {
         return $this->guarded(function (Db $db) use ($caller, $bill, $shop, $old): array {
+            $this->authorise($caller); // again in the write's transaction (Codex r1 LOW 1)
             $lines = $bill['lines'];
             $hits = self::parcels($db, $lines);
-            $channel = $old !== null ? (int) $old['channel_id'] : self::accountShop($db, (string) $bill['carrier'], (string) $bill['account'], $hits, $shop);
+            $channel = $old !== null ? (int) $old['channel_id']
+                : self::accountShop($db, (string) $bill['carrier'], (string) $bill['account'], self::votes(self::onParcels($lines, $hits)), $shop);
             $start = self::startDay($db, $channel);
             $match = self::decide($db, $lines, $hits, $channel, $start);
             $after = [];
@@ -263,7 +282,10 @@ final class DeliveryBills
                     'date' => $l['line_date'], 'cost' => (int) $l['cost']];
             }
             $before = $old === null ? [] : self::facts($db, [(int) $old['id']], true);
-            return ['before' => $before, 'after' => $after, 'write' => function (Db $db) use ($caller, $bill, $channel, $match, $old): int {
+            // The decisions taken again once the orders they are on are held (their day rows, or their snapshot guard when not paid): a parcel
+            // removed, or another one of the number stored, while this waited means the plan is old (Codex r1 HIGH 3).
+            $verify = static fn (Db $db): bool => self::decide($db, $lines, self::parcels($db, $lines), $channel, $start) === $match;
+            return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $bill, $channel, $match, $old): int {
                 $now = Clock::db(($this->clock)());
                 if ($old !== null) {
                     // The old bill first: its key is free for the new one (one live bill per key, uq_carrier_invoice_live).
@@ -324,10 +346,15 @@ final class DeliveryBills
             foreach ($rows as $i => $r) {
                 $byShop[(int) $r['inv_ch']][$i] = $lines[$i];
             }
-            $match = [];
-            foreach ($byShop as $ch => $set) {
-                $match += self::decide($db, $set, $hits, $ch, self::startDay($db, $ch));
-            }
+            $decideAll = static function (Db $db, array $hits) use ($byShop): array {
+                $match = [];
+                foreach ($byShop as $ch => $set) {
+                    $match += self::decide($db, $set, $hits, $ch, self::startDay($db, $ch));
+                }
+                ksort($match);
+                return $match;
+            };
+            $match = $decideAll($db, $hits);
             $before = [];
             $after = [];
             $changed = [];
@@ -347,7 +374,8 @@ final class DeliveryBills
                     'date' => (string) $r['line_date'], 'cost' => (int) $r['cost']];
                 $changed[] = [$r, $m];
             }
-            return ['before' => $before, 'after' => $after, 'write' => function (Db $db) use ($caller, $changed): int {
+            $verify = static fn (Db $db): bool => $decideAll($db, self::parcels($db, $lines)) === $match;
+            return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $changed): int {
                 $now = Clock::db(($this->clock)());
                 $n = 0;
                 $states = [];
@@ -368,7 +396,7 @@ final class DeliveryBills
     }
 
     /**
-     * The CW parcels of DPD whose tracking number is a line's consignment or parcel number (not removed, with a label time).
+     * The CW parcels of DPD whose tracking number is a line's consignment (not removed, with a label time).
      *
      * @param array<int, array<string, mixed>> $lines
      * @return array<string, list<array{channel_id: int, order_ref: string, parcel_ref: string, label_day: string}>> tracking number => parcels
@@ -377,10 +405,10 @@ final class DeliveryBills
     {
         $keys = [];
         foreach ($lines as $l) {
-            foreach ([$l['consignment'] ?? null, $l['parcel_no'] ?? null] as $k) {
-                if ($k !== null && $k !== '') {
-                    $keys[(string) $k] = true;
-                }
+            // The consignment only, as the lead decided (decision 4; Codex r1 MEDIUM 3): DPD's parcel number is kept for the page.
+            $k = $l['consignment'] ?? null;
+            if ($k !== null && $k !== '') {
+                $keys[(string) $k] = true;
             }
         }
         $out = [];
@@ -407,25 +435,10 @@ final class DeliveryBills
      */
     private static function decide(Db $db, array $lines, array $hits, int $shop, ?string $startDay): array
     {
-        $out = [];
+        $out = self::onParcels($lines, $hits);
         $refs = [];
         foreach ($lines as $i => $l) {
-            $fit = [];
-            foreach ([$l['consignment'] ?? null, $l['parcel_no'] ?? null] as $k) {
-                foreach ($k === null ? [] : ($hits[(string) $k] ?? []) as $p) {
-                    $gap = self::days((string) $p['label_day'], (string) $l['line_date']);
-                    if ($gap >= -self::WINDOW_AFTER && $gap <= self::WINDOW_BEFORE) {
-                        $fit[strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref'])] = $p;
-                    }
-                }
-            }
-            if (count($fit) === 1) {
-                $p = array_values($fit)[0];
-                $out[$i] = ['state' => 'matched', 'channel_id' => (int) $p['channel_id'], 'order_ref' => (string) $p['order_ref'], 'parcel_ref' => (string) $p['parcel_ref'],
-                    'candidates' => 0];
-            } elseif (count($fit) > 1) {
-                $out[$i] = self::none('ambiguous', min(255, count($fit)));
-            } elseif (($l['collection'] ?? false) === true && ($l['senders_ref'] ?? null) !== null) {
+            if (!isset($out[$i]) && ($l['collection'] ?? false) === true && ($l['senders_ref'] ?? null) !== null) {
                 $refs[(string) $l['senders_ref']] = true;
             }
         }
@@ -451,6 +464,56 @@ final class DeliveryBills
                 $out[$i] = self::none('not_matched');
             }
         }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * The lines whose consignment is the tracking number of a DPD parcel of CW in the window (DL7): matched to the one parcel, ambiguous with
+     * two or more; the others are not in the result. Needs no shop.
+     *
+     * @param array<int, array<string, mixed>> $lines
+     * @param array<string, list<array<string, mixed>>> $hits parcels()
+     * @return array<int, array{state: string, channel_id: ?int, order_ref: ?string, parcel_ref: ?string, candidates: int}>
+     */
+    private static function onParcels(array $lines, array $hits): array
+    {
+        $out = [];
+        foreach ($lines as $i => $l) {
+            $fit = [];
+            $k = $l['consignment'] ?? null;
+            foreach ($k === null ? [] : ($hits[(string) $k] ?? []) as $p) {
+                $gap = self::daysBetween((string) $p['label_day'], (string) $l['line_date']);
+                if ($gap >= -self::WINDOW_AFTER && $gap <= self::WINDOW_BEFORE) {
+                    $fit[strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref'])] = $p;
+                }
+            }
+            if (count($fit) === 1) {
+                $p = array_values($fit)[0];
+                $out[$i] = ['state' => 'matched', 'channel_id' => (int) $p['channel_id'], 'order_ref' => (string) $p['order_ref'], 'parcel_ref' => (string) $p['parcel_ref'],
+                    'candidates' => 0];
+            } elseif (count($fit) > 1) {
+                $out[$i] = self::none('ambiguous', min(255, count($fit)));
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The shops the lines matched to ONE parcel in the window are parcels of, with how many (the only evidence of an account's shop: a number
+     * used again by another shop months ago is not in the window, Codex r1 HIGH 2).
+     *
+     * @param array<int, array<string, mixed>> $matched onParcels()
+     * @return array<int, int> shop => lines
+     */
+    private static function votes(array $matched): array
+    {
+        $out = [];
+        foreach ($matched as $m) {
+            if ($m['state'] === 'matched') {
+                $out[(int) $m['channel_id']] = ($out[(int) $m['channel_id']] ?? 0) + 1;
+            }
+        }
         return $out;
     }
 
@@ -461,7 +524,7 @@ final class DeliveryBills
     }
 
     /** Whole days from $from to $to (Y-m-d; negative when $to is before $from). */
-    private static function days(string $from, string $to): int
+    public static function daysBetween(string $from, string $to): int
     {
         $a = new \DateTimeImmutable($from . ' 00:00:00', Clock::utc());
         $b = new \DateTimeImmutable($to . ' 00:00:00', Clock::utc());
@@ -469,17 +532,18 @@ final class DeliveryBills
     }
 
     /**
-     * The shop an account bills (DL8): the one its earlier bills name; for an account new to CW, the shop most of the file's parcels are
-     * CW parcels of (a shop chosen on the form must agree); none of them CW's: the shop chosen on the form; none chosen: refused.
+     * The shop an account bills (DL8): the one its earlier bills name (live or replaced: an undone bill is no evidence); for an account new to
+     * CW, the shop most of the file's lines matched to one parcel in the window are parcels of (a shop chosen on the form must agree; two shops
+     * as many: the shop must be chosen); none: the shop chosen on the form; none chosen: refused.
      *
-     * @param array<string, list<array<string, mixed>>> $hits
+     * @param array<int, int> $votes votes()
      */
-    private static function accountShop(Db $db, string $carrier, string $account, array $hits, ?int $choice): int
+    private static function accountShop(Db $db, string $carrier, string $account, array $votes, ?int $choice): int
     {
         if ($choice !== null && $db->value('SELECT id FROM channel WHERE id = ?', [$choice]) === null) {
             throw new CwException('bad_shop', 'there is no such shop', 422, ['field' => 'shop']);
         }
-        $known = $db->value('SELECT channel_id FROM carrier_invoice WHERE carrier = ? AND account = ? ORDER BY id DESC LIMIT 1', [$carrier, $account]);
+        $known = $db->value("SELECT channel_id FROM carrier_invoice WHERE carrier = ? AND account = ? AND status <> 'undone' ORDER BY id DESC LIMIT 1", [$carrier, $account]);
         $name = static fn (int $id): string => (string) ($db->value('SELECT name FROM channel WHERE id = ?', [$id]) ?? $id);
         if ($known !== null) {
             if ($choice !== null && $choice !== (int) $known) {
@@ -488,15 +552,16 @@ final class DeliveryBills
             }
             return (int) $known;
         }
-        $votes = [];
-        foreach ($hits as $parcels) {
-            foreach ($parcels as $p) {
-                $votes[(int) $p['channel_id']] = ($votes[(int) $p['channel_id']] ?? 0) + 1;
-            }
-        }
         if ($votes !== []) {
             arsort($votes);
             $top = (int) array_key_first($votes);
+            if (count($votes) > 1 && array_values($votes)[0] === array_values($votes)[1] && $choice === null) {
+                throw new CwException('account_shop_unknown', sprintf('DPD account %s is new to CW and the parcels on this bill are as many one shop\'s as another\'s: '
+                    . 'choose the shop the account bills and upload the file again. Nothing was saved.', $account), 422, ['field' => 'shop']);
+            }
+            if (count($votes) > 1 && array_values($votes)[0] === array_values($votes)[1] && isset($votes[$choice])) {
+                return (int) $choice;
+            }
             if ($choice !== null && $choice !== $top) {
                 throw new CwException('account_shop', sprintf('the parcels on this bill are %s\'s in CW, not %s\'s: choose %s or leave the shop empty. Nothing was saved.',
                     $name($top), $name($choice), $name($top)), 422, ['field' => 'shop']);
@@ -537,21 +602,25 @@ final class DeliveryBills
     }
 
     /**
-     * One delivery write (DL13): $plan reads what it changes ({before, after, write}: the facts of the lines as they count now and as they
-     * will count, and the writes); the day rows both sets count on are locked in key order (ProfitDays::guard); the orders they count on
-     * are read again and an order not paid is held with a shared lock (so it cannot be paid meanwhile); when an order moved to another day
-     * since the plan read it, the transaction is rolled back and tried again (TRIES times); else the writes, the day figures by the
-     * difference, and the day rows left with nothing to count removed. The caller holds the delivery lock.
+     * One delivery write (DL13): $plan reads what it changes ({before, after, verify?, write}: the facts of the lines as they count now and as
+     * they will count, a check of its decisions, and the writes). Then, in this order (the order every snapshot takes them: its guards, then its
+     * day rows, then its rows): the snapshot guard (OrderSnapshots::lockName) of every order not paid that a line is on, so none is paid
+     * meanwhile; the day rows both sets count on, in key order (ProfitDays::guard), so no paid order moves off them meanwhile; the orders' days
+     * read again, and the plan's decisions taken again ($verify): when one changed since the plan read it, the transaction is rolled back and
+     * tried again (TRIES times). Else the writes, the day figures by the difference, and the day rows left with nothing to show removed. The
+     * caller holds the delivery lock. (Codex r1 HIGH 3, MEDIUM 4: no row lock is held on an order, so no cycle with a snapshot's parent.)
      *
      * @template T
-     * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, write: \Closure(Db): T} $plan
+     * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, write: \Closure(Db): T} $plan
      * @return T
      */
     private function guarded(\Closure $plan): mixed
     {
         for ($try = 1; ; $try++) {
+            $held = [];
             try {
-                return $this->db->transaction(static function (Db $db) use ($plan): mixed {
+                $wait = $this->lockWaitSec;
+                return $this->db->transaction(static function (Db $db) use ($plan, &$held, $wait): mixed {
                     $p = $plan($db);
                     $facts = [...$p['before'], ...$p['after']];
                     $owners = [];
@@ -561,7 +630,21 @@ final class DeliveryBills
                         }
                     }
                     ksort($owners, SORT_STRING);
-                    $days = self::orderDays($db, $owners, false);
+                    $days = self::orderDays($db, $owners);
+                    $names = [];
+                    foreach ($owners as $k => [$ch, $ref]) {
+                        if ($days[$k] === null) {
+                            $names[] = OrderSnapshots::lockName($ch, $ref);
+                        }
+                    }
+                    $names = array_values(array_unique($names));
+                    sort($names, SORT_STRING);
+                    foreach ($names as $n) {
+                        if ((int) $db->value('SELECT GET_LOCK(?, ?)', [$n, $wait]) !== 1) {
+                            throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
+                        }
+                        $held[] = $n;
+                    }
                     $old = self::contributions($p['before'], $days);
                     $new = self::contributions($p['after'], $days);
                     $pairs = [];
@@ -579,9 +662,10 @@ final class DeliveryBills
                         [$day, $ch] = explode('|', $pair);
                         ProfitDays::guard($db, (int) $ch, [$day]);
                     }
-                    // The orders counted, read again now that their days are held: one paid meanwhile, or moved, means the plan is old.
-                    if (self::orderDays($db, $owners, true) !== $days) {
-                        throw new CwException(self::RETRY, 'an order of these lines moved to another day: tried again', 409);
+                    // The orders, read again now that what keeps them still is held: one paid meanwhile, or moved, means the plan is old; and the
+                    // plan's matching taken again: a parcel removed, or a second one of a number stored, means it is old too.
+                    if (self::orderDays($db, $owners) !== $days || (isset($p['verify']) && !($p['verify'])($db))) {
+                        throw new CwException(self::RETRY, 'an order of these lines changed while they were saved: tried again', 409);
                     }
                     $result = ($p['write'])($db);
                     $delta = [];
@@ -609,7 +693,15 @@ final class DeliveryBills
                     throw $e;
                 }
                 if ($try >= self::TRIES) {
-                    throw new CwException('busy', 'the orders of these lines kept moving to other days while they were saved: nothing was saved; try again in a minute', 503);
+                    throw new CwException('busy', 'the orders of these lines kept changing while they were saved: nothing was saved; try again in a minute', 503);
+                }
+            } finally {
+                foreach (array_reverse($held) as $n) {
+                    try {
+                        $this->db->value('SELECT RELEASE_LOCK(?)', [$n]);
+                    } catch (\Throwable) {
+                        // the connection is gone: MySQL released it with the session
+                    }
                 }
             }
         }
@@ -646,13 +738,12 @@ final class DeliveryBills
     }
 
     /**
-     * The paid day of each order (null: not paid), in key order. $lock: the orders not paid are read with a shared lock (FOR SHARE), so a
-     * snapshot cannot pay one before this transaction ends; a paid one cannot move without the day row this transaction holds.
+     * The paid day of each order (null: not paid), in key order (plain reads: what keeps them still is held by guarded()).
      *
      * @param array<string, array{0: int, 1: string}> $owners key => [channel, ref]
      * @return array<string, ?string>
      */
-    private static function orderDays(Db $db, array $owners, bool $lock): array
+    private static function orderDays(Db $db, array $owners): array
     {
         $out = [];
         $byShop = [];
@@ -663,18 +754,9 @@ final class DeliveryBills
         ksort($byShop);
         foreach ($byShop as $ch => $refs) {
             foreach (array_chunk($refs, 500) as $chunk) {
-                $marks = implode(', ', array_fill(0, count($chunk), '?'));
-                foreach ($db->all("SELECT order_ref, day FROM sale_order WHERE channel_id = ? AND order_ref IN ({$marks}) ORDER BY order_ref", [$ch, ...$chunk]) as $r) {
+                foreach ($db->all('SELECT order_ref, day FROM sale_order WHERE channel_id = ? AND order_ref IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
+                    [$ch, ...$chunk]) as $r) {
                     $out[$ch . '|' . strtolower((string) $r['order_ref'])] = $r['day'] === null ? null : (string) $r['day'];
-                }
-                if ($lock) {
-                    $unpaid = array_values(array_filter($chunk, static fn (string $r): bool => $out[$ch . '|' . strtolower($r)] === null));
-                    if ($unpaid !== []) {
-                        foreach ($db->all('SELECT order_ref, day FROM sale_order WHERE channel_id = ? AND order_ref IN (' . implode(', ', array_fill(0, count($unpaid), '?'))
-                            . ') ORDER BY order_ref FOR SHARE', [$ch, ...$unpaid]) as $r) {
-                            $out[$ch . '|' . strtolower((string) $r['order_ref'])] = $r['day'] === null ? null : (string) $r['day'];
-                        }
-                    }
                 }
             }
         }
@@ -682,7 +764,7 @@ final class DeliveryBills
         return $out;
     }
 
-    /** A store's day row left with nothing to count (every figure 0, no paid order, no line on no order dated that day): removed. */
+    /** A store's day row left with nothing to show (every figure 0, no paid order, no line on no order dated that day): removed. */
     private static function tidy(Db $db, int $channelId, string $day): void
     {
         $row = $db->one('SELECT ' . implode(', ', ProfitDays::DAY_FIELDS) . ' FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);
@@ -707,7 +789,7 @@ final class DeliveryBills
     private function locked(\Closure $fn): mixed
     {
         $name = 'cw_delivery_bills:' . (string) $this->db->value('SELECT DATABASE()');
-        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, self::LOCK_WAIT_SEC]) !== 1) {
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, $this->lockWaitSec]) !== 1) {
             throw new CwException('busy', 'another delivery bill is being saved right now: try again in a minute. Nothing was saved.', 503);
         }
         try {

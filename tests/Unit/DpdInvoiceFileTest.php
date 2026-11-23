@@ -117,6 +117,19 @@ final class DpdInvoiceFileTest extends TestCase
             'no Senders Ref' => [$without('Senders Ref'), '"Senders Ref" is missing'],
             'no VAT Code' => [$without('VAT Code'), '"VAT Code" is missing'],
             'no Cover' => [$without('Cover'), '"Cover" is missing'],
+            // The Codex check r1 (MEDIUM 1, 2; HIGH 1): every column the matching needs; a name twice said by its place; a printed date that is
+            // no day; an amount past what any line can be.
+            'no Third Party Collection' => [$without('Third Party Collection'), '"Third Party Collection" is missing'],
+            'no Fuel and Energy Charge' => [$without('Fuel and Energy Charge'), '"Fuel and Energy Charge" is missing'],
+            'a name twice' => [static fn (): string => DpdCsv::file($week(), ['columns' => array_map(static fn (string $c): string => $c === 'Second Ref' ? 'Test Person' : $c,
+                [...DpdCsv::COLUMNS, 'Test Person'])]), 'columns 39 and 43 have the same name'],
+            'an invoice date that is no day' => [static fn (): string => DpdCsv::file([DpdCsv::line('05/11/2026', '6599195040/0', 420)], ['top' => [
+                ['Account No', '3012002', 'Invoice No', '62368793', 'Invoice Date', '31/02/2026'], ['Nett Invoice Value', '', '4.20', 'GBP'], ['VAT', '', '0.84', 'GBP'],
+                ['Gross Invoice Value', '', '5.04', 'GBP']]]), 'the invoice date at the top of the file is not a day'],
+            'an amount past any line' => [static fn (): string => DpdCsv::file([DpdCsv::line('09/11/2026', '6599195046/0', 0, ['money' => []])], ['extra' => [implode(',',
+                array_map(static fn (string $c): string => match ($c) {
+                    'Date' => '09/11/2026', 'Consignment' => '6599195047/0', 'Revenue' => '"9,999,999,999,999,999,999.00"', 'VAT Code' => 'S', default => '',
+                }, DpdCsv::COLUMNS))]]), '"Revenue" is not an amount'],
             'no Revenue' => [$without('Revenue'), 'no row names its columns'],
             'a money cell not a number' => [static fn (): string => DpdCsv::file([...$week(), DpdCsv::line('09/11/2026', '6599195046/0', 0,
                 ['money' => ['Revenue' => 0], 'blank_money' => false])], ['extra' => [implode(',', array_map(static fn (string $c): string => match ($c) {
@@ -157,6 +170,35 @@ final class DpdInvoiceFileTest extends TestCase
         }
     }
 
+    /** The Codex check r1, HIGH 1: a name or an address in DPD's product or service columns is never kept; only DPD's own names are. */
+    public function testOnlyDpdsOwnProductAndServiceNamesAreKept(): void
+    {
+        $bill = DpdInvoiceFile::parse(DpdCsv::file([
+            DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Product Description' => 'Test Person', 'Service Description' => '1 Test Street', 'Product Code' => 'AB12',
+                'Service Code' => 'TT1']),
+            DpdCsv::line('05/11/2026', '6599195041/0', 420, ['Product Description' => 'Parcel', 'Service Description' => ' ship2shop ']),
+        ]), 2000);
+        self::assertSame(['', '', '', ''], [$bill['lines'][0]['product'], $bill['lines'][0]['service'], $bill['lines'][0]['product_code'], $bill['lines'][0]['service_code']]);
+        self::assertSame(['PARCEL', 'SHIP2SHOP'], [$bill['lines'][1]['product'], $bill['lines'][1]['service']]);
+        self::assertStringNotContainsString('Test', json_encode($bill, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * The Codex check r1, MEDIUM 1: the money columns by their names wherever they are (a charge moved after the addresses still counts);
+     * a column CW does not know is never read (neither money nor kept); the March sample's Peak Charge is money.
+     */
+    public function testTheMoneyColumnsAreReadByTheirNamesWhereverTheyAre(): void
+    {
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420), DpdCsv::line('05/11/2026', '6599195041/0', 0, ['money' => ['Peak Charge' => 99, 'Revenue' => 250],
+            'Delivery Notes' => 'Leave with Test Person, 9.99'])];
+        $cols = [...array_values(array_diff(DpdCsv::COLUMNS, ['Fuel and Energy Charge', 'Global Energy Charge'])), 'Fuel and Energy Charge', 'Delivery Notes', 'Peak Charge'];
+        $bill = DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => $cols, 'net' => 420 - 9 + 349, 'vat' => intdiv((420 - 9 + 349) * 2 + 5, 10)]), 2000);
+        self::assertSame([420 - 9, 349], array_column($bill['lines'], 'cost'), 'Global Energy (9p) is not on this file; the rest counted wherever it is');
+        self::assertSame(['Revenue' => 380, 'Carriage Charge' => 13, 'Fuel and Energy Charge' => 18], $bill['lines'][0]['money']);
+        self::assertSame(['Revenue' => 250, 'Peak Charge' => 99], $bill['lines'][1]['money']);
+        self::assertStringNotContainsString('Test Person', json_encode($bill, JSON_THROW_ON_ERROR));
+    }
+
     public function testSurchargeIsNeverMoneyEvenWhenItHoldsANumber(): void
     {
         $l = DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Surcharge' => '5.00']);
@@ -165,8 +207,9 @@ final class DpdInvoiceFileTest extends TestCase
 
     public function testTheSmallReaders(): void
     {
-        self::assertSame([349, -210, 0, 0, 123456, 50, 1200], array_map(DpdInvoiceFile::pence(...), ['3.49', '-2.10', '0', '', '1,234.56', '0.5', '12']));
-        foreach (['3.495', '£3.49', '3,49', '1.2.3', 'abc', '- 2.10', '1,23'] as $bad) {
+        self::assertSame([349, -210, 0, 0, 123456, 50, 1200, 99999999999], array_map(DpdInvoiceFile::pence(...), ['3.49', '-2.10', '0', '', '1,234.56', '0.5', '12',
+            '999,999,999.99']));
+        foreach (['3.495', '£3.49', '3,49', '1.2.3', 'abc', '- 2.10', '1,23', '1,000,000,000.00', '1000000000', '9,999,999,999,999,999,999'] as $bad) {
             self::assertNull(DpdInvoiceFile::pence($bad), $bad);
         }
         self::assertSame([['6951225115', ''], ['6951225115', '#'], ['6951225115', '#*'], ['6951225115', '*'], ['6951225115', ''], [null, ''], [null, '#']],

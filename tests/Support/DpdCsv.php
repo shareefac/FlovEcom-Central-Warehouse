@@ -84,7 +84,7 @@ final class DpdCsv
         foreach ($lines as $l) {
             $row = [];
             foreach ($cols as $c) {
-                if (in_array($c, self::MONEY, true) && $c !== 'Surcharge') {
+                if ((in_array($c, self::MONEY, true) && $c !== 'Surcharge') || array_key_exists($c, $l['money'])) {
                     $v = $l['money'][$c] ?? null;
                     $row[] = $v === null ? ($l['blank_money'] ?? false ? '' : ($c === 'Cover' ? '0' : '0.00')) : self::gbp((int) $v);
                     continue;

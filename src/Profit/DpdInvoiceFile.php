@@ -15,10 +15,11 @@ use CW\CwException;
  * Senders Ref, Weight, Items, VAT Code, the money columns from Revenue to Cover, Country, Second Ref, Third Ref, Delivery Address,
  * Collection Post Code), then one row per parcel and an empty row. A UTF-8 byte order mark or none, CRLF or LF line ends.
  *
- * Every column is read by its NAME, never its place. A line's cost is the sum of the named money columns, Revenue to Cover, leaving out
- * "Surcharge" (a letter code naming the extras, not money); a consignment of two parcels is two rows, the second with no money (kept,
- * cost 0); a credit (negative money) is kept as it is; the # and * DPD prints after a consignment are taken off it for the matching and
- * kept as flags.
+ * Every column is read by its NAME, never its place. A line's cost is the sum of DPD's named money columns (MONEY: Revenue, Fuel and Energy
+ * Charge, ... Cover, wherever they are), never "Surcharge" (a letter code naming the extras) nor a column CW does not know (never read: a
+ * new charge column would leave the lines short of the net, and the file refused); a consignment of two parcels is two rows, the second
+ * with no money (kept, cost 0); a credit (negative money) is kept as it is; the # and * DPD prints after a consignment are taken off it for
+ * the matching and kept as flags.
  *
  * The WHOLE file is refused (nothing is read from it) when: a column the matching needs is missing, a money cell is not an amount in pounds
  * and pence, a date is not a day, the lines do not add up to the printed net exactly, the VAT is not the printed VAT (VAT code S at the
@@ -28,7 +29,10 @@ use CW\CwException;
  * Only the fields the matching and the screens need are returned: the date, the consignment (digits), the parcel numbers (digits), DPD's
  * product and service names (their own short words only), weight, items, the Senders Ref when it is digits (the order number the label
  * carried; anything else is dropped), the VAT code, the money columns that are not 0, the cost. Delivery, Delivery Address, Collection,
- * Collection Post Code, Second Ref, Third Ref, Country and any other column are never read into the result.
+ * Collection Post Code, Second Ref, Third Ref, Country and any other column are never read into the result. DPD's product and service are
+ * kept only when they are one of DPD's own names (PRODUCTS, SERVICES) and their codes only as 1-3 digits: a name or an address that lands in
+ * one of those columns is never kept (the Codex check r1, HIGH 1). A refusal names a column by its name only when it is one of DPD's
+ * known columns, else by its number.
  */
 final class DpdInvoiceFile
 {
@@ -39,12 +43,29 @@ final class DpdInvoiceFile
     public const MAX_LINES = 50_000;
     /** The top rows are looked for in at most this many rows before the row of column names. */
     public const MAX_TOP_ROWS = 20;
-    /** The columns a DPD bill must name (the matching reads them). */
-    public const REQUIRED = ['Date', 'Consignment', 'Senders Ref', 'VAT Code', 'Revenue', 'Cover'];
-    /** The money columns are the ones from FIRST_MONEY to LAST_MONEY, by name, leaving NOT_MONEY out. */
+    /** The columns a DPD bill must name (the matching reads them; DPD prints every one of them on every bill). */
+    public const REQUIRED = ['Date', 'Consignment', 'Senders Ref', 'VAT Code', 'Revenue', 'Fuel and Energy Charge', 'Third Party Collection', 'Cover'];
+    /** The row that names the columns is the first one naming these two. */
     public const FIRST_MONEY = 'Revenue';
-    public const LAST_MONEY = 'Cover';
+    /**
+     * DPD's money columns (the four bills of 15 Oct - 14 Nov 2026 name Global Energy Charge, the March sample Peak Charge instead): a line's
+     * cost is their sum, wherever they are.
+     */
+    public const MONEY = ['Revenue', 'Fuel and Energy Charge', 'Third Party Collection', 'Fourth Party Collection', 'Congestion Charge', 'Clearance Charge',
+        'Return to Consignor Charge', 'Failed Collection Charge', 'Scottish Delivery Zone', 'Duties & Taxes Prepaid Admin Charge', 'Oversized/Overweight Charge',
+        'Contractual Liability', 'Oversized Exports Charge', 'Unsuccessful Export Charge', 'EU Export Return Charge', 'Carriage Charge', 'Non Coms Handling Charge',
+        'Global Energy Charge', 'Peak Charge', 'Relabel Charge', 'Cover'];
+    /** Not money: a letter code naming a line's extras (AS, AES, APS ...). */
     public const NOT_MONEY = ['Surcharge'];
+    /** DPD's other columns (read or not): the ones a refusal may name. */
+    public const OTHER_COLUMNS = ['Date', 'Consignment', 'Header', 'Parcel No', 'Product Code', 'Product Description', 'Service Code', 'Service Description',
+        'Depot No', 'Collection', 'Delivery', 'Senders Ref', 'Weight', 'Items', 'VAT Code', 'Surcharge', 'Country Code', 'Country', 'Second Ref', 'Third Ref',
+        'Delivery Address', 'Collection Post Code'];
+    /** DPD's product names CW keeps (any other is kept as ""). */
+    public const PRODUCTS = ['EXPRESSPAK 1', 'EXPRESSPAK 5', 'EXPRESSPAK 10', 'EXPRESSPAK 15', 'EXPRESSPAK', 'PARCEL', 'PALLET', 'FREIGHT'];
+    /** DPD's service names CW keeps (any other is kept as ""). */
+    public const SERVICES = ['NEXT DAY', 'SHIP2SHOP', 'SAT', 'SUN', 'TWO DAY', 'BY 12', 'BY 10:30', 'BY 10.30', 'SAT BY 12', 'SUN BY 12', 'SAT BY 10:30', 'SATURDAY',
+        'SUNDAY', 'RETURNS', 'COLLECTION', 'COLLECT', 'HOMECALL', 'AIR CLASSIC', 'AIR EXPRESS', 'DPD CLASSIC'];
     /** A line with money in this column is a collection DPD made from the customer (a return), DL9. */
     public const COLLECTION = 'Third Party Collection';
     /** VAT codes: S at the shops' rate (profit.vat_rate_pct), Z at 0%. Any other refuses the file. */
@@ -55,11 +76,8 @@ final class DpdInvoiceFile
         'gross invoice value' => 'gross', 'invoice date' => 'invoice_date', 'date of invoice' => 'invoice_date', 'tax point' => 'invoice_date'];
     /** An account or bill number: letters, digits and - only (DPD: digits). */
     public const NUMBER = '/^[A-Za-z0-9-]{1,32}$/D';
-    /** DPD's product and service names as kept (their own short words; any other text is not kept). */
-    private const NAME = '/^[A-Za-z0-9][A-Za-z0-9 \/&().+-]{0,63}$/D';
-    private const CODE = '/^[A-Za-z0-9]{1,8}$/D';
-    /** A money column's name as kept in a line's money (DPD's own words). */
-    private const MONEY_NAME = '/^[A-Za-z0-9][A-Za-z0-9 &\/().-]{0,63}$/D';
+    /** DPD's product and service codes as kept: 1-3 digits (1, 4, 12, 24 ...). */
+    private const CODE = '/^[0-9]{1,3}$/D';
 
     /**
      * @param int $vatBp the shops' VAT rate in basis points (2000 = 20%): the rate of VAT code S
@@ -131,7 +149,7 @@ final class DpdInvoiceFile
             }
             $key = strtolower((string) preg_replace('/\s+/', ' ', $n));
             if (isset($ix[$key])) {
-                throw self::refuse("the column \"{$n}\" is named twice", ['row' => $row]);
+                throw self::refuse(sprintf('columns %d and %d have the same name: the file is not read', $ix[$key] + 1, $i + 1), ['row' => $row]);
             }
             $ix[$key] = $i;
         }
@@ -140,23 +158,14 @@ final class DpdInvoiceFile
                 throw self::refuse("the column \"{$col}\" is missing: the file is not read", ['column' => $col]);
             }
         }
-        $first = $ix[strtolower(self::FIRST_MONEY)];
-        $last = $ix[strtolower(self::LAST_MONEY)];
-        if ($last < $first) {
-            throw self::refuse('the money columns are not where DPD puts them (Revenue before Cover)');
-        }
+        // The money columns by their names, wherever they are (Codex r1 MEDIUM 1); kept under DPD's own spelling.
         $money = [];
-        $notMoney = array_map('strtolower', self::NOT_MONEY);
-        for ($i = $first; $i <= $last; $i++) {
-            $n = (string) preg_replace('/\s+/', ' ', $names[$i] ?? '');
-            if ($n === '' || in_array(strtolower($n), $notMoney, true)) {
-                continue;
+        foreach (self::MONEY as $name) {
+            if (isset($ix[strtolower($name)])) {
+                $money[$ix[strtolower($name)]] = $name;
             }
-            if (preg_match(self::MONEY_NAME, $n) !== 1) {
-                throw self::refuse('a money column has a name DPD does not use: the file is not read', ['column' => $i + 1]);
-            }
-            $money[$i] = $n;
         }
+        ksort($money);
         $col = static fn (string $name): ?int => $ix[strtolower($name)] ?? null;
         $at = [
             'date' => $col('Date'), 'consignment' => $col('Consignment'), 'header' => $col('Header'), 'parcel' => $col('Parcel No'),
@@ -212,7 +221,7 @@ final class DpdInvoiceFile
                     . ': the VAT cannot be checked', ['row' => $row, 'column' => 'VAT Code']);
             }
             [$consignment, $marks] = self::consignment($cells[$at['consignment']]);
-            $collection = $at['collection'] !== null && isset($m[(string) preg_replace('/\s+/', ' ', $names[$at['collection']])]);
+            $collection = isset($m[self::COLLECTION]);
             $lines[] = [
                 'line_no' => $n,
                 'line_date' => $date,
@@ -221,9 +230,9 @@ final class DpdInvoiceFile
                 'parcel_no' => self::digits($at['parcel'] === null ? '' : $cells[$at['parcel']], 20),
                 'header_parcel' => self::digits($at['header'] === null ? '' : $cells[$at['header']], 20),
                 'product_code' => self::code($at['product_code'] === null ? '' : $cells[$at['product_code']]),
-                'product' => self::name($at['product'] === null ? '' : $cells[$at['product']]),
+                'product' => self::known($at['product'] === null ? '' : $cells[$at['product']], self::PRODUCTS),
                 'service_code' => self::code($at['service_code'] === null ? '' : $cells[$at['service_code']]),
-                'service' => self::name($at['service'] === null ? '' : $cells[$at['service']]),
+                'service' => self::known($at['service'] === null ? '' : $cells[$at['service']], self::SERVICES),
                 'weight' => self::weight($at['weight'] === null ? '' : $cells[$at['weight']]),
                 'items' => self::items($at['items'] === null ? '' : $cells[$at['items']]),
                 'senders_ref' => self::digits($cells[$at['senders_ref']], 12),
@@ -246,7 +255,7 @@ final class DpdInvoiceFile
             throw self::refuse(sprintf('the lines add up to %s, but the file says its net total is %s: the file is not read (is it the whole file?)',
                 self::gbp($sumNet), self::gbp($head['net'])));
         }
-        $vatDue = ProfitMath::divRound($sumS * $vatBp, 10000);
+        $vatDue = ProfitMath::mulDivRound($sumS, $vatBp, 10000);
         if ($vatDue !== $head['vat']) {
             throw self::refuse(sprintf('the VAT does not tie: %s%% of the standard-rated lines (%s) is %s, the file says %s: the file is not read',
                 rtrim(rtrim(number_format($vatBp / 100, 2, '.', ''), '0'), '.'), self::gbp($sumS), self::gbp($vatDue), self::gbp($head['vat'])));
@@ -305,18 +314,27 @@ final class DpdInvoiceFile
             }
             $amounts[$k] = $p;
         }
-        return ['account' => $found['account'], 'invoice_no' => $found['invoice_no'],
-            'invoice_date' => isset($found['invoice_date']) ? self::day($found['invoice_date']) : null] + $amounts;
+        $date = null;
+        if (isset($found['invoice_date'])) {
+            $date = self::day($found['invoice_date']);
+            if ($date === null) {
+                throw self::refuse('the invoice date at the top of the file is not a day (DD/MM/YYYY)'); // Codex r1 MEDIUM 2
+            }
+        }
+        return ['account' => $found['account'], 'invoice_no' => $found['invoice_no'], 'invoice_date' => $date] + $amounts;
     }
 
-    /** An amount in pounds as DPD prints it ("3.49", "-2.10", "0", "1,234.56", "") => pence; '' is 0; null when it is not one. */
+    /**
+     * An amount in pounds as DPD prints it ("3.49", "-2.10", "0", "1,234.56", "") => pence; '' is 0; null when it is not one, or when it is
+     * £1,000,000,000 or more (no carrier line is; the sums stay far inside PHP's integers: Codex r1 MEDIUM 2).
+     */
     public static function pence(string $s): ?int
     {
         $s = trim($s);
         if ($s === '') {
             return 0;
         }
-        if (preg_match('/^(-)?(\d{1,3}(?:,\d{3})+|\d{1,12})(?:\.(\d{1,2}))?$/D', $s, $m) !== 1) {
+        if (preg_match('/^(-)?(\d{1,3}(?:,\d{3}){1,2}|\d{1,9})(?:\.(\d{1,2}))?$/D', $s, $m) !== 1) {
             return null;
         }
         $p = (int) str_replace(',', '', $m[2]) * 100 + (int) str_pad($m[3] ?? '', 2, '0');
@@ -362,10 +380,11 @@ final class DpdInvoiceFile
         return preg_match(self::CODE, trim($s)) === 1 ? trim($s) : '';
     }
 
-    private static function name(string $s): string
+    /** @param list<string> $names DPD's own names: the cell when it is one of them (any case, spaces as one), in DPD's spelling; else "" */
+    private static function known(string $s, array $names): string
     {
-        $s = trim((string) preg_replace('/\s+/', ' ', $s));
-        return preg_match(self::NAME, $s) === 1 ? $s : '';
+        $s = strtoupper(trim((string) preg_replace('/\s+/', ' ', $s)));
+        return in_array($s, $names, true) ? $s : '';
     }
 
     private static function weight(string $s): ?string
