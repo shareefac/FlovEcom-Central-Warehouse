@@ -209,6 +209,69 @@ final class DpdInvoiceFileTest extends TestCase
         self::assertSame(420, DpdInvoiceFile::parse(DpdCsv::file([$l]), 2000)['lines'][0]['cost']);
     }
 
+    /** The lead's LOW 1: every refusal about the top of the file reads as plain English, word for word. */
+    public function testTheTopOfTheFileRefusalsReadAsPlainEnglish(): void
+    {
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420)];
+        $top = static fn (string $net, string $vat, string $gross): array => [['Account No', '3012002', 'Invoice No', '62368793'], ['Nett Invoice Value', '', $net, 'GBP'],
+            ['VAT', '', $vat, 'GBP'], ['Gross Invoice Value', '', $gross, 'GBP']];
+        $cases = [
+            [$top('four', '0.84', '5.04'), 'DPD bill not read: the net total (Nett Invoice Value) at the top of the file is not an amount in pounds and pence. Nothing was saved.'],
+            [$top('4.20', 'x', '5.04'), 'DPD bill not read: the VAT at the top of the file is not an amount in pounds and pence. Nothing was saved.'],
+            [$top('4.20', '0.84', '5,04'), 'DPD bill not read: the gross total (Gross Invoice Value) at the top of the file is not an amount in pounds and pence. Nothing was saved.'],
+            [[['Account No', '3012002', 'Invoice No', '62368793'], ['VAT', '', '0.84', 'GBP'], ['Gross Invoice Value', '', '5.04', 'GBP']],
+                'DPD bill not read: the top of the file does not say its net total (Nett Invoice Value): is it DPD\'s invoice CSV? Nothing was saved.'],
+            [[['Account No', '3012002'], ['Nett Invoice Value', '', '4.20', 'GBP'], ['VAT', '', '0.84', 'GBP'], ['Gross Invoice Value', '', '5.04', 'GBP']],
+                'DPD bill not read: the top of the file does not say its bill number (Invoice No): is it DPD\'s invoice CSV? Nothing was saved.'],
+        ];
+        foreach ($cases as [$rows, $says]) {
+            try {
+                DpdInvoiceFile::parse(DpdCsv::file($lines, ['top' => $rows]), 2000);
+                self::fail('refused: ' . $says);
+            } catch (CwException $e) {
+                self::assertSame($says, $e->getMessage());
+            }
+        }
+    }
+
+    /** The lead's LOW 2: lines short of the net while a column CW does not know holds amounts: that column is named (never a cell). */
+    public function testAColumnCwDoesNotKnowThatHoldsAmountsIsNamedWhenTheLinesFallShort(): void
+    {
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Fuel Surcharge' => '0.37']), DpdCsv::line('05/11/2026', '6599195041/0', 420, ['Fuel Surcharge' => '1,234.56'])];
+        try {
+            DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Fuel Surcharge'], 'net' => 840 + 37 + 123456, 'vat' => 24867]), 2000);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('DPD bill not read: the lines add up to £8.40, but the file says its net total is £1,243.33: the file is not read (is it the whole file?); '
+                . 'the file has a column we do not know, \'Fuel Surcharge\', with amounts in it: tell the CW team. Nothing was saved.', $e->getMessage());
+            self::assertStringNotContainsString('1,234.56', $e->getMessage());
+        }
+        // A column CW does not know that holds no amount (a note) is not named; one whose name is not a plain heading is named by its number.
+        $odd = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Note: Test Person 07700 900123' => '1.00'])];
+        try {
+            DpdInvoiceFile::parse(DpdCsv::file($odd, ['columns' => [...DpdCsv::COLUMNS, 'Note: Test Person 07700 900123'], 'net' => 520, 'vat' => 104]), 2000);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertStringContainsString('the file has a column we do not know, column 43, with amounts in it', $e->getMessage());
+            self::assertStringNotContainsString('Test Person', $e->getMessage());
+        }
+    }
+
+    /** The lead's LOW 3: old Mac line ends (CR only) are read as CRLF and LF are; a non-breaking space in a heading or label is a space. */
+    public function testCrOnlyLineEndsAndNonBreakingSpacesAreRead(): void
+    {
+        $base = DpdInvoiceFile::parse(DpdCsv::file(self::week()), 2000);
+        $cr = DpdInvoiceFile::parse(DpdCsv::file(self::week(), ['eol' => "\r"]), 2000);
+        $nbsp = DpdInvoiceFile::parse(str_replace(['Account No', 'Nett Invoice Value', 'Senders Ref', 'Third Party Collection'],
+            ["Account\u{00A0}No", "Nett\u{00A0}Invoice Value", "Senders\u{00A0}Ref", "Third Party\u{00A0}Collection"], DpdCsv::file(self::week())), 2000);
+        foreach ([$cr, $nbsp] as $b) {
+            unset($b['sha256']);
+            $want = $base;
+            unset($want['sha256']);
+            self::assertSame($want, $b);
+        }
+    }
+
     public function testTheSmallReaders(): void
     {
         self::assertSame([349, -210, 0, 0, 123456, 50, 1200, 99999999999], array_map(DpdInvoiceFile::pence(...), ['3.49', '-2.10', '0', '', '1,234.56', '0.5', '12',

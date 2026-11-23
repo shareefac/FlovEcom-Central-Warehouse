@@ -102,6 +102,11 @@ final class DpdInvoiceFile
         if (str_starts_with($bytes, "\xEF\xBB\xBF")) {
             $bytes = substr($bytes, 3);
         }
+        // Old Mac line ends (CR only) read as CRLF and LF are; a non-breaking space (UTF-8 U+00A0) is a space (the lead's LOW 3).
+        if (!str_contains($bytes, "\n") && str_contains($bytes, "\r")) {
+            $bytes = str_replace("\r", "\n", $bytes);
+        }
+        $bytes = str_replace("\xC2\xA0", ' ', $bytes);
         $h = fopen('php://temp', 'w+b');
         if ($h === false) {
             throw new \RuntimeException('cannot open a temporary stream');
@@ -174,6 +179,18 @@ final class DpdInvoiceFile
             'vat_code' => $col('VAT Code'), 'collection' => $col(self::COLLECTION),
         ];
         $width = count($names);
+        // The columns CW does not know (neither money nor DPD's others): never read into a line, but one that holds amounts is named when the
+        // lines fall short of the net (the lead's LOW 2), by its heading when that is a plain heading, else by its number; never a cell.
+        $known = array_map('strtolower', [...self::MONEY, ...self::OTHER_COLUMNS]);
+        $unknown = [];
+        foreach ($names as $i => $n) {
+            $key = strtolower((string) preg_replace('/\s+/', ' ', $n));
+            if ($n !== '' && !in_array($key, $known, true)) {
+                $unknown[$i] = preg_match('/^[A-Za-z][A-Za-z0-9 &\/().-]{0,40}$/D', (string) preg_replace('/\s+/', ' ', $n)) === 1
+                    ? "'" . preg_replace('/\s+/', ' ', $n) . "'" : 'column ' . ($i + 1);
+            }
+        }
+        $unknownMoney = [];
 
         $lines = [];
         $sumNet = 0;
@@ -191,6 +208,12 @@ final class DpdInvoiceFile
                 throw self::refuse('row ' . $row . ' has more cells than the file has column names: the file is not read', ['row' => $row]);
             }
             $cells = array_pad($cells, $width, '');
+            foreach ($unknown as $i => $label) {
+                $p = self::pence($cells[$i]);
+                if ($p !== null && $p !== 0) {
+                    $unknownMoney[$i] = $label;
+                }
+            }
             $n = count($lines) + 1;
             if ($n > self::MAX_LINES) {
                 throw new CwException('too_many_lines', 'the file has more than ' . number_format(self::MAX_LINES) . ' lines: it is not a DPD week', 413);
@@ -252,8 +275,10 @@ final class DpdInvoiceFile
             throw self::refuse('the file has no lines');
         }
         if ($sumNet !== $head['net']) {
+            ksort($unknownMoney);
             throw self::refuse(sprintf('the lines add up to %s, but the file says its net total is %s: the file is not read (is it the whole file?)',
-                self::gbp($sumNet), self::gbp($head['net'])));
+                self::gbp($sumNet), self::gbp($head['net'])) . ($unknownMoney === [] ? '' : sprintf('; the file has %s we do not know, %s, with amounts in it: '
+                . 'tell the CW team', count($unknownMoney) === 1 ? 'a column' : 'columns', implode(', ', $unknownMoney))));
         }
         $vatDue = ProfitMath::mulDivRound($sumS, $vatBp, 10000);
         if ($vatDue !== $head['vat']) {
@@ -294,11 +319,13 @@ final class DpdInvoiceFile
                 }
             }
         }
-        $words = ['account' => 'its account (Account No)', 'invoice_no' => 'its number (Invoice No)', 'net' => 'its net total (Nett Invoice Value)',
-            'vat' => 'its VAT', 'gross' => 'its gross total (Gross Invoice Value)'];
+        // What each of them is called in a sentence ("the top of the file does not say its ...", "the ... at the top of the file is not ..."; the
+        // lead's LOW 1).
+        $words = ['account' => 'account (Account No)', 'invoice_no' => 'bill number (Invoice No)', 'net' => 'net total (Nett Invoice Value)', 'vat' => 'VAT',
+            'gross' => 'gross total (Gross Invoice Value)'];
         foreach ($words as $k => $w) {
             if (!isset($found[$k])) {
-                throw self::refuse("the top of the file does not say {$w}: is it DPD's invoice CSV?");
+                throw self::refuse("the top of the file does not say its {$w}: is it DPD's invoice CSV?");
             }
         }
         foreach (['account' => 'account', 'invoice_no' => 'invoice number'] as $k => $w) {
@@ -415,6 +442,6 @@ final class DpdInvoiceFile
     /** @param array<string, mixed> $detail */
     private static function refuse(string $why, array $detail = []): CwException
     {
-        return new CwException('bad_file', 'DPD bill not read: ' . $why . '. Nothing was saved.', 422, $detail);
+        return new CwException('bad_file', 'DPD bill not read: ' . $why . (str_ends_with($why, '?') ? '' : '.') . ' Nothing was saved.', 422, $detail);
     }
 }

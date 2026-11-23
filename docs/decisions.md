@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL28; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL29; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL28. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL29. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -20086,3 +20086,10 @@ hold a snapshot of one up to 10 seconds: now 200 a statement, at most 2 seconds 
 other than a wait is said with its database error code, not "busy". Left for the lead as before: HIGH 1 (who may be given the two
 permissions), MEDIUM 1 (the window's direction, the start day, DL27), MEDIUM 3 (a second parcel of a number stored after the bill's last
 check).
+
+**DL29. The independent tester's three LOW (the lead, 23 Nov 2026; tests red on 956c810: `runs/dpd_low_red.log`).** (1) Every refusal about the
+top of the file reads as plain English ("the top of the file does not say its net total (Nett Invoice Value): is it DPD's invoice CSV?", "the
+net total (Nett Invoice Value) at the top of the file is not an amount in pounds and pence"), checked word for word. (2) When the lines do not
+add up to the net and a column CW does not know holds amounts, the refusal names it ("the file has a column we do not know, 'Fuel
+Surcharge', with amounts in it: tell the CW team"): by its heading when that is a plain heading, else by its number; never a cell. (3) A
+file with old Mac line ends (CR only) is read as CRLF and LF are; a non-breaking space (U+00A0) is a space.
