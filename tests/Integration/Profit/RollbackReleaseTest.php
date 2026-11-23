@@ -23,11 +23,12 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * The last migration of the release before. CW-1155 (docs/decisions.md RR20): the release before was b35949d (profit step 1, live), whose
      * last is 0075; the rollback release of CW-1155 was b35949d's code with 0076 added, byte for byte (profit step 1's was c40c050 with 0074 and
      * 0075, the same recipe). The delivery bills (docs/decisions.md DL22): the release before is b54163a (CW-1155, live), whose last is 0076;
-     * the rollback release is b54163a's code with 0077 added, byte for byte.
+     * the rollback release is b54163a's code with 0077 added, byte for byte. Royal Mail's bills (docs/decisions.md DL69): the release before is
+     * 14c6e31 (DPD bills live), whose last is 0077; the rollback release is 14c6e31's code with 0078 added, byte for byte.
      */
-    public const BEFORE_LAST = '0076_receive_rest.sql';
+    public const BEFORE_LAST = '0077_delivery_bills.sql';
     /** The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22). */
-    public const ROLLBACK_FILES = ['0077_delivery_bills.sql'];
+    public const ROLLBACK_FILES = ['0078_royal_mail_bills.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;

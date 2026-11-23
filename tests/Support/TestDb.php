@@ -23,7 +23,9 @@ final class TestDb
      * permission): clean() keeps
      * them, so a test that changes one (a review rule, a limit, a setting) restores it itself.
      */
-    public const SEED_TABLES = ['reason_code', 'document_type', 'app_setting', 'vat_code', 'role_permission'];
+    public const SEED_TABLES = ['reason_code', 'document_type', 'app_setting', 'vat_code', 'role_permission',
+        // 0078: the carriers, their bill products and weight bands (reference lists: carrier_invoice links to carrier).
+        'carrier', 'carrier_product', 'carrier_band'];
 
     private static ?Db $db = null;
 

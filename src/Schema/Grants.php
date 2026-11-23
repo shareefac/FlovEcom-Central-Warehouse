@@ -77,7 +77,9 @@ final class Grants
         // XA2, XA7: replacement ancestry is immutable; mode watermarks only advance their timestamp.
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
-        'item_cost_event'];
+        'item_cost_event',
+        // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed.
+        'carrier_bill_row'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -131,6 +133,9 @@ final class Grants
         // not matched yet is put on its parcel or order later, never moved off one).
         'carrier_invoice' => ['status', 'ended_by', 'ended_actor', 'ended_at'],
         'carrier_invoice_line' => ['match_state', 'channel_id', 'order_ref', 'parcel_ref', 'candidates', 'matched_at'],
+        // 0078 (docs/decisions.md DL51): where a bill row's money went is never rewritten or removed: an allocation that no longer counts is
+        // ended (its bill undone or replaced, its day planned again), and the new one is a row of its own.
+        'carrier_allocation' => ['ended_at'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -159,7 +164,9 @@ final class Grants
      * vat_code: changed by a migration (I-2). reason_code, document_type and app_setting were read-only until 0019: the screens
      * change them now (Y3: reason_code in UPDATE_COLUMNS, the other two in UPDATE_ONLY_COLUMNS).
      */
-    public const READ_ONLY = ['schema_migrations', 'vat_code'];
+    public const READ_ONLY = ['schema_migrations', 'vat_code',
+        // 0078 (docs/decisions.md DL43, DL47): the carriers, their products and weight bands come by migration.
+        'carrier', 'carrier_product', 'carrier_band'];
     /**
      * Rows the app never deletes: a listing (reservation_unit.listing_id has no FK, so deleting a listing
      * that only ever sold while unlinked would orphan its holding-ledger units), an item (merged, never
@@ -222,7 +229,11 @@ final class Grants
         // 0074 (docs/decisions.md PR2, PR17): a store order's latest snapshot, its money, lines and parcels (replaced or marked removed, never
         // deleted), each item's buying price now and the profit jobs' marks. profit_day and profit_item_day keep FULL rights: a batch tool
         // rebuilds a day (DELETE + INSERT in one transaction).
-        'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document'];
+        'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document',
+        // 0078 (docs/decisions.md DL44-DL49): the delivery parties and carrier accounts with their rules (set by bin/carrier_account.php, with
+        // audit; never removed: bills and labels name them), the labels (a second source fills empty fields; never removed) and the pull
+        // checkpoints.
+        'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label', 'carrier_label_pull'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

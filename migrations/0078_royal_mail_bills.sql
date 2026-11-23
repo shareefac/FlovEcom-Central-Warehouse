@@ -1,0 +1,330 @@
+-- 0078_royal_mail_bills.sql — delivery cost in CW profit, phase 1 of the shipping plan v3 (cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md;
+-- docs/decisions.md DL43-DL70): Royal Mail's weekly bills, account-generic (0706703000 = Vape and Go + Electrofag + the Hayati Vapes line;
+-- Vape Big's account a settings row, off until its first bill ties). It only ADDS: no existing row changes; the one existing table it alters
+-- (carrier_invoice, a few rows: one per carrier bill) only swaps its carrier CHECK for a link to the new carrier list.
+--
+-- Settings (rows, not code: a new account, shop or carrier is a row; section 2 of the plan):
+--  * carrier: the carriers CW knows (dpd, royal_mail) and how their bills are matched: per_parcel (a line per parcel: DPD) or pooled (a line
+--    per day and service: Royal Mail). carrier_invoice.carrier links to it (its 0077 CHECK "dpd or royal_mail" is replaced).
+--  * delivery_party: who a parcel's cost belongs to: one row per CW shop, plus parties with no shop in CW (hayativapes: its costs are on
+--    their own line, in no shop's profit; when it joins CW its row gets its shop and a FROM day).
+--  * carrier_account: a carrier account (number as printed), its bill format and label source, the NAME of its Click & Drop key in CW's
+--    secret file (never the key), its main party (takes the charges of no parcel) and its state (active / off until its first bill ties).
+--  * carrier_account_party: the parties an account serves, each from a day.
+--  * carrier_channel: an account's Click & Drop channels by their exact names, each with a short code (a label keeps the code only).
+--  * carrier_party_rule: how a label NOT found in CW is given its party, first rule that fits wins: by channel, by the reference's form
+--    (# and digits, or N digits); a rule with no party names nobody (the label is held: shop not known).
+--  * carrier_product / carrier_band: a carrier's product codes on its bills and what each is (flat price per label, price by weight band,
+--    wrong-weight surcharge, surcharge of no parcel, return), and the weight bands (grams, the edge inclusive).
+-- Data:
+--  * carrier_label: one row per label a pooled account made (account x tracking number): the Click & Drop fields the matching needs, from
+--    the API pull or the "Manifested Orders" report; never a name, address, postcode, email or phone. carrier_label_pull: each account's
+--    pull checkpoint (the last day fully read).
+--  * carrier_bill_row: a pooled bill's rows as printed (day, product, quantity, net, gross, VAT code, the reference only in a known form).
+--  * carrier_allocation: where every penny of a bill row went (an order's parcel, a shop's "not on an order", a party with no shop, before
+--    CW start, held), adding up to the row's net; ended (never deleted) when it no longer counts.
+-- profit_day: no new column (the allocations count in delivery_cost and delivery_other, as DPD's lines).
+--
+-- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty), seed rows ON DUPLICATE KEY (never changing a row that is there), and ONE ALTER of
+-- carrier_invoice (a few rows: ALGORITHM = COPY, LOCK = SHARED, as 0069 and 0074 altered small tables) made only while the old CHECK is there
+-- (a prepared statement, as 0077 added its columns). Every statement can run again and changes nothing the second time.
+-- Rollback: the release before (14c6e31) with this file added byte for byte (RollbackReleaseTest); the new tables and rows stay, unused; the
+-- link of carrier_invoice.carrier stays (the release before writes only dpd, a row of carrier).
+
+CREATE TABLE IF NOT EXISTS carrier (
+  code        VARCHAR(16)  NOT NULL,
+  name        VARCHAR(64)  NOT NULL,
+  family      ENUM('per_parcel','pooled') NOT NULL COMMENT 'per_parcel: a bill line per parcel (its tracking number); pooled: lines per day and service',
+  PRIMARY KEY (code),
+  CONSTRAINT ck_carrier_code CHECK (REGEXP_LIKE(code, '^[a-z][a-z0-9_]{1,15}$', 'c'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='the carriers whose bills CW reads (docs/decisions.md DL43): a new carrier is a row (and its bill reader)';
+
+INSERT INTO carrier (code, name, family) VALUES ('dpd', 'DPD', 'per_parcel'), ('royal_mail', 'Royal Mail', 'pooled')
+  ON DUPLICATE KEY UPDATE code = code;
+
+-- carrier_invoice.carrier: the 0077 CHECK becomes a link to carrier (only while the CHECK is there: a run again does nothing).
+SET @cw_0078_carrier = IF((SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'carrier_invoice'
+    AND CONSTRAINT_NAME = 'ck_carrier_invoice_carrier') = 1,
+  'ALTER TABLE carrier_invoice DROP CHECK ck_carrier_invoice_carrier, ADD CONSTRAINT fk_carrier_invoice_carrier FOREIGN KEY (carrier) REFERENCES carrier (code), ALGORITHM = COPY, LOCK = SHARED',
+  'DO 0');
+PREPARE cw_0078_carrier FROM @cw_0078_carrier;
+EXECUTE cw_0078_carrier;
+DEALLOCATE PREPARE cw_0078_carrier;
+
+CREATE TABLE IF NOT EXISTS delivery_party (
+  id            SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  code          VARCHAR(32)       NOT NULL,
+  name          VARCHAR(64)       NOT NULL,
+  channel_id    SMALLINT UNSIGNED NULL COMMENT 'its CW shop; NULL: a party with no shop in CW (its costs on its own line, in no shop''s profit)',
+  channel_from  DATE              NULL COMMENT 'a party that joined CW later: its costs go on its shop''s orders from this day; older ones stay on its own line',
+  created_at    DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_delivery_party_code (code),
+  UNIQUE KEY uq_delivery_party_channel (channel_id),
+  CONSTRAINT fk_delivery_party_channel FOREIGN KEY (channel_id) REFERENCES channel (id),
+  CONSTRAINT ck_delivery_party_code CHECK (REGEXP_LIKE(code, '^[a-z][a-z0-9_]{1,31}$', 'c')),
+  CONSTRAINT ck_delivery_party_from CHECK (channel_from IS NULL OR channel_id IS NOT NULL)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='who a parcel''s delivery cost belongs to (docs/decisions.md DL44): a CW shop, or a party with no shop in CW';
+
+-- One party per CW shop (its code and name), and Hayati Vapes with no shop (the owner, 23 Nov 2026, Q1). A party that is there is left as it is.
+INSERT INTO delivery_party (code, name, channel_id) SELECT c.code, LEFT(c.name, 64), c.id FROM channel c
+  WHERE REGEXP_LIKE(c.code, '^[a-z][a-z0-9_]{1,31}$', 'c') AND NOT EXISTS (SELECT 1 FROM delivery_party p WHERE p.channel_id = c.id OR p.code = c.code);
+INSERT INTO delivery_party (code, name, channel_id) VALUES ('hayativapes', 'Hayati Vapes', NULL) ON DUPLICATE KEY UPDATE code = code;
+
+CREATE TABLE IF NOT EXISTS carrier_account (
+  id             SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  carrier        VARCHAR(16)       NOT NULL,
+  account_no     VARCHAR(32)       NOT NULL COMMENT 'as the carrier prints it on its bills',
+  name           VARCHAR(64)       NOT NULL,
+  bill_format    VARCHAR(16)       NOT NULL COMMENT 'dpd_csv, rm_oba_page',
+  label_source   VARCHAR(16)       NOT NULL COMMENT 'connector (the shops'' own parcels), click_and_drop (the API pull and the report upload)',
+  key_name       VARCHAR(64)       NULL COMMENT 'the NAME of its key in CW''s secret file /etc/cw/carrier_keys.env (never the key)',
+  main_party_id  SMALLINT UNSIGNED NOT NULL COMMENT 'takes the charges that belong to no parcel; a party with a shop',
+  state          ENUM('active','off') NOT NULL COMMENT 'active: its bills and labels count; off: refused (Vape Big''s until its first bill ties)',
+  created_at     DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_carrier_account (carrier, account_no),
+  KEY ix_carrier_account_party (main_party_id),
+  CONSTRAINT fk_carrier_account_carrier FOREIGN KEY (carrier) REFERENCES carrier (code),
+  CONSTRAINT fk_carrier_account_party FOREIGN KEY (main_party_id) REFERENCES delivery_party (id),
+  CONSTRAINT ck_carrier_account_no CHECK (REGEXP_LIKE(account_no, '^[A-Za-z0-9-]{1,32}$', 'c')),
+  CONSTRAINT ck_carrier_account_format CHECK (bill_format IN ('dpd_csv', 'rm_oba_page') AND label_source IN ('connector', 'click_and_drop')),
+  CONSTRAINT ck_carrier_account_key CHECK (key_name IS NULL OR REGEXP_LIKE(key_name, '^[a-z][a-z0-9_]{1,63}$', 'c'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='a carrier account (docs/decisions.md DL45): its bills, its labels, its key''s name, its main party';
+
+INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
+  SELECT 'dpd', '3012002', 'DPD (Vape and Go)', 'dpd_csv', 'connector', NULL, p.id, 'active' FROM delivery_party p WHERE p.code = 'vapeandgo'
+  ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
+INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
+  SELECT 'royal_mail', '0706703000', 'Royal Mail OBA (Vape and Go, Electrofag, Hayati Vapes)', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', p.id, 'active'
+  FROM delivery_party p WHERE p.code = 'vapeandgo'
+  ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
+-- Vape Big's own Royal Mail account: its number is not known yet (the owner sends its first bill); off until that bill ties by the day rule.
+INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
+  SELECT 'royal_mail', 'vapebig-pending', 'Royal Mail OBA (Vape Big)', 'rm_oba_page', 'click_and_drop', 'click_and_drop_vapebig', p.id, 'off'
+  FROM delivery_party p WHERE p.code = 'vapebig'
+  ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
+
+CREATE TABLE IF NOT EXISTS carrier_account_party (
+  account_id  SMALLINT UNSIGNED NOT NULL,
+  party_id    SMALLINT UNSIGNED NOT NULL,
+  from_day    DATE              NOT NULL COMMENT 'the account serves the party from this day',
+  PRIMARY KEY (account_id, party_id, from_day),
+  KEY ix_carrier_account_party_party (party_id),
+  CONSTRAINT fk_cap_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT fk_cap_party FOREIGN KEY (party_id) REFERENCES delivery_party (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='the parties an account serves, each from a day (docs/decisions.md DL45): a parcel of another shop never takes the account''s money';
+
+INSERT INTO carrier_account_party (account_id, party_id, from_day)
+  SELECT a.id, p.id, '2020-01-01' FROM carrier_account a JOIN delivery_party p
+  WHERE (a.carrier = 'royal_mail' AND a.account_no = '0706703000' AND p.code IN ('vapeandgo', 'electrofag', 'hayativapes'))
+     OR (a.carrier = 'royal_mail' AND a.account_no = 'vapebig-pending' AND p.code = 'vapebig')
+     OR (a.carrier = 'dpd' AND a.account_no = '3012002' AND p.code = 'vapeandgo')
+  ON DUPLICATE KEY UPDATE account_id = carrier_account_party.account_id;
+
+CREATE TABLE IF NOT EXISTS carrier_channel (
+  account_id  SMALLINT UNSIGNED NOT NULL,
+  code        VARCHAR(16)       NOT NULL,
+  name        VARCHAR(128)      NOT NULL COMMENT 'the channel''s exact name in Click & Drop',
+  PRIMARY KEY (account_id, code),
+  UNIQUE KEY uq_carrier_channel_name (account_id, name),
+  CONSTRAINT fk_carrier_channel_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT ck_carrier_channel_code CHECK (REGEXP_LIKE(code, '^[a-z][a-z0-9_]{1,15}$', 'c') AND code <> 'other')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='an account''s Click & Drop channels (docs/decisions.md DL46): a label keeps the code of a known one, else "other"';
+
+INSERT INTO carrier_channel (account_id, code, name)
+  SELECT a.id, x.code, x.name FROM carrier_account a JOIN (
+    SELECT 'api' AS code, 'Vape and Go NW Limited - API (Vape and Go NW Limited)' AS name
+    UNION ALL SELECT 'woocommerce', 'Vape and Go NW Limited - WooCommerce (Vape and Go NW Limited)'
+    UNION ALL SELECT 'manual', 'Manual Order Entry (Vape and Go NW Limited)') x
+  WHERE a.carrier = 'royal_mail' AND a.account_no = '0706703000'
+  ON DUPLICATE KEY UPDATE account_id = carrier_channel.account_id;
+
+CREATE TABLE IF NOT EXISTS carrier_party_rule (
+  account_id    SMALLINT UNSIGNED NOT NULL,
+  priority      TINYINT UNSIGNED  NOT NULL COMMENT 'the first rule that fits a label wins',
+  channel_code  VARCHAR(16)       NULL COMMENT 'the label''s channel (carrier_channel.code); NULL: any',
+  ref_form      VARCHAR(16)       NULL COMMENT 'hash_digits (# and digits) or digits_N (exactly N digits); NULL: any',
+  party_id      SMALLINT UNSIGNED NULL COMMENT 'NULL: the rule names nobody (the label is held: shop not known)',
+  PRIMARY KEY (account_id, priority),
+  KEY ix_carrier_party_rule_party (party_id),
+  CONSTRAINT fk_cpr_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT fk_cpr_party FOREIGN KEY (party_id) REFERENCES delivery_party (id),
+  CONSTRAINT ck_cpr_form CHECK (ref_form IS NULL OR REGEXP_LIKE(ref_form, '^(hash_digits|digits_[1-9][0-9]?)$', 'c')),
+  CONSTRAINT ck_cpr_some CHECK (channel_code IS NOT NULL OR ref_form IS NOT NULL)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='how a label not found in CW is given its party (docs/decisions.md DL46); never a tracking prefix';
+
+-- 0706703000 (the plan, section 2; phase 0 P0-6): "Manual Order Entry" names nobody; the WooCommerce channel and "#" + digits are Hayati
+-- Vapes; 7 digits Vape and Go; a bare 4-digit reference names nobody (Hayati's 2833-3103 are also old Electrofag order numbers).
+INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id)
+  SELECT a.id, x.priority, x.channel_code, x.ref_form, (SELECT p.id FROM delivery_party p WHERE p.code = x.party) FROM carrier_account a JOIN (
+    SELECT 1 AS priority, 'manual' AS channel_code, NULL AS ref_form, NULL AS party
+    UNION ALL SELECT 2, 'woocommerce', NULL, 'hayativapes'
+    UNION ALL SELECT 3, NULL, 'hash_digits', 'hayativapes'
+    UNION ALL SELECT 4, NULL, 'digits_7', 'vapeandgo') x
+  WHERE a.carrier = 'royal_mail' AND a.account_no = '0706703000' AND (x.party IS NULL OR EXISTS (SELECT 1 FROM delivery_party p WHERE p.code = x.party))
+  ON DUPLICATE KEY UPDATE account_id = carrier_party_rule.account_id;
+INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id)
+  SELECT a.id, 1, NULL, 'digits_5', p.id FROM carrier_account a JOIN delivery_party p ON p.code = 'vapebig'
+  WHERE a.carrier = 'royal_mail' AND a.account_no = 'vapebig-pending'
+  ON DUPLICATE KEY UPDATE account_id = carrier_party_rule.account_id;
+
+CREATE TABLE IF NOT EXISTS carrier_product (
+  carrier       VARCHAR(16)  NOT NULL,
+  product_code  VARCHAR(8)   NOT NULL COMMENT 'as printed on the bill',
+  kind          ENUM('flat','band','wrong_weight','surcharge','return') NOT NULL
+                COMMENT 'flat: the day''s price on every label of the service; band: by declared weight per manifest; wrong_weight: shared over a manifest; surcharge, return: no parcel named (the main shop''s "not on an order")',
+  service_code  VARCHAR(16)  NULL COMMENT 'the labels'' service code (Click & Drop) of a flat or band product',
+  name          VARCHAR(64)  NOT NULL,
+  PRIMARY KEY (carrier, product_code),
+  CONSTRAINT fk_carrier_product_carrier FOREIGN KEY (carrier) REFERENCES carrier (code),
+  CONSTRAINT ck_carrier_product_code CHECK (REGEXP_LIKE(product_code, '^[A-Z0-9]{2,8}$', 'c')),
+  CONSTRAINT ck_carrier_product_service CHECK ((kind IN ('flat', 'band')) = (service_code IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='a carrier''s product codes on its bills (docs/decisions.md DL47): a code not listed refuses the bill';
+
+INSERT INTO carrier_product (carrier, product_code, kind, service_code, name) VALUES
+  ('royal_mail', 'TPL', 'flat', 'TPL48HV', 'Tracked 48'),
+  ('royal_mail', 'TPM', 'flat', 'TPM24HV', 'Tracked 24'),
+  ('royal_mail', 'TRN', 'flat', 'TRN24', 'Tracked 24 letterbox'),
+  ('royal_mail', 'SD1', 'band', 'SD1', 'Special Delivery by 1pm'),
+  ('royal_mail', 'RX1', 'wrong_weight', NULL, 'Wrong weight declared'),
+  ('royal_mail', 'RXA', 'wrong_weight', NULL, 'Wrong weight admin charge'),
+  ('royal_mail', 'RW4', 'surcharge', NULL, 'Unreadable barcode'),
+  ('royal_mail', 'TSS', 'return', NULL, 'Tracked returns')
+  ON DUPLICATE KEY UPDATE carrier = carrier;
+
+CREATE TABLE IF NOT EXISTS carrier_band (
+  carrier       VARCHAR(16)       NOT NULL,
+  product_code  VARCHAR(8)        NOT NULL,
+  band_no       TINYINT UNSIGNED  NOT NULL,
+  max_grams     INT UNSIGNED      NOT NULL COMMENT 'a label of at most this declared weight (inclusive) and more than the band before is in this band',
+  PRIMARY KEY (carrier, product_code, band_no),
+  UNIQUE KEY uq_carrier_band_max (carrier, product_code, max_grams),
+  CONSTRAINT fk_carrier_band_product FOREIGN KEY (carrier, product_code) REFERENCES carrier_product (carrier, product_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='weight bands of a band product (docs/decisions.md DL47; phase 0 P0-3: edges inclusive)';
+
+INSERT INTO carrier_band (carrier, product_code, band_no, max_grams) VALUES
+  ('royal_mail', 'SD1', 1, 100), ('royal_mail', 'SD1', 2, 500), ('royal_mail', 'SD1', 3, 1000), ('royal_mail', 'SD1', 4, 2000),
+  ('royal_mail', 'SD1', 5, 10000), ('royal_mail', 'SD1', 6, 20000)
+  ON DUPLICATE KEY UPDATE carrier = carrier;
+
+CREATE TABLE IF NOT EXISTS carrier_label (
+  id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  account_id     SMALLINT UNSIGNED NOT NULL,
+  tracking_no    VARCHAR(32)       NOT NULL,
+  source         ENUM('api','report') NOT NULL COMMENT 'what brought it first; the other only fills empty fields',
+  source_id      BIGINT UNSIGNED   NULL COMMENT 'Click & Drop''s order identifier',
+  reference      VARCHAR(12)       NULL COMMENT 'the shop order number the label carried: digits, or # and digits; anything else not kept',
+  channel_code   VARCHAR(16)       NULL COMMENT 'its Click & Drop channel as the code of one of the account''s (carrier_channel), else other',
+  service_code   VARCHAR(16)       NULL,
+  package        VARCHAR(16)       NULL COMMENT 'letter, large_letter, parcel, other',
+  weight_g       INT UNSIGNED      NULL COMMENT 'declared weight, grams',
+  created_on     DATETIME(6)       NULL COMMENT 'when Click & Drop took the order (its own clock: UK time)',
+  manifested_at  DATETIME(6)       NULL COMMENT 'its manifest''s time (UK time)',
+  manifest_no    INT UNSIGNED      NULL,
+  manifest_day   DATE              NULL COMMENT 'the UK day of its manifest: the bill''s service day for a flat product',
+  sales_order    VARCHAR(10)       NULL COMMENT 'the Royal Mail sales order of a Special Delivery manifest (10 digits)',
+  first_at       DATETIME(6)       NOT NULL,
+  updated_at     DATETIME(6)       NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_carrier_label (account_id, tracking_no),
+  KEY ix_carrier_label_day (account_id, manifest_day, service_code),
+  KEY ix_carrier_label_manifest (account_id, manifest_no),
+  KEY ix_carrier_label_sales (account_id, sales_order),
+  KEY ix_carrier_label_tracking (tracking_no),
+  KEY ix_carrier_label_source (account_id, source_id),
+  CONSTRAINT fk_carrier_label_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT ck_carrier_label_shapes CHECK (REGEXP_LIKE(tracking_no, '^[A-Z0-9]{8,32}$', 'c')
+    AND (reference IS NULL OR REGEXP_LIKE(reference, '^#?[0-9]{1,10}$', 'c'))
+    AND (channel_code IS NULL OR REGEXP_LIKE(channel_code, '^[a-z][a-z0-9_]{1,15}$', 'c'))
+    AND (service_code IS NULL OR REGEXP_LIKE(service_code, '^[A-Z0-9]{1,16}$', 'c'))
+    AND (package IS NULL OR package IN ('letter', 'large_letter', 'parcel', 'other'))
+    AND (sales_order IS NULL OR REGEXP_LIKE(sales_order, '^[0-9]{10}$', 'c'))
+    AND (manifest_no IS NULL OR manifest_day IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='one row per label of a pooled carrier account (docs/decisions.md DL48): never a name, address, postcode, email or phone';
+
+CREATE TABLE IF NOT EXISTS carrier_label_pull (
+  account_id     SMALLINT UNSIGNED NOT NULL,
+  read_to        DATE              NULL COMMENT 'the last UK day read whole from Click & Drop: the next pull starts 3 days before it',
+  last_try_at    DATETIME(6)       NULL,
+  last_ok_at     DATETIME(6)       NULL,
+  last_error     VARCHAR(160)      NULL COMMENT 'what went wrong, in CW''s words (an HTTP status, a code): never an answer of the API, never the key',
+  PRIMARY KEY (account_id),
+  CONSTRAINT fk_carrier_label_pull_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='each account''s Click & Drop pull checkpoint (docs/decisions.md DL49)';
+
+CREATE TABLE IF NOT EXISTS carrier_bill_row (
+  invoice_id    BIGINT UNSIGNED   NOT NULL,
+  row_no        INT UNSIGNED      NOT NULL COMMENT 'its place among the bill''s rows',
+  service_date  DATE              NOT NULL,
+  product_code  VARCHAR(8)        NOT NULL,
+  qty           INT               NOT NULL,
+  net_pence     BIGINT            NOT NULL,
+  gross_pence   BIGINT            NOT NULL,
+  vat_code      CHAR(1)           NOT NULL,
+  ref_kind      ENUM('none','preadvice','manifest','sales_order','week') NOT NULL
+                COMMENT 'the reference in a known form only: a pre-advice id, CLICK AND DROP M<n>, ADJ<sales order>RCN, <word> Week <n>; any other text is not kept',
+  ref_no        VARCHAR(16)       NULL COMMENT 'its number (digits)',
+  sales_order   VARCHAR(10)       NULL COMMENT 'the Royal Mail sales order printed with a manifest row (10 digits)',
+  PRIMARY KEY (invoice_id, row_no),
+  KEY ix_carrier_bill_row_day (product_code, service_date),
+  KEY ix_carrier_bill_row_ref (ref_kind, ref_no),
+  CONSTRAINT fk_carrier_bill_row_invoice FOREIGN KEY (invoice_id) REFERENCES carrier_invoice (id),
+  CONSTRAINT ck_carrier_bill_row_shapes CHECK (REGEXP_LIKE(product_code, '^[A-Z0-9]{2,8}$', 'c') AND REGEXP_LIKE(vat_code, '^[A-Z]$', 'c')
+    AND (ref_kind = 'none') = (ref_no IS NULL) AND (ref_no IS NULL OR REGEXP_LIKE(ref_no, '^[0-9]{1,16}$', 'c'))
+    AND (sales_order IS NULL OR REGEXP_LIKE(sales_order, '^[0-9]{10}$', 'c')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='a pooled bill''s rows as printed (docs/decisions.md DL50): never changed, never deleted';
+
+CREATE TABLE IF NOT EXISTS carrier_allocation (
+  id           BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  invoice_id   BIGINT UNSIGNED   NOT NULL,
+  row_no       INT UNSIGNED      NOT NULL,
+  kind         ENUM('label','wrong_weight','day_line','row') NOT NULL
+               COMMENT 'label: a label''s price; wrong_weight: a label''s share of a wrong-weight row; day_line: the day''s labels not charged / billed with no label; row: a row on no label (surcharge, return, no batch, pence left over)',
+  how          VARCHAR(16)       NOT NULL COMMENT 'flat, band, average, shared, left_over, no_label, no_batch, surcharge, return, tail',
+  label_id     BIGINT UNSIGNED   NULL,
+  dest         ENUM('order','shop','party','before_start','held') NOT NULL
+               COMMENT 'order: on an order''s parcel (in its shop''s profit, its paid day); shop: a shop''s "not on an order" on the day; party: a party with no shop (in no profit); before_start: before CW start (in no profit); held: shop not known or a conflict (in no profit)',
+  channel_id   SMALLINT UNSIGNED NULL,
+  order_ref    VARCHAR(64)       NULL,
+  parcel_ref   VARCHAR(64)       NULL,
+  party_id     SMALLINT UNSIGNED NULL,
+  held_reason  VARCHAR(16)       NULL,
+  day          DATE              NOT NULL COMMENT 'the bill row''s service day: the day "not on an order" counts on',
+  pence        BIGINT            NOT NULL COMMENT 'ex VAT, signed',
+  made_at      DATETIME(6)       NOT NULL,
+  ended_at     DATETIME(6)       NULL COMMENT 'when it stopped counting (its bill undone or replaced, or the day planned again): kept, never deleted',
+  live_label   VARCHAR(80) GENERATED ALWAYS AS (IF(ended_at IS NULL AND label_id IS NOT NULL, CONCAT(label_id, ':', invoice_id, ':', row_no, ':', kind), NULL)) STORED
+               COMMENT 'a label holds at most one live allocation per bill row and kind',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_carrier_allocation_label (live_label),
+  KEY ix_carrier_allocation_row (invoice_id, row_no),
+  KEY ix_carrier_allocation_order (channel_id, order_ref),
+  KEY ix_carrier_allocation_day (dest, day, channel_id),
+  KEY ix_carrier_allocation_labelid (label_id),
+  CONSTRAINT fk_carrier_allocation_row FOREIGN KEY (invoice_id, row_no) REFERENCES carrier_bill_row (invoice_id, row_no),
+  CONSTRAINT fk_carrier_allocation_label FOREIGN KEY (label_id) REFERENCES carrier_label (id),
+  CONSTRAINT fk_carrier_allocation_order FOREIGN KEY (channel_id, order_ref) REFERENCES sale_order (channel_id, order_ref),
+  CONSTRAINT fk_carrier_allocation_parcel FOREIGN KEY (channel_id, order_ref, parcel_ref) REFERENCES sale_parcel (channel_id, order_ref, parcel_ref),
+  CONSTRAINT fk_carrier_allocation_party FOREIGN KEY (party_id) REFERENCES delivery_party (id),
+  CONSTRAINT fk_carrier_allocation_channel FOREIGN KEY (channel_id) REFERENCES channel (id),
+  CONSTRAINT ck_carrier_allocation_dest CHECK (
+    (dest = 'order' AND channel_id IS NOT NULL AND order_ref IS NOT NULL AND parcel_ref IS NOT NULL AND party_id IS NULL AND held_reason IS NULL)
+    OR (dest IN ('shop', 'before_start') AND channel_id IS NOT NULL AND order_ref IS NULL AND parcel_ref IS NULL AND party_id IS NULL AND held_reason IS NULL)
+    OR (dest = 'party' AND channel_id IS NULL AND order_ref IS NULL AND parcel_ref IS NULL AND party_id IS NOT NULL AND held_reason IS NULL)
+    OR (dest = 'held' AND channel_id IS NULL AND order_ref IS NULL AND parcel_ref IS NULL AND party_id IS NULL AND REGEXP_LIKE(held_reason, '^[a-z_]{2,16}$', 'c'))),
+  CONSTRAINT ck_carrier_allocation_label CHECK ((kind IN ('label', 'wrong_weight')) = (label_id IS NOT NULL)),
+  CONSTRAINT ck_carrier_allocation_how CHECK (REGEXP_LIKE(how, '^[a-z_]{2,16}$', 'c'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='where every penny of a pooled bill row went (docs/decisions.md DL51): a row''s live allocations add up to its net; ended, never deleted';
