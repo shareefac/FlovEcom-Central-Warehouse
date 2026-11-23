@@ -436,6 +436,7 @@ final class DeliveryBillsTest extends StockTestCase
             . "'superseded', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ch, str_repeat('e', 64)]);
         self::$db->exec('UPDATE carrier_invoice SET supersedes_id = ? WHERE id = ?', [$late, $early]);
         self::assertContains("DB6 bill {$late} (superseded): named as replaced by 1 bills, some of another bill or uploaded before it", Invariants::check(self::$db));
+        self::$db->exec('UPDATE carrier_invoice SET supersedes_id = NULL WHERE id = ?', [$early]);
         self::$db->exec('UPDATE carrier_invoice SET supersedes_id = id WHERE id = ?', [$late]);
         self::assertContains("DB6 bill {$late} (superseded): named as replaced by 1 bills, some of another bill or uploaded before it", Invariants::check(self::$db),
             'a bill naming itself (the Codex check r2, LOW 2)');
@@ -534,14 +535,16 @@ final class DeliveryBillsTest extends StockTestCase
     }
 
     /**
-     * The Codex check r1, HIGH 3: the parcel a line was put on is removed by its order's snapshot while the bill waits for the days it counts on:
-     * the decisions are taken again once the orders are held, the plan is old, the bill is tried again and the line is not matched.
+     * The Codex check r1, HIGH 3: the parcel a line was put on is removed by its order's snapshot after the bill read it and before the bill
+     * holds the order: the decisions are taken again once the orders are held, the plan is old, the bill is tried again and the line is not
+     * matched.
      */
     public function testAParcelRemovedWhileTheBillWaitsIsNotMatched(): void
     {
         $ch = $this->shop();
         self::order($ch, '1060', '1356160', '2026-11-08T09:00:00Z', [self::parcel('odl:60', '6599100060', '2026-11-08T10:00:00Z')]);
-        HookedStatement::$before = ['INSERT INTO profit_day (channel_id, day) VALUES' => static function () use ($ch): void {
+        // Between the plan's read and the bill's hold on the order (its first read of the orders' days): the order's snapshot drops the parcel.
+        HookedStatement::$before = ['SELECT order_ref, day FROM sale_order WHERE channel_id = ?' => static function () use ($ch): void {
             self::order($ch, '1060', '1356160', '2026-11-08T09:00:00Z', [], ['version' => 2]);
         }];
         try {

@@ -18,8 +18,11 @@ use CW\Tests\Support\MigrationFixture;
 final class Migration0069Test extends IntegrationTestCase
 {
     private const FILE = '0069_people_manager.sql';
-    /** The jobs later migrations add after people_manager, each at the end again: 0074's finance (docs/decisions.md PR23, PR64). */
-    private const LATER = ['finance'];
+    /**
+     * The jobs later migrations add after people_manager, each at the end again: 0074's finance (docs/decisions.md PR23, PR64), 0077's
+     * delivery_bills (DL15).
+     */
+    private const LATER = ['finance', 'delivery_bills'];
     private ?string $dir = null;
 
     protected function tearDown(): void

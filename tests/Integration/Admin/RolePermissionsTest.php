@@ -76,7 +76,8 @@ final class RolePermissionsTest extends MappingTestCase
             // 0069 added people_manager after 0034 (PM3): its rows are left as they were; the code gives it its four tasks on the read.
             // 0074 added finance (docs/decisions.md PR23, PR64): the two LOCKED permissions every job has (catalogue.view, reference.view) keep
             // 0034's rows, the code gives them to it whatever a row says; its own permission profit.view is a new row with its baseline (as 0038's).
-            $later = ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) ? ['finance'] : [])];
+            // 0077 added delivery_bills (docs/decisions.md DL15) the same way: delivery.view and delivery.upload are new rows with their baselines.
+            $later = ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) ? ['finance', 'delivery_bills'] : [])];
             self::assertSame(implode(',', Permissions::ordered(array_diff($holders, $later))), $this->saved[$perm], $perm);
             $v1 = ConfigHistory::latest(self::$db, 'permission', $perm);
             self::assertSame([1, 'baseline', 'system:migrate', ['roles' => $this->saved[$perm]]], [$v1['version'], $v1['action'], $v1['actor'], $v1['state']], $perm);

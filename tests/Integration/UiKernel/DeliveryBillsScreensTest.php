@@ -240,7 +240,7 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
         [$ch, $today] = $this->shop();
         $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-50 seconds')->format('Y-m-d\TH:i:s\Z');
         foreach (['105' => '81356105', '106' => '81356106'] as $ref => $line) {
-            (new OrderSnapshots(self::$db))->store($ch, $ref, ['v' => 1, 'version' => 1, 'order_no' => '1356999', 'status' => 'completed', 'placed_at' => $paid,
+            (new OrderSnapshots(self::$db))->store($ch, (string) $ref, ['v' => 1, 'version' => 1, 'order_no' => '1356999', 'status' => 'completed', 'placed_at' => $paid,
                 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => $line, 'variant_id' => '40123', 'qty' => 1,
                 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'DPD',
                 'charged_inc' => 0, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
