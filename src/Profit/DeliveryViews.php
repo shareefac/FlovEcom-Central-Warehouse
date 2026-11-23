@@ -34,14 +34,19 @@ final class DeliveryViews
     public function bills(): array
     {
         $rows = $this->db->all('SELECT i.id, i.carrier, i.account, i.invoice_no, i.period_from, i.period_to, i.net_pence, i.line_count, i.status, i.uploaded_actor, '
-            . 'i.uploaded_at, c.name AS shop, u.display_name AS uploaded_name FROM carrier_invoice i JOIN channel c ON c.id = i.channel_id '
+            . 'i.uploaded_at, i.ended_actor, c.name AS shop, u.display_name AS uploaded_name FROM carrier_invoice i JOIN channel c ON c.id = i.channel_id '
             . 'LEFT JOIN staff_user u ON u.id = i.uploaded_by ORDER BY i.uploaded_at DESC, i.id DESC LIMIT ' . self::LIST_LIMIT);
         if ($rows === []) {
             return [];
         }
         $ids = array_map(static fn (array $r): int => (int) $r['id'], $rows);
         $states = $this->states($ids);
-        return array_map(static fn (array $r): array => $r + ['states' => $states[(int) $r['id']] ?? self::noStates()], $rows);
+        // a pooled bill (Royal Mail, 0078: DL69) has no lines: its allocations summed by destination
+        $pooled = (new RoyalMailViews($this->db))->sums(array_map(static fn (array $r): int => (int) $r['id'], array_values(array_filter($rows,
+            static fn (array $r): bool => $r['carrier'] !== 'dpd'))));
+        return array_map(static fn (array $r): array => $r + ['states' => $states[(int) $r['id']] ?? self::noStates(), 'pooled' => $r['carrier'] === 'dpd' ? null
+            : ($pooled[(int) $r['id']] ?? ['order' => ['n' => 0, 'p' => 0], 'shop' => ['n' => 0, 'p' => 0], 'outside' => ['n' => 0, 'p' => 0],
+                'before_start' => ['n' => 0, 'p' => 0]])], $rows);
     }
 
     /**
@@ -135,25 +140,40 @@ final class DeliveryViews
         }
         $out = [];
         $notBilled = 0;
+        // Royal Mail's (pooled) allocations on the order's parcels (0078, DL69), and whether its shop is served by a Royal Mail account CW reads
+        $rm = RoyalMailViews::orderParcels($db, $channelId, $ref);
+        $rmRead = $db->value("SELECT 1 FROM carrier_account a JOIN carrier c ON c.code = a.carrier AND c.family = 'pooled' JOIN carrier_account_party ap ON ap.account_id = a.id "
+            . "JOIN delivery_party p ON p.id = ap.party_id AND p.channel_id = ? WHERE a.state = 'active' LIMIT 1", [$channelId]) !== null;
         foreach ($parcels as $p) {
             $lines = $byParcel[strtolower((string) $p['parcel_ref'])] ?? [];
-            // Only a DPD parcel can be "not billed yet": CW reads DPD's bills only, so a Royal Mail, manual or in-store one never would be
-            // (the final review, Fable M1; DL38).
-            $waits = $lines === [] && $p['removed_at'] === null && in_array(strtolower((string) $p['carrier']), DeliveryBills::DPD_PARCELS, true);
-            $out[] = $p + ['bill_lines' => $lines, 'bill_cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $lines)),
-                'bills' => array_values(array_unique(array_map(static fn (array $l): string => (string) $l['invoice_no'], $lines))), 'not_billed' => $waits];
+            $pooled = $rm[strtolower((string) $p['parcel_ref'])] ?? null;
+            // A DPD parcel can be "not billed yet" (DL38); a Royal Mail one too once its shop is on a Royal Mail account CW reads (DL69); a manual
+            // or in-store one never.
+            $carrier = strtolower((string) $p['carrier']);
+            $waits = $lines === [] && $pooled === null && $p['removed_at'] === null && (in_array($carrier, DeliveryBills::DPD_PARCELS, true)
+                || ($rmRead && $carrier === 'royal_mail'));
+            $out[] = $p + ['bill_lines' => $lines, 'bill_cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $lines)) + ($pooled['pence'] ?? 0),
+                'bills' => array_values(array_unique([...array_map(static fn (array $l): string => (string) $l['invoice_no'], $lines), ...($pooled['bills'] ?? [])])),
+                'pooled' => $pooled, 'not_billed' => $waits];
             if ($waits) {
                 $notBilled++;
             }
         }
+        $pooledCost = array_sum(array_map(static fn (array $x): int => $x['pence'], $rm));
+        $pooledN = (int) $db->value("SELECT COUNT(*) FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.channel_id = ? "
+            . "AND a.order_ref = ? AND a.dest = 'order' AND a.ended_at IS NULL", [$channelId, $ref]);
         $rc = ['n' => 0, 'c' => 0];
         if ($resends !== []) {
             $rc = $db->one("SELECT COUNT(*) AS n, COALESCE(SUM(l.cost), 0) AS c FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' "
                 . "WHERE l.channel_id = ? AND l.order_ref IN (" . implode(', ', array_fill(0, count($resends), '?')) . ") AND l.match_state IN ('matched', 'collection')",
                 [$channelId, ...$resends]) ?? $rc;
+            $ra = $db->one("SELECT COUNT(*) AS n, COALESCE(SUM(a.pence), 0) AS c FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+                . 'WHERE a.channel_id = ? AND a.order_ref IN (' . implode(', ', array_fill(0, count($resends), '?')) . ") AND a.dest = 'order' AND a.ended_at IS NULL",
+                [$channelId, ...$resends]) ?? ['n' => 0, 'c' => 0];
+            $rc = ['n' => (int) $rc['n'] + (int) $ra['n'], 'c' => (int) $rc['c'] + (int) $ra['c']];
         }
-        return ['cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $own)), 'lines' => count($own), 'resend_cost' => (int) $rc['c'],
-            'resend_lines' => (int) $rc['n'], 'parcels' => $out, 'collections' => $collections, 'not_billed' => $notBilled];
+        return ['cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $own)) + $pooledCost, 'lines' => count($own) + $pooledN,
+            'resend_cost' => (int) $rc['c'], 'resend_lines' => (int) $rc['n'], 'parcels' => $out, 'collections' => $collections, 'not_billed' => $notBilled];
     }
 
     /**

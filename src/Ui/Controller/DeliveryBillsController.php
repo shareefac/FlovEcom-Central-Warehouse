@@ -8,6 +8,8 @@ use CW\CwException;
 use CW\Profit\DeliveryBills;
 use CW\Profit\DeliveryViews;
 use CW\Profit\DpdInvoiceFile;
+use CW\Profit\RoyalMailBills;
+use CW\Profit\RoyalMailViews;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -29,6 +31,10 @@ final class DeliveryBillsController
     public const PERM_UPLOAD = DeliveryBills::PERM_UPLOAD;
     /** The notices a redirect may carry back. */
     private const NOTICES = ['stored', 'same', 'replaced', 'undone', 'stored_later', 'replaced_later'];
+    /** The carriers the upload offers: DPD's CSV and Royal Mail's bill page (0078: DL69). */
+    public const UPLOAD_CARRIERS = ['dpd', 'royal_mail'];
+    /** The most pasted text of a Royal Mail bill read (a week's page as text is about 30 KB). */
+    public const MAX_TEXT_BYTES = 2_097_152;
 
     /** GET: the bills, and the upload for the people who may upload. */
     public function list(Context $ctx): HtmlResponse
@@ -41,12 +47,21 @@ final class DeliveryBillsController
     {
         $carrier = (string) ($ctx->req->field('carrier') ?? '');
         $shop = UiRequest::id($ctx->req->field('shop'));
+        $account = UiRequest::id($ctx->req->field('account'));
         try {
-            $file = InvoicesController::upload($ctx);
-            $bytes = (string) file_get_contents($file['path']);
-            $r = (new DeliveryBills($ctx->db))->upload($ctx->caller(), $carrier, $bytes, $shop);
+            if ($carrier === 'royal_mail') {
+                // Royal Mail's bill: its saved page, or its text pasted in the box (DL52); the account it is of chosen (its printed number must agree)
+                if ($account === null) {
+                    throw new CwException('no_account', Words::DELIVERY['rm_no_account'], 422, ['field' => 'account']);
+                }
+                $r = (new RoyalMailBills($ctx->db))->upload($ctx->caller(), $account, self::pageOrText($ctx));
+            } else {
+                $file = InvoicesController::upload($ctx);
+                $bytes = (string) file_get_contents($file['path']);
+                $r = (new DeliveryBills($ctx->db))->upload($ctx->caller(), $carrier, $bytes, $shop);
+            }
         } catch (CwException $e) {
-            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => $carrier, 'shop' => $shop]);
+            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => $carrier, 'shop' => $shop, 'account' => $account]);
         }
         // A re-match of the other bills that could not run is said (the Codex check r2, MEDIUM 4): the bill is stored all the same.
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same'
@@ -60,13 +75,17 @@ final class DeliveryBillsController
         return $this->billPage($ctx, $ctx->id(), 200, null, in_array($n, self::NOTICES, true) ? $n : null);
     }
 
-    /** POST {id}/replace: a corrected file of this live bill (DeliveryBills::replace). */
+    /** POST {id}/replace: a corrected file of this live bill (DeliveryBills::replace; a Royal Mail bill: RoyalMailBills::replace, page or text). */
     public function replace(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
         try {
-            $file = InvoicesController::upload($ctx);
-            $r = (new DeliveryBills($ctx->db))->replace($ctx->caller(), $id, (string) file_get_contents($file['path']));
+            if (self::pooled($ctx, $id)) {
+                $r = (new RoyalMailBills($ctx->db))->replace($ctx->caller(), $id, self::pageOrText($ctx));
+            } else {
+                $file = InvoicesController::upload($ctx);
+                $r = (new DeliveryBills($ctx->db))->replace($ctx->caller(), $id, (string) file_get_contents($file['path']));
+            }
         } catch (CwException $e) {
             return $this->billPage($ctx, $id, $e->httpStatus, $e, null);
         }
@@ -82,25 +101,74 @@ final class DeliveryBillsController
             if ($ctx->req->field('sure') !== '1') {
                 throw new CwException('not_sure', Words::DELIVERY['undo_tick'], 422, ['field' => 'sure']);
             }
-            (new DeliveryBills($ctx->db))->undo($ctx->caller(), $id);
+            if (self::pooled($ctx, $id)) {
+                (new RoyalMailBills($ctx->db))->undo($ctx->caller(), $id);
+            } else {
+                (new DeliveryBills($ctx->db))->undo($ctx->caller(), $id);
+            }
         } catch (CwException $e) {
             return $this->billPage($ctx, $id, $e->httpStatus, $e, null);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'undone']));
     }
 
-    /** @param array<string, mixed> $typed what the refused form said (carrier, shop) */
-    private function listPage(Context $ctx, int $status, ?CwException $error, array $typed): HtmlResponse
+    /**
+     * POST labels: Click & Drop's "Manifested Orders" report of an account (RoyalMailBills::importReport, DL48): its labels read (never a name,
+     * address or the file) and the bills' days planned again; the page says how many.
+     */
+    public function labels(Context $ctx): HtmlResponse
+    {
+        $account = UiRequest::id($ctx->req->field('account'));
+        try {
+            if ($account === null) {
+                throw new CwException('no_account', Words::DELIVERY['rm_no_account'], 422, ['field' => 'account']);
+            }
+            $file = InvoicesController::upload($ctx);
+            $r = (new RoyalMailBills($ctx->db))->importReport($ctx->caller(), $account, (string) file_get_contents($file['path']));
+        } catch (CwException $e) {
+            return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail']);
+        }
+        $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']))
+            . ($r['differs'] > 0 ? Words::say('DELIVERY', 'rm_labels_differ', number_format($r['differs'])) : '')
+            . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '');
+        return $this->listPage($ctx, 200, null, [], $said);
+    }
+
+    /** Whether a bill is a pooled carrier's (Royal Mail): its own service and page. */
+    private static function pooled(Context $ctx, int $id): bool
+    {
+        return $ctx->db->value("SELECT 1 FROM carrier_invoice i JOIN carrier c ON c.code = i.carrier AND c.family = 'pooled' WHERE i.id = ?", [$id]) !== null;
+    }
+
+    /** A Royal Mail bill's bytes: the text pasted in the box when there is some, else the saved page's file. */
+    private static function pageOrText(Context $ctx): string
+    {
+        $text = (string) ($ctx->req->field('text') ?? '');
+        if (trim($text) !== '') {
+            if (strlen($text) > self::MAX_TEXT_BYTES) {
+                throw new CwException('too_large', Words::DELIVERY['rm_text_too_long'], 413, ['field' => 'text']);
+            }
+            return $text;
+        }
+        $file = InvoicesController::upload($ctx);
+        return (string) file_get_contents($file['path']);
+    }
+
+    /** @param array<string, mixed> $typed what the refused form said (carrier, shop, account) */
+    private function listPage(Context $ctx, int $status, ?CwException $error, array $typed, ?string $said = null): HtmlResponse
     {
         $bills = array_map(static fn (array $b): array => $b + ['href' => self::PATH . '/' . (int) $b['id']], (new DeliveryViews($ctx->db))->bills());
         $stores = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name']], $ctx->db->all('SELECT id, name FROM channel ORDER BY id'));
+        $accounts = (new RoyalMailViews($ctx->db))->accounts();
         return $ctx->page('profit_delivery', [
             'bills' => $bills,
             'canUpload' => $ctx->me()->can(self::PERM_UPLOAD),
-            'carriers' => DeliveryBills::CARRIERS,
+            'carriers' => self::UPLOAD_CARRIERS,
             'stores' => $stores,
+            'accounts' => $accounts,
             'typed' => $typed,
             'error' => $error?->getMessage(),
+            'said' => $said,
             'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
             'limit' => DeliveryViews::LIST_LIMIT,
         ], $status, ['title' => Words::MENU['profit_delivery']]);
@@ -108,6 +176,9 @@ final class DeliveryBillsController
 
     private function billPage(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice): HtmlResponse
     {
+        if (self::pooled($ctx, $id)) {
+            return $this->rmPage($ctx, $id, $status, $error, $notice);
+        }
         $views = new DeliveryViews($ctx->db);
         $b = $views->bill($id);
         if ($b === null) {
@@ -136,6 +207,40 @@ final class DeliveryBillsController
             'headline' => self::headline($b),
             'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
         ], $status, ['title' => $title, 'notice' => $notice === null ? null : Words::DELIVERY['notice_' . $notice]]);
+    }
+
+    /** A Royal Mail bill's page (DL69): where its money went, the day tie-out, its manifests, its rows, Replace and Undo (page or text). */
+    private function rmPage(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice): HtmlResponse
+    {
+        $b = (new RoyalMailViews($ctx->db))->bill($id);
+        if ($b === null) {
+            return $ctx->error(404, 'not_found', 'there is no such bill', [self::PATH, Words::MENU['profit_delivery']]);
+        }
+        $bill = $b['bill'];
+        return $ctx->page('profit_delivery_rm', $b + [
+            'canUpload' => $ctx->me()->can(self::PERM_UPLOAD) && $bill['status'] === 'live',
+            'error' => $error?->getMessage(),
+            'headline' => self::rmHeadline($b),
+            'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
+        ], $status, ['title' => Words::say('DELIVERY', 'bill_title', Words::DELIVERY['carrier_royal_mail'], (string) $bill['invoice_no']),
+            'notice' => $notice === null ? null : Words::DELIVERY['notice_' . $notice]]);
+    }
+
+    /**
+     * A Royal Mail bill in one sentence (the plan's words, section 6): "Royal Mail bill 9077300608 (4 Nov - 12 Nov 2026): £18,859.74 - on orders
+     * £18,3xx, not on an order £n, in no shop's profit £z (Hayati Vapes, held), before CW start £s".
+     *
+     * @param array<string, mixed> $b RoyalMailViews::bill()
+     */
+    public static function rmHeadline(array $b): string
+    {
+        $bill = $b['bill'];
+        $from = new \DateTimeImmutable((string) $bill['period_from']);
+        $to = new \DateTimeImmutable((string) $bill['period_to']);
+        $days = $from->format('Y') === $to->format('Y') ? $from->format('j M') . ' - ' . $to->format('j M Y') : $from->format('j M Y') . ' - ' . $to->format('j M Y');
+        $t = $b['totals'];
+        return Words::say('DELIVERY', 'rm_headline', (string) $bill['invoice_no'], $days, DpdInvoiceFile::gbp((int) $bill['net_pence']), DpdInvoiceFile::gbp($t['order']),
+            DpdInvoiceFile::gbp($t['shop'] + $t['day_line']), DpdInvoiceFile::gbp($t['party'] + $t['held']), DpdInvoiceFile::gbp($t['before_start']));
     }
 
     /**
