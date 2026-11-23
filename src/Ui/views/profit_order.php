@@ -159,7 +159,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
       <td data-label="<?= $word('PROFIT', 'service') ?>"><?= $e($p['service']) ?></td>
       <td data-label="<?= $word('PROFIT', 'status') ?>"><?= $e($p['status']) ?></td>
       <td data-label="<?= $word('PROFIT', 'label_at') ?>"><?= $when($p['label_at']) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'bill') ?>"><?php if ($p['bill_lines'] === [] && (string) $p['carrier'] === 'in_store'): ?><span class="muted">-</span><?php elseif ($p['bill_lines'] === []): ?><span class="muted"><?= $word('PROFIT', 'not_billed') ?></span><?php else: ?><?= $say('PROFIT', 'bill_line', \CW\Ui\Html::money($p['bill_cost'] / 100), implode(', ', $p['bills'])) ?><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'bill') ?>"><?php if ($p['not_billed']): ?><span class="muted"><?= $word('PROFIT', 'not_billed') ?></span><?php elseif ($p['bill_lines'] === []): ?><span class="muted">-</span><?php else: ?><?= $say('PROFIT', 'bill_line', \CW\Ui\Html::money($p['bill_cost'] / 100), implode(', ', $p['bills'])) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

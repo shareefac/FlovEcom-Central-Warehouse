@@ -101,7 +101,7 @@ final class DeliveryViews
                 if (count($fits) < 2 && $r['senders_ref'] !== null && array_key_exists(DpdInvoiceFile::COLLECTION, (array) json_decode((string) $r['money'], true))) {
                     $fits = array_map(static fn (array $o): array => ['order_ref' => (string) $o['order_ref'], 'order_no' => (string) $o['order_no'], 'parcel_ref' => '',
                         'label_at' => ''], $this->db->all('SELECT order_ref, order_no FROM sale_order WHERE channel_id = ? AND order_no = ? ORDER BY order_ref',
-                        [$shop, (string) $r['senders_ref']]));
+                        [$shop, DeliveryBills::orderNumber((string) $r['senders_ref'])]));
                 }
             }
             $rows[$i]['fits'] = $fits;
@@ -137,10 +137,12 @@ final class DeliveryViews
         $notBilled = 0;
         foreach ($parcels as $p) {
             $lines = $byParcel[strtolower((string) $p['parcel_ref'])] ?? [];
+            // Only a DPD parcel can be "not billed yet": CW reads DPD's bills only, so a Royal Mail, manual or in-store one never would be
+            // (the final review, Fable M1; DL38).
+            $waits = $lines === [] && $p['removed_at'] === null && in_array(strtolower((string) $p['carrier']), DeliveryBills::DPD_PARCELS, true);
             $out[] = $p + ['bill_lines' => $lines, 'bill_cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $lines)),
-                'bills' => array_values(array_unique(array_map(static fn (array $l): string => (string) $l['invoice_no'], $lines)))];
-            // A parcel collected in the shop has no carrier to bill it: never "not billed yet".
-            if ($lines === [] && $p['removed_at'] === null && (string) $p['carrier'] !== 'in_store') {
+                'bills' => array_values(array_unique(array_map(static fn (array $l): string => (string) $l['invoice_no'], $lines))), 'not_billed' => $waits];
+            if ($waits) {
                 $notBilled++;
             }
         }

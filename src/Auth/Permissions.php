@@ -350,7 +350,10 @@ final class Permissions
      * DecisionService and KeySample; the company checks of CompanyDetails and CompanyInvariants).
      */
     public const LOCKED = ['catalogue.view', 'reference.view', 'staff.manage', 'settings.manage', 'staff.approve', 'mapping.decide', 'mapping.approve',
-        'company.edit', 'company.confirm'];
+        'company.edit', 'company.confirm',
+        // 0077: the delivery bills, held as MAP says whatever the Roles page or a stored row says (the owner's decision; the final review, astra
+        // item 1; docs/decisions.md DL31).
+        'delivery.view', 'delivery.upload'];
     /**
      * The guarded jobs keep these whatever the screen says: an admin and a People manager see the people (production's row of 0034 for
      * staff.view names admin and auditor only: the People manager is added on the read, PM3); a reviewer can give the checks and the OKs.

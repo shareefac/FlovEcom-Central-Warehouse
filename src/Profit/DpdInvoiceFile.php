@@ -179,15 +179,14 @@ final class DpdInvoiceFile
             'vat_code' => $col('VAT Code'), 'collection' => $col(self::COLLECTION),
         ];
         $width = count($names);
-        // The columns CW does not know (neither money nor DPD's others): never read into a line, but one that holds amounts is named when the
-        // lines fall short of the net (the lead's LOW 2), by its heading when that is a plain heading, else by its number; never a cell.
+        // The columns CW does not know (neither money nor DPD's others, a column with no heading too): never read into a line; one that holds
+        // amounts refuses the whole file, even when the lines tie (+£5 on one line and -£5 on another would move cost between orders unseen),
+        // named by its NUMBER only: a heading CW does not know may be anything, a name too (the final review, astra items 3 and 4; DL33).
         $known = array_map('strtolower', [...self::MONEY, ...self::OTHER_COLUMNS]);
         $unknown = [];
         foreach ($names as $i => $n) {
-            $key = strtolower((string) preg_replace('/\s+/', ' ', $n));
-            if ($n !== '' && !in_array($key, $known, true)) {
-                $unknown[$i] = preg_match('/^[A-Za-z][A-Za-z0-9 &\/().-]{0,40}$/D', (string) preg_replace('/\s+/', ' ', $n)) === 1
-                    ? "'" . preg_replace('/\s+/', ' ', $n) . "'" : 'column ' . ($i + 1);
+            if (!in_array(strtolower((string) preg_replace('/\s+/', ' ', $n)), $known, true)) {
+                $unknown[$i] = 'column ' . ($i + 1);
             }
         }
         $unknownMoney = [];
@@ -258,7 +257,8 @@ final class DpdInvoiceFile
                 'service' => self::known($at['service'] === null ? '' : $cells[$at['service']], self::SERVICES),
                 'weight' => self::weight($at['weight'] === null ? '' : $cells[$at['weight']]),
                 'items' => self::items($at['items'] === null ? '' : $cells[$at['items']]),
-                'senders_ref' => self::digits($cells[$at['senders_ref']], 12),
+                // At most 9 digits (an order number; a phone number typed as a reference is never kept: the final review, Fable L4; DL39).
+                'senders_ref' => self::digits($cells[$at['senders_ref']], 9),
                 'vat_code' => $vat,
                 'money' => $m,
                 'cost' => $cost,
@@ -274,11 +274,14 @@ final class DpdInvoiceFile
         if ($lines === []) {
             throw self::refuse('the file has no lines');
         }
-        if ($sumNet !== $head['net']) {
+        if ($unknownMoney !== []) {
             ksort($unknownMoney);
+            throw self::refuse(sprintf('the file has %s we do not know, %s, with amounts in it: tell the CW team', count($unknownMoney) === 1 ? 'a column' : 'columns',
+                implode(', ', $unknownMoney)));
+        }
+        if ($sumNet !== $head['net']) {
             throw self::refuse(sprintf('the lines add up to %s, but the file says its net total is %s: the file is not read (is it the whole file?)',
-                self::gbp($sumNet), self::gbp($head['net'])) . ($unknownMoney === [] ? '' : sprintf('; the file has %s we do not know, %s, with amounts in it: '
-                . 'tell the CW team', count($unknownMoney) === 1 ? 'a column' : 'columns', implode(', ', $unknownMoney))));
+                self::gbp($sumNet), self::gbp($head['net'])));
         }
         $vatDue = ProfitMath::mulDivRound($sumS, $vatBp, 10000);
         if ($vatDue !== $head['vat']) {
@@ -303,6 +306,7 @@ final class DpdInvoiceFile
     private static function top(array $rows): array
     {
         $found = [];
+        $currency = [];
         foreach ($rows as $cells) {
             $count = count($cells);
             for ($i = 0; $i < $count; $i++) {
@@ -314,6 +318,13 @@ final class DpdInvoiceFile
                 for ($j = $i + 1; $j < $count; $j++) {
                     if ($cells[$j] !== '') {
                         $found[$what] = $cells[$j];
+                        // The currency DPD prints after a total ("GBP"), when there is one.
+                        for ($k = $j + 1; $k < $count; $k++) {
+                            if (trim($cells[$k]) !== '') {
+                                $currency[$what] = strtoupper(trim($cells[$k]));
+                                break;
+                            }
+                        }
                         break;
                     }
                 }
@@ -331,6 +342,12 @@ final class DpdInvoiceFile
         foreach (['account' => 'account', 'invoice_no' => 'invoice number'] as $k => $w) {
             if (preg_match(self::NUMBER, $found[$k]) !== 1) {
                 throw self::refuse("the {$w} at the top of the file is not a number");
+            }
+        }
+        // The totals in pounds, all three (the final review, astra item 5; DL34): another currency printed beside one refuses the file.
+        foreach (['net', 'vat', 'gross'] as $k) {
+            if (isset($currency[$k]) && $currency[$k] !== 'GBP') {
+                throw self::refuse('the totals at the top of the file are not all in pounds (GBP)');
             }
         }
         $amounts = [];

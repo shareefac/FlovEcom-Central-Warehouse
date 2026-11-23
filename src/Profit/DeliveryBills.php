@@ -69,13 +69,14 @@ final class DeliveryBills
     public const WINDOW_AFTER = 3;
     /** How long a write waits for another one (the screen and the nightly job), in seconds: then 503 busy. */
     public const LOCK_WAIT_SEC = 10;
-    /** An order's snapshot guard is waited for at most this long by a bill write (a snapshot holds it for milliseconds). */
-    public const GUARD_WAIT_SEC = 2;
+    /** The most a bill write spends trying for the order guards it needs, never waiting while it holds any (a snapshot holds one for milliseconds). */
+    public const GUARD_BUDGET_SEC = 5;
     /** Snapshot guards taken per statement. */
     public const GUARD_CHUNK = 200;
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
     public const TRIES = 5;
     private const RETRY = 'delivery_retry';
+    private const GUARD_BUSY = 'delivery_guard_busy';
 
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
@@ -348,14 +349,24 @@ final class DeliveryBills
         });
     }
 
-    /** Every line of a live bill still not matched or ambiguous, tried again (inside the delivery lock). */
+    /** Every line of a live bill still not matched, ambiguous, or before CW start by its Senders Ref (DL32), tried again (inside the delivery lock). */
     private function rematchAll(Caller $caller): int
     {
         return $this->guarded(function (Db $db) use ($caller): array {
-            $rows = $db->all("SELECT l.invoice_id, l.line_no, l.line_date, l.consignment, l.parcel_no, l.senders_ref, l.money, l.cost, l.match_state, l.candidates, "
-                . "i.channel_id AS inv_ch "
-                . "FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' WHERE l.match_state IN ('not_matched', 'ambiguous') "
-                . 'ORDER BY l.invoice_id, l.line_no');
+            // ... and every line before CW start only by its Senders Ref (dated after the shop's start: DL30): its order, its parcel or a lower first
+            // order reaching CW later moves it (the final review, astra item 2, Fable L1; DL32).
+            $starts = [];
+            $rows = array_values(array_filter($db->all("SELECT l.invoice_id, l.line_no, l.line_date, l.consignment, l.parcel_no, l.senders_ref, l.money, l.cost, "
+                . "l.match_state, l.candidates, i.channel_id AS inv_ch FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' "
+                . "WHERE l.match_state IN ('not_matched', 'ambiguous') OR (l.match_state = 'before_start' AND l.senders_ref IS NOT NULL) ORDER BY l.invoice_id, l.line_no"),
+                static function (array $r) use ($db, &$starts): bool {
+                    if ($r['match_state'] !== 'before_start') {
+                        return true;
+                    }
+                    $ch = (int) $r['inv_ch'];
+                    $starts[$ch] ??= [self::startDay($db, $ch)];
+                    return $starts[$ch][0] !== null && (string) $r['line_date'] > $starts[$ch][0];
+                }));
             if ($rows === []) {
                 return ['before' => [], 'after' => [], 'write' => static fn (): int => 0];
             }
@@ -401,9 +412,15 @@ final class DeliveryBills
                 $n = 0;
                 $states = [];
                 foreach ($changed as [$r, $m]) {
-                    $n += $db->exec('UPDATE carrier_invoice_line SET match_state = ?, channel_id = ?, order_ref = ?, parcel_ref = ?, candidates = ?, matched_at = ? '
-                        . "WHERE invoice_id = ? AND line_no = ? AND match_state IN ('not_matched', 'ambiguous')", [$m['state'], $m['channel_id'], $m['order_ref'],
-                            $m['parcel_ref'], $m['candidates'], in_array($m['state'], self::ON_ORDER, true) ? $now : null, (int) $r['invoice_id'], (int) $r['line_no']]);
+                    // Only from the state it was read in (never a line already on a parcel or an order); one that changed meanwhile is a plan gone old.
+                    $done = $db->exec('UPDATE carrier_invoice_line SET match_state = ?, channel_id = ?, order_ref = ?, parcel_ref = ?, candidates = ?, matched_at = ? '
+                        . "WHERE invoice_id = ? AND line_no = ? AND match_state = ? AND match_state IN ('not_matched', 'ambiguous', 'before_start')", [$m['state'],
+                            $m['channel_id'], $m['order_ref'], $m['parcel_ref'], $m['candidates'], in_array($m['state'], self::ON_ORDER, true) ? $now : null,
+                            (int) $r['invoice_id'], (int) $r['line_no'], (string) $r['match_state']]);
+                    if ($done !== 1) {
+                        throw new CwException(self::RETRY, 'a line changed while it was tried again', 409);
+                    }
+                    $n += $done;
                     if ($m['state'] !== $r['match_state']) {
                         $states[$r['match_state'] . '>' . $m['state']] = ($states[$r['match_state'] . '>' . $m['state']] ?? 0) + 1;
                     }
@@ -460,7 +477,7 @@ final class DeliveryBills
         $refs = [];
         foreach ($lines as $i => $l) {
             if (!isset($out[$i]) && ($l['collection'] ?? false) === true && ($l['senders_ref'] ?? null) !== null) {
-                $refs[(string) $l['senders_ref']] = true;
+                $refs[self::orderNumber((string) $l['senders_ref'])] = true;
             }
         }
         $orders = [];
@@ -475,7 +492,7 @@ final class DeliveryBills
             if (isset($out[$i])) {
                 continue;
             }
-            $found = ($l['collection'] ?? false) === true && ($l['senders_ref'] ?? null) !== null ? ($orders[(string) $l['senders_ref']] ?? []) : [];
+            $found = ($l['collection'] ?? false) === true && ($l['senders_ref'] ?? null) !== null ? ($orders[self::orderNumber((string) $l['senders_ref'])] ?? []) : [];
             if (count($found) === 1) {
                 $out[$i] = ['state' => 'collection', 'channel_id' => $shop, 'order_ref' => $found[0], 'parcel_ref' => null, 'candidates' => 0];
             } elseif (count($found) > 1) {
@@ -498,18 +515,30 @@ final class DeliveryBills
      * that is not digits, or none, is never), compared as numbers with the lowest order number CW holds for the shop (sale_order.order_no,
      * read from CW once per decision and kept in $first; no order yet: never).
      *
-     * @param array{0: ?int}|null $first the shop's first order number, read once ([null]: none)
+     * @param array{0: ?int, 1: int, 2: int}|null $first the shop's first order number and its order numbers' shortest and longest length, read once
      */
     private static function beforeFirstOrder(Db $db, int $shop, mixed $ref, ?array &$first): bool
     {
-        if (!is_string($ref) || preg_match('/^[0-9]{1,12}$/D', $ref) !== 1) {
+        if (!is_string($ref) || preg_match('/^[0-9]{1,9}$/D', $ref) !== 1) {
             return false;
         }
         if ($first === null) {
-            $v = $db->value("SELECT MIN(CAST(order_no AS UNSIGNED)) FROM sale_order WHERE channel_id = ? AND order_no <> ''", [$shop]);
-            $first = [$v === null ? null : (int) $v];
+            // The shop's order numbers that are digits only (anything else is never one: Fable L2): the lowest, and their shortest and longest.
+            $r = $db->one("SELECT MIN(CAST(order_no AS UNSIGNED)) AS lo, MIN(CHAR_LENGTH(order_no)) AS short, MAX(CHAR_LENGTH(order_no)) AS long_ FROM sale_order "
+                . "WHERE channel_id = ? AND REGEXP_LIKE(order_no, '^[1-9][0-9]{0,9}$', 'c')", [$shop]) ?? [];
+            $first = [($r['lo'] ?? null) === null ? null : (int) $r['lo'], (int) ($r['short'] ?? 0), (int) ($r['long_'] ?? 0)];
         }
-        return $first[0] !== null && (int) $ref < $first[0];
+        // A reference of another length than the shop's own order numbers (a short code, another shop's number) is never one of its older
+        // orders (the final review, Fable L1; DL32).
+        $no = self::orderNumber($ref);
+        return $first[0] !== null && strlen($no) >= $first[1] && strlen($no) <= $first[2] && (int) $no < $first[0];
+    }
+
+    /** A Senders Ref as the order number it is: digits with the zeros before them taken off ("001056" is order 1056; the final review, astra item 6). */
+    public static function orderNumber(string $ref): string
+    {
+        $t = ltrim($ref, '0');
+        return $t === '' ? '0' : $t;
     }
 
     /**
@@ -606,7 +635,8 @@ final class DeliveryBills
                 throw new CwException('account_shop_unknown', sprintf('DPD account %s is new to CW and the parcels on this bill are as many one shop\'s as another\'s: '
                     . 'choose the shop the account bills and upload the file again. Nothing was saved.', $account), 422, ['field' => 'shop']);
             }
-            if (count($votes) > 1 && array_values($votes)[0] === array_values($votes)[1] && isset($votes[$choice])) {
+            // A tie is broken by the person's choice only when the shop chosen is one of the tied (the final review, astra item 7; DL36).
+            if (count($votes) > 1 && array_values($votes)[0] === array_values($votes)[1] && $choice !== null && ($votes[$choice] ?? 0) === array_values($votes)[0]) {
                 return (int) $choice;
             }
             if ($choice !== null && $choice !== $top) {
@@ -664,11 +694,30 @@ final class DeliveryBills
      */
     private function guarded(\Closure $plan): mixed
     {
+        $since = microtime(true);
+        // A day row held elsewhere is waited for GUARD_BUDGET_SEC at most while this write holds its guards (then tried again, then busy).
+        $rowWait = $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+        $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . min((int) $rowWait, self::GUARD_BUDGET_SEC));
+        try {
+            return $this->attempts($plan, $since);
+        } finally {
+            $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . (int) $rowWait);
+        }
+    }
+
+    /**
+     * guarded()'s tries.
+     *
+     * @template T
+     * @param \Closure(Db): array<string, mixed> $plan
+     * @return T
+     */
+    private function attempts(\Closure $plan, float $since): mixed
+    {
         for ($try = 1; ; $try++) {
             $held = [];
             try {
-                $wait = min($this->lockWaitSec, self::GUARD_WAIT_SEC);
-                return $this->db->transaction(static function (Db $db) use ($plan, &$held, $wait): mixed {
+                return $this->db->transaction(static function (Db $db) use ($plan, &$held): mixed {
                     $p = $plan($db);
                     $facts = [...$p['before'], ...$p['after']];
                     $owners = [];
@@ -685,12 +734,13 @@ final class DeliveryBills
                     }
                     $names = array_values(array_unique($names));
                     sort($names, SORT_STRING);
-                    // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), each waited for at most
-                    // GUARD_WAIT_SEC: a week's bill of 2,500 orders in 13 round trips, held for seconds (the Codex check r3: a snapshot of one of
-                    // them waits less than the minute job's own wait, QUEUE_LOCK_WAIT_SEC, and is never starved).
+                    // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), none waited for: one held
+                    // elsewhere (a snapshot working it out: milliseconds) means every guard is let go at once and the write tried again a moment
+                    // later, so this write never waits while it holds any, and its whole wait is GUARD_BUDGET_SEC at most (the Codex check r3;
+                    // the final review, astra item 8; DL37): a snapshot of one of them never waits long.
                     foreach (array_chunk($names, self::GUARD_CHUNK) as $chunk) {
                         try {
-                            $got = array_values((array) $db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "GET_LOCK(?, {$wait}) AS g{$i}",
+                            $got = array_values((array) $db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "GET_LOCK(?, 0) AS g{$i}",
                                 array_keys($chunk))), $chunk));
                         } catch (\Throwable $e) {
                             // Which of them it got is not known (MySQL's named-lock deadlock, 3058): every one is let go (a name not held: nothing).
@@ -703,7 +753,7 @@ final class DeliveryBills
                             }
                         }
                         if (count($got) !== count($chunk) || in_array(0, array_map('intval', $got), true) || in_array(null, $got, true)) {
-                            throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
+                            throw new CwException(self::GUARD_BUSY, 'an order of these lines is being stored right now', 409);
                         }
                     }
                     $old = self::contributions($p['before'], $days);
@@ -750,21 +800,41 @@ final class DeliveryBills
                     return $result;
                 }, 0); // no retry inside: a deadlock is retried below, once every guard is let go
             } catch (\Throwable $e) {
-                // 3058: MySQL found two sessions waiting for each other's named locks (it never happens with names taken in order; said, tried again).
-                if (!($e instanceof CwException && $e->errorCode === self::RETRY) && !Db::isDeadlock($e) && Db::driverCode($e) !== 3058) {
+                $this->release($held);
+                $held = [];
+                if ($e instanceof CwException && $e->errorCode === self::GUARD_BUSY) {
+                    // An order's guard held elsewhere: tried again a moment later, every guard let go meanwhile, within GUARD_BUDGET_SEC.
+                    if (microtime(true) - $since >= self::GUARD_BUDGET_SEC) {
+                        throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
+                    }
+                    usleep(random_int(150_000, 300_000));
+                    $try--;
+                    continue;
+                }
+                // 3058: MySQL found two sessions waiting for each other's named locks; 1205: a row wait (a day row held elsewhere) ran out (the
+                // final review, Fable L3: said "busy, try again", never an error page).
+                $code = Db::driverCode($e);
+                if (!($e instanceof CwException && $e->errorCode === self::RETRY) && !Db::isDeadlock($e) && $code !== 3058 && $code !== 1205) {
                     throw $e;
                 }
                 if ($try >= self::TRIES) {
-                    throw new CwException('busy', 'the orders of these lines kept changing while they were saved: nothing was saved; try again in a minute', 503);
+                    throw new CwException('busy', 'the orders of these lines kept changing, or were busy, while they were saved: nothing was saved; try again in a minute',
+                        503);
                 }
             } finally {
-                foreach (array_reverse($held) as $n) {
-                    try {
-                        $this->db->value('SELECT RELEASE_LOCK(?)', [$n]);
-                    } catch (\Throwable) {
-                        // the connection is gone: MySQL released it with the session
-                    }
-                }
+                $this->release($held);
+            }
+        }
+    }
+
+    /** Lets the order guards go, GUARD_CHUNK a statement (the final review, astra item 8). @param list<string> $held */
+    private function release(array $held): void
+    {
+        foreach (array_chunk($held, self::GUARD_CHUNK) as $chunk) {
+            try {
+                $this->db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "RELEASE_LOCK(?) AS r{$i}", array_keys($chunk))), $chunk);
+            } catch (\Throwable) {
+                // the connection is gone: MySQL released them with the session
             }
         }
     }
@@ -878,7 +948,8 @@ final class DeliveryBills
         if (in_array('admin', $roles, true)) {
             throw new CwException('admin_cannot_post', 'admin manages people and roles only', 403);
         }
-        if (!Permissions::can($roles, self::PERM_UPLOAD)) {
+        // The Delivery bills job itself (the owner's decision; the final review, astra item 1; DL31): the permission is locked to it as well.
+        if (!in_array('delivery_bills', $roles, true) || !Permissions::can($roles, self::PERM_UPLOAD)) {
             throw new CwException('role_not_allowed', 'your jobs cannot upload, replace or undo delivery bills', 403);
         }
     }

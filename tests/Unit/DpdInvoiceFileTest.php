@@ -234,27 +234,47 @@ final class DpdInvoiceFileTest extends TestCase
         }
     }
 
-    /** The lead's LOW 2: lines short of the net while a column CW does not know holds amounts: that column is named (never a cell). */
-    public function testAColumnCwDoesNotKnowThatHoldsAmountsIsNamedWhenTheLinesFallShort(): void
+    /**
+     * The final review (astra, items 3 and 4; DL32, DL33): a column CW does not know that holds amounts refuses the file even when the lines tie
+     * (+£5 and -£5 would move cost between orders unseen); it is named by its NUMBER only, never by its heading (a heading may be a name).
+     */
+    public function testAColumnCwDoesNotKnowThatHoldsAmountsRefusesTheFileAndIsNamedByNumber(): void
     {
-        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Fuel Surcharge' => '0.37']), DpdCsv::line('05/11/2026', '6599195041/0', 420, ['Fuel Surcharge' => '1,234.56'])];
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 1000, ['Test Person' => '5.00']), DpdCsv::line('05/11/2026', '6599195041/0', 1000, ['Test Person' => '-5.00'])];
         try {
-            DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Fuel Surcharge'], 'net' => 840 + 37 + 123456, 'vat' => 24867]), 2000);
+            DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Test Person']]), 2000);
+            self::fail('refused although the lines tie');
+        } catch (CwException $e) {
+            self::assertSame('DPD bill not read: the file has a column we do not know, column 43, with amounts in it: tell the CW team. Nothing was saved.', $e->getMessage());
+        }
+        // Lines short of the net and a column CW does not know: the same refusal, by number, never its words nor a cell.
+        $short = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Fuel Surcharge' => '0.37'])];
+        try {
+            DpdInvoiceFile::parse(DpdCsv::file($short, ['columns' => [...DpdCsv::COLUMNS, 'Fuel Surcharge'], 'net' => 457, 'vat' => 91]), 2000);
             self::fail('refused');
         } catch (CwException $e) {
-            self::assertSame('DPD bill not read: the lines add up to £8.40, but the file says its net total is £1,243.33: the file is not read (is it the whole file?); '
-                . 'the file has a column we do not know, \'Fuel Surcharge\', with amounts in it: tell the CW team. Nothing was saved.', $e->getMessage());
-            self::assertStringNotContainsString('1,234.56', $e->getMessage());
+            self::assertSame('DPD bill not read: the file has a column we do not know, column 43, with amounts in it: tell the CW team. Nothing was saved.', $e->getMessage());
         }
-        // A column CW does not know that holds no amount (a note) is not named; one whose name is not a plain heading is named by its number.
-        $odd = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Note: Test Person 07700 900123' => '1.00'])];
-        try {
-            DpdInvoiceFile::parse(DpdCsv::file($odd, ['columns' => [...DpdCsv::COLUMNS, 'Note: Test Person 07700 900123'], 'net' => 520, 'vat' => 104]), 2000);
-            self::fail('refused');
-        } catch (CwException $e) {
-            self::assertStringContainsString('the file has a column we do not know, column 43, with amounts in it', $e->getMessage());
-            self::assertStringNotContainsString('Test Person', $e->getMessage());
+        // A column CW does not know that holds no amount (a note) refuses nothing and is never read.
+        $note = [DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Notes' => 'Leave with Test Person'])];
+        self::assertSame(420, DpdInvoiceFile::parse(DpdCsv::file($note, ['columns' => [...DpdCsv::COLUMNS, 'Notes']]), 2000)['net']);
+    }
+
+    /** The final review (astra, item 5; DL34): the currency beside the totals must be GBP on all three. */
+    public function testTheTotalsMustBeInPounds(): void
+    {
+        $lines = [DpdCsv::line('05/11/2026', '6599195040/0', 420)];
+        $top = static fn (string $a, string $b, string $c): array => [['Account No', '3012002', 'Invoice No', '62368793'], ['Nett Invoice Value', '', '4.20', $a],
+            ['VAT', '', '0.84', $b], ['Gross Invoice Value', '', '5.04', $c]];
+        foreach ([['EUR', 'EUR', 'EUR'], ['GBP', 'EUR', 'GBP'], ['GBP', 'GBP', 'USD']] as [$a, $b, $c]) {
+            try {
+                DpdInvoiceFile::parse(DpdCsv::file($lines, ['top' => $top($a, $b, $c)]), 2000);
+                self::fail("refused: {$a} {$b} {$c}");
+            } catch (CwException $e) {
+                self::assertSame('DPD bill not read: the totals at the top of the file are not all in pounds (GBP). Nothing was saved.', $e->getMessage());
+            }
         }
+        self::assertSame(420, DpdInvoiceFile::parse(DpdCsv::file($lines, ['top' => $top('gbp', 'GBP', ' GBP ')]), 2000)['net']);
     }
 
     /** The lead's LOW 3: old Mac line ends (CR only) are read as CRLF and LF are; a non-breaking space in a heading or label is a space. */
@@ -270,6 +290,15 @@ final class DpdInvoiceFileTest extends TestCase
             unset($want['sha256']);
             self::assertSame($want, $b);
         }
+    }
+
+    /** The final review (Fable L4; DL39): a Senders Ref longer than 9 digits (a phone number typed as a reference) is never kept nor said. */
+    public function testASendersRefLongerThanNineDigitsIsNotKept(): void
+    {
+        $bill = DpdInvoiceFile::parse(DpdCsv::file([DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Senders Ref' => '07700900123']),
+            DpdCsv::line('05/11/2026', '6599195041/0', 420, ['Senders Ref' => '123456789']), DpdCsv::line('05/11/2026', '6599195042/0', 420, ['Senders Ref' => '001356070'])]), 2000);
+        self::assertSame([null, '123456789', '001356070'], array_column($bill['lines'], 'senders_ref'), 'at most 9 digits, as printed');
+        self::assertStringNotContainsString('07700900123', json_encode($bill, JSON_THROW_ON_ERROR));
     }
 
     public function testTheSmallReaders(): void

@@ -60,8 +60,12 @@ final class PermissionsTest extends TestCase
         self::assertSame(['catalogue.view', 'reference.view', 'delivery.view', 'delivery.upload'], Permissions::permissionsOf(['delivery_bills']),
             'the new job sees no profit');
         self::assertNotContains('delivery_bills', Permissions::LOOK_ONLY, 'it acts');
-        self::assertSame(['acting_job'], Permissions::problems('delivery.upload', ['admin']), 'admin never uploads (I12): it gives the job');
-        self::assertSame(['acting_job'], Permissions::problems('delivery.upload', ['finance']), 'Finance only looks (PR111)');
+        self::assertSame(['locked'], Permissions::problems('delivery.upload', ['admin']), 'admin never uploads (I12): it gives the job');
+        // The owner's decision (the final review, astra item 1; DL31): both are locked to their jobs, whatever the Roles page or a stored row says.
+        self::assertSame(['locked'], Permissions::problems('delivery.upload', ['warehouse', 'delivery_bills']));
+        self::assertSame(['locked'], Permissions::problems('delivery.view', ['finance', 'delivery_bills', 'viewer']));
+        self::assertSame(['delivery_bills'], Permissions::sanitise('delivery.upload', ['warehouse', 'finance']));
+        self::assertSame(['finance', 'delivery_bills'], Permissions::sanitise('delivery.view', ['viewer']));
     }
 
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void

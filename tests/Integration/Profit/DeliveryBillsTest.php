@@ -803,6 +803,180 @@ final class DeliveryBillsTest extends StockTestCase
         self::assertDaysRebuild($ch);
     }
 
+    /**
+     * The final review (astra item 1; DL31): the upload is the Delivery bills job's whatever a stored row of the map says (the owner's
+     * decision): a Warehouse person given it on the roles table is refused; Finance still looks.
+     */
+    public function testTheUploadStaysTheDeliveryBillsJobsWhateverTheStoredMapSays(): void
+    {
+        [, $bytes] = $this->week();
+        $saved = (string) self::$db->value("SELECT roles FROM role_permission WHERE permission = 'delivery.upload'");
+        self::$db->exec("UPDATE role_permission SET roles = 'warehouse,delivery_bills' WHERE permission = 'delivery.upload'");
+        try {
+            $id = self::$db->insert("INSERT INTO staff_user (username, email, display_name, password_hash) VALUES ('wh', 'wh@test.example', 'Wh', 'x')");
+            self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'warehouse')", [$id]);
+            try {
+                self::bills()->upload(Caller::staff($id), 'dpd', $bytes);
+                self::fail('refused');
+            } catch (CwException $e) {
+                self::assertSame('role_not_allowed', $e->errorCode);
+            }
+        } finally {
+            self::$db->exec("UPDATE role_permission SET roles = ? WHERE permission = 'delivery.upload'", [$saved]);
+            \CW\Auth\RoleMap::load(self::$db);
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+    }
+
+    /**
+     * The final review (astra item 2, Fable L1; DL32): a line before CW start only by its Senders Ref is tried again (nightly, after each
+     * upload): its order, or its parcel, reaching CW later puts it on the order, and a lower first order in CW makes it not matched; the money
+     * follows on the days. A Senders Ref of another length than the shop's order numbers is never before CW start by its number.
+     */
+    public function testALineBeforeCwStartByItsSendersRefIsTriedAgain(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1100', '1356100', '2026-10-29T09:00:00Z', []);
+        $bill = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([
+            DpdCsv::line('05/11/2026', '6599500001/0', 1550, ['Senders Ref' => '1356050', 'money' => ['Third Party Collection' => 1550]]), // a return of an older order
+            DpdCsv::line('05/11/2026', '6599500002/0', 420, ['Senders Ref' => '1356060']),                                                // a parcel CW does not hold yet
+            DpdCsv::line('05/11/2026', '6599500003/0', 300, ['Senders Ref' => '1356070']),                                                // an older order
+            DpdCsv::line('05/11/2026', '6599500004/0', 200, ['Senders Ref' => '13560']),                                                  // not an order number's length
+        ]));
+        self::assertSame(['before_start', 'before_start', 'before_start', 'not_matched'], self::states($bill['invoice_id']));
+        // A backfill brings orders 1356050 (paid 30 Oct) and 1356060 with its parcel, and a lower order 1356000.
+        self::order($ch, '1050', '1356050', '2026-10-30T09:00:00Z', []);
+        self::order($ch, '1060', '1356060', '2026-11-04T09:00:00Z', [self::parcel('odl:1060', '6599500002', '2026-11-04T10:00:00Z')]);
+        self::order($ch, '1000', '1356000', '2026-10-29T08:00:00Z', []);
+        self::assertSame(3, self::bills()->rematch(self::system()));
+        self::assertSame(['collection', 'matched', 'not_matched', 'not_matched'], self::states($bill['invoice_id']));
+        self::assertSame(['2026-10-30|delivery_cost' => 1550, '2026-11-04|delivery_cost' => 420, '2026-11-05|delivery_other' => 500], self::days($ch));
+        self::assertDaysRebuild($ch);
+    }
+
+    /** The final review (astra item 6; DL35): a zero-padded Senders Ref finds its order (collection) and is compared as a number. */
+    public function testAZeroPaddedSendersRefFindsItsOrder(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1100', '1356100', '2026-11-03T09:00:00Z', []);
+        $bill = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([
+            DpdCsv::line('05/11/2026', '6599500011/0', 1550, ['Senders Ref' => '001356100', 'money' => ['Third Party Collection' => 1550]]),
+            DpdCsv::line('05/11/2026', '6599500012/0', 420, ['Senders Ref' => '01356050']),
+        ]));
+        self::assertSame(['collection', 'before_start'], self::states($bill['invoice_id']));
+        self::assertSame('001356100', (string) self::$db->value('SELECT senders_ref FROM carrier_invoice_line WHERE invoice_id = ? AND line_no = 1', [$bill['invoice_id']]),
+            'kept as printed');
+        self::assertDaysRebuild($ch);
+    }
+
+    /** The final review (astra item 7; DL36): with two shops tied first, a shop chosen with fewer matches is refused; one of the tied is taken. */
+    public function testATieIsBrokenOnlyByAShopWithTheMostMatches(): void
+    {
+        $vpg = $this->shop();
+        $ef = $this->shop('electrofag');
+        $vb = $this->shop('vapebig');
+        $lines = [];
+        foreach ([[$vpg, '1'], [$vpg, '2'], [$ef, '3'], [$ef, '4'], [$vb, '5']] as $k => [$ch, $n]) {
+            self::order($ch, "70{$k}", "13570{$k}", '2026-11-08T09:00:00Z', [self::parcel("odl:70{$k}", "659960000{$n}", '2026-11-08T10:00:00Z')]);
+            $lines[] = DpdCsv::line('09/11/2026', "659960000{$n}/0", 420, ['Senders Ref' => "13570{$k}"]);
+        }
+        $file = DpdCsv::file($lines, ['account' => '4000009', 'invoice' => '1']);
+        try {
+            self::bills()->upload(self::system(), 'dpd', $file, $vb);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('account_shop', $e->errorCode);
+        }
+        $r = self::bills()->upload(self::system(), 'dpd', $file, $ef);
+        self::assertSame((string) $ef, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
+        foreach ([$vpg, $ef, $vb] as $ch) {
+            self::assertDaysRebuild($ch);
+        }
+    }
+
+    /** The final review (Fable M1; DL38): only a DPD parcel can be "not billed yet"; a Royal Mail or manual one never is (their bills are not read). */
+    public function testOnlyADpdParcelIsNotBilledYet(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1200', '1356200', '2026-11-08T09:00:00Z', [self::parcel('odl:1200', '6599700001', '2026-11-08T10:00:00Z'),
+            self::parcel('odl:1201', 'AB123456785GB', '2026-11-08T10:00:00Z', ['carrier' => 'royal_mail']),
+            self::parcel('odl:1202', null, '2026-11-08T10:00:00Z', ['carrier' => 'manual', 'manual' => true])]);
+        $o = (array) (new ProfitViews(self::$db))->order($ch, '1200');
+        self::assertSame(1, $o['delivery']['not_billed'], 'the DPD parcel only');
+        self::assertSame([true, false, false], array_map(static fn (array $p): bool => $p['not_billed'], $o['delivery']['parcels']));
+    }
+
+    /**
+     * The final review (Fable L3; DL37): a database wait that runs out while a bill is written (a day row held elsewhere) is tried again and then
+     * said "busy, try again" (503), never an error page; nothing is written.
+     */
+    public function testALockWaitThatRunsOutIsSaidBusy(): void
+    {
+        [$ch, $bytes] = $this->week();
+        $other = TestDb::connect();
+        $other->pdo()->beginTransaction();
+        $other->one("SELECT * FROM profit_day WHERE channel_id = ? AND day = '2026-11-04' FOR UPDATE", [$ch]);
+        $conn = TestDb::connect();
+        $conn->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $t = microtime(true);
+        try {
+            (new DeliveryBills($conn, null, null, 1))->upload(self::system(), 'dpd', $bytes);
+            self::fail('busy');
+        } catch (CwException $e) {
+            self::assertSame(['busy', 503], [$e->errorCode, $e->httpStatus]);
+        } finally {
+            $other->pdo()->rollBack();
+        }
+        self::assertLessThan(30, microtime(true) - $t);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+    }
+
+    /**
+     * The final review (astra item 8; DL37): a bill write never waits holding order guards: when one is held elsewhere it lets every guard go at
+     * once and tries again, so the whole wait is bounded (GUARD_BUDGET_SEC), then busy; at a week's volume (2,500 orders) it is written whole.
+     */
+    public function testAWeeksBillTakesItsGuardsWithoutWaitingWhileHoldingThem(): void
+    {
+        $ch = $this->shop();
+        $n = 2500;
+        $lines = [];
+        $rows = [];
+        for ($i = 0; $i < $n; $i++) {
+            $rows[] = [$ch, (string) (500000 + $i), (string) (1400000 + $i)];
+            $lines[] = DpdCsv::line('09/11/2026', (6598000000 + $i) . '/0', 420, ['Senders Ref' => (string) (1400000 + $i)]);
+        }
+        // The orders and their parcels as the money job leaves them (written straight in: 2,500 snapshots would take minutes).
+        foreach (array_chunk($rows, 500) as $chunk) {
+            self::$db->exec('INSERT INTO sale_order (channel_id, order_ref, order_no, paid_at, day, vat_bp, snapshot_version, first_at, updated_at) VALUES '
+                . implode(', ', array_fill(0, count($chunk), "(?, ?, ?, '2026-11-08 09:00:00', '2026-11-08', 2000, 1, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))")),
+                array_merge(...array_map(static fn (array $r): array => $r, $chunk)));
+            self::$db->exec('INSERT INTO sale_parcel (channel_id, order_ref, parcel_ref, tracking_no, carrier, label_at, first_at, updated_at) VALUES '
+                . implode(', ', array_fill(0, count($chunk), "(?, ?, ?, ?, 'dpd', '2026-11-08 10:00:00', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))")),
+                array_merge(...array_map(static fn (array $r): array => [$r[0], $r[1], 'odl:' . $r[1], (string) (6598000000 + (int) $r[1] - 500000)], $chunk)));
+        }
+        $file = DpdCsv::file($lines);
+        // One order's guard held elsewhere: the bill gives up within its budget, holding nothing meanwhile.
+        $other = TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '501250')]));
+        $t = microtime(true);
+        try {
+            self::bills()->upload(self::system(), 'dpd', $file);
+            self::fail('busy');
+        } catch (CwException $e) {
+            self::assertSame('busy', $e->errorCode);
+        }
+        self::assertLessThan(DeliveryBills::GUARD_BUDGET_SEC + 20, microtime(true) - $t);
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '500000')]), 'nothing left held');
+        $other->value('SELECT RELEASE_ALL_LOCKS()');
+        // Free: written whole.
+        $t = microtime(true);
+        $r = self::bills()->upload(self::system(), 'dpd', $file);
+        self::assertLessThan(120, microtime(true) - $t);
+        self::assertSame($n, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice_line WHERE invoice_id = ? AND match_state = 'matched'", [$r['invoice_id']]));
+        self::assertSame(['2026-11-08|delivery_cost' => 420 * $n], self::days($ch));
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '502499')]), 'every guard let go');
+    }
+
     /** @return array{code: int, out: string} */
     private static function script(string $name, string ...$args): array
     {

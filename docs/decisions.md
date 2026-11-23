@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL30; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL39; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL30. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL39. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -20101,3 +20101,43 @@ CW holds for the shop the account bills (`MIN(order_no)` of sale_order, read fro
 order in CW yet: today's rule (the line's date). The nightly re-match, replace and undo decide it the same way (a not matched line becomes
 before CW start once CW holds the shop's orders); the days equal a rebuild (DeliveryBillsTest, red on 2d6086c: `runs/dpd_owner_red.log`).
 On the research data (orders from 29 Oct): 62341597 116 lines £483.60 move from not matched to before CW start (the live check: 116 of 118).
+
+**The final reviews of 3362aa4: gpt-6.2-astra (`cw_work/delivery_cost_20261123/codex_final_astra.txt`, NO GO; items 1-8 the application's,
+9-20 the go-live kit's) and Fable (GO with points M1, L1-L4); the lead's fix list. Every one shown failing first on 3362aa4
+(`runs/dpd_final_red.log`: 9 failures, 2 errors), then fixed.**
+
+**DL31. The two permissions are locked (astra 1; the owner's decision).** delivery.upload is the Delivery bills job's and delivery.view
+Finance's and the job's, whatever the Roles and permissions page or a stored row says (`Permissions::LOCKED`: the page refuses a change,
+the read gives MAP's holders); the service also requires the job itself among the person's jobs. This replaces DL26's "not changed".
+
+**DL32. A line before CW start by its Senders Ref is tried again (astra 2, Fable L1).** The nightly re-match and the re-match after each upload
+also take the live lines `before_start` with a Senders Ref dated after the shop's start (DL30's): their order arriving makes a collection,
+their parcel arriving a match, a lower first order in CW a not matched line; the money moves through the same day adjustment. DL30 applies only
+to a reference of the length of the shop's own order numbers (shortest to longest of its digits-only numbers): a short code, or another
+shop's number on the account, is never before CW start by it.
+
+**DL33. A column CW does not know that holds amounts refuses the file (astra 3, 4).** Even when the lines tie (+£5 on one line and -£5 on
+another would move cost between orders unseen). It is named by its number only ("the file has a column we do not know, column 43, with
+amounts in it: tell the CW team"): a heading CW does not know may be anything, a name too. DPD's known headings (MONEY, OTHER_COLUMNS) are
+the only ones a refusal may name. Supersedes DL29 (2).
+
+**DL34. The totals must be in pounds (astra 5).** A currency printed beside net, VAT or gross that is not GBP refuses the file ("the totals at
+the top of the file are not all in pounds (GBP)"); none printed: pounds.
+
+**DL35. A zero-padded Senders Ref is its order number (astra 6).** "001356070" finds order 1356070 for a collection and compares as 1356070
+for DL30; it is kept as printed.
+
+**DL36. A tie between shops on a new account (astra 7).** The person's choice settles it only when the shop chosen is one of the tied (votes
+10, 10 and 1: the 1 is refused); a tie with no choice asks for the shop (--shop on the tool).
+
+**DL37. A bill write never waits holding order guards, and its whole wait is bounded (astra 8, Fable L3).** It asks for its orders' guards
+without waiting (GET_LOCK(name, 0), 200 a statement); one held elsewhere lets every guard go at once (200 a statement) and the write is
+tried again a moment later, for GUARD_BUDGET_SEC (5 s) at most, then "busy, try again"; while it holds them a day row is waited for 5 s at
+most. A database wait that runs out (1205) or a deadlock that outlasts the tries is said "busy, try again" (503), never an error page.
+Tested at a week's volume (2,500 orders) with one guard held elsewhere (busy within the budget, nothing left held) and free (written whole).
+
+**DL38. Only a DPD parcel is "not billed yet" (Fable M1).** CW reads DPD's bills only: a Royal Mail, manual or in-store parcel shows "-" and is
+not counted as waiting (its cost is not in yet: the owner is told separately). The money is unchanged.
+
+**DL39. Senders Ref at most 9 digits; the first order from digits-only numbers (Fable L4, L2).** A longer reference (a phone number typed as
+one) is not kept (empty) and never said; the shop's first order (DL30) is the lowest of its digits-only order numbers.
