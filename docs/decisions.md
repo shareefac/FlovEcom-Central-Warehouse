@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL27; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL28; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL27. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL28. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -19974,7 +19974,9 @@ order paid, or moved to another day, takes it along, and a new snapshot never wi
 
 **DL13. Every bill write (upload, replace, undo, re-match) under one protocol (`DeliveryBills::guarded`), one at a time (a named lock per
 schema).** The plan reads (no lock); then, in the order every snapshot takes them (guards, then day rows, then rows): the snapshot guard
-(OrderSnapshots::lockName) of EVERY order a line is on, in name order (the Codex check r2, MEDIUM 2: so no snapshot of it, or of a re-send
+(OrderSnapshots::lockName) of EVERY order a line is on, in name order, 200 a statement, each waited for at most 2 seconds (the Codex check
+r3: a week's bill of 2,500 orders holds them for seconds; a snapshot of one waits less than the minute job's own wait) (the Codex check r2,
+MEDIUM 2: so no snapshot of it, or of a re-send
 whose first order it is, holds a row of it that this write's foreign keys need: no cycle; a snapshot of one waits a few seconds, else it is
 done by the next minute's run); the day rows the lines count on before and after, in key order (ProfitDays::guard, THE lock of a store's
 day); then the orders' days read again and the plan's matching taken again: when either changed, or the database chose this write in a
@@ -20021,7 +20023,9 @@ does (as system:delivery_cli). `bin/match_delivery_bills.php`: the nightly re-ma
 with the release. Undo: the release before (b54163a) with 0077 added byte for byte (RollbackReleaseTest); the tables, columns and rows stay,
 unused. AFTER such an undo and before this release goes back live: the release before's nightly rebuild writes profit_day rows with the two
 delivery figures at 0, and its snapshots move an order's goods to a new paid day without its delivery cost, so run
-`bin/rebuild_profit_days.php --from=<the shop's start: Vape and Go 2026-10-28> --to=<today> --apply` with this release, then the same with
+`bin/rebuild_profit_days.php --from=<the store's first profit day: SELECT MIN(day) FROM profit_day, or the earliest paid day of an order
+with a live bill line, whichever is earlier (an import --allow-unreserved can hold orders before the start: the Codex check r3)>
+--to=<today> --apply` with this release, then the same with
 --check (exit 0), before any bill is uploaded, replaced or undone again or the nightly re-match runs (the Codex checks r1 MEDIUM 6, r2 HIGH 3:
 from the shop's start, not from the first bill line: a line's cost is on its order's paid day, which may be earlier; an undo would otherwise
 take a bill off a 0). Rehearsed in DeliveryBillsTest (a rebuild since the start after the figures were zeroed and an order moved).
@@ -20074,3 +20078,11 @@ research data: 62341597 (25-31 Oct) 116 such lines, £483.60 (the lead measured 
 November for such an order is the same (62355066: 8 lines £100.31; 62368793: 5 lines £40.23; the brief's sentence for 62368793 counts them
 "not on an order"). A rule "the Senders Ref is an order number below the first one CW holds for the shop: before CW start" would take them
 out of the profit; it is not built (decision 4 says the line's date). Ask the lead.
+
+**DL28. The Codex verify of the fix round, 32c20fe..b440a6b (`cw_work/delivery_cost_20261123/codex_r3.txt`, default model: NO GO).** Round 2's
+HIGH 2, MEDIUM 2, MEDIUM 4 and LOW 2 FIXED; HIGH 3, LOW 1 PARTLY, now fixed: the undo's rebuild from the store's first profit day (DL22),
+two orders of one number told apart on the bill's page. New: (MEDIUM) a bill of 2,500 orders took their guards one statement each and could
+hold a snapshot of one up to 10 seconds: now 200 a statement, at most 2 seconds each (DL13; tested with 250 orders); (LOW) a re-match failure
+other than a wait is said with its database error code, not "busy". Left for the lead as before: HIGH 1 (who may be given the two
+permissions), MEDIUM 1 (the window's direction, the start day, DL27), MEDIUM 3 (a second parcel of a number stored after the bill's last
+check).

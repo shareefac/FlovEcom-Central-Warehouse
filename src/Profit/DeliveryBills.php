@@ -68,6 +68,10 @@ final class DeliveryBills
     public const WINDOW_AFTER = 3;
     /** How long a write waits for another one (the screen and the nightly job), in seconds: then 503 busy. */
     public const LOCK_WAIT_SEC = 10;
+    /** An order's snapshot guard is waited for at most this long by a bill write (a snapshot holds it for milliseconds). */
+    public const GUARD_WAIT_SEC = 2;
+    /** Snapshot guards taken per statement. */
+    public const GUARD_CHUNK = 200;
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
     public const TRIES = 5;
     private const RETRY = 'delivery_retry';
@@ -191,9 +195,14 @@ final class DeliveryBills
         try {
             return ['rematched' => $this->rematchAll($caller), 'rematch_error' => null];
         } catch (CwException | \PDOException $e) {
-            // A refusal or a database wait that ran out (the Codex check r2, MEDIUM 4): the bill is stored all the same.
-            return ['rematched' => null, 'rematch_error' => $e instanceof CwException ? $e->getMessage()
-                : 'the other bills\' lines could not be tried again just now (an order of theirs was busy): the nightly run does it'];
+            // A refusal or a database error (the Codex checks r2 MEDIUM 4, r3 LOW): the bill is stored all the same; a wait that ran out is said
+            // busy, any other database error by its code (never its text: it may quote a value).
+            $code = $e instanceof \PDOException ? Db::driverCode($e) : null;
+            return ['rematched' => null, 'rematch_error' => match (true) {
+                $e instanceof CwException => $e->getMessage(),
+                in_array($code, [1205, 1213, 3572], true) => 'the other bills\' lines could not be tried again just now (an order of theirs was busy): the nightly run does it',
+                default => 'the other bills\' lines could not be tried again (database error ' . ($code ?? 'unknown') . '): tell the CW team',
+            }];
         }
     }
 
@@ -634,7 +643,7 @@ final class DeliveryBills
         for ($try = 1; ; $try++) {
             $held = [];
             try {
-                $wait = $this->lockWaitSec;
+                $wait = min($this->lockWaitSec, self::GUARD_WAIT_SEC);
                 return $this->db->transaction(static function (Db $db) use ($plan, &$held, $wait): mixed {
                     $p = $plan($db);
                     $facts = [...$p['before'], ...$p['after']];
@@ -652,11 +661,26 @@ final class DeliveryBills
                     }
                     $names = array_values(array_unique($names));
                     sort($names, SORT_STRING);
-                    foreach ($names as $n) {
-                        if ((int) $db->value('SELECT GET_LOCK(?, ?)', [$n, $wait]) !== 1) {
+                    // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), each waited for at most
+                    // GUARD_WAIT_SEC: a week's bill of 2,500 orders in 13 round trips, held for seconds (the Codex check r3: a snapshot of one of
+                    // them waits less than the minute job's own wait, QUEUE_LOCK_WAIT_SEC, and is never starved).
+                    foreach (array_chunk($names, self::GUARD_CHUNK) as $chunk) {
+                        try {
+                            $got = array_values((array) $db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "GET_LOCK(?, {$wait}) AS g{$i}",
+                                array_keys($chunk))), $chunk));
+                        } catch (\Throwable $e) {
+                            // Which of them it got is not known (MySQL's named-lock deadlock, 3058): every one is let go (a name not held: nothing).
+                            array_push($held, ...$chunk);
+                            throw $e;
+                        }
+                        foreach ($chunk as $i => $n) {
+                            if ((int) ($got[$i] ?? 0) === 1) {
+                                $held[] = $n;
+                            }
+                        }
+                        if (count($got) !== count($chunk) || in_array(0, array_map('intval', $got), true) || in_array(null, $got, true)) {
                             throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
                         }
-                        $held[] = $n;
                     }
                     $old = self::contributions($p['before'], $days);
                     $new = self::contributions($p['after'], $days);

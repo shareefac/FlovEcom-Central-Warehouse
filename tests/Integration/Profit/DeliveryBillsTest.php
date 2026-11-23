@@ -740,6 +740,28 @@ final class DeliveryBillsTest extends StockTestCase
         self::assertDaysRebuild($ch);
     }
 
+    /** The Codex check r3: a bill on hundreds of orders takes their snapshot guards a statement at a time (GUARD_CHUNK), all of them, and lets them go. */
+    public function testABillOnHundredsOfOrdersTakesTheirGuardsInChunksAndLetsThemGo(): void
+    {
+        $ch = $this->shop();
+        $n = DeliveryBills::GUARD_CHUNK + 50;
+        $lines = [];
+        for ($i = 0; $i < $n; $i++) {
+            $ref = (string) (3000 + $i);
+            self::order($ch, $ref, (string) (1357000 + $i), '2026-11-08T09:00:00Z', [self::parcel('odl:' . $ref, (string) (6599300000 + $i), '2026-11-08T10:00:00Z')]);
+            $lines[] = DpdCsv::line('09/11/2026', (6599300000 + $i) . '/0', 420);
+        }
+        $t = microtime(true);
+        $r = self::bills()->upload(self::system(), 'dpd', DpdCsv::file($lines));
+        self::assertLessThan(60, microtime(true) - $t);
+        self::assertSame(array_fill(0, $n, 'matched'), self::states($r['invoice_id']));
+        self::assertSame(['2026-11-08|delivery_cost' => 420 * $n], self::days($ch));
+        $other = TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '3000')]), 'every guard let go');
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, (string) (3000 + $n - 1))]));
+        self::assertDaysRebuild($ch);
+    }
+
     /** @return array{code: int, out: string} */
     private static function script(string $name, string ...$args): array
     {

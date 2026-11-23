@@ -256,7 +256,8 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
         self::assertSame(200, $check->status);
         $rows = self::rows($check, 'delivery-lines');
         self::assertCount(1, $rows);
-        self::assertSame(Words::DELIVERY['state_ambiguous'] . ' ' . Words::say('DELIVERY', 'fits', '1356999, 1356999'), $rows[0][6]);
+        self::assertSame(Words::DELIVERY['state_ambiguous'] . ' ' . Words::say('DELIVERY', 'fits', '1356999 (105), 1356999 (106)'), $rows[0][6],
+            'two orders of one number told apart by their CW order (the Codex check r3, LOW 1)');
         self::assertSame(['2'], array_column(self::rows($job->get("/ui/profit/delivery/{$id}", ['show' => 'not_matched']), 'delivery-lines'), 0));
         self::assertStringContainsString(Words::DELIVERY['filter_not_matched'], $check->text());
     }
