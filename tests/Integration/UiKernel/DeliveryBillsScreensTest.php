@@ -231,6 +231,27 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
             array_column(self::rows($job->get('/ui/profit/delivery'), 'delivery-bills'), 8));
     }
 
+    /** The app login (cw_app, its converged grants) writes every step: a line matched later (the match columns only), an undo. */
+    public function testTheAppLoginReMatchesAndUndoes(): void
+    {
+        [$ch, $today] = $this->shop();
+        $bills = new \CW\Profit\DeliveryBills(self::$appDb);
+        $r = $bills->upload(\CW\Caller::system('delivery_test'), 'dpd', DpdCsv::file([DpdCsv::line($today, '6599100500/0', 420)], ['invoice' => '62999100']), $ch);
+        self::assertSame('not_matched', (string) self::$db->value('SELECT match_state FROM carrier_invoice_line WHERE invoice_id = ?', [$r['invoice_id']]));
+        $label = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-30 seconds')->format('Y-m-d\TH:i:s\Z');
+        (new OrderSnapshots(self::$db))->store($ch, '104', ['v' => 1, 'version' => 1, 'order_no' => '1356104', 'status' => 'completed', 'placed_at' => $label,
+            'paid_at' => $label, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => '81356104', 'variant_id' => '40123',
+            'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'DPD',
+                'charged_inc' => 600, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 600, 'parcels' => [['parcel_ref' => 'odl:500',
+                'tracking_no' => '6599100500', 'carrier' => 'dpd', 'service_code' => '12', 'service' => 'DPD', 'status' => 'generated', 'label_at' => $label,
+                'shipped_at' => $label, 'manual' => false, 'partial' => false]]], 'api');
+        self::assertSame(1, $bills->rematch(\CW\Caller::system('delivery_match')));
+        self::assertSame('matched', (string) self::$db->value('SELECT match_state FROM carrier_invoice_line WHERE invoice_id = ?', [$r['invoice_id']]));
+        $bills->undo(\CW\Caller::system('delivery_test'), $r['invoice_id']);
+        self::assertSame('undone', (string) self::$db->value('SELECT status FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
+        self::assertSame('0', (string) self::$db->value('SELECT COALESCE(SUM(delivery_cost) + SUM(delivery_other), 0) FROM profit_day WHERE channel_id = ?', [$ch]));
+    }
+
     public function testAnOrdersPageAndTheProfitPagesShowDeliveryOnItsOwnLine(): void
     {
         [$ch, $today] = $this->shop();

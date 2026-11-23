@@ -127,7 +127,8 @@ final class DeliveryViews
             $lines = $byParcel[strtolower((string) $p['parcel_ref'])] ?? [];
             $out[] = $p + ['bill_lines' => $lines, 'bill_cost' => array_sum(array_map(static fn (array $l): int => (int) $l['cost'], $lines)),
                 'bills' => array_values(array_unique(array_map(static fn (array $l): string => (string) $l['invoice_no'], $lines)))];
-            if ($lines === [] && $p['removed_at'] === null) {
+            // A parcel collected in the shop has no carrier to bill it: never "not billed yet".
+            if ($lines === [] && $p['removed_at'] === null && (string) $p['carrier'] !== 'in_store') {
                 $notBilled++;
             }
         }
