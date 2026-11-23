@@ -20169,6 +20169,186 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL70; migration 0078)
+
+<!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
+The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
+the measured facts `cw_work/runs/rm_phase0/results_log.txt` (P0-1 to P0-7). ONE build for every Royal Mail account (Q5): 0706703000 (Vape and
+Go, Electrofag, the Hayati Vapes line) live; Vape Big's a settings row, off until its first bill ties. Code: `src/Profit/{RoyalMailBillPage,
+PooledPlanner, LabelDestinations, CarrierSettings, RoyalMailBills, RoyalMailViews, ClickAndDropReport, XlsFile, ClickAndDropClient, HttpGet,
+CurlHttpGet, CarrierKeys}.php` (new), one marked block each in `DeliveryBills` (order cost, day figures, tidy, public wrappers, a pooled bill
+never undone there, the snapshot versions), `DeliveryInvariants`, `DeliveryViews`, the controller, `Words`, `Kernel`, `Grants`, the two views,
+`bin/{rm_labels, rm_bill, carrier_account}.php` (new), `bin/match_delivery_bills.php` and both cron files. Every test uses SYNTHETIC bills,
+labels and reports (`tests/Support/{RmBill, RmFixtures, XlsWriter}.php`); the real files hold addresses and are never read by a test.
+
+**DL43. `carrier` (0078): the carriers as rows.** dpd (per_parcel: a bill line per parcel), royal_mail (pooled: lines per day and service). A
+new carrier is a row (and its reader). `carrier_invoice.carrier` links to it: 0077's CHECK "dpd or royal_mail" is swapped for the link in ONE
+ALTER of that small table (COPY, LOCK SHARED), made only while the CHECK is there. `carrier`, `carrier_product` and `carrier_band` come by
+migration (Grants READ_ONLY; TestDb keeps them as seed tables).
+
+**DL44. `delivery_party`: who a parcel's cost belongs to.** One row per CW shop (seeded from `channel`) and rows with no shop: Hayati Vapes
+(Q1: its own line, in no shop's profit). When hayati joins CW (phase 4) its row gets its shop and a FROM day (`channel_from`): costs before it
+stay on its own line, later ones go on its orders when the verified CW parcel arrives.
+
+**DL45. `carrier_account` + `carrier_account_party`.** An account (carrier, number as printed), its bill format (dpd_csv, rm_oba_page), label
+source (connector, click_and_drop), the NAME of its Click & Drop key (never the key), its MAIN party (takes the charges of no parcel; must
+have a shop), its state (active / off). Seeds: DPD 3012002 (main Vape and Go; DPD's code still reads its constant `DeliveryBills::ACCOUNTS`,
+the row mirrors it), Royal Mail 0706703000 active (main Vape and Go; parties Vape and Go, Electrofag, Hayati Vapes from 2020-01-01), Vape Big's
+as `vapebig-pending`, OFF, main Vape Big (its number is not known: the owner sends its first bill; bin/carrier_account.php sets it).
+
+**DL46. `carrier_channel` + `carrier_party_rule`: a label not found in CW gets its party by rules, never by a tracking prefix.** A label keeps
+its Click & Drop channel only as the code of one of the account's known channels (api, woocommerce, manual), else `other` (free text never
+kept). Rules in priority order, the first that fits wins; a rule with no party names nobody. 0706703000: (1) channel manual: nobody; (2)
+channel woocommerce: Hayati Vapes; (3) "#" + digits: Hayati Vapes; (4) 7 digits: Vape and Go. A bare 4-digit reference names nobody (P0-6:
+hayati's 2833-3103 are also old Electrofag order numbers). Vape Big's: 5 digits.
+
+**DL47. `carrier_product` + `carrier_band`.** Royal Mail's codes: TPL / TPM / TRN flat (service TPL48HV / TPM24HV / TRN24), SD1 by band (SD1),
+RX1 / RXA wrong weight, RW4 surcharge (no parcel), TSS return (no parcel). SD1's bands: up to 100 g, 500 g, 1 kg, 2 kg, 10 kg, 20 kg, the edge
+inclusive (P0-3). A product code not listed REFUSES the bill (DL55).
+
+**DL48. `carrier_label`: one row per account and tracking number, whatever brings it.** Kept: tracking (upper case), source (api / report:
+what came first), Click & Drop's order number, the reference (digits or # and digits only), channel code, service code, package (letter,
+large_letter, parcel, other), declared weight (g), created / manifest time and the manifest's UK day, manifest number, the Special Delivery
+sales order (10 digits). NEVER a name, address, postcode, email or phone (no column for them). A second source only FILLS EMPTY fields: the
+first one's value stays, a difference is counted ("differs"), so a label can never take two units. The "Manifested Orders" report (old
+Excel, BIFF8) is read by a small reader of our own (`XlsFile`, no library: OpenSpout reads no .xls) by column NAME; only the 10 needed columns
+are ever materialised (the shared string table is decoded in memory, unavoidably); the file is not kept (sha256 in the audit). Measured
+locally on the real report of 23 Nov (counts only): 31,586 labels, every count equal to the phase-0 extract, 2.3 s, 73 MB.
+
+**DL49. Click & Drop's API: GET only, the key in CW's secret file (Q4).** `ClickAndDropClient` sends GET /orders (by day, following the
+continuation token) and GET /orders/{ids} (100 a call) with the header "Authorization: <key>" (as proven on 23 Nov), at least 250 ms apart
+(the 5 a second limit), 429 waited (Retry-After, else 1-16 s, 6 tries), 5xx tried 3 times; a test reads the client's and transport's source
+for any other verb. Each answer is cut at once to: orderIdentifier, orderReference, createdOn, manifestedOn, trackingNumber, packages'
+tracking numbers; no answer is logged. Keys: `/etc/cw/carrier_keys.env` (root only: refused when group or others can read it), by the NAME the
+account row holds (`CarrierKeys`); never logged, never in the database or git; only the nightly (root) reads it: the web never holds a key, so
+the plan's "refresh on the bill upload" is not built (the upload uses the labels CW has; `bin/rm_labels.php --pull` reads now). The pull
+(`RoyalMailBills::pull`, nightly 03:20): from the account's checkpoint (`carrier_label_pull.read_to`, the last day read whole) less 3 days
+(a first pull: 14 days back) to yesterday; the labels with no manifest yet of the last 14 days asked for again by number; the checkpoint
+moves only when everything was read and stored; a failure is kept in CW's words (a code and an HTTP status). WHAT COMES FROM WHERE: the API
+gives tracking, reference, created and manifest time (so the manifest day); it does NOT give the service code, weight, package, channel,
+manifest number or the Special Delivery sales order (/orders/full answers 403 for us): those come only from the report. So the day book of
+a flat service and every Special Delivery rule need the report's fields: staff upload the week's "Manifested Orders" report with the bill
+(or the nightly gets them if Royal Mail opens /full). GET /manifests/{n} (its PDF holds the sales order and tracking ranges, and the sender's
+address) is not used: the report gives the same per label.
+
+**DL50. `carrier_bill_row`: a pooled bill's rows as printed.** Service day, product, quantity, net, gross, VAT code, the reference only in a
+known form (`ref_kind`: preadvice, manifest, sales_order, week; else none and nothing kept) and the 10-digit sales order printed with a
+manifest row. The bill itself is a `carrier_invoice` row (its shop: the account's main shop; `line_count` its rows). Never changed or deleted.
+
+**DL51. `carrier_allocation`: where every penny of a row went.** (bill, row, kind: label / wrong_weight / day_line / row, how, the label,
+ONE destination: order (shop, order, parcel), shop (a shop's "not on an order"), party (a party with no shop), before_start, held (a reason),
+the day, pence signed). A row's live allocations add up to its net (DB8); a label holds at most one live allocation per row and kind (a
+unique generated key); never deleted: ended (`ended_at`, the only column the app may update) and a new row.
+
+**DL52. Royal Mail's bill read from its saved page or its pasted text (`RoyalMailBillPage`).** The top block's account, invoice number, date,
+net, VAT and gross ("GBP"); the line table found by its 8 headings; a data row read from both ends (date, product, quantity, description ...
+net, gross, VAT code), whatever is between being the reference (the sales order button and the reference text). Only VISIBLE cells: scripts,
+styles and every input that is not a button are dropped first (a saved page keeps the session's hidden inputs). Not seen yet on a real saved
+page (none was available): built and tested on synthetic pages in the shape read from the owner's Chrome (RM_BILL_PAGE_SHAPE.md); the
+transcription of bill 9077300608 read as pasted text ties to the penny (159 rows). The first real saved page is the go-live's first check.
+
+**DL53. Its VAT by the rows' codes.** Royal Mail rounds VAT per row: the bills of 9 Nov and 26 Oct 2026 print a VAT a penny off 20% of their
+net. So: rows' net = printed net, rows' gross = printed gross, printed VAT = gross - net, and per code the rows' VAT (gross - net) is the
+code's rate (its summary row's "Std Rated 20%", else T 20% / Z 0%) on its net within half a penny a row; a summary row is exactly its code's
+rows. An unknown code with no summary row: refused.
+
+**DL54. The fingerprint is of what was read, not of the bytes.** A page saved twice holds a new session token each time and pasted text is
+other bytes: the same bill read again is "the same file" (nothing changes); another reading of a live bill's number is refused ("Replace").
+
+**DL55. Refused whole, nothing stored.** The top block incomplete or not GBP, a date not a day, a quantity not whole, an amount not pounds, a
+VAT code not a letter, a row holding an amount that is no line, summary or total, no lines, the ties of DL53 broken, the printed account not
+the account chosen, the account off, and a product code not in `carrier_product` ("product XYZ is one CW does not know", named only when it
+has a code's shape). The brief's rule; the plan's section 5.1 said "store it, money to not on an order" instead: FOR THE LEAD.
+
+**DL56. The day book (Q2, P0-1, P0-5): flat products across bills.** Key: account x service day x product. Its rows from every LIVE bill of
+the account in bill order (bill date, then number). The day's price P = the FIRST bill's rows' net / quantity, whole pence half up. EVERY
+label manifested that day (UK) with the product's service gets P at once, placed on the first bill's rows (each row as many as its quantity,
+the rest on its last row). The rest of each first-bill row and the WHOLE of every later bill's row of that day (the tail) is the day's line,
+split by the label holders' counts (shop on orders or not, before CW start per shop, Hayati Vapes, held per reason; each truncated, the pence
+left to the main shop). So a later bill "takes back from the day's line" and no label's price moves; when the first bill is undone or
+replaced, the next becomes first and the day is planned again on it. No label at all: "billed, no label found" on the main shop. A day with
+labels and no row: "not billed yet", nothing. The pre-advice id is shown, never used for money (P0-2).
+
+**DL57. A label's cost goes on an order only when all of a-e hold (plan section 2), else HELD with its reason** (`LabelDestinations`): (a) a
+label of THIS account; (b) its tracking on exactly ONE CW parcel, not removed, labelled 10 days before to 3 after the manifest day
+(two_parcels); (c) the parcel's shop a party of the account on that day (other_shop); (d) its carrier royal_mail, or manual with a Royal Mail
+number (carrier); (e) its reference, when it has one, its order's number (# and digits never: ref_differs) and its channel's rule party, when
+there is one, the parcel's shop (shop_differs). A label on an order stays on it (sticky, as DPD's DL7), even when its parcel is removed later.
+
+**DL58. A label on no CW parcel: by its party.** A party with a shop that day: before CW start (the day on or before the shop's start, or
+its reference below the shop's first order: DL10, DL30) or the shop's "not on an order" (a label made on Click & Drop's own site); a party
+with no shop (or not in CW yet that day): its own line; no party: held shop_unknown; a party the account does not serve that day: held
+not_served. Held and party money is in no shop's profit; it is shown on the bill.
+
+**DL59. Special Delivery by declared weight (P0-3).** A manifest's rows ("CLICK AND DROP M<n>", or a row with only its sales order found on
+the manifest's labels) against its SD1 labels: when the rows grouped by unit price (exact fractions) fit the labels' bands one to one (the
+cheapest price the lightest non-empty band, equal counts, no label without a weight or above the bands): each band's labels take its rows
+(each row as many as its quantity, its net split, a penny more to the first ones); otherwise every row's net is split over every label
+("average"). A manifest with no label: the main shop's "not on an order". The manifest number decides, not the clock (M2283).
+
+**DL60. Wrong weight (RX1, RXA; P0-4, Q3).** A row's sales order (ADJ<n>RCN) names its Special Delivery labels: shared equally (intdiv),
+the pence left over to the main shop's "not on an order"; no such label: all of it there. Each share goes where its label belongs. The
+exceptions Excel (which would name the exact parcel) is NOT built: no real file has been seen (plan section 9 item 2).
+
+**DL61. Unreadable barcode (RW4) and returns (TSS): the main shop's "not on an order"** on the row's service day (Q3); the bill's page shows
+them per week.
+
+**DL62. Held money is shown, never in a profit.** Held reasons: two_parcels, other_shop, carrier, ref_differs, shop_differs, shop_unknown,
+not_served. It is settled by the nightly when its cause goes (a CW parcel arrives, a rule is added): the day is planned again.
+
+**DL63. One source for the profit (plan 5.9).** `DeliveryBills::orderCost` (what a snapshot carries), `dayFigures` (the rebuild) and the
+writes' day deltas all read the live allocations of live bills: on an order on its paid day (delivery_cost); a shop's "not on an order" and
+day lines in the ALLOCATION's shop on the service day (delivery_other; not the bill's shop: an account serves several shops); party, before
+start and held nowhere. `tidy()` keeps a day row with such an allocation. No new profit_day column. Tests: after every write every day of
+every shop equals a rebuild from scratch, and `RoyalMailBills::drift()` (the live allocations against a plan from scratch) is empty.
+
+**DL64. Every Royal Mail write under DPD's protocol.** The delivery lock (one bill write at a time, labels too) and `DeliveryBills::guardedWrite`
+(DL13, DL37, DL41: every order's guard without waiting, the day rows NOWAIT, one deadline): the allocations as facts (on an order: matched; a
+shop's not on an order: not_matched in the allocation's shop). Only the Delivery bills job or a server job writes (DL31).
+
+**DL65. Replace and undo.** Replace: a reading of the SAME bill number only; the old bill superseded, the new live, the days planned again.
+Undo: the bill undone, the days it touched planned again on the bills left. A DPD undo of a Royal Mail bill is refused (`other_carrier`).
+
+**DL66. Later changes: a late label, a late CW parcel, a held amount settled.** A label import (report or pull) plans again the keys of the
+labels it added or filled (day x product, manifest, sales order: one day x product a write); the nightly (03:35, `bin/match_delivery_bills.php`)
+plans again every key of the live rows of the last 120 days and ends the allocations of bills that no longer count. Only what changes is
+written (an allocation the same in both plans stays).
+
+**DL67. The nightly checks DB7-DB12** (DeliveryInvariants; DB3 is now the per-parcel carriers'): a live pooled bill's rows add up to its net
+and count (DB7); each live row's allocations add up to its net (DB8); a superseded or undone bill has no live allocation (DB9); an
+allocation's label is of its bill's account (DB10); a flat label holds one live day price (DB11); no bill still loading 10 minutes after its
+upload (DB12). DB6 reads a bill not stored (DL68) as naming nothing.
+
+**DL68. A week's bill in three steps; the guards held about half a second.** The timing test at a real week (7,000 labels on 7,000 orders,
+154 rows) as ONE guarded write held the guards 1.7 s (7,500 inserts 0.64 s, the labels' parcels read again 0.56 s, the orders' days 0.33 s)
+and was busy (DL41). Now: (A) the bill as `loading` (a fourth status of carrier_invoice, 0078; it counts nowhere) with its rows and its
+allocations in transactions of 500 (no guard: nothing of it counts); (B) ONE guarded write: the plan again with its rows (normally no
+difference), the bill made live (the old one superseded), other bills' days planned again, the days moved by what starts and stops counting;
+the orders the plan put new labels on are checked by their snapshot (version and time) in the same read as their days (no second parcel
+read under the guards); (C) the allocations of a bill that stopped counting ended afterwards (`sweep`). A failed (B) leaves the bill undone
+by `system:not_stored` (shown "Not stored"); a crash's `loading` bill is swept by the next write or the nightly. Measured with a snapshot job
+storing the bill's orders meanwhile (`RoyalMailWeekTest`): guards held 0.55 s (store), 0.53 s (replace), 0.58 s (undo); snapshots waited
+at most 530 ms; with an order's guard held elsewhere: busy within the budget, nothing counted. Left: undoing an OLD bill whose days a later
+bill also bills moves those days' labels onto the later bill in step B (inserts under the guards): fine for a tail of 1-2 days, not
+measured at a whole week.
+
+**DL69. The screens (Profit > Delivery bills).** The upload: carrier Royal Mail, the account, the saved page or the pasted text; the Click &
+Drop report upload per account; the accounts' labels (in CW, read up to, last read, last problem). A Royal Mail bill's page: its sentence
+("Royal Mail bill N (days): £net - on orders £x, not on an order £y, in no shop's profit £z (Hayati Vapes, held), before CW start £s"), where
+its money went per shop / party / reason adding up to its net, the day tie-out (labels, billed by every live bill, priced, the day's line,
+"Open: waiting for the next bill" until the account's next bill or 14 days, then closed; "Needs a look" only on a closed day more than 5% and
+10 labels apart), Special Delivery by manifest, its rows, Replace (page or text) and Undo. The order page: each parcel's Royal Mail cost and
+bill; a Royal Mail parcel is "not billed yet" only when its shop is on an active Royal Mail account (DPD's DL38 test unchanged). Who: as DPD
+(delivery.view, delivery.upload, DL31).
+
+**DL70. Tools, go-live, undo.** `bin/rm_labels.php --pull | --report=<xls> --account= | --status`, `bin/rm_bill.php --file= --account=
+[--upload | --replace=]` (counts and totals only), `bin/carrier_account.php --list | --account= --number= | --switch-on | --switch-off`
+(audited). Cron (both files): 03:20 the pull, 03:35 the bills' nightly (DPD's re-match, then Royal Mail's re-plan). Go-live (the kit's,
+not built here): migrate 0078 (adds; one small ALTER of carrier_invoice), the release, the key file `/etc/cw/carrier_keys.env` (root 0600,
+`click_and_drop_0706703000=<key>`), a first `--pull --from=<day>` and the report of the weeks to load, then the bills oldest first. Undo: the
+release before (14c6e31) with 0078 added byte for byte (RollbackReleaseTest); the tables and rows stay unused; a bill's money is undone with
+"Undo this upload" BEFORE the release goes back (the release before reads no allocation: its rebuild would drop them from the days, as DL22).
+
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
 The owner, 23 Nov 2026, on Stock › Counts: adding an item to a sheet only by a scanned barcode, an exact CW number with its letters or the
