@@ -5263,7 +5263,8 @@
     }
     var touched = false;
     var mine = function () { touched = true; };
-    each(['mousedown', 'pointerdown', 'touchstart'], function (t) { document.addEventListener(t, mine, true); });
+    // A key pressed (Tab to another box) counts as the person's own move too (CP22, the Codex check of 0c22cf4).
+    each(['mousedown', 'pointerdown', 'touchstart', 'keydown'], function (t) { document.addEventListener(t, mine, true); });
     var again = function () {
       var now = document.activeElement;
       if (!touched && (!now || now === document.body || now === document.documentElement) && document.body.contains(input) && !input.disabled) {

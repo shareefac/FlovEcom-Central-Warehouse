@@ -20285,6 +20285,8 @@ today. If case barcodes are set up, `/add` should carry the scanned code and the
 
 ### After the go-live (23 Nov 2026 19:37 UK, 141d01c, What's new #605): the lead's walk-through in a real Chrome (macOS) (branch `count-picker`, sixth commit; CP21)
 
+**CP22. A key pressed counts as the person's own move (the Codex check of 0c22cf4, 23 Nov).** CP21's retries put the cursor back in the marked Counted box only while nobody has acted; a key pressed before the page has loaded (Tab to another box) now counts like a click or a tap, so a slow page never takes the cursor back from where the person moved it. JS harness: the new check failed first (runs/countpick2_cp22red.js.log), all pass after (countpick2_cp22fix.js.log).
+
 **CP21. The marked Counted box gets the cursor after the browser's scroll to the line.** Search, pick, Enter-save and back-to-the-box worked;
 but after a pick (a click on a choice, or Enter on the first) the page landed on `?notice=added&line=N#line-N` with the cursor on the page
 (`document.activeElement` = BODY), not in q_N, so typing went nowhere. A plain reload of that same address had it in q_N: on a navigation
