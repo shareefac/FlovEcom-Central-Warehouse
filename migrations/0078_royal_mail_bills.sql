@@ -1,7 +1,7 @@
 -- 0078_royal_mail_bills.sql — delivery cost in CW profit, phase 1 of the shipping plan v3 (cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md;
 -- docs/decisions.md DL43-DL70): Royal Mail's weekly bills, account-generic (0706703000 = Vape and Go + Electrofag + the Hayati Vapes line;
 -- Vape Big's account a settings row, off until its first bill ties). It only ADDS: no existing row changes; the one existing table it alters
--- (carrier_invoice, a few rows: one per carrier bill) only swaps its carrier CHECK for a link to the new carrier list.
+-- (carrier_invoice, a few rows: one per carrier bill) swaps its carrier CHECK for a link to the new carrier list and gets a status "loading".
 --
 -- Settings (rows, not code: a new account, shop or carrier is a row; section 2 of the plan):
 --  * carrier: the carriers CW knows (dpd, royal_mail) and how their bills are matched: per_parcel (a line per parcel: DPD) or pooled (a line
@@ -43,10 +43,12 @@ CREATE TABLE IF NOT EXISTS carrier (
 INSERT INTO carrier (code, name, family) VALUES ('dpd', 'DPD', 'per_parcel'), ('royal_mail', 'Royal Mail', 'pooled')
   ON DUPLICATE KEY UPDATE code = code;
 
--- carrier_invoice.carrier: the 0077 CHECK becomes a link to carrier (only while the CHECK is there: a run again does nothing).
+-- carrier_invoice (one ALTER, only while the 0077 carrier CHECK is there: a run again does nothing): the carrier CHECK becomes a link to
+-- carrier; a fourth status "loading" (a pooled bill whose allocations are being written: it counts nowhere until the one guarded write that
+-- makes it live, DL68), with the ended CHECK reading it as not ended.
 SET @cw_0078_carrier = IF((SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'carrier_invoice'
     AND CONSTRAINT_NAME = 'ck_carrier_invoice_carrier') = 1,
-  'ALTER TABLE carrier_invoice DROP CHECK ck_carrier_invoice_carrier, ADD CONSTRAINT fk_carrier_invoice_carrier FOREIGN KEY (carrier) REFERENCES carrier (code), ALGORITHM = COPY, LOCK = SHARED',
+  'ALTER TABLE carrier_invoice DROP CHECK ck_carrier_invoice_carrier, ADD CONSTRAINT fk_carrier_invoice_carrier FOREIGN KEY (carrier) REFERENCES carrier (code), MODIFY COLUMN status ENUM(''live'',''superseded'',''undone'',''loading'') NOT NULL DEFAULT ''live'' COMMENT ''live counts; superseded: a corrected file replaced it; undone: Undo this upload; loading: a pooled bill being stored (counts nowhere yet)'', DROP CHECK ck_carrier_invoice_ended, ADD CONSTRAINT ck_carrier_invoice_ended CHECK ((status IN (''live'', ''loading'')) = (ended_at IS NULL) AND (ended_at IS NULL) = (ended_actor IS NULL) AND (ended_at IS NOT NULL OR ended_by IS NULL)), ALGORITHM = COPY, LOCK = SHARED',
   'DO 0');
 PREPARE cw_0078_carrier FROM @cw_0078_carrier;
 EXECUTE cw_0078_carrier;

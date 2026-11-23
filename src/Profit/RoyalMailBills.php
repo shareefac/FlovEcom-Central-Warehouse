@@ -42,7 +42,9 @@ final class RoyalMailBills
     public const PULL_OPEN_DAYS = 14;
     /** Keys planned in one guarded write (a day x product key alone holds a day's labels: FLAT_PER_WRITE of them a write). */
     public const KEYS_PER_WRITE = 50;
-    public const FLAT_PER_WRITE = 4;
+    public const FLAT_PER_WRITE = 1;
+    /** Who "ended" a bill whose write never finished (it never counted). */
+    public const NOT_STORED = 'system:not_stored';
     /** The label fields a second source may fill (when empty): the first source's value stays. */
     public const FILL = ['source_id', 'reference', 'channel_code', 'service_code', 'package', 'weight_g', 'created_on', 'manifested_at', 'manifest_no', 'manifest_day',
         'sales_order'];
@@ -119,7 +121,10 @@ final class RoyalMailBills
         });
     }
 
-    /** "Undo this upload" (DL65): the bill undone (kept with its rows), its allocations ended, the days it touched planned again. */
+    /**
+     * "Undo this upload" (DL65): the bill undone (kept with its rows) in one guarded write with the days it touched planned again on the bills
+     * left; its allocations, which count nowhere once it is undone, ended right after (sweep()).
+     */
     public function undo(Caller $caller, int $invoiceId): void
     {
         $this->bills->authoriseWrite($caller);
@@ -131,18 +136,19 @@ final class RoyalMailBills
                 }
                 $account = CarrierSettings::account($db, self::accountOf($db, $inv));
                 $ctx = self::ctx($db, $account);
-                $s = self::scope($db, $account, $ctx, self::keysOf($db, $account, $ctx, self::billRows($db, [(int) $inv['id']])), [], [(int) $inv['id']]);
-                return self::guardedPlan($s, $account, function (Db $db) use ($caller, $inv, $s): void {
+                $s = self::scope($db, $account, $ctx, self::keysOf($db, $account, $ctx, self::billRows($db, [(int) $inv['id']])), [], [(int) $inv['id']], null);
+                return self::guardedPlan($s, function (Db $db) use ($caller, $inv, $s): void {
                     $this->bills->authoriseWrite($caller);
                     $now = Clock::db(($this->clock)());
                     $db->exec("UPDATE carrier_invoice SET status = 'undone', ended_by = ?, ended_actor = ?, ended_at = ? WHERE id = ? AND status = 'live'",
                         [$caller->staffUserId, $caller->actor, $now, (int) $inv['id']]);
-                    self::apply($db, $s, [], $now);
+                    self::apply($db, $s, $now);
                     Audit::write($db, $caller, 'delivery_bill.undo', 'carrier_invoice', (string) $inv['id'], null, ['carrier' => (string) $inv['carrier'],
                         'account' => (string) $inv['account'], 'invoice' => (string) $inv['invoice_no'], 'net_pence' => (int) $inv['net_pence'],
                         'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]);
                 });
             });
+            $this->sweep();
         });
     }
 
@@ -158,7 +164,7 @@ final class RoyalMailBills
         $bill = self::read($this->db, $account, $bytes);
         $ctx = self::ctx($this->db, $account);
         $rows = self::newRows($bill);
-        $s = self::scope($this->db, $account, $ctx, self::keysOf($this->db, $account, $ctx, $rows), $rows, []);
+        $s = self::scope($this->db, $account, $ctx, self::keysOf($this->db, $account, $ctx, $rows), $rows, [], null);
         $where = [];
         foreach ($s['desired'] as $a) {
             if ($a['invoice_id'] !== 0) {
@@ -304,7 +310,7 @@ final class RoyalMailBills
     {
         $account = CarrierSettings::account($db, $accountId);
         $ctx = self::ctx($db, $account);
-        $s = self::scope($db, $account, $ctx, self::keysOf($db, $account, $ctx, self::rowsWhere($db, $account, '1 = 1', [])), [], []);
+        $s = self::scope($db, $account, $ctx, self::keysOf($db, $account, $ctx, self::rowsWhere($db, $account, '1 = 1', [])), [], [], null);
         $out = [];
         foreach ($s['end'] as $a) {
             $out[] = '- ' . PooledPlanner::identity($a);
@@ -324,53 +330,135 @@ final class RoyalMailBills
 
     // ---- the work ----------------------------------------------------------------------------------------------------------------------
 
-    /** @param array<string, mixed> $bill */
+    /**
+     * A bill stored in three steps (DL68), all under the delivery lock: (A) the bill as "loading" (counting nowhere), its rows and its allocations
+     * as planned now, in short transactions of their own (no order guard: nothing of it counts yet); (B) ONE guarded write: the plan taken again
+     * with the loading bill's rows, the differences written (normally none for it; other bills' days planned again), the bill made live and the
+     * bill it replaces superseded, the profit days moved by what starts and stops counting; (C) the replaced bill's allocations ended (they count
+     * nowhere once it is superseded). When (B) fails, the loading bill is undone as "not stored" (its allocations ended): nothing counted.
+     *
+     * @param array<string, mixed> $bill
+     */
     private function store(Caller $caller, array $account, array $bill, ?array $old): int
     {
-        return $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $bill, $old): array {
-            $ctx = self::ctx($db, $account);
-            $rows = self::newRows($bill);
-            $gone = $old === null ? [] : [(int) $old['id']];
-            $keys = self::keysOf($db, $account, $ctx, [...$rows, ...self::billRows($db, $gone)]);
-            $s = self::scope($db, $account, $ctx, $keys, $rows, $gone);
-            return self::guardedPlan($s, $account, function (Db $db) use ($caller, $account, $bill, $old, $s): int {
-                $this->bills->authoriseWrite($caller); // again once everything is held (DL13)
-                $now = Clock::db(($this->clock)());
-                if ($old !== null) {
-                    $db->exec("UPDATE carrier_invoice SET status = 'superseded', ended_by = ?, ended_actor = ?, ended_at = ? WHERE id = ? AND status = 'live'",
-                        [$caller->staffUserId, $caller->actor, $now, (int) $old['id']]);
-                }
-                try {
-                    $id = $db->insert('INSERT INTO carrier_invoice (carrier, account, invoice_no, invoice_date, period_from, period_to, channel_id, net_pence, vat_pence, '
-                        . 'gross_pence, line_count, file_sha256, status, supersedes_id, uploaded_by, uploaded_actor, uploaded_at) '
-                        . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?)",
-                        [$account['carrier'], $bill['account'], $bill['invoice_no'], $bill['invoice_date'], $bill['period_from'], $bill['period_to'], $account['main_channel'],
-                            $bill['net'], $bill['vat'], $bill['gross'], count($bill['rows']), $bill['sha256'], $old === null ? null : (int) $old['id'], $caller->staffUserId,
-                            $caller->actor, $now]);
-                } catch (\PDOException $e) {
-                    if (Db::driverCode($e) === 1062) {
-                        throw new CwException('already_uploaded', "Royal Mail bill {$bill['invoice_no']} was uploaded meanwhile: nothing was saved.", 409);
+        $this->sweep();
+        $id = $this->load($caller, $account, $bill, $old);
+        try {
+            $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $bill, $old, $id): array {
+                $ctx = self::ctx($db, $account);
+                $gone = $old === null ? [] : [(int) $old['id']];
+                $keys = self::keysOf($db, $account, $ctx, self::billRows($db, [$id, ...$gone]));
+                $s = self::scope($db, $account, $ctx, $keys, [], $gone, $id);
+                return self::guardedPlan($s, function (Db $db) use ($caller, $account, $bill, $old, $id, $s): int {
+                    $this->bills->authoriseWrite($caller); // again once everything is held (DL13)
+                    $now = Clock::db(($this->clock)());
+                    if ($old !== null) {
+                        $db->exec("UPDATE carrier_invoice SET status = 'superseded', ended_by = ?, ended_actor = ?, ended_at = ? WHERE id = ? AND status = 'live'",
+                            [$caller->staffUserId, $caller->actor, $now, (int) $old['id']]);
                     }
-                    throw $e;
-                }
-                $cols = ['invoice_id', 'row_no', 'service_date', 'product_code', 'qty', 'net_pence', 'gross_pence', 'vat_code', 'ref_kind', 'ref_no', 'sales_order'];
-                foreach (array_chunk($bill['rows'], 500) as $chunk) {
-                    $params = [];
-                    foreach ($chunk as $r) {
-                        array_push($params, $id, $r['row_no'], $r['service_date'], $r['product_code'], $r['qty'], $r['net'], $r['gross'], $r['vat_code'], $r['ref_kind'],
-                            $r['ref_no'], $r['sales_order']);
+                    try {
+                        $live = $db->exec("UPDATE carrier_invoice SET status = 'live' WHERE id = ? AND status = 'loading'", [$id]);
+                    } catch (\PDOException $e) {
+                        if (Db::driverCode($e) === 1062) {
+                            throw new CwException('already_uploaded', "Royal Mail bill {$bill['invoice_no']} was uploaded meanwhile: nothing was saved.", 409);
+                        }
+                        throw $e;
                     }
-                    $db->exec('INSERT INTO carrier_bill_row (' . implode(', ', $cols) . ') VALUES '
-                        . implode(', ', array_fill(0, count($chunk), '(' . implode(', ', array_fill(0, count($cols), '?')) . ')')), $params);
-                }
-                self::apply($db, $s, [0 => $id], $now);
-                Audit::write($db, $caller, $old === null ? 'delivery_bill.upload' : 'delivery_bill.replace', 'carrier_invoice', (string) $id, null, [
-                    'carrier' => $account['carrier'], 'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']),
-                    'net_pence' => $bill['net'], 'sha256' => $bill['sha256'], 'allocations_added' => count($s['add']), 'allocations_ended' => count($s['end'])]
-                    + ($old === null ? [] : ['replaces' => (int) $old['id']]));
-                return $id;
+                    if ($live !== 1) {
+                        throw new CwException(self::RETRY, 'the bill being stored changed meanwhile', 409);
+                    }
+                    self::apply($db, $s, $now);
+                    Audit::write($db, $caller, $old === null ? 'delivery_bill.upload' : 'delivery_bill.replace', 'carrier_invoice', (string) $id, null, [
+                        'carrier' => $account['carrier'], 'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']),
+                        'net_pence' => $bill['net'], 'sha256' => $bill['sha256'], 'allocations' => count(array_filter($s['desired'],
+                            static fn (array $a): bool => $a['invoice_id'] === $id)), 'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]
+                        + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+                    return $id;
+                });
             });
+        } catch (\Throwable $e) {
+            $this->abandon($id);
+            throw $e;
+        }
+        $this->sweep();
+        return $id;
+    }
+
+    /**
+     * Step A of store(): the bill as "loading" with its rows (one transaction), then its allocations as planned now, 500 a transaction. Nothing
+     * of it counts until step B makes it live.
+     *
+     * @param array<string, mixed> $bill
+     * @param array<string, mixed>|null $old
+     */
+    private function load(Caller $caller, array $account, array $bill, ?array $old): int
+    {
+        $ctx = self::ctx($this->db, $account);
+        $rows = self::newRows($bill);
+        $gone = $old === null ? [] : [(int) $old['id']];
+        $s = self::scope($this->db, $account, $ctx, self::keysOf($this->db, $account, $ctx, [...$rows, ...self::billRows($this->db, $gone)]), $rows, $gone, null);
+        $id = $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old): int {
+            $id = $db->insert('INSERT INTO carrier_invoice (carrier, account, invoice_no, invoice_date, period_from, period_to, channel_id, net_pence, vat_pence, '
+                . 'gross_pence, line_count, file_sha256, status, supersedes_id, uploaded_by, uploaded_actor, uploaded_at) '
+                . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'loading', ?, ?, ?, ?)",
+                [$account['carrier'], $bill['account'], $bill['invoice_no'], $bill['invoice_date'], $bill['period_from'], $bill['period_to'], $account['main_channel'],
+                    $bill['net'], $bill['vat'], $bill['gross'], count($bill['rows']), $bill['sha256'], $old === null ? null : (int) $old['id'], $caller->staffUserId,
+                    $caller->actor, Clock::db(($this->clock)())]);
+            $cols = ['invoice_id', 'row_no', 'service_date', 'product_code', 'qty', 'net_pence', 'gross_pence', 'vat_code', 'ref_kind', 'ref_no', 'sales_order'];
+            foreach (array_chunk($bill['rows'], 500) as $chunk) {
+                $params = [];
+                foreach ($chunk as $r) {
+                    array_push($params, $id, $r['row_no'], $r['service_date'], $r['product_code'], $r['qty'], $r['net'], $r['gross'], $r['vat_code'], $r['ref_kind'],
+                        $r['ref_no'], $r['sales_order']);
+                }
+                $db->exec('INSERT INTO carrier_bill_row (' . implode(', ', $cols) . ') VALUES '
+                    . implode(', ', array_fill(0, count($chunk), '(' . implode(', ', array_fill(0, count($cols), '?')) . ')')), $params);
+            }
+            return $id;
         });
+        $mine = array_values(array_filter($s['desired'], static fn (array $a): bool => $a['invoice_id'] === 0));
+        $now = Clock::db(($this->clock)());
+        try {
+            foreach (array_chunk($mine, 500) as $chunk) {
+                $this->db->transaction(static function (Db $db) use ($chunk, $id, $now): void {
+                    self::insert($db, array_map(static fn (array $a): array => ['invoice_id' => $id] + $a, $chunk), $now);
+                });
+            }
+        } catch (\Throwable $e) {
+            $this->abandon($id);
+            throw $e;
+        }
+        return $id;
+    }
+
+    /** A bill left "loading" (its write failed): undone as "not stored" (it never counted), its allocations ended. */
+    private function abandon(int $id): void
+    {
+        try {
+            $this->db->exec("UPDATE carrier_invoice SET status = 'undone', ended_actor = ?, ended_at = ? WHERE id = ? AND status = 'loading'",
+                [self::NOT_STORED, Clock::db(($this->clock)()), $id]);
+            $this->sweep();
+        } catch (\Throwable) {
+            // the connection is gone: the next write or the nightly (sweep) does it
+        }
+    }
+
+    /**
+     * Bills left "loading" by a write that did not end (a crash) undone as "not stored", and the live allocations of every bill that is not
+     * live ended, 1,000 a transaction (they count nowhere: no profit figure moves, no order guard needed). Under the delivery lock.
+     */
+    private function sweep(): void
+    {
+        $now = Clock::db(($this->clock)());
+        $this->db->exec("UPDATE carrier_invoice SET status = 'undone', ended_actor = ?, ended_at = ? WHERE status = 'loading'", [self::NOT_STORED, $now]);
+        do {
+            $ids = array_map('intval', $this->db->column("SELECT a.id FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id "
+                . "AND i.status IN ('superseded', 'undone') WHERE a.ended_at IS NULL ORDER BY a.id LIMIT 1000"));
+            if ($ids !== []) {
+                $this->db->exec('UPDATE carrier_allocation SET ended_at = ? WHERE ended_at IS NULL AND id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')',
+                    [$now, ...$ids]);
+            }
+        } while (count($ids) === 1000);
     }
 
     /**
@@ -388,13 +476,13 @@ final class RoyalMailBills
         foreach ([...array_chunk($flat, self::FLAT_PER_WRITE), ...array_chunk($other, self::KEYS_PER_WRITE)] as $batch) {
             $n += $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $batch): array {
                 $ctx = self::ctx($db, $account);
-                $s = self::scope($db, $account, $ctx, $batch, [], []);
-                return self::guardedPlan($s, $account, function (Db $db) use ($caller, $account, $s): int {
+                $s = self::scope($db, $account, $ctx, $batch, [], [], null);
+                return self::guardedPlan($s, function (Db $db) use ($caller, $account, $s): int {
                     if ($s['end'] === [] && $s['add'] === []) {
                         return 0;
                     }
                     $this->bills->authoriseWrite($caller);
-                    self::apply($db, $s, [], Clock::db(($this->clock)()));
+                    self::apply($db, $s, Clock::db(($this->clock)()));
                     Audit::write($db, $caller, 'delivery_bill.replan', 'carrier_account', (string) $account['id'], null, ['keys' => count($s['keys']),
                         'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]);
                     return count($s['end']) + count($s['add']);
@@ -405,18 +493,43 @@ final class RoyalMailBills
     }
 
     /**
-     * A scope's write as DeliveryBills::guardedWrite takes it: the facts of what stops counting and what starts, a check that the labels' places
-     * are still what the plan read (a parcel removed, or another one of the number stored, while it waited: the plan is old), the write.
+     * A scope's write as DeliveryBills::guardedWrite takes it (DL68): the facts of what stops counting (the allocations ended of live bills, and
+     * every allocation of the bills that stop counting) and of what starts (the allocations added to live bills, and every allocation of the bill
+     * made live), and the orders the plan put new labels on with the snapshot each was read at (a snapshot of one since: the plan is old).
      *
      * @param array<string, mixed> $s scope()
      * @param \Closure(Db): mixed $write
      * @return array<string, mixed>
      */
-    private static function guardedPlan(array $s, array $account, \Closure $write): array
+    private static function guardedPlan(array $s, \Closure $write): array
     {
-        $verify = static fn (Db $db): bool => LabelDestinations::resolve($db, $account, $s['labels'], $s['sticky']) === $s['dests'];
-        return ['before' => array_values(array_filter(array_map([self::class, 'fact'], $s['end']))), 'after' => array_values(array_filter(array_map([self::class, 'fact'],
-            $s['add']))), 'verify' => $verify, 'write' => $write];
+        $gone = array_flip($s['gone']);
+        $loading = $s['loading'];
+        $before = [];
+        foreach ($s['end'] as $a) {
+            if (!isset($gone[$a['invoice_id']]) && $a['invoice_id'] !== $loading) {
+                $before[] = $a;
+            }
+        }
+        foreach ($s['existing'] as $a) {
+            if (isset($gone[$a['invoice_id']])) {
+                $before[] = $a;
+            }
+        }
+        $after = array_values(array_filter($s['add'], static fn (array $a): bool => $a['invoice_id'] !== $loading));
+        foreach ($s['desired'] as $a) {
+            if ($loading !== null && $a['invoice_id'] === $loading) {
+                $after[] = $a;
+            }
+        }
+        $owners = [];
+        foreach ($after as $a) {
+            if ($a['dest'] === 'order') {
+                $owners[$a['channel_id'] . '|' . strtolower((string) $a['order_ref'])] = true;
+            }
+        }
+        return ['before' => array_values(array_filter(array_map([self::class, 'fact'], $before))), 'after' => array_values(array_filter(array_map([self::class, 'fact'],
+            $after))), 'versions' => array_intersect_key($s['versions'], $owners), 'write' => $write];
     }
 
     /**
@@ -438,27 +551,34 @@ final class RoyalMailBills
     }
 
     /**
-     * The allocations that stop counting ended (each exactly once: one ended meanwhile means the plan is old) and the new ones added ($ids: the
-     * placeholder bill 0 => the bill just stored).
+     * The allocations that stop counting ended (each exactly once: one ended meanwhile means the plan is old) and the new ones added. The
+     * allocations of the bills going (undone, replaced) are left to sweep(): they count nowhere once their bill's status says so.
      *
      * @param array<string, mixed> $s
-     * @param array<int, int> $ids
      */
-    private static function apply(Db $db, array $s, array $ids, string $now): void
+    private static function apply(Db $db, array $s, string $now): void
     {
-        foreach (array_chunk(array_map(static fn (array $a): int => (int) $a['id'], $s['end']), 500) as $chunk) {
+        $gone = array_flip($s['gone']);
+        $end = array_values(array_filter($s['end'], static fn (array $a): bool => !isset($gone[$a['invoice_id']])));
+        foreach (array_chunk(array_map(static fn (array $a): int => (int) $a['id'], $end), 500) as $chunk) {
             $done = $db->exec('UPDATE carrier_allocation SET ended_at = ? WHERE ended_at IS NULL AND id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
                 [$now, ...$chunk]);
             if ($done !== count($chunk)) {
                 throw new CwException(self::RETRY, 'an allocation changed while the bill was saved', 409);
             }
         }
+        self::insert($db, $s['add'], $now);
+    }
+
+    /** @param list<array<string, mixed>> $allocations */
+    private static function insert(Db $db, array $allocations, string $now): void
+    {
         $cols = ['invoice_id', 'row_no', 'kind', 'how', 'label_id', 'dest', 'channel_id', 'order_ref', 'parcel_ref', 'party_id', 'held_reason', 'day', 'pence', 'made_at'];
-        foreach (array_chunk($s['add'], 500) as $chunk) {
+        foreach (array_chunk($allocations, 500) as $chunk) {
             $params = [];
             foreach ($chunk as $a) {
-                array_push($params, $ids[(int) $a['invoice_id']] ?? (int) $a['invoice_id'], $a['row_no'], $a['kind'], $a['how'], $a['label_id'], $a['dest'], $a['channel_id'],
-                    $a['order_ref'], $a['parcel_ref'], $a['party_id'], $a['held_reason'], $a['day'], $a['pence'], $now);
+                array_push($params, (int) $a['invoice_id'], $a['row_no'], $a['kind'], $a['how'], $a['label_id'], $a['dest'], $a['channel_id'], $a['order_ref'],
+                    $a['parcel_ref'], $a['party_id'], $a['held_reason'], $a['day'], $a['pence'], $now);
             }
             $db->exec('INSERT INTO carrier_allocation (' . implode(', ', $cols) . ') VALUES '
                 . implode(', ', array_fill(0, count($chunk), '(' . implode(', ', array_fill(0, count($cols), '?')) . ')')), $params);
@@ -477,7 +597,7 @@ final class RoyalMailBills
      *   dests: array<int, array<string, mixed>>, desired: list<array<string, mixed>>, existing: list<array<string, mixed>>, end: list<array<string, mixed>>,
      *   add: list<array<string, mixed>>}
      */
-    private static function scope(Db $db, array $account, array $ctx, array $keys, array $newRows, array $gone): array
+    private static function scope(Db $db, array $account, array $ctx, array $keys, array $newRows, array $gone, ?int $loading): array
     {
         $keys = array_values(array_unique($keys));
         sort($keys, SORT_STRING);
@@ -565,7 +685,7 @@ final class RoyalMailBills
         }
         if ($where !== []) {
             $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
-            $rows = self::rowsWhere($db, $account, '(' . implode(' OR ', $where) . ')' . $not, [...$params, ...$gone]);
+            $rows = self::rowsWhere($db, $account, '(' . implode(' OR ', $where) . ')' . $not, [...$params, ...$gone], $loading);
         }
         $rows = array_values(array_filter([...$rows, ...$newRows], static fn (array $r): bool => in_array(PooledPlanner::key($r,
             $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown', $labels, $ctx), $keys, true)));
@@ -580,7 +700,8 @@ final class RoyalMailBills
             }
         }
         ksort($sticky);
-        $dests = LabelDestinations::resolve($db, $account, $labels, $sticky);
+        $versions = [];
+        $dests = LabelDestinations::resolve($db, $account, $labels, $sticky, $versions);
         $withDest = [];
         foreach ($labels as $id => $l) {
             $withDest[$id] = $l + ['dest' => $dests[$id]];
@@ -620,8 +741,8 @@ final class RoyalMailBills
             array_push($end, ...$set);
         }
         usort($end, static fn (array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
-        return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'desired' => $desired, 'existing' => $existing,
-            'end' => $end, 'add' => $add];
+        return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'versions' => $versions, 'desired' => $desired,
+            'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading];
     }
 
     /**
@@ -863,14 +984,15 @@ final class RoyalMailBills
      * @param list<mixed> $params
      * @return list<array<string, mixed>>
      */
-    private static function rowsWhere(Db $db, array $account, string $where, array $params): array
+    private static function rowsWhere(Db $db, array $account, string $where, array $params, ?int $loading = null): array
     {
         return array_map(static fn (array $r): array => ['invoice_id' => (int) $r['invoice_id'], 'row_no' => (int) $r['row_no'],
             'rank' => self::rank((string) $r['invoice_date'], (string) $r['invoice_no']), 'service_date' => (string) $r['service_date'],
             'product_code' => (string) $r['product_code'], 'qty' => (int) $r['qty'], 'net' => (int) $r['net_pence'], 'ref_kind' => (string) $r['ref_kind'],
             'ref_no' => $r['ref_no'] === null ? null : (string) $r['ref_no'], 'sales_order' => $r['sales_order'] === null ? null : (string) $r['sales_order']],
-            $db->all('SELECT r.*, i.invoice_date, i.invoice_no FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = \'live\' '
-                . "AND i.carrier = ? AND i.account = ? WHERE {$where} ORDER BY r.invoice_id, r.row_no", [$account['carrier'], $account['account_no'], ...$params]));
+            $db->all('SELECT r.*, i.invoice_date, i.invoice_no FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND (i.status = \'live\''
+                . ($loading === null ? '' : ' OR i.id = ' . $loading) . ") AND i.carrier = ? AND i.account = ? WHERE {$where} ORDER BY r.invoice_id, r.row_no",
+                [$account['carrier'], $account['account_no'], ...$params]));
     }
 
     /** @param list<int> $ids @return list<array<string, mixed>> the rows of these bills (whatever their status) */

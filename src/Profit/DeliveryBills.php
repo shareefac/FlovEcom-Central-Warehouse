@@ -215,7 +215,8 @@ final class DeliveryBills
      * profit days exactly as DPD's lines (state matched: on an order; not_matched: a shop's "not on an order" on its date, in inv_ch).
      *
      * @template T
-     * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, write: \Closure(Db): T} $plan
+     * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, versions?: array<string, string>,
+     *   write: \Closure(Db): T} $plan versions: owner key => the snapshot the plan read the order at (orderVersions())
      * @return T
      */
     public function guardedWrite(\Closure $plan): mixed
@@ -853,7 +854,12 @@ final class DeliveryBills
                         }
                         // The orders, read again now that what keeps them still is held: one paid meanwhile, or moved, means the plan is old; and the
                         // plan's matching taken again: a parcel removed, or a second one of a number stored, means it is old too.
-                        if (self::orderDays($db, $owners) !== $days || (isset($p['verify']) && !($p['verify'])($db))) {
+                        // A pooled bill's plan names the orders it put on new labels with the snapshot each was read at (RoyalMailBills, DL68): a
+                        // snapshot of one stored since (its parcels may have changed) means the plan is old, read in the same pass as the days.
+                        $versions = isset($p['versions']) ? [] : null;
+                        $daysNow = self::orderDays($db, $owners, $versions);
+                        if ($daysNow !== $days || ($versions !== null && array_intersect_key($versions, $p['versions']) != $p['versions'])
+                            || (isset($p['verify']) && !($p['verify'])($db))) {
                             throw new CwException(self::RETRY, 'an order of these lines changed while they were saved: tried again', 409);
                         }
                         $result = ($p['write'])($db);
@@ -957,7 +963,7 @@ final class DeliveryBills
      * @param array<string, array{0: int, 1: string}> $owners key => [channel, ref]
      * @return array<string, ?string>
      */
-    private static function orderDays(Db $db, array $owners): array
+    private static function orderDays(Db $db, array $owners, ?array &$versions = null): array
     {
         $out = [];
         $byShop = [];
@@ -968,14 +974,32 @@ final class DeliveryBills
         ksort($byShop);
         foreach ($byShop as $ch => $refs) {
             foreach (array_chunk($refs, 500) as $chunk) {
-                foreach ($db->all('SELECT order_ref, day FROM sale_order WHERE channel_id = ? AND order_ref IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
-                    [$ch, ...$chunk]) as $r) {
+                foreach ($db->all('SELECT order_ref, day' . ($versions === null ? '' : ', snapshot_version, updated_at') . ' FROM sale_order WHERE channel_id = ? AND order_ref IN ('
+                    . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$ch, ...$chunk]) as $r) {
                     $out[$ch . '|' . strtolower((string) $r['order_ref'])] = $r['day'] === null ? null : (string) $r['day'];
+                    if ($versions !== null) {
+                        $versions[$ch . '|' . strtolower((string) $r['order_ref'])] = $r['snapshot_version'] . '|' . $r['updated_at'];
+                    }
                 }
             }
         }
         ksort($out, SORT_STRING);
         return $out;
+    }
+
+    /**
+     * The snapshot each order was read at ("version|updated_at"), by owner key (channel|lower-case ref): what a pooled bill's plan names in
+     * 'versions' (RoyalMailBills, DL68).
+     *
+     * @param array<string, array{0: int, 1: string}> $owners
+     * @return array<string, string>
+     */
+    public static function orderVersions(Db $db, array $owners): array
+    {
+        $v = [];
+        self::orderDays($db, $owners, $v);
+        ksort($v, SORT_STRING);
+        return $v;
     }
 
     /** A store's day row left with nothing to show (every figure 0, no paid order, no line on no order dated that day): removed. */

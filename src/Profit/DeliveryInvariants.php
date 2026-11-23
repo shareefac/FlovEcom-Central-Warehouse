@@ -22,9 +22,10 @@ use CW\Db;
  * The pooled bills (Royal Mail, 0078; docs/decisions.md DL67): DB3 is the per-parcel carriers' (a pooled bill has rows, not lines), and
  *  DB7. per live pooled bill, its rows add up to its net exactly, and there are as many as it says.
  *  DB8. per row of a live pooled bill, its live allocations add up to its net exactly (every penny somewhere, none twice).
- *  DB9. a bill that is not live has no live allocation (undo and replace end them).
+ *  DB9. a superseded or undone bill has no live allocation (undo and replace end them right after, RoyalMailBills::sweep()).
  *  DB10. an allocation's label is a label of its bill's own carrier account (a parcel of another account never takes its money).
  *  DB11. a flat label holds one live price at most across the rows of its day (the day book puts every label on one row).
+ *  DB12. no pooled bill is still "loading" 10 minutes after its upload (its write did not end; the next bill write or the nightly sweeps it).
  * Their cost (the Codex check r1, LOW 2): DB1, DB2 and DB3 read every line (DPD: about 10,000 a month, 120,000 a year: a second or two a
  * night); a carrier with a line per parcel at ten times that would want them by the bills uploaded since the last run.
  */
@@ -69,7 +70,9 @@ final class DeliveryInvariants
         }
         foreach ($db->all("SELECT o.id, o.status, COUNT(n.id) AS replaced_by, SUM(n.carrier <> o.carrier OR n.account <> o.account OR n.invoice_no <> o.invoice_no "
             . 'OR n.id <= o.id) AS other '
-            . 'FROM carrier_invoice o LEFT JOIN carrier_invoice n ON n.supersedes_id = o.id GROUP BY o.id, o.status '
+            // a pooled bill still loading, or one whose write never finished (undone as not stored), names its bill only as about to replace it (DL68)
+            . "FROM carrier_invoice o LEFT JOIN carrier_invoice n ON n.supersedes_id = o.id AND n.status <> 'loading' AND NOT (n.status = 'undone' AND n.ended_actor = 'system:not_stored') "
+            . 'GROUP BY o.id, o.status '
             . "HAVING (o.status = 'superseded' AND replaced_by <> 1) OR (o.status <> 'superseded' AND replaced_by <> 0) OR COALESCE(other, 0) > 0 "
             . 'ORDER BY o.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB6 bill {$r['id']} ({$r['status']}): named as replaced by {$r['replaced_by']} bills" . ((int) ($r['other'] ?? 0) > 0 ? ', some of another bill or uploaded before it' : '');
@@ -85,8 +88,12 @@ final class DeliveryInvariants
             $v[] = "DB8 bill {$r['invoice_id']} row {$r['row_no']}: its live allocations add up to {$r['total']}p, the row's net is {$r['net_pence']}p";
         }
         foreach ($db->all("SELECT i.id, i.status, COUNT(*) AS n FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id WHERE a.ended_at IS NULL "
-            . "AND i.status <> 'live' GROUP BY i.id, i.status ORDER BY i.id LIMIT " . self::MAX_PER_CHECK) as $r) {
+            . "AND i.status IN ('superseded', 'undone') GROUP BY i.id, i.status ORDER BY i.id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB9 bill {$r['id']} ({$r['status']}): {$r['n']} allocations still live";
+        }
+        foreach ($db->all("SELECT id, invoice_no FROM carrier_invoice WHERE status = 'loading' AND uploaded_at < UTC_TIMESTAMP(6) - INTERVAL 10 MINUTE ORDER BY id LIMIT "
+            . self::MAX_PER_CHECK) as $r) {
+            $v[] = "DB12 bill {$r['id']} ({$r['invoice_no']}): still loading 10 minutes after its upload (a write that did not end: the next bill write or the nightly undoes it)";
         }
         foreach ($db->all('SELECT a.id FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id JOIN carrier_label l ON l.id = a.label_id '
             . 'JOIN carrier_account ca ON ca.id = l.account_id WHERE a.ended_at IS NULL AND (ca.carrier <> i.carrier OR ca.account_no <> i.account) '

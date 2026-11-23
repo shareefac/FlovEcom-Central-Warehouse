@@ -35,10 +35,13 @@ final class LabelDestinations
      * @param array<string, mixed> $account CarrierSettings::account()
      * @param array<int, array<string, mixed>> $labels by id: tracking_no, reference, channel_code, manifest_day
      * @param array<int, array<string, mixed>> $sticky label id => its order destination now (live allocations on an order)
+     * @param array<string, string>|null $versions filled: each order a label was put on here (not sticky), "channel|lower-case ref" => the
+     *   snapshot it was read at ("version|updated_at": DeliveryBills::orderVersions), so a write can tell the order changed since (DL68)
      * @return array<int, array{dest: string, channel_id: ?int, order_ref: ?string, parcel_ref: ?string, party_id: ?int, held_reason: ?string}>
      */
-    public static function resolve(Db $db, array $account, array $labels, array $sticky): array
+    public static function resolve(Db $db, array $account, array $labels, array $sticky, ?array &$versions = null): array
     {
+        $versions = [];
         $parties = CarrierSettings::parties($db, (int) $account['id']);
         $rules = CarrierSettings::rules($db, (int) $account['id']);
         $byChannel = [];
@@ -89,6 +92,9 @@ final class LabelDestinations
                     default => ['dest' => 'order', 'channel_id' => (int) $p['channel_id'], 'order_ref' => (string) $p['order_ref'], 'parcel_ref' => (string) $p['parcel_ref'],
                         'party_id' => null, 'held_reason' => null],
                 };
+                if ($out[$id]['dest'] === 'order') {
+                    $versions[(int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref'])] = $p['snapshot_version'] . '|' . $p['updated_at'];
+                }
                 continue;
             }
             if ($ruled === null) {
@@ -110,6 +116,7 @@ final class LabelDestinations
             $out[$id] = ['dest' => $before ? 'before_start' : 'shop', 'channel_id' => $ch, 'order_ref' => null, 'parcel_ref' => null, 'party_id' => null, 'held_reason' => null];
         }
         ksort($out);
+        ksort($versions, SORT_STRING);
         return $out;
     }
 
@@ -123,7 +130,8 @@ final class LabelDestinations
     {
         $out = [];
         foreach (array_chunk(array_map('strval', $tracking), 500) as $chunk) {
-            foreach ($db->all('SELECT p.channel_id, p.order_ref, p.parcel_ref, p.tracking_no, p.carrier, p.is_manual, p.label_at, o.order_no FROM sale_parcel p '
+            foreach ($db->all('SELECT p.channel_id, p.order_ref, p.parcel_ref, p.tracking_no, p.carrier, p.is_manual, p.label_at, o.order_no, o.snapshot_version, '
+                . 'o.updated_at FROM sale_parcel p '
                 . 'JOIN sale_order o ON o.channel_id = p.channel_id AND o.order_ref = p.order_ref WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?'))
                 . ') AND p.removed_at IS NULL AND p.label_at IS NOT NULL', $chunk) as $p) {
                 $out[strtoupper((string) $p['tracking_no'])][] = $p + ['label_day' => ReportRefresh::ukDay((string) $p['label_at'])];
