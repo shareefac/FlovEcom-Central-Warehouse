@@ -28,7 +28,7 @@ final class DeliveryBillsController
     public const PERM_VIEW = DeliveryBills::PERM_VIEW;
     public const PERM_UPLOAD = DeliveryBills::PERM_UPLOAD;
     /** The notices a redirect may carry back. */
-    private const NOTICES = ['stored', 'same', 'replaced', 'undone'];
+    private const NOTICES = ['stored', 'same', 'replaced', 'undone', 'stored_later', 'replaced_later'];
 
     /** GET: the bills, and the upload for the people who may upload. */
     public function list(Context $ctx): HtmlResponse
@@ -48,7 +48,9 @@ final class DeliveryBillsController
         } catch (CwException $e) {
             return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => $carrier, 'shop' => $shop]);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same' : 'stored']));
+        // A re-match of the other bills that could not run is said (the Codex check r2, MEDIUM 4): the bill is stored all the same.
+        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same'
+            : ($r['rematch_error'] !== null ? 'stored_later' : 'stored')]));
     }
 
     /** GET {id}: one bill, its tie-out and its lines of a filter (?show=other|matched|collection|before_start|all, ?page=n). */
@@ -68,7 +70,8 @@ final class DeliveryBillsController
         } catch (CwException $e) {
             return $this->billPage($ctx, $id, $e->httpStatus, $e, null);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same' : 'replaced']));
+        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same'
+            : ($r['rematch_error'] !== null ? 'replaced_later' : 'replaced')]));
     }
 
     /** POST {id}/undo: "Undo this upload" (DeliveryBills::undo), only with its box ticked. */

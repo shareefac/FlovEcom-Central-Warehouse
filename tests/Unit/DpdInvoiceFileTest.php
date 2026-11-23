@@ -146,6 +146,9 @@ final class DpdInvoiceFileTest extends TestCase
             'no net at the top' => [static fn (): string => DpdCsv::file($week(), ['top' => [['Account No', '3012002', 'Invoice No', '62368793'], ['VAT', '', '1.00', 'GBP'],
                 ['Gross Invoice Value', '', '1.00', 'GBP']]]), 'does not say its net total'],
             'an account that is no number' => [static fn (): string => DpdCsv::file($week(), ['account' => 'Test Person']), 'the account at the top of the file is not a number'],
+            // The Codex check r2, HIGH 2: DPD's numbers are digits; a name there is never kept nor said.
+            'a bill number that is a name' => [static fn (): string => DpdCsv::file($week(), ['invoice' => 'Smith']), 'the invoice number at the top of the file is not a number'],
+            'an account with letters' => [static fn (): string => DpdCsv::file($week(), ['account' => 'TEST1']), 'the account at the top of the file is not a number'],
             'no lines' => [static fn (): string => DpdCsv::file([]), 'the file has no lines'],
             'empty' => [static fn (): string => '', 'the file is empty'],
             'UTF-16' => [static fn (): string => "\xFF\xFE" . mb_convert_encoding(DpdCsv::file($week()), 'UTF-16LE', 'UTF-8'), 'UTF-16'],
@@ -167,6 +170,7 @@ final class DpdInvoiceFileTest extends TestCase
             self::assertStringEndsWith('Nothing was saved.', $e->getMessage());
             self::assertStringNotContainsString('Test Street', $e->getMessage(), 'a refusal never shows what a cell holds');
             self::assertStringNotContainsString('Test Person', $e->getMessage());
+            self::assertStringNotContainsString('Smith', $e->getMessage());
         }
     }
 

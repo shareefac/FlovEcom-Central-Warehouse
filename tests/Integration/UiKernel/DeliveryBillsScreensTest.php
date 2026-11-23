@@ -231,6 +231,66 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
             array_column(self::rows($job->get('/ui/profit/delivery'), 'delivery-bills'), 8));
     }
 
+    /**
+     * The Codex check r2, LOW 1: a line to check because two orders carry its Senders Ref (a collection) shows those orders; the lines can be
+     * shown state by state (not matched, to check).
+     */
+    public function testALineToCheckShowsTheOrdersThatFitAndEachStateHasItsFilter(): void
+    {
+        [$ch, $today] = $this->shop();
+        $paid = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-50 seconds')->format('Y-m-d\TH:i:s\Z');
+        foreach (['105' => '81356105', '106' => '81356106'] as $ref => $line) {
+            (new OrderSnapshots(self::$db))->store($ch, $ref, ['v' => 1, 'version' => 1, 'order_no' => '1356999', 'status' => 'completed', 'placed_at' => $paid,
+                'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => $line, 'variant_id' => '40123', 'qty' => 1,
+                'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'DPD',
+                'charged_inc' => 0, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => []], 'api');
+        }
+        $job = $this->signIn($this->uiUser('delivery_bills'));
+        $path = $this->dir . '/check.csv';
+        file_put_contents($path, DpdCsv::file([DpdCsv::line($today, '6599100900/0', 1550, ['money' => ['Third Party Collection' => 1550], 'Senders Ref' => '1356999']),
+            DpdCsv::line($today, '6599100901/0', 300)], ['invoice' => '62999200']));
+        $r = $this->upload($job, $path);
+        self::assertSame(303, $r->status, $r->describe());
+        $id = (int) self::$db->value('SELECT id FROM carrier_invoice');
+        $check = $job->get("/ui/profit/delivery/{$id}", ['show' => 'ambiguous']);
+        self::assertSame(200, $check->status);
+        $rows = self::rows($check, 'delivery-lines');
+        self::assertCount(1, $rows);
+        self::assertSame(Words::DELIVERY['state_ambiguous'] . ' ' . Words::say('DELIVERY', 'fits', '1356999, 1356999'), $rows[0][6]);
+        self::assertSame(['2'], array_column(self::rows($job->get("/ui/profit/delivery/{$id}", ['show' => 'not_matched']), 'delivery-lines'), 0));
+        self::assertStringContainsString(Words::DELIVERY['filter_not_matched'], $check->text());
+    }
+
+    /** The Codex check r2, MEDIUM 4: a bill stored while the re-match of the others cannot run says so (the nightly run does it). */
+    public function testAnUploadSaysWhenTheOtherBillsCouldNotBeTriedAgain(): void
+    {
+        [$ch, $today] = $this->shop();
+        $job = $this->signIn($this->uiUser('delivery_bills'));
+        $first = $this->dir . '/first.csv';
+        file_put_contents($first, DpdCsv::file([DpdCsv::line($today, '6599100950/0', 420)], ['invoice' => '62999300']));
+        self::assertSame(303, $this->upload($job, $first)->status);
+        $label = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify('-40 seconds')->format('Y-m-d\TH:i:s\Z');
+        (new OrderSnapshots(self::$db))->store($ch, '107', ['v' => 1, 'version' => 1, 'order_no' => '1356107', 'status' => 'pending', 'placed_at' => $label,
+            'paid_at' => null, 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [['line_id' => '81356107', 'variant_id' => '40123',
+            'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0, 'free' => false]], 'delivery' => ['method_id' => '5',
+            'method' => 'DPD', 'charged_inc' => 0, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 1200, 'parcels' => [['parcel_ref' => 'odl:950',
+            'tracking_no' => '6599100950', 'carrier' => 'dpd', 'service_code' => '12', 'service' => 'DPD', 'status' => 'generated', 'label_at' => $label,
+            'shipped_at' => $label, 'manual' => false, 'partial' => false]]], 'api');
+        $other = \CW\Tests\Support\TestDb::connect();
+        self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 5)', [OrderSnapshots::lockName($ch, '107')]));
+        try {
+            $second = $this->dir . '/second.csv';
+            file_put_contents($second, DpdCsv::file([DpdCsv::line($today, '6599100951/0', 300)], ['invoice' => '62999301']));
+            $r = $this->upload($job, $second);
+        } finally {
+            $other->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($ch, '107')]);
+        }
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringEndsWith('?notice=stored_later', (string) $r->location());
+        self::assertStringContainsString(Words::DELIVERY['notice_stored_later'], $job->follow($r)->text());
+        self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
+    }
+
     /** The app login (cw_app, its converged grants) writes every step: a line matched later (the match columns only), an undo. */
     public function testTheAppLoginReMatchesAndUndoes(): void
     {

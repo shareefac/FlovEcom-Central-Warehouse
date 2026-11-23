@@ -74,8 +74,8 @@ final class DpdInvoiceFile
     private const LABELS = ['account no' => 'account', 'account number' => 'account', 'account' => 'account', 'invoice no' => 'invoice_no',
         'invoice number' => 'invoice_no', 'nett invoice value' => 'net', 'net invoice value' => 'net', 'vat' => 'vat', 'vat value' => 'vat',
         'gross invoice value' => 'gross', 'invoice date' => 'invoice_date', 'date of invoice' => 'invoice_date', 'tax point' => 'invoice_date'];
-    /** An account or bill number: letters, digits and - only (DPD: digits). */
-    public const NUMBER = '/^[A-Za-z0-9-]{1,32}$/D';
+    /** DPD's account and bill numbers: digits only (3012002, 62368793), so no name can ride in on them (the Codex check r2, HIGH 2). */
+    public const NUMBER = '/^[0-9]{1,16}$/D';
     /** DPD's product and service codes as kept: 1-3 digits (1, 4, 12, 24 ...). */
     private const CODE = '/^[0-9]{1,3}$/D';
 

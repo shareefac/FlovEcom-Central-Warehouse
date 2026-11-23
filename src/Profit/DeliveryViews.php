@@ -19,8 +19,8 @@ final class DeliveryViews
     /** The most bills the list shows (newest upload first). */
     public const LIST_LIMIT = 200;
     /** The filters of a bill's lines: the default shows the lines on no order (the ones to look at), the dearest first. */
-    public const FILTERS = ['other' => ['not_matched', 'ambiguous'], 'matched' => ['matched'], 'collection' => ['collection'], 'before_start' => ['before_start'],
-        'all' => DeliveryBills::STATES];
+    public const FILTERS = ['other' => ['not_matched', 'ambiguous'], 'not_matched' => ['not_matched'], 'ambiguous' => ['ambiguous'], 'matched' => ['matched'],
+        'collection' => ['collection'], 'before_start' => ['before_start'], 'all' => DeliveryBills::STATES];
 
     public function __construct(private readonly Db $db)
     {
@@ -87,13 +87,25 @@ final class DeliveryViews
         $total = (int) $this->db->value("SELECT COUNT(*) FROM carrier_invoice_line WHERE invoice_id = ? AND match_state IN ({$marks})", [$id, ...$states]);
         $pages = max(1, (int) ceil($total / self::PAGE));
         $page = max(1, min($page, $pages));
-        $order = $filter === 'other' ? 'l.cost DESC, l.line_no' : 'l.line_no';
+        $order = in_array($filter, ['other', 'not_matched', 'ambiguous'], true) ? 'l.cost DESC, l.line_no' : 'l.line_no';
+        $shop = (int) $this->db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$id]);
         $rows = $this->db->all('SELECT l.line_no, l.line_date, l.consignment, l.marks, l.parcel_no, l.product, l.service, l.weight, l.items, l.vat_code, l.cost, '
-            . 'l.match_state, l.channel_id, l.order_ref, l.parcel_ref, l.candidates, o.order_no FROM carrier_invoice_line l '
+            . 'l.match_state, l.channel_id, l.order_ref, l.parcel_ref, l.candidates, l.senders_ref, l.money, o.order_no FROM carrier_invoice_line l '
             . 'LEFT JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
             . "WHERE l.invoice_id = ? AND l.match_state IN ({$marks}) ORDER BY {$order} LIMIT " . self::PAGE . ' OFFSET ' . (($page - 1) * self::PAGE), [$id, ...$states]);
         foreach ($rows as $i => $r) {
-            $rows[$i]['fits'] = $r['match_state'] === 'ambiguous' ? $this->fits((string) $r['line_date'], $r['consignment']) : [];
+            $fits = [];
+            if ($r['match_state'] === 'ambiguous') {
+                // Two parcels of its consignment in the window, else two orders of its Senders Ref (a collection: the Codex check r2, LOW 1).
+                $fits = $this->fits((string) $r['line_date'], $r['consignment']);
+                if (count($fits) < 2 && $r['senders_ref'] !== null && array_key_exists(DpdInvoiceFile::COLLECTION, (array) json_decode((string) $r['money'], true))) {
+                    $fits = array_map(static fn (array $o): array => ['order_ref' => (string) $o['order_ref'], 'order_no' => (string) $o['order_no'], 'parcel_ref' => '',
+                        'label_at' => ''], $this->db->all('SELECT order_ref, order_no FROM sale_order WHERE channel_id = ? AND order_no = ? ORDER BY order_ref',
+                        [$shop, (string) $r['senders_ref']]));
+                }
+            }
+            $rows[$i]['fits'] = $fits;
+            unset($rows[$i]['money']);
         }
         return ['rows' => $rows, 'total' => $total, 'pages' => $pages, 'page' => $page];
     }

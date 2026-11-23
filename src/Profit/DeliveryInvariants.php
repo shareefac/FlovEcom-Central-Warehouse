@@ -16,7 +16,7 @@ use CW\Db;
  *  DB2. a matched line points at a parcel CW holds (kept even when a later snapshot removed it), a collection line at an order CW holds.
  *  DB3. per live bill, its lines add up to its net exactly, and there are as many as it says.
  *  DB4. no two live bills of the same carrier, account and number.
- *  DB5. every bill of one carrier account names the same shop.
+ *  DB5. every bill of one carrier account that is not undone names the same shop (an undone bill is no evidence of its shop, DL8).
  *  DB6. a superseded bill was replaced by exactly one bill of the same carrier, account and number, uploaded after it; a bill names as
  *       replaced only a superseded one of its own key.
  * Their cost (the Codex check r1, LOW 2): DB1, DB2 and DB3 read every line (DPD: about 10,000 a month, 120,000 a year: a second or two a
@@ -56,12 +56,12 @@ final class DeliveryInvariants
             . 'HAVING n > 1 ORDER BY carrier, account, invoice_no LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB4 {$r['carrier']} account {$r['account']} bill {$r['invoice_no']}: {$r['n']} live bills";
         }
-        foreach ($db->all('SELECT carrier, account, COUNT(DISTINCT channel_id) AS n FROM carrier_invoice GROUP BY carrier, account HAVING n > 1 '
+        foreach ($db->all("SELECT carrier, account, COUNT(DISTINCT channel_id) AS n FROM carrier_invoice WHERE status <> 'undone' GROUP BY carrier, account HAVING n > 1 "
             . 'ORDER BY carrier, account LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB5 {$r['carrier']} account {$r['account']}: its bills name {$r['n']} shops";
         }
         foreach ($db->all("SELECT o.id, o.status, COUNT(n.id) AS replaced_by, SUM(n.carrier <> o.carrier OR n.account <> o.account OR n.invoice_no <> o.invoice_no "
-            . 'OR n.id < o.id) AS other '
+            . 'OR n.id <= o.id) AS other '
             . 'FROM carrier_invoice o LEFT JOIN carrier_invoice n ON n.supersedes_id = o.id GROUP BY o.id, o.status '
             . "HAVING (o.status = 'superseded' AND replaced_by <> 1) OR (o.status <> 'superseded' AND replaced_by <> 0) OR COALESCE(other, 0) > 0 "
             . 'ORDER BY o.id LIMIT ' . self::MAX_PER_CHECK) as $r) {

@@ -129,7 +129,7 @@ foreach (\CW\Profit\DeliveryBills::STATES as $st) {
 
 <?php if ($canUpload): ?>
 <h2><?= $word('DELIVERY', 'replace_title') ?></h2>
-<form class="record delivery-replace" method="post" action="<?= $u('/ui/profit/delivery/' . (int) $b['id'] . '/replace') ?>" enctype="multipart/form-data">
+<form class="record delivery-replace" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/delivery/' . (int) $b['id'] . '/replace') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <label for="r-file"><?= $word('DELIVERY', 'file') ?> <span class="hint"><?= $word('DELIVERY', 'replace_hint') ?></span></label>
   <input id="r-file" type="file" name="file" accept=".csv,text/csv">

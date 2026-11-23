@@ -54,6 +54,12 @@ final class DeliveryBills
     public const ON_ORDER = ['matched', 'collection'];
     /** The states counted as "charges not on an order" (in the profit). */
     public const OTHER = ['not_matched', 'ambiguous'];
+    /**
+     * The accounts whose shop the lead confirmed (decision 4, 23 Nov 2026): carrier => account => the shop's code. A bill of one of them is
+     * that shop's whatever its lines match (a choice of another shop is refused), so the first bill of an account with no line on a CW parcel
+     * (DPD 15-24 Oct 2026, all before CW start) cannot be put on the wrong shop (the Codex check r2, MEDIUM 1). A shop not in CW: as unknown.
+     */
+    public const ACCOUNTS = ['dpd' => ['3012002' => 'vapeandgo']];
     /** The parcels a DPD line may be matched to: their carrier word in CW (SnapshotBody::CARRIERS). */
     public const DPD_PARCELS = ['dpd', 'dpd_local'];
     /** A bill line is dated at most this many days after its parcel's label day ... */
@@ -95,8 +101,9 @@ final class DeliveryBills
             $live = $this->db->one('SELECT id, file_sha256, uploaded_at FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
             if ($live !== null) {
                 if ($live['file_sha256'] === $bill['sha256']) {
-                    return ['result' => 'same', 'invoice_id' => (int) $live['id'], 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $live['uploaded_at']]
-                        + $this->rematchAfter($caller);
+                    // The very file again changes nothing at all (the Codex check r2, MEDIUM 4): the nightly run re-matches.
+                    return ['result' => 'same', 'invoice_id' => (int) $live['id'], 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $live['uploaded_at'],
+                        'rematched' => 0, 'rematch_error' => null];
                 }
                 throw new CwException('already_uploaded', sprintf('DPD bill %s was uploaded on %s and is in the profit already. To load a corrected file of it, open the bill '
                     . 'and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
@@ -129,8 +136,8 @@ final class DeliveryBills
                     $bill['account'], (string) $old['invoice_no'], (string) $old['account']), 422);
             }
             if ($bill['sha256'] === $old['file_sha256']) {
-                return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at']]
-                    + $this->rematchAfter($caller);
+                return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at'],
+                    'rematched' => 0, 'rematch_error' => null];
             }
             $id = $this->store($caller, $bill, (int) $old['channel_id'], $old);
             return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
@@ -144,13 +151,14 @@ final class DeliveryBills
         $this->authorise($caller);
         $this->locked(function () use ($caller, $invoiceId): void {
             $this->guarded(function (Db $db) use ($caller, $invoiceId): array {
-                $this->authorise($caller); // again in the write's transaction: a job taken away while it waited counts (Codex r1 LOW 1)
                 $inv = $db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
                 if ($inv['status'] !== 'live') {
                     throw new CwException('not_live', 'this bill is no longer in the profit: nothing to undo.', 409);
                 }
                 $before = self::facts($db, [$invoiceId], true);
                 return ['before' => $before, 'after' => [], 'write' => function (Db $db) use ($caller, $inv): void {
+                    // Again once everything is held: a job taken away while this waited counts (the Codex checks r1 LOW 1, r2 MEDIUM 4).
+                    $this->authorise($caller);
                     $now = Clock::db(($this->clock)());
                     $db->exec("UPDATE carrier_invoice SET status = 'undone', ended_by = ?, ended_actor = ?, ended_at = ? WHERE id = ? AND status = 'live'",
                         [$caller->staffUserId, $caller->actor, $now, (int) $inv['id']]);
@@ -182,8 +190,10 @@ final class DeliveryBills
     {
         try {
             return ['rematched' => $this->rematchAll($caller), 'rematch_error' => null];
-        } catch (CwException $e) {
-            return ['rematched' => null, 'rematch_error' => $e->getMessage()];
+        } catch (CwException | \PDOException $e) {
+            // A refusal or a database wait that ran out (the Codex check r2, MEDIUM 4): the bill is stored all the same.
+            return ['rematched' => null, 'rematch_error' => $e instanceof CwException ? $e->getMessage()
+                : 'the other bills\' lines could not be tried again just now (an order of theirs was busy): the nightly run does it'];
         }
     }
 
@@ -269,7 +279,6 @@ final class DeliveryBills
     private function store(Caller $caller, array $bill, ?int $shop, ?array $old): int
     {
         return $this->guarded(function (Db $db) use ($caller, $bill, $shop, $old): array {
-            $this->authorise($caller); // again in the write's transaction (Codex r1 LOW 1)
             $lines = $bill['lines'];
             $hits = self::parcels($db, $lines);
             $channel = $old !== null ? (int) $old['channel_id']
@@ -286,6 +295,7 @@ final class DeliveryBills
             // removed, or another one of the number stored, while this waited means the plan is old (Codex r1 HIGH 3).
             $verify = static fn (Db $db): bool => self::decide($db, $lines, self::parcels($db, $lines), $channel, $start) === $match;
             return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $bill, $channel, $match, $old): int {
+                $this->authorise($caller); // again once everything is held (the Codex checks r1 LOW 1, r2 MEDIUM 4)
                 $now = Clock::db(($this->clock)());
                 if ($old !== null) {
                     // The old bill first: its key is free for the new one (one live bill per key, uq_carrier_invoice_live).
@@ -376,6 +386,7 @@ final class DeliveryBills
             }
             $verify = static fn (Db $db): bool => $decideAll($db, self::parcels($db, $lines)) === $match;
             return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $changed): int {
+                $this->authorise($caller); // again once everything is held (the Codex check r2, MEDIUM 4)
                 $now = Clock::db(($this->clock)());
                 $n = 0;
                 $states = [];
@@ -532,7 +543,8 @@ final class DeliveryBills
     }
 
     /**
-     * The shop an account bills (DL8): the one its earlier bills name (live or replaced: an undone bill is no evidence); for an account new to
+     * The shop an account bills (DL8): the one the lead confirmed (ACCOUNTS), else the one its earlier bills name (live or replaced: an undone
+     * bill is no evidence); for an account new to
      * CW, the shop most of the file's lines matched to one parcel in the window are parcels of (a shop chosen on the form must agree; two shops
      * as many: the shop must be chosen); none: the shop chosen on the form; none chosen: refused.
      *
@@ -543,11 +555,13 @@ final class DeliveryBills
         if ($choice !== null && $db->value('SELECT id FROM channel WHERE id = ?', [$choice]) === null) {
             throw new CwException('bad_shop', 'there is no such shop', 422, ['field' => 'shop']);
         }
-        $known = $db->value("SELECT channel_id FROM carrier_invoice WHERE carrier = ? AND account = ? AND status <> 'undone' ORDER BY id DESC LIMIT 1", [$carrier, $account]);
         $name = static fn (int $id): string => (string) ($db->value('SELECT name FROM channel WHERE id = ?', [$id]) ?? $id);
+        $confirmed = isset(self::ACCOUNTS[$carrier][$account]) ? $db->value('SELECT id FROM channel WHERE code = ?', [self::ACCOUNTS[$carrier][$account]]) : null;
+        $known = $confirmed ?? $db->value("SELECT channel_id FROM carrier_invoice WHERE carrier = ? AND account = ? AND status <> 'undone' ORDER BY id DESC LIMIT 1",
+            [$carrier, $account]);
         if ($known !== null) {
             if ($choice !== null && $choice !== (int) $known) {
-                throw new CwException('account_shop', sprintf('DPD account %s bills %s in CW (its earlier bills): leave the shop empty, or choose %s. Nothing was saved.',
+                throw new CwException('account_shop', sprintf('DPD account %s bills %s in CW: leave the shop empty, or choose %s. Nothing was saved.',
                     $account, $name((int) $known), $name((int) $known)), 422, ['field' => 'shop']);
             }
             return (int) $known;
@@ -604,11 +618,12 @@ final class DeliveryBills
     /**
      * One delivery write (DL13): $plan reads what it changes ({before, after, verify?, write}: the facts of the lines as they count now and as
      * they will count, a check of its decisions, and the writes). Then, in this order (the order every snapshot takes them: its guards, then its
-     * day rows, then its rows): the snapshot guard (OrderSnapshots::lockName) of every order not paid that a line is on, so none is paid
-     * meanwhile; the day rows both sets count on, in key order (ProfitDays::guard), so no paid order moves off them meanwhile; the orders' days
-     * read again, and the plan's decisions taken again ($verify): when one changed since the plan read it, the transaction is rolled back and
-     * tried again (TRIES times). Else the writes, the day figures by the difference, and the day rows left with nothing to show removed. The
-     * caller holds the delivery lock. (Codex r1 HIGH 3, MEDIUM 4: no row lock is held on an order, so no cycle with a snapshot's parent.)
+     * day rows, then its rows): the snapshot guard (OrderSnapshots::lockName) of EVERY order a line is on, in name order, so none of them, and
+     * no re-send whose first order it is, is stored meanwhile (the Codex checks r1 HIGH 3 / MEDIUM 4 and r2 MEDIUM 2: no snapshot can then hold
+     * a row of these orders that this write's foreign keys need); the day rows both sets count on, in key order (ProfitDays::guard); the
+     * orders' days read again, and the plan's decisions taken again ($verify): when one changed since the plan read it, or the database chose
+     * this write in a deadlock, the transaction is rolled back, every guard let go, and it is tried again (TRIES times). Else the writes, the
+     * day figures by the difference, and the day rows left with nothing to show removed. The caller holds the delivery lock.
      *
      * @template T
      * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, write: \Closure(Db): T} $plan
@@ -632,10 +647,8 @@ final class DeliveryBills
                     ksort($owners, SORT_STRING);
                     $days = self::orderDays($db, $owners);
                     $names = [];
-                    foreach ($owners as $k => [$ch, $ref]) {
-                        if ($days[$k] === null) {
-                            $names[] = OrderSnapshots::lockName($ch, $ref);
-                        }
+                    foreach ($owners as [$ch, $ref]) {
+                        $names[] = OrderSnapshots::lockName($ch, $ref);
                     }
                     $names = array_values(array_unique($names));
                     sort($names, SORT_STRING);
@@ -687,9 +700,10 @@ final class DeliveryBills
                         self::tidy($db, (int) $ch, $day);
                     }
                     return $result;
-                });
-            } catch (CwException $e) {
-                if ($e->errorCode !== self::RETRY) {
+                }, 0); // no retry inside: a deadlock is retried below, once every guard is let go
+            } catch (\Throwable $e) {
+                // 3058: MySQL found two sessions waiting for each other's named locks (it never happens with names taken in order; said, tried again).
+                if (!($e instanceof CwException && $e->errorCode === self::RETRY) && !Db::isDeadlock($e) && Db::driverCode($e) !== 3058) {
                     throw $e;
                 }
                 if ($try >= self::TRIES) {

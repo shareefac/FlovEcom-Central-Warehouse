@@ -77,7 +77,14 @@ exit(Cli::main('delivery_bill', ['file:', 'carrier:', 'shop:', 'upload', 'replac
             $cli->error($e->getMessage());
             return Cli::PROBLEM;
         }
-        $cli->log($r['result'] === 'same' ? "the same file: nothing changed (bill id {$r['invoice_id']})"
-            : "stored as bill id {$r['invoice_id']}; {$r['rematched']} lines of other bills put on a parcel or an order since");
+        if ($r['result'] === 'same') {
+            $cli->log("the same file: nothing changed (bill id {$r['invoice_id']})");
+            return Cli::OK;
+        }
+        if ($r['rematch_error'] !== null) {
+            $cli->log("stored as bill id {$r['invoice_id']}; the other bills' lines not on an order were not tried again: {$r['rematch_error']}");
+            return Cli::OK;
+        }
+        $cli->log("stored as bill id {$r['invoice_id']}; {$r['rematched']} lines of other bills put on a parcel or an order since");
         return Cli::OK;
     }, false, true));

@@ -424,7 +424,7 @@ final class DeliveryBillsTest extends StockTestCase
         $ef = (int) $this->site('electrofag', 'live')->channelId;
         self::$db->exec("INSERT INTO carrier_invoice (carrier, account, invoice_no, period_from, period_to, channel_id, net_pence, vat_pence, gross_pence, line_count, "
             . "file_sha256, status, uploaded_actor, uploaded_at, ended_actor, ended_at) VALUES ('dpd', '3012002', '1', '2026-11-01', '2026-11-01', ?, 0, 0, 0, 0, ?, "
-            . "'undone', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ef, str_repeat('a', 64)]);
+            . "'superseded', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ef, str_repeat('a', 64)]);
         self::assertContains('DB5 dpd account 3012002: its bills name 2 shops', Invariants::check(self::$db));
         self::$db->exec("DELETE FROM carrier_invoice WHERE invoice_no = '1'");
         // A replacement uploaded before the bill it replaces (Codex r1 LOW 2): named.
@@ -436,6 +436,10 @@ final class DeliveryBillsTest extends StockTestCase
             . "'superseded', 'system:x', UTC_TIMESTAMP(6), 'system:x', UTC_TIMESTAMP(6))", [$ch, str_repeat('e', 64)]);
         self::$db->exec('UPDATE carrier_invoice SET supersedes_id = ? WHERE id = ?', [$late, $early]);
         self::assertContains("DB6 bill {$late} (superseded): named as replaced by 1 bills, some of another bill or uploaded before it", Invariants::check(self::$db));
+        self::$db->exec('UPDATE carrier_invoice SET supersedes_id = id WHERE id = ?', [$late]);
+        self::assertContains("DB6 bill {$late} (superseded): named as replaced by 1 bills, some of another bill or uploaded before it", Invariants::check(self::$db),
+            'a bill naming itself (the Codex check r2, LOW 2)');
+        self::$db->exec('UPDATE carrier_invoice SET supersedes_id = NULL WHERE id IN (?, ?)', [$early, $late]);
         self::$db->exec('DELETE FROM carrier_invoice WHERE id IN (?, ?)', [$early, $late]);
         // The database itself refuses the rest: two live bills of one key, a line in two states' shapes, a matched line on no parcel.
         self::assertSame(1062, self::mysqlError(static fn () => self::$db->exec("INSERT INTO carrier_invoice (carrier, account, invoice_no, period_from, period_to, "
@@ -516,8 +520,7 @@ final class DeliveryBillsTest extends StockTestCase
         self::bills()->undo(self::system(), $w['invoice_id']);
         $r = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100009/0', 420)], ['account' => '4000007', 'invoice' => '1']), $vpg);
         self::assertSame((string) $vpg, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
-        self::$db->exec('DELETE FROM carrier_invoice_line WHERE invoice_id = ?', [$w['invoice_id']]); // the nightly DB5 would name the two shops of 4000007
-        self::$db->exec('DELETE FROM carrier_invoice WHERE id = ?', [$w['invoice_id']]);
+        self::assertSame([], Invariants::check(self::$db), 'an undone bill is no evidence of its shop: DB5 says nothing (the Codex check r2, LOW 2)');
         self::assertDaysRebuild($vpg);
         self::assertDaysRebuild($ef);
     }
@@ -635,6 +638,102 @@ final class DeliveryBillsTest extends StockTestCase
         $middle = (array) (new ProfitViews(self::$db))->order($ch, '1091');
         self::assertSame([310, 0], [$middle['delivery']['cost'], $middle['delivery']['resend_cost']], 'a re-send holds no re-sends\' cost (PR143)');
         self::assertSame(['2026-11-04|delivery_cost' => 420, '2026-11-05|delivery_cost' => 310, '2026-11-06|delivery_cost' => 290], self::days($ch));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r2, MEDIUM 1: the account the lead confirmed (DPD 3012002 = Vape and Go) is that shop's from its first bill, whatever its
+     * lines match (DPD's 15-24 Oct bill has none on a CW parcel); a choice of another shop is refused.
+     */
+    public function testTheConfirmedAccountIsVapeAndGosFromItsFirstBill(): void
+    {
+        $vpg = $this->shop();
+        $ef = $this->shop('electrofag');
+        $file = DpdCsv::file([DpdCsv::line('20/10/2026', '6599100800/0', 420)], ['invoice' => '62328011']);
+        try {
+            self::bills()->upload(self::system(), 'dpd', $file, $ef);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('account_shop', $e->errorCode);
+        }
+        $r = self::bills()->upload(self::system(), 'dpd', $file);
+        self::assertSame((string) $vpg, (string) self::$db->value('SELECT channel_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]));
+        self::assertSame(['before_start'], self::states($r['invoice_id']));
+        self::assertDaysRebuild($vpg);
+    }
+
+    /** The Codex check r2, MEDIUM 4: the very file again changes nothing at all, not even the other bills' lines (the nightly run re-matches). */
+    public function testTheSameFileAgainChangesNothingAtAll(): void
+    {
+        $ch = $this->shop();
+        $file = DpdCsv::file([DpdCsv::line('09/11/2026', '6599100810/0', 420)]);
+        $r = self::bills()->upload(self::system(), 'dpd', $file);
+        self::order($ch, '1081', '1356181', '2026-11-08T09:00:00Z', [self::parcel('odl:81', '6599100810', '2026-11-08T10:00:00Z')]);
+        self::assertSame(['same', 0], [($again = self::bills()->upload(self::system(), 'dpd', $file))['result'], $again['rematched']]);
+        self::assertSame(['not_matched'], self::states($r['invoice_id']), 'not tried again by the same file');
+        self::assertSame(1, self::bills()->rematch(self::system()));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r2, MEDIUM 2: while a bill is written, EVERY order a line is on is held by its snapshot guard (a paid one too), so no
+     * snapshot of it, or of a re-send of it, can hold its rows meanwhile: such a snapshot waits, and here gives up (busy).
+     */
+    public function testASnapshotOfAPaidOrderOfTheBillWaitsForIt(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1082', '1356182', '2026-11-08T09:00:00Z', [self::parcel('odl:82', '6599100820', '2026-11-08T10:00:00Z')]);
+        $busy = null;
+        HookedStatement::$before = ['INSERT INTO carrier_invoice (' => static function () use ($ch, &$busy): void {
+            try {
+                (new OrderSnapshots(self::$db, null, null, 1))->store($ch, '1083', ['v' => 1, 'version' => 1, 'order_no' => '1356183', 'status' => 'completed',
+                    'placed_at' => '2026-11-01T09:00:00Z', 'paid_at' => '2026-11-09T09:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => '1082',
+                    'lines' => [['line_id' => '8001083', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 0, 'discount_inc' => 0, 'cancelled' => false,
+                        'refund_inc' => 0, 'free' => true]], 'delivery' => ['method_id' => '5', 'method' => 'DPD', 'charged_inc' => 0, 'refund_inc' => 0],
+                    'order_refund_inc' => 0, 'grand_inc' => 0, 'parcels' => []], 'api');
+            } catch (CwException $e) {
+                $busy = $e->errorCode;
+            }
+        }];
+        try {
+            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100820/0', 420)]));
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertSame('busy', $busy, 'a re-send of the bill\'s order waited for the bill and gave up');
+        self::assertSame(['matched'], self::states($r['invoice_id']));
+        (new OrderSnapshots(self::$db))->applyQueued();
+        self::assertSame('1082', (string) self::$db->value("SELECT parent_ref FROM sale_order WHERE channel_id = ? AND order_ref = '1083'", [$ch]));
+        self::assertSame(['2026-11-08|delivery_cost' => 420], self::days($ch));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The Codex check r2, HIGH 3 (DL22): after an undo to the release before, its nightly rebuild leaves the delivery figures at 0 (and a paid day
+     * moved under it leaves them on the old day). The rebuild of every day since the shop's start brings them back exactly, and a bill undone
+     * after it leaves no day below 0.
+     */
+    public function testARebuildSinceTheStartBringsTheDeliveryFiguresBackAfterAnUndoToTheReleaseBefore(): void
+    {
+        [$ch, $bytes] = $this->week();
+        $r = self::bills()->upload(self::system(), 'dpd', $bytes);
+        $kept = self::days($ch);
+        // The release before: its rebuild wrote the days without the two figures; one of its snapshots moved order 1000 from 4 to 6 Nov.
+        self::$db->exec('UPDATE profit_day SET delivery_cost = 0, delivery_other = 0 WHERE channel_id = ?', [$ch]);
+        self::$db->exec("UPDATE sale_order SET paid_at = '2026-11-06 09:00:00.000000', day = '2026-11-06' WHERE channel_id = ? AND order_ref = '1000'", [$ch]);
+        self::$db->exec("UPDATE profit_day SET orders = orders - 1, units = units - 1, sale_ex = sale_ex - 1000, delivery_ex = delivery_ex - 416 WHERE channel_id = ? AND day = '2026-11-04'",
+            [$ch]);
+        self::$db->exec("UPDATE profit_day SET orders = orders + 1, units = units + 1, sale_ex = sale_ex + 1000, delivery_ex = delivery_ex + 416 WHERE channel_id = ? AND day = '2026-11-06'",
+            [$ch]);
+        $run = self::script('rebuild_profit_days', '--from=2026-10-28', '--to=2026-11-23', '--apply');
+        self::assertSame(0, $run['code'], $run['out']);
+        self::assertDaysRebuild($ch);
+        self::assertSame(['2026-11-03|delivery_cost' => 1550, '2026-11-05|delivery_cost' => 897, '2026-11-06|delivery_cost' => 190, '2026-11-07|delivery_other' => 420,
+            '2026-11-08|delivery_other' => 1589], self::days($ch), 'order 1000\'s 190 on its new day');
+        self::assertNotSame($kept, self::days($ch));
+        self::bills()->undo(self::system(), $r['invoice_id']);
+        self::assertSame([], self::days($ch));
+        self::assertSame('0', (string) self::$db->value('SELECT COUNT(*) FROM profit_day WHERE channel_id = ? AND (delivery_cost < 0 OR delivery_other < 0)', [$ch]));
         self::assertDaysRebuild($ch);
     }
 
