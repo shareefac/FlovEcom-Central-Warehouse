@@ -291,6 +291,7 @@ final class RoyalMailBills
                 continue;
             }
             $n += $this->bills->inLock(function () use ($caller, $account, $days): int {
+                $this->sweep();
                 $since = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
                 $ctx = self::ctx($this->db, $account);
                 $rows = self::rowsWhere($this->db, $account, 'r.service_date >= ?', [$since]);

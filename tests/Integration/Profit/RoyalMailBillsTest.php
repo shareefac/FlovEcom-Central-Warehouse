@@ -13,7 +13,10 @@ use CW\Profit\ProfitDays;
 use CW\Profit\RoyalMailBills;
 use CW\Tests\Support\RmBill;
 use CW\Tests\Support\RmFixtures;
+use CW\Profit\ClickAndDropClient;
+use CW\Profit\HttpGet;
 use CW\Tests\Support\StockTestCase;
+use CW\Tests\Support\TestDb;
 use CW\Tests\Support\XlsWriter;
 
 /**
@@ -297,6 +300,129 @@ final class RoyalMailBillsTest extends StockTestCase
             . 'FROM carrier_allocation WHERE id = ?', [$a])));
         self::assertSame(3819, self::mysqlError(static fn () => self::$db->exec("UPDATE carrier_allocation SET dest = 'party' WHERE id = ?", [$a])));
         self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /**
+     * A fake Click & Drop (no call leaves the machine): GET /orders answers by the day asked, GET /orders/{ids} with each order's tracking
+     * number and manifest time; it records every URL; status 401 when told.
+     *
+     * @param array<string, list<array<string, mixed>>> $byDay day => its orders as /orders/{ids} gives them
+     * @param list<string> $calls
+     */
+    private static function cnd(array $byDay, array &$calls, int $status = 200): ClickAndDropClient
+    {
+        $http = new class ($byDay, $calls, $status) implements HttpGet {
+            /** @param array<string, list<array<string, mixed>>> $byDay @param list<string> $calls */
+            public function __construct(private array $byDay, private array &$calls, private int $status)
+            {
+            }
+
+            public function get(string $url, array $headers, int $timeoutSec): array
+            {
+                $this->calls[] = $url;
+                if ($this->status !== 200) {
+                    return ['status' => $this->status, 'body' => '{"message":"no"}', 'retry_after' => null];
+                }
+                $all = array_merge(...array_values($this->byDay));
+                if (preg_match('#/orders\?startDateTime=(\d{4}-\d{2}-\d{2})#', $url, $m) === 1) {
+                    $list = array_map(static fn (array $o): array => ['orderIdentifier' => $o['orderIdentifier'], 'orderReference' => $o['orderReference'],
+                        'createdOn' => $o['createdOn']], $this->byDay[$m[1]] ?? []);
+                    return ['status' => 200, 'body' => json_encode(['orders' => $list]), 'retry_after' => null];
+                }
+                if (preg_match('#/orders/([0-9;]+)$#', rawurldecode($url), $m) === 1) {
+                    $ids = array_map('intval', explode(';', $m[1]));
+                    return ['status' => 200, 'body' => json_encode(array_values(array_filter($all, static fn (array $o): bool => in_array($o['orderIdentifier'], $ids, true)))),
+                        'retry_after' => null];
+                }
+                return ['status' => 404, 'body' => '', 'retry_after' => null];
+            }
+        };
+        return new ClickAndDropClient($http, 'TEST-KEY-not-a-real-one', static function (int $micro): void {
+        });
+    }
+
+    public function testThePullReadsFromTheCheckpointLessThreeDaysAndOnlyGets(): void
+    {
+        $o = static fn (int $id, string $ref, string $day, ?string $manifested, string $tracking): array => ['orderIdentifier' => $id, 'orderReference' => $ref,
+            'createdOn' => $day . 'T10:00:00.1234567', 'manifestedOn' => $manifested, 'trackingNumber' => $tracking, 'packages' => [['packageNumber' => 1,
+                'trackingNumber' => $tracking]]];
+        $byDay = ['2026-11-08' => [$o(1, '1360001', '2026-11-08', '2026-11-08T18:00:35.4961013', 'JV000000001GB')],
+            '2026-11-09' => [$o(2, '#2833', '2026-11-09', null, 'OX000000002GB'), $o(3, 'Mr Test', '2026-11-09', '2026-11-09T18:00:35', 'JV000000003GB')]];
+        $calls = [];
+        $clock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-10 02:20:00', new \DateTimeZone('UTC'));
+        $rm = new RoyalMailBills(self::$db, $clock);
+        $r = $rm->pull(self::system(), $this->acct['account'], self::cnd($byDay, $calls), '2026-11-08');
+        self::assertSame(['2026-11-08', '2026-11-09', 3, 3, 3], [$r['from'], $r['to'], $r['orders'], $r['labels'], $r['added']]);
+        self::assertSame([['JV000000001GB', 'api', '1', '1360001', '2026-11-08'], ['JV000000003GB', 'api', '3', null, '2026-11-09'], ['OX000000002GB', 'api', '2', '#2833', null]],
+            array_map(static fn (array $x): array => array_map(static fn ($v): ?string => $v === null ? null : (string) $v, array_values($x)),
+                self::$db->all('SELECT tracking_no, source, source_id, reference, manifest_day FROM carrier_label ORDER BY tracking_no')), 'a free-text reference not kept');
+        self::assertSame('2026-11-09', (string) self::$db->value('SELECT read_to FROM carrier_label_pull WHERE account_id = ?', [$this->acct['account']]));
+        // the next night: from the checkpoint less 3 days, and the label with no manifest yet asked for again by its number
+        $byDay['2026-11-09'][0]['manifestedOn'] = '2026-11-10T00:45:59';
+        $calls = [];
+        $clock2 = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-11 02:20:00', new \DateTimeZone('UTC'));
+        $r = (new RoyalMailBills(self::$db, $clock2))->pull(self::system(), $this->acct['account'], self::cnd($byDay, $calls));
+        self::assertSame(['2026-11-06', '2026-11-10', 1], [$r['from'], $r['to'], $r['filled']]);
+        self::assertSame('2026-11-10', (string) self::$db->value("SELECT manifest_day FROM carrier_label WHERE tracking_no = 'OX000000002GB'"), 'filled when manifested');
+        foreach ($calls as $url) {
+            self::assertStringStartsWith(ClickAndDropClient::BASE . '/orders', $url);
+        }
+        self::assertCount(5 + 1, $calls, 'five days listed, one call for the orders by number');
+        // a key Click & Drop refuses: said in CW's words, never the key; the checkpoint stays
+        $calls = [];
+        try {
+            (new RoyalMailBills(self::$db, $clock2))->pull(self::system(), $this->acct['account'], self::cnd($byDay, $calls, 401));
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('cnd_refused', $e->errorCode);
+        }
+        $err = (string) self::$db->value('SELECT last_error FROM carrier_label_pull WHERE account_id = ?', [$this->acct['account']]);
+        self::assertStringContainsString('401', $err);
+        self::assertStringNotContainsString('TEST-KEY', $err . json_encode(self::$db->all('SELECT * FROM audit_log')));
+        self::assertSame('2026-11-10', (string) self::$db->value('SELECT read_to FROM carrier_label_pull WHERE account_id = ?', [$this->acct['account']]));
+    }
+
+    /** @return array{code: int, out: string} */
+    private static function script(string $name, string ...$args): array
+    {
+        $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', dirname(__DIR__, 3) . "/bin/{$name}.php", '--db=' . TestDb::name(), '--admin', ...$args],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, dirname(__DIR__, 3));
+        self::assertIsResource($p);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['code' => proc_close($p), 'out' => $out];
+    }
+
+    public function testTheServerToolsCheckStoreAndPrintNoLine(): void
+    {
+        $dir = sys_get_temp_dir() . '/cw_rm_tool_' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        try {
+            file_put_contents("{$dir}/bill.html", RmBill::page($this->week(), ['invoice' => '9070000001']));
+            $check = self::script('rm_bill', "--file={$dir}/bill.html", '--account=0706703000');
+            self::assertSame(0, $check['code'], $check['out']);
+            self::assertStringContainsString('bill 9070000001 of 2026-11-16: 2026-11-04 to 2026-11-10, 7 rows, net £44.56', $check['out']);
+            self::assertStringContainsString('checked only: nothing written', $check['out']);
+            self::assertStringNotContainsString('JV0000', $check['out'], 'never a label');
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+            $up = self::script('rm_bill', "--file={$dir}/bill.html", '--account=0706703000', '--upload');
+            self::assertSame(0, $up['code'], $up['out']);
+            self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live' AND uploaded_actor = 'system:delivery_cli'"));
+            $st = self::script('rm_labels', '--status');
+            self::assertSame(0, $st['code'], $st['out']);
+            self::assertStringContainsString('0706703000 (active): 9 labels', $st['out']);
+            // Vape Big's account: its number set while it has no bill, then switched on
+            $vb = RmFixtures::account(self::$db, $this->vpg, null, 'off', 'vapebig-pending')['account'];
+            $set = self::script('carrier_account', '--account=vapebig-pending', '--number=0706799999');
+            self::assertSame(0, $set['code'], $set['out']);
+            self::assertSame(1, self::script('carrier_account', '--account=0706703000', '--number=0706711111')['code'], 'a bill of it is stored: its number stays');
+            self::assertSame(0, self::script('carrier_account', '--account=0706799999', '--switch-on')['code']);
+            self::assertSame(['0706799999', 'active'], array_values(array_map('strval', (array) self::$db->one('SELECT account_no, state FROM carrier_account WHERE id = ?', [$vb]))));
+            $this->assertRebuilds();
+        } finally {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
     }
 
     public function testRefusalsAndOnlyTheDeliveryBillsJobWrites(): void

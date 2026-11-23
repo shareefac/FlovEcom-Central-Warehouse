@@ -18,6 +18,7 @@ use CW\Caller;
 use CW\CwException;
 use CW\Ops\Cli;
 use CW\Profit\DeliveryBills;
+use CW\Profit\RoyalMailBills;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -30,5 +31,14 @@ exit(Cli::main('match_delivery_bills', [], 'usage: php bin/match_delivery_bills.
             return Cli::PROBLEM;
         }
         $cli->log("{$n} bill lines put on a parcel or an order (or moved between not matched, ambiguous and the others)");
+        // Royal Mail's (pooled) bills (0078, DL66): every key of the live rows of the last RoyalMailBills::REPLAN_DAYS days planned again (a label or a
+        // CW parcel that came since takes its price), and the allocations of bills no longer counting ended.
+        try {
+            $m = (new RoyalMailBills($cli->db))->replan(Caller::system('delivery_match'));
+        } catch (CwException $e) {
+            $cli->error('Royal Mail bills not planned again: ' . $e->getMessage());
+            return Cli::PROBLEM;
+        }
+        $cli->log("{$m} Royal Mail allocations ended or added");
         return Cli::OK;
     }, true, true));
