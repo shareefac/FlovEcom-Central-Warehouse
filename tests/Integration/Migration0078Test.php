@@ -124,6 +124,8 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO carrier_channel (account_id, code, name) VALUES (?, 'other', 'x')", [$acct])),
             '"other" is what a label keeps for a channel the account does not know');
 
+        // The Codex check r1, MEDIUM 14: Vape Big's account renumbered (bin/carrier_account.php), then every statement again: no second account.
+        $db->exec("UPDATE carrier_account SET account_no = '0706799999' WHERE account_no = 'vapebig-pending'");
         // Every statement again: nothing changes.
         $dump = static fn (): string => (string) json_encode(array_map(static fn (string $t): array => $db->all("SELECT * FROM {$t}"), ['carrier', 'delivery_party',
             'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_product', 'carrier_band', 'carrier_invoice']));

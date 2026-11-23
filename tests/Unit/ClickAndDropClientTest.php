@@ -249,6 +249,26 @@ final class ClickAndDropClientTest extends TestCase
                 }
             }
             chmod($file, 0600);
+            // the Codex check r1, LOW 15: root's only (a file another user owns, a link to one, is refused)
+            if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+                chown($file, 65534);
+                try {
+                    CarrierKeys::key('click_and_drop_0706703000', $file);
+                    self::fail('a file another user owns: refused');
+                } catch (CwException $e) {
+                    self::assertSame('no_key', $e->errorCode);
+                }
+                chown($file, 0);
+                symlink($file, $dir . '/link.env');
+                try {
+                    CarrierKeys::key('click_and_drop_0706703000', $dir . '/link.env');
+                    self::fail('a link: refused');
+                } catch (CwException $e) {
+                    self::assertSame('no_key', $e->errorCode);
+                } finally {
+                    @unlink($dir . '/link.env');
+                }
+            }
             file_put_contents($file, "this line is not a key " . self::KEY . "\n");
             try {
                 CarrierKeys::key('click_and_drop_0706703000', $file);

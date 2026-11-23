@@ -112,6 +112,14 @@ final class RoyalMailBillPageTest extends TestCase
         yield 'no date' => [static fn (): string => str_replace('<td>Date:</td>', '<td>Dated</td>', RmBill::page($w)), 'does not show its date'];
         yield 'a bad day' => [static fn (): string => str_replace('<td>05:11:2026</td>', '<td>31:02:2026</td>', RmBill::page($w)), 'is not a day'];
         yield 'empty' => [static fn (): string => '', 'empty'];
+        // the Codex check r1: MEDIUM 12 (an amount among the reference cells), LOW 17 (an impossible bill date), LOW 18 (VAT on a zero-rated row),
+        // LOW 16 (a product cell that may be a name is never said)
+        yield 'an amount among the reference cells' => [static fn (): string => str_replace('<td>/ CLICK AND DROP M2281</td>', '<td>GBP 5.00</td><td>/ CLICK AND DROP M2281</td>',
+            RmBill::page([RmBill::line('2026-11-05', 'SD1', 1, 1004, 'CLICK AND DROP M2281', '5155465848')])), 'row 1: an amount where the reference is'];
+        yield 'an impossible bill date' => [static fn (): string => RmBill::page($w, ['date' => 'Feb 31, 2026']), 'the bill\'s date is not a day'];
+        yield 'VAT on a zero-rated row' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TSS', 1, 1000, '', null, 'Z', 1001)]),
+            'does not follow from the lines at its rate (0%)'];
+        yield 'a product that may be a name' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'JEAN', 1, 100, '1')]), 'its product is one CW does not know'];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('refusals')]
@@ -125,7 +133,18 @@ final class RoyalMailBillPageTest extends TestCase
             self::assertStringContainsString($why, $e->getMessage());
             self::assertStringContainsString('Nothing was saved', $e->getMessage());
             self::assertStringNotContainsString('SMITHJ', $e->getMessage(), 'a cell that may be a name is never said');
+            self::assertStringNotContainsString('JEAN', $e->getMessage(), 'a cell that may be a name is never said');
         }
+    }
+
+    /** The Codex check r1, MEDIUM 13: a button the page hides (the hidden attribute, display none) is never read, in the top block or a row. */
+    public function testAHiddenButtonIsNeverRead(): void
+    {
+        $lines = self::week();
+        $page = str_replace('<body>', '<body><form><input type="submit" hidden value="Invoice: 1234567"><button style="display: none">Invoice: 7654321</button></form>',
+            RmBill::page($lines, ['invoice' => '9077300608']));
+        $b = RoyalMailBillPage::parse($page, RmBill::PRODUCTS);
+        self::assertSame('9077300608', $b['invoice_no']);
     }
 
     public function testTheReferenceFormsAndNothingElse(): void
