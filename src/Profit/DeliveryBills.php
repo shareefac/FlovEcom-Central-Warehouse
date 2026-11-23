@@ -71,12 +71,14 @@ final class DeliveryBills
     public const LOCK_WAIT_SEC = 10;
     /** The most a bill write spends trying for the order guards it needs, never waiting while it holds any (a snapshot holds one for milliseconds). */
     public const GUARD_BUDGET_SEC = 5;
-    /**
-     * While a bill write holds order guards: a row wait (its database lock wait) is at most this, in seconds, and it begins no row wait once it
-     * has held them this long; so its waits while holding them are at most twice this (2 s), within the 3 s a snapshot waits for its guard
-     * (OrderSnapshots::QUEUE_LOCK_WAIT_SEC; the astra re-check of a33d184, item 8; DL41).
-     */
+    /** A row wait while a bill is written: at most this, in seconds (MySQL's least). */
     public const HOLD_WAIT_SEC = 1;
+    /**
+     * Once a bill write has taken its order guards, every row wait it makes ends within this many seconds of that moment (a statement with less
+     * than HOLD_WAIT_SEC left is not started: every guard let go, tried again): within the 3 s a snapshot waits for its guard
+     * (OrderSnapshots::QUEUE_LOCK_WAIT_SEC; the astra re-checks of a33d184 and ccd149d, item 8; DL41).
+     */
+    public const HOLD_SEC = OrderSnapshots::QUEUE_LOCK_WAIT_SEC - 0.5;
     /** Snapshot guards taken per statement. */
     public const GUARD_CHUNK = 200;
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
@@ -741,90 +743,92 @@ final class DeliveryBills
                     }
                     $names = array_values(array_unique($names));
                     sort($names, SORT_STRING);
-                    $heldSince = microtime(true);
-                    // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), none waited for: one held
-                    // elsewhere (a snapshot working it out: milliseconds) means every guard is let go at once and the write tried again a moment
-                    // later, so this write never waits while it holds any, and its whole wait is GUARD_BUDGET_SEC at most (the Codex check r3;
-                    // the final review, astra item 8; DL37): a snapshot of one of them never waits long.
-                    foreach (array_chunk($names, self::GUARD_CHUNK) as $chunk) {
-                        try {
-                            $got = array_values((array) $db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "GET_LOCK(?, 0) AS g{$i}",
-                                array_keys($chunk))), $chunk));
-                        } catch (\Throwable $e) {
-                            // Which of them it got is not known (MySQL's named-lock deadlock, 3058): every one is let go (a name not held: nothing).
-                            array_push($held, ...$chunk);
-                            throw $e;
-                        }
-                        foreach ($chunk as $i => $n) {
-                            if ((int) ($got[$i] ?? 0) === 1) {
-                                $held[] = $n;
+                    // Every statement while the guards are held waits for a row only within what is left of HOLD_SEC from the moment they are taken
+                    // (Db::waitsUntil: a statement with less than 1 s left is not started): any wait for another session, all of them together, stays
+                    // within the 3 s a snapshot waits for its guard (the astra re-check of ccd149d, item 8; DL41).
+                    return $db->waitsUntil(microtime(true) + self::HOLD_SEC, static function () use ($db, $p, $days, $owners, $names, &$held): mixed {
+                        // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), none waited for: one held
+                        // elsewhere (a snapshot working it out: milliseconds) means every guard is let go at once and the write tried again a moment
+                        // later, so this write never waits while it holds any, and its whole wait is GUARD_BUDGET_SEC at most (the Codex check r3;
+                        // the final review, astra item 8; DL37): a snapshot of one of them never waits long.
+                        foreach (array_chunk($names, self::GUARD_CHUNK) as $chunk) {
+                            try {
+                                $got = array_values((array) $db->one('SELECT ' . implode(', ', array_map(static fn (int $i): string => "GET_LOCK(?, 0) AS g{$i}",
+                                    array_keys($chunk))), $chunk));
+                            } catch (\Throwable $e) {
+                                // Which of them it got is not known (MySQL's named-lock deadlock, 3058): every one is let go (a name not held: nothing).
+                                array_push($held, ...$chunk);
+                                throw $e;
+                            }
+                            foreach ($chunk as $i => $n) {
+                                if ((int) ($got[$i] ?? 0) === 1) {
+                                    $held[] = $n;
+                                }
+                            }
+                            if (count($got) !== count($chunk) || in_array(0, array_map('intval', $got), true) || in_array(null, $got, true)) {
+                                throw new CwException(self::GUARD_BUSY, 'an order of these lines is being stored right now', 409);
                             }
                         }
-                        if (count($got) !== count($chunk) || in_array(0, array_map('intval', $got), true) || in_array(null, $got, true)) {
-                            throw new CwException(self::GUARD_BUSY, 'an order of these lines is being stored right now', 409);
+                        $old = self::contributions($p['before'], $days);
+                        $new = self::contributions($p['after'], $days);
+                        $pairs = [];
+                        foreach ([...array_keys($old), ...array_keys($new)] as $k) {
+                            $pairs[substr($k, 0, strrpos($k, '|'))] = true;
                         }
-                    }
-                    $old = self::contributions($p['before'], $days);
-                    $new = self::contributions($p['after'], $days);
-                    $pairs = [];
-                    foreach ([...array_keys($old), ...array_keys($new)] as $k) {
-                        $pairs[substr($k, 0, strrpos($k, '|'))] = true;
-                    }
-                    $pairs = array_keys($pairs);
-                    // profit_day's key order (day, channel_id), as every snapshot takes its own store's days (ProfitDays::guard)
-                    usort($pairs, static function (string $a, string $b): int {
-                        [$dayA, $chA] = explode('|', $a);
-                        [$dayB, $chB] = explode('|', $b);
-                        return [$dayA, (int) $chA] <=> [$dayB, (int) $chB];
+                        $pairs = array_keys($pairs);
+                        // profit_day's key order (day, channel_id), as every snapshot takes its own store's days (ProfitDays::guard)
+                        usort($pairs, static function (string $a, string $b): int {
+                            [$dayA, $chA] = explode('|', $a);
+                            [$dayB, $chB] = explode('|', $b);
+                            return [$dayA, (int) $chA] <=> [$dayB, (int) $chB];
+                        });
+                        // Each day row: the one there taken without waiting (NOWAIT: held elsewhere = 3572, every guard let go and tried again); a
+                        // missing one put in (another session putting in the same day: a wait within the deadline above; the astra re-check of
+                        // a33d184, item 8; DL41).
+                        foreach ($pairs as $pair) {
+                            [$day, $ch] = explode('|', $pair);
+                            if ($db->value('SELECT 1 FROM profit_day WHERE day = ? AND channel_id = ? FOR UPDATE NOWAIT', [$day, (int) $ch]) === null) {
+                                ProfitDays::guard($db, (int) $ch, [$day]);
+                            }
+                        }
+                        // The orders, read again now that what keeps them still is held: one paid meanwhile, or moved, means the plan is old; and the
+                        // plan's matching taken again: a parcel removed, or a second one of a number stored, means it is old too.
+                        if (self::orderDays($db, $owners) !== $days || (isset($p['verify']) && !($p['verify'])($db))) {
+                            throw new CwException(self::RETRY, 'an order of these lines changed while they were saved: tried again', 409);
+                        }
+                        $result = ($p['write'])($db);
+                        $delta = [];
+                        foreach ([[$old, -1], [$new, 1]] as [$set, $sign]) {
+                            foreach ($set as $k => $v) {
+                                $delta[$k] = ($delta[$k] ?? 0) + $sign * $v;
+                            }
+                        }
+                        ksort($delta, SORT_STRING);
+                        foreach ($delta as $k => $v) {
+                            if ($v === 0) {
+                                continue;
+                            }
+                            [$day, $ch, $field] = explode('|', $k);
+                            $db->exec("UPDATE profit_day SET {$field} = {$field} + ? WHERE day = ? AND channel_id = ?", [$v, $day, (int) $ch]);
+                        }
+                        foreach ($pairs as $pair) {
+                            [$day, $ch] = explode('|', $pair);
+                            self::tidy($db, (int) $ch, $day);
+                        }
+                        return $result;
                     });
-                    // Each day row: the one there taken without waiting (NOWAIT: held elsewhere = 3572, every guard let go and tried again); a
-                    // missing one put in, which waits HOLD_WAIT_SEC at most (another session putting in the same day), and none begun once the
-                    // guards have been held HOLD_WAIT_SEC: so this write's waits while it holds them stay within a snapshot's wait for its guard
-                    // (the astra re-check of a33d184, item 8; DL41).
-                    foreach ($pairs as $pair) {
-                        [$day, $ch] = explode('|', $pair);
-                        if ($db->value('SELECT 1 FROM profit_day WHERE day = ? AND channel_id = ? FOR UPDATE NOWAIT', [$day, (int) $ch]) === null) {
-                            if (microtime(true) - $heldSince >= self::HOLD_WAIT_SEC) {
-                                throw new CwException(self::GUARD_BUSY, 'a day of these lines is being stored right now', 409);
-                            }
-                            ProfitDays::guard($db, (int) $ch, [$day]);
-                        }
-                    }
-                    // The orders, read again now that what keeps them still is held: one paid meanwhile, or moved, means the plan is old; and the
-                    // plan's matching taken again: a parcel removed, or a second one of a number stored, means it is old too.
-                    if (self::orderDays($db, $owners) !== $days || (isset($p['verify']) && !($p['verify'])($db))) {
-                        throw new CwException(self::RETRY, 'an order of these lines changed while they were saved: tried again', 409);
-                    }
-                    $result = ($p['write'])($db);
-                    $delta = [];
-                    foreach ([[$old, -1], [$new, 1]] as [$set, $sign]) {
-                        foreach ($set as $k => $v) {
-                            $delta[$k] = ($delta[$k] ?? 0) + $sign * $v;
-                        }
-                    }
-                    ksort($delta, SORT_STRING);
-                    foreach ($delta as $k => $v) {
-                        if ($v === 0) {
-                            continue;
-                        }
-                        [$day, $ch, $field] = explode('|', $k);
-                        $db->exec("UPDATE profit_day SET {$field} = {$field} + ? WHERE day = ? AND channel_id = ?", [$v, $day, (int) $ch]);
-                    }
-                    foreach ($pairs as $pair) {
-                        [$day, $ch] = explode('|', $pair);
-                        self::tidy($db, (int) $ch, $day);
-                    }
-                    return $result;
                 }, 0); // no retry inside: a deadlock is retried below, once every guard is let go
             } catch (\Throwable $e) {
                 $this->release($held);
                 $held = [];
                 // Any wait for another session (the astra re-check of a33d184, item 8; DL41): an order's guard held elsewhere, a day row held
-                // elsewhere (3572: NOWAIT; 1205: a row wait ran out), the database's deadlock (1213) or MySQL's named-lock one (3058): every guard
+                // elsewhere (3572: NOWAIT; 1205: a row wait ran out), no time left to wait while the guards are held (out_of_time: HOLD_SEC), the
+                // database's deadlock (1213) or MySQL's named-lock one (3058): every guard
                 // let go at once (above) and the whole write tried again a moment later, within GUARD_BUDGET_SEC from its start, then said
                 // "busy, try again" (the final review, Fable L3: never an error page).
                 $code = Db::driverCode($e);
-                if (($e instanceof CwException && $e->errorCode === self::GUARD_BUSY) || Db::isDeadlock($e) || in_array($code, [1205, 3058, 3572], true)) {
+                if (($e instanceof CwException && in_array($e->errorCode, [self::GUARD_BUSY, 'out_of_time'], true)) || Db::isDeadlock($e)
+                    || in_array($code, [1205, 3058, 3572], true)) {
                     if (microtime(true) - $since >= self::GUARD_BUDGET_SEC) {
                         throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
                     }

@@ -578,8 +578,15 @@ final class DeliveryBillsTest extends StockTestCase
                 $busy = $e->errorCode;
             }
         }];
+        $file = DpdCsv::file([DpdCsv::line('09/11/2026', '6599100070/0', 420)]);
         try {
-            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100070/0', 420)]), $ch);
+            $r = self::hookedBills()->upload(self::system(), 'dpd', $file, $ch);
+        } catch (CwException $e) {
+            // The snapshot here runs inside the bill's hold (one process): its seconds of waiting use up the bill's HOLD_SEC, so the bill may
+            // let go and be busy itself (DL41); it is uploaded again.
+            self::assertSame('busy', $e->errorCode);
+            HookedStatement::$before = [];
+            $r = self::bills()->upload(self::system(), 'dpd', $file, $ch);
         } finally {
             HookedStatement::$before = [];
         }
@@ -699,8 +706,14 @@ final class DeliveryBillsTest extends StockTestCase
                 $busy = $e->errorCode;
             }
         }];
+        $file = DpdCsv::file([DpdCsv::line('09/11/2026', '6599100820/0', 420)]);
         try {
-            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100820/0', 420)]));
+            $r = self::hookedBills()->upload(self::system(), 'dpd', $file);
+        } catch (CwException $e) {
+            // As above: the snapshot's waiting inside the bill's hold may use up its HOLD_SEC (DL41); uploaded again.
+            self::assertSame('busy', $e->errorCode);
+            HookedStatement::$before = [];
+            $r = self::bills()->upload(self::system(), 'dpd', $file);
         } finally {
             HookedStatement::$before = [];
         }
@@ -983,6 +996,80 @@ final class DeliveryBillsTest extends StockTestCase
         self::assertLessThan(DeliveryBills::GUARD_BUDGET_SEC + 2.5, $took, 'busy within the budget');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice_line'));
+    }
+
+    /**
+     * The astra re-check of ccd149d (item 8; DL41): every row wait while the guards are held counts against one deadline (HOLD_SEC), not each
+     * on its own. Five bill lines a re-match puts on an order's parcels are held elsewhere and let go one by one, 0.8 s apart (each wait under
+     * the 1 s row wait): the re-match lets every guard go once too little time is left, so the snapshot writer of that order, waiting for its
+     * guard meanwhile, gets it within its own wait (3 s); the re-match is tried again within GUARD_BUDGET_SEC and either puts all five lines
+     * on their parcels or is busy with none moved, the days as a rebuild works them out.
+     */
+    public function testBillLinesHeldDuringAReMatchNeverKeepASnapshotFromItsGuard(): void
+    {
+        $ch = $this->shop();
+        self::order($ch, '1300', '1356300', '2026-11-08T09:00:00Z', []);
+        $lines = [];
+        $parcels = [];
+        for ($i = 1; $i <= 5; $i++) {
+            $lines[] = DpdCsv::line('09/11/2026', (6599800000 + $i) . '/0', 420, ['Senders Ref' => '1356300']);
+            $parcels[] = self::parcel('odl:130' . $i, (string) (6599800000 + $i), '2026-11-08T10:00:00Z');
+        }
+        $r = self::bills()->upload(self::system(), 'dpd', DpdCsv::file($lines, ['invoice' => '62999013']), $ch);
+        self::assertSame(array_fill(0, 5, 'not_matched'), self::states($r['invoice_id']));
+        self::order($ch, '1300', '1356300', '2026-11-08T09:00:00Z', $parcels, ['version' => 2]);
+        $lineNos = array_map('intval', self::$db->column('SELECT line_no FROM carrier_invoice_line WHERE invoice_id = ? ORDER BY line_no', [$r['invoice_id']]));
+        $name = OrderSnapshots::lockName($ch, '1300');
+        $procs = [];
+        $spawn = static function (array $job, string $first) use (&$procs): void {
+            $pipes = [];
+            $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', __DIR__ . '/snapshot_guard_worker.php'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'],
+                2 => ['pipe', 'w']], $pipes, dirname(__DIR__, 3), ['CW_SLOT' => (string) getenv('CW_SLOT'), 'CW_DB_NAME' => TestDb::name()] + getenv());
+            fwrite($pipes[0], json_encode($job, JSON_THROW_ON_ERROR) . "\n");
+            fclose($pipes[0]);
+            self::assertSame($first, trim((string) fgets($pipes[1])));
+            $procs[] = [$p, $pipes];
+        };
+        // Once the re-match holds the order's guard: its five lines held elsewhere, and the order's snapshot writer waiting for the guard.
+        HookedStatement::$before = ['SELECT GET_LOCK(?, 0) AS g0' => static function () use ($spawn, $name, $r, $lineNos): void {
+            HookedStatement::$before[''] = static function () use ($spawn, $name, $r, $lineNos): void {
+                $spawn(['mode' => 'rows', 'invoice_id' => (int) $r['invoice_id'], 'line_nos' => $lineNos, 'gap_ms' => 800], 'locked');
+                $spawn(['name' => $name, 'wait' => OrderSnapshots::QUEUE_LOCK_WAIT_SEC, 'hold_ms' => 50], 'waiting');
+                usleep(200_000);
+            };
+        }];
+        $bills = self::hookedBills();
+        $t = microtime(true);
+        $result = null;
+        try {
+            $result = $bills->rematch(self::system());
+        } catch (CwException $e) {
+            self::assertSame(['busy', 503], [$e->errorCode, $e->httpStatus]);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        $took = microtime(true) - $t;
+        self::assertCount(2, $procs, 'the re-match held the guard');
+        $out = [];
+        foreach ($procs as [$p, $pipes]) {
+            $o = (string) stream_get_contents($pipes[1]);
+            $err = (string) stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($p), $err);
+            $out[] = json_decode(trim($o), true);
+        }
+        self::assertSame(['released' => 5], $out[0]);
+        self::assertTrue($out[1]['seen'], 'the re-match held the guard when the snapshot writer asked');
+        self::assertSame(1, $out[1]['got'], 'the snapshot writer gets its guard within its own wait');
+        self::assertLessThan(OrderSnapshots::QUEUE_LOCK_WAIT_SEC * 1000, $out[1]['waited_ms']);
+        self::assertLessThan(DeliveryBills::GUARD_BUDGET_SEC + 2.5, $took, 'done or busy within the budget');
+        self::assertSame(array_fill(0, 5, $result === null ? 'not_matched' : 'matched'), self::states($r['invoice_id']), 'all five or none');
+        if ($result !== null) {
+            self::assertSame(5, $result);
+        }
+        self::assertSame([], Invariants::check(self::$db));
+        self::assertDaysRebuild($ch);
     }
 
     /**

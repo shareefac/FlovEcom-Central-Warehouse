@@ -20149,11 +20149,15 @@ headings are all known (the four address columns and the extract's 38 checked), 
 net, VAT or gross (DL34) is the next cell that is not empty unless that cell is itself a label: net, VAT and gross side by side on one row
 with no currency are pounds.
 
-**DL41. One deadline for the whole guarded write, row waits included (astra re-check of a33d184, item 8).** Supersedes DL37's "a day row is
-waited for 5 s". While the write runs, a row wait is HOLD_WAIT_SEC (1 s) at most; with the order guards held, each day row there is taken
-without waiting (FOR UPDATE NOWAIT) and a missing one is put in (a wait of 1 s at most), none begun once the guards have been held 1 s: so
-the write's waits while it holds guards are 2 s at most, within the 3 s a snapshot waits for its guard (OrderSnapshots::QUEUE_LOCK_WAIT_SEC).
-Any wait for another session (a guard held, a day row held: 3572 / 1205, a deadlock 1213, a named-lock deadlock 3058) lets every guard go at
-once and tries the whole write again a moment later, within GUARD_BUDGET_SEC (5 s) from its start, then "busy, try again" (503). An order
-that changed while it was read is tried again TRIES times as before. Tested with a day row held elsewhere and a snapshot writer waiting for
-one of the bill's guards: it gets it within its own 3 s, the bill is busy within the budget and writes nothing.
+**DL41. One deadline for the whole guarded write, row waits included (astra re-checks of a33d184 and ccd149d, item 8).** Supersedes DL37's
+"a day row is waited for 5 s". From the moment a bill write starts taking its order guards, every statement it makes (Db::waitsUntil) waits
+for a row only within what is left of HOLD_SEC (2.5 s: the snapshot worker's 3 s guard wait, OrderSnapshots::QUEUE_LOCK_WAIT_SEC, less
+0.5 s): a row wait is 1 s at most (MySQL's least) and a statement with less than 1 s left is not started (out_of_time). So all its waits
+together while it holds guards (day rows, bill lines, anything) end within 2.5 s, not each on its own. The day rows there are taken without
+waiting (FOR UPDATE NOWAIT). Any wait for another session (a guard held, a day row held: 3572 / 1205, no time left, a deadlock 1213, a
+named-lock deadlock 3058) lets every guard go at once and tries the whole write again a moment later, within GUARD_BUDGET_SEC (5 s) from its
+start, then "busy, try again" (503). An order that changed while it was read is tried again TRIES times as before. The cost: a write whose
+own work while holding guards passes 1.5 s is said busy rather than hold a snapshot up (a week's 2,500 lines fits: tested). Tested with a
+day row held elsewhere, and with five bill lines a re-match moves held elsewhere and let go 0.8 s apart; each time a snapshot writer waiting
+for one of the bill's guards gets it within its own 3 s, and the write is busy (nothing written) or done whole within the budget. Two older tests that run a snapshot inside the bill's hold (one process: its seconds of waiting count against the bill's HOLD_SEC) upload
+again when the bill is busy.
