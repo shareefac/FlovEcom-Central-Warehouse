@@ -83,8 +83,9 @@ final class ProfitScreensTest extends KernelUiTestCase
         $home = $fin->get('/ui/profit');
         self::assertSame(200, $home->status, $home->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame([Words::SECTION['profit'], Words::MENU['profit_summary']], [self::currentSection($home), self::currentTab($home)]);
+        // 0077 (docs/decisions.md DL23): the carriers' bills, which Finance looks at too, last.
         self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'], Words::MENU['profit_orders'],
-            Words::MENU['profit_no_cost']], array_column(self::sectionTabs($home), 'label'));
+            Words::MENU['profit_no_cost'], Words::MENU['profit_delivery']], array_column(self::sectionTabs($home), 'label'));
         $rev = $this->signIn($this->uiUser('reviewer'));
         foreach (['/ui/profit' => [], '/ui/profit/periods' => [], '/ui/profit/by' => [], '/ui/profit/orders' => [], '/ui/profit/no-cost' => [],
             '/ui/profit/orders/view' => ['store' => '1', 'ref' => '100']] as $path => $query) {

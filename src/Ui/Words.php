@@ -63,7 +63,7 @@ final class Words
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
-        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'DELIVERY', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
         'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -314,6 +314,8 @@ final class Words
         'profit_breakdown' => 'Profit by product',
         'profit_orders' => 'Profit by order',
         'profit_no_cost' => 'No buying price',
+        // 0077 (docs/decisions.md DL23): the carriers' bills
+        'profit_delivery' => 'Delivery bills',
     ];
 
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
@@ -457,6 +459,7 @@ final class Words
         'profit_breakdown' => 'The profit by shop, product, brand or supplier, the biggest first.',
         'profit_orders' => 'Every order with its profit and margin, the lowest margin first if you want.',
         'profit_no_cost' => 'Products sold with no buying price: their profit is not known yet.',
+        'profit_delivery' => 'The carriers\' bills (DPD): what each parcel cost, put on its order.',
         'low_stock' => 'Products a store can sell only a few of, or none.',
         'stock_value' => 'What the stock is worth at its average cost, by product, brand and warehouse.',
         'slow_stock' => 'Products in stock that have not sold for a long time.',
@@ -787,6 +790,8 @@ final class Words
         'profit_orders' => ['Every paid order with its profit and margin.', ''],
         'profit_order' => ['One order: every line with its sale, its buying cost and its margin.', ''],
         'profit_no_cost' => ['Products sold with no buying price.', ''],
+        'profit_delivery' => ['The carriers\' bills CW has read, the newest first.', ''],
+        'profit_delivery_bill' => ['One bill: where each of its lines went, and how they add up to its total.', ''],
         'low_stock' => ['Products the stores can sell only a few of, or none.',
             'Order more, or check the shelf. A product\'s own "least stock to keep" is set on its reorder page.'],
         'stock_value' => ['What the stock is worth at its average cost, in pounds.', 'Look by product, by brand or by warehouse.'],
@@ -3041,8 +3046,16 @@ final class Words
         // Profit (0074, docs/decisions.md PR4-PR11)
         'profit' => '**Goods sold** is what customers paid for the products, after coupons and points, less refunds, without VAT. **Buying cost** is what the '
             . 'units cost us to buy, fixed on the day each order was paid. **Profit** is goods sold less buying cost; **margin** is the profit as a share of goods '
-            . 'sold. A cancelled line adds nothing; a free gift adds its cost; a re-sent order\'s cost belongs to the first order. Delivery charged is shown '
-            . 'on its own: what delivery costs us comes later. Each order belongs to the UK day it was paid.',
+            . 'sold. A cancelled line adds nothing; a free gift adds its cost; a re-sent order\'s cost belongs to the first order. Delivery is shown on its '
+            . 'own, never in the margin: **delivery charged** (without VAT, less delivery refunded), **delivery cost** (what the carriers\' bills say the '
+            . 'orders\' parcels cost), **charges not on an order** (bill lines CW could not put on an order) and **delivery after its cost**. A parcel '
+            . 'whose bill is not uploaded yet costs nothing in these figures. Each order belongs to the UK day it was paid.',
+        // 0077 (docs/decisions.md DL23): Profit > Delivery bills
+        'delivery_bills' => 'CW reads each **bill** of the carrier (DPD\'s weekly invoice CSV) and puts each line on the parcel with its tracking number, '
+            . 'labelled at most 10 days before the line (or 3 after it). A **collection** is a return DPD collected from the customer: it goes on the order '
+            . 'whose number the line carries. Lines dated before the shop\'s first order in CW are **before CW start**: shown, not in the profit. Lines CW '
+            . 'cannot put on an order (**not matched**, or **to check** when two parcels fit) are in the profit as charges not on an order, on the '
+            . 'line\'s date. The lines always add up to the bill\'s net. CW never keeps the file or any address: only what it needs.',
         'profit_cost' => 'Where a buying price came from. **At the sale (ERPNext)**: ERPNext\'s cost when the order was paid. **CW price**: CW\'s average, which '
             . 'follows the deliveries and the supplier invoices. **Estimate**: today\'s price, for a sale before any cost history. **None**: no price is known: '
             . 'the product is on the No buying price list.',
@@ -10982,6 +10995,108 @@ final class Words
         'store_variant' => '%s: website product %s',
         'lowest_max' => 'The lowest margin first looks at %s days at most: the days shown are the last of them.',
         'unknown' => 'not known',
+        // 0077 (docs/decisions.md DL23): delivery on its own line, never in the goods margin
+        'delivery_cost' => 'Delivery cost',
+        'delivery_other' => 'Charges not on an order',
+        'delivery_result' => 'Delivery after its cost',
+        'delivery_table' => 'Delivery',
+        'delivery_charged_ex' => 'Delivery charged (no VAT, less refunded)',
+        'delivery_cost_own' => 'Delivery cost (carrier bills)',
+        'delivery_cost_resends' => 'Its re-sends\' delivery cost',
+        'delivery_after' => 'Delivery after its cost',
+        'delivery_after_resends' => 'Delivery after its cost, with its re-sends',
+        'delivery_resend_note' => 'A re-send: its delivery cost is in the profit on its own day, and shown again on its first order with that order\'s re-sends.',
+        'not_billed' => 'not billed yet',
+        'not_billed_note' => '%s parcels of this order are not on a carrier bill yet: their cost is not in these figures until their bill is uploaded.',
+        'bill' => 'Carrier bill',
+        'bill_line' => '%s (bill %s)',
+        'collections' => 'Collections DPD made for this order (returns)',
+        'collection_date' => 'Date',
+        'collection_bill' => 'Bill',
+        'collection_cost' => 'Cost',
+    ];
+
+    /** Profit > Delivery bills (0077, docs/decisions.md DL23). */
+    public const DELIVERY = [
+        'bill_title' => '%s bill %s',
+        'headline' => '%s bill %s (%s): %s - on orders %s (%s lines), not on an order %s (%s lines)',
+        'headline_before' => '; before CW start %s (%s lines, not in the profit)',
+        'carrier' => 'Carrier',
+        'carrier_dpd' => 'DPD',
+        'bill' => 'Bill',
+        'account' => 'Account',
+        'shop' => 'Shop',
+        'days' => 'Days',
+        'net' => 'Net (no VAT)',
+        'vat' => 'VAT',
+        'gross' => 'Total with VAT',
+        'lines' => 'Lines',
+        'on_orders' => 'On orders',
+        'not_on_order' => 'Not on an order',
+        'before_start' => 'Before CW start',
+        'uploaded_by' => 'Uploaded by',
+        'uploaded' => 'Uploaded',
+        'status' => 'Status',
+        'status_live' => 'In the profit',
+        'status_superseded' => 'Replaced',
+        'status_undone' => 'Undone',
+        'upload_title' => 'Upload a bill',
+        'file' => 'The bill\'s CSV file',
+        'file_hint' => 'DPD\'s weekly invoice CSV, as DPD sends it, at most %s MB. CW reads it and keeps only what it needs: never an address, never the file.',
+        'shop_choice' => 'Shop this account bills',
+        'shop_hint' => 'Only for an account CW does not know yet and none of whose parcels are in CW.',
+        'shop_auto' => 'Found from the file',
+        'upload' => 'Upload the bill',
+        'none' => 'No bill uploaded yet.',
+        'none_text' => 'Upload DPD\'s weekly invoice CSV.',
+        'list_limit' => 'The newest %s bills are shown.',
+        'facts' => 'The bill',
+        'tie_title' => 'Where its money went',
+        'state_matched' => 'On a parcel of an order',
+        'state_collection' => 'A collection on an order (a return)',
+        'state_before_start' => 'Before CW start (not in the profit)',
+        'state_not_matched' => 'Not matched (in the profit, not on an order)',
+        'state_ambiguous' => 'To check: two or more parcels fit (in the profit, not on an order)',
+        'tie_total' => 'The bill\'s net',
+        'adds_up' => 'Adds up to the bill.',
+        'not_adding_up' => 'Does NOT add up to the bill: tell the CW team.',
+        'unpaid_note' => 'Of the lines on orders, %s (%s lines) are on orders not paid yet: they come into the profit when their order is paid.',
+        'filter_other' => 'Not on an order',
+        'filter_matched' => 'On parcels',
+        'filter_collection' => 'Collections',
+        'filter_before_start' => 'Before CW start',
+        'filter_all' => 'All lines',
+        'line' => 'Line',
+        'date' => 'Date',
+        'consignment' => 'Consignment',
+        'service' => 'Service',
+        'weight' => 'Weight (kg)',
+        'cost' => 'Cost (no VAT)',
+        'state' => 'Where it went',
+        'order' => 'Order',
+        'fits' => 'Parcels that fit: %s',
+        'marks' => 'DPD mark %s',
+        'no_lines' => 'No line of this kind.',
+        'page' => 'Page %s of %s.',
+        'next' => 'Next page',
+        'prev' => 'Previous page',
+        'replace_title' => 'Replace with a corrected file',
+        'replace_hint' => 'Only DPD\'s corrected file of this same bill. This bill is then kept, marked replaced, and taken out of the profit.',
+        'replace' => 'Replace with this file',
+        'undo_title' => 'Undo this upload',
+        'undo_hint' => 'The bill comes out of the profit. It is kept here, marked undone.',
+        'undo_sure' => 'Yes, take this bill out of the profit',
+        'undo' => 'Undo this upload',
+        'undo_tick' => 'Tick the box to say you are sure. Nothing was changed.',
+        'replaced' => 'This file replaced bill %s (uploaded %s).',
+        'replaced_by' => 'Replaced by a corrected file: bill %s.',
+        'ended' => '%s by %s, %s.',
+        'notice_stored' => 'Bill stored: its lines are on their orders. See where its money went below.',
+        'notice_same' => 'This very file is loaded already: nothing changed.',
+        'notice_replaced' => 'The corrected file replaced the bill. The old one is kept, marked replaced.',
+        'notice_undone' => 'Upload undone: this bill is no longer in the profit.',
+        'fingerprint' => 'File fingerprint',
+        'back' => 'Delivery bills',
     ];
 
     public const RD_REPORTS = [

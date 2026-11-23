@@ -41,6 +41,7 @@ use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ProfitController;
+use CW\Ui\Controller\DeliveryBillsController;
 use CW\Ui\Controller\ReportsController;
 use CW\Ui\Controller\ReservationsController;
 use CW\Ui\Controller\SalesController; // pack D
@@ -644,6 +645,13 @@ final class Kernel
         $r->add('GET', ProfitController::PATH . '/orders', ProfitController::PERM, $profit->orders(...));
         $r->add('GET', ProfitController::PATH . '/orders/view', ProfitController::PERM, $profit->order(...));
         $r->add('GET', ProfitController::PATH . '/no-cost', ProfitController::PERM, $profit->noCost(...));
+        // ---- The delivery bills (0077; docs/decisions.md DL23): Finance and the Delivery bills job look; the job uploads, replaces and undoes.
+        $bills = new DeliveryBillsController();
+        $r->add('GET', DeliveryBillsController::PATH, DeliveryBillsController::PERM_VIEW, $bills->list(...));
+        $r->add('POST', DeliveryBillsController::PATH . '/upload', DeliveryBillsController::PERM_UPLOAD, $bills->upload(...));
+        $r->add('GET', DeliveryBillsController::PATH . '/{id}', DeliveryBillsController::PERM_VIEW, $bills->bill(...));
+        $r->add('POST', DeliveryBillsController::PATH . '/{id}/replace', DeliveryBillsController::PERM_UPLOAD, $bills->replace(...));
+        $r->add('POST', DeliveryBillsController::PATH . '/{id}/undo', DeliveryBillsController::PERM_UPLOAD, $bills->undo(...));
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));

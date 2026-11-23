@@ -25,6 +25,9 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <th scope="col" class="num"><?= $word('PROFIT', 'margin') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'no_cost_short') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_cost') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_other') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_result') ?></th>
     </tr>
   </thead>
   <tbody>
@@ -39,6 +42,9 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['f']['delivery'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?><?php if ($r['f']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['pending']) ?></span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($r['f']['delivery_cost'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($r['f']['delivery_other'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($r['f']['delivery_result'] / 100) ?></td>
     </tr>
 <?php endforeach; ?>
     <tr class="rp-total">
@@ -51,6 +57,9 @@ $groupWords = ['day' => \CW\Ui\Words::PROFIT['group_day'], 'week' => \CW\Ui\Word
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($total['margin_bp'])) ?><?php if ($total['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($total['delivery'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($total['no_cost']) ?><?php if ($total['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $total['pending']) ?></span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($total['delivery_cost'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($total['delivery_other'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($total['delivery_result'] / 100) ?></td>
     </tr>
   </tbody>
 </table>

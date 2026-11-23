@@ -1,6 +1,7 @@
 <?php
 // Profit › Profit by product (docs/decisions.md PR26): by shop, product, brand or main supplier, the biggest first by the measure chosen
-// (a column head is a link that sorts by it), each with its margin; at most $limit rows. On a phone each row is a card.
+// (a column head is a link that sorts by it), each with its margin; at most $limit rows. On a phone each row is a card. By shop, its delivery
+// too (0077, DL23): charged, its cost on the orders, the carriers' charges not on an order, delivery after its cost.
 $byWords = ['shop' => \CW\Ui\Words::PROFIT['by_shop'], 'product' => \CW\Ui\Words::PROFIT['by_product'], 'brand' => \CW\Ui\Words::PROFIT['by_brand'],
     'supplier' => \CW\Ui\Words::PROFIT['by_supplier']];
 $sortWords = [];
@@ -38,6 +39,12 @@ foreach ($sortLinks as $sl) {
       <th scope="col" class="num"><a href="<?= $e($link['profit']) ?>"><?= $word('PROFIT', 'profit') ?></a></th>
       <th scope="col" class="num"><a href="<?= $e($link[$sort === 'margin' ? 'margin_low' : 'margin']) ?>"><?= $word('PROFIT', 'margin') ?></a></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'no_cost_short') ?></th>
+<?php if ($by === 'shop'): ?>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_cost') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_other') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'delivery_result') ?></th>
+<?php endif; ?>
     </tr>
   </thead>
   <tbody>
@@ -50,6 +57,12 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['profit'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'margin') ?>"><?= $e(\CW\Profit\ProfitViews::pct($r['f']['margin_bp'])) ?><?php if ($r['f']['incomplete']): ?> <span class="muted" title="<?= $word('PROFIT', 'incomplete_note') ?>"><?= $word('PROFIT', 'incomplete') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost_short') ?>"><?= $n($r['f']['no_cost']) ?><?php if ($r['f']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['pending']) ?></span><?php endif; ?></td>
+<?php if ($by === 'shop'): ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery') ?>"><?= $money($r['f']['delivery'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($r['f']['delivery_cost'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($r['f']['delivery_other'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($r['f']['delivery_result'] / 100) ?></td>
+<?php endif; ?>
     </tr>
 <?php endforeach; ?>
   </tbody>

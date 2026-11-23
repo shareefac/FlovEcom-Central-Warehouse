@@ -4,6 +4,9 @@
 // margin while it is not paid), its lines as one row per product,
 // cost of one unit, where the cost came from and state (PR84: their units counted; sale ex VAT, cost, profit and margin added up; cancelled,
 // free, back in stock, refunded or no longer on the order said in words), its parcels and its re-sends. Read only.
+// Delivery on its own table, never in the goods margin (0077, docs/decisions.md DL23): delivery charged (no VAT, less refunded), what its
+// parcels' carrier bill lines and the collections on it cost, its re-sends' when it is a first order, and delivery after its cost; each
+// parcel with its bill lines or "not billed yet".
 $o = $order;
 $sale = (int) $o['sale_ex'];
 $cost = (int) $o['cost'];
@@ -70,6 +73,28 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
 </table>
 </div>
 
+<h2><?= $word('PROFIT', 'delivery_table') ?></h2>
+<?php if ($o['parent_ref'] !== null): ?>
+<p class="note"><?= $word('PROFIT', 'delivery_resend_note') ?></p>
+<?php endif; ?>
+<?php if ($delivery['not_billed'] > 0): ?>
+<p class="note"><?= $say('PROFIT', 'not_billed_note', (string) $delivery['not_billed']) ?></p>
+<?php endif; ?>
+<div class="table-wrap">
+<table class="stack rp-table profit-order-delivery">
+  <tbody>
+    <tr><th scope="row"><?= $word('PROFIT', 'delivery_charged_ex') ?></th><td class="num"><?= $money((int) $o['delivery_ex'] / 100) ?></td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'delivery_cost_own') ?></th><td class="num"><?= $money($delivery['cost'] / 100) ?></td></tr>
+<?php if ((int) $o['resends'] > 0 || $delivery['resend_lines'] > 0): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'delivery_cost_resends') ?></th><td class="num"><?= $money($delivery['resend_cost'] / 100) ?></td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'delivery_after_resends') ?></th><td class="num"><?= $money(((int) $o['delivery_ex'] - $delivery['cost'] - $delivery['resend_cost']) / 100) ?></td></tr>
+<?php else: ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'delivery_after') ?></th><td class="num"><?= $money(((int) $o['delivery_ex'] - $delivery['cost']) / 100) ?></td></tr>
+<?php endif; ?>
+  </tbody>
+</table>
+</div>
+
 <h2><?= $word('PROFIT', 'lines') ?></h2>
 <div class="table-wrap">
 <table class="stack rp-table profit-order-lines">
@@ -123,6 +148,7 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
       <th scope="col"><?= $word('PROFIT', 'service') ?></th>
       <th scope="col"><?= $word('PROFIT', 'status') ?></th>
       <th scope="col"><?= $word('PROFIT', 'label_at') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'bill') ?></th>
     </tr>
   </thead>
   <tbody>
@@ -133,6 +159,31 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
       <td data-label="<?= $word('PROFIT', 'service') ?>"><?= $e($p['service']) ?></td>
       <td data-label="<?= $word('PROFIT', 'status') ?>"><?= $e($p['status']) ?></td>
       <td data-label="<?= $word('PROFIT', 'label_at') ?>"><?= $when($p['label_at']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'bill') ?>"><?php if ($p['bill_lines'] === []): ?><span class="muted"><?= $word('PROFIT', 'not_billed') ?></span><?php else: ?><?= $say('PROFIT', 'bill_line', \CW\Ui\Html::money($p['bill_cost'] / 100), implode(', ', $p['bills'])) ?><?php endif; ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
+<?php if ($delivery['collections'] !== []): ?>
+<h2><?= $word('PROFIT', 'collections') ?></h2>
+<div class="table-wrap">
+<table class="stack rp-table profit-order-collections">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('PROFIT', 'collection_date') ?></th>
+      <th scope="col"><?= $word('PROFIT', 'collection_bill') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'collection_cost') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($delivery['collections'] as $c): ?>
+    <tr>
+      <th scope="row"><?= $day($c['line_date']) ?></th>
+      <td data-label="<?= $word('PROFIT', 'collection_bill') ?>"><?= $e(strtoupper((string) $c['carrier']) . ' ' . (string) $c['invoice_no']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'collection_cost') ?>"><?= $money((int) $c['cost'] / 100) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
