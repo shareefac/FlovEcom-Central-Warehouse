@@ -1,0 +1,211 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Profit;
+
+use CW\CwException;
+
+/**
+ * Click & Drop's "Manifested Orders" report (or its "Despatched Orders" report: the same columns, some missing and others in other places),
+ * the .xls its Reports page gives, read into label rows (docs/decisions.md DL48). Pure: no database, no file kept (its sha256 only).
+ *
+ * The first row names the columns; every column is read by its NAME (REQUIRED), never its place. The report also holds the customer, company,
+ * address lines, city, postcode, country, notification email and mobile, department and tags: those columns are never read into anything
+ * (their cells are dropped as they are met, XlsFile hands each cell over one by one) and nothing of them is returned or kept.
+ *
+ * Kept per label, each only in its known shape (anything else is kept as nothing): the tracking number (upper case, 8-32 letters and
+ * digits; a row without one is skipped), Click & Drop's order number, the channel reference (digits, or # and digits: the shop order the
+ * label carried), the channel as the code of one of the account's known channels ("other" for any other name), the service code, the package
+ * size (letter, large_letter, parcel, other), the declared weight in grams, the manifest number and its time and UK day (an Excel date: Click
+ * & Drop's own clock, UK time), and the Royal Mail sales order of a Special Delivery manifest (10 digits; the Tracked labels carry a long id
+ * there: not kept). A tracking number met twice: the first row kept, the second skipped.
+ */
+final class ClickAndDropReport
+{
+    /** The columns read, by their names in the report => the field they fill. */
+    public const REQUIRED = ['Order number' => 'source_id', 'Manifest number' => 'manifest_no', 'Channel' => 'channel', 'Channel reference' => 'reference',
+        'Manifest date' => 'manifested_at', 'Weight (kg)' => 'weight', 'Package size' => 'package', 'Service code' => 'service_code',
+        'Tracking number' => 'tracking_no', 'Sales order number' => 'sales_order'];
+    /** The package sizes kept (the report's words => CW's). */
+    public const PACKAGES = ['parcel' => 'parcel', 'large letter' => 'large_letter', 'letter' => 'letter'];
+    /** Excel's day 0 (its dates count days from it). */
+    private const EPOCH = '1899-12-30';
+
+    /**
+     * @param array<string, string> $channels the account's Click & Drop channels: exact name => code (carrier_channel)
+     * @return array{rows: int, skipped: int, labels: list<array{tracking_no: string, source_id: ?int, reference: ?string, channel_code: ?string,
+     *   service_code: ?string, package: ?string, weight_g: ?int, created_on: null, manifested_at: ?string, manifest_no: ?int, manifest_day: ?string,
+     *   sales_order: ?string}>, sha256: string}
+     */
+    public static function read(string $bytes, array $channels): array
+    {
+        $header = [];
+        $want = null;
+        $rows = [];
+        $seen = [];
+        XlsFile::firstSheet($bytes, static function (int $row, int $col, string|float|int|bool|null $value) use (&$header, &$want, &$rows, &$seen): void {
+            if ($row === 0) {
+                if (is_string($value)) {
+                    $header[$col] = $value;
+                }
+                return;
+            }
+            $want ??= self::columns($header);
+            $seen[$row] = true;
+            if (isset($want[$col])) {
+                $rows[$row][$want[$col]] = $value; // only the columns read: a personal cell is dropped here, as it is met
+            }
+        });
+        $want ??= self::columns($header);
+        ksort($rows);
+        $labels = [];
+        $skipped = 0;
+        $tracked = [];
+        foreach ($rows as $r) {
+            $l = self::label($r, $channels);
+            if ($l === null || isset($tracked[$l['tracking_no']])) {
+                $skipped++;
+                continue;
+            }
+            $tracked[$l['tracking_no']] = true;
+            $labels[] = $l;
+        }
+        $skipped += count($seen) - count($rows); // rows with none of the read columns: no tracking number either
+        return ['rows' => count($seen), 'skipped' => $skipped, 'labels' => $labels, 'sha256' => hash('sha256', $bytes)];
+    }
+
+    /**
+     * The places of the columns read, from the first row's names.
+     *
+     * @param array<int, string> $header
+     * @return array<int, string> column => field
+     */
+    private static function columns(array $header): array
+    {
+        $byName = [];
+        foreach ($header as $col => $name) {
+            $n = strtolower(trim((string) preg_replace('/\s+/u', ' ', $name)));
+            foreach (self::REQUIRED as $want => $field) {
+                if ($n === strtolower($want)) {
+                    if (isset($byName[$want])) {
+                        throw self::refuse("the column '{$want}' is there twice");
+                    }
+                    $byName[$want] = $col;
+                }
+            }
+        }
+        foreach (array_keys(self::REQUIRED) as $want) {
+            if (!isset($byName[$want])) {
+                throw self::refuse("it has no column '{$want}': is it Click & Drop's Manifested Orders report?");
+            }
+        }
+        $out = [];
+        foreach ($byName as $want => $col) {
+            $out[$col] = self::REQUIRED[$want];
+        }
+        return $out;
+    }
+
+    /**
+     * One row's label, each field only in its known shape; null: no usable tracking number.
+     *
+     * @param array<string, string|float|int|bool|null> $r
+     * @param array<string, string> $channels
+     * @return array<string, mixed>|null
+     */
+    private static function label(array $r, array $channels): ?array
+    {
+        $tracking = strtoupper(trim(self::text($r['tracking_no'] ?? null)));
+        if (preg_match('/^[A-Z0-9]{8,32}$/D', $tracking) !== 1) {
+            return null;
+        }
+        $ref = trim(self::text($r['reference'] ?? null));
+        $channel = trim(self::text($r['channel'] ?? null));
+        $service = strtoupper(trim(self::text($r['service_code'] ?? null)));
+        $package = strtolower(trim(self::text($r['package'] ?? null)));
+        $sales = trim(self::text($r['sales_order'] ?? null));
+        $manifestNo = null;
+        if (preg_match('/^M?0*(\d{1,9})$/Di', trim(self::text($r['manifest_no'] ?? null)), $m) === 1) {
+            $manifestNo = (int) $m[1];
+        }
+        $at = self::when($r['manifested_at'] ?? null);
+        if ($at === null) {
+            $manifestNo = null; // a manifest number with no usable time names no day: neither is kept
+        }
+        $source = self::text($r['source_id'] ?? null);
+        return [
+            'tracking_no' => $tracking,
+            'source_id' => preg_match('/^[1-9][0-9]{0,17}$/D', $source) === 1 ? (int) $source : null,
+            'reference' => preg_match('/^#?[0-9]{1,10}$/D', $ref) === 1 ? $ref : null,
+            'channel_code' => $channel === '' ? null : ($channels[$channel] ?? 'other'),
+            'service_code' => preg_match('/^[A-Z0-9]{1,16}$/D', $service) === 1 ? $service : null,
+            'package' => $package === '' ? null : (self::PACKAGES[$package] ?? 'other'),
+            'weight_g' => self::grams($r['weight'] ?? null),
+            'created_on' => null,
+            'manifested_at' => $at,
+            'manifest_no' => $manifestNo,
+            'manifest_day' => $at === null ? null : substr($at, 0, 10),
+            'sales_order' => preg_match('/^[0-9]{10}$/D', $sales) === 1 ? $sales : null,
+        ];
+    }
+
+    /** A cell as text: a whole number without its ".0", a string as it is, anything else empty. */
+    private static function text(string|float|int|bool|null $v): string
+    {
+        if (is_int($v)) {
+            return (string) $v;
+        }
+        if (is_float($v)) {
+            return is_finite($v) && floor($v) === $v && abs($v) < 1e15 ? sprintf('%.0f', $v) : (string) $v;
+        }
+        return is_string($v) ? $v : '';
+    }
+
+    /** Kilograms as grams (rounded); null: not a number, or below 0. */
+    private static function grams(string|float|int|bool|null $v): ?int
+    {
+        if (is_string($v) && preg_match('/^\s*\d{1,6}(\.\d{1,6})?\s*$/D', $v) === 1) {
+            $v = (float) $v;
+        }
+        if (!is_int($v) && !is_float($v)) {
+            return null;
+        }
+        if (!is_finite((float) $v) || $v < 0 || $v > 1_000_000) {
+            return null;
+        }
+        return (int) round($v * 1000);
+    }
+
+    /**
+     * A manifest time as 'Y-m-d H:i:s.000000' (Click & Drop's clock, UK time, as given): an Excel date (days since 30 Dec 1899, to the
+     * nearest second) or "dd/mm/yyyy hh:mm[:ss]"; null: neither.
+     */
+    private static function when(string|float|int|bool|null $v): ?string
+    {
+        $utc = new \DateTimeZone('UTC');
+        if (is_int($v) || is_float($v)) {
+            $v = (float) $v;
+            if (!is_finite($v) || $v < 1 || $v > 2_958_465) {
+                return null;
+            }
+            $secs = (int) round($v * 86400);
+            return (new \DateTimeImmutable(self::EPOCH . ' 00:00:00', $utc))->modify('+' . intdiv($secs, 86400) . ' days')
+                ->modify('+' . ($secs % 86400) . ' seconds')->format('Y-m-d H:i:s') . '.000000';
+        }
+        if (is_string($v) && preg_match('/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/D', $v, $m) === 1) {
+            [, $d, $mo, $y, $h, $i] = $m;
+            $s = $m[6] ?? '0';
+            if (!checkdate((int) $mo, (int) $d, (int) $y) || (int) $h > 23 || (int) $i > 59 || (int) ($s === '' ? 0 : $s) > 59) {
+                return null;
+            }
+            return sprintf('%04d-%02d-%02d %02d:%02d:%02d.000000', (int) $y, (int) $mo, (int) $d, (int) $h, (int) $i, (int) ($s === '' ? 0 : $s));
+        }
+        return null;
+    }
+
+    private static function refuse(string $why): CwException
+    {
+        return new CwException('bad_file', 'Click & Drop report not read: ' . $why . (str_ends_with($why, '?') ? '' : '.') . ' Nothing was saved.', 422);
+    }
+}
