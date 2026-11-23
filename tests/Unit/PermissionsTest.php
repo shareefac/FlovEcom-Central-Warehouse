@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class PermissionsTest extends TestCase
 {
     private const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills'];
 
     public function testTheFifteenRolesAndTheirDescriptionsAndGroups(): void
     {
@@ -47,10 +47,21 @@ final class PermissionsTest extends TestCase
         self::assertSame(array_slice(Permissions::ROLES, 0, 15), $enum('0069_people_manager.sql'));
         self::assertSame('people_manager', Permissions::ROLES[14], 'added at the end: the stored values keep their numbers');
         // 0074 (profit step 1, docs/decisions.md PR23): finance after it, at the end again.
-        self::assertSame(Permissions::ROLES, $enum('0074_profit.sql'));
+        self::assertSame(array_slice(Permissions::ROLES, 0, 16), $enum('0074_profit.sql'));
         self::assertSame('finance', Permissions::ROLES[15]);
         self::assertSame(['finance'], Permissions::MAP['profit.view'], 'nobody else sees the profit until the owner says who');
-        self::assertSame(['catalogue.view', 'reference.view', 'profit.view'], Permissions::permissionsOf(['finance']), 'Finance looks at the profit and nothing else');
+        // 0077 (delivery bills, docs/decisions.md DL15): delivery_bills after it, at the end again; Finance also looks at the delivery bills.
+        self::assertSame(Permissions::ROLES, $enum('0077_delivery_bills.sql'));
+        self::assertSame('delivery_bills', Permissions::ROLES[16]);
+        self::assertSame(['catalogue.view', 'reference.view', 'profit.view', 'delivery.view'], Permissions::permissionsOf(['finance']),
+            'Finance looks at the profit and the delivery bills and nothing else');
+        self::assertSame(['finance', 'delivery_bills'], Permissions::MAP['delivery.view']);
+        self::assertSame(['delivery_bills'], Permissions::MAP['delivery.upload'], 'only the new job uploads, replaces and undoes a bill');
+        self::assertSame(['catalogue.view', 'reference.view', 'delivery.view', 'delivery.upload'], Permissions::permissionsOf(['delivery_bills']),
+            'the new job sees no profit');
+        self::assertNotContains('delivery_bills', Permissions::LOOK_ONLY, 'it acts');
+        self::assertSame(['acting_job'], Permissions::problems('delivery.upload', ['admin']), 'admin never uploads (I12): it gives the job');
+        self::assertSame(['acting_job'], Permissions::problems('delivery.upload', ['finance']), 'Finance only looks (PR111)');
     }
 
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void

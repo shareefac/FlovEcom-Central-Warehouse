@@ -34,9 +34,12 @@ use CW\CwException;
  */
 final class Permissions
 {
-    /** Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end, 0074 finance after it). */
+    /**
+     * Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end, 0074 finance after it, 0077
+     * delivery_bills after that).
+     */
     public const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills'];
 
     /** Shown on the People and roles screen. */
     public const DESCRIPTIONS = [
@@ -56,6 +59,7 @@ final class Permissions
         'auditor' => 'read-only everywhere, people and roles list',
         'people_manager' => 'adds people, sets their jobs, switches them on/off and resets their sign-in; may be combined with any job',
         'finance' => 'reads the profit on every order (0074): sale, buying cost, margin; changes nothing',
+        'delivery_bills' => 'uploads the carriers\' delivery bills (DPD), replaces a bill with a corrected file, undoes an upload (0077)',
     ];
 
     /** The roles' groups on the People and roles form (every role in exactly one). */
@@ -63,7 +67,7 @@ final class Permissions
         'Linking' => ['viewer', 'mapper', 'mapping_lead'],
         'Purchasing and receiving' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk'],
         'Stock' => ['warehouse', 'manager', 'stock_controller'],
-        'Review and finance' => ['reviewer', 'accountant', 'auditor', 'finance'],
+        'Review and finance' => ['reviewer', 'accountant', 'auditor', 'finance', 'delivery_bills'],
         'Admin' => ['admin', 'people_manager'],
     ];
 
@@ -224,6 +228,11 @@ final class Permissions
         // ---- Profit step 1 (0074; docs/decisions.md PR23): the Profit section, read only: what each order was sold for, what it cost to buy
         // and the margin. Only the Finance job holds it, and nobody has that job until the owner says who (he names them).
         'profit.view' => ['finance'],
+        // ---- Delivery cost in profit, step 2 part 1 (0077; docs/decisions.md DL15): the carriers' bills. Finance and the new job look at them
+        // (Profit > Delivery bills); only the new job uploads a bill, replaces it with a corrected file or undoes an upload. Admin gives the
+        // job and never holds the upload itself (I12: admin acts on people and roles only). Nobody has the job until the owner says who.
+        'delivery.view' => ['finance', 'delivery_bills'],
+        'delivery.upload' => ['delivery_bills'],
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */

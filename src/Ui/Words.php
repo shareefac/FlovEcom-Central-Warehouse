@@ -145,11 +145,12 @@ final class Words
         'auditor' => 'Auditor (look only)',
         'people_manager' => 'People manager', // 0069, docs/decisions.md PM1-PM7
         'finance' => 'Finance', // 0074, docs/decisions.md PR23
+        'delivery_bills' => 'Delivery bills', // 0077, docs/decisions.md DL15
     ];
 
     /** The order jobs are named in a sentence: the jobs that check and decide first. */
     public const JOB_ORDER = ['reviewer', 'mapping_lead', 'mapper', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller',
-        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor', 'finance'];
+        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor', 'finance', 'delivery_bills'];
 
     /** "This page is for <these>". */
     public const ROLE_PLURAL = [
@@ -169,6 +170,7 @@ final class Words
         'auditor' => 'Auditors',
         'people_manager' => 'People managers',
         'finance' => 'Finance staff',
+        'delivery_bills' => 'Staff who upload delivery bills',
     ];
 
     /** One line per job (People page, help). Permissions::DESCRIPTIONS keeps the short technical ones. */
@@ -190,6 +192,7 @@ final class Words
         'people_manager' => 'Adds staff, gives and takes their jobs, stops or lets them sign in and resets their sign-in. Goes with any other job, '
             . 'never with Admin. Never changes their own access.',
         'finance' => 'Sees the profit on every order: what it sold for, what it cost to buy and the margin. Changes nothing.',
+        'delivery_bills' => 'Uploads the carriers\' delivery bills (DPD), loads a corrected file of a bill, and undoes an upload. Sees the bills.',
     ];
 
     /** Permissions::ROLE_GROUPS label => the heading on the People form. */
@@ -10776,6 +10779,8 @@ final class Words
         'handovers.pay' => 'Record payments received from customers (Hand-overs > Balances)',
         'duty.view' => 'Look at the duty register',
         'profit.view' => 'Look at the profit on every order', // 0074 (docs/decisions.md PR23)
+        'delivery.view' => 'Look at the delivery bills', // 0077 (docs/decisions.md DL15)
+        'delivery.upload' => 'Upload, replace and undo delivery bills', // 0077 (docs/decisions.md DL15)
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
