@@ -5050,6 +5050,7 @@
     var waiting = false; // Enter came before the answer: the first is taken when it comes
     var offline = false; // the route failed: Enter is the scan box's Find it
     var viaGo = false; // this send is a pick (/add with its item), not Find it
+    var held = false; // this keydown is Enter held down (the key's own repeat), not a new press
     var asked = ''; // what the last send of this form was: 'add <item>' or 'scan <words>'
     // The guard's "press again to go on" is for the one send it stopped: a pick or Find it, never the other (CP17; Find it after a stopped pick
     // lost a typed count). Seen on the page before the form's own guard (capture); Find it never names an item.
@@ -5114,6 +5115,9 @@
       }
     };
     var take = function (li) {
+      if (held) {
+        return; // a held Enter's repeat chooses nothing (CP19)
+      }
       if (CODE.test(box.value.trim())) {
         // A scan's choice, even tapped, is the scan box's Find it (CP18): the server says its line, a case's units, or its offer to add it.
         window.clearTimeout(timer);
@@ -5169,7 +5173,14 @@
     };
     // A scan stays a scan (CP5): Enter and Tab on what the scan box reads never take a choice, even one marked (the list is shut first, before
     // the dropdown's own keys); only a tap does. Registered before combo(), so it runs first.
+    // Enter held down is one press (CP19; the Codex verify of 9e92685): its repeats send nothing, so they never answer the guard's "press
+    // again to go on" for a typed count; a new press does. (held is put back by the box's last keydown handler, after combo()'s.)
     box.addEventListener('keydown', function (ev) {
+      held = ev.key === 'Enter' && ev.repeat === true;
+      if (held) {
+        ev.preventDefault();
+        return;
+      }
       if ((ev.key === 'Enter' || ev.key === 'Tab') && c && CODE.test(box.value.trim())) { // with Ctrl, Alt or Cmd too (CP16)
         c.close();
       }
@@ -5178,6 +5189,10 @@
       options: options,
       choose: take,
       enter: function (ev) {
+        if (ev.repeat) {
+          ev.preventDefault();
+          return; // Enter held down: nothing (CP19)
+        }
         var v = box.value.trim();
         if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey || offline || v.length < 2 || CODE.test(v)) {
           return; // a scan, a CW number with its letters, one letter, or no route: the scan box's Find it, as before
@@ -5218,6 +5233,7 @@
     // Leaving the box, or Esc, ends an Enter that waits for its answer: nothing is added or looked up after it (CP4).
     box.addEventListener('blur', function () { waiting = false; });
     box.addEventListener('keydown', function (ev) {
+      held = false;
       if (ev.key === 'Escape') {
         waiting = false;
         return;

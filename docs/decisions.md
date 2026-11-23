@@ -20262,3 +20262,16 @@ guard stopped clears the "go on", so the guard asks again. Find it never names a
 the list; a tap took it straight to `/add`, so the sheet's line opened without "each scan is a case of N" and a count of cases could be
 saved as units. A tap on a scan's choice now presses Find it: the server says the line, the case's units, or its offer to add the item, as
 for Enter (CP11). Words of a name still add the tapped item.
+
+### The Codex verify of 9e92685 (`runs/countpick_codex_final_verify.txt`, gpt-6.2-astra: NO GO): CP17 and CP18 confirmed fixed; two new MEDIUM (branch `count-picker`, fifth commit, 23 Nov 2026; CP19-CP20)
+
+**CP19. Enter held down is one press.** With a typed count not saved, Enter held on a marked choice: the first press met the guard and the
+key's own repeat was the "press again to go on", so one keypress lost the count. In the product box a repeated Enter (`repeat`) now does
+nothing at all (no choice taken, no Find it, its default stopped); a new press does what Enter does. Shown failing first in the node harness
+(`runs/countpick2_verifyred.js.log`) and passing after (`runs/countpick2_verifyfix.js.log`).
+
+**CP20. Not changed (old behaviour of the scan box, raised to the lead): a case barcode of an item not on the sheet.** Scanned or typed, then
+"Put it on the sheet": the line opens without "each scan is a case of N", because `/add` gets only the item. This is the scan box as it was
+before this branch (Enter on such a barcode took the same path); CP18 makes a tap take it too. Production holds no usable barcode with more
+than one unit a scan (read 23 Nov 2026 18:50 UTC: 0; 38 items ever added to a sheet, none with a case barcode), so it cannot happen there
+today. If case barcodes are set up, `/add` should carry the scanned code and the line open with the case note (a tracker item).
