@@ -5070,6 +5070,8 @@
         c.mark(-1);
       }
     };
+    // An Enter that waits for its answer is taken only while the box has the cursor and the page is in front (CP10, CP15).
+    var here = function () { return document.activeElement === box && (!document.hasFocus || document.hasFocus()); };
     var plain = function () {
       var find = form.querySelector('button[type="submit"]');
       if (find) {
@@ -5111,7 +5113,7 @@
           if (waiting) {
             waiting = false;
             var all = options();
-            if (all.length > 0 && document.activeElement === box) {
+            if (all.length > 0 && here()) {
               take(all[0]);
             }
             return;
@@ -5125,7 +5127,7 @@
           draw([]);
           say(box.getAttribute('data-failed') || '');
           offline = true;
-          if (waiting && document.activeElement === box) {
+          if (waiting && here()) {
             waiting = false;
             plain();
           }
@@ -5135,7 +5137,7 @@
     // A scan stays a scan (CP5): Enter and Tab on what the scan box reads never take a choice, even one marked (the list is shut first, before
     // the dropdown's own keys); only a tap does. Registered before combo(), so it runs first.
     box.addEventListener('keydown', function (ev) {
-      if ((ev.key === 'Enter' || ev.key === 'Tab') && !ev.ctrlKey && !ev.metaKey && !ev.altKey && c && CODE.test(box.value.trim())) {
+      if ((ev.key === 'Enter' || ev.key === 'Tab') && c && CODE.test(box.value.trim())) { // with Ctrl, Alt or Cmd too (CP16)
         c.close();
       }
     });
@@ -5171,6 +5173,7 @@
       waiting = false;
       offline = false;
       sku.value = '';
+      form.removeAttribute('data-go'); // new words: the guard's "press again to go on" was for what it stopped, so it asks again (CP14)
       c.unshut();
       draw([]);
       say('');
@@ -5195,6 +5198,14 @@
         take(list.querySelector('li.is-active') || all[0]);
       }
     });
+  });
+
+  // The line a scan or a choice opened (the address names it, #line-N): its Counted box gets the cursor. A browser skips autofocus when the
+  // address names a part of the page, so the box the page marked (autofocus) is focused here (CP15; the scan box's own path had the same gap).
+  each(document.querySelectorAll('form[data-mark] input[autofocus]'), function (input, i) {
+    if (i === 0 && document.activeElement !== input && input.focus) {
+      input.focus();
+    }
   });
 
   // Stock > Counts > Next to count (docs/decisions.md CV2): the bar's "N ticked" follows the tick boxes of its form (the page's words,

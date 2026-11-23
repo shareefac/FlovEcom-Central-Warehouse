@@ -20231,3 +20231,18 @@ one it does not know goes on to the search (a CW number without its letters). Th
 **CP13. Not changed (LOW): a phone's keyboard over the list.** `combo()` places its list by the window, not the part the keyboard leaves;
 it is the one engine of every dropdown (the adjustment screen's too), so it stays as it is. On a sheet the box is the first thing under the
 head, so its list opens near the top of the screen; the list scrolls and the browser keeps the box in sight.
+
+### The Codex review of 3ffa5fb (`runs/countpick_codex_r2.txt`, default model: NO GO): three MEDIUM, one LOW; each shown failing first in the node harness (`runs/countpick_r2red.js.log`) and fixed (branch `count-picker`, third commit, 23 Nov 2026; CP14-CP16)
+
+**CP14. The guard's "go on" ends when the words change.** After the guard stopped a pick, a scan typed into the box went through without
+the guard asking again (the scan form's `data-go` stayed). New words now clear it: the guard asks again for whatever is sent next. The same
+words sent again still go on (the guard's own rule).
+
+**CP15. The cursor is put in the marked Counted box, and an answer counts only while the page is in front.** A browser skips `autofocus`
+when the address names a part of the page (`#line-N`, where both a scan and a pick land), so the script focuses the box the page marked.
+The scan box's own path had the same gap before this branch (not seen in a real browser here). An Enter waiting for its answer is taken only
+while the box has the cursor and the page is in front (`document.hasFocus()`): another tab in front adds nothing and presses nothing.
+
+**CP16. Ctrl, Alt or Cmd with Enter or Tab never take a choice for a scan either** (CP11): the list is shut first for any of them.
+
+No third Codex round (the brief: one repeat); the final review of the whole change belongs to the end-of-build review.
