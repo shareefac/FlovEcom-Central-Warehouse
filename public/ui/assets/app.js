@@ -5076,19 +5076,24 @@
         find.click(); // the scan box's Find it, as without the script
       }
     };
-    var take = function (li) {
-      var id = li ? li.getAttribute('data-sku') || '' : '';
-      if (!/^[1-9][0-9]{0,17}$/.test(id)) {
-        return;
-      }
+    var send = function (id) {
       window.clearTimeout(timer);
       turn++;
       waiting = false;
       if (c) {
         c.close();
       }
-      sku.value = id;
+      if (sku.value !== id) {
+        form.removeAttribute('data-go'); // the guard's "press again to go on" was for the choice it stopped, not this one (CP4)
+      }
+      sku.value = id; // kept until the words change: Enter again sends this same choice (the guard spoke first)
       go.click(); // a plain post of the scan form to /add: its guard and its once-only send as for any other button
+    };
+    var take = function (li) {
+      var id = li ? li.getAttribute('data-sku') || '' : '';
+      if (/^[1-9][0-9]{0,17}$/.test(id)) {
+        send(id);
+      }
     };
     var load = function (q) {
       var mine = ++turn;
@@ -5106,7 +5111,7 @@
           if (waiting) {
             waiting = false;
             var all = options();
-            if (all.length > 0) {
+            if (all.length > 0 && document.activeElement === box) {
               take(all[0]);
             }
             return;
@@ -5120,12 +5125,20 @@
           draw([]);
           say(box.getAttribute('data-failed') || '');
           offline = true;
-          if (waiting) {
+          if (waiting && document.activeElement === box) {
             waiting = false;
             plain();
           }
+          waiting = false;
         });
     };
+    // A scan stays a scan (CP5): Enter and Tab on what the scan box reads never take a choice, even one marked (the list is shut first, before
+    // the dropdown's own keys); only a tap does. Registered before combo(), so it runs first.
+    box.addEventListener('keydown', function (ev) {
+      if ((ev.key === 'Enter' || ev.key === 'Tab') && !ev.ctrlKey && !ev.metaKey && !ev.altKey && c && CODE.test(box.value.trim())) {
+        c.close();
+      }
+    });
     c = combo(box, list, {
       options: options,
       choose: take,
@@ -5135,6 +5148,10 @@
           return; // a scan, a CW number with its letters, one letter, or no route: the scan box's Find it, as before
         }
         ev.preventDefault();
+        if (sku.value !== '') {
+          send(sku.value); // the choice the guard stopped: the same one again (CP4)
+          return;
+        }
         if (answered === v) {
           var all = options();
           if (all.length > 0) {
@@ -5162,7 +5179,13 @@
         timer = window.setTimeout(function () { load(v); }, 300);
       }
     });
+    // Leaving the box, or Esc, ends an Enter that waits for its answer: nothing is added or looked up after it (CP4).
+    box.addEventListener('blur', function () { waiting = false; });
     box.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') {
+        waiting = false;
+        return;
+      }
       if (ev.key !== 'Tab' || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented || !c.isOpen()) {
         return;
       }

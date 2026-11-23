@@ -549,7 +549,14 @@ final class CountsController
     private static function choices(Context $ctx, int $id, int $warehouse, string $q): array
     {
         $ops = $ctx->stockOps();
-        ['ids' => $ids, 'units' => $units] = StockOpsController::found($ops, mb_substr($q, 0, 100));
+        $q = mb_substr(trim($q), 0, 100);
+        $scan = preg_match('/^[0-9]{4,64}$/D', $q) === 1 ? $ctx->countSheets()->find($id, $q) : ['status' => 'unknown'];
+        if ($scan['status'] === 'ambiguous') {
+            return []; // a barcode the scan box refuses (kept unusable while it is on two items) is offered nowhere (CP12)
+        }
+        // A barcode the scan box knows is that item only; digits it does not know go on to the search (a CW number without its letters).
+        ['ids' => $ids, 'units' => $units] = $scan['status'] === 'unknown' ? StockOpsController::found($ops, $q)
+            : ['ids' => [(int) $scan['sku_id']], 'units' => [(int) $scan['sku_id'] => (int) $scan['units']]];
         if ($ids === []) {
             return [];
         }

@@ -920,7 +920,7 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame([303, $sheet . '?notice=added&page=1&line=3#line-3'], [$r->status, $r->location()]);
         // A CW number without its letters, which the scan box did not read: offered too. Words of no item: refused as before.
         $d = $this->item('strict', 0, 'Quokka spare coil');
-        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => (string) $d]);
+        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => sprintf('%06d', $d)]);
         self::assertSame(200, $r->status, $r->describe());
         self::assertSame([(string) $d], array_map(static fn (\DOMElement $i): string => $i->getAttribute('value'),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//section[contains(@class, "count-scan")]//form[contains(@action, "/add")]//input[@name="sku_id"]'))));
@@ -928,6 +928,22 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('COUNTS', 'scan_unknown', 'nothing like this'), $r->text());
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ?', [$id]), 'looking adds nothing');
+    }
+
+    /** The Codex review of 698d143 (runs/countpick_codex_r1.txt), MEDIUM: a barcode the scan box refuses (kept unusable while it is on two items) is offered nowhere. */
+    public function testTheProductBoxKeepsTheScanBoxsBarcodeRules(): void
+    {
+        $a = $this->item('strict', 4, 'Bilby other kit');
+        $b = $this->item('strict', 5, 'Bilby pod one');
+        $c = $this->item('strict', 6, 'Bilby pod two');
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan) VALUES ('5069900000011', ?, 1, 1), ('5069900000028', ?, 0, 1)", [$b, $c]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($web, [$a]);
+        self::assertSame([(string) $b], array_column(self::picks($web->get($sheet . '/products', ['q' => '5069900000011'])), 0), 'a usable barcode: its item');
+        self::assertSame([], self::picks($web->get($sheet . '/products', ['q' => '5069900000028'])), 'a barcode kept unusable: nothing, as the scan box says');
+        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => '5069900000028']);
+        self::assertSame(422, $r->status, 'the scan box as before');
+        self::assertStringContainsString(Words::say('COUNTS', 'scan_ambiguous', '5069900000028'), $r->text());
     }
 
     public function testTheProductBoxOfABlindCountNeverSaysTheStockAndOnlySomeoneWhoCountsAnOpenSheetMayAsk(): void

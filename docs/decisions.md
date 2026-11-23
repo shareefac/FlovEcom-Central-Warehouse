@@ -20209,3 +20209,25 @@ a Show choice, each with its saved count time and its "was" value, so the server
 `testTheProductBoxOfABlindCountNeverSaysTheStockAndOnlySomeoneWhoCountsAnOpenSheetMayAsk` (red first: `runs/countpick_red.php.log`),
 `UiUnitTest` (ALSO, the box's address check), the node harness `runs/countpick_js_harness/run_ct.js` (red first: `runs/countpick_red.js.log`;
 the box wired, the choices, keys, tap, Tab, a scan, none, an old answer, a failure, the guard).
+
+### The Codex review of 698d143 (`runs/countpick_codex_r1.txt`, default model: NO GO): four MEDIUM, one LOW; each MEDIUM shown failing first (branch `count-picker`, second commit, 23 Nov 2026; CP9-CP13)
+
+**CP9. A choice the guard stopped is the one sent next.** With a count typed and not saved, the page's guard stops a pick and says so;
+the list had shut, so Enter again took the FIRST choice. The chosen item now stays named (`sku_id`) until the words change, and Enter sends
+that same one; a different choice clears the guard's "go on" (`data-go`), so the guard asks again for it.
+
+**CP10. An Enter waiting for its answer ends when the box is left.** Enter before the answer, then a tap on a Counted box (or Tab, or Esc):
+the answer, or a failure, no longer adds an item or presses Find it; it is taken only while the box still has the focus.
+
+**CP11. Keys never take a choice for a scan** (CP5 made strict). A barcode or a CW number with its letters with a choice marked: Enter is
+Find it (`/scan`: the case's words, the offer) and Tab the browser's own; the list is shut by a key handler that runs before the dropdown's.
+A tap on a choice still takes it (the person chose that item).
+
+**CP12. The box keeps the scan box's barcode rules.** The search behind the adjustment screen's box finds a barcode CW keeps unusable (it is
+on two items), which the scan box refuses ("is on more than one item, so it is not used"). For a sheet, digits of 4 or more go through
+`CountSheets::find` first: a barcode it finds is that item only; one it refuses offers nothing (the box, and the list without the script);
+one it does not know goes on to the search (a CW number without its letters). The adjustment screen's lookup is unchanged.
+
+**CP13. Not changed (LOW): a phone's keyboard over the list.** `combo()` places its list by the window, not the part the keyboard leaves;
+it is the one engine of every dropdown (the adjustment screen's too), so it stays as it is. On a sheet the box is the first thing under the
+head, so its list opens near the top of the screen; the list scrolls and the browser keeps the box in sight.
