@@ -5251,10 +5251,37 @@
 
   // The line a scan or a choice opened (the address names it, #line-N): its Counted box gets the cursor. A browser skips autofocus when the
   // address names a part of the page, so the box the page marked (autofocus) is focused here (CP15; the scan box's own path had the same gap).
+  // On a navigation (not a reload) the browser's scroll to #line-N comes after this script and puts the cursor back on the page (seen in
+  // Chrome after the go-live, CP21): so it is put in the box again once the page has loaded (load / pageshow, the next frame, then a turn,
+  // and one more look a moment later), only while the cursor is still on the page itself and the person has not clicked or tapped meanwhile.
   each(document.querySelectorAll('form[data-mark] input[autofocus]'), function (input, i) {
-    if (i === 0 && document.activeElement !== input && input.focus) {
+    if (i !== 0 || !input.focus) {
+      return;
+    }
+    if (document.activeElement !== input) {
       input.focus();
     }
+    var touched = false;
+    var mine = function () { touched = true; };
+    each(['mousedown', 'pointerdown', 'touchstart'], function (t) { document.addEventListener(t, mine, true); });
+    var again = function () {
+      var now = document.activeElement;
+      if (!touched && (!now || now === document.body || now === document.documentElement) && document.body.contains(input) && !input.disabled) {
+        input.focus();
+      }
+    };
+    var later = function () {
+      var next = window.requestAnimationFrame || function (fn) { return window.setTimeout(fn, 16); };
+      next(function () {
+        window.setTimeout(again, 0);
+        window.setTimeout(again, 150);
+      });
+    };
+    if (document.readyState === 'complete') {
+      later();
+    }
+    window.addEventListener('load', later);
+    window.addEventListener('pageshow', later);
   });
 
   // Stock > Counts > Next to count (docs/decisions.md CV2): the bar's "N ticked" follows the tick boxes of its form (the page's words,

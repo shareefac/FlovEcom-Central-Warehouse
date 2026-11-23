@@ -20275,3 +20275,14 @@ nothing at all (no choice taken, no Find it, its default stopped); a new press d
 before this branch (Enter on such a barcode took the same path); CP18 makes a tap take it too. Production holds no usable barcode with more
 than one unit a scan (read 23 Nov 2026 18:50 UTC: 0; 38 items ever added to a sheet, none with a case barcode), so it cannot happen there
 today. If case barcodes are set up, `/add` should carry the scanned code and the line open with the case note (a tracker item).
+
+### After the go-live (23 Nov 2026 19:37 UK, 141d01c, What's new #605): the lead's walk-through in a real Chrome (macOS) (branch `count-picker`, sixth commit; CP21)
+
+**CP21. The marked Counted box gets the cursor after the browser's scroll to the line.** Search, pick, Enter-save and back-to-the-box worked;
+but after a pick (a click on a choice, or Enter on the first) the page landed on `?notice=added&line=N#line-N` with the cursor on the page
+(`document.activeElement` = BODY), not in q_N, so typing went nowhere. A plain reload of that same address had it in q_N: on a navigation
+the browser's scroll to `#line-N` comes after the script and undoes CP15's focus. The script now puts the cursor in the marked box again
+once the page has loaded (`load` and `pageshow`, the next frame, then a turn, and one more look 150 ms later), only while the cursor is
+still on the page itself (BODY or none) and nobody has clicked or tapped the page meanwhile; a cursor the person put elsewhere (the product
+box, another field) is never taken. Without the script the page is as before (the server's `autofocus`). Shown failing first in the node
+harness, the browser's order played by hand (`runs/countpick2_cp21red.js.log`: 3 FAIL), passing after (`runs/countpick2_cp21fix.js.log`).
