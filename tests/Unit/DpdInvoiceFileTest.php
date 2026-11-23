@@ -203,6 +203,36 @@ final class DpdInvoiceFileTest extends TestCase
         self::assertStringNotContainsString('Test Person', json_encode($bill, JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * The owner's bill 62382344 (DL42): DPD's new column "Peak Demand Charge" (10p or 20p a parcel) is money, part of the line's cost, so the
+     * lines add up to the net with it; a file without the column (the weeks before) still reads.
+     */
+    public function testThePeakDemandChargeIsPartOfTheLinesCost(): void
+    {
+        $lines = [
+            DpdCsv::line('16/11/2026', '6599195040/0', 430, ['money' => ['Revenue' => 400, 'Fuel and Energy Charge' => 20, 'Peak Demand Charge' => 10]]),
+            DpdCsv::line('16/11/2026', '6599195041/0', 420, ['money' => ['Revenue' => 380, 'Fuel and Energy Charge' => 20, 'Peak Demand Charge' => 20]]),
+            DpdCsv::line('16/11/2026', '6599195042/0', 400, ['money' => ['Revenue' => 380, 'Fuel and Energy Charge' => 20]]),
+        ];
+        $bill = DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Peak Demand Charge']]), 2000);
+        self::assertSame(1250, $bill['net']);
+        self::assertSame([430, 420, 400], array_column($bill['lines'], 'cost'));
+        self::assertSame(['Revenue' => 400, 'Fuel and Energy Charge' => 20, 'Peak Demand Charge' => 10], $bill['lines'][0]['money']);
+        self::assertArrayNotHasKey('Peak Demand Charge', $bill['lines'][2]['money']);
+        // Short of the net without it: the file is refused, as any bill whose lines do not add up.
+        try {
+            DpdInvoiceFile::parse(DpdCsv::file($lines, ['columns' => [...DpdCsv::COLUMNS, 'Peak Demand Charge'], 'net' => 1220, 'vat' => 244]), 2000);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertStringContainsString('the lines add up to', $e->getMessage());
+        }
+        // A file without the column (the 42 columns of the weeks before) reads as before.
+        $old = [DpdCsv::line('09/11/2026', '6599195040/0', 400, ['money' => ['Revenue' => 380, 'Fuel and Energy Charge' => 20]])];
+        $b = DpdInvoiceFile::parse(DpdCsv::file($old), 2000);
+        self::assertSame([400, 400], [$b['net'], $b['lines'][0]['cost']]);
+        self::assertNotContains('Peak Demand Charge', DpdCsv::COLUMNS);
+    }
+
     public function testSurchargeIsNeverMoneyEvenWhenItHoldsANumber(): void
     {
         $l = DpdCsv::line('05/11/2026', '6599195040/0', 420, ['Surcharge' => '5.00']);

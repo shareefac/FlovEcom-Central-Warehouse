@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL41; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL42; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL41. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL42. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -20161,6 +20161,13 @@ own work while holding guards passes 1.5 s is said busy rather than hold a snaps
 day row held elsewhere, and with five bill lines a re-match moves held elsewhere and let go 0.8 s apart; each time a snapshot writer waiting
 for one of the bill's guards gets it within its own 3 s, and the write is busy (nothing written) or done whole within the budget. Two older tests that run a snapshot inside the bill's hold (one process: its seconds of waiting count against the bill's HOLD_SEC) upload
 again when the bill is busy.
+
+**DL42. "Peak Demand Charge" is money (the owner's bill 62382344, the lead, 23 Nov 2026; branch `dpd-peak`).** DPD's bill of the week
+after 14 Nov has a 43rd column, Peak Demand Charge (10p or 20p on most parcels; £210.80 on that bill): with it the lines add up to the
+bill's net exactly, without it they are £210.80 short. It is a charge per parcel, part of the line's cost (DpdInvoiceFile::MONEY), so it
+goes on the line's order like the others; a file without the column (the weeks before) reads as before. Before it, DL40 refused that file
+(a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
+owner, 23 Nov 2026, Electrofag does not use DPD.)
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

@@ -48,13 +48,13 @@ final class DpdInvoiceFile
     /** The row that names the columns is the first one naming these two. */
     public const FIRST_MONEY = 'Revenue';
     /**
-     * DPD's money columns (the four bills of 15 Oct - 14 Nov 2026 name Global Energy Charge, the March sample Peak Charge instead): a line's
-     * cost is their sum, wherever they are.
+     * DPD's money columns (the four bills of 15 Oct - 14 Nov 2026 name Global Energy Charge, the March sample Peak Charge instead; bill
+     * 62382344 of the week after adds Peak Demand Charge, 10p or 20p a parcel: DL42): a line's cost is their sum, wherever they are.
      */
     public const MONEY = ['Revenue', 'Fuel and Energy Charge', 'Third Party Collection', 'Fourth Party Collection', 'Congestion Charge', 'Clearance Charge',
         'Return to Consignor Charge', 'Failed Collection Charge', 'Scottish Delivery Zone', 'Duties & Taxes Prepaid Admin Charge', 'Oversized/Overweight Charge',
         'Contractual Liability', 'Oversized Exports Charge', 'Unsuccessful Export Charge', 'EU Export Return Charge', 'Carriage Charge', 'Non Coms Handling Charge',
-        'Global Energy Charge', 'Peak Charge', 'Relabel Charge', 'Cover'];
+        'Global Energy Charge', 'Peak Charge', 'Peak Demand Charge', 'Relabel Charge', 'Cover'];
     /** Not money: a letter code naming a line's extras (AS, AES, APS ...). */
     public const NOT_MONEY = ['Surcharge'];
     /** DPD's other columns (read or not): the ones a refusal may name. */
