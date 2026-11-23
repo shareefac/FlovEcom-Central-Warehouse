@@ -19888,9 +19888,9 @@ The Codex check of the fix commit (`cw_work/receive_rest_20261122/codex_f.txt`, 
 posted receipt of the rest that brought nothing at all (every unit short again: no row written) for its stored figures; without them it has
 nothing accepted, so "Not invoiced yet" shows nothing for it either way.
 
-## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL29; migration 0077; tracker CW-1142)
+## Delivery cost in profit, step 2 part 1: DPD's bills (branch `delivery-dpd`, 23 Nov 2026; DL1-DL30; migration 0077; tracker CW-1142)
 
-<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL29. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
+<!-- ---- CW-1142 step 2 part 1 (0077): DL1-DL30. ("DC" was asked for; DC1-DC34 are the design conformance's, so DL.) ---- -->
 The owner's decision (23 Nov 2026): build DPD FIRST and take it live; Royal Mail and the rest later. Plans: `cw_work/delivery_cost_20261123/
 PLAN_v2.md` (after the Codex Astra and Fable reviews) and the research `cw_work/profit_20261119/step2_findings.md` (sections 1, 3-5); the
 lead's eleven decisions in `BRIEF_BUILD_DPD.md` win where they differ. Code: `src/Profit/{DpdInvoiceFile, DeliveryBills, DeliveryViews,
@@ -20077,7 +20077,7 @@ Go's orders placed from 29 Oct (PR148); the start (DL10) is the first reservatio
 research data: 62341597 (25-31 Oct) 116 such lines, £483.60 (the lead measured "926 matched, the rest before start"); a return collected in
 November for such an order is the same (62355066: 8 lines £100.31; 62368793: 5 lines £40.23; the brief's sentence for 62368793 counts them
 "not on an order"). A rule "the Senders Ref is an order number below the first one CW holds for the shop: before CW start" would take them
-out of the profit; it is not built (decision 4 says the line's date). Ask the lead.
+out of the profit; not built then (decision 4 says the line's date). The owner chose it on 23 Nov: DL30.
 
 **DL28. The Codex verify of the fix round, 32c20fe..b440a6b (`cw_work/delivery_cost_20261123/codex_r3.txt`, default model: NO GO).** Round 2's
 HIGH 2, MEDIUM 2, MEDIUM 4 and LOW 2 FIXED; HIGH 3, LOW 1 PARTLY, now fixed: the undo's rebuild from the store's first profit day (DL22),
@@ -20093,3 +20093,11 @@ net total (Nett Invoice Value) at the top of the file is not an amount in pounds
 add up to the net and a column CW does not know holds amounts, the refusal names it ("the file has a column we do not know, 'Fuel
 Surcharge', with amounts in it: tell the CW team"): by its heading when that is a plain heading, else by its number; never a cell. (3) A
 file with old Mac line ends (CR only) is read as CRLF and LF are; a non-breaking space (U+00A0) is a space.
+
+**DL30. The owner, 23 Nov 2026 ("Yes, before CW"; DL27's open point): a line of an order older than the shop's first order in CW is before CW
+start, whatever its date.** A line on no parcel and no collection whose Senders Ref is digits and, as a number, BELOW the lowest order number
+CW holds for the shop the account bills (`MIN(order_no)` of sale_order, read from CW at each decision, never a constant) is `before_start`
+(shown, not in the profit). A line with no Senders Ref, a text one, or one at or above that first order stays `not_matched`; a shop with no
+order in CW yet: today's rule (the line's date). The nightly re-match, replace and undo decide it the same way (a not matched line becomes
+before CW start once CW holds the shop's orders); the days equal a rebuild (DeliveryBillsTest, red on 2d6086c: `runs/dpd_owner_red.log`).
+On the research data (orders from 29 Oct): 62341597 116 lines £483.60 move from not matched to before CW start (the live check: 116 of 118).

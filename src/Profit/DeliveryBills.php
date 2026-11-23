@@ -33,7 +33,8 @@ use CW\Staff\StaffRoles;
  *  2. collection: no parcel, money in "Third Party Collection" and a Senders Ref (digits) that is the number of exactly one order of the
  *     shop the account bills: a return DPD collected, its cost on that order.
  *  3. before_start: the line's date is on or before the day of the first reservation in CW of the shop the account bills (taken from CW,
- *     OrderSnapshots::firstReservation): CW holds no orders before it. Shown on the bill; not in the profit.
+ *     OrderSnapshots::firstReservation): CW holds no orders before it; or its Senders Ref is an order number below the shop's first order in
+ *     CW (the owner, 23 Nov 2026, DL30). Shown on the bill; not in the profit.
  *  4. not_matched: anything else. In the profit as "DPD charges not on an order" on the line's date.
  *
  * The profit (DL11-DL14): a matched or collection line of a live bill counts on the order it is on, on that order's paid day
@@ -469,6 +470,7 @@ final class DeliveryBills
                 $orders[(string) $o['order_no']][] = (string) $o['order_ref'];
             }
         }
+        $first = null;
         foreach ($lines as $i => $l) {
             if (isset($out[$i])) {
                 continue;
@@ -480,12 +482,34 @@ final class DeliveryBills
                 $out[$i] = self::none('ambiguous', min(255, count($found)));
             } elseif ($startDay === null || (string) $l['line_date'] <= $startDay) {
                 $out[$i] = self::none('before_start');
+            } elseif (self::beforeFirstOrder($db, $shop, $l['senders_ref'] ?? null, $first)) {
+                // The owner, 23 Nov 2026 ("Yes, before CW"; DL30): an order older than the shop's first one in CW, whatever the line's date.
+                $out[$i] = self::none('before_start');
             } else {
                 $out[$i] = self::none('not_matched');
             }
         }
         ksort($out);
         return $out;
+    }
+
+    /**
+     * Whether a Senders Ref is an order number BELOW the shop's first order known to CW (the owner, 23 Nov 2026, DL30): digits only (a ref
+     * that is not digits, or none, is never), compared as numbers with the lowest order number CW holds for the shop (sale_order.order_no,
+     * read from CW once per decision and kept in $first; no order yet: never).
+     *
+     * @param array{0: ?int}|null $first the shop's first order number, read once ([null]: none)
+     */
+    private static function beforeFirstOrder(Db $db, int $shop, mixed $ref, ?array &$first): bool
+    {
+        if (!is_string($ref) || preg_match('/^[0-9]{1,12}$/D', $ref) !== 1) {
+            return false;
+        }
+        if ($first === null) {
+            $v = $db->value("SELECT MIN(CAST(order_no AS UNSIGNED)) FROM sale_order WHERE channel_id = ? AND order_no <> ''", [$shop]);
+            $first = [$v === null ? null : (int) $v];
+        }
+        return $first[0] !== null && (int) $ref < $first[0];
     }
 
     /**

@@ -309,23 +309,24 @@ final class DeliveryBillsTest extends StockTestCase
     public function testTheLineDateWindowIsTenDaysAfterTheLabelAndThreeBefore(): void
     {
         $ch = $this->shop();
+        $ref = ['Senders Ref' => '1356110']; // the order's own number: not below the shop's first order in CW (DL30)
         self::order($ch, '1040', '1356110', '2026-11-01T09:00:00Z', [self::parcel('odl:40', '6599195080', '2026-11-01T10:00:00Z'),
             self::parcel('odl:41', '6599195081', '2026-11-01T10:00:00Z'), self::parcel('odl:42', '6599195082', '2026-11-10T10:00:00Z'),
             self::parcel('odl:43', '6599195083', '2026-11-11T10:00:00Z'), self::parcel('odl:44', '15976599195084', '2026-11-05T10:00:00Z')]);
         $bill = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([
-            DpdCsv::line('11/11/2026', '6599195080/0', 100), // 10 days after the label: matched
-            DpdCsv::line('12/11/2026', '6599195081/0', 100), // 11 days: not
-            DpdCsv::line('07/11/2026', '6599195082/0', 100), // 3 days before: matched
-            DpdCsv::line('07/11/2026', '6599195083/0', 100), // 4 days before: not
+            DpdCsv::line('11/11/2026', '6599195080/0', 100, $ref), // 10 days after the label: matched
+            DpdCsv::line('12/11/2026', '6599195081/0', 100, $ref), // 11 days: not
+            DpdCsv::line('07/11/2026', '6599195082/0', 100, $ref), // 3 days before: matched
+            DpdCsv::line('07/11/2026', '6599195083/0', 100, $ref), // 4 days before: not
             // The consignment only (the lead's decision 4; Codex r1 MEDIUM 3): DPD's parcel number never matches, nor makes a line ambiguous.
-            DpdCsv::line('06/11/2026', '6599195099/0', 100, ['Parcel No' => '15976599195084']),
-            DpdCsv::line('06/11/2026', '6599195080/0', 100, ['Parcel No' => '15976599195084']),
+            DpdCsv::line('06/11/2026', '6599195099/0', 100, ['Parcel No' => '15976599195084'] + $ref),
+            DpdCsv::line('06/11/2026', '6599195080/0', 100, ['Parcel No' => '15976599195084'] + $ref),
         ]));
         self::assertSame(['matched', 'not_matched', 'matched', 'not_matched', 'not_matched', 'matched'], self::states($bill['invoice_id']));
         self::assertSame('odl:40', (string) self::$db->value('SELECT parcel_ref FROM carrier_invoice_line WHERE invoice_id = ? AND line_no = 6', [$bill['invoice_id']]));
         // A parcel of another carrier, or a manual one, with the same number is never DPD's.
         self::order($ch, '1041', '1356111', '2026-11-01T09:00:00Z', [self::parcel('odl:45', '6599195085', '2026-11-05T10:00:00Z', ['carrier' => 'royal_mail'])]);
-        $rm = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('06/11/2026', '6599195085/0', 100)], ['invoice' => '62999002']));
+        $rm = self::bills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('06/11/2026', '6599195085/0', 100, $ref)], ['invoice' => '62999002']));
         self::assertSame(['not_matched'], self::states($rm['invoice_id']));
         self::assertDaysRebuild($ch);
     }
@@ -548,7 +549,7 @@ final class DeliveryBillsTest extends StockTestCase
             self::order($ch, '1060', '1356160', '2026-11-08T09:00:00Z', [], ['version' => 2]);
         }];
         try {
-            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100060/0', 420)]), $ch);
+            $r = self::hookedBills()->upload(self::system(), 'dpd', DpdCsv::file([DpdCsv::line('09/11/2026', '6599100060/0', 420, ['Senders Ref' => '1356160'])]), $ch);
         } finally {
             HookedStatement::$before = [];
         }
@@ -759,6 +760,46 @@ final class DeliveryBillsTest extends StockTestCase
         $other = TestDb::connect();
         self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, '3000')]), 'every guard let go');
         self::assertSame(1, (int) $other->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($ch, (string) (3000 + $n - 1))]));
+        self::assertDaysRebuild($ch);
+    }
+
+    /**
+     * The owner's rule (23 Nov 2026, "Yes, before CW"; DL30): a line on no parcel whose Senders Ref is an order number BELOW the shop's first
+     * order known to CW is before CW start whatever its date; the first order is CW's own (the lowest order number it holds for the shop), so
+     * it follows what CW holds (the nightly re-match); a line with no Senders Ref, a text one, or one at or above the first order stays not
+     * matched; replace and undo keep it; the days equal a rebuild.
+     */
+    public function testALineOfAnOrderBeforeTheShopsFirstOrderInCwIsBeforeCwStart(): void
+    {
+        $ch = $this->shop();
+        $lines = [
+            DpdCsv::line('30/10/2026', '6599400001/0', 420, ['Senders Ref' => '1356050']),          // an order before CW's first: before CW start
+            DpdCsv::line('30/10/2026', '6599400002/0', 310, ['Senders Ref' => '1356150']),          // at or above the first: not matched
+            DpdCsv::line('30/10/2026', '6599400003/0', 250, ['Senders Ref' => '']),                 // no Senders Ref: not matched
+            DpdCsv::line('30/10/2026', '6599400004/0', 230, ['Senders Ref' => 'man return']),       // text: not matched
+            DpdCsv::line('05/11/2026', '6599400005/0', 1550, ['Senders Ref' => '1356040',           // a return of an order before CW's first
+                'money' => ['Third Party Collection' => 1300, 'Fuel and Energy Charge' => 250]]),
+            DpdCsv::line('30/10/2026', '6599400006/0', 200, ['Senders Ref' => '1356100']),          // exactly the first: not matched
+        ];
+        // No order in CW yet: no first order known, today's rules.
+        $r = self::bills()->upload(self::system(), 'dpd', DpdCsv::file($lines, ['invoice' => '62341597']));
+        self::assertSame(['not_matched', 'not_matched', 'not_matched', 'not_matched', 'not_matched', 'not_matched'], self::states($r['invoice_id']));
+        // CW holds the shop's orders from 1356100 (its first; a re-send's higher number does not move it): the nightly re-match puts the two
+        // lines of older orders before CW start.
+        self::order($ch, '1100', '1356100', '2026-10-29T09:00:00Z', []);
+        self::order($ch, '1101', '1356200', '2026-10-30T09:00:00Z', []);
+        self::assertSame(2, self::bills()->rematch(self::system()));
+        self::assertSame(['before_start', 'not_matched', 'not_matched', 'not_matched', 'before_start', 'not_matched'], self::states($r['invoice_id']));
+        self::assertSame(['2026-10-30|delivery_other' => 310 + 250 + 230 + 200], self::days($ch), 'before CW start is not in the profit');
+        self::assertDaysRebuild($ch);
+        // A new upload decides it at once; a corrected file keeps it; undo takes all out.
+        $lines[1] = DpdCsv::line('30/10/2026', '6599400002/0', 300, ['Senders Ref' => '1356150']);
+        $new = self::bills()->replace(self::system(), $r['invoice_id'], DpdCsv::file($lines, ['invoice' => '62341597']));
+        self::assertSame(['before_start', 'not_matched', 'not_matched', 'not_matched', 'before_start', 'not_matched'], self::states($new['invoice_id']));
+        self::assertSame(['2026-10-30|delivery_other' => 300 + 250 + 230 + 200], self::days($ch));
+        self::assertDaysRebuild($ch);
+        self::bills()->undo(self::system(), $new['invoice_id']);
+        self::assertSame([], self::days($ch));
         self::assertDaysRebuild($ch);
     }
 
