@@ -5049,6 +5049,23 @@
     var answered = null; // the words the choices on show are the answer to
     var waiting = false; // Enter came before the answer: the first is taken when it comes
     var offline = false; // the route failed: Enter is the scan box's Find it
+    var viaGo = false; // this send is a pick (/add with its item), not Find it
+    var asked = ''; // what the last send of this form was: 'add <item>' or 'scan <words>'
+    // The guard's "press again to go on" is for the one send it stopped: a pick or Find it, never the other (CP17; Find it after a stopped pick
+    // lost a typed count). Seen on the page before the form's own guard (capture); Find it never names an item.
+    document.addEventListener('submit', function (ev) {
+      if (ev.target !== form) {
+        return;
+      }
+      if (!viaGo) {
+        sku.value = '';
+      }
+      var what = viaGo ? 'add ' + sku.value : 'scan ' + box.value.trim();
+      if (what !== asked) {
+        form.removeAttribute('data-go');
+      }
+      asked = what;
+    }, true);
     var options = function () { return list.querySelectorAll('li[role="option"]'); };
     var c = null;
     var draw = function (from) {
@@ -5089,9 +5106,25 @@
         form.removeAttribute('data-go'); // the guard's "press again to go on" was for the choice it stopped, not this one (CP4)
       }
       sku.value = id; // kept until the words change: Enter again sends this same choice (the guard spoke first)
-      go.click(); // a plain post of the scan form to /add: its guard and its once-only send as for any other button
+      viaGo = true;
+      try {
+        go.click(); // a plain post of the scan form to /add: its guard and its once-only send as for any other button
+      } finally {
+        viaGo = false;
+      }
     };
     var take = function (li) {
+      if (CODE.test(box.value.trim())) {
+        // A scan's choice, even tapped, is the scan box's Find it (CP18): the server says its line, a case's units, or its offer to add it.
+        window.clearTimeout(timer);
+        turn++;
+        waiting = false;
+        if (c) {
+          c.close();
+        }
+        plain();
+        return;
+      }
       var id = li ? li.getAttribute('data-sku') || '' : '';
       if (/^[1-9][0-9]{0,17}$/.test(id)) {
         send(id);

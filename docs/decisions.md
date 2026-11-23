@@ -20246,3 +20246,19 @@ while the box has the cursor and the page is in front (`document.hasFocus()`): a
 **CP16. Ctrl, Alt or Cmd with Enter or Tab never take a choice for a scan either** (CP11): the list is shut first for any of them.
 
 No third Codex round (the brief: one repeat); the final review of the whole change belongs to the end-of-build review.
+
+### The final Codex review after the rebase on 451d02d (`runs/countpick_codex_final.txt`, gpt-6.2-astra: NO GO): two MEDIUM, each shown failing first in the node harness (`runs/countpick2_finalred.js.log`) and fixed (branch `count-picker`, fourth commit, 23 Nov 2026; CP17-CP18)
+
+The rebase itself (onto 451d02d, CW-1142 DPD bills) moved no line of either feature: only this file met, both sections kept whole. The review
+found the round-1 and round-2 fixes in place, `doc.CNT.post` on the lookup and the add (never admin), CSRF on every POST, the search
+parameterised, the output escaped, nothing booked before the count is final, and the adjustment screen's box unchanged.
+
+**CP17. The guard's "go on" is for the one send it stopped.** A pick stopped by the guard (a typed count not saved), then Find it pressed with
+the words unchanged, went to `/scan` under the pick's "go on" and the typed count was lost. The box now notes what each send of the scan form
+is (a pick: `/add` with its item; Find it: `/scan` with the words), on the page before the form's own guard; a send that is not the one the
+guard stopped clears the "go on", so the guard asks again. Find it never names an item (`sku_id` empty).
+
+**CP18. A scan's choice, even tapped, is the scan box's Find it.** A case barcode typed (or a CW number with its letters) shows its item in
+the list; a tap took it straight to `/add`, so the sheet's line opened without "each scan is a case of N" and a count of cases could be
+saved as units. A tap on a scan's choice now presses Find it: the server says the line, the case's units, or its offer to add the item, as
+for Enter (CP11). Words of a name still add the tapped item.
