@@ -29,7 +29,7 @@ use CW\Reports\ReportRefresh;
  *  store()      accept() and the order's apply at once (the bulk files, tests): the same result as the API, worked out now.
  *  apply()      the order (sale_order), its lines (sale_line) and parcels (sale_parcel), the re-send figures of the order it is a re-send
  *               of, and the day summaries (profit_day, profit_item_day: by the difference between what the order counted before and
- *               now, in key order; its delivery bill lines' cost goes with its day: docs/decisions.md DL12).
+ *               now, in key order).
  *  recompute()  apply() again with the stored snapshot (the returns sweep; the ERPNext import and the re-cost with their costs).
  *
  * The cost of a line is fixed ONCE, the first time it is stored on a paid order: the item's buying price at the time it was paid
@@ -791,11 +791,8 @@ final class OrderSnapshots
         foreach ($parents as $p) {
             self::refreshParent($db, $channelId, $p);
         }
-        // The day summaries: what the order counts now less what it counted before. Its delivery bill lines (0077, docs/decisions.md DL12) go
-        // with it: the same amount before and now, so an order paid, or moved to another day, takes them along (they never change here; a
-        // bill's own write holds this order's day row, or its row when it is not paid, while it changes them).
-        $delivery = $old === null ? 0 : DeliveryBills::orderCost($db, $channelId, $ref);
-        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery), ProfitDays::orderShare($order, $newLines, $delivery));
+        // The day summaries: what the order counts now less what it counted before.
+        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines), ProfitDays::orderShare($order, $newLines));
     }
 
     /**

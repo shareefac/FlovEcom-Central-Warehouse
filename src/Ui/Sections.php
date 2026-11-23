@@ -228,8 +228,6 @@ final class Sections
             'profit_breakdown' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/by', 'match' => ['/ui/profit/by*']]]],
             'profit_orders' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/orders', 'match' => ['/ui/profit/orders*']]]],
             'profit_no_cost' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/no-cost', 'match' => ['/ui/profit/no-cost*']]]],
-            // 0077 (docs/decisions.md DL23): the carriers' bills, looked at by Finance and the Delivery bills job (who also uploads).
-            'profit_delivery' => ['pages' => [['perm' => 'delivery.view', 'path' => '/ui/profit/delivery', 'match' => ['/ui/profit/delivery', '/ui/profit/delivery/*']]]],
         ]],
         // Settings: ONE entry for every settings page (no sub-items); each page one of its choices, the audit log last (docs/decisions.md RD7).
         'settings' => ['tabs' => [

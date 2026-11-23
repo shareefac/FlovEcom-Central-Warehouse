@@ -126,11 +126,6 @@ final class Grants
         // CW-917 (0060; docs/decisions.md EC12): a real run of the ERPNext invoice copy job is written once and finished once (its status,
         // the cursor it reached, its summary, when it finished); what it was run on (company, from date, the cursor it read from, who) is frozen.
         'erp_copy_run' => ['status', 'cursor_to', 'cursor_name', 'summary', 'finished_at'],
-        // 0077 (docs/decisions.md DL1, DL2): a carrier bill is never deleted and what it says never changes: only whether it counts (live,
-        // superseded by a corrected file, undone) and who ended it when; a bill line's content is frozen, only its match is written (a line
-        // not matched yet is put on its parcel or order later, never moved off one).
-        'carrier_invoice' => ['status', 'ended_by', 'ended_actor', 'ended_at'],
-        'carrier_invoice_line' => ['match_state', 'channel_id', 'order_ref', 'parcel_ref', 'candidates', 'matched_at'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

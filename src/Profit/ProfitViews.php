@@ -30,9 +30,7 @@ final class ProfitViews
     public const INCOMPLETE_PER = 200;
     private const SUMS = 'COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(resends), 0) AS resends, COALESCE(SUM(units), 0) AS units, '
         . 'COALESCE(SUM(sale_ex), 0) AS sale_ex, COALESCE(SUM(order_refund_ex), 0) AS order_refund_ex, COALESCE(SUM(cost), 0) AS cost, '
-        . 'COALESCE(SUM(units_no_cost), 0) AS units_no_cost, COALESCE(SUM(delivery_ex), 0) AS delivery_ex, '
-        // 0077 (docs/decisions.md DL11): what the carriers' bills say delivery cost, on the orders and not on an order.
-        . 'COALESCE(SUM(delivery_cost), 0) AS delivery_cost, COALESCE(SUM(delivery_other), 0) AS delivery_other';
+        . 'COALESCE(SUM(units_no_cost), 0) AS units_no_cost, COALESCE(SUM(delivery_ex), 0) AS delivery_ex';
     private const ITEM_SUMS = 'COALESCE(SUM(p.units), 0) AS units, COALESCE(SUM(p.sale_ex), 0) AS sale_ex, COALESCE(SUM(p.cost), 0) AS cost, '
         . 'COALESCE(SUM(p.units_no_cost), 0) AS units_no_cost';
 
@@ -349,16 +347,11 @@ final class ProfitViews
                 $cloneGoods += (int) $l['price_inc'] - (int) $l['discount_inc'];
             }
         }
-        $parcels = $this->db->all('SELECT * FROM sale_parcel WHERE channel_id = ? AND order_ref = ? ORDER BY removed_at IS NOT NULL, label_at, parcel_ref', [$store, $ref]);
-        // Its delivery (0077, docs/decisions.md DL23): its parcels with their carrier bill lines ("not billed yet" without), the collections on it,
-        // and its re-sends' bill lines when it is a first order (they belong to it, PR143).
-        $delivery = DeliveryViews::order($this->db, $store, (string) $o['order_ref'], $parcels, $chain);
         return [
             'order' => $o,
             'clone_goods_inc' => $cloneGoods,
             'lines' => self::grouped($lines),
-            'parcels' => $delivery['parcels'],
-            'delivery' => $delivery,
+            'parcels' => $this->db->all('SELECT * FROM sale_parcel WHERE channel_id = ? AND order_ref = ? ORDER BY removed_at IS NOT NULL, label_at, parcel_ref', [$store, $ref]),
             'resends' => $resends,
             'own_incomplete' => $own,
             'resends_incomplete' => $theirs,
@@ -430,14 +423,8 @@ final class ProfitViews
     {
         $goods = (int) ($r['sale_ex'] ?? 0) - (int) ($r['order_refund_ex'] ?? 0);
         $cost = (int) ($r['cost'] ?? 0);
-        $delivery = (int) ($r['delivery_ex'] ?? 0);
-        $deliveryCost = (int) ($r['delivery_cost'] ?? 0);
-        $deliveryOther = (int) ($r['delivery_other'] ?? 0);
         return ['orders' => (int) ($r['orders'] ?? 0), 'resends' => (int) ($r['resends'] ?? 0), 'units' => (int) ($r['units'] ?? 0), 'goods' => $goods, 'cost' => $cost,
-            'profit' => $goods - $cost, 'margin_bp' => ProfitMath::marginBp($goods - $cost, $goods), 'delivery' => $delivery,
-            // Delivery on its own line, never in the goods margin (0077, docs/decisions.md DL23): what it cost on the orders, the carriers' charges on no
-            // order, and delivery charged less both.
-            'delivery_cost' => $deliveryCost, 'delivery_other' => $deliveryOther, 'delivery_result' => $delivery - $deliveryCost - $deliveryOther,
+            'profit' => $goods - $cost, 'margin_bp' => ProfitMath::marginBp($goods - $cost, $goods), 'delivery' => (int) ($r['delivery_ex'] ?? 0),
             'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
             'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0))];
     }

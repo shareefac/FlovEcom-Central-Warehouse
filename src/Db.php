@@ -130,41 +130,6 @@ final class Db
         }
     }
 
-    /**
-     * Runs $fn with a deadline on every row wait it makes on this connection (CW-1142, DL41): before each statement the whole seconds left until
-     * $until (microtime) become the session's innodb_lock_wait_timeout (never more than it was), so a statement that waits for a row ends by the deadline however long the
-     * ones before took; with less than 1 s left (MySQL's least wait) none is started (CwException out_of_time, 409). The session's wait comes
-     * back as it was, however $fn ends.
-     *
-     * @template T
-     * @param \Closure(): T $fn
-     * @return T
-     */
-    public function waitsUntil(float $until, \Closure $fn): mixed
-    {
-        $was = (int) $this->pdo->query('SELECT @@SESSION.innodb_lock_wait_timeout')->fetchColumn();
-        $outer = $this->before;
-        $set = $was;
-        $this->before = function () use ($until, $was, &$set): void {
-            $sec = min((int) floor($until - microtime(true)), $was);
-            if ($sec < 1) {
-                throw new CwException('out_of_time', 'no time left to wait for a row', 409);
-            }
-            if ($sec !== $set) {
-                $this->pdo->exec('SET SESSION innodb_lock_wait_timeout = ' . $sec);
-                $set = $sec;
-            }
-        };
-        try {
-            return $fn();
-        } finally {
-            $this->before = $outer;
-            if ($set !== $was) {
-                $this->pdo->exec('SET SESSION innodb_lock_wait_timeout = ' . $was);
-            }
-        }
-    }
-
     /** @param array<int|string, mixed> $params */
     public function run(string $sql, array $params = []): PDOStatement
     {

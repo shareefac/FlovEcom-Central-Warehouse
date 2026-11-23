@@ -60,8 +60,6 @@ namespace CW;
  *   - supplier invoices, credit notes and returns (0032, pack C): headers of their kind, the write-once posting anchor, invoice keys,
  *     every posted invoice's stored 3-way match equal to the match now, value events netting to zero with their reversal, a return's
  *     claim (CW\Invoices\InvoiceInvariants V1-V7, PC11).
- *   - the carriers' bills (0077): one state per line pointing at what CW holds, each live bill adding up to its net, one live bill per key,
- *     one shop per account, a replaced bill replaced once (CW\Profit\DeliveryInvariants DB1-DB6, DL20).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
@@ -204,9 +202,6 @@ final class Invariants
         array_push($v, ...Arrivals\ArrivalInvariants::check($db));
         // Pack H (0038): hand-overs, what each customer owes, the remembered prices (H1-H5, docs/decisions.md PH14).
         array_push($v, ...Handovers\HandoverInvariants::check($db));
-        // 0077 (docs/decisions.md DL20): the carriers' bills: one state per line, pointing at what CW holds, each live bill adding up to its net
-        // (DB1-DB6).
-        array_push($v, ...Profit\DeliveryInvariants::check($db));
         return $v;
     }
 

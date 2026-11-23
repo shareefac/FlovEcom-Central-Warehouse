@@ -86,8 +86,5 @@ MAILTO=""
 # reads every document since the start not read yet (it waits for a run of every ten minutes that holds the lock).
 */10 * * * *  root  cd /opt/cw-staging && php bin/refresh_item_cost.php --db=cw_staging >> /var/log/cw/refresh_item_cost.log 2>&1
 25 3 * * *  root  cd /opt/cw-staging && php bin/refresh_item_cost.php --db=cw_staging --reconcile >> /var/log/cw/refresh_item_cost.log 2>&1
-# The lines of the live delivery bills not matched yet tried again (a parcel that reached CW after its bill: DL10), before the profit days
-# are checked: a line put on a parcel or an order moves its cost in the same transaction.
-35 3 * * *  root  cd /opt/cw-staging && php bin/match_delivery_bills.php --db=cw_staging >> /var/log/cw/match_delivery_bills.log 2>&1
 # The Profit screens' day summaries of the last three days worked out again from the stored orders (PR22).
 40 3 * * *  root  cd /opt/cw-staging && php bin/rebuild_profit_days.php --db=cw_staging --days=3 --apply >> /var/log/cw/rebuild_profit_days.log 2>&1

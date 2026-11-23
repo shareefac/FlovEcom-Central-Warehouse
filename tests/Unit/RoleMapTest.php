@@ -45,9 +45,8 @@ final class RoleMapTest extends TestCase
         foreach ($seed as $perm => $jobs) {
             self::assertArrayHasKey($perm, Permissions::MAP, "{$perm}: seeded, but the code has no such permission");
             // 0069 added people_manager after 0034 (PM3): its four rows need no change, the code gives it them whatever a row says. 0074 added
-            // finance (docs/decisions.md PR23) and 0077 delivery_bills (DL15): the two they share with every job (catalogue.view, reference.view)
-            // are LOCKED, so the code's map wins.
-            $code = array_values(array_diff(Permissions::MAP[$perm], ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) ? ['finance', 'delivery_bills'] : [])]));
+            // finance (docs/decisions.md PR23): the two it shares with every job (catalogue.view, reference.view) are LOCKED, so the code's map wins.
+            $code = array_values(array_diff(Permissions::MAP[$perm], ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) ? ['finance'] : [])]));
             self::assertSame(Permissions::ordered($code), $jobs, "{$perm}: the seed must be the code's map, in ROLES order");
             self::assertEqualsCanonicalizing($code, $jobs, $perm);
         }
