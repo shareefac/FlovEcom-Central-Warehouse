@@ -20161,3 +20161,51 @@ own work while holding guards passes 1.5 s is said busy rather than hold a snaps
 day row held elsewhere, and with five bill lines a re-match moves held elsewhere and let go 0.8 s apart; each time a snapshot writer waiting
 for one of the bill's guards gets it within its own 3 s, and the write is busy (nothing written) or done whole within the budget. Two older tests that run a snapshot inside the bill's hold (one process: its seconds of waiting count against the bill's HOLD_SEC) upload
 again when the bill is busy.
+
+## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
+
+The owner, 23 Nov 2026, on Stock › Counts: adding an item to a sheet only by a scanned barcode, an exact CW number with its letters or the
+board's ticks "is too hard"; "it should be like stock adjustment page" (AG4: type part of the name, pick it from the dropdown, type the
+number, next). Agreed with him: the sheet gets the adjustment screen's product box; a pick puts the item on the sheet through the scan box's
+own add path, the cursor goes to its Counted box, Enter saves the count with its typed-at time and comes back to the box; everything else
+(the count time, nothing booked until "Make the count final", the scan box, the board's ticks, who may count, CSRF, audit, MAX_LINES) stays.
+
+**CP1. One box: the scan box is the product box.** Not a second box beside it: one place to type or scan (a phone has room for one). Its
+label is "Find a product", its hint "Name, barcode or CW number" (`Words::COUNTS` scan_label, scan_hint; the old words said only a scan
+worked). With the script it is the site's one dropdown (`combo()`, SM11; no second engine), its list at the page's top level, so at 375 px
+it spans the screen but for the gutter, its choices two lines and 44 px high (`.sm-list`).
+
+**CP2. The adjustment screen's search and fragment, from the sheet's own route.** `GET /ui/stock/counts/{id}/products?q=`
+(`CountsController::products`, `doc.CNT.post` like every count POST: someone who counts, never admin; read only; not an open count sheet:
+404). The words go through `StockOpsController::found` (taken out of `gridProducts`, which calls it as before: `StockOps::resolve` of 2
+characters or more, a barcode, a CW number with or without its letters, words of the name) and the answer is the same fragment
+(`stock_adjust_products`, marker `data-aj-fragment`; app.js's `ALSO` lets that marker come from `/ui/stock/counts/` too, and the box checks
+the whole address `/ui/stock/counts/<id>/products?` before it asks). A choice says its name, then "On the sheet: line N" when it is,
+its CW number, brand and "N in stock" at the sheet's warehouse. The adjustment screen is unchanged (its fragment test and node harness green).
+
+**CP3. A blind count never says the stock in the box either** (CV8): with `counts.sheet_shows_stock` off the choices have no figure, and
+`data-hand` is empty on every count choice (the box needs none; nothing a counter could read in the page's source).
+
+**CP4. A pick is the scan box's offer taken.** A tap, Down / Up then Enter, Tab with the list open (the marked one, else the first: AG5), or
+Enter on words (the first; before the answer comes it is asked at once and the first taken when it comes): a plain post of the scan form
+(its token) to the sheet's own `/add` with `sku_id`, by a hidden button of that form (`formaction`), so the page's guard asks first while a
+typed count is not saved and the send is once only, as for any button. `CountSheets::addItem` unchanged: a new line (audit `count.add`,
+MAX_LINES, merged items refused), or the line of an item on the sheet already; the page opens at that line, marked, its Counted box ready
+(`autofocus`, as after a scan). Enter there is the form's hidden Save as before (`at_<line>`, the typed-at moment, CT2; `count.enter`); the
+page comes back with the box ready for the next item. Nothing is booked until "Make the count final".
+
+**CP5. A scan stays a scan.** Enter on what the scan box reads (4 digits or more, or a CW number with its letters: `CountSheets::find`) is the
+form's own Find it, as before, even with a choice on show: its line, a case's words, its offer to add. One letter is Find it too. The route
+failing (no network, the sign-in page): "The list could not be loaded. Press Find it." and Enter is Find it.
+
+**CP6. Without the script.** The box is the scan box. Words the scan box does not read (it said "No item has …") now list the same choices
+under it, each with "Put it on the sheet" or "Go to its line", a POST to the same `/add`; a CW number without its letters is offered so too.
+Words of no item: refused as before (422, `scan_unknown`). Only for an open sheet.
+
+**CP7. Not in this step.** The line is not drawn in place without a reload (the adjustment grid's way): the sheet's lines are 50 a page with
+a Show choice, each with its saved count time and its "was" value, so the server's own add-and-open keeps those rules as they are.
+
+**CP8. Tests.** `CountsScreensTest::testTheProductBoxFindsAnItemByItsNameAndPutsItOnTheSheetAsTheScanBoxDoes` and
+`testTheProductBoxOfABlindCountNeverSaysTheStockAndOnlySomeoneWhoCountsAnOpenSheetMayAsk` (red first: `runs/countpick_red.php.log`),
+`UiUnitTest` (ALSO, the box's address check), the node harness `runs/countpick_js_harness/run_ct.js` (red first: `runs/countpick_red.js.log`;
+the box wired, the choices, keys, tap, Tab, a scan, none, an old answer, a failure, the guard).

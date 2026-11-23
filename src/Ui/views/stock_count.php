@@ -49,7 +49,7 @@
   <form method="post" data-leaves="1" action="<?= $u($base . '/scan') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label for="count-code"><?= $word('COUNTS', 'scan_label') ?></label>
-    <div class="count-scan-row"><input id="count-code" type="search" name="code" maxlength="80" autocomplete="off" inputmode="text" placeholder="<?= $word('COUNTS', 'scan_hint') ?>"<?php if ($scan === null && $report === null && !$hasMarked): ?> autofocus<?php endif; ?> required><button class="btn" type="submit"><?= $word('COUNTS', 'scan_button') ?></button></div>
+    <div class="count-scan-row"><input id="count-code" type="search" name="code" maxlength="80" autocomplete="off" inputmode="text" placeholder="<?= $word('COUNTS', 'scan_hint') ?>" data-ct-pick data-options="<?= $u($base . '/products?') ?>" data-loading="<?= $word('COUNTS', 'pick_loading') ?>" data-failed="<?= $word('COUNTS', 'pick_failed') ?>" data-label="<?= $word('COUNTS', 'pick_list') ?>"<?php if ($scan === null && $report === null && !$hasMarked): ?> autofocus<?php endif; ?> required><button class="btn" type="submit"><?= $word('COUNTS', 'scan_button') ?></button></div>
   </form>
 <?php if ($scanUnits !== null): ?>
   <p class="note"><?= $say('COUNTS', 'scan_case', $scanUnits) ?></p>
@@ -61,6 +61,18 @@
     <input type="hidden" name="sku_id" value="<?= $e($scan['sku_id']) ?>">
     <button type="submit" class="btn soft" autofocus><?= $word('COUNTS', 'scan_add') ?></button>
   </form>
+<?php elseif ($scan !== null && $scan['status'] === 'choices'): ?>
+  <p class="note" role="status"><?= $say('COUNTS', 'scan_choices', $scan['typed']) ?></p>
+  <ul class="plain count-choices">
+<?php foreach ($scan['choices'] as $c): ?>
+    <li><span class="o-name"><?= $e($c['label']) ?></span> <span class="o-sub"><?= $e($c['meta']) ?></span>
+      <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/add') ?>">
+        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="sku_id" value="<?= $e($c['sku']) ?>">
+        <button type="submit" class="btn soft sm"><?php if ($c['line'] !== null): ?><?= $word('COUNTS', 'scan_go_line') ?><?php else: ?><?= $word('COUNTS', 'scan_add') ?><?php endif; ?></button>
+      </form></li>
+<?php endforeach; ?>
+  </ul>
 <?php elseif ($scan !== null): ?>
   <p class="error" role="alert" data-code="<?= $e($scan['status']) ?>"><?= $say('COUNTS', 'scan_' . $scan['status'], $scan['typed']) ?></p>
 <?php endif; ?>

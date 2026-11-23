@@ -2030,6 +2030,15 @@ table.store-new-preview td.c-wide { text-align: left; }
 .count-scan form { display: grid; gap: 6px; margin: 0; }
 .count-scan-row { display: flex; gap: 8px; align-items: stretch; }
 .count-scan input[type="search"] { flex: 1 1 auto; min-width: 0; min-height: 48px; font-size: 16px; }
+/* The scan box is the product box (docs/decisions.md CP): the line under it (Looking…, none, a failure; the script's), and the choices a page
+   without the script lists for words, each with its button (44 px, a phone's thumb) */
+.count-scan .ct-says { margin: 0; }
+.count-scan .ct-says:empty { display: none; }
+.count-choices { margin: 8px 0 0; padding: 0; }
+.count-choices > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--hairline); }
+.count-choices > li > .o-name { font-weight: 600; }
+.count-choices > li > form { margin: 0 0 0 auto; }
+.count-choices .btn { min-height: 44px; }
 /* The lines: the big number box, "Saved hh:mm" (green, with its tick) or "Not yet", a box typed in and not saved yet (red), the line to
    count now (the accent's tint) */
 table.count-sheet input.count-box { width: 7.5rem; max-width: 100%; min-height: 46px; text-align: right; font-size: 18px; font-weight: 600; }

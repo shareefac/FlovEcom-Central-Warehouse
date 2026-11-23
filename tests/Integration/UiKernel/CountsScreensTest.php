@@ -839,6 +839,125 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertContains($sheet, $this->signIn($this->uiUser('auditor'))->get('/ui/documents/' . $wait)->hrefs());
     }
 
+    // ---- The product box: find an item by its name, as on the quick adjustment screen (docs/decisions.md CP1-CP; the owner, 23 Nov 2026) ----
+
+    /** The choices of the sheet's product box: [sku, label, meta, hand] each. @return list<array{0: string, 1: string, 2: string, 3: string}> */
+    private static function picks(UiResponse $f): array
+    {
+        $x = new \DOMXPath($f->dom());
+        self::assertSame(1, $x->query('//*[@data-aj-fragment]')->length, 'the adjustment screen\'s product box fragment, its root saying what it is');
+        return array_map(static fn (\DOMElement $li): array => [$li->getAttribute('data-sku'), $li->getAttribute('data-label'),
+            trim((string) $x->evaluate('string(.//span[contains(@class, "sm-opt-meta")])', $li)), $li->getAttribute('data-hand')],
+            iterator_to_array($x->query('//ul[@data-aj-choices]/li')));
+    }
+
+    public function testTheProductBoxFindsAnItemByItsNameAndPutsItOnTheSheetAsTheScanBoxDoes(): void
+    {
+        $a = $this->item('strict', 10, 'Quokka other kit');
+        $b = $this->item('strict', 12, 'Quokka pod blue');
+        $c = $this->item('strict', 3, 'Quokka pod red');
+        self::$db->exec("UPDATE sku SET brand = 'Wombat' WHERE id = ?", [$b]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($web, [$a]);
+        $id = (int) basename($sheet);
+        $code = static fn (int $sku): string => sprintf('CW-%06d', $sku);
+
+        // The page: the scan box is the product box, its words say a name works, its choices from the sheet's own route.
+        $page = $web->get($sheet);
+        $xp = new \DOMXPath($page->dom());
+        $box = $xp->query('//form[contains(@action, "/scan")]//input[@name="code"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $box);
+        self::assertSame([$sheet . '/products?', Words::COUNTS['pick_loading'], Words::COUNTS['pick_failed'], Words::COUNTS['pick_list'], Words::COUNTS['scan_hint']],
+            [$box->getAttribute('data-options'), $box->getAttribute('data-loading'), $box->getAttribute('data-failed'), $box->getAttribute('data-label'), $box->getAttribute('placeholder')]);
+        self::assertTrue($box->hasAttribute('data-ct-pick'));
+        self::assertSame(Words::COUNTS['scan_label'], trim((string) $xp->evaluate('string(//form[contains(@action, "/scan")]//label[@for="count-code"])')));
+        self::assertSame(1, $xp->query('//form[contains(@action, "/scan")]//input[@name="code" and @autofocus]')->length, 'the box waits for the next item');
+
+        // The choices: words of the name, then a CW number; each says its name, then its CW number, brand and stock in the sheet's warehouse
+        // (an item on the sheet says its line). No stock figure in the box's data (data-hand), ever.
+        $f = $web->get($sheet . '/products', ['q' => 'quokka pod']);
+        self::assertSame(200, $f->status, $f->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame([[(string) $b, 'Quokka pod blue', $code($b) . ' · Wombat · ' . Words::say('COUNTS', 'pick_stock', '12'), ''],
+            [(string) $c, 'Quokka pod red', $code($c) . ' · ' . Words::say('COUNTS', 'pick_stock', '3'), '']], self::picks($f));
+        self::assertSame([[(string) $a, 'Quokka other kit', Words::say('COUNTS', 'pick_line', 1) . ' · ' . $code($a) . ' · ' . Words::say('COUNTS', 'pick_stock', '10'), '']],
+            self::picks($web->get($sheet . '/products', ['q' => 'quokka other'])), 'an item on the sheet says its line');
+        self::assertSame((string) $c, self::picks($web->get($sheet . '/products', ['q' => $code($c)]))[0][0] ?? null, 'a CW number finds its item');
+        self::assertSame([], self::picks($web->get($sheet . '/products', ['q' => 'Q'])), 'one letter asks for nothing');
+        $none = $web->get($sheet . '/products', ['q' => 'nothing like this']);
+        self::assertSame([], self::picks($none));
+        self::assertStringContainsString(Words::say('COUNTS', 'pick_none', 'nothing like this'), $none->text());
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ?', [$id]), 'looking adds nothing');
+
+        // A choice is the scan box's offer taken: the sheet's own /add with the item, through the scan form (its token). A new line, the page at
+        // that line with its Counted box ready; the item already on the sheet just goes to its line.
+        $fields = $web->get($sheet)->form($sheet . '/scan');
+        $r = $web->post($sheet . '/add', ['sku_id' => (string) $b] + $fields);
+        self::assertSame([303, $sheet . '?notice=added&page=1&line=2#line-2'], [$r->status, $r->location()]);
+        $at = new \DOMXPath($web->get($sheet, ['notice' => 'added', 'page' => '1', 'line' => '2'])->dom());
+        self::assertSame(1, $at->query('//tr[@id="line-2" and contains(@class, "marked")]//input[@name="q_2" and @autofocus]')->length, 'its Counted box is ready');
+        self::assertSame(0, $at->query('//input[@name="code" and @autofocus]')->length);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'count.add'", [(string) $id]));
+        $r = $web->post($sheet . '/add', ['sku_id' => (string) $b] + $fields);
+        self::assertSame([303, $sheet . '?page=1&line=2#line-2'], [$r->status, $r->location()], 'on the sheet already: its line, no second one');
+        self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ?', [$id]));
+        // The count typed there is saved by Enter as before (its own moment), nothing booked; then the box waits for the next item.
+        $r = $web->post($sheet . '/lines', ['q_2' => '11'] + $web->get($sheet, ['page' => '1', 'line' => '2'])->form($sheet . '/lines'));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(1, (new \DOMXPath($web->follow($r)->dom()))->query('//form[contains(@action, "/scan")]//input[@name="code" and @autofocus]')->length);
+        self::assertSame([11, 'draft', 12], [(int) self::$db->value('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no = 2', [$id]),
+            self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), $this->onHand($b)], 'nothing is booked until the count is final');
+
+        // Without the script: words in the scan box list the same choices, each put on the sheet (or to its line) by the same /add.
+        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => 'quokka pod']);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertStringContainsString(Words::say('COUNTS', 'scan_choices', 'quokka pod'), $r->text());
+        $rx = new \DOMXPath($r->dom());
+        $offers = array_map(static fn (\DOMElement $f): array => [(string) $rx->evaluate('string(.//input[@name="sku_id"]/@value)', $f), trim((string) $rx->evaluate('string(.//button)', $f))],
+            iterator_to_array($rx->query('//section[contains(@class, "count-scan")]//form[contains(@action, "/add")]')));
+        self::assertSame([[(string) $b, Words::COUNTS['scan_go_line']], [(string) $c, Words::COUNTS['scan_add']]], $offers);
+        self::assertStringContainsString('Quokka pod red', $r->text());
+        $r = $web->post($sheet . '/add', ['sku_id' => (string) $c] + $fields);
+        self::assertSame([303, $sheet . '?notice=added&page=1&line=3#line-3'], [$r->status, $r->location()]);
+        // A CW number without its letters, which the scan box did not read: offered too. Words of no item: refused as before.
+        $d = $this->item('strict', 0, 'Quokka spare coil');
+        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => (string) $d]);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertSame([(string) $d], array_map(static fn (\DOMElement $i): string => $i->getAttribute('value'),
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//section[contains(@class, "count-scan")]//form[contains(@action, "/add")]//input[@name="sku_id"]'))));
+        $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => 'nothing like this']);
+        self::assertSame(422, $r->status);
+        self::assertStringContainsString(Words::say('COUNTS', 'scan_unknown', 'nothing like this'), $r->text());
+        self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ?', [$id]), 'looking adds nothing');
+    }
+
+    public function testTheProductBoxOfABlindCountNeverSaysTheStockAndOnlySomeoneWhoCountsAnOpenSheetMayAsk(): void
+    {
+        $a = $this->item('strict', 10, 'Numbat other kit');
+        $b = $this->item('strict', 77, 'Numbat pod green');
+        $opener = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($opener, [$a]);
+        $this->setting('counts.sheet_shows_stock', 'false');
+        $f = $opener->get($sheet . '/products', ['q' => 'numbat pod']);
+        self::assertSame(200, $f->status, $f->describe());
+        self::assertSame([[(string) $b, 'Numbat pod green', sprintf('CW-%06d', $b), '']], self::picks($f), 'a blind count: no stock figure');
+        self::assertStringNotContainsString(Words::say('COUNTS', 'pick_stock', '77'), $f->body);
+        $r = $this->submit($opener, $sheet, $sheet . '/scan', ['code' => 'numbat pod']);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertStringContainsString('Numbat pod green', $r->text());
+        self::assertStringNotContainsString(Words::say('COUNTS', 'pick_stock', '77'), $r->text(), 'nor the list without the script');
+
+        // Who may ask: someone who counts (doc.CNT.post), never a reader or admin; a sheet that is final, or no sheet, has no box.
+        foreach (['buyer', 'admin', 'mapper'] as $role) {
+            self::assertSame(403, $this->signIn($this->uiUser($role))->get($sheet . '/products', ['q' => 'numbat'])->status, $role);
+        }
+        self::assertSame(200, $this->signIn($this->uiUser('warehouse'))->get($sheet . '/products', ['q' => 'numbat'])->status, 'anyone who counts (DA1)');
+        self::assertSame(404, $opener->get(self::PATH . '/999999/products', ['q' => 'numbat'])->status);
+        $opener->post($sheet . '/lines', ['csrf' => $this->token($opener), 'q_1' => '10']);
+        self::assertSame(303, $this->submit($opener, $sheet . '/differences', $sheet . '/post')->status);
+        self::assertSame(404, $opener->get($sheet . '/products', ['q' => 'numbat'])->status, 'a final sheet takes no more items');
+        self::assertSame(405, $opener->post($sheet . '/products', ['csrf' => $this->token($opener), 'q' => 'numbat'])->status, 'read only');
+    }
+
     public function testEveryPostNeedsTheJobTheOpenerAndTheCsrfToken(): void
     {
         $a = $this->item('strict', 10, 'Alpha pod 2ml');

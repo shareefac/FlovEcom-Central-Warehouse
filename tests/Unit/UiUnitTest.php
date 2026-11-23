@@ -1036,7 +1036,7 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
-        self::assertSame(7, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4), a quick adjustment\'s line (AG4), a grid line\'s item box (KG22) and a delivery\'s scan box (GW3)');
+        self::assertSame(8, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product, Lines to place\'s item (LQ4), a quick adjustment\'s line (AG4), a grid line\'s item box (KG22), a delivery\'s scan box (GW3) and a count sheet\'s product box (CP1)');
         foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
             'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
             self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
@@ -1152,8 +1152,11 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         // No new dropdown for the invoice: its supplier and item boxes are the order page's. The fourth combo() call is Lines to place's item
         // box (docs/decisions.md LQ4) and the fifth a quick adjustment's line (AG4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
-        self::assertSame(7, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s (and a grid line\'s item box, KG22; a delivery\'s scan box, GW3)');
-        self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
+        self::assertSame(8, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s (and a grid line\'s item box, KG22; a delivery\'s scan box, GW3; a count sheet\'s product box, CP1)');
+        self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?', '[data-aj-fragment]': '/ui/stock/counts/' };", $js,
+            'the same fragment from the invoice\'s own route; the adjustment screen\'s product box from a count sheet\'s (docs/decisions.md CP2)');
+        self::assertStringContainsString("if (!form || !/^\\/ui\\/stock\\/counts\\/[1-9][0-9]{0,17}\\/products\\?$/.test(base) || !window.fetch || !window.DOMParser) {", $js,
+            'the count sheet\'s box asks only its own route');
         self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
         self::assertStringContainsString("each(document.querySelectorAll('select[data-pi-from]'), function (from) {", $js);
@@ -1743,7 +1746,7 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, substr_count($js, 'var docGrid = function (table, box) {'), 'one engine');
         self::assertSame(1, substr_count($js, 'docGrid(grid, '), 'started by the product box, with its own combo');
-        self::assertSame(7, substr_count($js, ' = combo('), 'no second dropdown engine: the grid line\'s item box (KG22) and a delivery\'s scan box (GW3) are uses of combo()');
+        self::assertSame(8, substr_count($js, ' = combo('), 'no second dropdown engine: the grid line\'s item box (KG22), a delivery\'s scan box (GW3) and a count sheet\'s product box (CP1) are uses of combo()');
         $from = (int) strpos($js, 'var docGrid = function (table, box) {');
         $grid = substr($js, $from, (int) strpos($js, '// (the lines\' grid ends here)') - $from);
         self::assertGreaterThan(2000, strlen($grid), 'the engine, to its end marker');

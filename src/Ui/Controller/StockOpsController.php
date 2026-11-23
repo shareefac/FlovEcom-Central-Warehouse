@@ -526,14 +526,8 @@ final class StockOpsController
         $sent = (string) ($ctx->req->param('skus') ?? '');
         if ($sent !== '') {
             $ids = array_slice(array_values(array_filter(array_map(static fn (string $v): ?int => UiRequest::id($v), explode(',', $sent)))), 0, StockOps::MAX_LINES);
-        } elseif (mb_strlen($q) >= 2) {
-            $r = $ops->resolve($q);
-            if ($r['status'] === 'found') {
-                $ids = [(int) $r['sku_id']];
-                $units[(int) $r['sku_id']] = (int) $r['units'];
-            } elseif ($r['status'] === 'choices') {
-                $ids = array_map(static fn (array $c): int => (int) $c['sku_id'], $r['choices']);
-            }
+        } else {
+            ['ids' => $ids, 'units' => $units] = self::found($ops, $q);
         }
         $items = $ops->itemsAt($warehouse, $ids);
         $choices = [];
@@ -545,6 +539,24 @@ final class StockOpsController
             }
         }
         return $ctx->fragment('stock_adjust_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('ADJ_GRID', 'none', $q) : '']);
+    }
+
+    /**
+     * What a product box's words find (AG4; the count sheet's product box too, docs/decisions.md CP2): StockOps::resolve of 2 characters or more,
+     * a barcode (with the units it stands for), a CW number or words of the name; nothing for less.
+     *
+     * @return array{ids: list<int>, units: array<int, int>}
+     */
+    public static function found(StockOps $ops, string $q): array
+    {
+        if (mb_strlen($q) < 2) {
+            return ['ids' => [], 'units' => []];
+        }
+        $r = $ops->resolve($q);
+        if ($r['status'] === 'found') {
+            return ['ids' => [(int) $r['sku_id']], 'units' => [(int) $r['sku_id'] => (int) $r['units']]];
+        }
+        return ['ids' => $r['status'] === 'choices' ? array_map(static fn (array $c): int => (int) $c['sku_id'], $r['choices']) : [], 'units' => []];
     }
 
     /**

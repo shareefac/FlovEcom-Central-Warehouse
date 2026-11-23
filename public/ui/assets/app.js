@@ -324,7 +324,9 @@
   var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?', '[data-aj-fragment]': '/ui/stock/adjustments/products?', '[data-fp-fragment]': '/ui/items/families/', '[data-gi-fragment]': '/ui/receiving/' };
   var LIVE_DOC = /^\/ui\/purchasing\/orders\/[1-9][0-9]{0,17}\/live\/doc\?since=[0-9]{1,18}&tab=[0-9a-f]{16}$/;
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
-  var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
+  // The product box of a count sheet is the adjustment screen's (docs/decisions.md CP2): the same fragment, from the sheet's own route
+  // (/ui/stock/counts/<id>/products?…; its box checks the whole address before it asks).
+  var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?', '[data-aj-fragment]': '/ui/stock/counts/' };
   var fragment = function (url, marker, body, signal) {
     var path = FRAGMENTS[marker];
     if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {
@@ -4997,6 +4999,177 @@
         }
         state.textContent = changed ? (form.getAttribute('data-mark-text') || '') : state.getAttribute('data-was');
         state.classList.toggle('unsaved', changed);
+      }
+    });
+  });
+
+  // A count sheet's product box (docs/decisions.md CP1-CP; the owner, 23 Nov 2026: "it should be like stock adjustment page"): the scan box of
+  // an open sheet (input[data-ct-pick]) is the site's one dropdown (combo()), its choices the quick adjustment screen's (AG4: the same search,
+  // StockOps::resolve, and the same fragment, data-aj-fragment) asked of the sheet's own route (/ui/stock/counts/<id>/products?q=: what the
+  // sheet's warehouse holds, nothing on a blind count; an item on the sheet says its line). Words of 2 letters or more are asked 300 ms after
+  // the last key. A choice (a tap, Down / Up then Enter, Tab while the list is open, or Enter on words: the first, waiting for the answer when it
+  // is not there yet) is sent as the scan box's offer is taken: a plain post of the scan form (its token; the guard asks first while a typed count
+  // is not saved) to the sheet's own /add with the item (sku_id), so the server puts it on the sheet as a new line, or finds its line, and opens
+  // the sheet at that line with its Counted box ready; Enter there saves the count and the page comes back with this box ready. Enter on a
+  // barcode or a CW number with its letters (what the scan box reads) is the scan box as before (/scan: its line, its case, its offer). The
+  // route failing: said, and Enter is the scan box's Find it (the server lists the choices). Without the script the box is the scan box.
+  each(document.querySelectorAll('input[data-ct-pick]'), function (box) {
+    var form = box.form;
+    var base = box.getAttribute('data-options') || '';
+    if (!form || !/^\/ui\/stock\/counts\/[1-9][0-9]{0,17}\/products\?$/.test(base) || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var CODE = /^(?:[0-9]{4,64}|cw-?0*[0-9]{1,10})$/i; // what the scan box reads (CountSheets::find)
+    var sku = document.createElement('input');
+    sku.type = 'hidden';
+    sku.name = 'sku_id';
+    sku.value = '';
+    form.appendChild(sku);
+    var go = document.createElement('button');
+    go.type = 'submit';
+    go.hidden = true;
+    go.tabIndex = -1;
+    go.setAttribute('aria-hidden', 'true');
+    go.setAttribute('formaction', base.slice(0, base.length - 'products?'.length) + 'add');
+    form.appendChild(go);
+    var line = document.createElement('p');
+    line.className = 'hint ct-says';
+    line.setAttribute('data-ct-says', '');
+    line.setAttribute('aria-live', 'polite');
+    form.appendChild(line);
+    var say = function (text) { line.textContent = text; };
+    var list = document.createElement('ul');
+    list.id = 'ct-pick-list';
+    list.className = 'sm-list';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', box.getAttribute('data-label') || '');
+    list.hidden = true;
+    var timer = 0;
+    var turn = 0;
+    var answered = null; // the words the choices on show are the answer to
+    var waiting = false; // Enter came before the answer: the first is taken when it comes
+    var offline = false; // the route failed: Enter is the scan box's Find it
+    var options = function () { return list.querySelectorAll('li[role="option"]'); };
+    var c = null;
+    var draw = function (from) {
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
+      var n = 0;
+      each(from, function (o) {
+        var li = document.createElement('li');
+        li.id = list.id + '-' + n++;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        li.setAttribute('data-sku', o.getAttribute('data-sku') || '');
+        var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+        twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+        list.appendChild(li);
+      });
+      if (c) {
+        c.mark(-1);
+      }
+    };
+    var plain = function () {
+      var find = form.querySelector('button[type="submit"]');
+      if (find) {
+        find.click(); // the scan box's Find it, as without the script
+      }
+    };
+    var take = function (li) {
+      var id = li ? li.getAttribute('data-sku') || '' : '';
+      if (!/^[1-9][0-9]{0,17}$/.test(id)) {
+        return;
+      }
+      window.clearTimeout(timer);
+      turn++;
+      waiting = false;
+      if (c) {
+        c.close();
+      }
+      sku.value = id;
+      go.click(); // a plain post of the scan form to /add: its guard and its once-only send as for any other button
+    };
+    var load = function (q) {
+      var mine = ++turn;
+      say(box.getAttribute('data-loading') || '');
+      fragment(base + 'q=' + encodeURIComponent(q), '[data-aj-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return; // asked before other words
+          }
+          offline = false;
+          draw(node.querySelectorAll('ul[data-aj-choices] > li[data-sku]'));
+          answered = q;
+          var says = node.querySelector('[data-aj-says]');
+          say(says ? says.textContent.trim() : '');
+          if (waiting) {
+            waiting = false;
+            var all = options();
+            if (all.length > 0) {
+              take(all[0]);
+            }
+            return;
+          }
+          c.open(); // (only while the box has the focus)
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          draw([]);
+          say(box.getAttribute('data-failed') || '');
+          offline = true;
+          if (waiting) {
+            waiting = false;
+            plain();
+          }
+        });
+    };
+    c = combo(box, list, {
+      options: options,
+      choose: take,
+      enter: function (ev) {
+        var v = box.value.trim();
+        if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey || offline || v.length < 2 || CODE.test(v)) {
+          return; // a scan, a CW number with its letters, one letter, or no route: the scan box's Find it, as before
+        }
+        ev.preventDefault();
+        if (answered === v) {
+          var all = options();
+          if (all.length > 0) {
+            take(all[0]);
+          }
+          return; // none: the line under the box says so
+        }
+        waiting = true; // asked at once; the first is taken when the answer comes
+        window.clearTimeout(timer);
+        load(v);
+      },
+    });
+    box.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      turn++;
+      answered = null;
+      waiting = false;
+      offline = false;
+      sku.value = '';
+      c.unshut();
+      draw([]);
+      say('');
+      var v = box.value.trim();
+      if (v.length >= 2) {
+        timer = window.setTimeout(function () { load(v); }, 300);
+      }
+    });
+    box.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Tab' || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented || !c.isOpen()) {
+        return;
+      }
+      var all = options();
+      if (all.length > 0) {
+        ev.preventDefault(); // Tab with the list open takes the marked choice, else the first (AG5)
+        take(list.querySelector('li.is-active') || all[0]);
       }
     });
   });

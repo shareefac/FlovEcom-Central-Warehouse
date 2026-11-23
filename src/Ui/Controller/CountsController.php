@@ -74,6 +74,8 @@ final class CountsController
         $r->add('GET', self::PATH . '/{id}', 'documents.view', $c->show(...));
         $r->add('GET', self::PATH . '/{id}/sheet.csv', 'documents.view', $c->download(...));
         $r->add('GET', self::PATH . '/{id}/differences', 'documents.view', $c->before(...));
+        // The product box's choices (docs/decisions.md CP2): read only, for someone who counts (the scan box's own job; never admin).
+        $r->add('GET', self::PATH . '/{id}/products', $post, $c->products(...));
         foreach (['lines', 'scan', 'add', 'upload', 'recount', 'as-counted', 'post', 'cancel', 'reverse'] as $action) {
             $method = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', $action))));
             $r->add('POST', self::PATH . '/{id}/' . $action, $post, static fn (Context $ctx): HtmlResponse => $c->{$method}($ctx));
@@ -490,6 +492,14 @@ final class CountsController
             return $this->notFound($ctx);
         }
         $found = $ctx->countSheets()->find($id, $code);
+        if ($found['status'] === 'unknown' && $sheet['status'] === 'draft') {
+            // Words of a name, or a CW number without its letters (docs/decisions.md CP4): the product box's choices, each put on the sheet (or
+            // to its line) by the same /add; what the script shows in the box's list, for a page without it. None: refused as before.
+            $choices = self::choices($ctx, $id, (int) $sheet['warehouse_id'], $code);
+            if ($choices !== []) {
+                return $this->page($ctx, $id, 200, null, null, ['scan' => ['status' => 'choices', 'typed' => $code, 'choices' => $choices]]);
+            }
+        }
         if ($found['status'] === 'on_sheet') {
             $before = (int) $ctx->db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ? AND line_no < ?', [$id, $found['line_no']]);
             return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['page' => intdiv($before, self::LINES) + 1, 'line' => $found['line_no'],
@@ -511,6 +521,58 @@ final class CountsController
         $before = (int) $ctx->db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ? AND line_no < ?', [$id, $r['line_no']]);
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['added'] ? 'added' : null, 'page' => intdiv($before, self::LINES) + 1, 'line' => $r['line_no']])
             . '#line-' . $r['line_no']);
+    }
+
+    /**
+     * GET {id}/products?q=: the choices of an open sheet's product box (docs/decisions.md CP2): the quick adjustment screen's (AG4: the same
+     * search, StockOpsController::found, and the same fragment, stock_adjust_products, marker data-aj-fragment) with what the sheet's own
+     * warehouse holds, never on a blind count (CV8), and the line of an item on the sheet already. Read only. Not an open sheet: 404.
+     */
+    public function products(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $sheet = $ctx->countSheets()->sheet($id);
+        if ($sheet === null || $sheet['kind'] !== 'sheet' || $sheet['status'] !== 'draft') {
+            return $this->notFound($ctx);
+        }
+        $q = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
+        $choices = self::choices($ctx, $id, (int) $sheet['warehouse_id'], $q);
+        return $ctx->fragment('stock_adjust_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('COUNTS', 'pick_none', $q) : '']);
+    }
+
+    /**
+     * What words find for a sheet (CP2): each item's name, then (on the sheet already) its line, its CW number, brand and what the sheet's
+     * warehouse holds (only while the sheet shows stock: a blind count never says it, CV8). `hand` stays empty: the box needs no figure.
+     *
+     * @return list<array{sku: int, label: string, code: string, hand: string, units: int, meta: string, line: ?int}>
+     */
+    private static function choices(Context $ctx, int $id, int $warehouse, string $q): array
+    {
+        $ops = $ctx->stockOps();
+        ['ids' => $ids, 'units' => $units] = StockOpsController::found($ops, mb_substr($q, 0, 100));
+        if ($ids === []) {
+            return [];
+        }
+        $items = $ops->itemsAt($warehouse, $ids);
+        $marks = implode(', ', array_fill(0, count($ids), '?'));
+        $lines = [];
+        foreach ($ctx->db->all("SELECT sku_id, line_no FROM count_sheet_line WHERE document_id = ? AND sku_id IN ({$marks})", [$id, ...$ids]) as $r) {
+            $lines[(int) $r['sku_id']] = (int) $r['line_no'];
+        }
+        $shows = Settings::flag($ctx->db, 'counts.sheet_shows_stock', true);
+        $out = [];
+        foreach ($ids as $sku) {
+            if (!isset($items[$sku])) {
+                continue;
+            }
+            $i = $items[$sku];
+            $line = $lines[$sku] ?? null;
+            $out[] = ['sku' => $sku, 'label' => trim((string) preg_replace('/\s+/u', ' ', $i['name'])), 'code' => $i['code'], 'hand' => '', 'units' => $units[$sku] ?? 1,
+                'line' => $line,
+                'meta' => implode(' · ', array_filter([$line === null ? '' : Words::say('COUNTS', 'pick_line', $line), $i['code'], (string) $i['brand'],
+                    $shows ? Words::say('COUNTS', 'pick_stock', number_format($i['on_hand'])) : ''], static fn (string $v): bool => $v !== ''))];
+        }
+        return $out;
     }
 
     /**
@@ -822,7 +884,7 @@ final class CountsController
             'hasMarked' => $marked !== null && in_array($marked, array_column($lines, 'line_no'), true),
             'version' => $doc->version,
             'scan' => $scan === null ? null : ['status' => (string) $scan['status'], 'typed' => (string) $scan['typed'], 'sku_id' => $scan['sku_id'] ?? null,
-                'name' => $scan['name'] ?? null, 'code' => $scan['code'] ?? null],
+                'name' => $scan['name'] ?? null, 'code' => $scan['code'] ?? null, 'choices' => $scan['choices'] ?? []],
             'scanUnits' => $units !== null && $units > 1 ? $units : null,
             'report' => $extra['report'] ?? null,
             'shown' => CountSheets::UPLOAD_SHOWN,
