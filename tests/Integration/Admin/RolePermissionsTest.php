@@ -78,7 +78,9 @@ final class RolePermissionsTest extends MappingTestCase
             // 0034's rows, the code gives them to it whatever a row says; its own permission profit.view is a new row with its baseline (as 0038's).
             // 0077 added delivery_bills (docs/decisions.md DL15) the same way: delivery.view and delivery.upload are new rows with their baselines.
             // delivery.view and delivery.upload are LOCKED too (DL31), each its own row of 0077 as the code says.
-            $later = ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) && !str_starts_with($perm, 'delivery.') ? ['finance', 'delivery_bills'] : [])];
+            // 0079 added expenses (CW-1150, docs/decisions.md EX) the same way: expenses.view and expenses.edit are new LOCKED rows with their baselines.
+            $later = ['people_manager', ...(in_array($perm, Permissions::LOCKED, true) && !str_starts_with($perm, 'delivery.') && !str_starts_with($perm, 'expenses.')
+                ? ['finance', 'delivery_bills', 'expenses'] : [])];
             self::assertSame(implode(',', Permissions::ordered(array_diff($holders, $later))), $this->saved[$perm], $perm);
             $v1 = ConfigHistory::latest(self::$db, 'permission', $perm);
             self::assertSame([1, 'baseline', 'system:migrate', ['roles' => $this->saved[$perm]]], [$v1['version'], $v1['action'], $v1['actor'], $v1['state']], $perm);

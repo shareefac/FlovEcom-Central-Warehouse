@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class PermissionsTest extends TestCase
 {
     private const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills', 'expenses'];
 
     public function testTheFifteenRolesAndTheirDescriptionsAndGroups(): void
     {
@@ -51,10 +51,21 @@ final class PermissionsTest extends TestCase
         self::assertSame('finance', Permissions::ROLES[15]);
         self::assertSame(['finance'], Permissions::MAP['profit.view'], 'nobody else sees the profit until the owner says who');
         // 0077 (delivery bills, docs/decisions.md DL15): delivery_bills after it, at the end again; Finance also looks at the delivery bills.
-        self::assertSame(Permissions::ROLES, $enum('0077_delivery_bills.sql'));
+        self::assertSame(array_slice(Permissions::ROLES, 0, 17), $enum('0077_delivery_bills.sql'));
         self::assertSame('delivery_bills', Permissions::ROLES[16]);
-        self::assertSame(['catalogue.view', 'reference.view', 'profit.view', 'delivery.view'], Permissions::permissionsOf(['finance']),
-            'Finance looks at the profit and the delivery bills and nothing else');
+        // 0079 (expenses, CW-1150, docs/decisions.md EX): expenses after it, at the end again; Finance also looks at the expenses.
+        self::assertSame(Permissions::ROLES, $enum('0079_expenses.sql'));
+        self::assertSame('expenses', Permissions::ROLES[17]);
+        self::assertSame(['catalogue.view', 'reference.view', 'profit.view', 'delivery.view', 'expenses.view'], Permissions::permissionsOf(['finance']),
+            'Finance looks at the profit, the delivery bills and the expenses and nothing else');
+        self::assertSame(['finance', 'expenses'], Permissions::MAP['expenses.view']);
+        self::assertSame(['expenses'], Permissions::MAP['expenses.edit'], 'only the new job adds, changes and deletes expenses and regular costs');
+        self::assertSame(['catalogue.view', 'reference.view', 'expenses.view', 'expenses.edit'], Permissions::permissionsOf(['expenses']), 'the new job sees no profit');
+        self::assertNotContains('expenses', Permissions::LOOK_ONLY, 'it acts');
+        self::assertSame(['locked'], Permissions::problems('expenses.edit', ['admin']));
+        self::assertSame(['locked'], Permissions::problems('expenses.view', ['finance', 'expenses', 'viewer']));
+        self::assertSame(['expenses'], Permissions::sanitise('expenses.edit', ['warehouse', 'finance']));
+        self::assertSame(['finance', 'expenses'], Permissions::sanitise('expenses.view', ['viewer']));
         self::assertSame(['finance', 'delivery_bills'], Permissions::MAP['delivery.view']);
         self::assertSame(['delivery_bills'], Permissions::MAP['delivery.upload'], 'only the new job uploads, replaces and undoes a bill');
         self::assertSame(['catalogue.view', 'reference.view', 'delivery.view', 'delivery.upload'], Permissions::permissionsOf(['delivery_bills']),
