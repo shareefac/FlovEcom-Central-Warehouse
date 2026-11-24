@@ -760,4 +760,60 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertNull(self::$db->value("SELECT service_code FROM carrier_label WHERE tracking_no = 'JV000000111GB'"));
     }
 
+
+    // ---- the Codex check r3 (cw_work/runs/rmbills_codex_r3.txt): its HIGHs and the small MEDIUMs, each shown failing first (rmbills_r3_red.log) -------
+
+    /** r3 new HIGH 1: a label's CW parcel is pinned only by the write that makes its price count (after the plan's snapshot check), never before. */
+    public function testALabelIsPinnedOnlyOnceItsOrderIsChecked(): void
+    {
+        $day = '2026-11-09';
+        self::order($this->vpg, '1121', '1361121', '2026-11-09T09:00:00Z', ['JV000000121GB' => '2026-11-09T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000121GB', 'TPL48HV', $day, '1361121')], 'report');
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        $vpg = $this->vpg;
+        // after the bill is loading and its plan read, before its guarded write takes the order's guard: the order stored again without its parcel
+        \CW\Tests\Support\HookedStatement::$before = ['SELECT GET_LOCK(?, 0) AS g0' => static function () use ($vpg): void {
+            (new OrderSnapshots(self::$db))->store($vpg, '1121', ['v' => 1, 'version' => 2, 'order_no' => '1361121', 'status' => 'completed',
+                'placed_at' => '2026-11-01T09:00:00Z', 'paid_at' => '2026-11-09T09:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null,
+                'lines' => [['line_id' => '8001121', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                    'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'Royal Mail', 'charged_inc' => 399, 'refund_inc' => 0], 'order_refund_inc' => 0,
+                'grand_inc' => 1599, 'parcels' => []], 'api');
+        }];
+        try {
+            (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]));
+        } finally {
+            \CW\Tests\Support\HookedStatement::$before = [];
+        }
+        self::assertSame(0, DeliveryBills::orderCost(self::$db, $this->vpg, '1121'), 'its parcel went before the write: not on the order');
+        self::assertNull(self::$db->value("SELECT cw_parcel_ref FROM carrier_label WHERE tracking_no = 'JV000000121GB'"));
+        $this->assertRebuilds();
+    }
+
+    /** r3 (r2 HIGH 1 PARTLY): with the nightly pull running, a day it has not read yet waits, whatever a report brought for it. */
+    public function testADayThePullHasNotReadYetWaits(): void
+    {
+        $day = '2026-11-09';
+        self::$db->exec("INSERT INTO carrier_label_pull (account_id, read_to) VALUES (?, '2026-11-08')", [$this->acct['account']]);
+        self::order($this->vpg, '1131', '1361131', '2026-11-09T09:00:00Z', ['JV000000131GB' => '2026-11-09T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000131GB', 'TPL48HV', $day, '1361131')], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
+        self::assertSame(['held||no_report' => 254], self::where($id));
+        self::$db->exec("UPDATE carrier_label_pull SET read_to = '2026-11-09' WHERE account_id = ?", [$this->acct['account']]);
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1131'));
+        $this->assertRebuilds();
+    }
+
+    /** r3 (r2 HIGH 2 PARTLY), new MEDIUM 4: a channel's name is one account's only; a number is corrected only while the account is off and has no bill. */
+    public function testAChannelNameIsOneAccountsAndANumberIsCorrectedOnlyWhileOff(): void
+    {
+        RmFixtures::account(self::$db, $this->vpg, null, 'off', 'vapebig-pending');
+        $r = self::script('carrier_account', '--account=vapebig-pending', '--add-channel=vbapi', '--channel-name=' . RmFixtures::CHANNELS['api']);
+        self::assertSame(1, $r['code'], 'another account\'s channel name: refused');
+        self::assertSame(0, self::script('carrier_account', '--account=vapebig-pending', '--number=0706799998')['code']);
+        self::assertSame(0, self::script('carrier_account', '--account=0706799998', '--number=0706799999')['code'], 'a typo corrected while off, no bill');
+        self::assertSame(1, self::script('carrier_account', '--account=0706703000', '--number=0706711111')['code'], 'an active account\'s number never');
+    }
+
 }

@@ -35,7 +35,8 @@ final class RmFixtures
             $db->exec("INSERT INTO carrier_account_party (account_id, party_id, from_day) VALUES (?, ?, '2020-01-01')", [$a, $party]);
         }
         foreach (self::CHANNELS as $code => $name) {
-            $db->exec('INSERT INTO carrier_channel (account_id, code, name) VALUES (?, ?, ?)', [$a, $code, $name]);
+            // a channel's name is one account's only (0078): another account's fixture names its own
+            $db->exec('INSERT INTO carrier_channel (account_id, code, name) VALUES (?, ?, ?)', [$a, $code, $number === self::ACCOUNT ? $name : $name . ' ' . $number]);
         }
         $db->exec('INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id) VALUES '
             . "(?, 1, 'manual', NULL, NULL), (?, 2, 'woocommerce', NULL, ?), (?, 3, NULL, 'hash_digits', ?), (?, 4, NULL, 'digits_7', ?)", [$a, $a, $h, $a, $h, $a, $p]);

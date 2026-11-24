@@ -178,6 +178,15 @@ final class PooledPlannerTest extends TestCase
             [5, 'return', 'shop', self::VPG, 1078]], $rest);
     }
 
+    /** The Codex check r3, new MEDIUM 5: a first bill of the day with only a credit sets no price: the first bill with units billed does. */
+    public function testACreditOnlyFirstBillSetsNoPrice(): void
+    {
+        $labels = array_slice(self::dayLabels(), 0, 2, true);
+        $a = PooledPlanner::plan([self::row(10, 1, '2026-11-09', 'TPL', -1, -254), self::row(11, 1, '2026-11-09', 'TPL', 2, 508)], $labels, self::ctx());
+        self::assertSame([254, 254], array_column(array_values(array_filter($a, static fn (array $x): bool => $x['kind'] === 'label')), 'pence'));
+        self::assertSame(['10|1' => -254, '11|1' => 508], self::byRow($a));
+    }
+
     public function testTheSameInputsGiveTheSamePlanInAnyOrder(): void
     {
         $rows = [self::row(10, 1, '2026-11-09', 'TPL', 2, 509), self::row(10, 2, '2026-11-09', 'TPL', 2, 509), self::row(11, 4, '2026-11-09', 'TPL', 1, 254)];
