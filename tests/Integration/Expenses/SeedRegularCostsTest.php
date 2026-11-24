@@ -12,7 +12,8 @@ use CW\Tests\Support\TestDb;
  * bin/seed_regular_costs.php (the brief's point 6; docs/decisions.md EX): the owner's weekly list as regular costs of Vape and Go, every week,
  * from 1 Nov 2026 (or --from): a dry run by default (nothing written, every line said), --apply writes them as system:seed_regular_costs
  * with their history, a second run adds nothing (a line of the same name and shop that is not deleted is already there). Unit 3 ends on
- * 31 Mar 2027, Reboot on 28 Feb 2027. Weekly total GBP 9,771.94.
+ * 31 Mar 2027, Reboot on 28 Feb 2027. Weekly total GBP 9,771.94; every line includes 20% VAT (the owner, 24 Nov 2026: EX38), so
+ * GBP 8,143.28 a week without VAT is what counts.
  */
 final class SeedRegularCostsTest extends IntegrationTestCase
 {
@@ -39,7 +40,8 @@ final class SeedRegularCostsTest extends IntegrationTestCase
         self::assertSame(0, $dry['code'], $dry['out']);
         self::assertStringContainsString('DRY RUN', $dry['out']);
         self::assertStringContainsString('16 to add, 0 already there', $dry['out']);
-        self::assertStringContainsString('every week in all £9,771.94', $dry['out']);
+        // Every line includes 20% VAT (the owner, 24 Nov 2026: EX38): the cost counted is without it.
+        self::assertStringContainsString('every week in all £9,771.94 with VAT, £8,143.28 without VAT', $dry['out']);
         self::assertStringContainsString('Unit 3', $dry['out']);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'), 'a dry run writes nothing');
 
@@ -63,7 +65,9 @@ final class SeedRegularCostsTest extends IntegrationTestCase
         self::assertSame(['Marketing, website and people'], array_values(array_unique(array_slice(array_column($rows, 'grp'), 12))));
         self::assertSame(['Running the business'], array_values(array_unique(array_slice(array_column($rows, 'grp'), 3, 9))));
         self::assertSame(16, (int) self::$db->value("SELECT COUNT(*) FROM expense_history WHERE subject = 'regular_cost' AND action = 'add'"));
-        self::assertSame(4187973, (new ExpenseViews(self::$db))->regularBy('2026-11-01', '2026-11-30', null)[$ch], 'November, each line rounded once');
+        self::assertSame(['2000'], array_map('strval', self::$db->column('SELECT DISTINCT vat_rate_bp FROM regular_cost')), 'every line includes 20% VAT');
+        self::assertSame(3489977, (new ExpenseViews(self::$db))->regularBy('2026-11-01', '2026-11-30', null)[$ch],
+            'November without VAT (£34,899.77), each line rounded once');
 
         $again = self::seed('--apply');
         self::assertSame(0, $again['code'], $again['out']);

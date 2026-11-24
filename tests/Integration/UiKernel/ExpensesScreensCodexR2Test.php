@@ -67,7 +67,7 @@ final class ExpensesScreensCodexR2Test extends KernelUiTestCase
     public function testTheAddRegularCostFormSentTwiceAsksFirst(): void
     {
         $job = $this->signIn($this->uiUser('expenses'));
-        $form = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '152.00',
+        $form = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week', 'amount' => '152.00',
             'from' => '2026-11-01', 'until' => '', 'note' => ''] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new');
         self::assertSame(303, $job->post('/ui/profit/regular/new', $form)->status);
         // The very same form sent again lands on the line it made, nothing added (one effect per form: the Codex check r3, H1); a new form
@@ -75,7 +75,7 @@ final class ExpensesScreensCodexR2Test extends KernelUiTestCase
         $replay = $job->post('/ui/profit/regular/new', $form);
         self::assertSame(303, $replay->status);
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'));
-        $form2 = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '152.00',
+        $form2 = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week', 'amount' => '152.00',
             'from' => '2026-11-01', 'until' => '', 'note' => ''] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new');
         $again = $job->post('/ui/profit/regular/new', $form2);
         self::assertSame(409, $again->status);

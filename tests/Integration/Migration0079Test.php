@@ -98,13 +98,27 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['total' => 7705])), 'total = net + VAT');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['net' => 0, 'total' => 1284])), 'an expense of nothing');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['vat' => -1, 'total' => 6419])));
+        // A credit note (the owner, 24 Nov 2026: EX37): net and VAT both minus, never one of each; never a credit of nothing.
+        $expense(['no' => 'CN-0042', 'net' => -1042, 'vat' => -208, 'total' => -1250]);
+        $expense(['no' => 'CN-0043', 'net' => -1042, 'vat' => 0, 'total' => -1042]);
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-1', 'net' => -1042, 'vat' => 208, 'total' => -834])), 'one sign');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-2', 'net' => 1042, 'vat' => -208, 'total' => 834])), 'one sign');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-3', 'net' => -1042, 'vat' => -208, 'total' => -834])), 'total = net + VAT');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-4', 'net' => -1000000000, 'vat' => 0, 'total' => -1000000000])));
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x'])), 'a delete says why');
         $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x', 'del_why' => 'twice']);
-        $cost = static fn (array $over = []): int => $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, from_day, until_day, created_actor, '
-            . 'created_at, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6))',
-            array_values(array_replace(['name' => 'Unit 1', 'ch' => $ch, 'type' => $type, 'every' => 'week', 'amount' => 20769, 'from' => '2026-11-01', 'until' => null,
-                'actor' => 'system:x', 'up' => 'system:x'], $over)));
+        $cost = static fn (array $over = []): int => $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, vat_rate_bp, from_day, until_day, '
+            . 'created_actor, created_at, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6))',
+            array_values(array_replace(['name' => 'Unit 1', 'ch' => $ch, 'type' => $type, 'every' => 'week', 'amount' => 20769, 'vat' => 2000, 'from' => '2026-11-01',
+                'until' => null, 'actor' => 'system:x', 'up' => 'system:x'], $over)));
         $cost();
+        // Its VAT (the owner, 24 Nov 2026: EX38): the rate it includes, in basis points (2000 = 20%), 0 = no VAT; never minus, never above 100%.
+        $cost(['name' => 'Bin', 'vat' => 0]);
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['vat' => 10001])));
+        self::assertSame(1264, self::err(static fn () => $cost(['vat' => -1])), 'never minus');
+        self::assertSame('0', (string) $db->value("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'regular_cost' "
+            . "AND COLUMN_NAME = 'vat_rate_bp'"), 'a row put in by hand includes no VAT: counted in full, never less');
+        self::assertArrayHasKey('vat_rate_bp', Grants::desiredColumns('regular_cost'), 'the VAT choice is set on the line');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['until' => '2026-10-31'])), 'its last day after its first');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['amount' => 0])));
         self::assertSame(1265, self::err(static fn () => $cost(['every' => 'day'])), 'week, month or year only');
@@ -121,7 +135,7 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame(2, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'permission' AND subject_key LIKE 'expenses.%'"));
         self::assertSame(9, (int) $db->value('SELECT COUNT(*) FROM expense_type'));
         self::assertSame(9, (int) $db->value("SELECT COUNT(*) FROM expense_history WHERE subject = 'type'"));
-        self::assertSame(2, (int) $db->value('SELECT COUNT(*) FROM expense'));
+        self::assertSame(4, (int) $db->value('SELECT COUNT(*) FROM expense'));
     }
 
     private static function err(callable $fn): int

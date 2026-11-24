@@ -51,7 +51,7 @@ final class ExpensesCodexR1Test extends MappingTestCase
     {
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
-        $l1 = $rc->add($job, ['name' => 'Unit 9 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week', 'amount' => '70.00', 'from' => '2026-11-01']);
+        $l1 = $rc->add($job, ['name' => 'Unit 9 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week', 'amount' => '70.00', 'from' => '2026-11-01']);
         $l2 = $rc->newAmount($job, $l1, 1, '84.00', '2026-11-08');
         $l3 = $rc->newAmount($job, $l2, 1, '98.00', '2026-11-15');
         $rc->delete($job, $l2, 2, 'the £84 was never charged');
@@ -87,7 +87,7 @@ final class ExpensesCodexR1Test extends MappingTestCase
         self::assertStringContainsString('nothing written', $late['out']);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'));
         // A line of the same name with other figures: the whole run refused, named.
-        (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week',
+        (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week',
             'amount' => '210.00', 'from' => '2026-11-01']);
         $other = self::seed('--apply');
         self::assertSame(1, $other['code'], $other['out']);
@@ -107,7 +107,7 @@ final class ExpensesCodexR1Test extends MappingTestCase
     /** M8: the months of the regular costs are offered too (a month with regular costs only). */
     public function testTheMonthListOffersTheMonthsOfTheRegularCosts(): void
     {
-        (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Hub Box', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week',
+        (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Hub Box', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week',
             'amount' => '109.00', 'from' => '2026-09-01']);
         $months = (new ExpenseViews(self::$db))->months('2026-11-24');
         self::assertSame(['2026-11', '2026-10', '2026-09'], $months);

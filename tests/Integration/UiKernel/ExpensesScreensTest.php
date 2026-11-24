@@ -257,7 +257,7 @@ final class ExpensesScreensTest extends KernelUiTestCase
             'shop' => (string) $this->shops['vb']]));
         $this->addExpense($job, $this->fields(['supplier' => 'Amazon', 'invoice_no' => 'OCT-1', 'invoice_date' => '2026-10-15', 'net' => '5.00', 'vat' => '1.00']));
         (new \CW\Expenses\RegularCosts(self::$db))->add(\CW\Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->shops['vpg'],
-            'type' => (int) self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
+            'type' => (int) self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
         $list = $job->get('/ui/profit/expenses', ['month' => '2026-11']);
         self::assertSame(200, $list->status, $list->describe() . ' ' . implode(' | ', self::$log));
         self::phoneReady($list);
@@ -287,16 +287,18 @@ final class ExpensesScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $form = $page->form('/ui/profit/regular/new');
         $r = $job->post('/ui/profit/regular/new', ['name' => 'Unit 1 rent', 'shop' => (string) $this->shops['vpg'], 'type' => self::type('Rent', 'regular'),
-            'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01', 'until' => '', 'note' => ''] + $form);
+            'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01', 'until' => '', 'note' => ''] + $form);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         // Each add is its own form (one effect per form: the Codex check r3, H1).
         $job->post('/ui/profit/regular/new', ['name' => 'Cloudflare', 'shop' => (string) $this->shops['vpg'], 'type' => self::type('Running the business', 'regular'),
-            'every' => 'year', 'amount' => '240.00', 'from' => '2026-11-01'] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
+            'vat' => 'none', 'every' => 'year', 'amount' => '240.00', 'from' => '2026-11-01'] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
         $list = $job->get('/ui/profit/regular');
         self::phoneReady($list);
         $rows = self::rows($list, 'regular-costs');
         self::assertSame(['Rent'], $rows[0]);
-        self::assertSame(['Unit 1 rent', 'Vape and Go', Words::EXPENSES['every_week'], '£207.69', '1 Nov 2026', Words::EXPENSES['no_end']], array_slice($rows[1], 0, 6));
+        // The amount as given, its VAT and the cost without VAT (the owner, 24 Nov 2026: EX38; this line has no VAT).
+        self::assertSame(['Unit 1 rent', 'Vape and Go', Words::EXPENSES['every_week'], '£207.69', '£0.00', '£207.69', '1 Nov 2026', Words::EXPENSES['no_end']],
+            array_slice($rows[1], 0, 8));
         self::assertSame([Words::EXPENSES['every_week_total'], '£207.69'], [end($rows)[0], end($rows)[3]]);
         // A new amount from 11 Nov: the line's page offers it; the old line ends on 10 Nov.
         $id = (int) self::$db->value("SELECT id FROM regular_cost WHERE name = 'Unit 1 rent'");
@@ -340,7 +342,7 @@ final class ExpensesScreensTest extends KernelUiTestCase
         $job = $this->signIn($this->uiUser('expenses'));
         $this->addExpense($job, $this->fields(['invoice_date' => '2026-11-20', 'net' => '750.00', 'vat' => '150.00']));
         (new \CW\Expenses\RegularCosts(self::$db))->add(\CW\Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->shops['vpg'],
-            'type' => (int) self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
+            'type' => (int) self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
         $fin = $this->signIn($this->uiUser('finance'));
         $page = $fin->get('/ui/profit/real', ['period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-30']);
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));

@@ -125,4 +125,27 @@ final class RegularCostMathTest extends TestCase
         self::assertSame('-£12.00', ExpenseMoney::gbp(-1200));
         self::assertSame('64.20', ExpenseMoney::plain(6420));
     }
+
+    /**
+     * The VAT a regular cost includes (the owner, 24 Nov 2026: EX38): amount x rate / (100% + rate), to the penny, half up (at 20%: the amount
+     * / 6); the cost without VAT is the amount less it. The owner's weekly list: GBP 8,143.28 a week without VAT, November GBP 34,899.77.
+     */
+    public function testTheVatARegularCostIncludes(): void
+    {
+        self::assertSame([3462, 17307], [RegularCostMath::vat(20769, 2000), 20769 - RegularCostMath::vat(20769, 2000)], '£207.69: 34.615 -> £34.62');
+        self::assertSame([46150, 230750], [RegularCostMath::vat(276900, 2000), 276900 - RegularCostMath::vat(276900, 2000)]);
+        self::assertSame(1, RegularCostMath::vat(3, 2000), '0.5p up');
+        self::assertSame(0, RegularCostMath::vat(2, 2000));
+        self::assertSame(0, RegularCostMath::vat(20769, 0), 'no VAT');
+        self::assertSame(3500, RegularCostMath::vat(23500, 1750));
+        self::assertSame(166666667, RegularCostMath::vat(999999999, 2000), 'the largest amount, no overflow');
+        $list = [20769, 23077, 92308, 10900, 2640, 3600, 15200, 2000, 13800, 4200, 1300, 17700, 96900, 276900, 207600, 188300];
+        $cost = array_map(static fn (int $a): int => $a - RegularCostMath::vat($a, 2000), $list);
+        self::assertSame([17307, 19231, 76923, 9083, 2200, 3000, 12667, 1667, 11500, 3500, 1083, 14750, 80750, 230750, 173000, 156917], $cost);
+        self::assertSame(814328, array_sum($cost));
+        self::assertSame(3489977, array_sum(array_map(static fn (int $a): int => RegularCostMath::share('week', $a, '2026-11-01', null, '2026-11-01', '2026-11-30'), $cost)));
+        foreach ([[2000, '20%'], [1750, '17.5%'], [1725, '17.25%'], [500, '5%'], [0, '0%']] as [$bp, $text]) {
+            self::assertSame($text, RegularCostMath::percent($bp));
+        }
+    }
 }

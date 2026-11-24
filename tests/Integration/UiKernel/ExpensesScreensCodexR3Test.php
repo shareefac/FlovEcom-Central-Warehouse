@@ -58,7 +58,7 @@ final class ExpensesScreensCodexR3Test extends KernelUiTestCase
         self::assertSame($first->location(), $replay->location(), 'the same page as the first time');
         self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM expense'), '£960.00, never £1,440.00');
         // A regular cost confirmed as another one, sent again.
-        $cost = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '152.00',
+        $cost = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week', 'amount' => '152.00',
             'from' => '2026-11-01', 'until' => '', 'note' => ''];
         self::assertSame(303, $job->post('/ui/profit/regular/new', $cost + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'))->status);
         $ask = $job->post('/ui/profit/regular/new', $cost + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));

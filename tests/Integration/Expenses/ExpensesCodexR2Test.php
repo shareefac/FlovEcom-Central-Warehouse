@@ -39,7 +39,7 @@ final class ExpensesCodexR2Test extends MappingTestCase
     {
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
-        $l1 = $rc->add($job, ['name' => 'Unit 8 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week', 'amount' => '70.00', 'from' => '2026-11-01']);
+        $l1 = $rc->add($job, ['name' => 'Unit 8 rent', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week', 'amount' => '70.00', 'from' => '2026-11-01']);
         $rc->newAmount($job, $l1, 1, '98.00', '2026-11-15');
         $l2 = $rc->newAmount($job, $l1, 2, '84.00', '2026-11-08');
         self::assertSame('2026-11-14', self::$db->value('SELECT until_day FROM regular_cost WHERE id = ?', [$l2]));
@@ -53,7 +53,7 @@ final class ExpensesCodexR2Test extends MappingTestCase
     {
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
-        $form = ['name' => 'Van lease', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week', 'amount' => '152.00', 'from' => '2026-11-01', 'until' => '2027-01-31'];
+        $form = ['name' => 'Van lease', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week', 'amount' => '152.00', 'from' => '2026-11-01', 'until' => '2027-01-31'];
         $first = $rc->add($job, $form);
         $e = self::refused(409, 'same_cost', fn () => $rc->add($job, $form));
         self::assertSame($first, $e->detail['other'] ?? null);
@@ -87,7 +87,7 @@ final class ExpensesCodexR2Test extends MappingTestCase
         $r = (new Expenses(self::$db))->add($job, ['shop' => $this->vpg, 'supplier' => 'Viking Direct', 'new_supplier' => true, 'type' => $type,
             'invoice_date' => '2026-11-12', 'invoice_no' => 'V2', 'net' => '180.00', 'vat' => '36.00', 'note' => '']);
         (new Expenses(self::$db))->delete($job, $r['id'], 1, 'Entered twice');
-        $rc = (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Bin', 'shop' => $this->vpg, 'type' => self::rent(), 'every' => 'week', 'amount' => '177.00',
+        $rc = (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Bin', 'shop' => $this->vpg, 'type' => self::rent(), 'vat' => 'none', 'every' => 'week', 'amount' => '177.00',
             'from' => '2026-11-01']);
         (new RegularCosts(self::$db))->delete(Caller::system('test'), $rc, 1, 'Entered twice');
         self::assertSame([], ExpenseInvariants::check(self::$db));

@@ -58,8 +58,8 @@ final class ExpensesCodexR3Test extends MappingTestCase
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
         $rent = self::type('regular', 'Rent');
-        $a = $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01', 'until' => '2026-11-07']);
-        $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week', 'amount' => '175.00', 'from' => '2026-11-08']);
+        $a = $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01', 'until' => '2026-11-07']);
+        $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '175.00', 'from' => '2026-11-08']);
         self::refused(409, 'same_cost', fn () => $rc->change($job, $a, 1, ['name' => 'Unit 5', 'type' => $rent, 'until' => '2026-11-14', 'note' => '']));
         self::assertSame(17500, (new ExpenseViews(self::$db))->regularBy('2026-11-08', '2026-11-14', null)[$this->vpg], '£175.00, never £315.00');
         self::assertTrue($rc->change($job, $a, 1, ['name' => 'Unit 5', 'type' => $rent, 'until' => '2026-11-14', 'note' => ''], true), 'confirmed: another cost');
@@ -70,7 +70,7 @@ final class ExpensesCodexR3Test extends MappingTestCase
     {
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
-        $l1 = $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => self::type('regular', 'Rent'), 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01']);
+        $l1 = $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => self::type('regular', 'Rent'), 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01']);
         $rc->newAmount($job, $l1, 1, '196.00', '2026-11-15');
         $rc->newAmount($job, $l1, 2, '168.00', '2026-11-08');
         self::assertSame('2026-11-08', (string) (new ExpenseViews(self::$db))->regular($l1)['next']['from_day']);
@@ -96,7 +96,7 @@ final class ExpensesCodexR3Test extends MappingTestCase
         $s = new Expenses(self::$db);
         $r = $s->add($job, $this->form());
         $s->delete($job, $r['id'], 1, 'Entered twice');
-        $rc = (new RegularCosts(self::$db))->add($job, ['name' => 'Bin', 'shop' => $this->vpg, 'type' => self::type('regular', 'Rent'), 'every' => 'week', 'amount' => '177.00',
+        $rc = (new RegularCosts(self::$db))->add($job, ['name' => 'Bin', 'shop' => $this->vpg, 'type' => self::type('regular', 'Rent'), 'vat' => 'none', 'every' => 'week', 'amount' => '177.00',
             'from' => '2026-11-01']);
         (new RegularCosts(self::$db))->delete($job, $rc, 1, 'Entered twice');
         self::assertSame([], ExpenseInvariants::check(self::$db));

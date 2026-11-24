@@ -110,7 +110,7 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
         self::assertSame(13000, (int) self::$db->value('SELECT net_pence FROM expense WHERE id = ?', [$id]));
         // The same for a regular cost's details.
         $rc = (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => (int) self::type('Rent', 'regular'),
-            'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
+            'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
         $fa = $a->get("/ui/profit/regular/{$rc}")->form("/ui/profit/regular/{$rc}/change");
         $fb = $b->get("/ui/profit/regular/{$rc}")->form("/ui/profit/regular/{$rc}/change");
         self::assertSame(303, $b->post("/ui/profit/regular/{$rc}/change", ['until' => '2027-03-31'] + $fb)->status);
@@ -124,7 +124,7 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
     {
         $job = $this->signIn($this->uiUser('expenses'));
         $rc = (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Van lease', 'shop' => $this->vpg, 'type' => (int) self::type('Rent', 'regular'),
-            'every' => 'month', 'amount' => '310.00', 'from' => '2026-01-01']);
+            'vat' => 'none', 'every' => 'month', 'amount' => '310.00', 'from' => '2026-01-01']);
         $page = $job->get("/ui/profit/regular/{$rc}");
         self::assertNotSame([], self::rows($page, 'regular-share'));
         $del = $page->form("/ui/profit/regular/{$rc}/delete");
@@ -157,7 +157,7 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
         $this->add($job, ['shop' => (string) $this->ef, 'net' => '40.00', 'vat' => '0', 'invoice_date' => '2026-11-05']);
         $this->add($job, ['shop' => (string) $this->ef, 'net' => '300.00', 'vat' => '0', 'invoice_date' => '2026-11-20']);
         (new RegularCosts(self::$db))->add(Caller::system('test'), ['name' => 'Unit 1 rent', 'shop' => $this->ef, 'type' => (int) self::type('Rent', 'regular'),
-            'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
+            'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01']);
         $fin = $this->signIn($this->uiUser('finance'));
         $page = $fin->get('/ui/profit/real', ['period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-07', 'store' => $this->ef]);
         $exp = '/ui/profit/expenses?from=2026-11-01&to=2026-11-07&shop=' . $this->ef;

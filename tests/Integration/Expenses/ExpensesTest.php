@@ -271,16 +271,16 @@ final class ExpensesTest extends MappingTestCase
         $job = $this->staffUser('expenses');
         $rc = new RegularCosts(self::$db);
         $rent = self::type('Rent', 'regular');
-        $id = $rc->add($job, ['name' => 'Unit 1', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01',
+        $id = $rc->add($job, ['name' => 'Unit 1', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01',
             'until' => '', 'note' => '']);
-        self::refused(422, 'choose_shop', fn () => $rc->add($job, ['name' => 'X1', 'shop' => null, 'type' => $rent, 'every' => 'week', 'amount' => '1', 'from' => '2026-11-01']));
-        self::refused(422, 'bad_every', fn () => $rc->add($job, ['name' => 'X2', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'day', 'amount' => '1', 'from' => '2026-11-01']));
-        self::refused(422, 'bad_amount', fn () => $rc->add($job, ['name' => 'X3', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week', 'amount' => '0', 'from' => '2026-11-01']));
-        self::refused(422, 'bad_until', fn () => $rc->add($job, ['name' => 'X4', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week', 'amount' => '1', 'from' => '2026-11-01',
+        self::refused(422, 'choose_shop', fn () => $rc->add($job, ['name' => 'X1', 'shop' => null, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '1', 'from' => '2026-11-01']));
+        self::refused(422, 'bad_every', fn () => $rc->add($job, ['name' => 'X2', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'day', 'amount' => '1', 'from' => '2026-11-01']));
+        self::refused(422, 'bad_amount', fn () => $rc->add($job, ['name' => 'X3', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '0', 'from' => '2026-11-01']));
+        self::refused(422, 'bad_until', fn () => $rc->add($job, ['name' => 'X4', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '1', 'from' => '2026-11-01',
             'until' => '2026-10-31']));
-        self::refused(422, 'choose_type', fn () => $rc->add($job, ['name' => 'X5', 'shop' => $this->vpg, 'type' => self::type('Fees'), 'every' => 'week', 'amount' => '1',
+        self::refused(422, 'choose_type', fn () => $rc->add($job, ['name' => 'X5', 'shop' => $this->vpg, 'type' => self::type('Fees'), 'vat' => 'none', 'every' => 'week', 'amount' => '1',
             'from' => '2026-11-01']));
-        self::refused(403, 'role_not_allowed', fn () => $rc->add($this->staffUser('finance'), ['name' => 'X6', 'shop' => $this->vpg, 'type' => $rent, 'every' => 'week',
+        self::refused(403, 'role_not_allowed', fn () => $rc->add($this->staffUser('finance'), ['name' => 'X6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week',
             'amount' => '1', 'from' => '2026-11-01']));
 
         $views = new ExpenseViews(self::$db);
@@ -317,7 +317,7 @@ final class ExpensesTest extends MappingTestCase
     {
         $job = $this->staffUser('expenses');
         $r = $this->service()->add($job, $this->form(), $this->file('v.pdf', self::PDF));
-        $rc = (new RegularCosts(self::$db))->add($job, ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week',
+        $rc = (new RegularCosts(self::$db))->add($job, ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => self::type('Rent', 'regular'), 'vat' => 'none', 'every' => 'week',
             'amount' => '207.69', 'from' => '2026-11-01']);
         self::assertSame([], \CW\Expenses\ExpenseInvariants::check(self::$db));
         self::$db->exec('UPDATE expense SET net_pence = 100, total_pence = 1384 WHERE id = ?', [$r['id']]);
