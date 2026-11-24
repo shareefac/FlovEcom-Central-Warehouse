@@ -92,8 +92,11 @@ final class RoyalMailLook
                 $covered[(string) $d] = true;
             }
         }
+        // the Special Delivery manifests of every day given (a row waiting for its day's report too: the Codex check r12 F6); the rest of the
+        // list of the covered days only
+        $allDays = $days;
         $days = array_values(array_filter($days, static fn (string $d): bool => isset($covered[$d])));
-        if ($days === []) {
+        if ($allDays === []) {
             return [];
         }
         $products = CarrierSettings::products($db, $account['carrier']);
@@ -141,7 +144,7 @@ final class RoyalMailLook
         // the rows of the days: every live bill's (the bills going left out, the one being checked in)
         $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
         $rows = [];
-        foreach (array_chunk($days, 300) as $chunk) {
+        foreach (array_chunk($allDays, 300) as $chunk) {
             foreach ($db->all("SELECT r.service_date, r.product_code, r.qty, r.net_pence, r.ref_kind, r.ref_no, r.sales_order FROM carrier_bill_row r JOIN carrier_invoice i "
                 . "ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? WHERE r.service_date IN (" . $marks(count($chunk)) . "){$not}",
                 [$account['carrier'], $account['account_no'], ...$chunk, ...$gone]) as $r) {
@@ -150,7 +153,7 @@ final class RoyalMailLook
                     'sales_order' => $r['sales_order'] === null ? null : (string) $r['sales_order']];
             }
         }
-        $here = array_flip($days);
+        $here = array_flip($allDays);
         foreach ($newRows as $r) {
             if (isset($here[(string) $r['service_date']])) {
                 $rows[] = $r;
@@ -159,7 +162,7 @@ final class RoyalMailLook
         // a day x Tracked product billed more than its priced labels by more than the setting: red (DL86 7)
         $billed = [];
         foreach ($rows as $r) {
-            if (($kind[(string) $r['product_code']] ?? null) === 'flat') {
+            if (($kind[(string) $r['product_code']] ?? null) === 'flat' && isset($covered[(string) $r['service_date']])) {
                 $k = $r['service_date'] . '|' . $r['product_code'];
                 $billed[$k] = ($billed[$k] ?? 0) + (int) $r['qty'];
             }
@@ -204,10 +207,10 @@ final class RoyalMailLook
             if ($k === 'band') {
                 if ($r['ref_kind'] === 'manifest') {
                     $manifests[(int) $r['ref_no']] ??= (string) $r['service_date'];
-                } else {
+                } elseif (isset($covered[(string) $r['service_date']])) {
                     $soRows[] = $r;
                 }
-            } elseif ($k === 'wrong_weight') {
+            } elseif ($k === 'wrong_weight' && isset($covered[(string) $r['service_date']])) {
                 $ww[] = $r;
             }
         }
@@ -236,8 +239,8 @@ final class RoyalMailLook
             if ($m !== null) {
                 $manifests[$m] ??= (string) $r['service_date'];
             } else {
-                $out[] = ['kind' => 'no_labels', 'day' => (string) $r['service_date'], 'red' => true, 'product' => (string) $r['product_code'], 'manifest' => null,
-                    'sales_order' => $r['sales_order'], 'pence' => (int) $r['net']];
+                $out[] = ['kind' => 'no_labels', 'day' => (string) $r['service_date'], 'red' => self::red((int) $r['qty'], 0, $bp), 'product' => (string) $r['product_code'],
+                    'manifest' => null, 'sales_order' => $r['sales_order'], 'pence' => (int) $r['net']];
             }
         }
         foreach ($redOnly ? [] : $ww as $r) {
@@ -292,6 +295,18 @@ final class RoyalMailLook
                 if ($labels[$m] === 0 || self::red($units[$m], $labels[$m], $bp)) {
                     $out[] = ['kind' => 'manifest', 'day' => $day, 'red' => self::red($units[$m], $labels[$m], $bp), 'manifest' => $m, 'labels' => $labels[$m],
                         'billed' => $units[$m]];
+                }
+            }
+            // the odd labels of these manifests, whatever their day (F6)
+            $seen = array_flip(array_column($odd, 'tracking_no'));
+            foreach ($redOnly ? [] : array_chunk($ids, 300) as $chunk) {
+                foreach (self::differs($db, (int) $account['id'], 'l.manifest_no IN (' . $marks(count($chunk)) . ')', $chunk, $band) as $r) {
+                    $t = strtoupper((string) $r['tracking_no']);
+                    if (!isset($seen[$t])) {
+                        $seen[$t] = true;
+                        $odd[] = ['kind' => 'odd_service', 'day' => (string) $r['manifest_day'], 'red' => false, 'tracking_no' => $t, 'why' => 'service_differs',
+                            'service' => (string) $r['service_code'], 'cw_service' => (string) $r['cw'], 'product' => null];
+                    }
                 }
             }
         }
@@ -350,9 +365,16 @@ final class RoyalMailLook
         if ($services === []) {
             return [];
         }
-        return $db->all('SELECT l.id, l.tracking_no, l.service_code, l.manifest_day, l.manifest_no, MIN(p.service_code) AS cw FROM carrier_label l JOIN sale_parcel p '
-            . 'ON p.tracking_no = l.tracking_no AND p.removed_at IS NULL AND ' . RoyalMailBills::RM_PARCEL . " AND p.service_code <> '' "
+        $out = [];
+        foreach ($db->all('SELECT l.id, l.tracking_no, l.service_code, l.manifest_day, l.manifest_no, p.service_code AS cw, p.label_at FROM carrier_label l JOIN sale_parcel p '
+            . 'ON p.tracking_no = l.tracking_no AND p.removed_at IS NULL AND p.label_at IS NOT NULL AND ' . RoyalMailBills::RM_PARCEL . " AND p.service_code <> '' "
             . "WHERE l.account_id = ? AND {$where} AND l.service_code IN (" . implode(', ', array_fill(0, count($services), '?')) . ') AND p.service_code <> l.service_code '
-            . 'GROUP BY l.id, l.tracking_no, l.service_code, l.manifest_day, l.manifest_no ORDER BY l.id', [$accountId, ...$params, ...$services]);
+            . 'ORDER BY l.id, p.service_code', [$accountId, ...$params, ...$services]) as $r) {
+            // only a CW parcel within the label's matching window, as its destination and the plan see it (the Codex check r12 F3)
+            if (!isset($out[(int) $r['id']]) && RoyalMailBills::inWindow((string) $r['label_at'], $r['manifest_day'] === null ? null : (string) $r['manifest_day'])) {
+                $out[(int) $r['id']] = $r;
+            }
+        }
+        return array_values($out);
     }
 }

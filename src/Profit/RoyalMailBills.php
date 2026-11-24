@@ -12,7 +12,7 @@ use CW\Db;
 use CW\Reports\ReportRefresh;
 
 /**
- * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL87): ONE service for every
+ * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL88): ONE service for every
  * pooled carrier account (0706703000 and Vape Big's: only the settings differ; the owner, 23 Nov 2026, Q5).
  *
  *  check()         the upload screen's first step (DL79): a bill read and refused as upload() / replace() would refuse it, where its money would
@@ -830,18 +830,18 @@ final class RoyalMailBills
         $monday = $tue->modify('-8 days')->format('Y-m-d');
         $old = $uk->modify('-' . self::WAIT_ALERT_DAYS . ' days')->format('Y-m-d');
         $out = [];
-        foreach (CarrierSettings::pooledAccountIds($db) as $id) {
+        // the accounts with their numbers read first, in one statement: an account whose check fails is named by its number, so its open alerts
+        // are kept (the Codex check r12 F5)
+        $numbers = [];
+        foreach ($db->all("SELECT a.id, a.account_no FROM carrier_account a JOIN carrier c ON c.code = a.carrier WHERE c.family = 'pooled' ORDER BY a.id") as $r) {
+            $numbers[(int) $r['id']] = (string) $r['account_no'];
+        }
+        foreach ($numbers as $id => $no) {
             try {
                 array_push($out, ...self::accountHealth($db, $id, $now, $monday, $sunday, $old));
             } catch (CwException | \PDOException $e) {
                 // one account that cannot be checked never hides the others' alerts; it is said itself (the Codex check r10 #15)
-                $no = null;
-                try {
-                    $no = $db->value('SELECT account_no FROM carrier_account WHERE id = ?', [$id]);
-                } catch (\Throwable) {
-                    // its number cannot be read either: its id is said
-                }
-                $name = $no === null ? '#' . $id : (string) $no;
+                $name = $no;
                 $code = $e instanceof CwException ? $e->errorCode : 'database error ' . (Db::driverCode($e) ?? 'unknown');
                 $out[] = ['key' => 'rm_check_failed:' . $name, 'kind' => 'rm_check_failed', 'detail' => sprintf('Royal Mail %s: its bills could not be checked just now (%s)',
                     $name, $code), 'data' => ['account' => $name, 'error' => $code]];
@@ -1615,7 +1615,29 @@ final class RoyalMailBills
         foreach ($labels as $id => $l) {
             $labels[$id]['odd'] = $odd[$id] ?? null;
         }
-        $watch = self::oddOrders($db, $labels, $odd);
+        // ... those of the labels a key of this plan with rows uses: its day x product, its manifest, its sales order, or the sales order a row
+        // naming only it is put on a manifest by (a manifest with no row moves no money: its parcels are never needed: the Codex check r12 F2)
+        $rowKeys = [];
+        $soRows = [];
+        foreach ($rows as $r) {
+            $rowKeys[PooledPlanner::key($r, $kindOf($r), $labels, $ctx)] = true;
+            if ($kindOf($r) === 'band' && $r['ref_kind'] !== 'manifest' && $r['sales_order'] !== null) {
+                $soRows[(string) $r['sales_order']] = true;
+            }
+        }
+        $flatOf = [];
+        foreach ($ctx['products'] as $code => $p) {
+            if ($p['kind'] === 'flat' && $p['service_code'] !== null) {
+                $flatOf[(string) $p['service_code']] = (string) $code;
+            }
+        }
+        $used = array_filter($odd, static function (string $why, int $id) use ($labels, $rowKeys, $soRows, $flatOf): bool {
+            $l = $labels[$id];
+            return $why === 'service_differs' && (isset($rowKeys['F|' . $l['manifest_day'] . '|' . ($flatOf[(string) $l['service_code']] ?? '')])
+                || ($l['manifest_no'] !== null && isset($rowKeys['M|' . (int) $l['manifest_no']]))
+                || ($l['sales_order'] !== null && (isset($rowKeys['S|' . $l['sales_order']]) || isset($soRows[$l['sales_order']]))));
+        }, ARRAY_FILTER_USE_BOTH);
+        $watch = self::oddOrders($db, $labels, $used);
         // labels' destinations; a label whose price is on an order now stays on it (sticky)
         // the label's own CW parcel, pinned when a plan first put it on an order (DL74); else a live allocation on an order (labels of before)
         $sticky = [];
@@ -1749,10 +1771,12 @@ final class RoyalMailBills
             }
         }
         foreach (array_chunk(array_map('strval', array_keys($check)), 500) as $chunk) {
-            foreach ($db->all('SELECT p.tracking_no, p.service_code FROM sale_parcel p WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
-                . 'AND p.removed_at IS NULL AND ' . self::RM_PARCEL . " AND p.service_code <> ''", $chunk) as $p) {
+            foreach ($db->all('SELECT p.tracking_no, p.service_code, p.label_at FROM sale_parcel p WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . 'AND p.removed_at IS NULL AND p.label_at IS NOT NULL AND ' . self::RM_PARCEL . " AND p.service_code <> ''", $chunk) as $p) {
                 foreach ($check[strtoupper((string) $p['tracking_no'])] ?? [] as $id) {
-                    if (strcasecmp((string) $p['service_code'], (string) $labels[$id]['service_code']) !== 0) {
+                    // only a CW parcel the label's destination would see: labelled within the matching window of its day (the Codex check r12 F3)
+                    if (self::inWindow((string) $p['label_at'], $labels[$id]['manifest_day'] ?? null)
+                        && strcasecmp((string) $p['service_code'], (string) $labels[$id]['service_code']) !== 0) {
                         $out[$id] = 'service_differs';
                     }
                 }
@@ -1760,6 +1784,19 @@ final class RoyalMailBills
         }
         ksort($out);
         return $out;
+    }
+
+    /**
+     * Whether a CW parcel labelled at $labelAt (UTC) is within the matching window of a label of $day (DL57 b, LabelDestinations: at most
+     * WINDOW_BEFORE days before it, WINDOW_AFTER after; a label of no day: any).
+     */
+    public static function inWindow(string $labelAt, ?string $day): bool
+    {
+        if ($day === null || $day === '') {
+            return true;
+        }
+        $gap = DeliveryBills::daysBetween(ReportRefresh::ukDay($labelAt), $day);
+        return $gap >= -DeliveryBills::WINDOW_AFTER && $gap <= DeliveryBills::WINDOW_BEFORE;
     }
 
     /**
@@ -1776,16 +1813,19 @@ final class RoyalMailBills
         $tracking = [];
         foreach ($odd as $id => $why) {
             if ($why === 'service_differs') {
-                $tracking[strtoupper((string) $labels[$id]['tracking_no'])] = true;
+                $tracking[strtoupper((string) $labels[$id]['tracking_no'])][] = $labels[$id]['manifest_day'] ?? null;
             }
         }
         $out = [];
         foreach (array_chunk(array_map('strval', array_keys($tracking)), 500) as $chunk) {
-            foreach ($db->all('SELECT p.channel_id, p.order_ref, o.snapshot_version, o.updated_at FROM sale_parcel p JOIN sale_order o ON o.channel_id = p.channel_id '
-                . 'AND o.order_ref = p.order_ref WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND p.removed_at IS NULL AND '
-                . self::RM_PARCEL, $chunk) as $p) {
-                $out[(int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref'])] = ['ch' => (int) $p['channel_id'], 'ref' => (string) $p['order_ref'],
-                    'seen' => $p['snapshot_version'] . '|' . $p['updated_at']];
+            foreach ($db->all('SELECT p.tracking_no, p.label_at, p.channel_id, p.order_ref, o.snapshot_version, o.updated_at FROM sale_parcel p JOIN sale_order o '
+                . 'ON o.channel_id = p.channel_id AND o.order_ref = p.order_ref WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . 'AND p.removed_at IS NULL AND p.label_at IS NOT NULL AND ' . self::RM_PARCEL, $chunk) as $p) {
+                $near = array_filter($tracking[strtoupper((string) $p['tracking_no'])] ?? [], static fn (?string $d): bool => self::inWindow((string) $p['label_at'], $d));
+                if ($near !== []) {
+                    $out[(int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref'])] = ['ch' => (int) $p['channel_id'], 'ref' => (string) $p['order_ref'],
+                        'seen' => $p['snapshot_version'] . '|' . $p['updated_at']];
+                }
             }
         }
         ksort($out, SORT_STRING);

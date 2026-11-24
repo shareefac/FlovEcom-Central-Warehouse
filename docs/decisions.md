@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL87; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL88; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20783,6 +20783,24 @@ Also: the health alert reads only what can be red (it runs every 2 minutes). LEF
 above its labels is averaged onto the manifest's labels (DL86 5, "exact total either way"), unlike Tracked's extra units (main shop): M with 2
 labels billed 3 units at £9.30 puts £13.95 on each order, where the Tracked rule would give £9.30 each and £9.30 on Vape and Go's "not on an
 order"; a label of an odd service on a manifest is left out and its unit averaged the same way (DL86 4 says "its product's billed-more line").
+
+**DL88. The Codex check r12 of b3295d3 (`cw_work/runs/rmbills_codex_r12.txt`, default model, the last round of round 11: NO GO, 4 HIGH, 2 MEDIUM, 1
+LOW; r11's 1-4, 7, 8, 10 FIXED, 5, 6, 9 PARTLY).** Fixed, each failing first (`runs/rmbills_r13_red.log`, `RoyalMailCodexR12Test`; green
+`runs/rmbills_r13_green*.log`): (F2) a write guards only the orders of the parcels that left out a label a key WITH ROWS of the plan uses (its
+day x product, its manifest, its sales order, or the sales order a row naming only it is put on a manifest by): a busy order of a manifest
+with no row never holds another (£9.30 of a newly covered manifest no longer waits for it). (F3) A label's service is compared only with the
+CW parcels its destination would see (labelled within the matching window of its day, DL57 b): an old parcel of the same number never makes it
+odd (the plan, the guards and the list). (F5) The health alert reads the accounts with their numbers in one statement first: an account whose
+check fails is named by its number, so its open alerts are kept (r11 M9). (F6) The list takes the Special Delivery manifests of every day it is
+given (a row waiting for its report too) and lists their odd labels whatever their day. (F7) A row naming only a sales order of no manifest is
+red only when it bills units (a credit: listed, not red).
+LEFT, KNOWN WINDOWS FOR THE LEAD (not built; both need a CW parcel's service corrected in CW after a plan, never a report or a bill): (F1) a label
+priced on its order whose CW parcel's service is corrected between a Store's last check and its commit (milliseconds) stays on the order until
+the next plan of that day, as it does when the correction comes a moment after the commit (DL86 11 #8): e.g. £2.54 stays on Electrofag's order
+instead of Vape and Go's billed-more line until the nightly. Closing it would mean guarding every priced order of a plan (a week's bill: about
+7,000 orders, over DL68's guard budget). (F4) A correction of a parcel's service in the last days of the nightly's 120 days, followed by a run
+that dies before it marks its first days due (or fails to read its rows), can leave that label priced on its order for good (£2.54). DL87 H6
+marks the first 7 days due before planning them; a durable nightly checkpoint would close the rest.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
