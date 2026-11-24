@@ -36,10 +36,10 @@ final class Permissions
 {
     /**
      * Every role, in the order of the staff_role ENUM (0007's fourteen; 0069 added people_manager at the end, 0074 finance after it, 0077
-     * delivery_bills after that).
+     * delivery_bills after that, 0079 expenses after that).
      */
     public const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin', 'buyer', 'purchasing_manager',
-        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills'];
+        'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'people_manager', 'finance', 'delivery_bills', 'expenses'];
 
     /** Shown on the People and roles screen. */
     public const DESCRIPTIONS = [
@@ -60,6 +60,7 @@ final class Permissions
         'people_manager' => 'adds people, sets their jobs, switches them on/off and resets their sign-in; may be combined with any job',
         'finance' => 'reads the profit on every order (0074): sale, buying cost, margin; changes nothing',
         'delivery_bills' => 'uploads the carriers\' delivery bills (DPD), replaces a bill with a corrected file, undoes an upload (0077)',
+        'expenses' => 'adds, changes and deletes the expenses (invoices with their PDF) and the regular costs of each shop (0079)',
     ];
 
     /** The roles' groups on the People and roles form (every role in exactly one). */
@@ -67,7 +68,7 @@ final class Permissions
         'Linking' => ['viewer', 'mapper', 'mapping_lead'],
         'Purchasing and receiving' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk'],
         'Stock' => ['warehouse', 'manager', 'stock_controller'],
-        'Review and finance' => ['reviewer', 'accountant', 'auditor', 'finance', 'delivery_bills'],
+        'Review and finance' => ['reviewer', 'accountant', 'auditor', 'finance', 'delivery_bills', 'expenses'],
         'Admin' => ['admin', 'people_manager'],
     ];
 
@@ -233,6 +234,11 @@ final class Permissions
         // job and never holds the upload itself (I12: admin acts on people and roles only). Nobody has the job until the owner says who.
         'delivery.view' => ['finance', 'delivery_bills'],
         'delivery.upload' => ['delivery_bills'],
+        // ---- CW-1150 (0079; docs/decisions.md EX12): the expenses and the regular costs. Finance and the new job look at them (Profit > Expenses,
+        // Profit > Regular costs); only the new job adds, changes and deletes them (as the delivery bills: a job of its own, Finance only looks).
+        // Admin gives the job and never holds the edit itself (I12). Nobody has the job until the owner says who (staff 1 and 2 at go-live).
+        'expenses.view' => ['finance', 'expenses'],
+        'expenses.edit' => ['expenses'],
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
@@ -353,7 +359,9 @@ final class Permissions
         'company.edit', 'company.confirm',
         // 0077: the delivery bills, held as MAP says whatever the Roles page or a stored row says (the owner's decision; the final review, astra
         // item 1; docs/decisions.md DL31).
-        'delivery.view', 'delivery.upload'];
+        'delivery.view', 'delivery.upload',
+        // 0079: the expenses, held as MAP says whatever the Roles page or a stored row says, as the delivery bills' (docs/decisions.md EX12).
+        'expenses.view', 'expenses.edit'];
     /**
      * The guarded jobs keep these whatever the screen says: an admin and a People manager see the people (production's row of 0034 for
      * staff.view names admin and auditor only: the People manager is added on the read, PM3); a reviewer can give the checks and the OKs.

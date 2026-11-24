@@ -1,7 +1,11 @@
 <?php
 // Profit › Profit by product (docs/decisions.md PR26): by shop, product, brand or main supplier, the biggest first by the measure chosen
 // (a column head is a link that sorts by it), each with its margin; at most $limit rows. On a phone each row is a card. By shop, its delivery
-// too (0077, DL23): charged, its cost on the orders, the carriers' charges not on an order, delivery after its cost.
+// too (0077, DL23): charged, its cost on the orders, the carriers' charges not on an order, delivery after its cost; then its expenses, regular
+// costs and real profit as Profit > Real profit has them (0079, EX15, EX39: from the shop's first day, "not started" before it; marked not
+// complete while any unit counted has no buying price).
+// A shop whose real profit has not started on these days (its first day after them; docs/decisions.md EX39): "not started (from 1 Dec 2026)".
+$notStarted = static fn (?string $first): string => $first === null ? \CW\Ui\Words::PROFIT['real_not_set'] : \CW\Ui\Words::say('PROFIT', 'real_not_started', \CW\Ui\Html::day($first));
 $byWords = ['shop' => \CW\Ui\Words::PROFIT['by_shop'], 'product' => \CW\Ui\Words::PROFIT['by_product'], 'brand' => \CW\Ui\Words::PROFIT['by_brand'],
     'supplier' => \CW\Ui\Words::PROFIT['by_supplier']];
 $sortWords = [];
@@ -44,6 +48,11 @@ foreach ($sortLinks as $sl) {
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_cost') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_other') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_result') ?></th>
+<?php if ($withExpenses): ?>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_expenses') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_regular') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_real') ?></th>
+<?php endif; ?>
 <?php endif; ?>
     </tr>
   </thead>
@@ -62,6 +71,22 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($r['f']['delivery_cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($r['f']['delivery_other'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($r['f']['delivery_result'] / 100) ?></td>
+<?php if ($withExpenses): ?>
+<?php $rp = $real[(int) $r['id']] ?? null; ?>
+<?php if ($rp === null): ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_expenses') ?>"><?= $word('PROFIT', 'real_not_a_shop') ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_regular') ?>"><?= $word('PROFIT', 'real_not_a_shop') ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_real') ?>"><?= $word('PROFIT', 'real_not_a_shop') ?></td>
+<?php elseif (!$rp['started']): ?>
+      <td class="num muted" data-label="<?= $word('PROFIT', 'col_expenses') ?>"><?= $e($notStarted($rp['from'])) ?></td>
+      <td class="num muted" data-label="<?= $word('PROFIT', 'col_regular') ?>"><?= $e($notStarted($rp['from'])) ?></td>
+      <td class="num muted" data-label="<?= $word('PROFIT', 'col_real') ?>"><?= $e($notStarted($rp['from'])) ?></td>
+<?php else: ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_expenses') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp((int) $rp['expenses'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_regular') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp((int) $rp['regular'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_real') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp((int) $rp['real'])) ?><?php if ($rp['counted_from'] !== null): ?> <span class="hint"><?= $say('PROFIT', 'real_cell_from', \CW\Ui\Html::day((string) $rp['counted_from'])) ?></span><?php endif; ?><?php if ($rp['incomplete']): ?> <?= $chip('needs', \CW\Ui\Words::PROFIT['real_cell_incomplete']) ?><?php endif; ?></td>
+<?php endif; ?>
+<?php endif; ?>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

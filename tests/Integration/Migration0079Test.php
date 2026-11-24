@@ -1,0 +1,184 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Tests\Integration;
+
+use CW\Auth\Permissions;
+use CW\Db;
+use CW\Schema\Grants;
+use CW\Schema\SqlSplitter;
+use CW\Tests\Support\IntegrationTestCase;
+use CW\Tests\Support\MigrationFixture;
+
+/**
+ * 0079 (CW-1150 expenses and regular costs; docs/decisions.md EX1-), applied to a scratch schema at 0077 (the live release's last) that
+ * already holds a role grant: it only ADDS (five new tables, the start lists of the types with their history, the new job at the end of the
+ * list, the two permission rows with their baselines); no existing row changes; its CHECKs (money in whole pence, total = net + VAT, a
+ * delete says who and why, a regular cost's last day after its first); the app login's rights (money rows never removed, the history
+ * append-only); running every statement again changes nothing.
+ */
+final class Migration0079Test extends IntegrationTestCase
+{
+    private const FILE = '0079_expenses.sql';
+    private const CHECK_VIOLATED = 3819;
+    private ?string $dir = null;
+
+    protected function tearDown(): void
+    {
+        if ($this->dir !== null) {
+            MigrationFixture::drop('m79', $this->dir);
+        }
+    }
+
+    public function testItOnlyAddsAndRunsAgainCleanly(): void
+    {
+        $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/' . self::FILE);
+        $statements = SqlSplitter::split($sql);
+        self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b/i', $sql, 'nothing is deleted, changed or dropped');
+        foreach ($statements as $st) {
+            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (expense_type|expense_supplier|expense|regular_cost|expense_history|expense_file|supplier_file) '
+                . '|INSERT INTO (expense_type|expense_history|config_change|role_permission|app_setting|supplier_file) |ALTER TABLE staff_role MODIFY COLUMN role )/', $st);
+        }
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense'), 'an expense is never removed: deleted by a mark');
+        self::assertSame(['Select', 'Insert'], Grants::desired('regular_cost'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense_supplier'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense_type'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense_history'));
+        self::assertSame([], Grants::desiredColumns('expense_history'), 'the history is append-only');
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense_file'));
+        self::assertSame([], Grants::desiredColumns('expense_file'), 'every file an expense named, append-only (EX40)');
+        self::assertSame(['Select', 'Insert'], Grants::desired('supplier_file'));
+        self::assertSame([], Grants::desiredColumns('supplier_file'), 'every file a supplier named as evidence, append-only (EX61)');
+        self::assertArrayHasKey('vat_included', Grants::desiredColumns('regular_cost'), 'the VAT choice is set on the line (EX54)');
+        foreach (['id', 'created_by', 'created_actor', 'created_at'] as $frozen) {
+            self::assertArrayNotHasKey($frozen, Grants::desiredColumns('expense'), $frozen);
+            self::assertArrayNotHasKey($frozen, Grants::desiredColumns('regular_cost'), $frozen);
+        }
+        foreach (['channel_id', 'every', 'amount_pence', 'from_day', 'replaces_id'] as $frozen) {
+            self::assertArrayNotHasKey($frozen, Grants::desiredColumns('regular_cost'), "a regular cost's {$frozen} never changes: a new line");
+        }
+
+        $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
+        sort($files, SORT_STRING);
+        $at = array_search(self::FILE, $files, true);
+        self::assertIsInt($at);
+        /** @var Db $db */
+        [$db, $this->dir] = MigrationFixture::upTo('m79', $files[$at - 1]);
+        $tables = $db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
+        $ch = $db->insert("INSERT INTO channel (code, name) VALUES ('vapeandgo', 'Vape and Go')");
+        $staff = $db->insert("INSERT INTO staff_user (username, email, display_name, password_hash) VALUES ('m79', 'm79@example.com', 'M79', 'x')");
+        $db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'finance'), (?, 'delivery_bills')", [$staff, $staff]);
+        $roles = $db->all('SELECT id, role, CAST(role AS UNSIGNED) AS n FROM staff_role ORDER BY id');
+        // A supplier's evidence named before 0079: the one it names now and the one its history says it replaced (EX61).
+        $file = static fn (string $n): int => $db->insert('INSERT INTO stored_file (sha256, size_bytes, mime, original_name, kind, backend, storage_key, retain_until, '
+            . "stored_actor) VALUES (?, 10, 'application/pdf', ?, 'supplier_check', 'local', ?, '2040-01-01', 'system:test')", [hash('sha256', $n), $n . '.pdf', 'k/' . $n]);
+        [$old, $now, $route] = [$file('old'), $file('now'), $file('route')];
+        $sup = $db->insert("INSERT INTO supplier (code, name, created_actor, updated_actor, dd_evidence_file_id) VALUES ('SUP-M79', 'M79 Ltd', 'system:test', 'system:test', ?)",
+            [$now]);
+        $db->exec("INSERT INTO audit_log (actor, action, entity_type, entity_id, detail) VALUES ('staff:1', 'supplier.evidence', 'supplier', ?, CAST(? AS JSON)), "
+            . "('staff:1', 'supplier.create', 'supplier', ?, CAST(? AS JSON))", [(string) $sup, json_encode(['changed' => ['dd_evidence_file_id' => [$old, $now]]]),
+            (string) $sup, json_encode(['fields' => ['import_route_file_id' => (string) $route, 'dd_evidence_file_id' => null]])]);
+        $perms = $db->all('SELECT permission, roles, updated_actor FROM role_permission ORDER BY permission');
+
+        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
+        $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
+        sort($new);
+        self::assertSame(['expense', 'expense_file', 'expense_history', 'expense_supplier', 'expense_type', 'regular_cost', 'supplier_file'], $new);
+        $ev = static fn (): array => $db->all('SELECT supplier_id, field, file_id FROM supplier_file ORDER BY field, file_id');
+        self::assertSame([[(string) $sup, 'dd', (string) $old], [(string) $sup, 'dd', (string) $now], [(string) $sup, 'import_route', (string) $route]],
+            array_map(static fn (array $r): array => array_map('strval', array_values($r)), $ev()), 'the evidence of now and of its history, each once');
+        // Each shop's first real profit day (the owner, 24 Nov 2026: EX39), with its baseline.
+        self::assertSame(['profit.real_from_electrofag' => '"2026-12-01"', 'profit.real_from_vapeandgo' => '"2026-11-01"', 'profit.real_from_vapebig' => '"2026-12-01"'],
+            array_column($db->all("SELECT setting_key, CAST(value_json AS CHAR) AS v FROM app_setting WHERE setting_key LIKE 'profit.real\\_from\\_%' ORDER BY setting_key"),
+                'v', 'setting_key'));
+        self::assertSame(3, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.real\\_from\\_%' "
+            . "AND action = 'baseline'"));
+        self::assertSame([['expense', 'Stationery and packaging'], ['expense', 'Software and AI'], ['expense', 'Developer'], ['expense', 'Fees'], ['expense', 'Other'],
+            ['regular', 'Rent'], ['regular', 'Running the business'], ['regular', 'Marketing, website and people'], ['regular', 'Other']],
+            array_map(static fn (array $r): array => [$r['kind'], $r['name']], $db->all('SELECT kind, name FROM expense_type ORDER BY kind, sort_order')));
+        self::assertSame(9, (int) $db->value("SELECT COUNT(*) FROM expense_history WHERE subject = 'type' AND version = 1 AND action = 'add' AND actor = 'system:migrate'"));
+        self::assertSame($roles, $db->all('SELECT id, role, CAST(role AS UNSIGNED) AS n FROM staff_role ORDER BY id'), 'every grant keeps its number');
+        $db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'expenses')", [$staff]);
+        self::assertSame(18, (int) $db->value("SELECT CAST(role AS UNSIGNED) FROM staff_role WHERE role = 'expenses'"), 'the new job is number 18');
+        self::assertSame('expenses', Permissions::ROLES[17]);
+        $want = [...$perms, ['permission' => 'expenses.edit', 'roles' => 'expenses', 'updated_actor' => 'system:migrate'],
+            ['permission' => 'expenses.view', 'roles' => 'finance,expenses', 'updated_actor' => 'system:migrate']];
+        self::assertSame($want, $db->all("SELECT permission, roles, updated_actor FROM role_permission ORDER BY permission LIKE 'expenses.%', permission"));
+        self::assertSame(Permissions::MAP['expenses.view'], explode(',', (string) $db->value("SELECT roles FROM role_permission WHERE permission = 'expenses.view'")));
+        self::assertSame(Permissions::MAP['expenses.edit'], explode(',', (string) $db->value("SELECT roles FROM role_permission WHERE permission = 'expenses.edit'")));
+        self::assertSame(2, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'permission' AND subject_key LIKE 'expenses.%' AND version = 1 "
+            . "AND action = 'baseline'"));
+
+        // The CHECKs.
+        $sup = $db->insert("INSERT INTO expense_supplier (name, created_actor, created_at) VALUES ('Viking Direct', 'system:x', NOW(6))");
+        $type = (int) $db->value("SELECT id FROM expense_type WHERE kind = 'expense' AND name = 'Fees'");
+        $expense = static fn (array $over = []): int => $db->insert('INSERT INTO expense (channel_id, supplier_id, type_id, invoice_date, invoice_no, net_pence, vat_pence, '
+            . 'total_pence, created_actor, created_at, updated_actor, updated_at, deleted_at, deleted_actor, deleted_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6), ?, ?, ?)',
+            array_values(array_replace(['ch' => $ch, 'sup' => $sup, 'type' => $type, 'day' => '2026-11-12', 'no' => '1', 'net' => 6420, 'vat' => 1284, 'total' => 7704,
+                'actor' => 'system:x', 'up' => 'system:x', 'del_at' => null, 'del_actor' => null, 'del_why' => null], $over)));
+        $expense();
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['total' => 7705])), 'total = net + VAT');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['net' => 0, 'total' => 1284])), 'an expense of nothing');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['vat' => -1, 'total' => 6419])));
+        // A credit note (the owner, 24 Nov 2026: EX37): net and VAT both minus, never one of each; never a credit of nothing.
+        $expense(['no' => 'CN-0042', 'net' => -1042, 'vat' => -208, 'total' => -1250]);
+        $expense(['no' => 'CN-0043', 'net' => -1042, 'vat' => 0, 'total' => -1042]);
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-1', 'net' => -1042, 'vat' => 208, 'total' => -834])), 'one sign');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-2', 'net' => 1042, 'vat' => -208, 'total' => 834])), 'one sign');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-3', 'net' => -1042, 'vat' => -208, 'total' => -834])), 'total = net + VAT');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['no' => 'CN-4', 'net' => -1000000000, 'vat' => 0, 'total' => -1000000000])));
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x'])), 'a delete says why');
+        $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x', 'del_why' => 'twice']);
+        $cost = static fn (array $over = []): int => $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, vat_rate_bp, from_day, until_day, '
+            . 'created_actor, created_at, updated_actor, updated_at, vat_included) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6), ?)',
+            array_values(array_replace(['name' => 'Unit 1', 'ch' => $ch, 'type' => $type, 'every' => 'week', 'amount' => 20769, 'vat' => 2000, 'from' => '2026-11-01',
+                'until' => null, 'actor' => 'system:x', 'up' => 'system:x', 'inc' => 1], $over)));
+        $cost();
+        // Its VAT (the owner, 24 Nov 2026: EX38): the rate it includes, in basis points (2000 = 20%), 0 = no VAT; never minus, never above 100%.
+        $cost(['name' => 'Bin', 'vat' => 0, 'inc' => 0]);
+        // The choice apart from its rate (EX54): including VAT at a rate of 0 is a choice of its own; "no VAT" never has a rate.
+        $cost(['name' => 'Hub Box', 'vat' => 0, 'inc' => 1]);
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['name' => 'Verisure', 'vat' => 2000, 'inc' => 0])), 'no VAT has no rate');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['name' => 'Verisure', 'inc' => 2])));
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['vat' => 10001])));
+        self::assertSame(1264, self::err(static fn () => $cost(['vat' => -1])), 'never minus');
+        self::assertSame('0', (string) $db->value("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'regular_cost' "
+            . "AND COLUMN_NAME = 'vat_rate_bp'"), 'a row put in by hand includes no VAT: counted in full, never less');
+        self::assertSame('0', (string) $db->value("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'regular_cost' "
+            . "AND COLUMN_NAME = 'vat_included'"));
+        self::assertArrayHasKey('vat_rate_bp', Grants::desiredColumns('regular_cost'), 'the VAT choice is set on the line');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['until' => '2026-10-31'])), 'its last day after its first');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['amount' => 0])));
+        self::assertSame(1265, self::err(static fn () => $cost(['every' => 'day'])), 'week, month or year only');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO expense_history (subject, subject_id, version, action, state, actor) "
+            . "VALUES ('expense', 1, 2, 'add', '{}', 'system:x')")), 'version 1 is the add');
+
+        // Every statement again: nothing changes (a holder given on the roles screen meanwhile stays; a renamed start type is not added again).
+        $db->exec("UPDATE role_permission SET roles = 'finance' WHERE permission = 'expenses.view'");
+        $db->exec("UPDATE expense_type SET name = 'Bank and card fees' WHERE kind = 'expense' AND name = 'Fees'");
+        $db->exec("UPDATE app_setting SET value_json = CAST('\"2026-11-15\"' AS JSON) WHERE setting_key = 'profit.real_from_vapebig'");
+        foreach ($statements as $st) {
+            $db->pdo()->exec($st);
+        }
+        self::assertSame('finance', (string) $db->value("SELECT roles FROM role_permission WHERE permission = 'expenses.view'"));
+        self::assertSame(2, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'permission' AND subject_key LIKE 'expenses.%'"));
+        self::assertSame(9, (int) $db->value('SELECT COUNT(*) FROM expense_type'));
+        self::assertSame(9, (int) $db->value("SELECT COUNT(*) FROM expense_history WHERE subject = 'type'"));
+        self::assertSame(4, (int) $db->value('SELECT COUNT(*) FROM expense'));
+        self::assertSame('"2026-11-15"', (string) $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.real_from_vapebig'"),
+            'a first day changed on Settings stays');
+        self::assertSame(3, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.real\\_from\\_%'"));
+        self::assertCount(3, $ev(), 'the evidence each once');
+    }
+
+    private static function err(callable $fn): int
+    {
+        try {
+            $fn();
+        } catch (\PDOException $e) {
+            return (int) Db::driverCode($e);
+        }
+        self::fail('expected a MySQL error');
+    }
+}

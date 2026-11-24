@@ -8734,4 +8734,36 @@
   liveFind();
   document.addEventListener('kg-swapped', liveFind);
   // (live ends here)
+
+  // An expense's total as it is typed (CW-1150; docs/decisions.md EX4): the amount without VAT + the VAT, in pounds and pence, in the form's
+  // <output data-expense-total>; "-" while either is not an amount; with "This is a credit note" ticked, as minus (EX37). Whole pence only (no
+  // float sums); CW works the total out again on save.
+  each(document.querySelectorAll('form.expense-form'), function (form) {
+    var out = form.querySelector('output[data-expense-total]');
+    var boxes = form.querySelectorAll('input[data-expense-sum]');
+    var credit = form.querySelector('input[data-expense-credit]');
+    if (!out || boxes.length !== 2) {
+      return;
+    }
+    var pence = function (v) {
+      var m = /^\s*£?\s*(\d{1,3}(?:,\d{3}){1,2}|\d{1,7})(?:\.(\d{1,2}))?\s*$/.exec(v);
+      return m ? parseInt(m[1].replace(/,/g, ''), 10) * 100 + parseInt(((m[2] || '') + '00').slice(0, 2), 10) : null;
+    };
+    var show = function () {
+      var a = pence(boxes[0].value);
+      var b = pence(boxes[1].value);
+      if (a === null || b === null) {
+        out.textContent = '-';
+        return;
+      }
+      var t = a + b;
+      var pounds = String(Math.floor(t / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      out.textContent = (credit && credit.checked && t > 0 ? '-' : '') + '£' + pounds + '.' + ('0' + (t % 100)).slice(-2);
+    };
+    each(boxes, function (b) { b.addEventListener('input', show); });
+    if (credit) {
+      credit.addEventListener('change', show);
+    }
+    show();
+  });
 })();

@@ -39,7 +39,8 @@ final class FileStore
     public const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'text/csv', 'text/plain',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
     /** supplier_check (I-2): a supplier's due-diligence or import-route evidence, uploaded on the supplier card (I46). */
-    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'supplier_check', 'other'];
+    /** expense_invoice (0079, docs/decisions.md EX9): an expense's invoice PDF or photo, served only through Profit > Expenses (expenses.view). */
+    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'supplier_check', 'other', 'expense_invoice'];
     /** document_file.role */
     public const ROLES = ['supplier_invoice', 'delivery_note', 'photo', 'evidence', 'generated_pdf'];
     public const RETENTION_YEARS = 7;
@@ -224,6 +225,22 @@ final class FileStore
                 ['file_id' => $fileId, 'role' => $role, 'number' => $doc['number'], 'retain_until' => $until]);
             return true;
         });
+    }
+
+    /**
+     * Extends the storage's retention of stored file $id to $until (YYYY-MM-DD, UTC midnight; never shortened, as attach()): an expense's
+     * attachment keeps its file RETENTION_YEARS from that attachment, whatever the file's first store (0079, docs/decisions.md EX40). 404
+     * unknown_file; 500 file_missing (logged) when the storage lost the bytes.
+     */
+    public function retain(int $id, string $until): void
+    {
+        $key = $this->db->value('SELECT storage_key FROM stored_file WHERE id = ?', [$id]) ?? throw new CwException('unknown_file', 'there is no such file', 404);
+        try {
+            $this->storage->extendRetention((string) $key, new \DateTimeImmutable($until . ' 00:00:00', new \DateTimeZone('UTC')));
+        } catch (FileStoreException $e) {
+            ($this->log)("file {$id} ({$key}): extending its retention failed: {$e->reason}: {$e->getMessage()}");
+            throw new CwException('file_missing', 'the stored file is missing, so it cannot be kept: tell an engineer (bin/verify_files.php)', 500);
+        }
     }
 
     /** @return array<string, mixed>|null the stored_file row */

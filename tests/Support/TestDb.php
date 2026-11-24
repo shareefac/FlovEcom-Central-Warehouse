@@ -25,7 +25,9 @@ final class TestDb
      */
     public const SEED_TABLES = ['reason_code', 'document_type', 'app_setting', 'vat_code', 'role_permission',
         // 0078: the carriers, their bill products and weight bands (reference lists: carrier_invoice links to carrier).
-        'carrier', 'carrier_product', 'carrier_band'];
+        'carrier', 'carrier_product', 'carrier_band',
+        // 0079: the expense types (seeded by the migration).
+        'expense_type'];
 
     private static ?Db $db = null;
 
@@ -99,6 +101,16 @@ final class TestDb
                     // the seeded ones are exactly those with a 0019 baseline.
                     $db->exec("DELETE FROM reason_code WHERE code NOT IN (SELECT subject_key FROM config_change WHERE subject_type = 'reason' "
                         . "AND action = 'baseline' AND actor = 'system:migrate')");
+                    continue;
+                }
+                if ($t === 'expense_type') {
+                    // 0079's start lists stay (a test that changes one puts it back); a type a test added goes.
+                    $db->exec("DELETE FROM expense_type WHERE created_actor <> 'system:migrate'");
+                    continue;
+                }
+                if ($t === 'expense_history') {
+                    // The start lists' history of 0079 stays, as config_change keeps the migrations' versions.
+                    $db->exec("DELETE FROM expense_history WHERE actor <> 'system:migrate'");
                     continue;
                 }
                 if ($t === 'schema_migrations' || in_array($t, self::SEED_TABLES, true)) {

@@ -36,7 +36,8 @@ final class Settings
      * `pattern` (a regular expression the text must match; `pattern_says` words it for the refusal), `list_in` (a list of the listed
      * values separated by commas, each once, in any order, or empty; `words` names the Ui\Words group the screens show them in),
      * `reason_use` (the code of a reason in use that is offered on that use, reason_code.applies_to, and is not one CW sets itself, or
-     * empty; the screens show it as a choice of those reasons, by name: reasonChoices()).
+     * empty; the screens show it as a choice of those reasons, by name: reasonChoices()), `sales_from` (a date setting: a day from the first
+     * day CW holds the sales of the shop of that code, profit_day, to 2099-12-31; EX63).
      * Every key ending in `_days` is a day count from 0 to 120 unless listed here.
      */
     public const RULES = [
@@ -54,6 +55,11 @@ final class Settings
         // 0078 (DL90 K2): the go-live kit's undo holds every Royal Mail write while this names its run (empty: not held)
         'delivery.rm_writes_held' => ['pattern' => '/^([a-z0-9][a-z0-9_.:-]{7,63})?$/D',
             'pattern_says' => 'empty (Royal Mail bills may be written), or the run id of the go-live kit\'s undo that holds them'],
+        // Each shop's first real profit day (0079, EX39) is never before the first day CW holds that shop's sales: the floor is read from the
+        // data (the shop's first day in profit_day), so it is always the real one (the Fable re-check of 8dbee81, F-A; docs/decisions.md EX63).
+        'profit.real_from_vapeandgo' => ['sales_from' => 'vapeandgo'],
+        'profit.real_from_electrofag' => ['sales_from' => 'electrofag'],
+        'profit.real_from_vapebig' => ['sales_from' => 'vapebig'],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],
@@ -526,6 +532,16 @@ final class Settings
         }
         if (($rule['percent'] ?? false) === true && \CW\Profit\ProfitMath::vatBp((string) $value) === null) {
             throw $bad('must be a percent from 0 to 100 with at most two decimals, like 20 or 17.5');
+        }
+        if (isset($rule['sales_from'])) {
+            // A day from the first one CW holds that shop's sales of (profit_day, by its index (channel_id, day)) to 2099-12-31; no sales yet: none.
+            $first = $this->db->value('SELECT MIN(day) FROM profit_day WHERE channel_id = (SELECT id FROM channel WHERE code = ?)', [(string) $rule['sales_from']]);
+            if ($first === null) {
+                throw $bad('CW holds no sales of this shop yet, so its real profit cannot start');
+            }
+            if (!is_string($value) || $value < (string) $first || $value > '2099-12-31') {
+                throw $bad('must be on or after ' . $first . ', the first day CW holds this shop\'s sales (and at most 2099-12-31)');
+            }
         }
         if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
             throw $bad('must be ' . ($rule['pattern_says'] ?? 'in the expected form'));

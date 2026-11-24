@@ -343,8 +343,10 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
         $shops = $fin->get('/ui/profit/by', ['by' => 'shop']);
         self::phoneReady($shops);
         self::assertSame(['£15.00', '£22.80', '£2.50', '-£10.30'], array_slice(self::rows($shops, 'profit-breakdown')[0], 7, 4));
-        // The Delivery bills page is in Finance's Profit section, after the profit pages.
-        self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'], Words::MENU['profit_orders'],
-            Words::MENU['profit_no_cost'], Words::MENU['profit_delivery']], array_column(self::sectionTabs($sum), 'label'));
+        // The Delivery bills page is in Finance's Profit section, after the profit pages (0079, EX13-EX15: the real profit after the summary, the
+        // expenses and the regular costs after the bills).
+        self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_real'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'],
+            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular']],
+            array_column(self::sectionTabs($sum), 'label'));
     }
 }

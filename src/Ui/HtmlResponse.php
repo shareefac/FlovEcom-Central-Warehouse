@@ -77,11 +77,41 @@ final class HtmlResponse
         return $out;
     }
 
+    /**
+     * Each header line as send() gives it to header(), with its replace flag: a later line of a name replaces an earlier one, except Set-Cookie
+     * and Content-Security-Policy, which are sent as many times as they are set (a download's `sandbox` and the pages' own policy are BOTH
+     * enforced: the final review of 70ab3d2, astra MEDIUM; docs/decisions.md EX50).
+     *
+     * @return list<array{0: string, 1: bool}>
+     */
+    public function headerLines(): array
+    {
+        $out = [];
+        foreach ($this->headers as [$k, $v]) {
+            $out[] = [$k . ': ' . $v, strcasecmp($k, 'Set-Cookie') !== 0 && strcasecmp($k, 'Content-Security-Policy') !== 0];
+        }
+        return $out;
+    }
+
+    /** @return list<string> the header lines a client receives: headerLines() with header()'s replace rule applied (what send() emits) */
+    public function emitted(): array
+    {
+        $out = [];
+        foreach ($this->headerLines() as [$line, $replace]) {
+            $name = strtolower(substr($line, 0, (int) strpos($line, ':')));
+            if ($replace) {
+                $out = array_values(array_filter($out, static fn (string $l): bool => strtolower(substr($l, 0, (int) strpos($l, ':'))) !== $name));
+            }
+            $out[] = $line;
+        }
+        return $out;
+    }
+
     public function send(): void
     {
         http_response_code($this->status);
-        foreach ($this->headers as [$k, $v]) {
-            header($k . ': ' . $v, strcasecmp($k, 'Set-Cookie') !== 0);
+        foreach ($this->headerLines() as [$line, $replace]) {
+            header($line, $replace);
         }
         echo $this->body;
     }

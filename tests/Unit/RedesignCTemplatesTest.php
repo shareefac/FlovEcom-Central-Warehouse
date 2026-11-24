@@ -175,7 +175,8 @@ final class RedesignCTemplatesTest extends TestCase
         $t = self::t();
         $pages = ['settings' => 'settings', 'setting' => 'settings', 'company' => 'company', 'company_form' => 'company', 'warehouses' => 'warehouses',
             'warehouse' => 'warehouses', 'sites' => 'sites', 'apis' => 'apis' /* 0063, AK9 */, 'people' => 'people', 'person' => 'people', 'access' => 'people', 'access_permission' => 'people',
-            'approvals' => 'approvals', 'reasons' => 'reasons', 'reason' => 'reasons', 'series' => 'series', 'integrity' => 'integrity', 'audit' => 'audit'];
+            'approvals' => 'approvals', 'reasons' => 'reasons', 'reason' => 'reasons', 'series' => 'series', 'integrity' => 'integrity', 'audit' => 'audit',
+            'expense_types' => 'expense_types' /* 0079, EX10 */];
         foreach ($pages as $name => $key) {
             $src = $t[$name];
             self::balanced($name, $src);
@@ -185,11 +186,11 @@ final class RedesignCTemplatesTest extends TestCase
         $nav = $t['settings_nav'];
         self::balanced('settings_nav', $nav);
         self::assertStringContainsString('ReferenceController::settingsSections($who)', $nav);
-        self::assertSame(['company', 'warehouses', 'sites', 'apis', 'people', 'approvals', 'reasons', 'settings', 'series', 'integrity', 'audit'],
-            array_keys(\CW\Ui\Controller\ReferenceController::SETTINGS_SECTIONS), 'the artboard\'s order, APIs after Stores (0063, AK9)');
+        self::assertSame(['company', 'warehouses', 'sites', 'apis', 'people', 'approvals', 'reasons', 'expense_types', 'settings', 'series', 'integrity', 'audit'],
+            array_keys(\CW\Ui\Controller\ReferenceController::SETTINGS_SECTIONS), 'the artboard\'s order, APIs after Stores (0063, AK9), Expense types after Reasons (0079, EX10)');
         self::assertStringContainsString('<a class="set-nav-item" aria-current="page">', $nav, 'the section shown is not a link');
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Rules and numbers', 'Numbering', 'System checks',
-            'Audit log'], array_values(array_diff_key(Words::RD_SETTINGS, ['sections' => 1])));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Expense types', 'Rules and numbers', 'Numbering',
+            'System checks', 'Audit log'], array_values(array_diff_key(Words::RD_SETTINGS, ['sections' => 1])));
     }
 
     /** RD-C15: Home's buttons, tiles, "Waiting for you" rows as links, the Stores and Today cards; no Find box. RD-H1-RD-H5: the checklist in tabs. */

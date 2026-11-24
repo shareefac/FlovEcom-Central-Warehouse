@@ -42,6 +42,9 @@ use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ProfitController;
 use CW\Ui\Controller\DeliveryBillsController;
+use CW\Ui\Controller\ExpensesController;
+use CW\Ui\Controller\ExpenseTypesController;
+use CW\Ui\Controller\RegularCostsController;
 use CW\Ui\Controller\ReportsController;
 use CW\Ui\Controller\ReservationsController;
 use CW\Ui\Controller\SalesController; // pack D
@@ -654,6 +657,32 @@ final class Kernel
         $r->add('GET', DeliveryBillsController::PATH . '/{id}', DeliveryBillsController::PERM_VIEW, $bills->bill(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/replace', DeliveryBillsController::PERM_UPLOAD, $bills->replace(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/undo', DeliveryBillsController::PERM_UPLOAD, $bills->undo(...));
+        // ---- CW-1150 (0079; docs/decisions.md EX13-EX15): the real profit (Finance), the expenses and the regular costs (Finance and the
+        // Expenses job look; the job writes), Settings > Expense types (everyone looks; an admin or a reviewer changes them).
+        $r->add('GET', ProfitController::PATH . '/real', ProfitController::PERM, $profit->real(...));
+        $exp = new ExpensesController();
+        $r->add('GET', ExpensesController::PATH, ExpensesController::PERM_VIEW, $exp->list(...));
+        $r->add('GET', ExpensesController::PATH . '/new', ExpensesController::PERM_EDIT, $exp->newForm(...));
+        $r->add('POST', ExpensesController::PATH . '/new', ExpensesController::PERM_EDIT, $exp->add(...));
+        $r->add('GET', ExpensesController::PATH . '/suppliers', ExpensesController::PERM_VIEW, $exp->suppliers(...));
+        $r->add('POST', ExpensesController::PATH . '/suppliers/add', ExpensesController::PERM_EDIT, $exp->addSupplier(...));
+        $r->add('POST', ExpensesController::PATH . '/suppliers/{id}/change', ExpensesController::PERM_EDIT, $exp->changeSupplier(...));
+        $r->add('GET', ExpensesController::PATH . '/{id}', ExpensesController::PERM_VIEW, $exp->show(...));
+        $r->add('GET', ExpensesController::PATH . '/{id}/file', ExpensesController::PERM_VIEW, $exp->file(...));
+        $r->add('POST', ExpensesController::PATH . '/{id}/change', ExpensesController::PERM_EDIT, $exp->change(...));
+        $r->add('POST', ExpensesController::PATH . '/{id}/delete', ExpensesController::PERM_EDIT, $exp->delete(...));
+        $reg = new RegularCostsController();
+        $r->add('GET', RegularCostsController::PATH, ExpensesController::PERM_VIEW, $reg->list(...));
+        $r->add('GET', RegularCostsController::PATH . '/new', ExpensesController::PERM_EDIT, $reg->newForm(...));
+        $r->add('POST', RegularCostsController::PATH . '/new', ExpensesController::PERM_EDIT, $reg->add(...));
+        $r->add('GET', RegularCostsController::PATH . '/{id}', ExpensesController::PERM_VIEW, $reg->show(...));
+        $r->add('POST', RegularCostsController::PATH . '/{id}/change', ExpensesController::PERM_EDIT, $reg->change(...));
+        $r->add('POST', RegularCostsController::PATH . '/{id}/amount', ExpensesController::PERM_EDIT, $reg->amount(...));
+        $r->add('POST', RegularCostsController::PATH . '/{id}/delete', ExpensesController::PERM_EDIT, $reg->delete(...));
+        $types = new ExpenseTypesController();
+        $r->add('GET', ExpenseTypesController::PATH, 'reference.view', $types->index(...));
+        $r->add('POST', ExpenseTypesController::PATH . '/add', 'settings.manage', $types->add(...));
+        $r->add('POST', ExpenseTypesController::PATH . '/{id}/change', 'settings.manage', $types->change(...));
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));

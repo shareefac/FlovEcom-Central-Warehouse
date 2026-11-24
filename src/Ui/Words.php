@@ -63,7 +63,7 @@ final class Words
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
-        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'DELIVERY', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'DELIVERY', 'EXPENSES', 'EXPENSES_ERROR', 'REGULAR', 'EXPENSE_TYPES', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
         'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -146,11 +146,12 @@ final class Words
         'people_manager' => 'People manager', // 0069, docs/decisions.md PM1-PM7
         'finance' => 'Finance', // 0074, docs/decisions.md PR23
         'delivery_bills' => 'Delivery bills', // 0077, docs/decisions.md DL15
+        'expenses' => 'Expenses', // 0079, docs/decisions.md EX12
     ];
 
     /** The order jobs are named in a sentence: the jobs that check and decide first. */
     public const JOB_ORDER = ['reviewer', 'mapping_lead', 'mapper', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller',
-        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor', 'finance', 'delivery_bills'];
+        'warehouse', 'manager', 'admin', 'people_manager', 'viewer', 'accountant', 'auditor', 'finance', 'delivery_bills', 'expenses'];
 
     /** "This page is for <these>". */
     public const ROLE_PLURAL = [
@@ -171,6 +172,7 @@ final class Words
         'people_manager' => 'People managers',
         'finance' => 'Finance staff',
         'delivery_bills' => 'Staff who upload delivery bills',
+        'expenses' => 'Staff who add expenses',
     ];
 
     /** One line per job (People page, help). Permissions::DESCRIPTIONS keeps the short technical ones. */
@@ -193,6 +195,8 @@ final class Words
             . 'never with Admin. Never changes their own access.',
         'finance' => 'Sees the profit on every order: what it sold for, what it cost to buy and the margin. Changes nothing.',
         'delivery_bills' => 'Uploads the carriers\' delivery bills (DPD), loads a corrected file of a bill, and undoes an upload. Sees the bills.',
+        'expenses' => 'Adds the expenses (invoices with their PDF, each for one shop) and the regular costs (rent, leases and the like), changes and '
+            . 'deletes them. Sees them, not the profit.',
     ];
 
     /** Permissions::ROLE_GROUPS label => the heading on the People form. */
@@ -316,10 +320,15 @@ final class Words
         'profit_no_cost' => 'No buying price',
         // 0077 (docs/decisions.md DL23): the carriers' bills
         'profit_delivery' => 'Delivery bills',
+        // 0079 (docs/decisions.md EX13-EX15): the real profit, the expenses, the regular costs
+        'profit_real' => 'Real profit',
+        'profit_expenses' => 'Expenses',
+        'profit_regular' => 'Regular costs',
     ];
 
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
     public const SEGMENT = [
+        'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
         'adjustments_all' => 'All kinds', // Adjustments' first Show choice (DG1)
         'review' => 'To review',
         'samples' => 'Spot check',
@@ -395,6 +404,10 @@ final class Words
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
     public const NEW = [
+        // 0079 (docs/decisions.md EX13, EX14, EX10)
+        'profit_expenses' => 'Add expense',
+        'profit_regular' => 'Add regular cost',
+        'expense_types' => 'New expense type',
         'orders' => 'New purchase order',
         'receiving' => 'New delivery',
         'suppliers' => 'New supplier',
@@ -460,6 +473,9 @@ final class Words
         'profit_orders' => 'Every order with its profit and margin, the lowest margin first if you want.',
         'profit_no_cost' => 'Products sold with no buying price: their profit is not known yet.',
         'profit_delivery' => 'The carriers\' bills (DPD): what each parcel cost, put on its order.',
+        'profit_real' => 'Each shop\'s profit after delivery, expenses and regular costs, for the days you choose.',
+        'profit_expenses' => 'The invoices you add for each shop, with their PDF, month by month.',
+        'profit_regular' => 'Costs with no invoice that go out every week, month or year, shared out per day.',
         'low_stock' => 'Products a store can sell only a few of, or none.',
         'stock_value' => 'What the stock is worth at its average cost, by product, brand and warehouse.',
         'slow_stock' => 'Products in stock that have not sold for a long time.',
@@ -532,6 +548,7 @@ final class Words
 
     /** Page key => title, where it is not the menu name. */
     public const PAGE_TITLE = [
+        'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
         'count_differences' => 'Count differences to check',
         'count_before' => 'Before it is final',
         'login' => 'Sign in',
@@ -792,6 +809,17 @@ final class Words
         'profit_no_cost' => ['Products sold with no buying price.', ''],
         'profit_delivery' => ['The carriers\' bills CW has read, the newest first.', ''],
         'profit_delivery_bill' => ['One bill: where each of its lines went, and how they add up to its total.', ''],
+        // 0079 (docs/decisions.md EX13-EX15)
+        'profit_real' => ['Each shop\'s profit after delivery, payment fees, expenses and regular costs. All amounts without VAT.', ''],
+        'profit_expenses' => ['The invoices added for each shop, by their invoice date.', ''],
+        'profit_expense' => ['One expense: its invoice, its file and every change made to it.', ''],
+        'profit_expense_new' => ['An invoice for one shop, with its PDF or a photo.', ''],
+        'profit_expense_suppliers' => ['The companies expenses are paid to. Their own list: not the suppliers we buy stock from.', ''],
+        'profit_regular' => ['Costs with no invoice that go out every week, month or year. Enter each one once with its amount, its VAT and how often; CW '
+            . 'puts a share of its cost without VAT on every day until its end date.', ''],
+        'profit_regular_one' => ['One regular cost: its share of each day, its history, and a new amount from a day.', ''],
+        'profit_regular_new' => ['A cost with no invoice, for one shop, every week, month or year.', ''],
+        'expense_types' => ['The types an expense is put under, and the groups of the regular costs.', ''],
         'low_stock' => ['Products the stores can sell only a few of, or none.',
             'Order more, or check the shelf. A product\'s own "least stock to keep" is set on its reorder page.'],
         'stock_value' => ['What the stock is worth at its average cost, in pounds.', 'Look by product, by brand or by warehouse.'],
@@ -3029,6 +3057,7 @@ final class Words
         'file_suppliers' => 'This file is a supplier\'s proof. It is shown to %s only.',
         'file_orders' => 'This file belongs to a purchase order. It is shown to %s only.',
         'file_invoices' => 'This file is a supplier\'s invoice, with its prices. It is shown to %s only.',
+        'file_expenses' => 'This file is an expense\'s invoice. It is shown to %s only.', // 0079 (docs/decisions.md EX9)
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3065,6 +3094,13 @@ final class Words
             . 'whose number the line carries. Lines dated before the shop\'s first order in CW are **before CW start**: shown, not in the profit. Lines CW '
             . 'cannot put on an order (**not matched**, or **to check** when two parcels fit) are in the profit as charges not on an order, on the '
             . 'line\'s date. The lines always add up to the bill\'s net. CW never keeps the file or any address: only what it needs.',
+        // 0079 (docs/decisions.md EX5, EX6, EX15): Profit > Expenses, Regular costs, Real profit
+        'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (CW never works VAT out). '
+            . 'It goes in the profit on its **invoice date**, without VAT. A **credit note** is ticked as one: typed as printed, it comes off that shop\'s '
+            . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes VAT at the shops\' rate (now %s) unless it is marked **No VAT**, and its '
+            . 'cost without VAT is shared out **per day**: a weekly cost over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year. '
+            . 'Each line is rounded to the penny once per period, so the days of a month add up to the month exactly. **Real profit** is sales less '
+            . 'refunds, less what the goods cost, plus delivery charged, less the carriers\' bills, payment fees, expenses and regular costs.',
         'profit_cost' => 'Where a buying price came from. **At the sale (ERPNext)**: ERPNext\'s cost when the order was paid. **CW price**: CW\'s average, which '
             . 'follows the deliveries and the supplier invoices. **Estimate**: today\'s price, for a sale before any cost history. **None**: no price is known: '
             . 'the product is on the No buying price list.',
@@ -10803,6 +10839,8 @@ final class Words
         'profit.view' => 'Look at the profit on every order', // 0074 (docs/decisions.md PR23)
         'delivery.view' => 'Look at the delivery bills', // 0077 (docs/decisions.md DL15)
         'delivery.upload' => 'Upload, replace and undo delivery bills', // 0077 (docs/decisions.md DL15)
+        'expenses.view' => 'Look at the expenses and the regular costs', // 0079 (docs/decisions.md EX12)
+        'expenses.edit' => 'Add, change and delete expenses and regular costs', // 0079 (docs/decisions.md EX12)
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -10875,6 +10913,34 @@ final class Words
      */
     /** The Profit screens (0074; docs/decisions.md PR23-PR28). */
     public const PROFIT = [
+        // 0079 (docs/decisions.md EX15): Profit > Real profit, the drawing ProfitMonth's lines
+        'real_sales' => 'Sales (less refunds)',
+        'real_cost' => '− What the goods cost us',
+        'real_delivery_charged' => '+ Delivery charged',
+        'real_delivery' => '− Delivery (the carriers\' bills)',
+        'real_fees' => '− Payment fees',
+        'real_fees_not_built' => 'Payment fees are not built yet: they show 0. A Global Payments invoice you add as an expense is in the expenses line.',
+        'real_expenses' => '− Expenses (invoices you added)',
+        'real_regular' => '− Regular costs without VAT (rent, leases, Netcore, Novos, ...)',
+        'real_profit' => '= Real profit',
+        'real_title' => 'Real profit',
+        'real_note' => 'All amounts without VAT. The line in grey is not built yet. Click a line to see what is in it.',
+        'real_incomplete' => 'Some units sold have no buying price yet: the goods cost, and so the real profit, are not complete.',
+        'real_incomplete_units' => 'Units without a buying price yet: %s.',
+        // Each shop's first day (0079 settings profit.real_from_<shop>; the owner, 24 Nov 2026; docs/decisions.md EX39).
+        'real_not_started' => 'not started (from %s)',
+        'real_not_set' => 'not started (no first day set)',
+        'real_counted_from' => '%s is counted from %s, its first day (Settings, Profit): the days before it are left out of its column.',
+        'real_cell_from' => 'from %s',
+        'real_cell_incomplete' => 'not complete',
+        'real_not_a_shop' => '-',
+        'real_line' => 'Line',
+        'real_hayati' => 'Vape Big\'s partner product (Hayati 4000) is not taken apart here.',
+        'real_days' => 'From %s to %s.',
+        'real_no_expenses' => 'The expenses, the regular costs and the real profit are shown to those who see the expenses (Finance and the Expenses job).',
+        'col_expenses' => 'Expenses',
+        'col_regular' => 'Regular costs',
+        'col_real' => 'Real profit',
         'today' => 'Today',
         'yesterday' => 'Yesterday',
         'last_7' => 'Last 7 days',
@@ -11023,6 +11089,315 @@ final class Words
         'collection_date' => 'Date',
         'collection_bill' => 'Bill',
         'collection_cost' => 'Cost',
+    ];
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // CW-1150 (0079; docs/decisions.md EX1-EX16): Profit > Expenses, Profit > Regular costs, Settings > Expense types (the approved drawings
+    // Main, AddExpense and MonthlyCosts of 24 Nov 2026: their words where they have them).
+
+    public const EXPENSES = [
+        'month' => 'Month',
+        'all_months' => 'Every month',
+        'shop' => 'Shop',
+        'all_shops' => 'All shops',
+        'search_label' => 'Search',
+        'search' => 'Supplier or invoice number',
+        'show_deleted' => 'Show deleted ones too',
+        'show' => 'Show',
+        'suppliers' => 'Suppliers',
+        'regular_link' => 'Regular costs',
+        'types_link' => 'Expense types',
+        'tiles' => 'Each shop\'s expenses this month',
+        'tile' => '%s - %s',
+        'tile_one' => '1 invoice, %s with VAT',
+        'tile_many' => '%s invoices, %s with VAT',
+        // Credit notes counted apart (the Fable review of 70ab3d2, L4).
+        'tile_inv_one' => '1 invoice',
+        'tile_inv_many' => '%s invoices',
+        'tile_cn_one' => '1 credit note',
+        'tile_cn_many' => '%s credit notes',
+        'tile_parts' => '%s and %s, %s with VAT',
+        'tile_alone' => '%s, %s with VAT',
+        'tile_note' => 'Without VAT, as in the profit. Regular costs are on their own line.',
+        'list_limit' => 'Only the first %s are shown: choose a shop or search.',
+        'none' => 'No expenses here yet.',
+        'none_text' => 'Add each invoice with its PDF: choose the shop it is for.',
+        'col_date' => 'Date',
+        'col_supplier' => 'Supplier',
+        'col_type' => 'Type',
+        'col_invoice_no' => 'Invoice no.',
+        'col_shop' => 'Shop',
+        'col_net' => 'Net',
+        'col_total' => 'Total',
+        'col_pdf' => 'PDF',
+        'deleted_chip' => 'Deleted',
+        'pdf' => 'PDF',
+        'regular_row' => 'Regular costs (rent, leases, Netcore, ...)',
+        'regular_type' => 'Regular cost',
+        'regular_by' => 'added by CW',
+        'list_note' => 'Each expense belongs to ONE shop, the one you pick. Click a row to open it, see its PDF, change or delete it.',
+        // Add an expense (the drawing AddExpense)
+        'new_title' => 'Add an expense',
+        'back' => 'Expenses',
+        'open_other' => 'Open the one in already',
+        'which_shop' => 'Which shop is this expense for?',
+        'same_ok' => 'It is another invoice: save it all the same',
+        // Every record a "same one" question met, each linked (the fix round 2 of 8dbee81, Codex C1; the Fable re-check F-B; EX58).
+        'same_list' => 'In already (open each to check it before you tick the box):',
+        'same_row_number' => '%s, dated %s, %s: the same supplier, invoice number and shop',
+        'same_row_day' => '%s, dated %s, %s: the same supplier, shop, date and total',
+        'same_no_number' => 'No invoice number',
+        'save' => 'Save expense',
+        'save_another' => 'Save and add another',
+        'file_title' => 'Invoice PDF',
+        'file_label' => 'The PDF or a photo',
+        'file_hint' => 'A PDF, JPEG or PNG, at most %s MB.',
+        'file_kept' => 'Kept with the expense; open it any time from the list.',
+        'supplier' => 'Supplier',
+        'supplier_hint' => 'Type to find one. Not on the list? Tick "Add it as a new supplier".',
+        'new_supplier' => 'Add it as a new supplier',
+        'type' => 'Type',
+        'type_hint' => 'You can change this list in Settings.',
+        'choose_type' => 'Choose the type',
+        'invoice_date' => 'Invoice date',
+        'invoice_no' => 'Invoice number',
+        'invoice_no_hint' => 'As printed. Empty only when the bill has none.',
+        'net' => 'Amount without VAT (£)',
+        'vat' => 'VAT (£)',
+        'vat_hint' => 'As printed on the invoice (0 if none).',
+        'total' => 'Total',
+        'dollar_hint' => 'Bill in dollars (Anthropic, OpenAI)? Type the £ amount your card was charged.',
+        // A credit note (the owner, 24 Nov 2026: EX37)
+        'credit' => 'This is a credit note',
+        'credit_hint' => 'Money a supplier gives back. Type its amounts as printed, without a minus: CW keeps them as minus and takes them off this shop\'s '
+            . 'expenses on its date.',
+        'credit_chip' => 'Credit note',
+        'credit_banner' => 'This is a credit note: its amounts come off %s\'s expenses on its date.',
+        'note' => 'Note (optional)',
+        'note_placeholder' => 'e.g. labels and tape',
+        // One expense
+        'one_title' => '%s - %s',
+        'deleted_banner' => 'This expense was deleted: it is in no list and not in the profit.',
+        'deleted_by' => 'Deleted by %s on %s: %s',
+        'file' => 'Invoice file',
+        'open_file' => 'Open the file',
+        'no_file' => 'No file yet: add one with Change.',
+        'added_by' => 'Added by',
+        'change_title' => 'Change this expense',
+        'change_file' => 'A new PDF or photo (only to replace the file)',
+        'change_save' => 'Save the changes',
+        'delete_title' => 'Delete',
+        'delete_text' => 'It comes out of every list and of the profit. It is kept, with who deleted it, when and why.',
+        'delete_reason' => 'Why (kept with it)',
+        'delete_tick' => 'Yes, delete this expense',
+        'delete_button' => 'Delete',
+        'history' => 'History',
+        'h_when' => 'When',
+        'h_who' => 'Who',
+        'h_what' => 'What was done',
+        'h_add' => 'Added',
+        'h_change' => 'Changed',
+        'h_delete' => 'Deleted',
+        'h_end' => 'Ended (a new amount follows)',
+        'h_switch_off' => 'Switched off',
+        'h_switch_on' => 'Switched on',
+        'f_shop' => 'Shop',
+        'f_supplier' => 'Supplier',
+        'f_type' => 'Type',
+        'f_invoice_date' => 'Invoice date',
+        'f_invoice_no' => 'Invoice number',
+        'f_net_pence' => 'Without VAT',
+        'f_vat_pence' => 'VAT',
+        'f_total_pence' => 'Total',
+        'f_note' => 'Note',
+        'f_file_id' => 'File',
+        'f_name' => 'Name',
+        'f_every' => 'How often',
+        'f_amount_pence' => 'Amount',
+        'f_vat_included' => 'VAT',
+        'f_vat_rate_bp' => 'VAT rate',
+        'f_from_day' => 'From',
+        'f_until_day' => 'Until',
+        'f_is_active' => 'In use',
+        'new_file' => 'a new file',
+        'a_file' => 'a file',
+        'empty' => 'none',
+        'no_end' => 'no end',
+        'in_use' => 'In use',
+        'off_chip' => 'Switched off',
+        'every_week' => 'Every week',
+        'every_month' => 'Every month',
+        'every_year' => 'Every year',
+        'every_week_total' => 'Every week in all',
+        'range_note' => 'The expenses from %s to %s (the days of the profit line you opened).',
+        'range_cut' => 'At most %s days at once: shown from %s.',
+        'by_month' => 'Show by month',
+        'file_again' => 'The file you chose was not kept, because the form was refused: choose it again.',
+        'no_file_ok' => 'Save without a file',
+        // The suppliers
+        'suppliers_title' => 'Expense suppliers',
+        'supplier_add' => 'Add a supplier',
+        'supplier_name' => 'Name',
+        'no_suppliers' => 'No supplier yet.',
+        'no_suppliers_text' => 'A supplier is added here, or with its first expense.',
+        'used' => 'Expenses',
+        'status' => 'Status',
+        'change' => 'Change',
+        'rename' => 'Rename',
+        'switch_off' => 'Switch off',
+        'switch_on' => 'Switch on',
+        'notice_added' => 'The expense is saved.',
+        'notice_changed' => 'The changes are saved.',
+        'notice_unchanged' => 'Nothing was different, so nothing changed.',
+        'notice_deleted' => 'The expense is deleted.',
+        'notice_supplier_added' => 'The supplier is added.',
+        'notice_supplier_changed' => 'The supplier is changed.',
+    ];
+
+    /** The refusals of the expenses, regular costs and expense types, in words, by their code (Ui\Controller\ExpensesController::plain). */
+    public const EXPENSES_ERROR = [
+        'choose_shop' => 'Choose the shop it is for.',
+        'bad_supplier' => 'Type the supplier\'s name (2 to 100 characters).',
+        'unknown_supplier' => 'That supplier is not on the list. Tick "Add it as a new supplier", or choose one from the list.',
+        'supplier_off' => 'That supplier is switched off. Switch it on under Suppliers, or choose another.',
+        'supplier_exists' => 'That supplier is on the list already.',
+        'choose_type' => 'Choose the type.',
+        'type_off' => 'That type is switched off. Choose another.',
+        'bad_date' => 'The invoice date is not a day.',
+        'bad_invoice_no' => 'The invoice number is at most 64 characters.',
+        'bad_net' => 'Type the amount without VAT in pounds and pence, above 0 (for example 64.20).',
+        'bad_vat' => 'Type the VAT in pounds and pence as printed, or 0 when the invoice has none.',
+        'bad_note' => 'The note is at most 500 characters.',
+        'same_invoice_lead' => 'This invoice is in already',
+        'same_invoice' => 'This invoice is in already: the same supplier, invoice number and shop (dated %s). If it really is another invoice, tick the box below and save again.',
+        'same_credit' => 'This credit note is in already: the same supplier, number and shop (dated %s). If it really is another credit note, tick the box below and '
+            . 'save again.',
+        'file_type' => 'The file is not a PDF, a JPEG or a PNG. Nothing was saved.',
+        'file_too_large' => 'The file is larger than %s MB. Nothing was saved.',
+        'empty_file' => 'The file is empty. Nothing was saved.',
+        'no_file' => 'The file did not arrive. Choose it again.',
+        'upload_failed' => 'The file did not arrive whole. Choose it again.',
+        'file_store_unconfigured' => 'The place for the files is not set up on this server. Nothing was saved: tell ' . self::ASK . '.',
+        'file_store_failed' => 'The file could not be kept. Nothing was saved: try again, then tell ' . self::ASK . '.',
+        'bad_reason' => 'Say in 3 to 500 characters why.',
+        'not_sure' => 'Tick the box to say you are sure.',
+        'deleted' => 'This was deleted: it is not changed any more.',
+        'changed_meanwhile' => '%s changed this since the page was shown. Nothing was saved: the page now shows what is saved; make your change again.',
+        'bad_name' => 'Type a name of 2 to 100 characters.',
+        'bad_every' => 'Choose how often: every week, every month or every year.',
+        'bad_amount' => 'Type the amount in pounds and pence, above 0 (for example 207.69).',
+        'bad_vat_choice' => 'Choose whether the amount includes VAT.',
+        'bad_from' => 'The new amount starts on a day after the first day of this line. To change it from its first day, delete the line and add it again.',
+        'bad_until' => 'The last day is a day on or after the first day.',
+        'ended' => 'This line ended before that day: add a new line instead.',
+        'overlaps' => 'A new amount follows this line: its last day must be before the new amount starts.',
+        'same_cost_lead' => 'A regular cost of this name is in already',
+        'same_cost' => 'A regular cost of this name is in already for this shop on some of these days (from %s). If it really is another cost, tick the box below and save again.',
+        // A bill of no number met (the same supplier, shop, date and total), in its own words (the Fable re-check of 8dbee81, F-B; EX58).
+        'same_invoice_bill' => 'This bill looks like one in already: the same supplier, shop, date and total (dated %s). If it really is another invoice, tick the box below and save again.',
+        'same_credit_bill' => 'This credit note looks like one in already: the same supplier, shop, date and total (dated %s). If it really is another credit note, tick the box below '
+            . 'and save again.',
+        'file_again' => 'The file you chose before was not kept when the form was refused: choose it again, or tick "Save without a file".',
+        'type_exists' => 'That name is on the list already.',
+        'bad_kind' => 'Choose whether it is for expenses or for regular costs.',
+        'no_such_file' => 'This expense has no file.',
+        'no_such_expense' => 'There is no such expense.',
+        'no_such_regular' => 'There is no such regular cost.',
+    ];
+
+    /** Profit > Regular costs (the drawing MonthlyCosts). */
+    public const REGULAR = [
+        'new_title' => 'Add a regular cost',
+        'back' => 'Regular costs',
+        'none' => 'No regular cost yet.',
+        'none_text' => 'Add each cost with no invoice once, with its amount and how often.',
+        'name' => 'Name',
+        'shop' => 'Shop',
+        'every' => 'How often',
+        'amount' => 'Amount (with VAT)',
+        'vat' => 'VAT',
+        'cost' => 'Cost without VAT',
+        'from' => 'From',
+        'until' => 'Until',
+        'group' => 'Group',
+        // Its VAT (the owner, 24 Nov 2026: EX38)
+        'vat_choice' => 'VAT',
+        'vat_inc' => 'Includes %s VAT',
+        'vat_none' => 'No VAT',
+        'vat_hint' => 'Most costs include VAT. Only the cost without VAT comes off the profit.',
+        // The change form (the Fable review of 70ab3d2, L1).
+        'vat_included' => 'Includes VAT',
+        'vat_change_hint' => 'Changing it changes every day of this line. If the VAT changed from a date, end this line and add a new one from that date.',
+        'vat_amount' => '%s (%s)',
+        'choose_group' => 'Choose the group',
+        'which_shop' => 'Which shop is this cost for?',
+        'amount_label' => 'Amount (£)',
+        'amount_hint' => 'A week\'s, a month\'s or a year\'s amount as you pay it, with its VAT when it has VAT.',
+        'until_hint' => 'Its last day. Empty: no end.',
+        'save' => 'Save regular cost',
+        'ended_chip' => 'Ended',
+        'also_in_force' => 'Also in force today: every month %s (%s without VAT), every year %s (%s without VAT).',
+        'how_counts' => 'How it is shared out: only the cost without VAT comes off the profit (a line that includes %1$s VAT holds amount x %1$s / (100%% + %1$s) of VAT). '
+            . 'A weekly cost is shared over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year (365, or 366). '
+            . 'Example: Unit 1 £207.69 a week includes %2$s VAT, so its cost is %3$s a week = about %4$s a day, and November (30 days) shows %5$s.',
+        'invoice_note' => 'A cost with an invoice (Starlink, the Global Payments invoice) goes in Expenses with its PDF. When an amount changes, open its '
+            . 'line and use "The amount changes": past days keep the old amount.',
+        'deleted_banner' => 'This regular cost was deleted: it is in the profit on no day.',
+        // A line continuing another, deleted (the Fable review of 70ab3d2, M1).
+        'delete_continues' => 'This line follows the line before, which ends on %s. Deleting this line does not make the line before go on: if it should, open it and change its last day.',
+        'deleted_continues' => 'The line before still ends on %s: if it should go on, open it and change its last day.',
+        'open_before' => 'Open the line before',
+        'a_day' => 'A day',
+        'about_a_day' => 'about %s',
+        'this_month' => 'In %s',
+        'continues' => 'Before this amount',
+        'old_line' => 'The line with the old amount',
+        'continued_by' => 'New amount',
+        'new_line' => '%s from %s',
+        'new_amount_title' => 'The amount changes',
+        'new_amount_text' => 'This line ends on the day before, and a new line starts with the new amount. The days before keep the old amount.',
+        'new_amount' => 'New amount (£)',
+        'new_from' => 'From',
+        'new_amount_button' => 'Save the new amount',
+        'details_title' => 'Change its name, group, VAT, end or note',
+        'delete_title' => 'Delete (put in by mistake)',
+        'delete_text' => 'Only for a line put in by mistake: it comes out of the profit on every day. To stop a cost, give it a last day instead.',
+        'delete_tick' => 'Yes, delete this regular cost',
+        'notice_added' => 'The regular cost is saved.',
+        'notice_changed' => 'The changes are saved.',
+        'notice_unchanged' => 'Nothing was different, so nothing changed.',
+        'notice_amount' => 'The new amount is saved: this is its line. The old line ends on the day before.',
+        'period_total' => 'Regular costs of %s from %s to %s: %s without VAT (each line\'s share of those days).',
+        'open_other' => 'Open the one in already',
+        'same_ok' => 'It is another cost: save it all the same',
+        'same_list' => 'In already for some of these days (open each to check it before you tick the box):',
+        'same_row' => '%s, from %s',
+        'same_row_until' => '%s, from %s until %s',
+        'all_lines' => 'Show every line',
+        'share' => 'Share of those days (without VAT)',
+        'notice_deleted' => 'The regular cost is deleted.',
+    ];
+
+    /** Settings > Expense types. */
+    public const EXPENSE_TYPES = [
+        'help' => 'An expense is put under one type; a regular cost under one group. A type is renamed or switched off, never deleted: what names it '
+            . 'keeps it. Every change is kept with who, when and why.',
+        'look_only' => 'an admin or a reviewer',
+        'add_title' => 'New expense type',
+        'kind' => 'For',
+        'kind_expense' => 'Expenses (an invoice\'s type)',
+        'kind_regular' => 'Regular costs (a group)',
+        'name' => 'Name',
+        'add_button' => 'Add the type',
+        'title_expense' => 'Expense types',
+        'title_regular' => 'Regular cost groups',
+        'used' => 'Used by',
+        'status' => 'Status',
+        'change' => 'Change',
+        'why' => 'Why (kept)',
+        'notice_added' => 'The type is added.',
+        'notice_changed' => 'The type is changed.',
+        'notice_unchanged' => 'Nothing was different, so nothing changed.',
     ];
 
     /** Profit > Delivery bills (0077, docs/decisions.md DL23). */
@@ -11335,6 +11710,7 @@ final class Words
         'people' => 'Users and roles',
         'approvals' => 'Approval rules',
         'reasons' => 'Reasons',
+        'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
         'settings' => 'Rules and numbers',
         'series' => 'Numbering',
         'integrity' => 'System checks',

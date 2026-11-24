@@ -108,9 +108,10 @@ final class UiRequest
                 if ($tmp === '' || !is_uploaded_file($tmp)) {
                     continue;
                 }
-            } elseif (!in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE, UPLOAD_ERR_PARTIAL, UPLOAD_ERR_NO_FILE], true)) {
-                continue;
             } else {
+                // Every failure PHP reports is kept as one (too large, cut short, no temporary folder, a disk it could not write, an extension
+                // that stopped it), never read as "no file chosen": a form sent with a file never goes on without it (CW-1150, docs/decisions.md
+                // EX21, the Codex check r1 M12). Only UPLOAD_ERR_NO_FILE is "none" (file()).
                 $tmp = '';
             }
             $files[$field] = ['path' => $tmp, 'name' => $f['name'], 'size' => is_int($f['size'] ?? null) ? $f['size'] : 0, 'error' => $f['error']];

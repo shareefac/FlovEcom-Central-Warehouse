@@ -80,7 +80,12 @@ final class Grants
         'item_cost_event',
         // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed; a Click & Drop report import and
         // the days it covers are a fact of their own (DL84: a day is covered only by an import, never uncovered by the app).
-        'carrier_bill_row', 'carrier_report_import', 'carrier_day_cover'];
+        'carrier_bill_row', 'carrier_report_import', 'carrier_day_cover',
+        // 0079 (docs/decisions.md EX8): every add, change, end and delete of an expense, a regular cost, a supplier or a type of them; and every
+        // file an expense named, by the version that named it, kept 7 years from then (EX40).
+        'expense_history', 'expense_file',
+        // Every file a supplier named as its evidence, the replaced ones too (0079, the fix round 2 of 8dbee81; EX61).
+        'supplier_file'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -139,6 +144,16 @@ final class Grants
         // 0078 (docs/decisions.md DL51): where a bill row's money went is never rewritten or removed: an allocation that no longer counts is
         // ended (its bill undone or replaced, its day planned again), and the new one is a row of its own.
         'carrier_allocation' => ['ended_at'],
+        // 0079 (docs/decisions.md EX8): an expense is changed in place (version + 1, its history keeps before and after) and deleted by a mark
+        // with a reason, never removed; who added it and when are frozen. A regular cost's amount, shop, how often and first day never change
+        // (a new amount is a new line); its name, group, VAT choice (EX38: a line marked wrongly is put right), note and last day do, and it is
+        // deleted by a mark. A supplier and a type are renamed or switched off, never removed.
+        'expense' => ['channel_id', 'supplier_id', 'type_id', 'invoice_date', 'invoice_no', 'net_pence', 'vat_pence', 'total_pence', 'note', 'file_id', 'version',
+            'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by', 'deleted_actor', 'deleted_reason'],
+        'regular_cost' => ['name', 'type_id', 'vat_included', 'vat_rate_bp', 'until_day', 'note', 'version', 'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by',
+            'deleted_actor', 'deleted_reason'],
+        'expense_supplier' => ['name', 'is_active', 'version'],
+        'expense_type' => ['name', 'is_active', 'sort_order', 'version'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

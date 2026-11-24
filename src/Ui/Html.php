@@ -228,10 +228,13 @@ final class Html
     /**
      * A "?" next to a word that unfolds its help (Words::HELP; **bold** marks the words explained). A <details>, so it needs
      * no script under the CSP.
+     *
+     * @param list<string> $args what fills the text's %s, when it has any (the expenses' help: the shops' VAT rate of the setting, EX53)
      */
-    public static function help(string $key, ?string $label = null): string
+    public static function help(string $key, ?string $label = null, array $args = []): string
     {
         $text = Words::HELP[$key] ?? throw new \InvalidArgumentException("no help text {$key}");
+        $text = $args === [] ? $text : vsprintf($text, $args);
         $html = (string) preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', self::e($text));
         $name = $label === null ? Words::UI['help'] : 'What does "' . $label . '" mean?';
         return '<details class="help"><summary aria-label="' . self::e($name) . '" title="' . self::e($name) . '"></summary>'
