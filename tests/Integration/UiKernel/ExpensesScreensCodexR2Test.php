@@ -70,7 +70,14 @@ final class ExpensesScreensCodexR2Test extends KernelUiTestCase
         $form = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '152.00',
             'from' => '2026-11-01', 'until' => '', 'note' => ''] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new');
         self::assertSame(303, $job->post('/ui/profit/regular/new', $form)->status);
-        $again = $job->post('/ui/profit/regular/new', $form);
+        // The very same form sent again lands on the line it made, nothing added (one effect per form: the Codex check r3, H1); a new form
+        // with the same cost asks first.
+        $replay = $job->post('/ui/profit/regular/new', $form);
+        self::assertSame(303, $replay->status);
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'));
+        $form2 = ['name' => 'Van lease', 'shop' => (string) $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week', 'amount' => '152.00',
+            'from' => '2026-11-01', 'until' => '', 'note' => ''] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new');
+        $again = $job->post('/ui/profit/regular/new', $form2);
         self::assertSame(409, $again->status);
         self::assertStringContainsString(Words::EXPENSES_ERROR['same_cost_lead'], $again->text());
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'));

@@ -289,8 +289,9 @@ final class ExpensesScreensTest extends KernelUiTestCase
         $r = $job->post('/ui/profit/regular/new', ['name' => 'Unit 1 rent', 'shop' => (string) $this->shops['vpg'], 'type' => self::type('Rent', 'regular'),
             'every' => 'week', 'amount' => '207.69', 'from' => '2026-11-01', 'until' => '', 'note' => ''] + $form);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        // Each add is its own form (one effect per form: the Codex check r3, H1).
         $job->post('/ui/profit/regular/new', ['name' => 'Cloudflare', 'shop' => (string) $this->shops['vpg'], 'type' => self::type('Running the business', 'regular'),
-            'every' => 'year', 'amount' => '240.00', 'from' => '2026-11-01'] + $form);
+            'every' => 'year', 'amount' => '240.00', 'from' => '2026-11-01'] + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
         $list = $job->get('/ui/profit/regular');
         self::phoneReady($list);
         $rows = self::rows($list, 'regular-costs');
