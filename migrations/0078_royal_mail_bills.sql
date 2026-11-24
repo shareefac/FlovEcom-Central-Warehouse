@@ -236,6 +236,9 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   manifest_no    INT UNSIGNED      NULL,
   manifest_day   DATE              NULL COMMENT 'the UK day of its manifest: the bill''s service day for a flat product',
   sales_order    VARCHAR(10)       NULL COMMENT 'the Royal Mail sales order of a Special Delivery manifest (10 digits)',
+  cw_channel_id  SMALLINT UNSIGNED NULL COMMENT 'the CW parcel a plan first put its price on (checks a-e): it stays on it (DL74)',
+  cw_order_ref   VARCHAR(64)       NULL,
+  cw_parcel_ref  VARCHAR(64)       NULL,
   first_at       DATETIME(6)       NOT NULL,
   updated_at     DATETIME(6)       NOT NULL,
   PRIMARY KEY (id),
@@ -246,6 +249,8 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   KEY ix_carrier_label_tracking (tracking_no),
   KEY ix_carrier_label_source (account_id, source_id),
   CONSTRAINT fk_carrier_label_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT fk_carrier_label_parcel FOREIGN KEY (cw_channel_id, cw_order_ref, cw_parcel_ref) REFERENCES sale_parcel (channel_id, order_ref, parcel_ref),
+  CONSTRAINT ck_carrier_label_parcel CHECK ((cw_channel_id IS NULL) = (cw_order_ref IS NULL) AND (cw_order_ref IS NULL) = (cw_parcel_ref IS NULL)),
   CONSTRAINT ck_carrier_label_shapes CHECK (REGEXP_LIKE(tracking_no, '^[A-Z0-9]{8,32}$', 'c')
     AND (reference IS NULL OR REGEXP_LIKE(reference, '^#?[0-9]{1,9}$', 'c'))
     AND (channel_code IS NULL OR REGEXP_LIKE(channel_code, '^[a-z][a-z0-9_]{1,15}$', 'c'))

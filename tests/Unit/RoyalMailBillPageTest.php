@@ -149,7 +149,7 @@ final class RoyalMailBillPageTest extends TestCase
             RmBill::page([RmBill::line('2026-11-05', 'SD1', 1, 1004, 'CLICK AND DROP M2281', '5155465848')])), 'row 1: an amount where the reference is'];
         yield 'an impossible bill date' => [static fn (): string => RmBill::page($w, ['date' => 'Feb 31, 2026']), 'the bill\'s date is not a day'];
         yield 'VAT on a zero-rated row' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TSS', 1, 1000, '', null, 'Z', 1001)]),
-            'does not follow from the lines at its rate (0%)'];
+            'row 1: a zero-rated line with VAT'];
         yield 'a product that may be a name' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'JEAN', 1, 100, '1')]), 'its product is one CW does not know'];
     }
 

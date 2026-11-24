@@ -24,13 +24,15 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 exit(Cli::main('match_delivery_bills', [], 'usage: php bin/match_delivery_bills.php',
     static function (Cli $cli, array $opts): int {
+        $failed = false;
         try {
             $n = (new DeliveryBills($cli->db))->rematch(Caller::system('delivery_match'));
+            $cli->log("{$n} bill lines put on a parcel or an order (or moved between not matched, ambiguous and the others)");
         } catch (CwException $e) {
+            // DPD's failure never stops Royal Mail's nightly below (the Codex check r2, r1 MEDIUM 8)
             $cli->error('not run: ' . $e->getMessage());
-            return Cli::PROBLEM;
+            $failed = true;
         }
-        $cli->log("{$n} bill lines put on a parcel or an order (or moved between not matched, ambiguous and the others)");
         // Royal Mail's (pooled) bills (0078, DL66): every key of the live rows of the last RoyalMailBills::REPLAN_DAYS days planned again (a label or a
         // CW parcel that came since takes its price), and the allocations of bills no longer counting ended.
         try {
@@ -40,5 +42,5 @@ exit(Cli::main('match_delivery_bills', [], 'usage: php bin/match_delivery_bills.
             return Cli::PROBLEM;
         }
         $cli->log("{$m} Royal Mail allocations ended or added");
-        return Cli::OK;
+        return $failed ? Cli::PROBLEM : Cli::OK;
     }, true, true));

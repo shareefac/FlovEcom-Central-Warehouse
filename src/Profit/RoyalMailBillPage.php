@@ -187,7 +187,7 @@ final class RoyalMailBillPage
         $heading = strtolower(implode(' ', self::LINE_HEADINGS));
         $table = null;
         $row = null;
-        $amount = 'GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}';
+        $amount = '-?\s*GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}'; // the same signed grammar as amount() ("-GBP 2.54", "GBP -2.54": the Codex check r2, LOW 7)
         $tail = '/^(.*?)\s*(' . $amount . ')\s+(' . $amount . ')\s+([A-Z])$/D';
         foreach ($lines as $line) {
             $line = self::squash($line);
@@ -322,11 +322,17 @@ final class RoyalMailBillPage
      */
     private static function top(string $text): array
     {
+        // Each field must be shown once (or the same each time): a second, different value (a part of the page hidden by its stylesheet, say) is
+        // refused, never chosen (the Codex check r2, r1 MEDIUM 13 PARTLY).
         $find = static function (string $re, string $what) use ($text): string {
-            if (preg_match($re, $text, $m) !== 1) {
+            if (preg_match_all($re, $text, $m) < 1) {
                 throw self::refuse("the bill does not show its {$what}: save or copy the whole page of the bill");
             }
-            return $m[1];
+            $values = array_values(array_unique(array_map(static fn (string $v): string => (string) preg_replace('/\s+/', ' ', $v), $m[1])));
+            if (count($values) > 1) {
+                throw self::refuse("the bill shows two different {$what}s: save or copy the bill's page again");
+            }
+            return $values[0];
         };
         $account = $find('/Customer Account Number:?\s*([A-Za-z0-9-]{1,32})\b/i', 'customer account number');
         $invoice = $find('/\bInvoice:?\s*([0-9]{6,16})\b/i', 'invoice number');
@@ -340,10 +346,13 @@ final class RoyalMailBillPage
         }
         $day = new \DateTimeImmutable(sprintf('%04d-%02d-%02d', (int) $parts[2], $mon, (int) $parts[1]), new \DateTimeZone('UTC'));
         $money = static function (string $label, string $what) use ($text): int {
-            if (preg_match('/' . $label . ':?\s*(-?\s*[A-Z]{3}\s*-?\s*[0-9][0-9,]*\.[0-9]{2})/i', $text, $m) !== 1) {
+            if (preg_match_all('/' . $label . ':?\s*(-?\s*[A-Z]{3}\s*-?\s*[0-9][0-9,]*\.[0-9]{2})/i', $text, $m) < 1) {
                 throw self::refuse("the bill does not show its {$what}: save or copy the whole page of the bill");
             }
-            $p = self::amount($m[1]);
+            if (count(array_unique(array_map(static fn (string $v): string => (string) preg_replace('/\s+/', '', $v), $m[1]))) > 1) {
+                throw self::refuse("the bill shows two different {$what}s: save or copy the bill's page again");
+            }
+            $p = self::amount($m[1][0]);
             if ($p === null) {
                 throw self::refuse("the bill's {$what} is not an amount in pounds (GBP)");
             }
@@ -455,8 +464,8 @@ final class RoyalMailBillPage
             throw self::refuse("row {$at}: its Product Number is not a product code");
         }
         if (!in_array($product, $products, true)) {
-            // named only in a code's shape: three letters and digits (a longer word may be a name: the Codex check r1, LOW 16)
-            throw self::refuse(preg_match('/^[A-Z0-9]{3}$/D', $product) === 1
+            // named only in a code's shape: three letters and digits with a digit (a word may be a name: the Codex checks r1 LOW 16, r2 LOW 16)
+            throw self::refuse(preg_match('/^(?=.*[0-9])[A-Z0-9]{3}$/D', $product) === 1
                 ? "row {$at}: product {$product} is one CW does not know: tell the CW team (it must be added before this bill can be read)"
                 : "row {$at}: its product is one CW does not know: tell the CW team");
         }
@@ -472,6 +481,10 @@ final class RoyalMailBillPage
         $vat = $cells[$c - 1];
         if (preg_match('/^[A-Z]$/D', $vat) !== 1) {
             throw self::refuse("row {$at}: its VAT Code is not a code");
+        }
+        if (preg_match('/GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}/i', $cells[3]) === 1) {
+            // an amount where the description is (the page's text puts a line's first half there: the Codex check r2, MEDIUM 5)
+            throw self::refuse("row {$at}: an amount where the description is");
         }
         $middle = array_slice($cells, 4, max(0, $c - 7));
         foreach ($middle as $cell) {
@@ -529,6 +542,11 @@ final class RoyalMailBillPage
         $gross = [];
         $count = [];
         foreach ($rows as $r) {
+            $rate = $summary[$r['vat_code']]['rate'] ?? self::VAT_RATES[$r['vat_code']] ?? null;
+            if ($rate !== null && bccomp($rate, '0', 2) === 0 && (int) $r['gross'] !== (int) $r['net']) {
+                // a zero-rated line carries no VAT, each on its own (two that cancel are refused too: the Codex check r2, LOW 18)
+                throw self::refuse("row {$r['row_no']}: a zero-rated line with VAT");
+            }
             $net[$r['vat_code']] = ($net[$r['vat_code']] ?? 0) + (int) $r['net'];
             $gross[$r['vat_code']] = ($gross[$r['vat_code']] ?? 0) + (int) $r['gross'];
             $count[$r['vat_code']] = ($count[$r['vat_code']] ?? 0) + 1;

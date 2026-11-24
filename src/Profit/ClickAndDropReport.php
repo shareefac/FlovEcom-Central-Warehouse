@@ -139,7 +139,8 @@ final class ClickAndDropReport
             'source_id' => preg_match('/^[1-9][0-9]{0,17}$/D', $source) === 1 ? (int) $source : null,
             'reference' => preg_match('/^#?[0-9]{1,9}$/D', $ref) === 1 ? $ref : null,
             'channel_code' => $channel === '' ? null : ($channels[$channel] ?? 'other'),
-            'service_code' => preg_match('/^[A-Z0-9]{1,16}$/D', $service) === 1 ? $service : null,
+            // letters then a digit (TPL48HV, SD1): a word there is never a service (the Codex check r2, new MEDIUM 4)
+            'service_code' => preg_match('/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D', $service) === 1 ? $service : null,
             'package' => $package === '' ? null : (self::PACKAGES[$package] ?? 'other'),
             'weight_g' => self::grams($r['weight'] ?? null),
             'created_on' => null,

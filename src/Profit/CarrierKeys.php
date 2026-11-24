@@ -34,8 +34,9 @@ final class CarrierKeys
         }
         try {
             $st = fstat($h);
-            $me = function_exists('posix_geteuid') ? posix_geteuid() : null;
-            if ($st === false || ($st['mode'] & 0170000) !== 0100000 || ($st['mode'] & 0077) !== 0 || ($me !== null && $st['uid'] !== $me)) {
+            // fail closed: no POSIX (the owner cannot be told) is no key (the Codex check r2, r1 LOW 15)
+            $me = function_exists('posix_geteuid') ? posix_geteuid() : -1;
+            if ($st === false || ($st['mode'] & 0170000) !== 0100000 || ($st['mode'] & 0077) !== 0 || $st['uid'] !== $me) {
                 throw new CwException('no_key', "CW's key file {$path} must be a file of the user CW runs as, readable by it only (chmod 600) before CW uses it", 500);
             }
             $text = (string) stream_get_contents($h, 1_048_576);

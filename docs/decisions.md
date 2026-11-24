@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL73; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL74; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20393,6 +20393,27 @@ labels (41 of 42; M2250 has no label: before the labels' first day); bill 1 is m
 order is not in the extract (its Electrofag parcels start 12 Nov). FOR THE LEAD: on live, the Electrofag orders in CW take them (checks a-e);
 labels of Electrofag orders older than its CW start stay held (not before CW start), unless a rule "channel api + 4 digits = Electrofag" is
 added (DL46 / P0-6 say a bare 4-digit reference names nobody).
+
+**DL74. The Codex check r2 of 8174dff (`cw_work/runs/rmbills_codex_r2.txt`, default model: NO GO, 5 HIGH, 11 MEDIUM, 6 LOW open).** Round 1's
+MEDIUM 9, 11, 12, 14 and LOW 17 FIXED; the rest PARTLY or not. Fixed now, each shown failing first (`runs/rmbills_r2_red.log`: 11 tests):
+(r1 HIGH 1) a day after the main shop's CW start waits for its labels whatever the account's first label's day (no exception before it); a
+day on or before the start is before CW start. (r1 HIGH 2) a report row with no channel is refused too. (r1 HIGH 4) upload and replace read
+the account again once the delivery lock is held (its number and state): a number changed while the bill waited refuses it. (new HIGH 1) a
+label keeps the CW parcel a plan first put its price on (`carrier_label.cw_*`, 0078): a day waiting again, a bill undone, a parcel removed
+later never moves it to another order or off one (the pin is written with the allocations, in the loading step and in the guarded write).
+(r1 MEDIUM 6) a plan also takes the manifests of the bills going, and its closure is never cut short (after 10 rounds the write is tried
+again). (r1 MEDIUM 8) store returns what it read before the write; the nightly plans Royal Mail's bills even when DPD's re-match failed.
+(r1 MEDIUM 13) a field of the top block shown twice with different values refuses the bill. (new MEDIUM 3) `bin/carrier_account.php
+--add-channel=<code> --channel-name=<name>`: a new account's channels (audited), before its first report. (new MEDIUM 4) a service code is
+kept only as letters then a digit (TPL48HV, SD1): a word there never ends a day's wait. (new MEDIUM 5) an amount on a line's description
+refuses the bill. (new MEDIUM 6) only a placeholder number is ever changed by the tool (0078 seeds by number). (r1 LOW 15) no POSIX: no key.
+(r1 LOW 16) an unknown product is named only with a digit in its code. (r1 LOW 18) each zero-rated line carries no VAT. (r1 LOW 20) a replaced
+or undone bill's list sums are its allocations ended at or after its own end. (new LOW 7) "-GBP 2.54" reads in the page's text too.
+LEFT (known limits, for the lead): (r1 HIGH 3) a parcel of ANOTHER order stored with the same tracking number between the plan and its write
+is not seen: the label stays on the first parcel (the same race DPD's DL13 accepts; the nightly does not move a pinned label). (r1 MEDIUM 5) a
+label read whose plan died is planned by the next read of it or the nightly (120 days), no queue of keys. (r1 MEDIUM 7) the loading step holds
+the delivery lock while it writes (seconds); DPD's nightly waits 10 s for it. (r1 MEDIUM 10) an order of Click & Drop that gets its label more
+than 14 days after it was made is read by the report only. (r1 LOW 19) as DL72.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

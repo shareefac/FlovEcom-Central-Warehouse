@@ -43,8 +43,12 @@ final class RoyalMailBills
     /** Keys planned in one guarded write (a day x product key alone holds a day's labels: FLAT_PER_WRITE of them a write). */
     public const KEYS_PER_WRITE = 50;
     public const FLAT_PER_WRITE = 1;
+    /** A service code's shape: letters then a digit (TPL48HV, TPM24HV, TRN24, SD1): a word there is never one (the Codex check r2, new MEDIUM 4). */
+    public const SERVICE_CODE = '/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D';
     /** A label's tracking number in its carrier's shape (a pooled carrier's: Royal Mail's two letters, nine digits, GB). */
     public const TRACKING = ['royal_mail' => '/^[A-Z]{2}[0-9]{9}GB$/D'];
+    /** Rounds a plan's keys are closed over (Special Delivery groups) before the plan is tried again. */
+    public const CLOSURE_ROUNDS = 10;
     /** Tries of a chunk of a loading bill's allocations whose row wait ran out. */
     public const LOAD_TRIES = 5;
     /** Who "ended" a bill whose write never finished (it never counted). */
@@ -77,7 +81,13 @@ final class RoyalMailBills
         $this->bills->authoriseWrite($caller);
         $account = self::active($this->db, $accountId);
         $bill = self::read($this->db, $account, $bytes);
-        return $this->bills->inLock(function () use ($caller, $account, $bill): array {
+        return $this->bills->inLock(function () use ($caller, $accountId, $bill): array {
+            // the account read again now the lock is held: its number changed meanwhile, the bill is not its (the Codex check r2, r1 HIGH 4)
+            $account = self::active($this->db, $accountId);
+            if ($bill['account'] !== $account['account_no']) {
+                throw new CwException('other_account', sprintf('this is a bill of account %s, not of account %s: choose its account and upload it again. Nothing was saved.',
+                    $bill['account'], $account['account_no']), 422, ['field' => 'account']);
+            }
             $live = $this->db->one('SELECT id, file_sha256, uploaded_at FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
             if ($live !== null) {
                 if ($live['file_sha256'] === $bill['sha256']) {
@@ -88,9 +98,8 @@ final class RoyalMailBills
                     . 'the bill and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
                     ['invoice_id' => (int) $live['id']]);
             }
-            $id = $this->store($caller, $account, $bill, null);
-            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id]), 'rematched' => 0, 'rematch_error' => null];
+            [$id, $at] = $this->store($caller, $account, $bill, null);
+            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at, 'rematched' => 0, 'rematch_error' => null];
         });
     }
 
@@ -105,8 +114,10 @@ final class RoyalMailBills
         $old = $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
         $account = self::active($this->db, self::accountOf($this->db, $old));
         $bill = self::read($this->db, $account, $bytes);
-        return $this->bills->inLock(function () use ($caller, $invoiceId, $account, $bill): array {
+        return $this->bills->inLock(function () use ($caller, $invoiceId, $bill): array {
             $old = (array) $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]);
+            // the account read again now the lock is held (the Codex check r2, r1 HIGH 4)
+            $account = self::active($this->db, self::accountOf($this->db, $old));
             if ($old['status'] !== 'live') {
                 throw new CwException('not_live', 'this bill is no longer in the profit (' . ($old['status'] === 'undone' ? 'its upload was undone' : 'a corrected file replaced it')
                     . '): upload the file as a new bill instead. Nothing was saved.', 409);
@@ -119,9 +130,8 @@ final class RoyalMailBills
                 return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at'],
                     'rematched' => 0, 'rematch_error' => null];
             }
-            $id = $this->store($caller, $account, $bill, $old);
-            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id]), 'rematched' => 0, 'rematch_error' => null];
+            [$id, $at] = $this->store($caller, $account, $bill, $old);
+            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at, 'rematched' => 0, 'rematch_error' => null];
         });
     }
 
@@ -200,9 +210,9 @@ final class RoyalMailBills
         $r = ClickAndDropReport::read($bytes, CarrierSettings::channels($this->db, $accountId));
         // the report is the account's: every label of it in one of the account's own Click & Drop channels (another account's report would put
         // its labels on this account's bills: the Codex check r1, HIGH 2). A channel CW does not know is never named (it is free text).
-        $others = count(array_filter($r['labels'], static fn (array $l): bool => $l['channel_code'] === 'other'));
+        $others = count(array_filter($r['labels'], static fn (array $l): bool => $l['channel_code'] === 'other' || $l['channel_code'] === null));
         if ($others > 0) {
-            throw new CwException('other_account', sprintf('this report has %d labels of Click & Drop channels account %s does not have: is it this account\'s report? '
+            throw new CwException('other_account', sprintf('this report has %d labels of no Click & Drop channel or of one account %s does not have: is it this account\'s report? '
                 . 'Nothing was saved.', $others, $account['account_no']), 422, ['field' => 'file']);
         }
         return ['rows' => $r['rows'], 'skipped' => $r['skipped'], 'sha256' => $r['sha256']] + $this->importLabels($caller, $account['id'], $r['labels'], 'report',
@@ -356,11 +366,12 @@ final class RoyalMailBills
      * nowhere once it is superseded). When (B) fails, the loading bill is undone as "not stored" (its allocations ended): nothing counted.
      *
      * @param array<string, mixed> $bill
+     * @return array{0: int, 1: string} the bill and when it was uploaded
      */
-    private function store(Caller $caller, array $account, array $bill, ?array $old): int
+    private function store(Caller $caller, array $account, array $bill, ?array $old): array
     {
         $this->sweep();
-        $id = $this->load($caller, $account, $bill, $old);
+        [$id, $at] = $this->load($caller, $account, $bill, $old);
         try {
             $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $bill, $old, $id): array {
                 $ctx = self::ctx($db, $account);
@@ -399,7 +410,7 @@ final class RoyalMailBills
             throw $e;
         }
         $this->sweepLater();
-        return $id;
+        return [$id, $at]; // read before (the connection may be gone after the write: the Codex check r2, r1 MEDIUM 8)
     }
 
     /**
@@ -408,20 +419,22 @@ final class RoyalMailBills
      *
      * @param array<string, mixed> $bill
      * @param array<string, mixed>|null $old
+     * @return array{0: int, 1: string} the bill and when it was uploaded
      */
-    private function load(Caller $caller, array $account, array $bill, ?array $old): int
+    private function load(Caller $caller, array $account, array $bill, ?array $old): array
     {
         $ctx = self::ctx($this->db, $account);
         $rows = self::newRows($bill);
         $gone = $old === null ? [] : [(int) $old['id']];
         $s = self::scope($this->db, $account, $ctx, self::keysOf($this->db, $account, $ctx, [...$rows, ...self::billRows($this->db, $gone)]), $rows, $gone, null);
-        $id = $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old): int {
+        $at = Clock::db(($this->clock)());
+        $id = $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $at): int {
             $id = $db->insert('INSERT INTO carrier_invoice (carrier, account, invoice_no, invoice_date, period_from, period_to, channel_id, net_pence, vat_pence, '
                 . 'gross_pence, line_count, file_sha256, status, supersedes_id, uploaded_by, uploaded_actor, uploaded_at) '
                 . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'loading', ?, ?, ?, ?)",
                 [$account['carrier'], $bill['account'], $bill['invoice_no'], $bill['invoice_date'], $bill['period_from'], $bill['period_to'], $account['main_channel'],
                     $bill['net'], $bill['vat'], $bill['gross'], count($bill['rows']), $bill['sha256'], $old === null ? null : (int) $old['id'], $caller->staffUserId,
-                    $caller->actor, Clock::db(($this->clock)())]);
+                    $caller->actor, $at]);
             $cols = ['invoice_id', 'row_no', 'service_date', 'product_code', 'qty', 'net_pence', 'gross_pence', 'vat_code', 'ref_kind', 'ref_no', 'sales_order'];
             foreach (array_chunk($bill['rows'], 500) as $chunk) {
                 $params = [];
@@ -447,6 +460,7 @@ final class RoyalMailBills
                     try {
                         $this->db->transaction(static function (Db $db) use ($chunk, $id, $now): void {
                             self::insert($db, array_map(static fn (array $a): array => ['invoice_id' => $id] + $a, $chunk), $now);
+                            self::pin($db, $chunk);
                         }, 0);
                         break;
                     } catch (\PDOException $e) {
@@ -464,7 +478,7 @@ final class RoyalMailBills
         } finally {
             $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . (int) $rowWait);
         }
-        return $id;
+        return [$id, $at];
     }
 
     /** A bill left "loading" (its write failed): undone as "not stored" (it never counted), its allocations ended. */
@@ -617,6 +631,27 @@ final class RoyalMailBills
             }
         }
         self::insert($db, $s['add'], $now);
+        self::pin($db, $s['add']);
+    }
+
+    /**
+     * Each label a plan put on an order (not yet pinned) keeps that CW parcel (carrier_label.cw_*): it stays on it whatever comes later, its
+     * price counting or not at a moment (a day waiting again for a late label, its bill undone; the Codex check r2, new HIGH 1; DL74).
+     *
+     * @param list<array<string, mixed>> $allocations
+     */
+    private static function pin(Db $db, array $allocations): void
+    {
+        $rows = [];
+        foreach ($allocations as $a) {
+            if ($a['dest'] === 'order' && $a['label_id'] !== null) {
+                $rows[(int) $a['label_id']] = [(int) $a['label_id'], (int) $a['channel_id'], (string) $a['order_ref'], (string) $a['parcel_ref']];
+            }
+        }
+        foreach (array_chunk(array_values($rows), 500) as $chunk) {
+            $db->exec('UPDATE carrier_label l JOIN (' . implode(' UNION ALL ', array_fill(0, count($chunk), 'SELECT ? AS id, ? AS ch, ? AS oref, ? AS pref')) . ') v ON v.id = l.id '
+                . 'SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL', array_merge(...$chunk));
+        }
     }
 
     /** @param list<array<string, mixed>> $allocations */
@@ -773,18 +808,27 @@ final class RoyalMailBills
                     $more['M|' . (int) $m] = true;
                 }
             }
+            // ... and the manifests of the bills going (an undone bill's Special Delivery rows leave their groups too: the Codex check r2, r1 MEDIUM 6)
+            if ($gone !== [] && $round === 0) {
+                foreach ($db->column('SELECT DISTINCT l.manifest_no FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE a.ended_at IS NULL '
+                    . 'AND l.manifest_no IS NOT NULL AND a.invoice_id IN (' . $marks(count($gone)) . ')', $gone) as $m) {
+                    $more['M|' . (int) $m] = true;
+                }
+            }
             $new = array_values(array_diff(array_map('strval', array_keys($more)), $keys));
-            if ($new === [] || $round >= 3) {
+            if ($new === []) {
                 break;
+            }
+            if ($round >= self::CLOSURE_ROUNDS) {
+                throw new CwException(self::RETRY, 'the Special Delivery groups kept growing while they were read', 409); // never discarded: tried again
             }
             $keys = array_values(array_unique([...$keys, ...$new]));
             sort($keys, SORT_STRING);
         }
         $rows = array_values(array_filter($cand, static fn (array $r): bool => in_array(PooledPlanner::key($r, $kindOf($r), $labels, $ctx), $keys, true)));
-        // the days waiting for their labels (the Codex check r1, HIGH 1; DL71): a day of the rows with a label of no service yet (the API brought
-        // it, Click & Drop's report not read), or with no label at all on or after the account's first label's day (none yet: every day)
+        // the days waiting for their labels (the Codex checks r1 HIGH 1, r2; DL71, DL74): a day of the rows after the main shop's CW start with a
+        // label of no service yet (the API brought it, Click & Drop's report not read), or with no label at all
         $days = array_values(array_unique(array_map(static fn (array $r): string => (string) $r['service_date'], $rows)));
-        $first = $db->value('SELECT MIN(manifest_day) FROM carrier_label WHERE account_id = ?', [$account['id']]);
         $ctx['waiting'] = [];
         $known = [];
         foreach (array_chunk($days, 300) as $chunk) {
@@ -794,13 +838,22 @@ final class RoyalMailBills
             }
         }
         foreach ($days as $d) {
-            if ($first === null || ($d >= (string) $first && !($known[$d] ?? false))) {
+            // a day after the main shop's CW start needs its labels, all with their service (on or before it: before CW start anyway); no "first
+            // label's day" exception (the Codex check r2, r1 HIGH 1 PARTLY)
+            $start = $ctx['main_start'] ?? null;
+            if ($start !== null && $d > $start && !($known[$d] ?? false)) {
                 $ctx['waiting'][$d] = true;
             }
         }
         // labels' destinations; a label whose price is on an order now stays on it (sticky)
+        // the label's own CW parcel, pinned when a plan first put it on an order (DL74); else a live allocation on an order (labels of before)
         $sticky = [];
         foreach (array_chunk(array_keys($labels), 500) as $chunk) {
+            foreach ($db->all('SELECT id, cw_channel_id, cw_order_ref, cw_parcel_ref FROM carrier_label WHERE cw_parcel_ref IS NOT NULL AND id IN ('
+                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $l) {
+                $sticky[(int) $l['id']] = ['dest' => 'order', 'channel_id' => (int) $l['cw_channel_id'], 'order_ref' => (string) $l['cw_order_ref'],
+                    'parcel_ref' => (string) $l['cw_parcel_ref'], 'party_id' => null, 'held_reason' => null];
+            }
             foreach ($db->all("SELECT a.label_id, a.channel_id, a.order_ref, a.parcel_ref FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id "
                 . "AND i.status = 'live' WHERE a.ended_at IS NULL AND a.dest = 'order' AND a.kind IN ('label', 'wrong_weight') AND a.label_id IN ("
                 . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY a.id', $chunk) as $a) {
@@ -1048,7 +1101,7 @@ final class RoyalMailBills
         $manifest = is_int($l['manifest_no'] ?? null) && $l['manifest_no'] > 0 && $day !== null ? $l['manifest_no'] : null;
         $time = static fn (string $f): ?string => is_string($l[$f] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/D', $l[$f]) === 1 ? $l[$f] : null;
         return ['source_id' => is_int($l['source_id'] ?? null) && $l['source_id'] > 0 ? $l['source_id'] : null, 'reference' => $s('reference', '/^#?[0-9]{1,9}$/D'),
-            'channel_code' => $s('channel_code', '/^[a-z][a-z0-9_]{1,15}$/D'), 'service_code' => $s('service_code', '/^[A-Z0-9]{1,16}$/D'),
+            'channel_code' => $s('channel_code', '/^[a-z][a-z0-9_]{1,15}$/D'), 'service_code' => $s('service_code', self::SERVICE_CODE),
             'package' => in_array($l['package'] ?? null, ['letter', 'large_letter', 'parcel', 'other'], true) ? $l['package'] : null,
             'weight_g' => is_int($l['weight_g'] ?? null) && $l['weight_g'] >= 0 ? $l['weight_g'] : null, 'created_on' => $time('created_on'),
             'manifested_at' => $time('manifested_at'), 'manifest_no' => $manifest, 'manifest_day' => $day, 'sales_order' => $s('sales_order', '/^[0-9]{10}$/D')];

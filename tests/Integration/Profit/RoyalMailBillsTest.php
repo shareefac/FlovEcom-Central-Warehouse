@@ -742,10 +742,13 @@ final class RoyalMailBillsTest extends StockTestCase
     public function testANewAccountsChannelsAreSetAndOnlyAPlaceholderIsRenumbered(): void
     {
         RmFixtures::account(self::$db, $this->vpg, null, 'off', 'vapebig-pending');
-        $r = self::script('carrier_account', '--account=vapebig-pending', '--add-channel=api', '--channel-name=Vape Big Ltd - API (Vape Big Ltd)');
+        $r = self::script('carrier_account', '--account=vapebig-pending', '--add-channel=vbapi', '--channel-name=Vape Big Ltd - API (Vape Big Ltd)');
         self::assertSame(0, $r['code'], $r['out']);
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_channel c JOIN carrier_account a ON a.id = c.account_id WHERE a.account_no = 'vapebig-pending' "
-            . "AND c.name = 'Vape Big Ltd - API (Vape Big Ltd)' AND c.code = 'api'"));
+            . "AND c.name = 'Vape Big Ltd - API (Vape Big Ltd)' AND c.code = 'vbapi'"));
+        $again = self::script('carrier_account', '--account=vapebig-pending', '--add-channel=vbapi', '--channel-name=Another name');
+        self::assertSame(1, $again['code'], 'a code there already: refused in words');
+        self::assertStringContainsString('there already', $again['out']);
         self::assertSame(1, self::script('carrier_account', '--account=0706703000', '--number=0706799999')['code'], 'a real number is never changed');
         self::assertSame('0706703000', (string) self::$db->value('SELECT account_no FROM carrier_account WHERE id = ?', [$this->acct['account']]));
     }
