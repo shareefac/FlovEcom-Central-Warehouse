@@ -121,7 +121,7 @@ final class RoyalMailBillsTest extends StockTestCase
         self::order($this->vpg, '1004', '1360004', '2026-11-09T09:00:00Z', ['AS000000004GB' => $at]);
         self::order($this->ef, '2001', '2833', '2026-11-09T09:00:00Z', ['JV000000005GB' => $at]);
         $sd = ['service_code' => 'SD1', 'manifest_no' => 2288, 'sales_order' => '5155514809'];
-        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [
+        $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [
             RmFixtures::label('JV000000001GB', 'TPL48HV', $day, '1360001'),
             RmFixtures::label('JV000000002GB', 'TPL48HV', $day, '1360002'),
             RmFixtures::label('JV000000005GB', 'TPL48HV', $day, '2833'),
@@ -207,7 +207,7 @@ final class RoyalMailBillsTest extends StockTestCase
             self::order($this->vpg, (string) $ref, (string) (1360000 + $ref), '2026-11-10T09:00:00Z', [$t => '2026-11-10T10:00:00Z']);
             $labels[] = RmFixtures::label($t, 'TPL48HV', $day, (string) (1360000 + $ref), ['manifest_no' => 2290]);
         }
-        self::rm()->importLabels(self::system(), $this->acct['account'], $labels, 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], $labels, 'report');
         $a = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 3, 763, '9815')], ['invoice' => '9070000010',
             'date' => 'Nov 16, 2026']))['invoice_id'];
         $cost = static fn (): array => array_map(static fn (int $r): int => DeliveryBills::orderCost(self::$db, (int) self::$db->value('SELECT id FROM channel WHERE code = ?',
@@ -245,12 +245,12 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-09';
         self::order($this->vpg, '1021', '1360021', '2026-11-09T09:00:00Z', ['JV000000021GB' => '2026-11-09T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000021GB', 'TPL48HV', $day, '1360021'),
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000021GB', 'TPL48HV', $day, '1360021'),
             RmFixtures::label('JV000000022GB', 'TPL48HV', $day, '1360022')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 2, 508, '943')]))['invoice_id'];
         self::assertSame(['order|' . $this->vpg . '|' => 254, 'shop|' . $this->vpg . '|' => 254], self::where($id), 'a label made on Click & Drop\'s own site: not on an order');
         // a label read after the bill (a late pull): its day's price at once, the day's line by the same amount
-        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000023GB', 'TPL48HV', $day, '1360023')], 'report');
+        $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000023GB', 'TPL48HV', $day, '1360023')], 'report');
         self::assertSame([1, null], [$r['added'], $r['replan_error']]);
         self::assertGreaterThan(0, $r['replanned']);
         self::assertSame(['2026-11-09|delivery_cost' => 254, '2026-11-09|delivery_other' => 254 + 254 - 254], self::days($this->vpg), '"1 label not charged"');
@@ -319,7 +319,7 @@ final class RoyalMailBillsTest extends StockTestCase
         // is still before); at or above it, another shape or another channel: held as before; on a CW parcel: its order (tracking first).
         $day = '2026-11-12'; // after both shops' CW start (28 Oct): the reference decides, not the day
         self::order($this->ef, '2002', '5450', '2026-11-12T09:00:00Z', ['JV000000110GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [
             RmFixtures::label('JV000000101GB', 'TPL48HV', $day, '5456'),
             RmFixtures::label('JV000000102GB', 'TPL48HV', $day, '0999'),
             RmFixtures::label('JV000000103GB', 'TPL48HV', $day, '5457'),
@@ -441,7 +441,7 @@ final class RoyalMailBillsTest extends StockTestCase
             $serial('2026-11-09 17:00:00'), $serial('2026-11-09 18:00:35'), 'Testy McTestface', 'Fakeco', '1 Imaginary Road', 'Flat 9', 'Nowhereton', 'ZZ9 9ZZ', 'Neverland',
             $kg, 'Parcel', 'Tracked 48', $svc, $tracking, 'Delivered', $so, 'Dept', 'nobody@example.invalid', '07000000000', 'tag'];
         // a first source brought one label (its number and manifest time, no service): the report fills the rest, never changes what is there
-        self::rm()->importLabels(self::system(), $this->acct['account'], [['tracking_no' => 'JV000000031GB', 'source_id' => 779001, 'reference' => '1360031',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [['tracking_no' => 'JV000000031GB', 'source_id' => 779001, 'reference' => '1360031',
             'created_on' => '2026-11-09 09:00:00.000000', 'manifested_at' => '2026-11-09 18:00:35.000000', 'manifest_day' => '2026-11-09']], 'report');
         $r = self::rm()->importReport(self::system(), $this->acct['account'], XlsWriter::file([$head, $row('JV000000031GB', '1360999', 'TPL48HV', 0.5, 'x'),
             $row('AS000000032GB', '1360032', 'SD1', 0.1, '5155514809')]), '2026-11-09', '2026-11-09');
@@ -472,14 +472,14 @@ final class RoyalMailBillsTest extends StockTestCase
         self::order($this->ef, '2031', '2931', '2026-11-09T09:00:00Z', ['JV000000032GB' => '2026-11-09T10:00:00Z']);
         $api = static fn (string $t, string $ref): array => ['tracking_no' => $t, 'source_id' => 700000 + (int) substr($t, 2, 9), 'reference' => $ref,
             'created_on' => $day . ' 09:00:00.000000', 'manifested_at' => $day . ' 18:00:00.000000', 'manifest_day' => $day];
-        self::rm()->importLabels(self::system(), $this->acct['account'], [$api('JV000000031GB', '1360031'), $api('JV000000032GB', '2931')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [$api('JV000000031GB', '1360031'), $api('JV000000032GB', '2931')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 2, 508, '943'),
             RmBill::line($day, 'SD1', 1, 1004, 'CLICK AND DROP M2288', '5155514809')]))['invoice_id'];
         self::assertSame(['held||no_service' => 1512], self::where($id), 'its labels have no service yet: in no shop\'s profit');
         self::assertSame([], self::days($this->vpg));
         self::assertSame([], self::days($this->ef));
         // the report: the labels' service; the day is planned again, each on its own order
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000031GB', 'TPL48HV', $day, '1360031'),
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000031GB', 'TPL48HV', $day, '1360031'),
             RmFixtures::label('JV000000032GB', 'TPL48HV', $day, '2931'), RmFixtures::label('AS000000033GB', 'SD1', $day, '1360099',
                 ['manifest_no' => 2288, 'sales_order' => '5155514809', 'weight_g' => 80])], 'report');
         self::assertSame([254, 254], [DeliveryBills::orderCost(self::$db, $this->vpg, '1031'), DeliveryBills::orderCost(self::$db, $this->ef, '2031')]);
@@ -555,14 +555,14 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-09';
         self::order($this->vpg, '1061', '1360061', '2026-11-09T09:00:00Z', ['JV000000061GB' => '2026-11-09T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000061GB', 'TPL48HV', $day, '1360061')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000061GB', 'TPL48HV', $day, '1360061')], 'report');
         self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]));
         // a label stored by a read whose plan never ran (the process died between them)
         self::$db->exec("INSERT INTO carrier_label (account_id, tracking_no, source, reference, channel_code, service_code, package, weight_g, created_on, manifested_at, "
             . "manifest_no, manifest_day, first_at, updated_at) VALUES (?, 'JV000000062GB', 'report', '1360062', 'api', 'TPL48HV', 'parcel', 300, ?, ?, 2288, ?, "
             . 'UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))', [$this->acct['account'], $day . ' 10:00:00', $day . ' 18:00:00', $day]);
         self::assertNotSame([], RoyalMailBills::drift(self::$db, $this->acct['account']));
-        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000062GB', 'TPL48HV', $day, '1360062')], 'report');
+        $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000062GB', 'TPL48HV', $day, '1360062')], 'report');
         self::assertSame([0, 0], [$r['added'], $r['filled']]);
         self::assertSame([], RoyalMailBills::drift(self::$db, $this->acct['account']), 'read again: its day planned again');
         $this->assertRebuilds();
@@ -605,7 +605,7 @@ final class RoyalMailBillsTest extends StockTestCase
     /** r1 MEDIUM 11: a reference of 10 digits or more (a phone number) and a tracking number not of Royal Mail's shape are never kept. */
     public function testAPhoneShapedReferenceOrTrackingIsNeverKept(): void
     {
-        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000081GB', 'TPL48HV', '2026-11-09', '0712345678'),
+        $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000081GB', 'TPL48HV', '2026-11-09', '0712345678'),
             RmFixtures::label('07123456789', 'TPL48HV', '2026-11-09', '1360081'), RmFixtures::label('JV000000082GB', 'TPL48HV', '2026-11-09', '7123456789')], 'report');
         self::assertSame(2, $r['added']);
         self::assertSame([['JV000000081GB', null], ['JV000000082GB', null]], array_map(static fn (array $x): array => [(string) $x['tracking_no'], $x['reference']],
@@ -628,7 +628,7 @@ final class RoyalMailBillsTest extends StockTestCase
     /** r2 (r1 HIGH 1 PARTLY): a day after the main shop's CW start with no label yet waits, even before the account's first label's day. */
     public function testADayBeforeTheFirstLabelButAfterTheStartWaits(): void
     {
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000091GB', 'TPL48HV', '2026-11-10', '1360091')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000091GB', 'TPL48HV', '2026-11-10', '1360091')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-09', 'TPL', 1, 254, '943'),
             RmBill::line('2026-10-20', 'TPL', 1, 239, '777')]))['invoice_id'];
         self::assertSame(['before_start|' . $this->vpg . '|' => 239, 'held||billed_more' => 254], self::where($id),
@@ -680,10 +680,10 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-09';
         self::order($this->vpg, '1101', '1361101', '2026-11-09T09:00:00Z', ['JV000000101GB' => '2026-11-09T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000101GB', 'TPL48HV', $day, '1361101')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000101GB', 'TPL48HV', $day, '1361101')], 'report');
         self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]));
         self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'));
-        self::rm()->importLabels(self::system(), $this->acct['account'], [['tracking_no' => 'JV000000102GB', 'source_id' => 5, 'reference' => '1361102',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [['tracking_no' => 'JV000000102GB', 'source_id' => 5, 'reference' => '1361102',
             'manifested_at' => $day . ' 18:00:00.000000', 'manifest_day' => $day]], 'report');
         self::assertSame(0, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'), 'the day waits for its labels');
         (new OrderSnapshots(self::$db))->store($this->vpg, '1101', ['v' => 1, 'version' => 2, 'order_no' => '1361101', 'status' => 'completed',
@@ -691,7 +691,7 @@ final class RoyalMailBillsTest extends StockTestCase
             'lines' => [['line_id' => '8001101', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
                 'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'Royal Mail', 'charged_inc' => 399, 'refund_inc' => 0], 'order_refund_inc' => 0,
             'grand_inc' => 1599, 'parcels' => []], 'api');
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000102GB', 'TPL48HV', $day, '1361102')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000102GB', 'TPL48HV', $day, '1361102')], 'report');
         self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'), 'back on the order it was first put on');
         $this->assertRebuilds();
     }
@@ -714,7 +714,7 @@ final class RoyalMailBillsTest extends StockTestCase
     /** r2 new MEDIUM 4: a service code is kept only in a service code's shape (letters and a digit): a word there is never a service. */
     public function testAWordIsNeverAServiceCode(): void
     {
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000111GB', 'ADA', '2026-11-09', '1360111')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000111GB', 'ADA', '2026-11-09', '1360111')], 'report');
         self::assertNull(self::$db->value("SELECT service_code FROM carrier_label WHERE tracking_no = 'JV000000111GB'"));
     }
 
@@ -726,7 +726,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-09';
         self::order($this->vpg, '1121', '1361121', '2026-11-09T09:00:00Z', ['JV000000121GB' => '2026-11-09T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000121GB', 'TPL48HV', $day, '1361121')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000121GB', 'TPL48HV', $day, '1361121')], 'report');
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
         $vpg = $this->vpg;
@@ -792,7 +792,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1151', '4000', '2026-11-12T09:00:00Z', ['JV000000151GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000151GB', 'TPL48HV', $day, '4000')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000151GB', 'TPL48HV', $day, '4000')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
         self::assertSame(["order|{$this->vpg}|" => 254], self::where($id), 'API, 4 digits below 5457, on its Vape and Go parcel: that order');
         $this->assertRebuilds();
@@ -806,7 +806,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $person = self::person();
         $day = '2026-11-12';
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000161GB', 'TPL48HV', $day, '5460'),
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000161GB', 'TPL48HV', $day, '5460'),
             RmFixtures::label('JV000000162GB', 'TPL48HV', $day, '1361162')], 'report');
         self::order($this->vpg, '1162', '1361162', '2026-11-12T09:00:00Z', ['JV000000162GB' => $day . 'T10:00:00Z']);
         // bill B (16 Nov) first: both labels priced on it
@@ -872,7 +872,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1191', '1361191', '2026-11-12T09:00:00Z', ['JV000000191GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000191GB', 'TPL48HV', $day, '1361191')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000191GB', 'TPL48HV', $day, '1361191')], 'report');
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
         $arm = null;
@@ -899,7 +899,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1171', '1361171', '2026-11-12T09:00:00Z', ['JV000000171GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000171GB', 'TPL48HV', $day, '1361171')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000171GB', 'TPL48HV', $day, '1361171')], 'report');
         $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
@@ -936,11 +936,11 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1181', '1361181', '2026-11-12T09:00:00Z', ['JV000000181GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181', ['service_code' => null])], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181', ['service_code' => null])], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
         self::assertSame(['held||no_service' => 254], self::where($id));
         self::$db->exec("UPDATE carrier_account SET state = 'off' WHERE id = ?", [$this->acct['account']]);
-        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181')], 'report');
+        $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181')], 'report');
         self::assertSame([1, 0], [$r['filled'], $r['replanned']]);
         self::assertSame(['held||no_service' => 254], self::where($id), 'off: no bill planned');
         self::$db->exec("UPDATE carrier_account SET state = 'active' WHERE id = ?", [$this->acct['account']]);
@@ -955,7 +955,7 @@ final class RoyalMailBillsTest extends StockTestCase
         $person = self::person('rm5');
         $day = '2026-11-12';
         self::order($this->vpg, '1201', '1361201', '2026-11-12T09:00:00Z', ['JV000000201GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000201GB', 'TPL48HV', $day, '1361201')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000201GB', 'TPL48HV', $day, '1361201')], 'report');
         $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
         $id = self::rm()->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
         $c = self::rm()->check($person, $this->acct['account'], $page);
@@ -976,12 +976,12 @@ final class RoyalMailBillsTest extends StockTestCase
         RmFixtures::uncover(self::$db, $this->acct['account'], $day);
         self::order($this->vpg, '1311', '1361311', '2026-11-10T09:00:00Z', ['AS000000311GB' => $day . 'T10:00:00Z']);
         $sd = ['manifest_no' => 2301, 'sales_order' => '5155500311', 'weight_g' => 80];
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000311GB', 'SD1', $day, '1361311', $sd)], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000311GB', 'SD1', $day, '1361311', $sd)], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'SD1', 2, 2008, 'CLICK AND DROP M2301', '5155500311'),
             RmBill::line('2026-11-11', 'RX1', 1, 275, 'ADJ5155500311RCN Surcharge')]))['invoice_id'];
         self::assertSame(['held||not_covered' => 2283], self::where($id), 'its day covered by no report: the manifest and its wrong weight wait');
         RmFixtures::covered(self::$db, $this->acct['account'], $day, $day);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000312GB', 'SD1', $day, '1361312', $sd)], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000312GB', 'SD1', $day, '1361312', $sd)], 'report');
         self::rm()->replan(self::system(), null, 3650);
         self::assertSame(["order|{$this->vpg}|" => 1141, "shop|{$this->vpg}|" => 1142], self::where($id), 'by band, the wrong weight shared');
         $this->assertRebuilds();
@@ -992,7 +992,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1331', '1361331', '2026-11-12T09:00:00Z', ['JV000000331GB' => $day . 'T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000331GB', 'TPL48HV', $day, '1361331')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000331GB', 'TPL48HV', $day, '1361331')], 'report');
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
         $arm = null;
@@ -1007,7 +1007,7 @@ final class RoyalMailBillsTest extends StockTestCase
             \CW\Tests\Support\HookedStatement::$before = [];
         }
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM carrier_pin_due'));
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000332GB', 'TPL48HV', '2026-11-13', '1361332')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000332GB', 'TPL48HV', '2026-11-13', '1361332')], 'report');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_pin_due'));
         self::assertSame('odl:13310', (string) self::$db->value("SELECT cw_parcel_ref FROM carrier_label WHERE tracking_no = 'JV000000331GB'"));
     }
@@ -1017,7 +1017,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $person = self::person('rm6');
         $day = '2026-11-12';
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000341GB', 'TPL48HV', $day, '1361341')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000341GB', 'TPL48HV', $day, '1361341')], 'report');
         $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
         $id = self::rm()->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
         self::assertSame(["shop|{$this->vpg}|" => 254], self::where($id), 'no CW parcel yet: Vape and Go\'s not on an order');
@@ -1036,7 +1036,7 @@ final class RoyalMailBillsTest extends StockTestCase
         RmFixtures::uncover(self::$db, $this->acct['account'], '2026-11-10');
         // the days around it have labels of their own (they are complete); the manifest's label of the 11th
         self::order($this->vpg, '1412', '1361414', '2026-11-11T09:00:00Z', ['AS000000414GB' => '2026-11-11T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000411GB', 'TPL48HV', '2026-11-11', '1361411'),
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000411GB', 'TPL48HV', '2026-11-11', '1361411'),
             RmFixtures::label('JV000000412GB', 'TPL48HV', '2026-11-12', '1361412'), RmFixtures::label('AS000000414GB', 'SD1', '2026-11-11', '1361414',
                 ['manifest_no' => 2311, 'sales_order' => '5155500411', 'weight_g' => 80])], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-10', 'SD1', 1, 3000, 'CLICK AND DROP M2311', '5155500411'),
@@ -1045,7 +1045,7 @@ final class RoyalMailBillsTest extends StockTestCase
             'the manifest\'s 10th covered by no report: both its rows wait; the sales order of no label waits too; none on Vape and Go');
         // a label of the manifest on its waiting day: still the whole group waits
         self::order($this->vpg, '1411', '1361413', '2026-11-10T09:00:00Z', ['AS000000413GB' => '2026-11-10T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000413GB', 'SD1', '2026-11-10', '1361413',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000413GB', 'SD1', '2026-11-10', '1361413',
             ['manifest_no' => 2311, 'sales_order' => '5155500411', 'weight_g' => 80])], 'report');
         self::assertSame(['held||group_unknown' => 275, 'held||not_covered' => 7000], self::where($id));
         // its day covered: the manifest priced on its labels (both rows), the sales order with no label still waits
@@ -1060,7 +1060,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         $person = self::person('rm7');
         self::order($this->vpg, '1442', '1361440', '2026-11-13T09:00:00Z', ['JV000000442GB' => '2026-11-13T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000441GB', 'TPL48HV', '2026-11-12', '1361449'),
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000441GB', 'TPL48HV', '2026-11-12', '1361449'),
             RmFixtures::label('JV000000442GB', 'TPL48HV', '2026-11-13', '1361440')], 'report');
         $old = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'TPL', 1, 254, '943'),
             RmBill::line('2026-11-13', 'TPL', 1, 254, '943')], ['invoice' => '9070000441']))['invoice_id'];
@@ -1104,14 +1104,14 @@ final class RoyalMailBillsTest extends StockTestCase
     /** r7 H4: a Special Delivery row whose group CW cannot name (no manifest, its sales order on no label) waits; so does a sales order a manifest's label does not name. */
     public function testR8AGroupCwCannotNameWholeWaits(): void
     {
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000521GB', 'TPL48HV', '2026-11-12', '1361521')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000521GB', 'TPL48HV', '2026-11-12', '1361521')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'SD1', 1, 1000, 'CLICK AND DROP M2331', '5155500521'),
             RmBill::line('2026-11-12', 'SD1', 1, 1000, '', '5155500521')]))['invoice_id'];
         self::assertSame(['held||billed_more' => 2000], self::where($id), 'no labels (2 billed for none that day): both rows wait, none on Vape and Go');
         // two labels on manifest M2341, only one naming the sales order: the wrong weight waits (its group is not known whole)
         self::order($this->vpg, '1522', '1361522', '2026-11-12T09:00:00Z', ['AS000000522GB' => '2026-11-12T10:00:00Z']);
         self::order($this->vpg, '1523', '1361523', '2026-11-12T09:00:00Z', ['AS000000523GB' => '2026-11-12T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [
             RmFixtures::label('AS000000522GB', 'SD1', '2026-11-12', '1361522', ['manifest_no' => 2341, 'sales_order' => '5155500541', 'weight_g' => 80]),
             RmFixtures::label('AS000000523GB', 'SD1', '2026-11-12', '1361523', ['manifest_no' => 2341, 'sales_order' => null, 'weight_g' => 80])], 'report');
         $ww = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-13', 'RX1', 1, 275, 'ADJ5155500541RCN Surcharge')],
@@ -1123,19 +1123,19 @@ final class RoyalMailBillsTest extends StockTestCase
     public function testR8ADayMadeIncompletePlansAllItsGroupsAndAFailedPlanStaysDue(): void
     {
         self::order($this->vpg, '1531', '1361531', '2026-11-10T09:00:00Z', ['AS000000531GB' => '2026-11-10T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000531GB', 'SD1', '2026-11-10', '1361531',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000531GB', 'SD1', '2026-11-10', '1361531',
             ['manifest_no' => 2351, 'sales_order' => '5155500531', 'weight_g' => 80]), RmFixtures::label('JV000000533GB', 'TPL48HV', '2026-11-11', '1361533')], 'report');
         // (billed on its label's day: one billed on another day waits, billed more than that day's labels: DL84 3b)
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-10', 'SD1', 1, 1004, 'CLICK AND DROP M2351', '5155500531')]))['invoice_id'];
         self::assertSame(["order|{$this->vpg}|" => 1004], self::where($id));
         // a label of no service on the 10th: the 10th is incomplete, the manifest waits again, planned by that read
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000532GB', 'TPL48HV', '2026-11-10', '1361532', ['service_code' => null])], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000532GB', 'TPL48HV', '2026-11-10', '1361532', ['service_code' => null])], 'report');
         self::assertSame(['held||no_service' => 1004], self::where($id));
         // its service comes, but the order is held elsewhere: the plan cannot run now; it stays due and the next plan does it (even past the nightly's days)
         $lock = TestDb::connect();
         self::assertSame(1, (int) $lock->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($this->vpg, '1531')]));
         try {
-            $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000532GB', 'TPL48HV', '2026-11-10', '1361532')], 'report');
+            $r = RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000532GB', 'TPL48HV', '2026-11-10', '1361532')], 'report');
         } finally {
             $lock->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($this->vpg, '1531')]);
         }
@@ -1152,7 +1152,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         RmFixtures::uncover(self::$db, $this->acct['account'], '2026-10-28');
         self::order($this->vpg, '1541', '1361541', '2026-10-28T09:00:00Z', ['AS000000541GB' => '2026-10-28T12:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000541GB', 'SD1', '2026-10-28', '1361541',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000541GB', 'SD1', '2026-10-28', '1361541',
             ['manifest_no' => 2361, 'sales_order' => '5155500561', 'weight_g' => 80]), RmFixtures::label('JV000000542GB', 'TPL48HV', '2026-10-29', '1361542')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-10-28', 'SD1', 1, 1004, 'CLICK AND DROP M2361', '5155500561'),
             RmBill::line('2026-10-29', 'SD1', 1, 500, 'CLICK AND DROP M2361', '5155500561')]))['invoice_id'];
@@ -1163,7 +1163,7 @@ final class RoyalMailBillsTest extends StockTestCase
     public function testR8AnUndoOnAnOffAccountHoldsWhatIsLeft(): void
     {
         $day = '2026-11-12';
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000561GB', 'TPL48HV', $day, '1361561')], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000561GB', 'TPL48HV', $day, '1361561')], 'report');
         $a = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')], ['invoice' => '9070000561']))['invoice_id'];
         $b = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')], ['invoice' => '9070000562',
             'date' => 'Nov 23, 2026']))['invoice_id'];

@@ -67,7 +67,7 @@ final class RoyalMailWeekTest extends StockTestCase
             self::$db->exec('INSERT INTO profit_day (channel_id, day, orders) VALUES (?, ?, 0)', [$vpg, $day]);
         }
         $t = microtime(true);
-        $r = (new RoyalMailBills(self::$db))->importLabels(Caller::system('rm_week'), $acct, $labels, 'report');
+        $r = RmFixtures::labels(new RoyalMailBills(self::$db), Caller::system('rm_week'), $acct, $labels, 'report');
         $log['labels_import_s'] = round(microtime(true) - $t, 2);
         self::assertSame(7000, $r['added']);
         // the bill: ~160 rows

@@ -23,7 +23,7 @@ final class RmFixtures
      *
      * @return array{account: int, vpg_party: int, ef_party: ?int, hayati: int}
      */
-    public static function account(Db $db, int $vpg, ?int $ef = null, string $state = 'active', string $number = self::ACCOUNT, bool $pulled = true): array
+    public static function account(Db $db, int $vpg, ?int $ef = null, string $state = 'active', string $number = self::ACCOUNT, bool $covered = true): array
     {
         $party = static fn (string $code, string $name, ?int $ch, ?int $first = null): int => (int) ($db->value('SELECT id FROM delivery_party WHERE code = ?', [$code])
             ?? $db->insert('INSERT INTO delivery_party (code, name, channel_id, first_order_no) VALUES (?, ?, ?, ?)', [$code, $name, $ch, $first]));
@@ -45,12 +45,67 @@ final class RmFixtures
         if ($e !== null) {
             $db->exec("INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, before_first) VALUES (?, 5, 'api', 'digits_4', ?, 1)", [$a, $e]);
         }
-        if ($pulled) {
+        if ($covered) {
             // its days covered by a report import (a day moves money only so: DL84): July to December 2026, so a test of the planning needs no
             // import; a test of the wait takes the days it needs away (uncover())
             self::covered($db, $a, '2026-07-01', '2026-12-31');
         }
         return ['account' => $a, 'vpg_party' => $p, 'ef_party' => $e, 'hayati' => $h];
+    }
+
+    /**
+     * Labels stored as a source gives them, with no day covered (RoyalMailBills::importLabels is private: only the report's import reaches it in
+     * the app, the Codex check r9 H2; a test of the planning gives its labels so).
+     *
+     * @param list<array<string, mixed>> $labels
+     * @return array<string, mixed>
+     */
+    public static function labels(\CW\Profit\RoyalMailBills $rm, \CW\Caller $caller, int $account, array $labels, string $source = 'report'): array
+    {
+        return (new \ReflectionMethod($rm, 'importLabels'))->invoke($rm, $caller, $account, $labels, $source);
+    }
+
+    /**
+     * A report's labels with the days it covers, as the import of a read report gives them (RoyalMailBills::importReportLabels is private).
+     *
+     * @param list<array<string, mixed>> $labels
+     * @return array<string, mixed>
+     */
+    public static function report(\CW\Profit\RoyalMailBills $rm, \CW\Caller $caller, int $account, array $labels, string $from, string $to, ?string $sha256 = null,
+        ?int $rows = null): array
+    {
+        return (new \ReflectionMethod($rm, 'importReportLabels'))->invoke($rm, $caller, $account, $labels, $from, $to,
+            $sha256 ?? hash('sha256', json_encode([$labels, $from, $to], JSON_THROW_ON_ERROR)), $rows ?? count($labels), array_map(static fn (array $l): ?string
+                => $l['manifest_day'] ?? null, $labels));
+    }
+
+    /**
+     * A SYNTHETIC Click & Drop report (.xls) of these labels (made-up customer cells), as RoyalMailBills::importReport reads it.
+     *
+     * @param list<array<string, mixed>> $labels RmFixtures::label() shapes
+     * @param list<string> $leaveOut columns left out (a Despatched Orders report has no Company and no Department)
+     */
+    public static function reportFile(array $labels, array $leaveOut = []): string
+    {
+        $head = ['Order number', 'Batch number', 'Manifest number', 'Channel', 'Channel reference', 'Despatch date', 'Manifest date', 'Customer', 'Company',
+            'Address line 1', 'Address line 2', 'City', 'Postcode', 'Country', 'Weight (kg)', 'Package size', 'Shipping service', 'Service code', 'Tracking number',
+            'Tracking status', 'Sales order number', 'Department', 'Notification email address', 'Notification mobile number', 'Tags'];
+        $serial = static fn (?string $at): ?float => $at === null ? null : ((new \DateTimeImmutable(substr($at, 0, 19), new \DateTimeZone('Europe/London')))->getTimestamp()
+            + (new \DateTimeImmutable(substr($at, 0, 19), new \DateTimeZone('Europe/London')))->getOffset()
+            - (new \DateTimeImmutable('1899-12-30', new \DateTimeZone('UTC')))->getTimestamp()) / 86400;
+        $rows = [];
+        foreach ($labels as $i => $l) {
+            $cells = ['Order number' => 779500.0 + $i, 'Batch number' => 'B1', 'Manifest number' => $l['manifest_no'] === null ? '' : 'M' . $l['manifest_no'],
+                'Channel' => self::CHANNELS[$l['channel_code'] ?? 'api'] ?? 'Somebody else', 'Channel reference' => (string) ($l['reference'] ?? ''),
+                'Despatch date' => $serial($l['manifested_at'] ?? null), 'Manifest date' => $serial($l['manifested_at'] ?? null), 'Customer' => 'Testy McTestface',
+                'Company' => '', 'Address line 1' => '1 Imaginary Road', 'Address line 2' => '', 'City' => 'Nowhereton', 'Postcode' => 'ZZ9 9ZZ', 'Country' => 'Neverland',
+                'Weight (kg)' => ($l['weight_g'] ?? 300) / 1000, 'Package size' => 'Parcel', 'Shipping service' => 'x', 'Service code' => (string) ($l['service_code'] ?? ''),
+                'Tracking number' => (string) $l['tracking_no'], 'Tracking status' => 'x', 'Sales order number' => (string) ($l['sales_order'] ?? ''), 'Department' => '',
+                'Notification email address' => 'nobody@example.invalid', 'Notification mobile number' => '07000000000', 'Tags' => ''];
+            $rows[] = $cells;
+        }
+        $cols = array_values(array_diff($head, $leaveOut));
+        return XlsWriter::file([$cols, ...array_map(static fn (array $c): array => array_map(static fn (string $k): mixed => $c[$k], $cols), $rows)]);
     }
 
     /** The days a report import covers, as RoyalMailBills::importReportLabels() records them (its labels given apart). @return int the import */

@@ -86,8 +86,7 @@ final class RoyalMailReportOnlyTest extends StockTestCase
     /** A report import of these labels for its From..To (as the screen's upload, after its file is read). @return array<string, mixed> */
     private function report(array $labels, string $from, string $to): array
     {
-        return self::rm()->importReportLabels(self::system(), $this->acct['account'], $labels, $from, $to, hash('sha256', json_encode($labels, JSON_THROW_ON_ERROR)),
-            count($labels));
+        return RmFixtures::report(self::rm(), self::system(), $this->acct['account'], $labels, $from, $to);
     }
 
     private function assertRebuilds(): void
@@ -120,7 +119,7 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         self::assertSame(1, $r['code'], $r['out']);
         self::assertStringContainsString('phase 2', $r['out']);
         try {
-            self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000901GB', 'TPL48HV', '2026-11-12', '1369901')], 'api');
+            RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('JV000000901GB', 'TPL48HV', '2026-11-12', '1369901')], 'api');
             self::fail('labels of the API');
         } catch (CwException $e) {
             self::assertSame('phase_2', $e->errorCode);
@@ -152,7 +151,7 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         \CW\Tests\Support\HookedStatement::$before = ['INSERT INTO carrier_day_cover' => static fn () => throw new \PDOException('MySQL server has gone away')];
         $threw = false;
         try {
-            (new RoyalMailBills($conn))->importReportLabels(self::system(), $this->acct['account'], [$l('JV000000916GB', '2026-11-14')], '2026-11-14', '2026-11-14',
+            RmFixtures::report(new RoyalMailBills($conn), self::system(), $this->acct['account'], [$l('JV000000916GB', '2026-11-14')], '2026-11-14', '2026-11-14',
                 str_repeat('a', 64), 1);
         } catch (\Throwable) {
             $threw = true;
@@ -202,14 +201,14 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         $this->report([RmFixtures::label('AS000000941GB', 'SD1', '2026-11-12', '1369941', $sd(2901)),
             RmFixtures::label('AS000000942GB', 'SD1', '2026-11-12', '1369942', $sd(2901))], '2026-11-12', '2026-11-12');
         // a label of the same sales order on another manifest, on the 13th, not covered (labels in CW with no report import covering their day)
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000944GB', 'SD1', '2026-11-13', '1369944', $sd(2902))], 'report');
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000944GB', 'SD1', '2026-11-13', '1369944', $sd(2902))], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'SD1', 2, 2008, 'CLICK AND DROP M2901', '5155500901'),
             RmBill::line('2026-11-14', 'RX1', 1, 275, 'ADJ5155500901RCN Surcharge')]))['invoice_id'];
         self::assertSame(['held||not_covered' => 2283], self::where($id), 'M2901, its sales order and M2902: one group, the 13th not covered');
         $this->report([], '2026-11-13', '2026-11-13');
         self::assertSame(["order|{$this->vpg}|" => 2281, "shop|{$this->vpg}|" => 2], self::where($id), 'covered whole: 2 x 1004 by weight, the wrong weight 3 x 91 (2p left)');
         // an undated label of the sales order: the group waits again
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000943GB', 'SD1', '2026-11-13', '1369943',
+        RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000943GB', 'SD1', '2026-11-13', '1369943',
             ['manifest_no' => null, 'manifest_day' => null, 'manifested_at' => null, 'sales_order' => '5155500901', 'weight_g' => 80])], 'report');
         self::rm()->replan(self::system(), null, 3650);
         self::assertSame(['held||group_unknown' => 2283], self::where($id));
