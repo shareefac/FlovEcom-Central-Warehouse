@@ -62,6 +62,7 @@ final class LabelDestinations
         $parcels = self::parcels($db, array_keys($need));
         $out = [];
         $first = [];
+        $start = [];
         foreach ($labels as $id => $l) {
             if (isset($sticky[$id])) {
                 $out[$id] = $sticky[$id];
@@ -131,7 +132,9 @@ final class LabelDestinations
             }
             $ch = (int) $party['channel_id'];
             $first[$ch] ??= null;
-            $before = DeliveryBills::beforeStart($db, $ch, $day, $l['reference'] ?? null, $first[$ch]);
+            $start[$ch] ??= null;
+            // the shop's first order and its start day read once per shop for the whole plan (M2)
+            $before = DeliveryBills::beforeStart($db, $ch, $day, $l['reference'] ?? null, $first[$ch], $start[$ch]);
             $out[$id] = ['dest' => $before ? 'before_start' : 'shop', 'channel_id' => $ch, 'order_ref' => null, 'parcel_ref' => null, 'party_id' => null, 'held_reason' => null];
         }
         ksort($out);

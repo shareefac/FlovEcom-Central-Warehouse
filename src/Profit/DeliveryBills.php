@@ -235,11 +235,13 @@ final class DeliveryBills
      * reference an order number below the shop's first order in CW. For RoyalMailBills (DL58).
      *
      * @param array{0: ?int, 1: int, 2: int}|null $first the shop's first order, read once (pass the same variable for one shop)
+     * @param array{0: ?string}|null $start the shop's start day, read once the same way (null: not read yet; a plan of thousands of labels never
+     *   reads it per label: the lead's final review of round 11, M2)
      */
-    public static function beforeStart(Db $db, int $shop, string $day, ?string $ref, ?array &$first): bool
+    public static function beforeStart(Db $db, int $shop, string $day, ?string $ref, ?array &$first, ?array &$start = null): bool
     {
-        $start = self::startDay($db, $shop);
-        return $start === null || $day <= $start || self::beforeFirstOrder($db, $shop, $ref, $first);
+        $start ??= [self::startDay($db, $shop)];
+        return $start[0] === null || $day <= $start[0] || self::beforeFirstOrder($db, $shop, $ref, $first);
     }
 
     /**
