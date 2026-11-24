@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL84; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL85; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20652,6 +20652,32 @@ tests changed with the rule (each said in the test): the pull's tests deleted (t
 three tests billed more units than labels for a day and now bill as many (`testALabelKeepsItsOrderThroughAWait`, r4 Store's check, the r7
 Special Delivery group gets its second label), one bills its manifest on its label's day (r8 H5); the red test of 3a expected the day priced
 at 254 in all, but 2 labels at 254 with 1 billed is 508 on the order and 254 "not charged" (the day's line), as the day book always did.
+
+**DL85. The Codex check r9 of e9d3bb1 against DL84 (`cw_work/runs/rmbills_codex_r9.txt`, default model: NO GO, 15 HIGH, 3 MEDIUM; no path of
+the API pull confirmed).** Fixed, each failing first (`runs/rmbills_r10_red.log`, `RoyalMailCodexR9Test`; green `runs/rmbills_r10_green*.log`):
+(H1) only the Manifested Orders report covers days: a report without its Company and Department columns (Click & Drop's Despatched Orders
+report) is refused whole (`not_manifested`). (H2) the label writers `importLabels` / `importReportLabels` are private: labels and cover come
+only from a report read whole (`importReport`; the tests reach them through `RmFixtures::labels` / `report`). (H3) the manifest day of EVERY
+row with a tracking number or a manifest date, a row skipped for its tracking number too, must be inside From..To (a tracking number with no
+manifest date: refused). (H4) every row on its own (a surcharge, a return, a row CW cannot group) waits while its day waits: no shop's "not
+on an order" before its day is covered and checked. (H5) a plan of a day that waits takes EVERY key of that day's rows into the same write
+(closed again, a few passes), and the band rows of the same day and product as a band row of the plan too: a bill taking a day over its
+labels withdraws every manifest of it in its own write. (H6) a manifest's row naming a sales order brings every band row naming it. (H7) a
+Special Delivery label naming no sales order leaves its group not known whole (`group_unknown`), with no sales order in the group too.
+(H8) a label of no service on a manifest or a sales order of a group is a member (found with the group, its day read: `no_service`).
+(H9) a wrong-weight sales order with no label of its own makes its whole group wait. (H10) the units check (b) covers every day: a group
+crossing CW start checks its start-side days too; a group's row dated on or before the start is before CW start whole, a label of it made
+after the start too. (H11) every outbound CW Royal Mail parcel is checked by (a), whatever its service (a return's service, the carrier's
+return products, e.g. TSS, excepted), and a manual parcel's service is compared too. (H12) the day's evidence is read again once the write's
+guards are held (`verify`): changed since the plan read it, the plan is made again. (H14) an account with live bills is never switched off
+(`bin/carrier_account.php --switch-off` refuses: undo its bills first). (H15) a group the nightly cannot plan now is written due (its days),
+so a withdrawal never ages out of the nightly's 120 days. (M16) each account and each due day is read inside its own failure boundary.
+(M17) the plan's rows are read part by part in chunks (no placeholder limit), the closure up to 40 rounds. (M18) the check lists every
+waiting day with its reason and pence (every product). NOT FIXED, the lead's call (H13): an import whose label JOINS two groups (a mapped,
+matching label naming a sales order of a priced group and a manifest of a waiting one) is planned right after the import's commit, in its
+own guarded writes (DL83's due days), like DL84 3's import windows: until that write commits (or, busy, the next plan) the priced group's
+money stands. Closing it means withdrawing in the import's own transaction, under the order guards of every group it touches (a weekly
+import touches thousands of orders: one guarded write too big for the 3-second hold).
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

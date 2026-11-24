@@ -38,34 +38,33 @@ exit(Cli::main('rm_labels', ['pull', 'report:', 'status', 'account:', 'from:', '
             $cli->error('the Click & Drop API pull is phase 2: in phase 1 labels come from the "Manifested Orders" report only (--report). Nothing was read.');
             return Cli::PROBLEM;
         }
-        $accounts = CarrierSettings::pooledAccounts($cli->db);
         $named = is_string($opts['account'] ?? null) ? $opts['account'] : null;
-        if ($named !== null) {
-            $accounts = array_values(array_filter($accounts, static fn (array $a): bool => $a['account_no'] === $named));
-            if ($accounts === []) {
-                throw new InvalidArgumentException('no Royal Mail account of that number in CW');
-            }
-        }
         if ($modes[0] === 'status') {
             $failed = 0;
-            foreach ($accounts as $a) {
+            foreach (CarrierSettings::pooledAccountIds($cli->db) as $id) {
                 try {
+                    // each account read on its own: one that cannot be read is said, the others all the same (the Codex check r9 M16)
+                    $a = CarrierSettings::account($cli->db, $id);
+                    if ($named !== null && $a['account_no'] !== $named) {
+                        continue;
+                    }
                     $last = $cli->db->one('SELECT from_day, to_day, imported_at FROM carrier_report_import WHERE account_id = ? ORDER BY id DESC LIMIT 1', [$a['id']]);
                     $cli->log(sprintf('%s (%s): %d labels; covered up to %s; last report %s; %d day(s) waiting', $a['account_no'], $a['state'],
                         (int) $cli->db->value('SELECT COUNT(*) FROM carrier_label WHERE account_id = ?', [$a['id']]),
                         (string) ($cli->db->value('SELECT MAX(day) FROM carrier_day_cover WHERE account_id = ?', [$a['id']]) ?? '-'),
                         $last === null ? '-' : $last['from_day'] . ' to ' . $last['to_day'] . ' (imported ' . $last['imported_at'] . ')',
                         count(RoyalMailBills::waitingDays($cli->db, $a['id']))));
-                } catch (\PDOException $e) {
+                } catch (\PDOException | CwException $e) {
                     // one account's database error is said, never fatal to the others (the Codex check r8)
-                    $cli->error("{$a['account_no']}: not read (database error " . (Db::driverCode($e) ?? 'unknown') . ')');
+                    $cli->error("account {$id}: not read (" . ($e instanceof CwException ? $e->getMessage() : 'database error ' . (Db::driverCode($e) ?? 'unknown')) . ')');
                     $failed++;
                 }
             }
             return $failed === 0 ? Cli::OK : Cli::PROBLEM;
         }
-        if ($named === null || count($accounts) !== 1) {
-            throw new InvalidArgumentException('--report needs --account=<account number>');
+        $accounts = array_values(array_filter(CarrierSettings::pooledAccounts($cli->db), static fn (array $a): bool => $a['account_no'] === $named));
+        if ($named === null || $accounts === []) {
+            throw new InvalidArgumentException($named === null ? '--report needs --account=<account number>' : 'no Royal Mail account of that number in CW');
         }
         $from = is_string($opts['from'] ?? null) ? $opts['from'] : null;
         $to = is_string($opts['to'] ?? null) ? $opts['to'] : null;

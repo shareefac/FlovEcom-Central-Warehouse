@@ -33,6 +33,12 @@ final class CarrierSettings
     }
 
     /** @return list<array<string, mixed>> the pooled accounts (Royal Mail's), by id */
+    /** @return list<int> the pooled accounts' ids (each read on its own by account(): one that cannot be read never hides the others) */
+    public static function pooledAccountIds(Db $db): array
+    {
+        return array_map('intval', $db->column("SELECT a.id FROM carrier_account a JOIN carrier c ON c.code = a.carrier WHERE c.family = 'pooled' ORDER BY a.id"));
+    }
+
     public static function pooledAccounts(Db $db): array
     {
         return array_map(static fn (array $r): array => self::account($db, (int) $r['id']),

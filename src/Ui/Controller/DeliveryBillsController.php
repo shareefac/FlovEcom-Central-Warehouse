@@ -140,6 +140,7 @@ final class DeliveryBillsController
             'others' => $views->checkOthers($p['others']),
             'gone' => $views->checkGone($p['gone'] ?? []),
             'days' => $p['days'],
+            'waitingDays' => $p['waiting'] ?? [],
             'rows' => $p['bill_rows'],
             'minutes' => RoyalMailBills::CHECK_MINUTES,
         ], 200, ['title' => Words::say('DELIVERY', 'rm_check_title', (string) $p['invoice_no'])]);

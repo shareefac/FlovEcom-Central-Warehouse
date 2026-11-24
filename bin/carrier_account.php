@@ -131,6 +131,15 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
         return Cli::OK;
     }
     $state = array_key_exists('switch-on', $opts) ? 'active' : (array_key_exists('switch-off', $opts) ? 'off' : throw new InvalidArgumentException('nothing to do'));
+    if ($state === 'off' && $a['state'] === 'active') {
+        // an account whose bills count is never switched off by itself: its money would stay in the profit with nothing planning it (the Codex
+        // check r9 H14). Its bills undone first ("Undo this upload", or the release undo), then switched off.
+        $live = (int) $cli->db->value("SELECT COUNT(*) FROM carrier_invoice WHERE carrier = ? AND account = ? AND status IN ('live', 'loading')", [$a['carrier'], $a['account_no']]);
+        if ($live > 0) {
+            $cli->error("account {$a['account_no']} has {$live} bill(s) in the profit: undo them first (each bill's page, 'Undo this upload'), then switch it off. Nothing changed.");
+            return Cli::PROBLEM;
+        }
+    }
     $cli->db->transaction(static function (Db $db) use ($a, $state, $caller): void {
         $db->exec('UPDATE carrier_account SET state = ? WHERE id = ?', [$state, (int) $a['id']]);
         Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['state' => [$a['state'], $state]]);

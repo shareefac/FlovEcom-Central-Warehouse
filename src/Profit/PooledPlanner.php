@@ -68,12 +68,12 @@ final class PooledPlanner
                 $services = self::bandServices($ctx);
                 $own = array_filter($labels, static fn (array $l): bool => $l['manifest_no'] !== null && (int) $l['manifest_no'] === $m
                     && in_array($l['service_code'], $services, true));
-                array_push($out, ...self::band($set, self::sorted($own), $ctx));
+                array_push($out, ...self::oldRowsBeforeStart(self::band($set, self::sorted($own), $ctx), $ctx));
             } elseif ($type === 'S') {
                 $so = substr($key, 2);
                 $services = self::bandServices($ctx);
                 $own = array_filter($labels, static fn (array $l): bool => $l['sales_order'] === $so && in_array($l['service_code'], $services, true));
-                array_push($out, ...self::wrongWeight($set, self::sorted($own), $ctx));
+                array_push($out, ...self::oldRowsBeforeStart(self::wrongWeight($set, self::sorted($own), $ctx), $ctx));
             } else {
                 foreach ($set as $r) {
                     $kind = $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
@@ -83,10 +83,13 @@ final class PooledPlanner
                         'band', 'wrong_weight' => 'no_batch',
                         default => 'unknown',
                     };
-                    // a Special Delivery or wrong-weight row whose group CW cannot name (no manifest, its sales order on no label): its group is
-                    // unknown: it waits after the main shop's CW start (DL71, DL83, DL84 4)
-                    $why = $how === 'no_batch' ? (self::dayReason((string) $r['service_date'], $ctx) ?? $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']]
-                        ?? (self::afterStart([$r], $ctx) ? 'group_unknown' : null)) : null;
+                    // every row on its own waits while its day does (a surcharge or a return too: no shop's "not on an order" before its day is
+                    // covered and checked, the Codex check r9 H4); a Special Delivery or wrong-weight row whose group CW cannot name (no manifest, its
+                    // sales order on no label): its group is unknown: it waits after the main shop's CW start (DL71, DL83, DL84 4)
+                    $why = self::dayReason((string) $r['service_date'], $ctx);
+                    if ($why === null && $how === 'no_batch' && self::afterStart([$r], $ctx)) {
+                        $why = $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']] ?? 'group_unknown';
+                    }
                     $dest = $why !== null ? self::held($why) : self::mainDest($ctx, (string) $r['service_date']);
                     self::push($out, self::alloc($r, 'row', $why !== null ? 'waiting' : $how, null, $dest, (int) $r['net']));
                 }
@@ -119,6 +122,28 @@ final class PooledPlanner
     }
 
     /**
+     * DL84 6 for a group's rows: the money of a row dated on or before the main shop's CW start is before CW start whole, a label of it made after
+     * the start too (never on that label's order: the Codex check r9 H10).
+     *
+     * @param list<array<string, mixed>> $allocs
+     * @return list<array<string, mixed>>
+     */
+    private static function oldRowsBeforeStart(array $allocs, array $ctx): array
+    {
+        if (!array_key_exists('main_start', $ctx)) {
+            return $allocs;
+        }
+        $start = $ctx['main_start'];
+        foreach ($allocs as $i => $a) {
+            if (($start === null || (string) $a['day'] <= (string) $start) && in_array($a['dest'], ['order', 'shop'], true)) {
+                $allocs[$i] = ['dest' => 'before_start', 'channel_id' => (int) $a['channel_id'], 'order_ref' => null, 'parcel_ref' => null, 'party_id' => null,
+                    'held_reason' => null] + $a;
+            }
+        }
+        return $allocs;
+    }
+
+    /**
      * Why each Special Delivery manifest and wrong-weight sales order waits, as one group with every key a label joins it to (DL82, DL83, DL84 4),
      * null when it does not: a group with a row after the main shop's CW start needs ALL its days complete (its labels' manifest days, its
      * manifests' rows' days, each product of them billed no more than its labels), on or before the start too, every label of it dated, no
@@ -148,7 +173,10 @@ final class PooledPlanner
                 $find($k);
             }
         }
-        $band = array_filter($labels, static fn (array $l): bool => in_array($l['service_code'], $services, true));
+        // the members: Special Delivery labels, and a label of no service on a manifest or a sales order (its service is not known: it may be
+        // one; the Codex check r9 H8)
+        $band = array_filter($labels, static fn (array $l): bool => in_array($l['service_code'], $services, true)
+            || ($l['service_code'] === null && ($l['manifest_no'] !== null || $l['sales_order'] !== null)));
         foreach ($band as $l) {
             if ($l['manifest_no'] !== null && $l['sales_order'] !== null) {
                 $union('M|' . (int) $l['manifest_no'], 'S|' . $l['sales_order']);
@@ -200,7 +228,9 @@ final class PooledPlanner
                 if (($ctx['products'][(string) $r['product_code']]['kind'] ?? null) === 'band') {
                     // a manifest's rows' days are its days too; its wrong weights' are the adjustments' (no label is made on them: DL82)
                     $days[(string) $r['service_date']] = true;
-                    $billedMore ??= $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']] ?? null;
+                    if ($after) {
+                        $billedMore ??= $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']] ?? null;
+                    }
                 }
             }
             ksort($days);
@@ -213,9 +243,17 @@ final class PooledPlanner
             $why ??= $billedMore === null ? null : (string) $billedMore;
             if ($why === null && ($after || array_filter($own, static fn (array $l): bool => $l['manifest_day'] === null) !== [])) {
                 $undated = array_filter($own, static fn (array $l): bool => $l['manifest_day'] === null || $l['manifest_no'] === null) !== [];
-                // a label of its manifests naming no sales order: the group is not known whole (DL83)
-                $unnamed = $sos !== [] && array_filter($own, static fn (array $l): bool => $l['sales_order'] === null) !== [];
-                if ($undated || $unnamed || ($own === [] && $after)) {
+                // a label naming no sales order: the group is not known whole (DL83), a manifest with no sales order at all too (the Codex check
+                // r9 H7); a label of no service: not known what it is (H8)
+                $unnamed = array_filter($own, static fn (array $l): bool => $l['sales_order'] === null || $l['service_code'] === null) !== [];
+                // a wrong-weight sales order of the group with no label of its own (H9: never its main shop's "not on an order" inside a group)
+                $bare = false;
+                foreach ($set as $k) {
+                    if ($k[0] === 'S' && ($groups[$k] ?? []) !== [] && array_filter($own, static fn (array $l): bool => $l['sales_order'] === substr($k, 2)) === []) {
+                        $bare = true;
+                    }
+                }
+                if ($undated || $unnamed || $bare || ($own === [] && $after)) {
                     $why = 'group_unknown';
                 }
             }
@@ -296,7 +334,7 @@ final class PooledPlanner
     {
         $out = [];
         $day = (string) $rows[0]['service_date'];
-        $why = self::dayReason($day, $ctx) ?? ($ctx['product_waiting'][$day . '|' . $rows[0]['product_code']] ?? null);
+        $why = self::dayReason($day, $ctx) ?? (self::afterStart([$rows[0]], $ctx) ? ($ctx['product_waiting'][$day . '|' . $rows[0]['product_code']] ?? null) : null);
         if ($why !== null) {
             // the day is not complete (not covered by a report, a CW parcel of it in none, a service not mapped or differing) or the product is
             // billed more than its labels that day: the whole day book held, priced once it is (DL71, DL84 3)

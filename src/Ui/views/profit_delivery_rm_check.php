@@ -75,7 +75,29 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 </table>
 </div>
 
-<?php if ($waiting > 0): ?>
+<?php if (($waitingDays ?? []) !== []): ?>
+<p class="error" role="alert"><?= $say('DELIVERY', 'rm_check_waiting', count(array_unique(array_column($waitingDays, 'day')))) ?></p>
+<div class="table-wrap">
+<table class="stack rp-table delivery-rm-check-waiting">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_reason') ?></th>
+      <th scope="col" class="num"><?= $word('DELIVERY', 'cost') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($waitingDays as $w): ?>
+    <tr>
+      <th scope="row"><?= $day((string) $w['day']) ?></th>
+      <td data-label="<?= $word('DELIVERY', 'rm_reason') ?>"><?= $e($W['rm_held_' . $w['reason']] ?? (string) $w['reason']) ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'cost') ?>"><?= $e($gbp((int) $w['pence'])) ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php elseif ($waiting > 0): ?>
 <p class="error" role="alert"><?= $say('DELIVERY', 'rm_check_waiting', $waiting) ?></p>
 <?php endif; ?>
 

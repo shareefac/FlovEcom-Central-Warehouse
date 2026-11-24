@@ -36,7 +36,8 @@ final class ClickAndDropReport
      * @param array<string, string> $channels the account's Click & Drop channels: exact name => code (carrier_channel)
      * @return array{rows: int, skipped: int, labels: list<array{tracking_no: string, source_id: ?int, reference: ?string, channel_code: ?string,
      *   service_code: ?string, package: ?string, weight_g: ?int, created_on: null, manifested_at: ?string, manifest_no: ?int, manifest_day: ?string,
-     *   sales_order: ?string}>, sha256: string}
+     *   sales_order: ?string}>, sha256: string, kind: string, row_days: list<?string>} kind: manifested (Company and Department columns there) or
+     *   despatched; row_days: the manifest day of every row with a tracking number or a manifest date (null: no manifest date)
      */
     public static function read(string $bytes, array $channels): array
     {
@@ -59,6 +60,19 @@ final class ClickAndDropReport
         });
         $want ??= self::columns($header);
         ksort($rows);
+        // the report's kind (the Codex check r9 H1; DL84): Click & Drop's Manifested Orders report has a Company and a Department column, its
+        // Despatched Orders report neither; only the first covers days
+        $names = array_map(static fn (string $h): string => strtolower(trim((string) preg_replace('/\s+/u', ' ', $h))), $header);
+        $kind = in_array('company', $names, true) && in_array('department', $names, true) ? 'manifested' : 'despatched';
+        // the manifest day of EVERY row with a tracking number or a manifest date, a row skipped below too (the Codex check r9 H3): null, a
+        // tracking number with no manifest date; the import refuses a report with a row outside its From..To
+        $rowDays = [];
+        foreach ($rows as $r) {
+            $at = self::when($r['manifested_at'] ?? null);
+            if ($at !== null || trim(self::text($r['tracking_no'] ?? null)) !== '') {
+                $rowDays[] = $at === null ? null : substr($at, 0, 10);
+            }
+        }
         $labels = [];
         $skipped = 0;
         $tracked = [];
@@ -72,7 +86,7 @@ final class ClickAndDropReport
             $labels[] = $l;
         }
         $skipped += count($seen) - count($rows); // rows with none of the read columns: no tracking number either
-        return ['rows' => count($seen), 'skipped' => $skipped, 'labels' => $labels, 'sha256' => hash('sha256', $bytes)];
+        return ['rows' => count($seen), 'skipped' => $skipped, 'labels' => $labels, 'sha256' => hash('sha256', $bytes), 'kind' => $kind, 'row_days' => $rowDays];
     }
 
     /**
