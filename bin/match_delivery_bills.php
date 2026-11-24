@@ -28,9 +28,9 @@ exit(Cli::main('match_delivery_bills', [], 'usage: php bin/match_delivery_bills.
         try {
             $n = (new DeliveryBills($cli->db))->rematch(Caller::system('delivery_match'));
             $cli->log("{$n} bill lines put on a parcel or an order (or moved between not matched, ambiguous and the others)");
-        } catch (CwException $e) {
-            // DPD's failure never stops Royal Mail's nightly below (the Codex check r2, r1 MEDIUM 8)
-            $cli->error('not run: ' . $e->getMessage());
+        } catch (CwException | \PDOException $e) {
+            // DPD's failure (a refusal or a database error) never stops Royal Mail's nightly below (the Codex checks r2, r3: r1 MEDIUM 8)
+            $cli->error('not run: ' . ($e instanceof CwException ? $e->getMessage() : 'database error ' . (\CW\Db::driverCode($e) ?? 'unknown')));
             $failed = true;
         }
         // Royal Mail's (pooled) bills (0078, DL66): every key of the live rows of the last RoyalMailBills::REPLAN_DAYS days planned again (a label or a

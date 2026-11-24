@@ -233,6 +233,7 @@ final class RoyalMailBills
         $this->bills->authoriseWrite($caller);
         $account = CarrierSettings::account($this->db, $accountId);
         return $this->bills->inLock(function () use ($caller, $account, $labels, $source, $audit): array {
+            $this->bills->authoriseWrite($caller); // again once the lock is held (the Codex check r3, new MEDIUM 2)
             $u = $this->upsert($caller, $account, $labels, $source, $audit);
             $out = ['labels' => count($labels), 'added' => $u['added'], 'filled' => $u['filled'], 'differs' => $u['differs'], 'replanned' => null, 'replan_error' => null];
             if ($u['all'] === []) {
@@ -311,14 +312,23 @@ final class RoyalMailBills
     public function replan(Caller $caller, ?int $accountId = null, int $days = self::REPLAN_DAYS): int
     {
         $this->bills->authoriseWrite($caller);
-        // the allocations of bills that no longer count ended, whatever the accounts' state (the Codex check r1, MEDIUM 8)
-        $this->bills->inLock(fn () => $this->sweep());
+        // the allocations of bills that no longer count ended, whatever the accounts' state (the Codex check r1, MEDIUM 8), and every label whose
+        // committed price is on an order pinned (a pin a write left undone: DL75)
+        $this->bills->inLock(function (): void {
+            $this->sweep();
+            self::pinCommitted($this->db);
+        });
         $n = 0;
         foreach (CarrierSettings::pooledAccounts($this->db) as $account) {
             if (($accountId !== null && $account['id'] !== $accountId) || $account['state'] !== 'active') {
                 continue;
             }
             $n += $this->bills->inLock(function () use ($caller, $account, $days): int {
+                // read again once the lock is held: switched off meanwhile, not planned (the Codex check r3, new MEDIUM 3)
+                $account = CarrierSettings::account($this->db, $account['id']);
+                if ($account['state'] !== 'active') {
+                    return 0;
+                }
                 $since = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
                 $ctx = self::ctx($this->db, $account);
                 $rows = self::rowsWhere($this->db, $account, 'r.service_date >= ?', [$since]);
@@ -409,8 +419,26 @@ final class RoyalMailBills
             $this->abandon($id);
             throw $e;
         }
+        try {
+            self::pinCommitted($this->db, $id);
+        } catch (\Throwable) {
+            // the nightly pins what this left (replan)
+        }
         $this->sweepLater();
         return [$id, $at]; // read before (the connection may be gone after the write: the Codex check r2, r1 MEDIUM 8)
+    }
+
+    /**
+     * The labels whose live allocation is on an order pinned to that CW parcel (carrier_label.cw_*), from what was COMMITTED (never from a
+     * plan not yet checked: the Codex check r3, new HIGH 1; DL75): right after a bill's write, and by every sweep (a missed pin is caught up).
+     * No money moves here (the allocation is on that order already), so no order guard: one statement.
+     */
+    private static function pinCommitted(Db $db, ?int $invoiceId = null): void
+    {
+        $db->exec('UPDATE carrier_label l JOIN (SELECT a.label_id, MIN(a.channel_id) AS ch, MIN(a.order_ref) AS oref, MIN(a.parcel_ref) AS pref FROM carrier_allocation a '
+            . "JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.ended_at IS NULL AND a.dest = 'order' AND a.label_id IS NOT NULL"
+            . ($invoiceId === null ? '' : ' AND a.invoice_id = ' . $invoiceId) . ' GROUP BY a.label_id) v ON v.label_id = l.id '
+            . 'SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL');
     }
 
     /**
@@ -460,7 +488,6 @@ final class RoyalMailBills
                     try {
                         $this->db->transaction(static function (Db $db) use ($chunk, $id, $now): void {
                             self::insert($db, array_map(static fn (array $a): array => ['invoice_id' => $id] + $a, $chunk), $now);
-                            self::pin($db, $chunk);
                         }, 0);
                         break;
                     } catch (\PDOException $e) {
@@ -636,7 +663,8 @@ final class RoyalMailBills
 
     /**
      * Each label a plan put on an order (not yet pinned) keeps that CW parcel (carrier_label.cw_*): it stays on it whatever comes later, its
-     * price counting or not at a moment (a day waiting again for a late label, its bill undone; the Codex check r2, new HIGH 1; DL74).
+     * price counting or not at a moment (a day waiting again for a late label, its bill undone; the Codex check r2, new HIGH 1; DL74). Written
+     * only by a guarded write, after its snapshot check (the Codex check r3, new HIGH 1; DL75).
      *
      * @param list<array<string, mixed>> $allocations
      */
@@ -837,11 +865,14 @@ final class RoyalMailBills
                 $known[(string) $d['manifest_day']] = (int) $d['open'] === 0;
             }
         }
+        // with the nightly pull running (a checkpoint), a day it has not read whole yet waits too, whatever a report brought (a part of a day's
+        // labels never ends its wait: the Codex check r3, r2 HIGH 1 PARTLY; DL75)
+        $readTo = $db->value('SELECT read_to FROM carrier_label_pull WHERE account_id = ? AND read_to IS NOT NULL', [$account['id']]);
         foreach ($days as $d) {
             // a day after the main shop's CW start needs its labels, all with their service (on or before it: before CW start anyway); no "first
             // label's day" exception (the Codex check r2, r1 HIGH 1 PARTLY)
             $start = $ctx['main_start'] ?? null;
-            if ($start !== null && $d > $start && !($known[$d] ?? false)) {
+            if ($start !== null && $d > $start && (!($known[$d] ?? false) || ($readTo !== null && $d > (string) $readTo))) {
                 $ctx['waiting'][$d] = true;
             }
         }

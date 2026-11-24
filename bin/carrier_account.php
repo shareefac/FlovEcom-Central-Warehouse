@@ -77,10 +77,10 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
         if (preg_match('/^[0-9]{6,16}$/D', $new) !== 1) {
             throw new InvalidArgumentException('--number must be the account number as the carrier prints it (digits)');
         }
-        if (preg_match('/^[0-9]+$/D', (string) $a['account_no']) === 1) {
-            // only a placeholder (0078's vapebig-pending) gets its real number: an account's real number never changes here (the Codex check r2, new
-            // MEDIUM 6: 0078 seeds by number)
-            $cli->error("account {$a['account_no']} has its number already: it is not changed");
+        if (preg_match('/^[0-9]+$/D', (string) $a['account_no']) === 1 && $a['state'] !== 'off') {
+            // a placeholder (0078's vapebig-pending) gets its real number, and a number typed wrong is corrected while the account is off with no bill;
+            // an account in use never changes its number here (the Codex checks r2 new MEDIUM 6, r3 new MEDIUM 4: 0078 seeds by number)
+            $cli->error("account {$a['account_no']} is in use: its number is not changed");
             return Cli::PROBLEM;
         }
         if ($cli->db->value('SELECT 1 FROM carrier_invoice WHERE carrier = ? AND account = ? LIMIT 1', [$a['carrier'], $a['account_no']]) !== null) {

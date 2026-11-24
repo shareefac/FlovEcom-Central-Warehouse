@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS carrier_channel (
   code        VARCHAR(16)       NOT NULL,
   name        VARCHAR(128)      NOT NULL COMMENT 'the channel''s exact name in Click & Drop',
   PRIMARY KEY (account_id, code),
-  UNIQUE KEY uq_carrier_channel_name (account_id, name),
+  UNIQUE KEY uq_carrier_channel_name (name) COMMENT 'a channel name is one account''s only: a report of it is that account''s (DL75)',
   CONSTRAINT fk_carrier_channel_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
   CONSTRAINT ck_carrier_channel_code CHECK (REGEXP_LIKE(code, '^[a-z][a-z0-9_]{1,15}$', 'c') AND code <> 'other')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci

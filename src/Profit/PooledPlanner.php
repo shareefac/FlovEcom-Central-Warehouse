@@ -157,7 +157,14 @@ final class PooledPlanner
             }
             return $out;
         }
+        // the first bill with units billed sets the price (a first bill of only a credit sets none: the Codex check r3, new MEDIUM 5)
         $first = (int) $rows[0]['invoice_id'];
+        foreach ($rows as $r) {
+            if ((int) $r['qty'] > 0) {
+                $first = (int) $r['invoice_id'];
+                break;
+            }
+        }
         $firstRows = array_values(array_filter($rows, static fn (array $r): bool => (int) $r['invoice_id'] === $first));
         $cap = array_values(array_filter($firstRows, static fn (array $r): bool => (int) $r['qty'] > 0));
         $qty = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $cap));

@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL74; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL76; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20414,6 +20414,37 @@ is not seen: the label stays on the first parcel (the same race DPD's DL13 accep
 label read whose plan died is planned by the next read of it or the nightly (120 days), no queue of keys. (r1 MEDIUM 7) the loading step holds
 the delivery lock while it writes (seconds); DPD's nightly waits 10 s for it. (r1 MEDIUM 10) an order of Click & Drop that gets its label more
 than 14 days after it was made is read by the report only. (r1 LOW 19) as DL72.
+
+**DL75. The Codex check r3 of 3ab838b (`cw_work/runs/rmbills_codex_r3.txt`, the last round: NO GO, 3 HIGH, 10 MEDIUM, 3 LOW open).** Round 2's
+r1-4, 9, 11, 12, 14, 16, 17, 18 and new 1, 2, 3, 5, 7 FIXED; DL74's known limits accepted. Fixed now, each shown failing first
+(`runs/rmbills_r3_red.log`; green `runs/rmbills_r3_green*.log`): (new HIGH 1) a label's CW parcel is pinned only from what a write
+COMMITTED: right after a bill's guarded write (from its live allocations on orders, one statement: no money moves, the guards held 0.5 s
+as before; pinned inside the write it was 1.27 s), inside a re-plan's guarded write, and by the nightly (a pin left undone is caught up);
+never in the loading step (a parcel removed before the write is never pinned). (r2 HIGH 1 PARTLY) with the nightly
+pull running, a day it has not read whole yet waits whatever a report brought for it (a part of a day's labels never ends its wait; an
+account read by report only has no such check: for the lead). (r2 HIGH 2 PARTLY) a Click & Drop channel's name is one account's only
+(`uq_carrier_channel_name`), so a report is the account whose channels it names. (new MEDIUM 2) the label import checks the uploader's job
+again once the lock is held; (new MEDIUM 3) the nightly reads the account again inside the lock and skips it when off; (new MEDIUM 4) a
+number typed wrong is corrected while the account is off and has no bill (an account in use never); (new MEDIUM 5) the first bill of a day
+WITH units billed sets its price (a credit-only first bill sets none); (r1 MEDIUM 8) a database error in DPD's re-match never stops Royal
+Mail's nightly. LEFT for the lead (not built): (new MEDIUM 6) the plan's "check first, then Store" on the upload (section 6 step 3): the
+screen stores at once (`bin/rm_bill.php` checks first; the bill's page shows what was held, and Undo takes it out); (r2 MEDIUM 4 PARTLY) a
+plausible but wrong service code (TPL49HV) ends a wait; (r2 MEDIUM 6 PARTLY, 13 PARTLY, 20 PARTLY; r1 LOW 15 PARTLY; new LOW 7) as Codex
+describes them, none of them money on a wrong shop; the DL74 known limits.
+
+**DL76. The labels "held, shop not known" on the owner's three bills are Electrofag's, from before Electrofag's parcels reach CW (the
+coordinator's question, 24 Nov 2026; counts only, from the phase-0 extracts).** The matching IS tracking first (DL57 check b, DPD's rule):
+of Click & Drop's labels with a 4-digit reference on the API channel, 664 from 23 Oct to 23 Nov, 121 are on a CW parcel by tracking number,
+every one of them an Electrofag parcel; the other 543 are on no CW parcel at all. CW's Electrofag parcels start on 17 Nov (131 parcels,
+17-23 Nov, all with tracking numbers, order refs 6521-6666); from that day 121 of 125 labels match by tracking (4 a day not yet in the
+extract). The held labels are the days before: references 4767-5456, 13 to 44 a day from 23 Oct to 16 Nov, all Tracked 48 / 24 parcels
+(UK services: none international). A reference is Electrofag's ORDER NUMBER (`ord_refrence_no`, what CW keeps as `sale_order.order_no`,
+which check e compares), not CW's order ref (`ord_id`, 1,064-1,068 higher): so check e agrees once the order is in CW. Not a matching gap:
+the bills of 2, 9 and 16 Nov cover 21 Oct - 12 Nov, before Electrofag's orders reached CW; the bill of about 30 Nov (days 12-19 Nov) will put
+Electrofag's labels from 17 Nov on their orders. PROPOSED, NOT BUILT (the coordinator's answer first): a party rule "channel api and 4
+digits = Electrofag" (priority after "#" and before "7 digits"): such a label on no CW parcel would then be Electrofag's "before CW start"
+(on or before Electrofag's start) or Electrofag's "not on an order", instead of held. Hayati's references never come this way (#, or the
+WooCommerce channel); a bare 4-digit reference under "Manual Order Entry" still names nobody (P0-6).
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
