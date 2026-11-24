@@ -231,19 +231,37 @@ final class RoyalMailViews
         return $out;
     }
 
-    /** @return list<array<string, mixed>> the bill's Special Delivery manifests: rows, units, net, labels, how they were priced */
+    /**
+     * The bill's Special Delivery manifests: rows, units, net, labels, how they were priced. A row is counted under the manifest the plan put it on
+     * (its printed number, or a row naming only its sales order: the manifest of the labels its money went to), so the table shows what each
+     * manifest received (the final review, F11).
+     *
+     * @return list<array<string, mixed>>
+     */
     private function manifests(int $id): array
     {
+        $by = [];
+        foreach ($this->db->all("SELECT r.row_no, r.ref_kind, r.ref_no, r.qty, r.net_pence, (SELECT MIN(l.manifest_no) FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id "
+            . 'WHERE a.invoice_id = r.invoice_id AND a.row_no = r.row_no AND a.ended_at IS NULL) AS lm, (SELECT COUNT(DISTINCT l.manifest_no) FROM carrier_allocation a '
+            . 'JOIN carrier_label l ON l.id = a.label_id WHERE a.invoice_id = r.invoice_id AND a.row_no = r.row_no AND a.ended_at IS NULL) AS lmn FROM carrier_bill_row r '
+            . "JOIN carrier_product p ON p.carrier = 'royal_mail' AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.invoice_id = ? ORDER BY r.row_no", [$id]) as $r) {
+            $m = $r['ref_kind'] === 'manifest' ? (string) (int) $r['ref_no'] : ((int) $r['lmn'] === 1 ? (string) (int) $r['lm'] : null);
+            if ($m === null) {
+                continue; // on no single manifest: on the "needs a look" list (no label)
+            }
+            $by[$m] ??= ['rows' => [], 'qty' => 0, 'net' => 0];
+            $by[$m]['rows'][] = (int) $r['row_no'];
+            $by[$m]['qty'] += (int) $r['qty'];
+            $by[$m]['net'] += (int) $r['net_pence'];
+        }
+        ksort($by, SORT_NUMERIC);
         $out = [];
-        foreach ($this->db->all("SELECT r.ref_no AS manifest, COUNT(*) AS rows_n, SUM(r.qty) AS qty, SUM(r.net_pence) AS net FROM carrier_bill_row r JOIN carrier_product p "
-            . "ON p.carrier = 'royal_mail' AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.invoice_id = ? AND r.ref_kind = 'manifest' GROUP BY r.ref_no "
-            . 'ORDER BY CAST(r.ref_no AS UNSIGNED)', [$id]) as $m) {
-            $how = $this->db->column("SELECT DISTINCT a.how FROM carrier_allocation a JOIN carrier_bill_row r ON r.invoice_id = a.invoice_id AND r.row_no = a.row_no "
-                . "WHERE a.invoice_id = ? AND r.ref_kind = 'manifest' AND r.ref_no = ? AND a.ended_at IS NULL", [$id, (string) $m['manifest']]);
-            $labels = (int) $this->db->value("SELECT COUNT(DISTINCT a.label_id) FROM carrier_allocation a JOIN carrier_bill_row r ON r.invoice_id = a.invoice_id "
-                . "AND r.row_no = a.row_no WHERE a.invoice_id = ? AND r.ref_kind = 'manifest' AND r.ref_no = ? AND a.ended_at IS NULL AND a.label_id IS NOT NULL",
-                [$id, (string) $m['manifest']]);
-            $out[] = ['manifest' => (string) $m['manifest'], 'rows' => (int) $m['rows_n'], 'qty' => (int) $m['qty'], 'net' => (int) $m['net'], 'labels' => $labels,
+        foreach ($by as $m => $g) {
+            $in = implode(', ', array_fill(0, count($g['rows']), '?'));
+            $how = $this->db->column("SELECT DISTINCT how FROM carrier_allocation WHERE invoice_id = ? AND row_no IN ({$in}) AND ended_at IS NULL ORDER BY how", [$id, ...$g['rows']]);
+            $labels = (int) $this->db->value("SELECT COUNT(DISTINCT label_id) FROM carrier_allocation WHERE invoice_id = ? AND row_no IN ({$in}) AND ended_at IS NULL "
+                . 'AND label_id IS NOT NULL', [$id, ...$g['rows']]);
+            $out[] = ['manifest' => (string) $m, 'rows' => count($g['rows']), 'qty' => $g['qty'], 'net' => $g['net'], 'labels' => $labels,
                 'how' => implode(', ', array_map('strval', $how))];
         }
         return $out;

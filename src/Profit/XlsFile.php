@@ -59,7 +59,10 @@ final class XlsFile
         }
         $ssz = 1 << $h['secShift'];
         $nsec = intdiv($len - 1, $ssz); // sector s lies at (s + 1) * ssz: the header takes the first sector's room
-        if ($f['nFat'] < 1 || $f['nFat'] > $nsec || $f['nDifat'] > $nsec) {
+        // the FAT and DIFAT sizes bound by the file itself before anything is expanded (the final review, F9): each FAT sector maps ssz / 4 sectors,
+        // so a whole file needs at most nsec / (ssz / 4) + 1 of them, and each DIFAT sector names ssz / 4 - 1 FAT sectors
+        $per = intdiv($ssz, 4);
+        if ($f['nFat'] < 1 || $f['nFat'] > intdiv($nsec, $per) + 1 || $f['nDifat'] > intdiv(max(0, $f['nFat'] - 109), $per - 1) + 1) {
             throw self::refuse();
         }
         $sector = static function (int $s) use ($data, $ssz, $nsec): string {
@@ -71,14 +74,19 @@ final class XlsFile
         // The FAT's sectors: the header's 109 entries, then the DIFAT sectors' (each ssz / 4 - 1 entries and the next DIFAT sector).
         $difat = array_values((array) unpack('V109', $data, 76));
         $next = $f['difatStart'];
+        $seenDifat = [];
         for ($i = 0; $i < $f['nDifat'] && $next < self::MARKS; $i++) {
+            if (isset($seenDifat[$next])) {
+                throw self::refuse(); // a DIFAT sector named twice (a loop)
+            }
+            $seenDifat[$next] = true;
             $vals = array_values((array) unpack('V' . intdiv($ssz, 4), $sector($next)));
             $next = (int) array_pop($vals);
             array_push($difat, ...$vals);
         }
         $fatSectors = array_slice(array_values(array_filter($difat, static fn (int $v): bool => $v < self::MARKS)), 0, $f['nFat']);
-        if (count($fatSectors) !== $f['nFat']) {
-            throw self::refuse();
+        if (count($fatSectors) !== $f['nFat'] || count(array_unique($fatSectors)) !== count($fatSectors)) {
+            throw self::refuse(); // too few, or one FAT sector named twice (F9)
         }
         $fat = [];
         foreach ($fatSectors as $s) {
@@ -198,7 +206,10 @@ final class XlsFile
                     throw self::refuse();
                 }
                 if ($inSheet && $depth === 0) {
-                    return; // the first worksheet ends: nothing after it is read
+                    // the first worksheet ends: nothing after it is read, but a second data worksheet refuses the file (only one is read and
+                    // checked: the final review, F5)
+                    self::noOtherSheet($wb, $pos);
+                    return;
                 }
                 continue;
             }
@@ -406,6 +417,32 @@ final class XlsFile
             $out[] = implode('', $chars);
         }
         return $out;
+    }
+
+    /** The records after the first worksheet: another worksheet (BOF of type 0x0010 at the top level) refuses the workbook. */
+    private static function noOtherSheet(string $wb, int $pos): void
+    {
+        $len = strlen($wb);
+        $depth = 0;
+        while ($pos + 4 <= $len) {
+            $r = unpack('vid/vlen', $wb, $pos);
+            if ($r === false || $pos + 4 + $r['len'] > $len) {
+                throw self::refuse();
+            }
+            if ($r['id'] === 0x0809) {
+                if ($r['len'] < 4) {
+                    throw self::refuse();
+                }
+                if ($depth === 0 && unpack('v', $wb, $pos + 6)[1] === 0x0010) {
+                    throw new CwException('bad_file', 'Click & Drop report not read: it has more than one worksheet (CW reads one only). Download the report again '
+                        . 'from Click & Drop and upload that file as it is. Nothing was saved.', 422);
+                }
+                $depth++;
+            } elseif ($r['id'] === 0x000A) {
+                $depth = max(0, $depth - 1);
+            }
+            $pos += 4 + $r['len'];
+        }
     }
 
     private static function refuse(): CwException

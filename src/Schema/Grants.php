@@ -132,7 +132,9 @@ final class Grants
         // 0077 (docs/decisions.md DL1, DL2): a carrier bill is never deleted and what it says never changes: only whether it counts (live,
         // superseded by a corrected file, undone) and who ended it when; a bill line's content is frozen, only its match is written (a line
         // not matched yet is put on its parcel or order later, never moved off one).
-        'carrier_invoice' => ['status', 'ended_by', 'ended_actor', 'ended_at'],
+        // 0078 round 12 (docs/decisions.md DL90 F10): a pooled bill's corrected file names the bill it replaces only in the write that makes it
+        // live (written once, from NULL: a correction whose Store failed names nothing)
+        'carrier_invoice' => ['status', 'ended_by', 'ended_actor', 'ended_at', 'supersedes_id'],
         'carrier_invoice_line' => ['match_state', 'channel_id', 'order_ref', 'parcel_ref', 'candidates', 'matched_at'],
         // 0078 (docs/decisions.md DL51): where a bill row's money went is never rewritten or removed: an allocation that no longer counts is
         // ended (its bill undone or replaced, its day planned again), and the new one is a row of its own.

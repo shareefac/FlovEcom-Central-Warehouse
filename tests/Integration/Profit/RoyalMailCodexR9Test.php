@@ -169,7 +169,8 @@ final class RoyalMailCodexR9Test extends StockTestCase
         $a = $this->bill([RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2201', '5155502051')], '9070000051');
         self::assertSame(["order|{$this->vpg}|" => 930], self::where($a));
         $b = $this->bill([RmBill::line('2026-11-12', 'SD1', 2, 2008, 'CLICK AND DROP M2202', '5155502052')], '9070000052', 'Nov 23, 2026');
-        self::assertSame(["order|{$this->ef}|" => 2008], self::where($b), 'M2202: 2 billed for its 1 label, the average (red on "needs a look")');
+        // DL89 (round 12): the unit billed above the label is the main shop's "not on an order" (was: 2008 averaged onto the one label)
+        self::assertSame(["order|{$this->ef}|" => 1004, "shop|{$this->vpg}|" => 1004], self::where($b), 'M2202: 2 billed for its 1 label: one unit on it, one on Vape and Go\'s line (red on "needs a look")');
         self::assertSame(["order|{$this->vpg}|" => 930], self::where($a), 'M2201 as it was');
         self::assertSame(930, DeliveryBills::orderCost(self::$db, $this->vpg, '2051'));
         self::assertSame([['manifest', 2202]], array_map(static fn (array $i): array => [$i['kind'], $i['manifest']], array_values(array_filter(

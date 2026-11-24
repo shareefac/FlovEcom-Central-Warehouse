@@ -798,11 +798,19 @@ final class DeliveryBills
      */
     private function attempts(\Closure $plan, float $since): mixed
     {
+        // The plan is made fresh on the first try and after it was found old (RETRY); a try given up only because a guard or a row was busy
+        // (or no time was left while they were held) passes $fresh = false, so a plan that keeps what it made (RoyalMailBills: a week's plan
+        // takes seconds) is not made again: nothing it read can have changed under the bills' lock but the orders, and those are checked again
+        // under the guards (their days, their snapshots, verify) whatever the plan. The budget counts from the first guard taken, so a long plan
+        // never leaves a busy guard no second try (the final review, H1; DL90). A plan that takes one argument (DPD's) is made every try as before.
+        $fresh = true;
+        $guardsFrom = null;
         for ($try = 1; ; $try++) {
             $held = [];
             try {
-                return $this->db->transaction(static function (Db $db) use ($plan, &$held): mixed {
-                    $p = $plan($db);
+                return $this->db->transaction(static function (Db $db) use ($plan, &$held, $fresh, &$guardsFrom): mixed {
+                    $p = $plan($db, $fresh);
+                    $guardsFrom ??= microtime(true);
                     $facts = [...$p['before'], ...$p['after']];
                     $owners = [];
                     foreach ($facts as $f) {
@@ -914,16 +922,18 @@ final class DeliveryBills
                 $code = Db::driverCode($e);
                 if (($e instanceof CwException && in_array($e->errorCode, [self::GUARD_BUSY, 'out_of_time'], true)) || Db::isDeadlock($e)
                     || in_array($code, [1205, 3058, 3572], true)) {
-                    if (microtime(true) - $since >= self::GUARD_BUDGET_SEC) {
+                    if (microtime(true) - ($guardsFrom ?? $since) >= self::GUARD_BUDGET_SEC) {
                         throw new CwException('busy', 'an order of this bill is being stored right now: nothing was saved; try again in a minute', 503);
                     }
                     usleep(random_int(150_000, 300_000));
                     $try--;
+                    $fresh = false;
                     continue;
                 }
                 if (!($e instanceof CwException && $e->errorCode === self::RETRY)) {
                     throw $e;
                 }
+                $fresh = true;
                 if ($try >= self::TRIES) {
                     throw new CwException('busy', 'the orders of these lines kept changing, or were busy, while they were saved: nothing was saved; try again in a minute',
                         503);

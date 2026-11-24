@@ -36,8 +36,9 @@ final class ClickAndDropReport
      * @param array<string, string> $channels the account's Click & Drop channels: exact name => code (carrier_channel)
      * @return array{rows: int, skipped: int, labels: list<array{tracking_no: string, source_id: ?int, reference: ?string, channel_code: ?string,
      *   service_code: ?string, package: ?string, weight_g: ?int, created_on: null, manifested_at: ?string, manifest_no: ?int, manifest_day: ?string,
-     *   sales_order: ?string}>, sha256: string, kind: string, row_days: list<?string>} kind: manifested (Company and Department columns there) or
-     *   despatched; row_days: the manifest day of every row with a tracking number or a manifest date (null: no manifest date)
+     *   sales_order: ?string, ref_unusable: bool}>, sha256: string, kind: string, row_days: list<?string>, foreign: int} kind: manifested (Company and
+     *   Department columns there) or despatched; row_days: the manifest day of every row with a tracking number or a manifest date (null: no
+     *   manifest date); foreign: the substantive rows of no channel or of one not the account's
      */
     public static function read(string $bytes, array $channels): array
     {
@@ -73,6 +74,23 @@ final class ClickAndDropReport
                 $rowDays[] = $at === null ? null : substr($at, 0, 10);
             }
         }
+        // the channel of EVERY substantive row (any read cell not empty), before any row is skipped for its tracking number (the final review,
+        // F4: a foreign report whose tracking numbers are all unusable would cover days with no label): a row of no channel or of one the account
+        // does not have is counted, and the import refuses the report whole
+        $foreign = 0;
+        foreach ($rows as $r) {
+            $any = false;
+            foreach ($r as $v) {
+                if (trim(self::text($v)) !== '') {
+                    $any = true;
+                    break;
+                }
+            }
+            $channel = trim(self::text($r['channel'] ?? null));
+            if ($any && ($channel === '' || !isset($channels[$channel]))) {
+                $foreign++;
+            }
+        }
         $labels = [];
         $skipped = 0;
         $tracked = [];
@@ -86,7 +104,8 @@ final class ClickAndDropReport
             $labels[] = $l;
         }
         $skipped += count($seen) - count($rows); // rows with none of the read columns: no tracking number either
-        return ['rows' => count($seen), 'skipped' => $skipped, 'labels' => $labels, 'sha256' => hash('sha256', $bytes), 'kind' => $kind, 'row_days' => $rowDays];
+        return ['rows' => count($seen), 'skipped' => $skipped, 'labels' => $labels, 'sha256' => hash('sha256', $bytes), 'kind' => $kind, 'row_days' => $rowDays,
+            'foreign' => $foreign];
     }
 
     /**
@@ -152,6 +171,9 @@ final class ClickAndDropReport
             'tracking_no' => $tracking,
             'source_id' => preg_match('/^[1-9][0-9]{0,17}$/D', $source) === 1 ? (int) $source : null,
             'reference' => preg_match('/^#?[0-9]{1,9}$/D', $ref) === 1 ? $ref : null,
+            // a reference given but in no known shape: only this flag is kept, never the text (the final review, F6): such a label is never put on
+            // an order by its tracking number alone (LabelDestinations: held, ref_unusable)
+            'ref_unusable' => $ref !== '' && preg_match('/^#?[0-9]{1,9}$/D', $ref) !== 1,
             'channel_code' => $channel === '' ? null : ($channels[$channel] ?? 'other'),
             // letters then a digit (TPL48HV, SD1): a word there is never a service (the Codex check r2, new MEDIUM 4)
             'service_code' => preg_match('/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D', $service) === 1 ? $service : null,

@@ -28,7 +28,7 @@ use CW\Reports\ReportRefresh;
 final class LabelDestinations
 {
     /** The reasons a label is held (a fixed list: shown on the bill's page). */
-    public const HELD = ['two_parcels', 'other_shop', 'carrier', 'ref_differs', 'shop_differs', 'shop_unknown', 'not_served'];
+    public const HELD = ['two_parcels', 'other_shop', 'carrier', 'ref_differs', 'ref_unusable', 'shop_differs', 'shop_unknown', 'not_served'];
     /** What a plan names for an order it saw at two snapshots: no write passes with it (it is tried again). */
     public const CONFLICT = 'conflict';
     /** A Royal Mail tracking number's shape (a manual label in CW with one may be a Royal Mail label of the account: check d). */
@@ -96,6 +96,8 @@ final class LabelDestinations
                         && preg_match(self::RM_TRACKING, (string) $l['tracking_no']) === 1)) => self::held('carrier'),
                     $ref !== null && (str_starts_with((string) $ref, '#') || DeliveryBills::orderNumber((string) $ref) !== DeliveryBills::orderNumber((string) $p['order_no']))
                         => self::held('ref_differs'),
+                    // a reference given but unusable (kept as a flag only): never put on an order by its tracking number alone (the final review, F6)
+                    !empty($l['ref_unusable']) => self::held('ref_unusable'),
                     ($l['channel_code'] ?? null) !== null && $ruled !== null && $ruled !== $pid => self::held('shop_differs'),
                     default => ['dest' => 'order', 'channel_id' => (int) $p['channel_id'], 'order_ref' => (string) $p['order_ref'], 'parcel_ref' => (string) $p['parcel_ref'],
                         'party_id' => null, 'held_reason' => null],

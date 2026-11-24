@@ -65,9 +65,12 @@ final class RoyalMailLook
     {
         $a = CarrierSettings::account($db, $accountId);
         $since = $now->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
-        return self::forDays($db, $accountId, array_map('strval', $db->column("SELECT DISTINCT r.service_date FROM carrier_bill_row r JOIN carrier_invoice i "
-            . "ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? WHERE r.service_date >= ?", [$a['carrier'], $a['account_no'], $since])), [], [],
-            $redOnly);
+        // the live bills' days AND the days a report covers (a parcel in no report or an odd label is listed before its bill comes: the final
+        // review, F11)
+        return self::forDays($db, $accountId, array_values(array_unique(array_map('strval', [...$db->column("SELECT DISTINCT r.service_date FROM carrier_bill_row r "
+            . "JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? WHERE r.service_date >= ?",
+            [$a['carrier'], $a['account_no'], $since]), ...$db->column('SELECT DISTINCT day FROM carrier_day_cover WHERE account_id = ? AND day >= ?',
+            [$a['id'], $since])]))), [], [], $redOnly);
     }
 
     /**
@@ -164,7 +167,8 @@ final class RoyalMailLook
         foreach ($rows as $r) {
             if (($kind[(string) $r['product_code']] ?? null) === 'flat' && isset($covered[(string) $r['service_date']])) {
                 $k = $r['service_date'] . '|' . $r['product_code'];
-                $billed[$k] = ($billed[$k] ?? 0) + (int) $r['qty'];
+                // a charge's units only: a credit is no billed unit (the final review, F1)
+                $billed[$k] = ($billed[$k] ?? 0) + ((int) $r['qty'] > 0 && (int) $r['net'] > 0 ? (int) $r['qty'] : 0);
             }
         }
         ksort($billed);
@@ -267,7 +271,7 @@ final class RoyalMailLook
             $soManifests($mineSo);
             foreach (array_chunk($ids, 300) as $chunk) {
                 // every live bill's rows naming the manifest, whatever their day (DL86 5)
-                foreach ($db->all("SELECT r.ref_no, SUM(r.qty) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
+                foreach ($db->all("SELECT r.ref_no, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
                     . "AND i.account = ? JOIN carrier_product p ON p.carrier = i.carrier AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.ref_kind = 'manifest' "
                     . 'AND r.ref_no IN (' . $marks(count($chunk)) . "){$not} GROUP BY r.ref_no", [$account['carrier'], $account['account_no'], ...array_map('strval', $chunk), ...$gone]) as $r) {
                     $units[(int) $r['ref_no']] += (int) $r['q'];
@@ -275,7 +279,7 @@ final class RoyalMailLook
             }
             // ... and every live row naming only a sales order of its labels, on that manifest alone
             foreach (array_chunk(array_values(array_unique($mineSo)), 300) as $chunk) {
-                foreach ($db->all("SELECT r.sales_order, SUM(r.qty) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
+                foreach ($db->all("SELECT r.sales_order, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
                     . "AND i.account = ? JOIN carrier_product p ON p.carrier = i.carrier AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.ref_kind <> 'manifest' "
                     . 'AND r.sales_order IN (' . $marks(count($chunk)) . "){$not} GROUP BY r.sales_order", [$account['carrier'], $account['account_no'], ...$chunk, ...$gone]) as $r) {
                     $m = $one((string) $r['sales_order']);
@@ -290,7 +294,7 @@ final class RoyalMailLook
                 }
                 $m = $r['ref_kind'] === 'manifest' ? (int) $r['ref_no'] : $one($r['sales_order']);
                 if ($m !== null && isset($units[$m])) {
-                    $units[$m] += (int) $r['qty'];
+                    $units[$m] += (int) $r['qty'] > 0 && (int) $r['net'] > 0 ? (int) $r['qty'] : 0;
                 }
             }
             foreach ($manifests as $m => $day) {
@@ -299,8 +303,21 @@ final class RoyalMailLook
                         'billed' => $units[$m]];
                 }
             }
-            // the odd labels of these manifests, whatever their day (F6)
+            // the odd labels of these manifests, whatever their day (F6): a label of no service or one CW does not map on the manifest too (the
+            // final review, F11)
             $seen = array_flip(array_column($odd, 'tracking_no'));
+            foreach ($redOnly ? [] : array_chunk($ids, 300) as $chunk) {
+                foreach ($db->all('SELECT tracking_no, service_code, manifest_day, manifest_no FROM carrier_label WHERE account_id = ? AND manifest_no IN (' . $marks(count($chunk))
+                    . ') AND (service_code IS NULL OR service_code NOT IN (' . $marks(count($mapped)) . '))', [$account['id'], ...$chunk, ...$mapped]) as $r) {
+                    $t = strtoupper((string) $r['tracking_no']);
+                    if (!isset($seen[$t])) {
+                        $seen[$t] = true;
+                        $odd[] = ['kind' => 'odd_service', 'day' => (string) $r['manifest_day'], 'red' => false, 'tracking_no' => $t,
+                            'why' => $r['service_code'] === null ? 'no_service' : 'unknown_service', 'service' => (string) ($r['service_code'] ?? ''), 'cw_service' => null,
+                            'product' => null, 'manifest' => (int) $r['manifest_no']];
+                    }
+                }
+            }
             foreach ($redOnly ? [] : array_chunk($ids, 300) as $chunk) {
                 foreach (self::differs($db, (int) $account['id'], 'l.manifest_no IN (' . $marks(count($chunk)) . ')', $chunk, $band) as $r) {
                     $t = strtoupper((string) $r['tracking_no']);

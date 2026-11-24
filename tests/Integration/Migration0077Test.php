@@ -42,7 +42,9 @@ final class Migration0077Test extends IntegrationTestCase
         }
         self::assertStringContainsString('ALGORITHM = INSTANT', $sql, 'profit_day is not copied');
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_invoice'), 'a bill is never deleted');
-        self::assertSame(['status', 'ended_by', 'ended_actor', 'ended_at'], Grants::UPDATE_COLUMNS['carrier_invoice'], 'only whether it counts, and who ended it');
+        // + supersedes_id since 0078 round 12 (DL90 F10): a pooled correction names the bill it replaces only when it is made live
+        self::assertSame(['status', 'ended_by', 'ended_actor', 'ended_at', 'supersedes_id'], Grants::UPDATE_COLUMNS['carrier_invoice'],
+            'only whether it counts, who ended it, and (once, when made live) the bill it replaced');
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_invoice_line'));
         self::assertSame(['match_state', 'channel_id', 'order_ref', 'parcel_ref', 'candidates', 'matched_at'], Grants::UPDATE_COLUMNS['carrier_invoice_line'],
             'a line\'s content is frozen: only its match');

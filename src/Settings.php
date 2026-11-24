@@ -51,6 +51,9 @@ final class Settings
         // 0078 (DL86 7, the owner's 1%): a Royal Mail day or Special Delivery manifest billed more units than its labels by more than this percent
         // of them is red on "needs a look" and in the health alert (RoyalMailLook)
         'delivery.rm_billed_more_pct' => ['min' => '0', 'max' => '100', 'percent' => true],
+        // 0078 (DL90 K2): the go-live kit's undo holds every Royal Mail write while this names its run (empty: not held)
+        'delivery.rm_writes_held' => ['pattern' => '/^([a-z0-9][a-z0-9_.:-]{7,63})?$/D',
+            'pattern_says' => 'empty (Royal Mail bills may be written), or the run id of the go-live kit\'s undo that holds them'],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

@@ -164,7 +164,8 @@ final class RoyalMailCodexR12Test extends StockTestCase
         $this->report([self::sd('AS000003421GB', '2026-11-11', '1393421', 2921, '5155503421'), self::sd('AS000003422GB', '2026-11-11', '1393422', 2921, '5155503421')],
             '2026-11-11', '2026-11-12');
         $id = $this->bill([RmBill::line('2026-11-12', 'SD1', 2, 1860, 'CLICK AND DROP M2921', '5155503421')]);
-        self::assertSame(["order|{$this->vpg}|" => 1860], self::where($id));
+        // DL89 (round 12): the unit billed above the manifest's one usable label is the main shop's "not on an order" (was: averaged onto the label)
+        self::assertSame(["order|{$this->vpg}|" => 930, "shop|{$this->vpg}|" => 930], self::where($id));
         $look = array_map(static fn (array $i): array => [$i['kind'], $i['tracking_no'] ?? $i['manifest'] ?? null], RoyalMailLook::forDays(self::$db, $this->acct['account'],
             ['2026-11-12']));
         self::assertSame([['odd_service', 'AS000003422GB'], ['manifest', 2921]], $look, 'its odd label of the 11th, and the manifest billed 2 for its 1 usable label');

@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   source         ENUM('api','report') NOT NULL COMMENT 'what brought it first; the other only fills empty fields (phase 1: report only, DL84; api is phase 2)',
   source_id      BIGINT UNSIGNED   NULL COMMENT 'Click & Drop''s order identifier',
   reference      VARCHAR(12)       NULL COMMENT 'the shop order number the label carried: up to 9 digits, or # and digits; anything else (a phone number) not kept',
+  ref_unusable   TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: a reference was given in no known shape (its text never kept): the label is never put on an order by its tracking number alone (F6)',
   channel_code   VARCHAR(16)       NULL COMMENT 'its Click & Drop channel as the code of one of the account''s (carrier_channel), else other',
   service_code   VARCHAR(16)       NULL,
   package        VARCHAR(16)       NULL COMMENT 'letter, large_letter, parcel, other',
@@ -275,7 +276,8 @@ CREATE TABLE IF NOT EXISTS carrier_label (
     AND (service_code IS NULL OR REGEXP_LIKE(service_code, '^[A-Z0-9]{1,16}$', 'c'))
     AND (package IS NULL OR package IN ('letter', 'large_letter', 'parcel', 'other'))
     AND (sales_order IS NULL OR REGEXP_LIKE(sales_order, '^[0-9]{10}$', 'c'))
-    AND (manifest_no IS NULL OR manifest_day IS NOT NULL))
+    AND (manifest_no IS NULL OR manifest_day IS NOT NULL)
+    AND ref_unusable IN (0, 1) AND (ref_unusable = 0 OR reference IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='one row per label of a pooled carrier account (docs/decisions.md DL48): never a name, address, postcode, email or phone';
 
@@ -421,10 +423,11 @@ CREATE TABLE IF NOT EXISTS carrier_replan_due (
 -- The alarm of DL86 7 (the owner, 24 Nov 2026: "your 1% rule is fine"): a setting like every other (Settings › its page: settings.manage, a
 -- reason, its versions in config_change and the audit), with its baseline version as 0074 gave its own. Run again: the row as it is then.
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
+ ('delivery.rm_writes_held','string','""',0,'DL90','Royal Mail: empty, or the run id of the go-live kit''s undo while it holds every Royal Mail write (web, report import, tools, the nightly). Set and cleared by the kit only'),
  ('delivery.rm_billed_more_pct','decimal','"1.0"',0,'DL86','Royal Mail: a day of a Tracked service, or a Special Delivery manifest, billed more units than its labels by more than this percent of its labels is red on "Needs a look" (the bill''s page, the check, Profit › Delivery bills) and in the health alert. The extra units'' money is on the main shop''s "not on an order" whatever this is')
  ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
   SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
-  FROM app_setting s WHERE s.setting_key = 'delivery.rm_billed_more_pct'
+  FROM app_setting s WHERE s.setting_key IN ('delivery.rm_billed_more_pct', 'delivery.rm_writes_held')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);

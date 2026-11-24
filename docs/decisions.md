@@ -20802,6 +20802,58 @@ instead of Vape and Go's billed-more line until the nightly. Closing it would me
 that dies before it marks its first days due (or fails to read its rows), can leave that label priced on its order for good (£2.54). DL87 H6
 marks the first 7 days due before planning them; a durable nightly checkpoint would close the rest.
 
+**DL89. SPECIAL DELIVERY BILLED ABOVE ITS LABELS: THE EXTRA UNITS ARE THE MAIN SHOP'S (the owner's DL86 rule, "extras to the main shop's 'not on an
+order'", applied to Special Delivery; the round-12 brief F3, 24 Nov 2026; it replaces DL87's "left, for the lead" averaging of the excess).** A
+manifest is still priced by its number (DL86 5) against its USABLE labels (an odd-service label is left out, DL86 4). When the charges' unit
+prices fit the labels' weight bands one to one, each label takes its band's price (as built). Else each label takes at most ONE unit at the
+manifest's average of its CHARGED units: when more units are charged than there are usable labels, each charge row puts its net x labels /
+units (rounded half away from zero) on the labels (shared exactly) and the rest on the account's main shop's "not on an order" (`how = extra`,
+red on "Needs a look" over `delivery.rm_billed_more_pct`); as many or fewer: each charge shared over all the labels (as built). The Codex
+astra example: one manifest billing 3 x GBP 9.30 with 2 usable labels was GBP 13.95 on each order; now GBP 9.30 on each order and GBP 9.30 on
+Vape and Go's "not on an order" (`RoyalMailFinalReviewTest::testF3SpecialDeliveryExtraUnitsGoToTheMainShop`; the r12 F6 test changed with
+it: 2 billed for 1 usable label = GBP 9.30 on the order and GBP 9.30 on Vape and Go's line, was GBP 18.60 on the order).
+
+**DL90. Round 12: the final reviews of 1e209e6 / 738ad6f (Codex astra NO GO, 11 HIGH, 12 MEDIUM: `cw_work/runs/rmbills_final_astra_report.txt`;
+Fable GO after H1/M1; the brief `rmbills_r12_brief.txt` F1-F12, K1-K10; the owner 24 Nov ~15:45: fix every finding with a clear fix now).**
+Red first (`runs/rmbills_r12_red.log`, `RoyalMailFinalReviewTest`, 15 of 15 failing at 738ad6f); green `runs/rmbills_r12_green*.log`.
+(F1) A CHARGE is a row with quantity > 0 AND net > 0. A Tracked day's price comes only from the charges of the first bill that has a charge for
+that day x product; a credit (a negative net or quantity, whatever its printed quantity) never sets a price, never counts as a billed unit
+for "billed more" (nor on "Needs a look"), and goes whole to the day's line (billed fewer or as many: split by the label holders; billed more:
+the main shop). E.g. a first bill of only "1 x -GBP 2.54" and a later "2 x GBP 5.08": GBP 2.54 on each order and -GBP 2.54 on the day line
+(was -GBP 2.54 on each order). DECIDED HERE, FOR THE LEAD: a Special Delivery manifest's credit row is the main shop's "not on an order"
+(`how = credit`), never shared over the manifest's labels (2 labels, 2 x GBP 9.30 charged, a -GBP 9.30 credit: GBP 9.30 on each order and
+-GBP 9.30 on Vape and Go's line; was GBP 4.65 on each order). Wrong weight (RX1/RXA) credits stay shared over the sales order's labels (a
+credit there reverses that sales order's surcharge: as built). (F2) The bill's page or text is refused whole when any row holds a money
+amount ("GBP n.nn" anywhere in a cell) but is not read as a line, the VAT summary, the total or the surcharge note (a line whose date is
+written 05-11-2026 is such a row): never shrunk. The owner's three bills still read (173, 189, 159 rows). (F3) DL89. (F4) The channel of EVERY
+substantive report row (any read cell not empty) is checked against the account's channels BEFORE rows are skipped for their tracking
+numbers (`ClickAndDropReport::read` 'foreign'); a report with no label CW can read is refused (`no_labels`: no label, no cover). (F5) A workbook
+with a second worksheet is refused (only one is read and checked; the real phase-0 report has one: dry read 31,586 rows, 31,586 labels, 0
+foreign, 70 MB, 2.4 s). (F6) A reference given in no known shape is kept only as `carrier_label.ref_unusable` = 1 (its text never); such a
+label on a CW parcel is never put on an order by its tracking number alone: held `ref_unusable` (on no CW parcel it goes by the party rules as
+before). (F7) A plan's FIRST pins (a label put on an order for the first time) are checked again under the write's guards, read with the
+services in one statement (`RoyalMailBills::evidence`): exactly ONE CW parcel of the number in the label's window, the one it is put on; else
+the plan is old (made again: the label is then held `two_parcels`, nothing pinned). (F8) The nightly makes its first EDGE_DAYS calendar days
+due BEFORE it reads anything (INSERT IGNORE, its own `since`; only its own rows taken away when every key was planned). (F9) The workbook's FAT
+and DIFAT sizes are bound by the file's size and a FAT or DIFAT sector named twice refuses the file before anything is expanded. (F10)
+`supersedes_id` is written only by the write that makes the correction live (a correction whose Store fails links nothing: the baseline's
+DB6 after an undo); so the app login may UPDATE `carrier_invoice.supersedes_id` (Schema\Grants, applied by the release's migrate; after a
+rollback the extra column grant stays, unused, until the next deploy's migrate takes it back). (F11) Profit > Delivery bills and the health alert list the days a report covers too (a parcel in no report or an odd
+label before its bill); a manifest's labels of no service or an unmapped one are listed whatever their day; a red Special Delivery row of no
+single manifest is in the alert (`rm_billed_more`); the bill page's manifest table groups rows by the manifest the plan put them on. (F12) The
+same report again (same file, same From..To) is still "already loaded", nothing imported twice, but the days of its range still due (an
+order busy at its first import) are planned now and `still_due` said; `bin/rm_labels.php --report` exits 1 while a day of it is still due
+(the kit's cover runs it again). (K2) `delivery.rm_writes_held` (0078, a setting with its versions; empty, or the run id of the go-live kit's
+undo): while it names a run every Royal Mail write is refused under the bills' lock (`writes_held`: check, Store, replace, undo, the report
+import, the CLI tools, the nightly's plan); only `undo(..., $run)` and `cleanupForUndo($run)` (a bill left loading undone as not stored,
+the allocations of bills no longer live ended, then loading / live / unended counted) go through. (H1) The week-size Store / replace / undo
+("busy" at 7,000 orders while snapshots run): the guards are held about 0.9 s, within HOLD_SEC (unchanged), but the PLAN takes 5-6 s and the
+5 s budget counted from the write's start, so one busy guard after the plan was "busy" at once, and every try made the plan again. Now
+(DeliveryBills::attempts) a try given up for a busy guard or row passes `$fresh = false` and a pooled bill's plan is kept
+(`RoyalMailBills::drafted`: under the bills' lock nothing it read can change but the orders, which are checked under the guards whatever the
+plan), and the budget counts from the first guard taken. DPD's plans (one argument) are made every try as before. The owner's fallback of
+24 Nov ~17:30 (a queue "to be applied tonight") was NOT needed: the write fits (measured in the STATE file and `runs/rmbills_r12_week*`).
+
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
 The owner, 23 Nov 2026, on Stock › Counts: adding an item to a sheet only by a scanned barcode, an exact CW number with its letters or the

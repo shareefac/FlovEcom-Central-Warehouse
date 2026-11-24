@@ -1179,7 +1179,10 @@ final class RoyalMailBillsTest extends StockTestCase
             ['manifest_no' => 2361, 'sales_order' => '5155500561', 'weight_g' => 80]), RmFixtures::label('JV000000542GB', 'TPL48HV', '2026-10-29', '1361542')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-10-28', 'SD1', 1, 1004, 'CLICK AND DROP M2361', '5155500561'),
             RmBill::line('2026-10-29', 'SD1', 1, 500, 'CLICK AND DROP M2361', '5155500561')]))['invoice_id'];
-        self::assertSame(["before_start|{$this->vpg}|" => 1504], self::where($id), 'its start day covered by no report never waits: before CW start, the 29th\'s row on the start day\'s label too');
+        // DL89 (round 12): 2 units charged for the manifest's 1 label: the label one unit at the average (502 + 250 of the two rows), the rest of each
+        // row the main shop's "not on an order" on its own day (the 28th: before CW start; the 29th: Vape and Go's line); was all 1504 on the label
+        self::assertSame(["before_start|{$this->vpg}|" => 1254, "shop|{$this->vpg}|" => 250], self::where($id),
+            'its start day covered by no report never waits: before CW start, the 29th\'s row on the start day\'s label too (one unit), its extra on the 29th');
     }
 
     /** r7 M3: an undo on an account switched off holds the bills left on its days (no money moves while it is off). */

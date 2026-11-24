@@ -130,6 +130,13 @@ final class RoyalMailFinalReviewTest extends StockTestCase
         self::assertSame([], RoyalMailBills::drift(self::$db, $this->acct['account']));
     }
 
+    /** @param array<string, int> $a @return array<string, int> keys sorted as where() sorts them */
+    private static function sorted(array $a): array
+    {
+        ksort($a);
+        return $a;
+    }
+
     /** The orders' allocations are never negative (a credit never makes an order's cost negative). */
     private static function assertNoNegativeOrder(): void
     {
@@ -159,7 +166,7 @@ final class RoyalMailFinalReviewTest extends StockTestCase
         $this->report([RmFixtures::label('JV000005111GB', 'TPL48HV', '2026-11-12', '1395111'), RmFixtures::label('JV000005112GB', 'TPL48HV', '2026-11-12', '9512')],
             '2026-11-12', '2026-11-12');
         $id = $this->bill([RmBill::line('2026-11-12', 'TPL', 2, 508, '943'), RmBill::line('2026-11-12', 'TPL', 1, -254, '944')]);
-        self::assertSame(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->ef}|" => -127, "shop|{$this->vpg}|" => -127], self::where($id),
+        self::assertSame(self::sorted(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->ef}|" => -127, "shop|{$this->vpg}|" => -127]), self::where($id),
             'each order 2.54 (the charge\'s price); the credit split by the holders, not the main shop\'s "billed more" line');
         self::assertNoNegativeOrder();
         self::assertSame([], array_values(array_filter(RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-12']),
@@ -193,7 +200,7 @@ final class RoyalMailFinalReviewTest extends StockTestCase
         $this->report([self::sd('AS000005121GB', '2026-11-11', '1395121', 2951, '5155505121'), self::sd('AS000005122GB', '2026-11-11', '9522', 2951, '5155505121')],
             '2026-11-11', '2026-11-11');
         $id = $this->bill([RmBill::line('2026-11-11', 'SD1', 3, 2790, 'CLICK AND DROP M2951', '5155505121')]);
-        self::assertSame(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930, "shop|{$this->vpg}|" => 930], self::where($id));
+        self::assertSame(self::sorted(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930, "shop|{$this->vpg}|" => 930]), self::where($id));
         $look = array_values(array_filter(RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-11']), static fn (array $i): bool => $i['kind'] === 'manifest'));
         self::assertSame([[2951, true]], array_map(static fn (array $i): array => [$i['manifest'], $i['red']], $look), 'over the 1%: red');
         $this->assertRebuilds();
@@ -208,7 +215,7 @@ final class RoyalMailFinalReviewTest extends StockTestCase
             '2026-11-11', '2026-11-11');
         $id = $this->bill([RmBill::line('2026-11-11', 'SD1', 2, 1860, 'CLICK AND DROP M2961', '5155505131'),
             RmBill::line('2026-11-11', 'SD1', -1, -930, 'CLICK AND DROP M2961', '5155505131')]);
-        self::assertSame(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930, "shop|{$this->vpg}|" => -930], self::where($id));
+        self::assertSame(self::sorted(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930, "shop|{$this->vpg}|" => -930]), self::where($id));
         self::assertNoNegativeOrder();
         $this->assertRebuilds();
     }

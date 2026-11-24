@@ -189,7 +189,8 @@ final class DeliveryBillsController
         }
         if ($r['already'] ?? false) {
             // the same report for the same days again (DL86 10): nothing written
-            return $this->listPage($ctx, 200, null, [], Words::say('DELIVERY', 'rm_labels_already', $from, $to));
+            return $this->listPage($ctx, 200, null, [], Words::say('DELIVERY', 'rm_labels_already', $from, $to)
+                . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : ''));
         }
         $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']),
             $from, $to)

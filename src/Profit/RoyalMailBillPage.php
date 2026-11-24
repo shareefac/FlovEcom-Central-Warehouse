@@ -406,7 +406,15 @@ final class RoyalMailBillPage
             }
             $amounts = array_values(array_filter($cells, static fn (string $c): bool => self::amount($c) !== null));
             if ($amounts === []) {
-                continue; // a row with no amount (a heading, a page note): nothing to read
+                // a row with no amount (a heading, a page note): nothing to read; but money anywhere in a row CW does not read as a line (a line
+                // whose date is written another way, its second half on its own) refuses the WHOLE bill: a row is never dropped (the final review,
+                // F2: two offsetting Special Delivery lines dropped and the totals still tied)
+                foreach ($cells as $k => $c) {
+                    if (preg_match('/GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}/i', $c) === 1) {
+                        throw self::refuse("row {$at} of the lines' table (column " . ($k + 1) . ') holds an amount but is not a line CW can read');
+                    }
+                }
+                continue;
             }
             $first = array_values(array_filter($cells, static fn (string $c): bool => $c !== ''));
             if (strcasecmp($first[0] ?? '', 'Total') === 0) {

@@ -11,9 +11,10 @@ namespace CW\Profit;
  *
  * Per product kind (carrier_product):
  *  flat (TPL, TPM, TRN)  THE DAY BOOK: the rows of one service day and product, across every live bill of the account (bill order: its date,
- *                        then its number). The day's price P = the FIRST bill's rows' net / quantity in whole pence (half up). EVERY label
- *                        manifested that day with the product's service gets P at once, on the first bill's rows (each row takes as many labels as
- *                        its quantity, the rest on its last row). The rest of each first-bill row, and the whole of every later bill's row of that
+ *                        then its number). The day's price P = the FIRST bill WITH A CHARGE's charges' net / quantity in whole pence (half
+ *                        up; a charge: quantity > 0 and net > 0; a credit never sets a price and is no billed unit, its whole net is the day's
+ *                        line: DL90 F1). EVERY label manifested that day with the product's service gets P at once, on the first bill's charges
+ *                        (each takes as many labels as its quantity, the rest on its last charge). The rest of each first-bill row, and the whole of every later bill's row of that
  *                        day (the tail Royal Mail bills a week later), is the day's line: "labels not charged" split between the holders of the
  *                        day's labels by their counts (each holder its share, truncated; the pence left over to the main shop); when the day is
  *                        billed MORE units than its labels, the whole line is the main shop's "not on an order" ("billed, no label found": DL86 2).
@@ -21,8 +22,11 @@ namespace CW\Profit;
  *  band (SD1)            a manifest's rows ("CLICK AND DROP M2281", or a row's sales order found on the manifest's labels) against that
  *                        manifest's labels of the service: by declared weight when the rows grouped by unit price fit the labels' bands one to one
  *                        (the cheapest price the lightest band; counts equal): each band's labels take its rows (each row as many as its
- *                        quantity, its net split over them, a penny more to the first ones); else every row's net split over every label
- *                        ("average"). No label: the row is the main shop's "not on an order" (DL86 5: by manifest number, whatever the day).
+ *                        quantity, its net split over them, a penny more to the first ones); else the manifest's average of its CHARGED units,
+ *                        at most ONE unit a label: more units charged than labels, the rest of each charge is the main shop's "not on an order"
+ *                        ("extra", DL89); as many or fewer, every charge's net split over every label ("average"). A credit row of a manifest
+ *                        is the main shop's "not on an order" ("credit", DL90). No label: the row is the main shop's "not on an order" (DL86 5:
+ *                        by manifest number, whatever the day).
  *  wrong_weight (RX1/A)  shared equally over the Special Delivery labels of the row's sales order (ADJ<sales order>RCN), the pence left over to
  *                        the main shop's "not on an order"; no such label: all of it there.
  *  surcharge, return     the main shop's "not on an order" (no parcel named).
@@ -223,29 +227,34 @@ final class PooledPlanner
     private static function flat(array $rows, array $labels, array $ctx): array
     {
         $out = [];
-        // billed MORE units than the day's labels (every live bill's rows of the day): the day's whole line is the main shop's "not on an order",
-        // never split with the other shops ("billed, no label found": DL86 2, the owner's "yes no hold"); fewer or as many: split by the holders
-        $more = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $rows)) > count($labels);
-        // the first bill with units billed sets the price (a first bill of only a credit sets none: the Codex check r3, new MEDIUM 5)
+        // a CHARGE is a row with units and money (quantity > 0, net > 0); a credit (a negative net or quantity) never sets a price and is never a
+        // billed unit: it goes whole on the day's line (the final review, F1; DL90)
+        $charge = static fn (array $r): bool => (int) $r['qty'] > 0 && (int) $r['net'] > 0;
+        // billed MORE units than the day's labels (every live bill's charges of the day): the day's whole line is the main shop's "not on an
+        // order", never split with the other shops ("billed, no label found": DL86 2, the owner's "yes no hold"); fewer or as many: split by the
+        // holders
+        $more = array_sum(array_map(static fn (array $r): int => $charge($r) ? (int) $r['qty'] : 0, $rows)) > count($labels);
+        // the first bill with a charge for the day sets the price (a first bill of only a credit sets none: the Codex check r3, new MEDIUM 5; a
+        // credit row with a quantity sets none either: F1)
         $first = (int) $rows[0]['invoice_id'];
         foreach ($rows as $r) {
-            if ((int) $r['qty'] > 0) {
+            if ($charge($r)) {
                 $first = (int) $r['invoice_id'];
                 break;
             }
         }
         $firstRows = array_values(array_filter($rows, static fn (array $r): bool => (int) $r['invoice_id'] === $first));
-        $cap = array_values(array_filter($firstRows, static fn (array $r): bool => (int) $r['qty'] > 0));
+        $cap = array_values(array_filter($firstRows, $charge));
         $qty = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $cap));
         $net = array_sum(array_map(static fn (array $r): int => (int) $r['net'], $cap));
         $price = $qty > 0 ? self::roundDiv($net, $qty) : 0;
-        // the labels on the first bill's rows: each row as many as its quantity, the rest on its last row
+        // the labels on the first bill's charges: each as many as its quantity, the rest on its last charge (no charge: on its last row at 0)
         $on = [];
         $i = 0;
         $n = count($labels);
         $last = $cap === [] ? count($firstRows) - 1 : (int) array_search(end($cap), $firstRows, true);
         foreach ($firstRows as $k => $r) {
-            $take = (int) $r['qty'] > 0 ? min((int) $r['qty'], $n - $i) : 0;
+            $take = $charge($r) ? min((int) $r['qty'], $n - $i) : 0;
             $on[$k] = array_slice($labels, $i, max(0, $take));
             $i += max(0, $take);
         }
@@ -292,6 +301,19 @@ final class PooledPlanner
         }
         $product = (string) $rows[0]['product_code'];
         $tops = $ctx['bands'][$product] ?? [];
+        // a CHARGE has units and money (quantity > 0, net > 0); a credit (a negative net or quantity) never prices a label and is no billed unit:
+        // it is the main shop's "not on an order" (the final review, F1/F3; DL90)
+        $charges = [];
+        foreach ($rows as $r) {
+            if ((int) $r['qty'] > 0 && (int) $r['net'] > 0) {
+                $charges[] = $r;
+            } else {
+                self::push($out, self::alloc($r, 'row', 'credit', null, self::mainDest($ctx, (string) $r['service_date']), (int) $r['net']));
+            }
+        }
+        if ($charges === []) {
+            return $out;
+        }
         // each label's band (1 = the lightest); 0: no weight, or above every band
         $byBand = [];
         foreach ($labels as $l) {
@@ -307,14 +329,10 @@ final class PooledPlanner
             $byBand[$b][] = $l;
         }
         ksort($byBand);
-        // the rows grouped by unit price (net / quantity compared exactly), cheapest first
+        // the charges grouped by unit price (net / quantity compared exactly), cheapest first
         $prices = [];
         $fits = !isset($byBand[0]);
-        foreach ($rows as $r) {
-            if ((int) $r['qty'] <= 0) {
-                $fits = false;
-                break;
-            }
+        foreach ($charges as $r) {
             $found = null;
             foreach ($prices as $pi => $p) {
                 if ((int) $r['net'] * (int) $p['q'] === (int) $p['n'] * (int) $r['qty']) {
@@ -352,9 +370,20 @@ final class PooledPlanner
             }
             return $out;
         }
-        foreach ($rows as $r) {
-            foreach (self::shares((int) $r['net'], count($labels)) as $k => $pence) {
+        // the bands do not fit: the manifest's average of its CHARGED units. BILLED MORE units than its usable labels (DL89, the owner's DL86 rule
+        // applied to Special Delivery: extras to the main shop's "not on an order"): each label at most ONE unit (each charge's net x labels /
+        // units, rounded, shared over the labels), the rest of each charge the main shop's "not on an order" (red over the setting: RoyalMailLook);
+        // as many or fewer: each charge shared over all the labels (as built)
+        $units = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $charges));
+        $n = count($labels);
+        foreach ($charges as $r) {
+            $net = (int) $r['net'];
+            $onLabels = $units > $n ? self::roundDiv($net * $n, $units) : $net;
+            foreach (self::shares($onLabels, $n) as $k => $pence) {
                 self::push($out, self::alloc($r, 'label', 'average', (int) $labels[$k]['id'], $labels[$k]['dest'], $pence), true);
+            }
+            if ($net !== $onLabels) {
+                self::push($out, self::alloc($r, 'row', 'extra', null, self::mainDest($ctx, (string) $r['service_date']), $net - $onLabels));
             }
         }
         return $out;

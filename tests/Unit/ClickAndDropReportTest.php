@@ -95,7 +95,7 @@ final class ClickAndDropReportTest extends TestCase
             self::assertSame(hash('sha256', $bytes), $r['sha256']);
             $by = array_column($r['labels'], null, 'tracking_no');
             self::assertSame(['JV000000001GB', 'AS000000002GB', 'OX000000003GB', 'OX000000004GB', 'JV000000005GB', 'JV000000006GB'], array_keys($by), $name);
-            self::assertSame(['tracking_no' => 'JV000000001GB', 'source_id' => 779226, 'reference' => '1381674', 'channel_code' => 'api', 'service_code' => 'TPL48HV',
+            self::assertSame(['tracking_no' => 'JV000000001GB', 'source_id' => 779226, 'reference' => '1381674', 'ref_unusable' => false, 'channel_code' => 'api', 'service_code' => 'TPL48HV',
                 'package' => 'parcel', 'weight_g' => 500, 'created_on' => null, 'manifested_at' => '2026-11-23 17:54:24.000000', 'manifest_no' => 2317,
                 'manifest_day' => '2026-11-23', 'sales_order' => null], $by['JV000000001GB'], "{$name}: the first row kept, its uuid-like sales order not");
             self::assertSame(['AS000000002GB', 779227, '1358046', 'SD1', 100, 2281, '2026-11-05 22:13:15.000000', '2026-11-05', '5155465848'],
@@ -110,6 +110,8 @@ final class ClickAndDropReportTest extends TestCase
             self::assertSame([null, 'other', 'other', null, null, null, null, null], [$by['JV000000005GB']['reference'], $by['JV000000005GB']['channel_code'],
                 $by['JV000000005GB']['package'], $by['JV000000005GB']['weight_g'], $by['JV000000005GB']['manifest_no'], $by['JV000000005GB']['manifested_at'],
                 $by['JV000000005GB']['manifest_day'], $by['JV000000005GB']['service_code']], "{$name}: free text, unknown words, a manifest with no date");
+            // a reference given in no known shape: its flag only, never the text (the final review, F6)
+            self::assertTrue($by['JV000000005GB']['ref_unusable'], $name);
             self::assertSame([null, null, null], [$by['JV000000006GB']['channel_code'], $by['JV000000006GB']['package'], $by['JV000000006GB']['source_id']], $name);
         }
     }
@@ -117,7 +119,7 @@ final class ClickAndDropReportTest extends TestCase
     public function testThePersonalColumnsAreNeverReturned(): void
     {
         $r = ClickAndDropReport::read(XlsWriter::file(self::rows(self::MANIFESTED)), self::CHANNELS);
-        $keys = ['tracking_no', 'source_id', 'reference', 'channel_code', 'service_code', 'package', 'weight_g', 'created_on', 'manifested_at', 'manifest_no',
+        $keys = ['tracking_no', 'source_id', 'reference', 'ref_unusable', 'channel_code', 'service_code', 'package', 'weight_g', 'created_on', 'manifested_at', 'manifest_no',
             'manifest_day', 'sales_order'];
         foreach ($r['labels'] as $l) {
             self::assertSame($keys, array_keys($l), 'exactly the kept fields');

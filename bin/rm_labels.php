@@ -83,11 +83,14 @@ exit(Cli::main('rm_labels', ['pull', 'report:', 'status', 'account:', 'from:', '
         }
         if ($r['already'] ?? false) {
             // the same report for the same days (DL86 10): nothing written again
-            $cli->log(sprintf('%s: this report was loaded already for %s to %s (import %d): nothing saved again', $accounts[0]['account_no'], $from, $to, (int) $r['import_id']));
-            return Cli::OK;
+            // ... what its first import left due planned now; still due: said, exit 1 (the kit's cover tries again: the final review, F12)
+            $cli->log(sprintf('%s: this report was loaded already for %s to %s (import %d): nothing saved again; %s allocations changed; %d day(s) still due%s',
+                $accounts[0]['account_no'], $from, $to, (int) $r['import_id'], $r['replanned'] ?? '-', (int) ($r['still_due'] ?? 0),
+                $r['replan_error'] === null ? '' : '; ' . $r['replan_error']));
+            return $r['replan_error'] === null && (int) ($r['still_due'] ?? 0) === 0 ? Cli::OK : Cli::PROBLEM;
         }
         $cli->log(sprintf('%s: %s to %s covered (import %d): %d rows, %d labels: %d new, %d filled, %d differ (kept as read first), %d rows skipped; %s allocations changed%s',
             $accounts[0]['account_no'], $from, $to, (int) $r['import_id'], $r['rows'], $r['labels'], $r['added'], $r['filled'], $r['differs'], $r['skipped'],
-            $r['replanned'] ?? '-', $r['replan_error'] === null ? '' : '; ' . $r['replan_error']));
-        return $r['replan_error'] === null ? Cli::OK : Cli::PROBLEM;
+            $r['replanned'] ?? '-', $r['replan_error'] === null ? '' : '; ' . $r['replan_error']) . sprintf('; %d day(s) still due', (int) ($r['still_due'] ?? 0)));
+        return $r['replan_error'] === null && (int) ($r['still_due'] ?? 0) === 0 ? Cli::OK : Cli::PROBLEM;
     }, true, true));

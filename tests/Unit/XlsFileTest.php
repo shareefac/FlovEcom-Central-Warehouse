@@ -103,10 +103,13 @@ final class XlsFileTest extends TestCase
         }
     }
 
-    public function testOnlyTheFirstWorksheetIsRead(): void
+    public function testOnlyTheFirstWorksheetIsReadAndASecondOneRefuses(): void
     {
-        $got = self::cells(XlsWriter::file([['first']], ['chart_first' => true, 'second_sheet' => [['second'], ['more']]]));
-        self::assertSame([0 => [0 => 'first']], $got, 'a chart before it and a second sheet after it are not read');
+        $got = self::cells(XlsWriter::file([['first']], ['chart_first' => true]));
+        self::assertSame([0 => [0 => 'first']], $got, 'a chart before it is not read');
+        // a second data worksheet refuses the file (the final review, F5: only one worksheet is read and checked)
+        $this->expectException(\CW\CwException::class);
+        self::cells(XlsWriter::file([['first']], ['chart_first' => true, 'second_sheet' => [['second'], ['more']]]));
     }
 
     public function testAFileThatIsNotOneOrIsCutShortIsRefusedWhole(): void
