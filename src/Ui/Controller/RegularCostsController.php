@@ -11,6 +11,7 @@ use CW\Expenses\ExpenseTypes;
 use CW\Expenses\ExpenseViews;
 use CW\Expenses\RegularCostMath;
 use CW\Expenses\RegularCosts;
+use CW\Profit\ProfitSettings;
 use CW\Profit\ProfitViews;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -48,7 +49,10 @@ final class RegularCostsController
             }
             return [$views->regularList($today, $range === null ? null : $shop), $shares];
         });
-        return $ctx->page('profit_regular', $list + [
+        return $ctx->page('profit_regular', [
+            'groups' => $list['groups'],
+            'today' => $list['today'],
+            'todayCost' => $list['today_cost'],
             'canEdit' => $ctx->me()->can(ExpenseAccess::PERM_EDIT),
             'range' => $range,
             'shares' => $shares,
@@ -64,8 +68,8 @@ final class RegularCostsController
     public function add(Context $ctx): HtmlResponse
     {
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
-        $typed = ['name' => $f('name'), 'shop' => $f('shop'), 'type' => $f('type'), 'every' => $f('every'), 'amount' => $f('amount'), 'from' => $f('from'),
-            'until' => $f('until'), 'note' => $f('note')];
+        $typed = ['name' => $f('name'), 'shop' => $f('shop'), 'type' => $f('type'), 'vat' => $f('vat'), 'every' => $f('every'), 'amount' => $f('amount'),
+            'from' => $f('from'), 'until' => $f('until'), 'note' => $f('note')];
         try {
             $sameOk = $ctx->req->field('same_ok') === '1';
             // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again, a confirmed second one too, adds nothing more.
@@ -86,12 +90,12 @@ final class RegularCostsController
         return $this->one($ctx, $ctx->id(), 200, null, null, in_array($n, self::NOTICES, true) ? Words::REGULAR['notice_' . $n] : null);
     }
 
-    /** POST {id}/change: name, group, last day, note. */
+    /** POST {id}/change: name, group, VAT choice, last day, note. */
     public function change(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
-        $typed = ['name' => $f('name'), 'type' => $f('type'), 'until' => $f('until'), 'note' => $f('note'), 'form' => 'change'];
+        $typed = ['name' => $f('name'), 'type' => $f('type'), 'vat' => $f('vat'), 'until' => $f('until'), 'note' => $f('note'), 'form' => 'change'];
         try {
             $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed, $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
@@ -128,7 +132,7 @@ final class RegularCostsController
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'deleted']));
     }
 
-    /** About a day's share today, as the page says it ("£29.67 a day"): the amount over 7, this month's days or this year's days, half up. */
+    /** About a day's share today, as the page says it ("£24.72 a day"): the cost over 7, this month's days or this year's days, half up. */
     public static function perDay(string $every, int $amount, string $today): int
     {
         $den = match ($every) {
@@ -154,7 +158,9 @@ final class RegularCostsController
         return $ctx->page('profit_regular_new', [
             'shops' => (new ExpenseViews($ctx->db))->shops(),
             'types' => (new ExpenseTypes($ctx->db))->active('regular'),
-            'typed' => $typed + ['name' => '', 'shop' => '', 'type' => '', 'every' => 'week', 'amount' => '', 'from' => '', 'until' => '', 'note' => ''],
+            // "Includes 20% VAT" picked for you (the owner, 24 Nov 2026: EX38).
+            'typed' => $typed + ['name' => '', 'shop' => '', 'type' => '', 'vat' => 'inc', 'every' => 'week', 'amount' => '', 'from' => '', 'until' => '', 'note' => ''],
+            'vatRate' => RegularCostMath::percent((new ProfitSettings($ctx->db))->vatBp()),
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_cost',
@@ -196,20 +202,28 @@ final class RegularCostsController
         $month = ExpenseViews::monthDays(substr($today, 0, 7));
         $until = $r['until_day'] === null ? null : (string) $r['until_day'];
         $form = $typed['form'] ?? null;
+        $rate = (int) $r['vat_rate_bp'];
+        [$vat, $cost] = ExpenseViews::vatAndCost((int) $r['amount_pence'], $rate);
         return $ctx->page('profit_regular_one', [
             'r' => $r,
             'types' => $types,
             'typed' => ['name' => $form === 'change' ? $typed['name'] : (string) $r['name'], 'type' => $form === 'change' ? $typed['type'] : (string) $r['type_id'],
                 'until' => $form === 'change' ? $typed['until'] : (string) ($until ?? ''), 'note' => $form === 'change' ? $typed['note'] : (string) ($r['note'] ?? ''),
+                'vat' => $form === 'change' && in_array($typed['vat'], ['inc', 'none'], true) ? $typed['vat'] : ($rate > 0 ? 'inc' : 'none'),
                 'amount' => $form === 'amount' ? $typed['amount'] : '', 'from' => $form === 'amount' ? $typed['from'] : ''],
             'form' => $form,
-            'perDay' => self::perDay((string) $r['every'], (int) $r['amount_pence'], $today),
-            'thisMonth' => RegularCostMath::share((string) $r['every'], (int) $r['amount_pence'], (string) $r['from_day'], $until, $month[0], $month[1]),
+            // Shared out without VAT (EX38).
+            'perDay' => self::perDay((string) $r['every'], $cost, $today),
+            'thisMonth' => RegularCostMath::share((string) $r['every'], $cost, (string) $r['from_day'], $until, $month[0], $month[1]),
             'monthName' => (new \DateTimeImmutable($month[0]))->format('F Y'),
             'canEdit' => $ctx->me()->can(ExpenseAccess::PERM_EDIT) && $r['deleted_at'] === null,
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'amountText' => ExpenseMoney::gbp((int) $r['amount_pence']),
+            'vatText' => $rate > 0 ? Words::say('REGULAR', 'vat_amount', ExpenseMoney::gbp($vat), RegularCostMath::percent($rate)) : Words::REGULAR['vat_none'],
+            'costText' => ExpenseMoney::gbp($cost),
+            // The rate "Includes ... VAT" names: the line's own, or the shops' rate of today for a line with none.
+            'vatRate' => RegularCostMath::percent($rate > 0 ? $rate : (new ProfitSettings($ctx->db))->vatBp()),
             'seen' => $seen ?? (int) $r['version'],
             'sameAsk' => $error?->errorCode === 'same_cost',
         ], $status, ['title' => (string) $r['name'], 'notice' => $notice]);

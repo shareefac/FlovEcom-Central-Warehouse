@@ -104,7 +104,7 @@ final class ExpensesOwnerAnswersTest extends MappingTestCase
         self::assertSame(0, (int) self::$db->value('SELECT vat_rate_bp FROM regular_cost WHERE id = ?', [$next]));
         $n2 = $rc->newAmount($job, $inc, 1, '210.00', '2026-11-15');
         self::assertSame(2000, (int) self::$db->value('SELECT vat_rate_bp FROM regular_cost WHERE id = ?', [$n2]));
-        self::refused(422, 'bad_vat_choice', fn () => $rc->add($job, ['name' => 'X', 'shop' => $this->vpg, 'type' => $rent, 'vat' => '17.5', 'every' => 'week',
+        self::refused(422, 'bad_vat_choice', fn () => $rc->add($job, ['name' => 'Xmas lights', 'shop' => $this->vpg, 'type' => $rent, 'vat' => '17.5', 'every' => 'week',
             'amount' => '1.00', 'from' => '2026-11-01']));
         self::assertSame([], ExpenseInvariants::check(self::$db));
         self::$db->exec('UPDATE regular_cost SET vat_rate_bp = 0 WHERE id = ?', [$inc]);

@@ -70,7 +70,7 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
     <tr class="rp-group"><th scope="rowgroup" colspan="8"><?= $e($g['shop']) ?></th></tr>
 <?php foreach ($g['rows'] as $r): ?>
     <tr<?php if ($r['deleted']): ?> class="off"<?php endif; ?>>
-      <td data-label="<?= $word('EXPENSES', 'col_date') ?>"><a href="<?= $u('/ui/profit/expenses/' . $r['id']) ?>"><?= $day($r['invoice_date']) ?></a><?php if ($r['deleted']): ?> <?= $chip('off', $X['deleted_chip']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('EXPENSES', 'col_date') ?>"><a href="<?= $u('/ui/profit/expenses/' . $r['id']) ?>"><?= $day($r['invoice_date']) ?></a><?php if ($r['net'] < 0): ?> <?= $chip('done', $X['credit_chip']) ?><?php endif; ?><?php if ($r['deleted']): ?> <?= $chip('off', $X['deleted_chip']) ?><?php endif; ?></td>
       <td data-label="<?= $word('EXPENSES', 'col_supplier') ?>"><a href="<?= $u('/ui/profit/expenses/' . $r['id']) ?>"><?= $e($r['supplier']) ?></a></td>
       <td data-label="<?= $word('EXPENSES', 'col_type') ?>"><?= $chip('info', $r['type']) ?></td>
       <td data-label="<?= $word('EXPENSES', 'col_invoice_no') ?>"><?= $e($r['invoice_no'] !== '' ? $r['invoice_no'] : '-') ?></td>

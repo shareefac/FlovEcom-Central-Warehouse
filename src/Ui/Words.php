@@ -815,8 +815,8 @@ final class Words
         'profit_expense' => ['One expense: its invoice, its file and every change made to it.', ''],
         'profit_expense_new' => ['An invoice for one shop, with its PDF or a photo.', ''],
         'profit_expense_suppliers' => ['The companies expenses are paid to. Their own list: not the suppliers we buy stock from.', ''],
-        'profit_regular' => ['Costs with no invoice that go out every week, month or year. Enter each one once with its amount and how often; CW puts a '
-            . 'share of it on every day until its end date.', ''],
+        'profit_regular' => ['Costs with no invoice that go out every week, month or year. Enter each one once with its amount, its VAT and how often; CW '
+            . 'puts a share of its cost without VAT on every day until its end date.', ''],
         'profit_regular_one' => ['One regular cost: its share of each day, its history, and a new amount from a day.', ''],
         'profit_regular_new' => ['A cost with no invoice, for one shop, every week, month or year.', ''],
         'expense_types' => ['The types an expense is put under, and the groups of the regular costs.', ''],
@@ -3096,8 +3096,9 @@ final class Words
             . 'line\'s date. The lines always add up to the bill\'s net. CW never keeps the file or any address: only what it needs.',
         // 0079 (docs/decisions.md EX5, EX6, EX15): Profit > Expenses, Regular costs, Real profit
         'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (CW never works VAT out). '
-            . 'It goes in the profit on its **invoice date**, without VAT. A **regular cost** has no invoice: it goes out every week, month or year and is '
-            . 'shared out **per day**: a weekly amount over its 7 days, a monthly amount over the days of its month, a yearly amount over the days of its year. '
+            . 'It goes in the profit on its **invoice date**, without VAT. A **credit note** is ticked as one: typed as printed, it comes off that shop\'s '
+            . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes 20% VAT unless it is marked **No VAT**, and its '
+            . 'cost without VAT is shared out **per day**: a weekly cost over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year. '
             . 'Each line is rounded to the penny once per period, so the days of a month add up to the month exactly. **Real profit** is sales less '
             . 'refunds, less what the goods cost, plus delivery charged, less the carriers\' bills, payment fees, expenses and regular costs.',
         'profit_cost' => 'Where a buying price came from. **At the sale (ERPNext)**: ERPNext\'s cost when the order was paid. **CW price**: CW\'s average, which '
@@ -10920,7 +10921,7 @@ final class Words
         'real_fees' => '− Payment fees',
         'real_fees_not_built' => 'Payment fees are not built yet: they show 0. A Global Payments invoice you add as an expense is in the expenses line.',
         'real_expenses' => '− Expenses (invoices you added)',
-        'real_regular' => '− Regular costs (rent, leases, Netcore, Novos, ...)',
+        'real_regular' => '− Regular costs without VAT (rent, leases, Netcore, Novos, ...)',
         'real_profit' => '= Real profit',
         'real_title' => 'Real profit',
         'real_note' => 'All amounts without VAT. The line in grey is not built yet. Click a line to see what is in it.',
@@ -11147,6 +11148,12 @@ final class Words
         'vat_hint' => 'As printed on the invoice (0 if none).',
         'total' => 'Total',
         'dollar_hint' => 'Bill in dollars (Anthropic, OpenAI)? Type the £ amount your card was charged.',
+        // A credit note (the owner, 24 Nov 2026: EX37)
+        'credit' => 'This is a credit note',
+        'credit_hint' => 'Money a supplier gives back. Type its amounts as printed, without a minus: CW keeps them as minus and takes them off this shop\'s '
+            . 'expenses on its date.',
+        'credit_chip' => 'Credit note',
+        'credit_banner' => 'This is a credit note: its amounts come off %s\'s expenses on its date.',
         'note' => 'Note (optional)',
         'note_placeholder' => 'e.g. labels and tape',
         // One expense
@@ -11188,6 +11195,7 @@ final class Words
         'f_name' => 'Name',
         'f_every' => 'How often',
         'f_amount_pence' => 'Amount',
+        'f_vat_rate_bp' => 'VAT',
         'f_from_day' => 'From',
         'f_until_day' => 'Until',
         'f_is_active' => 'In use',
@@ -11241,6 +11249,8 @@ final class Words
         'bad_note' => 'The note is at most 500 characters.',
         'same_invoice_lead' => 'This invoice is in already',
         'same_invoice' => 'This invoice is in already: the same supplier, invoice number and shop (dated %s). If it really is another invoice, tick the box below and save again.',
+        'same_credit' => 'This credit note is in already: the same supplier, number and shop (dated %s). If it really is another credit note, tick the box below and '
+            . 'save again.',
         'file_type' => 'The file is not a PDF, a JPEG or a PNG. Nothing was saved.',
         'file_too_large' => 'The file is larger than %s MB. Nothing was saved.',
         'empty_file' => 'The file is empty. Nothing was saved.',
@@ -11255,6 +11265,7 @@ final class Words
         'bad_name' => 'Type a name of 2 to 100 characters.',
         'bad_every' => 'Choose how often: every week, every month or every year.',
         'bad_amount' => 'Type the amount in pounds and pence, above 0 (for example 207.69).',
+        'bad_vat_choice' => 'Choose whether the amount includes VAT.',
         'bad_from' => 'The new amount starts on a day after the first day of this line. To change it from its first day, delete the line and add it again.',
         'bad_until' => 'The last day is a day on or after the first day.',
         'ended' => 'This line ended before that day: add a new line instead.',
@@ -11278,20 +11289,29 @@ final class Words
         'name' => 'Name',
         'shop' => 'Shop',
         'every' => 'How often',
-        'amount' => 'Amount',
+        'amount' => 'Amount (with VAT)',
+        'vat' => 'VAT',
+        'cost' => 'Cost without VAT',
         'from' => 'From',
         'until' => 'Until',
         'group' => 'Group',
+        // Its VAT (the owner, 24 Nov 2026: EX38)
+        'vat_choice' => 'VAT',
+        'vat_inc' => 'Includes %s VAT',
+        'vat_none' => 'No VAT',
+        'vat_hint' => 'Most costs include VAT. Only the cost without VAT comes off the profit.',
+        'vat_amount' => '%s (%s)',
         'choose_group' => 'Choose the group',
         'which_shop' => 'Which shop is this cost for?',
         'amount_label' => 'Amount (£)',
-        'amount_hint' => 'A week\'s, a month\'s or a year\'s amount, as you have it.',
+        'amount_hint' => 'A week\'s, a month\'s or a year\'s amount as you pay it, with its VAT when it has VAT.',
         'until_hint' => 'Its last day. Empty: no end.',
         'save' => 'Save regular cost',
         'ended_chip' => 'Ended',
-        'also_in_force' => 'Also in force today: every month %s, every year %s.',
-        'how_counts' => 'How it is shared out: a weekly cost is shared over its 7 days, a monthly cost over the days of its month, a yearly cost over the days '
-            . 'of its year (365, or 366). Example: Unit 1 £207.69 a week = £29.67 a day, so November (30 days) shows £890.10.',
+        'also_in_force' => 'Also in force today: every month %s (%s without VAT), every year %s (%s without VAT).',
+        'how_counts' => 'How it is shared out: only the cost without VAT comes off the profit (for a line that includes 20% VAT, the VAT is the amount / 6). '
+            . 'A weekly cost is shared over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year (365, or 366). '
+            . 'Example: Unit 1 £207.69 a week includes £34.62 VAT, so its cost is £173.07 a week = about £24.72 a day, and November (30 days) shows £741.73.',
         'invoice_note' => 'A cost with an invoice (Starlink, the Global Payments invoice) goes in Expenses with its PDF. When an amount changes, open its '
             . 'line and use "The amount changes": past days keep the old amount.',
         'deleted_banner' => 'This regular cost was deleted: it is in the profit on no day.',
@@ -11307,7 +11327,7 @@ final class Words
         'new_amount' => 'New amount (£)',
         'new_from' => 'From',
         'new_amount_button' => 'Save the new amount',
-        'details_title' => 'Change its name, group, end or note',
+        'details_title' => 'Change its name, group, VAT, end or note',
         'delete_title' => 'Delete (put in by mistake)',
         'delete_text' => 'Only for a line put in by mistake: it comes out of the profit on every day. To stop a cost, give it a last day instead.',
         'delete_tick' => 'Yes, delete this regular cost',
@@ -11315,11 +11335,11 @@ final class Words
         'notice_changed' => 'The changes are saved.',
         'notice_unchanged' => 'Nothing was different, so nothing changed.',
         'notice_amount' => 'The new amount is saved: this is its line. The old line ends on the day before.',
-        'period_total' => 'Regular costs of %s from %s to %s: %s (each line\'s share of those days).',
+        'period_total' => 'Regular costs of %s from %s to %s: %s without VAT (each line\'s share of those days).',
         'open_other' => 'Open the one in already',
         'same_ok' => 'It is another cost: save it all the same',
         'all_lines' => 'Show every line',
-        'share' => 'Share of those days',
+        'share' => 'Share of those days (without VAT)',
         'notice_deleted' => 'The regular cost is deleted.',
     ];
 

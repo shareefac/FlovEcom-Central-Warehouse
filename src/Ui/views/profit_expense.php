@@ -14,6 +14,9 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
+<?php if ((int) $x['net_pence'] < 0): ?>
+<p class="note credit-banner" role="status"><?= $say('EXPENSES', 'credit_banner', (string) $x['shop']) ?></p>
+<?php endif; ?>
 <?php if ($deleted): ?>
 <p class="note" role="status"><?= $word('EXPENSES', 'deleted_banner') ?> <?= $say('EXPENSES', 'deleted_by', (string) ($x['deleted_name'] ?? $x['deleted_actor']), \CW\Ui\Html::when((string) $x['deleted_at']), (string) $x['deleted_reason']) ?></p>
 <?php endif; ?>

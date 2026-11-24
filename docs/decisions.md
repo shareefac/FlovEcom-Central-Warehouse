@@ -20323,7 +20323,7 @@ The amount without VAT is above 0 (an expense of nothing is refused), the VAT 0 
 typed as the pounds the card was charged (the form says so; CW keeps no currency). A credit note (a negative amount) is NOT taken in this
 version: the open question Q1. The invoice date is a real day from 1 Jan 2020 to a year after today (a typo guard only).
 
-**EX3. The VAT is never worked out by CW.** It is typed as printed, 0 when none; the total is net + VAT. The profit counts the amount WITHOUT
+**EX3. The VAT of an expense is never worked out by CW.** (A regular cost's is: EX38.) It is typed as printed, 0 when none; the total is net + VAT. The profit counts the amount WITHOUT
 VAT (every Profit page is without VAT; the drawing's tiles and the ProfitMonth Expenses line show the net).
 
 **EX4. Money in whole pence (BIGINT), never a float.** Typed as pounds and pence ("64.20", "£1,234.56", "12.5", "200"; at most two decimals;
@@ -20331,7 +20331,8 @@ VAT (every Profit page is without VAT; the drawing's tiles and the ProfitMonth E
 works it out again on save.
 
 **EX5. A regular cost (`regular_cost`, 0079; the owner, 24 Nov: "Yes, per day").** Its name, shop (one of the three, picked each time), group
-(EX10), how often (every week, every month, every year), the amount as given (the owner's figures: CW takes no VAT off them), its first day
+(EX10), how often (every week, every month, every year), the amount as given (since the owner's answer of 24 Nov, with its VAT choice: only
+the cost without VAT counts, EX38), its first day
 and its last day (none: no end; both days count). Per day: a weekly amount / 7; a monthly amount / the days of THAT calendar month (28-31); a
 yearly amount / the days of THAT calendar year (365 or 366). The brief's example holds: Unit 1 £207.69 a week = £29.67 a day, November
 (30 days) £890.10.
@@ -20553,3 +20554,33 @@ out, never a loop).
 - Q6 An expense type or group is added only by an admin or a reviewer (Settings, like Reasons); the Expenses job cannot add one itself.
 - Q7 "This month" on Real profit counts the regular costs up to today (on 24 Nov, Unit 1 rent £712.08, not the month's £890.10), as the
   sales are to today; a chosen whole month counts the whole month.
+
+**EX36 answered by the owner (24 Nov 2026, ~15:50 UK).** Q1: yes, allow credit notes (EX37). Q2: keep "+ Delivery charged". Q3: from
+1 Nov 2026, confirmed. Q4: every regular cost line includes 20% VAT unless marked "no VAT" (EX38). Q5: the penny accepted (£41,879.73 as
+given; without VAT now £34,899.77, EX38). Q6: types and groups by an admin or a reviewer, as built. Q7: "this month" to today, a past month
+whole, as built.
+
+**EX37. A credit note (the owner's Q1).** "Add an expense" and "Change this expense" have a "This is a credit note" tick (never ticked for
+you). Its amounts are typed as printed, without a minus (a minus typed is refused, as for an invoice), and kept and counted as minus: net
+and VAT both minus (the CHECK: net -£9,999,999.99 to -£0.01 with VAT -£9,999,999.99 to £0; an invoice stays net £0.01 up and VAT £0 up),
+total = net + VAT. It takes that much off its shop's expenses on its date: the list, the tiles, Real profit and Profit by shop simply add
+the minus. Example: Viking Direct's credit £10.42 + £2.08 VAT on 20 Nov: Vape and Go's November expenses £64.20 - £10.42 = £53.78 without
+VAT. Its PDF is kept as an invoice's. The list marks it "Credit note" with minus amounts; its page says it is one; its change form shows the
+amounts as printed with the tick on, and taking the tick off makes it an invoice again (kept in its history, before and after). The same
+duplicate guard as an invoice, within its kind: the same supplier, shop and number as a credit note not deleted asks first (with no number:
+the same supplier, shop, day and total); an invoice of the same number as a credit note is not "the same one twice" (a credit note often
+names the invoice it credits). The safest reading of "duplicate guard as for invoices": a second credit note of one number still asks, and
+a credit note never blocks its own invoice.
+
+**EX38. A regular cost's VAT (the owner's Q4: "all of them i gave you is 20% inc vat").** Every line has a VAT choice: "Includes 20% VAT"
+(picked for you on Add a regular cost) or "No VAT", set on the line (Change) and kept in its history. The rate is the CW setting
+profit.vat_rate_pct (the shops' VAT, 20%; not a constant) and is kept on the line when it is set (`vat_rate_bp`, basis points; 0 = no
+VAT), so a later change of the setting changes no past day: a line keeps its own rate while it includes VAT; a new line, a new amount, or a
+line switched from "No VAT" to including VAT takes the rate of that day. VAT = amount x rate / (100% + rate) to the penny, half up (at 20%:
+the amount / 6); the cost without VAT = amount - VAT (Unit 1 £207.69: VAT £34.62, cost £173.07; Novos £2,769.00: £461.50, £2,307.50).
+Only the cost without VAT is shared per day (each line's cost rounded once per period, as EX6) and taken off the real profit; the expenses
+list's "Regular costs" row is without VAT too. Profit > Regular costs shows Amount (with VAT), VAT and Cost without VAT, and "Every week in
+all" sums each (the owner's list: £9,771.94, £1,628.66, £8,143.28); a line's page shows them and its day's and month's share of the cost.
+The seed marks all 16 lines as including the setting's rate (20%), and treats a line of the same name with another VAT choice as other
+figures (the whole run refused, as r1 H3: EX26). November 2026 for the whole list from 1 Nov: £34,899.77 without VAT (was £41,879.73 with it). A
+row put in around CW without the column gets 0: counted in full, never less (the nightly check EX-I2 compares the rate with the history).

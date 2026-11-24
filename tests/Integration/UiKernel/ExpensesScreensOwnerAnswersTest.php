@@ -57,6 +57,11 @@ final class ExpensesScreensOwnerAnswersTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         $id = (int) self::$db->value("SELECT id FROM expense WHERE invoice_no = 'CN-0042'");
         self::assertSame([-1042, -208, -1250], array_map('intval', array_values(self::$db->one('SELECT net_pence, vat_pence, total_pence FROM expense WHERE id = ?', [$id]))));
+        // The same credit note twice: asked in its own words.
+        $twice = $job->postMultipart('/ui/profit/expenses/new', ['credit' => '1', 'new_supplier' => ''] + $fields
+            + $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new'), []);
+        self::assertSame(409, $twice->status, $twice->describe());
+        self::assertStringContainsString(Words::say('EXPENSES_ERROR', 'same_credit', '20 Nov 2026'), $twice->text());
         $p2 = $job->get('/ui/profit/expenses/new');
         $job->postMultipart('/ui/profit/expenses/new', ['invoice_no' => '58812290', 'net' => '64.20', 'vat' => '12.84', 'invoice_date' => '2026-11-12',
             'new_supplier' => ''] + $fields + $p2->form('/ui/profit/expenses/new'), []);

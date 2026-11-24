@@ -1,7 +1,7 @@
 <?php
-// Profit › Regular costs › one line (CW-1150; docs/decisions.md EX5-EX7, EX14): its facts (shop, group, how often, amount, about a day, this
-// month, from, until, the line it continues or that continues it, note); for the Expenses job: "The amount changes" (this line ends the day
-// before, a new one starts: the old days keep the old amount), its name, group, end and note changed, "Delete" for a line put in by mistake
+// Profit › Regular costs › one line (CW-1150; docs/decisions.md EX5-EX7, EX14, EX38): its facts (shop, group, how often, amount with VAT, its
+// VAT, the cost without VAT, about a day and this month of that cost, from, until, the line it continues or that continues it, note); for the Expenses job: "The amount changes" (this line ends the day
+// before, a new one starts: the old days keep the old amount), its name, group, VAT, end and note changed, "Delete" for a line put in by mistake
 // (a reason and a box); its history.
 $R = \CW\Ui\Words::REGULAR;
 $X = \CW\Ui\Words::EXPENSES;
@@ -23,6 +23,8 @@ $deleted = $r['deleted_at'] !== null;
     <tr><th scope="row"><?= $word('REGULAR', 'group') ?></th><td><?= $e((string) $r['grp']) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'every') ?></th><td><?= $e($X['every_' . (string) $r['every']]) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'amount') ?></th><td class="num"><?= $e($amountText) ?></td></tr>
+    <tr><th scope="row"><?= $word('REGULAR', 'vat') ?></th><td class="num"><?= $e($vatText) ?></td></tr>
+    <tr><th scope="row"><?= $word('REGULAR', 'cost') ?></th><td class="num"><?= $e($costText) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'from') ?></th><td><?= $day($r['from_day']) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'until') ?></th><td><?php if ($r['until_day'] === null): ?><?= $word('EXPENSES', 'no_end') ?><?php else: ?><?= $day($r['until_day']) ?><?php endif; ?></td></tr>
 <?php if ($r['replaces_id'] !== null): ?>
@@ -89,6 +91,11 @@ $deleted = $r['deleted_at'] !== null;
       <label><?= $word('EXPENSES', 'note') ?>
         <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?php if ($errorField === 'note'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
+    </fieldset>
+    <fieldset class="vat-pick">
+      <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?></span></legend>
+      <label class="choice"><input type="radio" name="vat" value="inc"<?php if ((string) $t['vat'] !== 'none'): ?> checked<?php endif; ?><?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>> <?= $say('REGULAR', 'vat_inc', $vatRate) ?></label>
+      <label class="choice"><input type="radio" name="vat" value="none"<?php if ((string) $t['vat'] === 'none'): ?> checked<?php endif; ?>> <?= $word('REGULAR', 'vat_none') ?></label>
     </fieldset>
 <?php if ($sameAsk): ?>
     <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>

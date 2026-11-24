@@ -13,8 +13,10 @@ use CW\Files\FileStore;
 /**
  * The expenses (CW-1150, the brief's point 1; docs/decisions.md EX1-EX12): the invoices the owner adds, each for ONE shop he picks, with
  * its supplier (their own list), type (Settings), invoice date and number, the amount without VAT and the VAT as printed (CW never works VAT
- * out; total = net + VAT), a note and its PDF or photo. Money in whole pence. The same supplier + invoice number + shop as an expense not
- * deleted is refused unless the person confirms it (with no number: the same supplier, shop, day and total). A change rewrites the row
+ * out; total = net + VAT), a note and its PDF or photo. Money in whole pence. A credit note (the owner, 24 Nov 2026: EX37) is ticked as one:
+ * its amounts are typed as printed, without a minus, and kept and counted as minus (net and VAT), so it takes that much off its shop's
+ * expenses on its date. The same supplier + invoice number + shop as an expense not deleted of the same kind (invoice or credit note) is
+ * refused unless the person confirms it (with no number: the same supplier, shop, day and total). A change rewrites the row
  * (version + 1) and keeps before and after; a delete is a mark with a reason; nothing is ever removed (ExpenseHistory, audit_log).
  * Only the Expenses job writes (ExpenseAccess), checked again inside each write.
  */
@@ -34,8 +36,8 @@ final class Expenses
 
     /**
      * Adds an expense. $in: shop (channel id), supplier (its name), new_supplier (add it when it is not on the list), type (expense_type id),
-     * invoice_date (YYYY-MM-DD), invoice_no, net and vat (pounds as typed), note. $file: ['path', 'name'] or null. $sameOk: the person
-     * confirmed it is not the same invoice twice.
+     * invoice_date (YYYY-MM-DD), invoice_no, net and vat (pounds as typed, never minus), credit (true, '1' or 'on': a credit note, kept as
+     * minus), note. $file: ['path', 'name'] or null. $sameOk: the person confirmed it is not the same invoice twice.
      *
      * @param array<string, mixed> $in
      * @param array{path: string, name: string}|null $file
@@ -83,7 +85,10 @@ final class Expenses
             if ($same && $file === null) {
                 return ['changed' => false, 'version' => (int) $row['version']];
             }
+            // Checked again when it would meet another of its kind: a new supplier, shop or number, an invoice made a credit note or back (EX37),
+            // or with no number a new day or total.
             if (!$sameOk && ($supplier !== (int) $row['supplier_id'] || $v['shop'] !== (int) $row['channel_id'] || $v['invoice_no'] !== (string) $row['invoice_no']
+                || ($v['net'] < 0) !== ((int) $row['net_pence'] < 0)
                 || ($v['invoice_no'] === '' && ($v['invoice_date'] !== (string) $row['invoice_date'] || $v['net'] + $v['vat'] !== (int) $row['total_pence'])))) {
                 $this->checkSame($db, $supplier, $v, $id);
             }
@@ -186,7 +191,7 @@ final class Expenses
 
     /**
      * The form's fields checked and normalised (422 with the field's code). $row: the expense being changed (its type may stay one switched off
-     * since).
+     * since). A credit note's net and VAT come back as minus (typed without one: EX37).
      *
      * @param array<string, mixed> $in
      * @param array<string, mixed>|null $row
@@ -228,8 +233,15 @@ final class Expenses
         if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note) > self::NOTE_MAX || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $note) === 1) {
             throw new CwException('bad_note', 'the note is at most ' . self::NOTE_MAX . ' characters', 422, ['field' => 'note']);
         }
-        return ['shop' => $shop, 'supplier' => $supplier, 'type' => $type, 'invoice_date' => $date, 'invoice_no' => $no, 'net' => $net, 'vat' => $vat,
+        $sign = self::isCredit($in['credit'] ?? null) ? -1 : 1;
+        return ['shop' => $shop, 'supplier' => $supplier, 'type' => $type, 'invoice_date' => $date, 'invoice_no' => $no, 'net' => $sign * $net, 'vat' => $sign * $vat,
             'note' => $note === '' ? null : $note];
+    }
+
+    /** Whether the form says "This is a credit note" (true, 1, '1' or 'on'). */
+    public static function isCredit(mixed $v): bool
+    {
+        return in_array($v, [true, 1, '1', 'on'], true);
     }
 
     /**
@@ -268,21 +280,23 @@ final class Expenses
     }
 
     /**
-     * 409 same_invoice when an expense not deleted (other than $self) has the same supplier, shop and invoice number; with no number, the same
-     * supplier, shop, invoice date and total. detail: the other's id and date.
+     * 409 same_invoice when an expense not deleted (other than $self) of the same kind (an invoice, or a credit note: the sign of its amount;
+     * EX37) has the same supplier, shop and invoice number; with no number, the same supplier, shop, invoice date and total. detail: the other's
+     * id and date, and whether it is a credit note.
      *
      * @param array{shop: int, invoice_date: string, invoice_no: string, net: int, vat: int} $v
      */
     private function checkSame(Db $db, int $supplier, array $v, ?int $self): void
     {
         $other = $v['invoice_no'] !== ''
-            ? $db->one('SELECT id, invoice_date FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_no = ? AND deleted_at IS NULL AND id <> ? ORDER BY id LIMIT 1',
-                [$supplier, $v['shop'], $v['invoice_no'], $self ?? 0])
+            ? $db->one('SELECT id, invoice_date FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_no = ? AND (net_pence < 0) = ? AND deleted_at IS NULL '
+                . 'AND id <> ? ORDER BY id LIMIT 1', [$supplier, $v['shop'], $v['invoice_no'], $v['net'] < 0 ? 1 : 0, $self ?? 0])
             : $db->one("SELECT id, invoice_date FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_no = '' AND invoice_date = ? AND total_pence = ? "
                 . 'AND deleted_at IS NULL AND id <> ? ORDER BY id LIMIT 1', [$supplier, $v['shop'], $v['invoice_date'], $v['net'] + $v['vat'], $self ?? 0]);
         if ($other !== null) {
-            throw new CwException('same_invoice', 'this invoice is in already (the same supplier, invoice number and shop)', 409,
-                ['other' => (int) $other['id'], 'date' => (string) $other['invoice_date']]);
+            throw new CwException('same_invoice', $v['net'] < 0 ? 'this credit note is in already (the same supplier, number and shop)'
+                : 'this invoice is in already (the same supplier, invoice number and shop)', 409,
+                ['other' => (int) $other['id'], 'date' => (string) $other['invoice_date'], 'credit' => $v['net'] < 0]);
         }
     }
 

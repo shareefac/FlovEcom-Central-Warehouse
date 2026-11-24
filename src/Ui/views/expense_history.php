@@ -19,6 +19,8 @@ $show = static function (string $field, mixed $v) use ($moneyFields, $days, $X):
         'is_active' => (int) $v === 1 ? $X['in_use'] : $X['off_chip'],
         'file_id' => $X['a_file'],
         'every' => $X['every_' . (string) $v] ?? (string) $v,
+        // A regular cost's VAT choice (EX38): "Includes 20% VAT" or "No VAT".
+        'vat_rate_bp' => (int) $v > 0 ? \CW\Ui\Words::say('REGULAR', 'vat_inc', \CW\Expenses\RegularCostMath::percent((int) $v)) : \CW\Ui\Words::REGULAR['vat_none'],
         default => (string) $v,
     };
 };

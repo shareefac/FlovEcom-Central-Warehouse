@@ -11,7 +11,8 @@ use CW\Profit\ProfitViews;
 /**
  * The read side of Profit > Expenses, Profit > Regular costs and the real profit (docs/decisions.md EX13-EX16). Reads only. Money in pence.
  * The expenses count by their invoice date and their amount WITHOUT VAT (the profit pages are all without VAT); a deleted one counts nowhere.
- * The regular costs count per day (RegularCostMath), each line rounded once per period. Summed on read: profit_day is not changed.
+ * The regular costs count per day (RegularCostMath) WITHOUT their VAT (the amount less the VAT it includes: EX38), each line rounded once per
+ * period. Summed on read: profit_day is not changed.
  */
 final class ExpenseViews
 {
@@ -46,26 +47,41 @@ final class ExpenseViews
     }
 
     /**
-     * Each regular cost line's share of the days $from..$to (lines not deleted that run on at least one of them), with its shop and group.
+     * Each regular cost line's share of the days $from..$to (lines not deleted that run on at least one of them), with its shop and group: the
+     * share of its cost without VAT (amount less the VAT it includes; the owner, 24 Nov 2026: EX38).
      *
-     * @return list<array{id: int, name: string, shop_id: int, shop: string, group: string, every: string, amount: int, from: string, until: ?string, share: int}>
+     * @return list<array{id: int, name: string, shop_id: int, shop: string, group: string, every: string, amount: int, vat_rate: int, vat: int, cost: int, from: string, until: ?string, share: int}>
      */
     public function regularLines(string $from, string $to, ?int $shop): array
     {
         $out = [];
-        foreach ($this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, t.name AS grp, r.every, r.amount_pence, r.from_day, r.until_day FROM regular_cost r '
+        foreach ($this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, t.name AS grp, r.every, r.amount_pence, r.vat_rate_bp, r.from_day, r.until_day '
+            . 'FROM regular_cost r '
             . 'JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.deleted_at IS NULL AND r.from_day <= ? '
             . 'AND (r.until_day IS NULL OR r.until_day >= ?)' . ($shop === null ? '' : ' AND r.channel_id = ?') . ' ORDER BY r.channel_id, t.sort_order, r.name, r.id',
             [$to, $from, ...($shop === null ? [] : [$shop])]) as $r) {
             $until = $r['until_day'] === null ? null : (string) $r['until_day'];
+            [$vat, $cost] = self::vatAndCost((int) $r['amount_pence'], (int) $r['vat_rate_bp']);
             $out[] = ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'shop_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'], 'group' => (string) $r['grp'],
-                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'from' => (string) $r['from_day'], 'until' => $until,
-                'share' => RegularCostMath::share((string) $r['every'], (int) $r['amount_pence'], (string) $r['from_day'], $until, $from, $to)];
+                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'vat_rate' => (int) $r['vat_rate_bp'], 'vat' => $vat, 'cost' => $cost,
+                'from' => (string) $r['from_day'], 'until' => $until,
+                'share' => RegularCostMath::share((string) $r['every'], $cost, (string) $r['from_day'], $until, $from, $to)];
         }
         return $out;
     }
 
-    /** @return array<int, int> the regular costs of the days $from..$to per shop (the sum of its lines' shares) */
+    /**
+     * The VAT an amount includes at its line's rate and the cost without it (the owner, 24 Nov 2026: EX38).
+     *
+     * @return array{0: int, 1: int} [VAT, cost without VAT] in pence
+     */
+    public static function vatAndCost(int $amount, int $rateBp): array
+    {
+        $vat = RegularCostMath::vat($amount, $rateBp);
+        return [$vat, $amount - $vat];
+    }
+
+    /** @return array<int, int> the regular costs of the days $from..$to per shop without VAT (the sum of its lines' shares) */
     public function regularBy(string $from, string $to, ?int $shop): array
     {
         $out = [];
@@ -204,32 +220,38 @@ final class ExpenseViews
     }
 
     /**
-     * Profit > Regular costs: every line not deleted (ended ones too, greyed), grouped by its group in the list's order, and what is in force
-     * today per shop and how often (the drawing's "Every week in all").
+     * Profit > Regular costs: every line not deleted (ended ones too, greyed) with its amount as given, the VAT it includes and its cost without
+     * VAT (EX38), grouped by its group in the list's order, and what is in force today by how often (the drawing's "Every week in all"): the
+     * amounts (today) and the costs without VAT (today_cost).
      *
-     * @return array{groups: list<array{group: string, rows: list<array<string, mixed>>}>, today: array<string, int>}
+     * @return array{groups: list<array{group: string, rows: list<array<string, mixed>>}>, today: array<string, int>, today_cost: array<string, int>}
      */
     public function regularList(string $today, ?int $shop = null): array
     {
-        $rows = $this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS grp, t.sort_order, r.every, r.amount_pence, r.from_day, r.until_day, '
+        $rows = $this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS grp, t.sort_order, r.every, r.amount_pence, r.vat_rate_bp, '
+            . 'r.from_day, r.until_day, '
             . 'r.note, r.version FROM regular_cost r JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.deleted_at IS NULL'
             . ($shop === null ? '' : ' AND r.channel_id = ?') . ' ORDER BY t.sort_order, t.name, r.id', $shop === null ? [] : [$shop]);
         $groups = [];
         $inForce = ['week' => 0, 'month' => 0, 'year' => 0];
+        $inForceCost = $inForce;
         foreach ($rows as $r) {
             $until = $r['until_day'] === null ? null : (string) $r['until_day'];
             $running = (string) $r['from_day'] <= $today && ($until === null || $until >= $today);
             $ended = $until !== null && $until < $today;
+            [$vat, $cost] = self::vatAndCost((int) $r['amount_pence'], (int) $r['vat_rate_bp']);
             if ($running) {
                 $inForce[(string) $r['every']] += (int) $r['amount_pence'];
+                $inForceCost[(string) $r['every']] += $cost;
             }
             $g = (string) $r['grp'];
             $groups[$g] ??= ['group' => $g, 'rows' => []];
             $groups[$g]['rows'][] = ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'shop_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'],
-                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'from' => (string) $r['from_day'], 'until' => $until, 'ended' => $ended,
+                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'vat_rate' => (int) $r['vat_rate_bp'], 'vat' => $vat, 'cost' => $cost,
+                'from' => (string) $r['from_day'], 'until' => $until, 'ended' => $ended,
                 'running' => $running, 'note' => $r['note'] === null ? null : (string) $r['note']];
         }
-        return ['groups' => array_values($groups), 'today' => $inForce];
+        return ['groups' => array_values($groups), 'today' => $inForce, 'today_cost' => $inForceCost];
     }
 
     /** @return array<string, mixed>|null one regular cost line with its shop, group, the line it continues, the line continuing it, its history */
@@ -254,7 +276,8 @@ final class ExpenseViews
     /**
      * The real profit of the days $from..$to per shop (the brief's point 4; docs/decisions.md EX15): the profit days' figures as the other
      * Profit pages show them (goods sold less refunds, buying cost, delivery charged, the carriers' bills on the orders and not on one), then
-     * payment fees (not built yet: 0), the expenses (without VAT, by invoice date) and the regular costs (per day); real profit = goods - cost +
+     * payment fees (not built yet: 0), the expenses (without VAT, by invoice date; a credit note takes off) and the regular costs (per day, without
+     * their VAT); real profit = goods - cost +
      * delivery charged - delivery cost - fees - expenses - regular costs. All from ONE moment of the database.
      *
      * @return list<array{shop_id: int, shop: string, goods: int, cost: int, delivery: int, delivery_cost: int, fees: int, expenses: int, expenses_count: int, regular: int, real: int, incomplete: bool}>

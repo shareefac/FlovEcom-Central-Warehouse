@@ -200,7 +200,8 @@ final class ExpensesController
     public static function plain(CwException $e): string
     {
         return match ($e->errorCode) {
-            'same_invoice' => Words::say('EXPENSES_ERROR', 'same_invoice', is_string($e->detail['date'] ?? null) ? Html::day($e->detail['date']) : ''),
+            'same_invoice' => Words::say('EXPENSES_ERROR', ($e->detail['credit'] ?? false) === true ? 'same_credit' : 'same_invoice',
+                is_string($e->detail['date'] ?? null) ? Html::day($e->detail['date']) : ''),
             'same_cost' => Words::say('EXPENSES_ERROR', 'same_cost', is_string($e->detail['from'] ?? null) ? Html::day($e->detail['from']) : ''),
             'file_too_large', 'too_large' => Words::say('EXPENSES_ERROR', 'file_too_large', intdiv(ExpenseFiles::MAX_BYTES, 1_048_576)),
             'changed_meanwhile' => Words::say('EXPENSES_ERROR', 'changed_meanwhile', (string) ($e->detail['by'] ?? '?')),
@@ -213,7 +214,8 @@ final class ExpensesController
     {
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
         return ['shop' => $f('shop'), 'supplier' => $f('supplier'), 'new_supplier' => $ctx->req->field('new_supplier') === '1', 'type' => $f('type'),
-            'invoice_date' => $f('invoice_date'), 'invoice_no' => $f('invoice_no'), 'net' => $f('net'), 'vat' => $f('vat'), 'note' => $f('note')];
+            'invoice_date' => $f('invoice_date'), 'invoice_no' => $f('invoice_no'), 'credit' => $ctx->req->field('credit') === '1', 'net' => $f('net'), 'vat' => $f('vat'),
+            'note' => $f('note')];
     }
 
     /** @return array{path: string, name: string}|null the uploaded file, or null when none was chosen */
@@ -283,8 +285,8 @@ final class ExpensesController
             'shops' => $views->shops(),
             'types' => (new ExpenseTypes($ctx->db))->active('expense'),
             'suppliers' => array_values(array_filter($views->suppliers(), static fn (array $s): bool => $s['is_active'])),
-            'typed' => $typed + ['shop' => '', 'supplier' => '', 'new_supplier' => false, 'type' => '', 'invoice_date' => '', 'invoice_no' => '', 'net' => '', 'vat' => '',
-                'note' => ''],
+            'typed' => $typed + ['shop' => '', 'supplier' => '', 'new_supplier' => false, 'type' => '', 'invoice_date' => '', 'invoice_no' => '', 'credit' => false,
+                'net' => '', 'vat' => '', 'note' => ''],
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
@@ -335,8 +337,9 @@ final class ExpensesController
             'types' => $types,
             'suppliers' => array_values(array_filter($views->suppliers(), static fn (array $s): bool => $s['is_active'] || $s['id'] === (int) $x['supplier_id'])),
             'typed' => $typed ?? ['shop' => (string) $x['channel_id'], 'supplier' => (string) $x['supplier'], 'new_supplier' => false, 'type' => (string) $x['type_id'],
-                'invoice_date' => (string) $x['invoice_date'], 'invoice_no' => (string) $x['invoice_no'], 'net' => ExpenseMoney::plain((int) $x['net_pence']),
-                'vat' => ExpenseMoney::plain((int) $x['vat_pence']), 'note' => (string) ($x['note'] ?? '')],
+                // A credit note's amounts as printed, with its tick on (EX37).
+                'invoice_date' => (string) $x['invoice_date'], 'invoice_no' => (string) $x['invoice_no'], 'credit' => (int) $x['net_pence'] < 0,
+                'net' => ExpenseMoney::plain(abs((int) $x['net_pence'])), 'vat' => ExpenseMoney::plain(abs((int) $x['vat_pence'])), 'note' => (string) ($x['note'] ?? '')],
             'canEdit' => $ctx->me()->can(self::PERM_EDIT) && $x['deleted_at'] === null,
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,

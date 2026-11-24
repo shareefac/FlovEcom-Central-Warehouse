@@ -1,6 +1,7 @@
 <?php
 // Profit › Regular costs › Add a regular cost (CW-1150; docs/decisions.md EX5-EX7): its name, the shop (picked each time, none picked for
-// you), its group, how often (every week, month or year), the amount as given, its first day, its last day (empty: no end), a note.
+// you), its group, how often (every week, month or year), the amount as given, its VAT ("Includes 20% VAT", picked for you, or "No VAT":
+// the owner, 24 Nov 2026, EX38), its first day, its last day (empty: no end), a note.
 $R = \CW\Ui\Words::REGULAR;
 $X = \CW\Ui\Words::EXPENSES;
 $t = $typed;
@@ -40,6 +41,13 @@ $t = $typed;
     <label><?= $word('REGULAR', 'amount_label') ?> <span class="hint"><?= $word('REGULAR', 'amount_hint') ?></span>
       <input type="text" name="amount" value="<?= $e((string) $t['amount']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required<?php if ($errorField === 'amount'): ?> aria-invalid="true"<?php endif; ?>>
     </label>
+  </fieldset>
+  <fieldset class="vat-pick">
+    <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?></span></legend>
+    <label class="choice"><input type="radio" name="vat" value="inc"<?php if ((string) $t['vat'] !== 'none'): ?> checked<?php endif; ?><?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>> <?= $say('REGULAR', 'vat_inc', $vatRate) ?></label>
+    <label class="choice"><input type="radio" name="vat" value="none"<?php if ((string) $t['vat'] === 'none'): ?> checked<?php endif; ?>> <?= $word('REGULAR', 'vat_none') ?></label>
+  </fieldset>
+  <fieldset>
     <label><?= $word('REGULAR', 'from') ?>
       <input type="date" name="from" value="<?= $e((string) $t['from']) ?>" required<?php if ($errorField === 'from'): ?> aria-invalid="true"<?php endif; ?>>
     </label>

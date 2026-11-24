@@ -10,10 +10,10 @@
 --    switched off, never deleted.
 --  * expense: one row per invoice added: its shop, supplier, type, invoice date and number, the amount without VAT and the VAT as printed
 --    (CW never works VAT out), the total (net + VAT), a note, its PDF or photo (a stored_file of the document store: kept 7 years, never
---    in a web directory). Changed in place (version + 1) or deleted by a mark with a reason; never removed (Grants: no DELETE; the
---    creation columns frozen).
---  * regular_cost: a cost with no invoice that goes out every week, month or year: its shop, group, how often, the amount as given, from
---    and until (its last day; none: no end). Its amount, shop, how often and first day are frozen: a new amount ends the line and starts
+--    in a web directory). A credit note (EX37) is a row of minus amounts (net below 0, VAT 0 or below). Changed in place (version + 1) or
+--    deleted by a mark with a reason; never removed (Grants: no DELETE; the creation columns frozen).
+--  * regular_cost: a cost with no invoice that goes out every week, month or year: its shop, group, how often, the amount as given, the VAT
+--    rate it includes (EX38: 20% unless marked no VAT; only the cost without VAT counts), from and until (its last day; none: no end). Its amount, shop, how often and first day are frozen: a new amount ends the line and starts
 --    another (replaces_id), so the old days keep the old amount; a mistake is deleted by a mark with a reason.
 --  * expense_history: every add, change, end and delete of the four, with the row before and after, the reason, who and when (append-only).
 --  * staff_role.role gets `expenses` at the END of its list (the stored number of every grant stays what it was); the two new permissions
@@ -63,8 +63,8 @@ CREATE TABLE IF NOT EXISTS expense (
   type_id        SMALLINT UNSIGNED NOT NULL,
   invoice_date   DATE              NOT NULL COMMENT 'the invoice''s date: the day it counts in the profit',
   invoice_no     VARCHAR(64)       NOT NULL DEFAULT '' COMMENT 'as printed; empty when the bill has none',
-  net_pence      BIGINT            NOT NULL COMMENT 'the amount without VAT as printed (a bill in dollars: the pounds the card was charged)',
-  vat_pence      BIGINT            NOT NULL COMMENT 'the VAT as printed, 0 when none: CW never works VAT out',
+  net_pence      BIGINT            NOT NULL COMMENT 'the amount without VAT as printed (a bill in dollars: the pounds the card was charged); minus for a credit note (EX37)',
+  vat_pence      BIGINT            NOT NULL COMMENT 'the VAT as printed, 0 when none: CW never works VAT out; minus (or 0) for a credit note',
   total_pence    BIGINT            NOT NULL COMMENT 'net + VAT',
   note           VARCHAR(500)      NULL,
   file_id        BIGINT UNSIGNED   NULL COMMENT 'its PDF or photo in the document store (stored_file: kept 7 years, never in a web directory)',
@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS expense (
   CONSTRAINT fk_expense_created_by FOREIGN KEY (created_by) REFERENCES staff_user (id),
   CONSTRAINT fk_expense_updated_by FOREIGN KEY (updated_by) REFERENCES staff_user (id),
   CONSTRAINT fk_expense_deleted_by FOREIGN KEY (deleted_by) REFERENCES staff_user (id),
-  CONSTRAINT ck_expense_money CHECK (net_pence BETWEEN 1 AND 999999999 AND vat_pence BETWEEN 0 AND 999999999 AND total_pence = net_pence + vat_pence),
+  CONSTRAINT ck_expense_money CHECK (((net_pence BETWEEN 1 AND 999999999 AND vat_pence BETWEEN 0 AND 999999999)
+    OR (net_pence BETWEEN -999999999 AND -1 AND vat_pence BETWEEN -999999999 AND 0)) AND total_pence = net_pence + vat_pence),
   CONSTRAINT ck_expense_deleted CHECK ((deleted_at IS NULL) = (deleted_actor IS NULL) AND (deleted_at IS NULL) = (deleted_reason IS NULL)
     AND (deleted_at IS NOT NULL OR deleted_by IS NULL)),
   CONSTRAINT ck_expense_version CHECK (version >= 1)
@@ -108,7 +109,8 @@ CREATE TABLE IF NOT EXISTS regular_cost (
   channel_id     SMALLINT UNSIGNED NOT NULL COMMENT 'the ONE shop it is for',
   type_id        SMALLINT UNSIGNED NOT NULL COMMENT 'its group (expense_type of kind regular)',
   every          ENUM('week','month','year') NOT NULL,
-  amount_pence   BIGINT            NOT NULL COMMENT 'a week''s, a calendar month''s or a calendar year''s amount, counted as given',
+  amount_pence   BIGINT            NOT NULL COMMENT 'a week''s, a calendar month''s or a calendar year''s amount as given (with its VAT, when it has VAT)',
+  vat_rate_bp    SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'the VAT the amount includes, in basis points (2000 = 20%: the shops'' rate when it was set); 0: no VAT. Only the amount less its VAT counts (EX38)',
   from_day       DATE              NOT NULL COMMENT 'its first day',
   until_day      DATE              NULL COMMENT 'its last day; NULL: no end',
   note           VARCHAR(500)      NULL,
@@ -138,6 +140,7 @@ CREATE TABLE IF NOT EXISTS regular_cost (
   CONSTRAINT fk_regular_cost_updated_by FOREIGN KEY (updated_by) REFERENCES staff_user (id),
   CONSTRAINT fk_regular_cost_deleted_by FOREIGN KEY (deleted_by) REFERENCES staff_user (id),
   CONSTRAINT ck_regular_cost_amount CHECK (amount_pence BETWEEN 1 AND 999999999),
+  CONSTRAINT ck_regular_cost_vat CHECK (vat_rate_bp <= 10000),
   CONSTRAINT ck_regular_cost_days CHECK (until_day IS NULL OR until_day >= from_day),
   CONSTRAINT ck_regular_cost_deleted CHECK ((deleted_at IS NULL) = (deleted_actor IS NULL) AND (deleted_at IS NULL) = (deleted_reason IS NULL)
     AND (deleted_at IS NOT NULL OR deleted_by IS NULL)),

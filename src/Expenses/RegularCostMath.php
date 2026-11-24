@@ -87,6 +87,26 @@ final class RegularCostMath
         return $x[0] + (2 * $x[1] >= $x[2] ? 1 : 0);
     }
 
+    /**
+     * The VAT an amount includes at $rateBp (basis points: 2000 = 20%; 0: no VAT), in whole pence: amount x rate / (100% + rate), half up (at
+     * 20%: the amount / 6). The cost without VAT is the amount less it (the owner, 24 Nov 2026: "Unit 1 207.69 -> VAT 34.62, cost 173.07";
+     * docs/decisions.md EX38). Integers only.
+     */
+    public static function vat(int $amount, int $rateBp): int
+    {
+        if ($amount < 0 || $rateBp < 0 || $rateBp > 10000) {
+            throw new \InvalidArgumentException('an amount of 0 or more pence and a rate of 0 to 100%');
+        }
+        $den = 10000 + $rateBp;
+        return intdiv(2 * $amount * $rateBp + $den, 2 * $den);
+    }
+
+    /** A rate in basis points as the pages say it: 2000 -> "20%", 1750 -> "17.5%". */
+    public static function percent(int $rateBp): string
+    {
+        return rtrim(rtrim(sprintf('%d.%02d', intdiv($rateBp, 100), $rateBp % 100), '0'), '.') . '%';
+    }
+
     /** The days from $a to $b, both included (1 when they are the same day). */
     public static function days(string $a, string $b): int
     {

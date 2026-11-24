@@ -8,17 +8,20 @@ use CW\Caller;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
+use CW\Profit\ProfitSettings;
 
 /**
  * The regular costs (the brief's point 3; docs/decisions.md EX5-EX7): costs with no invoice that go out every week, month or year (the
  * owner's weekly list from the business owner; Cloudflare yearly), each for ONE shop, counted per day (RegularCostMath) from its first day to
- * its last (none: no end). The amount is counted as given (the owner's figures; CW takes no VAT off).
+ * its last (none: no end). The amount is as given; a line "includes 20% VAT" (picked for you) or has "no VAT" (the owner, 24 Nov 2026;
+ * docs/decisions.md EX38): its rate is kept on the line (vat_rate_bp, the shops' rate profit.vat_rate_pct of the day it is set), and only the
+ * amount less its VAT (RegularCostMath::vat) is shared per day and taken off the profit.
  *
  *   add        a new line
  *   newAmount  "the amount changes from <day>": the line ends the day before and a new line starts that day with the new amount and the
  *              rest of the old one (its name, shop, group, how often, note, last day), naming it (replaces_id): the old days keep the old
  *              amount. The amount, shop, how often and first day of a line never change in place (Grants).
- *   change     its name, group, note and last day (an end put on, moved or taken off)
+ *   change     its name, group, VAT choice, note and last day (an end put on, moved or taken off)
  *   delete     a mistake: a mark with a reason; out of the profit on every day, kept with its history
  *
  * Only the Expenses job writes (ExpenseAccess, checked again inside each write); every write kept in expense_history and audit_log.
@@ -30,8 +33,8 @@ final class RegularCosts
     }
 
     /**
-     * $in: name, shop (channel id), type (expense_type id of kind regular), every (week|month|year), amount (pounds as typed), from, until
-     * (YYYY-MM-DD; '' or null: no end), note.
+     * $in: name, shop (channel id), type (expense_type id of kind regular), vat (inc: the amount includes VAT at the shops' rate, also when
+     * missing | none), every (week|month|year), amount (pounds as typed), from, until (YYYY-MM-DD; '' or null: no end), note.
      *
      * @param array<string, mixed> $in
      */
@@ -48,6 +51,7 @@ final class RegularCosts
                 throw new CwException('choose_shop', 'choose the shop this cost is for', 422, ['field' => 'shop']);
             }
             $type = $this->group($db, $in['type'] ?? null, null);
+            $vat = self::vatRate($db, $in['vat'] ?? null, null);
             $every = (string) ($in['every'] ?? '');
             if (!in_array($every, RegularCostMath::EVERY, true)) {
                 throw new CwException('bad_every', 'choose how often: every week, every month or every year', 422, ['field' => 'every']);
@@ -70,17 +74,18 @@ final class RegularCosts
                 }
             }
             $now = Clock::db(Clock::now());
-            $id = $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, from_day, until_day, note, version, created_by, created_actor, '
-                . 'created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
-                [$name, $shop, $type, $every, $amount, $from, $until, $note, $caller->staffUserId, $caller->actor, $now, $caller->staffUserId, $caller->actor, $now]);
+            $id = $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, vat_rate_bp, from_day, until_day, note, version, created_by, '
+                . 'created_actor, created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
+                [$name, $shop, $type, $every, $amount, $vat, $from, $until, $note, $caller->staffUserId, $caller->actor, $now, $caller->staffUserId, $caller->actor, $now]);
             ExpenseHistory::record($db, $caller, 'regular_cost', $id, 1, 'add', null, self::state($db, $id), null);
             return $id;
         });
     }
 
     /**
-     * The amount changes from $from: this line ends on the day before (its days keep its amount) and a new line starts on $from. Returns the
-     * new line's id. 422 bad_from when $from is not after the line's first day; 409 ended when the line has no day left from $from.
+     * The amount changes from $from: this line ends on the day before (its days keep its amount) and a new line starts on $from, with the same
+     * VAT choice (a line including VAT: at the shops' rate of today, EX38). Returns the new line's id. 422 bad_from when $from is not after the
+     * line's first day; 409 ended when the line has no day left from $from.
      */
     public function newAmount(Caller $caller, int $id, int $seen, string $amount, string $from): int
     {
@@ -105,9 +110,10 @@ final class RegularCosts
             $db->exec('UPDATE regular_cost SET until_day = ?, version = ?, updated_by = ?, updated_actor = ?, updated_at = ? WHERE id = ?',
                 [RegularCostMath::addDays($from, -1), $version, $caller->staffUserId, $caller->actor, $now, $id]);
             ExpenseHistory::record($db, $caller, 'regular_cost', $id, $version, 'end', $before, self::state($db, $id), null);
-            $new = $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, from_day, until_day, note, replaces_id, version, created_by, '
-                . 'created_actor, created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
-                [$row['name'], $row['channel_id'], $row['type_id'], $row['every'], $pence, $from, $row['until_day'], $row['note'], $id, $caller->staffUserId,
+            $vat = (int) $row['vat_rate_bp'] > 0 ? (new ProfitSettings($db))->vatBp() : 0;
+            $new = $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, vat_rate_bp, from_day, until_day, note, replaces_id, version, '
+                . 'created_by, created_actor, created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
+                [$row['name'], $row['channel_id'], $row['type_id'], $row['every'], $pence, $vat, $from, $row['until_day'], $row['note'], $id, $caller->staffUserId,
                     $caller->actor, $now, $caller->staffUserId, $caller->actor, $now]);
             ExpenseHistory::record($db, $caller, 'regular_cost', $new, 1, 'add', null, self::state($db, $new), null);
             return $new;
@@ -115,7 +121,9 @@ final class RegularCosts
     }
 
     /**
-     * Its name, group, note and last day ($in: name, type, note, until: '' = no end). False when nothing is different.
+     * Its name, group, VAT choice, note and last day ($in: name, type, vat: inc | none, missing: as it is; note, until: '' = no end). A line
+     * marked "no VAT" that is now marked as including it takes the shops' rate of today; one that includes VAT keeps its own rate (EX38).
+     * False when nothing is different.
      *
      * @param array<string, mixed> $in
      */
@@ -126,6 +134,7 @@ final class RegularCosts
             $row = $this->locked($db, $id, $seen);
             $name = Expenses::name((string) ($in['name'] ?? ''));
             $type = $this->group($db, $in['type'] ?? null, (int) $row['type_id']);
+            $vat = self::vatRate($db, $in['vat'] ?? null, (int) $row['vat_rate_bp']);
             $until = self::until($in['until'] ?? null, (string) $row['from_day']);
             $note = self::note($in['note'] ?? null);
             // A line continued by a new amount ends before the first later line of its chain that is not deleted starts, a deleted line in
@@ -135,7 +144,8 @@ final class RegularCosts
                 throw new CwException('overlaps', 'a new amount follows this line from ' . (string) $next . ': its last day is before that day', 422, ['field' => 'until',
                     'next' => (string) $next]);
             }
-            if ($name === (string) $row['name'] && $type === (int) $row['type_id'] && $until === $row['until_day'] && $note === $row['note']) {
+            if ($name === (string) $row['name'] && $type === (int) $row['type_id'] && $vat === (int) $row['vat_rate_bp'] && $until === $row['until_day']
+                && $note === $row['note']) {
                 return false;
             }
             // A new name or end that makes it meet another line of the same name in its shop (one added on its own, not of its chain): the same
@@ -151,8 +161,8 @@ final class RegularCosts
             }
             $before = self::state($db, $id);
             $version = (int) $row['version'] + 1;
-            $db->exec('UPDATE regular_cost SET name = ?, type_id = ?, until_day = ?, note = ?, version = ?, updated_by = ?, updated_actor = ?, updated_at = ? WHERE id = ?',
-                [$name, $type, $until, $note, $version, $caller->staffUserId, $caller->actor, Clock::db(Clock::now()), $id]);
+            $db->exec('UPDATE regular_cost SET name = ?, type_id = ?, vat_rate_bp = ?, until_day = ?, note = ?, version = ?, updated_by = ?, updated_actor = ?, '
+                . 'updated_at = ? WHERE id = ?', [$name, $type, $vat, $until, $note, $version, $caller->staffUserId, $caller->actor, Clock::db(Clock::now()), $id]);
             ExpenseHistory::record($db, $caller, 'regular_cost', $id, $version, 'change', $before, self::state($db, $id), null);
             return true;
         });
@@ -199,11 +209,13 @@ final class RegularCosts
     /** @return array<string, int|string|null> the tracked state of a line (its history keeps it), with its shop's and group's names */
     public static function state(Db $db, int $id): array
     {
-        $r = $db->one('SELECT r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS type, r.every, r.amount_pence, r.from_day, r.until_day, r.note, r.replaces_id, '
+        $r = $db->one('SELECT r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS type, r.every, r.amount_pence, r.vat_rate_bp, r.from_day, r.until_day, r.note, '
+            . 'r.replaces_id, '
             . 'r.deleted_reason, r.deleted_at, r.deleted_actor, r.deleted_by FROM regular_cost r JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.id = ?', [$id])
             ?? throw new \LogicException("regular cost {$id} vanished");
         return ['name' => (string) $r['name'], 'channel_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'], 'type_id' => (int) $r['type_id'],
-            'type' => (string) $r['type'], 'every' => (string) $r['every'], 'amount_pence' => (int) $r['amount_pence'], 'from_day' => (string) $r['from_day'],
+            'type' => (string) $r['type'], 'every' => (string) $r['every'], 'amount_pence' => (int) $r['amount_pence'], 'vat_rate_bp' => (int) $r['vat_rate_bp'],
+            'from_day' => (string) $r['from_day'],
             'until_day' => $r['until_day'] === null ? null : (string) $r['until_day'], 'note' => $r['note'] === null ? null : (string) $r['note'],
             'replaces_id' => $r['replaces_id'] === null ? null : (int) $r['replaces_id'], 'deleted_reason' => $r['deleted_reason'] === null ? null : (string) $r['deleted_reason'],
             // Who deleted it and when, compared every night (the Codex check r2, M11).
@@ -241,6 +253,23 @@ final class RegularCosts
             throw new CwException('type_off', 'that group is switched off: choose another', 422, ['field' => 'type']);
         }
         return $type;
+    }
+
+    /**
+     * The VAT rate a line keeps (basis points) for the choice $in: inc (also when missing on an add) = the line's own rate when it includes VAT
+     * already ($current), else the shops' rate of today (profit.vat_rate_pct); none = 0. Missing on a change: as it is. 422 bad_vat_choice.
+     */
+    private static function vatRate(Db $db, mixed $in, ?int $current): int
+    {
+        $choice = $in === null || $in === '' ? ($current === null ? 'inc' : null) : $in;
+        if ($choice === null) {
+            return (int) $current;
+        }
+        return match ($choice) {
+            'inc' => $current !== null && $current > 0 ? $current : (new ProfitSettings($db))->vatBp(),
+            'none' => 0,
+            default => throw new CwException('bad_vat_choice', 'choose whether the amount includes VAT', 422, ['field' => 'vat']),
+        };
     }
 
     private static function id(mixed $v): ?int
