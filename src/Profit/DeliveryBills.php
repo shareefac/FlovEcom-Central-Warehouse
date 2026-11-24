@@ -123,9 +123,10 @@ final class DeliveryBills
                     . 'and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
                     ['invoice_id' => (int) $live['id']]);
             }
-            $id = $this->store($caller, $bill, $shop, null);
-            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id])] + $this->rematchAfter($caller);
+            // the id and the time from the write itself: nothing read again after the commit (a lost connection there never says a stored bill
+            // failed: the Codex check r5 of the Royal Mail round, MEDIUM 7; DL81)
+            [$id, $at] = $this->store($caller, $bill, $shop, null);
+            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at] + $this->rematchAfter($caller);
         });
     }
 
@@ -153,9 +154,8 @@ final class DeliveryBills
                 return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at'],
                     'rematched' => 0, 'rematch_error' => null];
             }
-            $id = $this->store($caller, $bill, (int) $old['channel_id'], $old);
-            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $this->db->value(
-                'SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$id])] + $this->rematchAfter($caller);
+            [$id, $at] = $this->store($caller, $bill, (int) $old['channel_id'], $old);
+            return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at] + $this->rematchAfter($caller);
         });
     }
 
@@ -356,7 +356,8 @@ final class DeliveryBills
      * @param array<string, mixed> $bill
      * @param array<string, mixed>|null $old the live bill a corrected file replaces
      */
-    private function store(Caller $caller, array $bill, ?int $shop, ?array $old): int
+    /** @return array{0: int, 1: string} the bill's id and its upload time, as the write stored them */
+    private function store(Caller $caller, array $bill, ?int $shop, ?array $old): array
     {
         return $this->guarded(function (Db $db) use ($caller, $bill, $shop, $old): array {
             $lines = $bill['lines'];
@@ -374,7 +375,7 @@ final class DeliveryBills
             // The decisions taken again once the orders they are on are held (their day rows, or their snapshot guard when not paid): a parcel
             // removed, or another one of the number stored, while this waited means the plan is old (Codex r1 HIGH 3).
             $verify = static fn (Db $db): bool => self::decide($db, $lines, self::parcels($db, $lines), $channel, $start) === $match;
-            return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $bill, $channel, $match, $old): int {
+            return ['before' => $before, 'after' => $after, 'verify' => $verify, 'write' => function (Db $db) use ($caller, $bill, $channel, $match, $old): array {
                 $this->authorise($caller); // again once everything is held (the Codex checks r1 LOW 1, r2 MEDIUM 4)
                 $now = Clock::db(($this->clock)());
                 if ($old !== null) {
@@ -413,7 +414,7 @@ final class DeliveryBills
                 Audit::write($db, $caller, $old === null ? 'delivery_bill.upload' : 'delivery_bill.replace', 'carrier_invoice', (string) $id, null, [
                     'carrier' => $bill['carrier'], 'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'lines' => count($bill['lines']),
                     'net_pence' => $bill['net'], 'sha256' => $bill['sha256'], 'states' => $counts] + ($old === null ? [] : ['replaces' => (int) $old['id']]));
-                return $id;
+                return [$id, $now];
             }];
         });
     }

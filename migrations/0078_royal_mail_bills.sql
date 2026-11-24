@@ -114,9 +114,10 @@ INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_sourc
   FROM delivery_party p WHERE p.code = 'vapeandgo'
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
 -- Vape Big's own Royal Mail account: its number is not known yet (the owner sends its first bill); off until that bill ties by the day rule.
--- Only while Vape Big has no Royal Mail account (its number set later by bin/carrier_account.php: a run again never makes a second one).
+-- Only while Vape Big has no Royal Mail account (its number set later by bin/carrier_account.php: a run again never makes a second one). Read
+-- by report only (no key name) until its key is in the key file and named by bin/carrier_account.php --key-name (DL81).
 INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
-  SELECT 'royal_mail', 'vapebig-pending', 'Royal Mail OBA (Vape Big)', 'rm_oba_page', 'click_and_drop', 'click_and_drop_vapebig', p.id, 'off'
+  SELECT 'royal_mail', 'vapebig-pending', 'Royal Mail OBA (Vape Big)', 'rm_oba_page', 'click_and_drop', NULL, p.id, 'off'
   FROM delivery_party p WHERE p.code = 'vapebig'
     AND NOT EXISTS (SELECT 1 FROM carrier_account a WHERE a.carrier = 'royal_mail' AND a.main_party_id = p.id)
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;

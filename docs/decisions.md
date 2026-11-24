@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL80; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL81; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20529,6 +20529,24 @@ before: one row more). (MEDIUM) a label import (the report) for an account switc
 check of the very bill live plans it with itself gone (its own split, never a tail of itself). (LOW, D3 4) a quantity larger than CW stores
 refuses the bill. (LOW, D3 5) a Store the lock kept busy gives the check back and offers it again ("Try Store again"). (LOW, D3 6) the
 nightly removes the checks a day past their time.
+
+**DL81. The Codex check r5 of 7758e82 (`cw_work/runs/rmbills_codex_r5.txt`, default model: NO GO, 2 HIGH, 6 MEDIUM, 3 LOW open).** Round 4's
+D2, D3 4, D3 6, the off account and the seeded numbers FIXED. Fixed now, each shown failing first (`runs/rmbills_r6_red.log`; green
+`runs/rmbills_r6_green1.log`): (HIGH 1) a pull whose order details leave out an order its day lists reads NO day (`cnd_partial`: nothing
+stored, no day recorded read, the checkpoint stays; the next pull reads them again); an older label asked for again that Click & Drop no
+longer has is left as it is. (HIGH 2) a Special Delivery manifest and its wrong weight wait as a Tracked day does: when the manifest's day (its
+rows' or its labels') or the day of the sales order's labels waits, the whole manifest or wrong-weight row is held (`no_report`), never
+priced on a part of its labels. (MEDIUM 3) a pull's labels, the days it read and its checkpoint are stored together, and the bills' rows of
+those days are planned again by the pull itself (labels of them or not; older than the nightly's 120 days too). (MEDIUM 4) the check shows
+what moves on the bills already live by bill and service day; the Store's fingerprint is of the plan itself (every allocation of the bill and
+every allocation of another bill ended or added), so two moves never cancel out of it. (MEDIUM 5) the check's days are worked over the whole
+plan (every bill's labels priced and lines for the day, with this one), with "open / closed / needs a look" as the bill's page says it.
+(MEDIUM 6) the pins earlier writes left due are done first in every label import and undo, before anything is planned. (MEDIUM 7) DPD's
+upload and replace return the id and time from the write itself (nothing read again after the commit). (MEDIUM 8) Vape Big's account is read
+by report only (no key name, 0078) until its key is in the key file and named (`bin/carrier_account.php --account=<number>
+--key-name=<name>`, audited, only while it has none). (LOW 9) the check of the very bill live, on the screen and in `bin/rm_bill.php`, shows
+the split it HAS (its live allocations). (LOW 10) a busy Store offers its check again only while it is open, with the minutes left; one that
+ran out meanwhile says to check again. (LOW 11) the account tool never gives an account another account's number (nor 3012002 / 0706703000).
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

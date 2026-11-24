@@ -11195,6 +11195,7 @@ final class Words
         'rm_check_waiting_day' => 'Waiting for its labels',
         'rm_check_retry' => 'Try "Store this bill" again',
         'rm_check_retry_hint' => 'Nothing was stored. Your check is still open: press the button to store the bill you checked.',
+        'rm_check_retry_late' => 'Your check ran out of time while it waited: nothing was stored. Upload the bill again to check it.',
         'rm_billed_with' => 'Billed (every bill, with this one)',
     ];
 

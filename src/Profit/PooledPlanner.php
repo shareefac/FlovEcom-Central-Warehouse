@@ -221,6 +221,14 @@ final class PooledPlanner
             }
             return $out;
         }
+        // a manifest whose day (its rows', its labels') waits for its labels: the whole manifest held, never priced on a part of its labels
+        // (the Codex check r5, HIGH 2; DL81)
+        if (array_filter($rows, static fn (array $r): bool => self::waiting($r, $ctx)) !== [] || self::labelsWait($labels, $ctx)) {
+            foreach ($rows as $r) {
+                self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), (int) $r['net']));
+            }
+            return $out;
+        }
         $product = (string) $rows[0]['product_code'];
         $tops = $ctx['bands'][$product] ?? [];
         // each label's band (1 = the lightest); 0: no weight, or above every band
@@ -307,6 +315,11 @@ final class PooledPlanner
                 $wait = self::waiting($r, $ctx);
                 self::push($out, self::alloc($r, 'row', $wait ? 'no_report' : 'no_batch', null, $wait ? self::held('no_report')
                     : self::mainDest($ctx, (string) $r['service_date']), $net));
+                continue;
+            }
+            if (self::labelsWait($labels, $ctx)) {
+                // its sales order's labels' day waits for its labels: held, never shared over a part of them (the Codex check r5, HIGH 2)
+                self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), $net));
                 continue;
             }
             $each = intdiv($net, count($labels));
@@ -425,6 +438,17 @@ final class PooledPlanner
      *
      * @param array<string, mixed> $r
      */
+    /** Whether the manifest day of any of these labels waits for its labels (ctx waiting). @param list<array<string, mixed>> $labels */
+    private static function labelsWait(array $labels, array $ctx): bool
+    {
+        foreach ($labels as $l) {
+            if (($l['manifest_day'] ?? null) !== null && isset($ctx['waiting'][(string) $l['manifest_day']])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static function waiting(array $r, array $ctx): bool
     {
         return isset($ctx['waiting'][(string) $r['service_date']]);

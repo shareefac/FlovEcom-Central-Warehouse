@@ -23,7 +23,7 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="check" value="<?= $e((string) $retry['check']) ?>">
   <input type="hidden" name="bill_sha256" value="<?= $e((string) $retry['bill_sha256']) ?>">
-  <p class="hint"><?= $word('DELIVERY', 'rm_check_retry_hint') ?></p>
+  <p class="hint"><?= $word('DELIVERY', 'rm_check_retry_hint') ?> <?= $say('DELIVERY', 'rm_check_time', (int) $retry['minutes']) ?></p>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('DELIVERY', 'rm_check_retry') ?></button></p>
 </form>
 <?php endif; ?>

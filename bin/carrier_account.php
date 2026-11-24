@@ -12,6 +12,9 @@ declare(strict_types=1);
  *   php bin/carrier_account.php --account=<number> --switch-on | --switch-off
  *   php bin/carrier_account.php --account=<number> --add-channel=<code> --channel-name=<the channel's exact name in Click & Drop>
  *        (a new account's Click & Drop channels, before its first report is read: a report with another channel is refused, DL72)
+ *   php bin/carrier_account.php --account=<number> --key-name=<name>
+ *        (an account read by report only gets the NAME of its Click & Drop key, once the key is in /etc/cw/carrier_keys.env: from then on its
+ *        labels come by the nightly pull and each of its days waits until a pull read it, DL80, DL81)
  *   php bin/carrier_account.php --party=<code> --first-order=<number>
  *        (a shop's first order number in CW, as its labels' references carry it: a label below it that a before-start rule fits is the shop's
  *        before CW start, DL78; 0078 sets Electrofag's, 5457. The nightly re-plan, or bin/match_delivery_bills.php, then plans the last
@@ -32,9 +35,9 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 /** The accounts 0078 seeds by their number (DPD's, the shared Royal Mail account): their number never changes here. */
 const CARRIER_ACCOUNT_SEEDED = ['3012002', '0706703000'];
 
-exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:'],
-    'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>)'
-    . ' | --party=<code> --first-order=<number>',
+exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:', 'key-name:'],
+    'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>'
+    . ' | --key-name=<name>) | --party=<code> --first-order=<number>',
     static function (Cli $cli, array $opts): int {
         if (array_key_exists('list', $opts)) {
             foreach ($cli->db->all('SELECT a.carrier, a.account_no, a.name, a.state, a.key_name, p.code FROM carrier_account a JOIN delivery_party p ON p.id = a.main_party_id '
@@ -75,6 +78,22 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
 {
     $a = $cli->db->one('SELECT * FROM carrier_account WHERE account_no = ?', [$no]) ?? throw new InvalidArgumentException('no carrier account of that number');
     $caller = Caller::system('carrier_account');
+    if (is_string($opts['key-name'] ?? null)) {
+        $name = $opts['key-name'];
+        if (preg_match('/^[a-z][a-z0-9_]{1,63}$/D', $name) !== 1) {
+            throw new InvalidArgumentException('--key-name=<lower-case letters, digits, _>: the name of its line in /etc/cw/carrier_keys.env');
+        }
+        if ($a['key_name'] !== null) {
+            $cli->error("account {$a['account_no']} has a key name already: nothing changed");
+            return Cli::PROBLEM;
+        }
+        $cli->db->transaction(static function (Db $db) use ($a, $name, $caller): void {
+            $db->exec('UPDATE carrier_account SET key_name = ? WHERE id = ? AND key_name IS NULL', [$name, (int) $a['id']]);
+            Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['key_name' => [null, $name]]);
+        });
+        $cli->log("account {$a['account_no']}: key name {$name} (its labels come by the nightly pull from now on)");
+        return Cli::OK;
+    }
     if (is_string($opts['add-channel'] ?? null)) {
         $code = $opts['add-channel'];
         $name = is_string($opts['channel-name'] ?? null) ? trim($opts['channel-name']) : '';
@@ -100,6 +119,11 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
         $new = $opts['number'];
         if (preg_match('/^[0-9]{6,16}$/D', $new) !== 1) {
             throw new InvalidArgumentException('--number must be the account number as the carrier prints it (digits)');
+        }
+        if (in_array($new, CARRIER_ACCOUNT_SEEDED, true) || $cli->db->value('SELECT 1 FROM carrier_account WHERE account_no = ? LIMIT 1', [$new]) !== null) {
+            // never another account's number (an account is found here by its number alone: the Codex check r5, LOW 11)
+            $cli->error("{$new} is another account's number: nothing changed");
+            return Cli::PROBLEM;
         }
         if (in_array((string) $a['account_no'], CARRIER_ACCOUNT_SEEDED, true)) {
             // 0078 seeds these accounts' parties, channels and rules BY THEIR NUMBER: theirs never changes, off or not (the Codex check r4, r3

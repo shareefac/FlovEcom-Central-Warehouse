@@ -103,7 +103,7 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_billed_with') ?>"><?= $n($d['billed']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_priced') ?>"><?= $n($d['priced']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_line') ?>"><?= $e($gbp($d['line'])) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php else: ?><?= $word('DELIVERY', ['open' => 'rm_open', 'closed' => 'rm_closed', 'look' => 'rm_look'][$d['status']]) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
@@ -120,6 +120,8 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 <table class="stack rp-table delivery-rm-check-others">
   <thead>
     <tr>
+      <th scope="col"><?= $word('DELIVERY', 'bill') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
       <th scope="col"><?= $word('DELIVERY', 'state') ?></th>
       <th scope="col" class="num"><?= $word('DELIVERY', 'cost') ?></th>
     </tr>
@@ -127,7 +129,9 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
   <tbody>
 <?php foreach ($others as $w): ?>
     <tr>
-      <th scope="row"><?= $e($groupText($w)) ?></th>
+      <th scope="row"><?= $e($w['invoice_no']) ?></th>
+      <td data-label="<?= $word('DELIVERY', 'rm_day') ?>"><?= $day($w['day']) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'state') ?>"><?= $e($groupText($w)) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'cost') ?>"><?= $e($gbp($w['pence'])) ?></td>
     </tr>
 <?php endforeach; ?>

@@ -108,9 +108,15 @@ final class DeliveryBillsController
         } catch (CwException $e) {
             // busy (the bills' lock or an order held elsewhere): nothing stored, the check given back; its Store offered again (the Codex check r4,
             // D3 LOW 5). Any other refusal: the list with the reason.
-            $retry = $e->errorCode === 'busy' && preg_match('/^[0-9a-f]{64}$/D', $token) === 1 && preg_match('/^[0-9a-f]{64}$/D', $sha) === 1
-                ? ['check' => $token, 'bill_sha256' => $sha] : null;
-            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => 'royal_mail'], null, $retry);
+            $retry = null;
+            $said = null;
+            if ($e->errorCode === 'busy' && preg_match('/^[0-9a-f]{64}$/D', $sha) === 1) {
+                // only a check still open is offered again, with the minutes it has left (the Codex check r5, LOW 10)
+                $left = (new RoyalMailBills($ctx->db))->checkSecondsLeft($ctx->caller(), $token);
+                $retry = $left > 0 ? ['check' => $token, 'bill_sha256' => $sha, 'minutes' => max(1, intdiv($left, 60))] : null;
+                $said = $left > 0 ? null : Words::DELIVERY['rm_check_retry_late'];
+            }
+            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => 'royal_mail'], $said, $retry);
         }
         // the mode comes with the result: the bill is not read again (the Codex check r4, r3 8 PARTLY)
         $notice = $r['result'] === 'same' ? 'same' : ($r['mode'] === 'replace' ? 'replaced' : 'stored') . ($r['rematch_error'] !== null ? '_later' : '');
@@ -131,7 +137,7 @@ final class DeliveryBillsController
             'check' => $c,
             'bill' => $p,
             'where' => $views->checkWhere($p['where']),
-            'others' => $views->checkWhere($p['others']),
+            'others' => $views->checkOthers($p['others']),
             'days' => $p['days'],
             'rows' => $p['bill_rows'],
             'minutes' => RoyalMailBills::CHECK_MINUTES,
@@ -200,7 +206,7 @@ final class DeliveryBillsController
     }
 
     /** @param array<string, mixed> $typed what the refused form said (carrier, shop, account) */
-    /** @param array{check: string, bill_sha256: string}|null $retry a busy Store's check, offered again */
+    /** @param array{check: string, bill_sha256: string, minutes: int}|null $retry a busy Store's check, still open, offered again */
     private function listPage(Context $ctx, int $status, ?CwException $error, array $typed, ?string $said = null, ?array $retry = null): HtmlResponse
     {
         $bills = array_map(static fn (array $b): array => $b + ['href' => self::PATH . '/' . (int) $b['id']], (new DeliveryViews($ctx->db))->bills());
