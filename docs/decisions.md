@@ -20602,6 +20602,8 @@ the same, drift 0, the checks clean.
 **DL84. PHASE 1 IS REPORT-ONLY (the coordinator, 24 Nov 2026, after the Codex check r8: NO GO, 10 HIGH, 6 MEDIUM; it replaces DL82's and
 DL83's pull parts).** Labels that move money come ONLY from Click & Drop's "Manifested Orders" report, uploaded with the From and To days it
 was run for (the phase-0 labels came from such reports and go in the same way). The Click & Drop API pull is phase 2.
+THE OWNER CONFIRMED IT (24 Nov 2026, about 08:00 UK, his answer "1", relayed by the coordinator): phase 1 is report-only; staff upload the
+Click & Drop "Manifested Orders" report every week with the bill.
 1. THE PULL IS GONE from phase 1: `ClickAndDropClient`, `CurlHttpGet`, `HttpGet`, `CarrierKeys` and their unit test are deleted (removing them
    was less risky than keeping a path that could write labels); 0078 has no `carrier_label_pull` / `carrier_label_pull_day`; no cron line
    (03:20 removed), no key file at go-live; `RoyalMailBills::importLabels` refuses any source but the report (`phase_2`, nothing saved);
