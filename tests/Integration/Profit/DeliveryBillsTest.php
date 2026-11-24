@@ -1129,4 +1129,20 @@ final class DeliveryBillsTest extends StockTestCase
         fclose($pipes[2]);
         return ['code' => proc_close($p), 'out' => $out];
     }
+
+    /** The Codex check r5 (Royal Mail round, MEDIUM 7): a DPD bill stored is said stored even when the connection is gone right after the write. */
+    public function testABillStoredIsSaidStoredWhenTheConnectionGoesRightAfter(): void
+    {
+        [$ch, $bytes] = $this->week();
+        $bills = self::hookedBills();
+        HookedStatement::$before = ['SELECT uploaded_at FROM carrier_invoice' => static fn () => throw new \PDOException('MySQL server has gone away')];
+        try {
+            $r = $bills->upload(self::system(), 'dpd', $bytes);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertSame('stored', $r['result']);
+        self::assertSame((string) self::$db->value('SELECT uploaded_at FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]), $r['uploaded_at']);
+        self::assertDaysRebuild($ch);
+    }
 }

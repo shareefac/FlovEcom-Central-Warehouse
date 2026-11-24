@@ -240,5 +240,18 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         $again = $job->post('/ui/profit/delivery/store', $busy->form('/ui/profit/delivery/store'));
         self::assertSame(303, $again->status, $again->describe());
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
+        // the Codex check r5 (LOW 10): a check that ran out of time while the Store waited is not offered again
+        file_put_contents($path, RmBill::page([RmBill::line('2026-11-09', 'TPM', 1, 338, '943')], ['invoice' => '9070000004']));
+        $form = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path)->form('/ui/profit/delivery/store');
+        self::$db->exec('UPDATE carrier_bill_check SET expires_at = UTC_TIMESTAMP(6) + INTERVAL 3 SECOND WHERE used_at IS NULL');
+        self::assertSame(1, (int) $lock->value("SELECT GET_LOCK(CONCAT('cw_delivery_bills:', DATABASE()), 0)"));
+        try {
+            $late = $job->post('/ui/profit/delivery/store', $form);
+        } finally {
+            $lock->value("SELECT RELEASE_LOCK(CONCAT('cw_delivery_bills:', DATABASE()))");
+        }
+        self::assertSame(503, $late->status, $late->describe());
+        self::assertFalse($late->hasForm('/ui/profit/delivery/store'), 'out of time meanwhile: checked again, not stored');
+        self::assertStringContainsString(Words::DELIVERY['rm_check_retry_late'], $late->text());
     }
 }

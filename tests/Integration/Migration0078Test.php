@@ -95,7 +95,7 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame([
             ['dpd', '3012002', 'dpd_csv', 'connector', null, 'vapeandgo', 'active'],
             ['royal_mail', '0706703000', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', 'vapeandgo', 'active'],
-            ['royal_mail', 'vapebig-pending', 'rm_oba_page', 'click_and_drop', 'click_and_drop_vapebig', 'vapebig', 'off'],
+            ['royal_mail', 'vapebig-pending', 'rm_oba_page', 'click_and_drop', null, 'vapebig', 'off'],
         ], self::rows($db, 'SELECT a.carrier, a.account_no, a.bill_format, a.label_source, a.key_name, p.code, a.state FROM carrier_account a '
             . 'JOIN delivery_party p ON p.id = a.main_party_id ORDER BY a.carrier, a.account_no'));
         self::assertSame([['0706703000', 'electrofag'], ['0706703000', 'hayativapes'], ['0706703000', 'vapeandgo'], ['3012002', 'vapeandgo'], ['vapebig-pending', 'vapebig']],

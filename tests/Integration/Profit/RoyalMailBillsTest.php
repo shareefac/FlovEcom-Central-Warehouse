@@ -309,11 +309,11 @@ final class RoyalMailBillsTest extends StockTestCase
      * @param array<string, list<array<string, mixed>>> $byDay day => its orders as /orders/{ids} gives them
      * @param list<string> $calls
      */
-    private static function cnd(array $byDay, array &$calls, int $status = 200): ClickAndDropClient
+    private static function cnd(array $byDay, array &$calls, int $status = 200, array $hide = []): ClickAndDropClient
     {
-        $http = new class ($byDay, $calls, $status) implements HttpGet {
-            /** @param array<string, list<array<string, mixed>>> $byDay @param list<string> $calls */
-            public function __construct(private array $byDay, private array &$calls, private int $status)
+        $http = new class ($byDay, $calls, $status, $hide) implements HttpGet {
+            /** @param array<string, list<array<string, mixed>>> $byDay @param list<string> $calls @param list<int> $hide left out of the details */
+            public function __construct(private array $byDay, private array &$calls, private int $status, private array $hide)
             {
             }
 
@@ -330,7 +330,7 @@ final class RoyalMailBillsTest extends StockTestCase
                     return ['status' => 200, 'body' => json_encode(['orders' => $list]), 'retry_after' => null];
                 }
                 if (preg_match('#/orders/([0-9;]+)$#', rawurldecode($url), $m) === 1) {
-                    $ids = array_map('intval', explode(';', $m[1]));
+                    $ids = array_values(array_diff(array_map('intval', explode(';', $m[1])), $this->hide));
                     return ['status' => 200, 'body' => json_encode(array_values(array_filter($all, static fn (array $o): bool => in_array($o['orderIdentifier'], $ids, true)))),
                         'retry_after' => null];
                 }
@@ -959,8 +959,9 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertSame(['held|||shop_unknown|' => 254, "order|{$this->vpg}|||" => 254], $c['preview']['where'], 'Electrofag\'s label, its parcel not in CW yet: held');
         self::assertSame([[1, $day, 'TPL', 2, 508]], array_map(static fn (array $r): array => [$r['row_no'], $r['service_date'], $r['product_code'], $r['qty'], $r['net']],
             $c['preview']['bill_rows']));
-        self::assertSame([[$day, 'TPL', 2, 3, 2, 0, false]], array_map(static fn (array $d): array => [$d['day'], $d['product'], $d['labels'], $d['billed'], $d['priced'],
-            $d['line'], $d['waiting']], $c['preview']['days']), 'labels 2, billed 3 with B, both priced on A');
+        // the Codex check r5 (MEDIUM 5): the day as the whole plan has it (every bill's labels priced and lines), closed (B is a later bill)
+        self::assertSame([[$day, 'TPL', 2, 3, 2, 254, false, 'closed']], array_map(static fn (array $d): array => [$d['day'], $d['product'], $d['labels'], $d['billed'],
+            $d['priced'], $d['line'], $d['waiting'], $d['status']], $c['preview']['days']), 'labels 2, billed 3 with B, both priced on A, B\'s unit the day\'s line');
         self::assertNotSame([], $c['preview']['others'], 'B\'s money moves');
         self::assertSame(0, array_sum($c['preview']['others']), 'B still adds up to its net');
         // the parcel reaches CW before Store: what Store would store is not what was shown: refused, nothing stored
@@ -980,15 +981,17 @@ final class RoyalMailBillsTest extends StockTestCase
         $a = self::rm()->storeChecked($person, (string) $c['token'], (string) $c['bill_sha256']);
         self::assertSame(['stored', 'upload'], [$a['result'], $a['mode']]);
         self::assertSame($both, self::split($a['invoice_id']));
+        // the Codex check r5 (MEDIUM 4): the moves by bill and day (two bills' moves never cancel out of the check or its fingerprint)
         $moved = [];
-        foreach (array_unique([...array_keys($beforeB), ...array_keys(self::split($b))]) as $k) {
-            $d = (self::split($b)[$k] ?? 0) - ($beforeB[$k] ?? 0);
+        $afterB = self::split($b);
+        foreach (array_unique([...array_keys($beforeB), ...array_keys($afterB)]) as $k) {
+            $d = ($afterB[$k] ?? 0) - ($beforeB[$k] ?? 0);
             if ($d !== 0) {
-                $moved[$k] = $d;
+                $moved["{$b}|{$day}|{$k}"] = $d;
             }
         }
         ksort($moved);
-        self::assertSame($moved, $c['preview']['others'], 'what the check said moves on B is what moved');
+        self::assertSame($moved, $c['preview']['others'], 'what the check said moves on B, by bill and day, is what moved');
         $this->assertRebuilds();
     }
 
@@ -1090,5 +1093,117 @@ final class RoyalMailBillsTest extends StockTestCase
         self::$db->exec('UPDATE carrier_bill_check SET created_at = created_at - INTERVAL 3 DAY, expires_at = created_at + INTERVAL 20 MINUTE');
         self::rm()->replan(self::system(), null, 3650);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_bill_check'));
+    }
+
+    // ---- the Codex check r5 (cw_work/runs/rmbills_codex_r5.txt): its HIGHs and MEDIUMs, each shown failing first (rmbills_r6_red.log) ----------
+
+    /** r5 HIGH 1: a pull whose order details leave out an order it listed reads no day (nothing recorded as read, the checkpoint stays). */
+    public function testR5APullMissingAnOrdersDetailsReadsNoDay(): void
+    {
+        self::$db->exec('DELETE FROM carrier_label_pull_day WHERE account_id = ?', [$this->acct['account']]);
+        $day = '2026-11-10';
+        $o = static fn (int $id, string $t): array => ['orderIdentifier' => $id, 'orderReference' => '1361' . $id, 'createdOn' => $day . 'T10:00:00.1234567',
+            'manifestedOn' => $day . 'T18:00:35', 'trackingNumber' => $t, 'packages' => [['packageNumber' => 1, 'trackingNumber' => $t]]];
+        $calls = [];
+        $clock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-14 02:20:00', new \DateTimeZone('UTC'));
+        try {
+            (new RoyalMailBills(self::$db, $clock))->pull(self::system(), $this->acct['account'], self::cnd([$day => [$o(301, 'JV000000301GB'), $o(302, 'JV000000302GB')]],
+                $calls, 200, [302]), $day, $day);
+            self::fail('an order listed and not in the details');
+        } catch (CwException $e) {
+            self::assertSame('cnd_partial', $e->errorCode);
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_label_pull_day'));
+        self::assertNull(self::$db->value('SELECT read_to FROM carrier_label_pull WHERE account_id = ?', [$this->acct['account']]));
+    }
+
+    /** r5 HIGH 2: a Special Delivery manifest and its wrong weight wait for their day as a Tracked day does: a part of its labels never prices it. */
+    public function testR5ASpecialDeliveryManifestWaitsForItsDay(): void
+    {
+        $day = '2026-11-10';
+        self::$db->exec('DELETE FROM carrier_label_pull_day WHERE account_id = ? AND day = ?', [$this->acct['account'], $day]);
+        self::order($this->vpg, '1311', '1361311', '2026-11-10T09:00:00Z', ['AS000000311GB' => $day . 'T10:00:00Z']);
+        $sd = ['manifest_no' => 2301, 'sales_order' => '5155500311', 'weight_g' => 80];
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000311GB', 'SD1', $day, '1361311', $sd)], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'SD1', 2, 2008, 'CLICK AND DROP M2301', '5155500311'),
+            RmBill::line('2026-11-11', 'RX1', 1, 275, 'ADJ5155500311RCN Surcharge')]))['invoice_id'];
+        self::assertSame(['held||no_report' => 2283], self::where($id), 'its day not read by a pull: the manifest and its wrong weight wait');
+        RmFixtures::pulled(self::$db, $this->acct['account'], $day, $day);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000312GB', 'SD1', $day, '1361312', $sd)], 'report');
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(["order|{$this->vpg}|" => 1141, "shop|{$this->vpg}|" => 1142], self::where($id), 'by band, the wrong weight shared');
+        $this->assertRebuilds();
+    }
+
+    /** r5 MEDIUM 3: the day a pull read is planned again by that pull, even when the pull brought no label of it. */
+    public function testR5ADayAPullReadIsPlannedAgainEvenWithNoLabelOfIt(): void
+    {
+        $day = '2026-11-10';
+        self::$db->exec('DELETE FROM carrier_label_pull_day WHERE account_id = ? AND day = ?', [$this->acct['account'], $day]);
+        self::order($this->vpg, '1321', '1361321', '2026-11-10T09:00:00Z', ['JV000000321GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000321GB', 'TPL48HV', $day, '1361321')], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
+        self::assertSame(['held||no_report' => 254], self::where($id));
+        $calls = [];
+        $clock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-14 02:20:00', new \DateTimeZone('UTC'));
+        (new RoyalMailBills(self::$db, $clock))->pull(self::system(), $this->acct['account'], self::cnd([], $calls), $day, $day);
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id), 'planned by the pull, not left to a nightly');
+        $this->assertRebuilds();
+    }
+
+    /** r5 MEDIUM 6: the pins a write left due are done before a label import plans anything. */
+    public function testR5PinsDueAreDoneBeforeALabelImportPlans(): void
+    {
+        $day = '2026-11-12';
+        self::order($this->vpg, '1331', '1361331', '2026-11-12T09:00:00Z', ['JV000000331GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000331GB', 'TPL48HV', $day, '1361331')], 'report');
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        $arm = null;
+        $arm = static function () use (&$arm): void {
+            \CW\Tests\Support\HookedStatement::$before['UPDATE carrier_label l JOIN'] = $arm;
+            throw new \PDOException('MySQL server has gone away');
+        };
+        \CW\Tests\Support\HookedStatement::$before = ['UPDATE carrier_label l JOIN' => $arm];
+        try {
+            (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]));
+        } finally {
+            \CW\Tests\Support\HookedStatement::$before = [];
+        }
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM carrier_pin_due'));
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000332GB', 'TPL48HV', '2026-11-13', '1361332')], 'report');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_pin_due'));
+        self::assertSame('odl:13310', (string) self::$db->value("SELECT cw_parcel_ref FROM carrier_label WHERE tracking_no = 'JV000000331GB'"));
+    }
+
+    /** r5 MEDIUM 8: Vape Big's account is read by report only until its key is named (bin/carrier_account.php --key-name, audited). */
+    public function testR5AReportOnlyAccountIsNamedAKeyByTheTool(): void
+    {
+        $vb = RmFixtures::account(self::$db, $this->vpg, null, 'off', 'vapebig-pending', false);
+        self::$db->exec('UPDATE carrier_account SET key_name = NULL WHERE id = ?', [$vb['account']]);
+        self::assertSame(2, self::script('carrier_account', '--account=vapebig-pending', '--key-name=Bad Name')['code']);
+        $r = self::script('carrier_account', '--account=vapebig-pending', '--key-name=click_and_drop_vapebig');
+        self::assertSame(0, $r['code'], $r['out']);
+        self::assertSame('click_and_drop_vapebig', (string) self::$db->value('SELECT key_name FROM carrier_account WHERE id = ?', [$vb['account']]));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'carrier_account.set' AND detail LIKE '%key_name%'"));
+        // the Codex check r5 (LOW 11): a number another account has is never a new number
+        self::assertSame(1, self::script('carrier_account', '--account=vapebig-pending', '--number=3012002')['code']);
+        self::assertSame(1, self::script('carrier_account', '--account=vapebig-pending', '--number=0706703000')['code']);
+    }
+
+    /** r5 LOW 9: the check of the very bill live shows the split it HAS (its live allocations), whatever came since. */
+    public function testR5TheSameBillsCheckShowsItsLiveSplit(): void
+    {
+        $person = self::person('rm6');
+        $day = '2026-11-12';
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000341GB', 'TPL48HV', $day, '1361341')], 'report');
+        $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
+        $id = self::rm()->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
+        self::assertSame(["shop|{$this->vpg}|" => 254], self::where($id), 'no CW parcel yet: Vape and Go\'s not on an order');
+        self::order($this->vpg, '1341', '1361341', '2026-11-12T09:00:00Z', ['JV000000341GB' => $day . 'T10:00:00Z']);
+        $c = self::rm()->check($person, $this->acct['account'], $page);
+        self::assertTrue($c['same']);
+        self::assertSame(self::split($id), $c['preview']['where'], 'what it has, not what a plan would do now');
+        self::assertSame(self::split($id), self::rm()->preview($this->acct['account'], $page)['where'], 'the server tool\'s check the same');
     }
 }
