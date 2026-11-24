@@ -179,4 +179,15 @@ final class RoyalMailCodexR12Test extends StockTestCase
         self::assertSame([['no_labels', false]], array_map(static fn (array $i): array => [$i['kind'], $i['red']], RoyalMailLook::forDays(self::$db, $this->acct['account'],
             ['2026-11-12'])));
     }
+
+    /** F3 (the list too): a manifest's label with an old parcel of its number outside the window is a usable label of the list's count. */
+    public function testF3TheListCountsAManifestsLabelAsThePlanDoes(): void
+    {
+        self::order($this->vpg, '3441', '1393441', ['AS000003441GB' => ['2026-11-12T10:00:00Z', 'SD1']]);
+        self::order($this->vpg, '3442', '1393442', ['AS000003441GB' => ['2026-09-10T10:00:00Z', 'TPM24HV']]);
+        $this->report([self::sd('AS000003441GB', '2026-11-12', '1393441', 2941, '5155503441')], '2026-11-12', '2026-11-12');
+        $id = $this->bill([RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2941', '5155503441')]);
+        self::assertSame(["order|{$this->vpg}|" => 930], self::where($id));
+        self::assertSame([], RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-12']), 'its one label is usable: 1 billed, 1 label, nothing to look at');
+    }
 }
