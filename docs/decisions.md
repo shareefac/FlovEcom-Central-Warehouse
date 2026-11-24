@@ -20537,3 +20537,19 @@ months of the deleted invoices as well. M8: a change refused because someone els
 r2 M11, r1 M14): who deleted a row (the person, deleted_by) is in its history and compared every night. M10: an expense's and a regular cost's
 page read their facts and their history in one snapshot. M11: the per-day sum stops at its last day (a period ending 31 Dec 9999 is worked
 out, never a loop).
+
+**EX36. Open for the owner (the safest choice is built meanwhile; nothing here is a money rule CW made up).**
+- Q1 A supplier's credit note (a negative expense) is refused: the amount without VAT must be above 0. Example: Viking Direct credits
+  £10.42 + £2.08 VAT for returned tape; it cannot be entered. If allowed, November's Vape and Go expenses would fall by £10.42.
+- Q2 Real profit has a "+ Delivery charged" line the drawing does not show, so delivery counts as the other Profit pages count it (charged
+  less the carriers' bills). Example: Vape and Go, November: delivery charged £1,200.00 without VAT, DPD bills £950.00: +£250.00 in the real
+  profit; without the line it would be £1,200.00 lower. Keep the line (or fold it into "Sales")?
+- Q3 The seed's first day: 1 Nov 2026 (default; `--from` to change). From 1 Nov, November's regular costs are £41,879.73; from 3 Nov (28
+  days) £39,087.76.
+- Q4 Are the weekly figures with or without VAT? They are counted as given. If, say, Novos £2,769.00 a week includes 20% VAT (£461.50), the
+  real profit is £461.50 a week too low (£1,977.86 in November).
+- Q5 November of the weekly list shows £41,879.73 (each line rounded once, so the lines add up to the shop's line); the drawing showed
+  £41,879.74 (the week's total rounded once). Accept the penny?
+- Q6 An expense type or group is added only by an admin or a reviewer (Settings, like Reasons); the Expenses job cannot add one itself.
+- Q7 "This month" on Real profit counts the regular costs up to today (on 24 Nov, Unit 1 rent £712.08, not the month's £890.10), as the
+  sales are to today; a chosen whole month counts the whole month.
