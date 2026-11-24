@@ -12,7 +12,7 @@ use CW\Db;
 use CW\Reports\ReportRefresh;
 
 /**
- * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL86): ONE service for every
+ * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL87): ONE service for every
  * pooled carrier account (0706703000 and Vape Big's: only the settings differ; the owner, 23 Nov 2026, Q5).
  *
  *  check()         the upload screen's first step (DL79): a bill read and refused as upload() / replace() would refuse it, where its money would
@@ -47,6 +47,13 @@ final class RoyalMailBills
     public const SERVICE_CODE = '/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D';
     /** A label's tracking number in its carrier's shape (a pooled carrier's: Royal Mail's two letters, nine digits, GB). */
     public const TRACKING = ['royal_mail' => '/^[A-Z]{2}[0-9]{9}GB$/D'];
+    /**
+     * A CW parcel of Royal Mail as check d sees it (DL57; LabelDestinations): carrier royal_mail, or made by hand (carrier manual, or none with the
+     * manual flag); its Royal Mail number is the label's it is joined by. One predicate for the service check and the list (the Codex check r11 H4).
+     */
+    public const RM_PARCEL = "(p.carrier = 'royal_mail' OR p.carrier = 'manual' OR (p.carrier = '' AND p.is_manual = 1))";
+    /** The nightly makes the days of its first EDGE_DAYS days due before it plans them (they leave its window soon: the Codex check r11 H6). */
+    public const EDGE_DAYS = 7;
     /** The health alert says the days of a bill waiting longer than this (DL84 8). */
     public const WAIT_ALERT_DAYS = 14;
     /** Tries of a chunk of a loading bill's allocations whose row wait ran out. */
@@ -765,11 +772,36 @@ final class RoyalMailBills
             $since = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
             $ctx = self::ctx($this->db, $account);
             $rows = self::rowsWhere($this->db, $account, 'r.service_date >= ?', [$since]);
+            // the days about to leave the window (its first EDGE_DAYS) made due BEFORE they are planned, in their own statement: a run that dies
+            // in between never leaves one to age out (the Codex check r11 H6); taken away again when every key of this run was planned
+            $edgeTo = (new \DateTimeImmutable($since))->modify('+' . self::EDGE_DAYS . ' days')->format('Y-m-d');
+            $edge = array_values(array_unique(array_map(static fn (array $r): string => (string) $r['service_date'], array_filter($rows,
+                static fn (array $r): bool => (string) $r['service_date'] < $edgeTo))));
+            sort($edge, SORT_STRING);
+            $was = [];
+            foreach (array_chunk($edge, 200) as $chunk) {
+                foreach ($this->db->column('SELECT day FROM carrier_replan_due WHERE account_id = ? AND day IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
+                    [$account['id'], ...$chunk]) as $d) {
+                    $was[(string) $d] = true;
+                }
+            }
+            $mine = array_values(array_filter($edge, static fn (string $d): bool => !isset($was[$d])));
+            $at = Clock::db(($this->clock)());
+            foreach (array_chunk($mine, 200) as $chunk) {
+                $this->db->exec('INSERT IGNORE INTO carrier_replan_due (account_id, day, since) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?)')),
+                    array_merge(...array_map(static fn (string $d): array => [$account['id'], $d, $at], $chunk)));
+            }
             $failed = count($this->failed);
             $n = $this->replanKeys($caller, $account, self::keysOf($this->db, $account, $ctx, $rows));
             // a group that could not be planned now is kept DUE (its days), so the next run plans it whatever its age: a withdrawal never ages
             // out of the nightly's days (the Codex check r9 H15)
             $this->keepDue($account, array_slice($this->failed, $failed));
+            if (count($this->failed) === $failed) {
+                foreach (array_chunk($mine, 200) as $chunk) {
+                    $this->db->exec('DELETE FROM carrier_replan_due WHERE account_id = ? AND day IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
+                        [$account['id'], ...$chunk]);
+                }
+            }
             return $n;
         });
     }
@@ -839,7 +871,8 @@ final class RoyalMailBills
                 . 'than %d days (the oldest %s)', $a['account_no'], count($long), self::WAIT_ALERT_DAYS, min(array_column($long, 'day'))),
                 'data' => ['account' => $a['account_no'], 'days' => count($long), 'oldest' => min(array_column($long, 'day')), 'limit' => self::WAIT_ALERT_DAYS]];
         }
-        $red = array_values(array_filter(RoyalMailLook::recent($db, $a['id'], $now), static fn (array $i): bool => in_array($i['kind'], ['billed_more', 'manifest'], true)));
+        $red = array_values(array_filter(RoyalMailLook::recent($db, $a['id'], $now, self::REPLAN_DAYS, true), static fn (array $i): bool => $i['red']
+            && in_array($i['kind'], ['billed_more', 'manifest'], true)));
         if ($red !== []) {
             $pct = RoyalMailLook::pctText(RoyalMailLook::alarmBp($db));
             $out[] = ['key' => 'rm_billed_more:' . $a['account_no'], 'kind' => 'rm_billed_more', 'detail' => sprintf('Royal Mail %s: %d day(s) or manifest(s) billed more '
@@ -1306,8 +1339,12 @@ final class RoyalMailBills
                 $owners[$a['channel_id'] . '|' . strtolower((string) $a['order_ref'])] = true;
             }
         }
+        // the orders of the CW parcels that left labels out are guarded too, at the snapshot the plan read (the Codex check r11 H5)
+        foreach ($s['watch'] ?? [] as [$ch, $ref]) {
+            $owners[$ch . '|' . strtolower((string) $ref)] = true;
+        }
         return ['before' => array_values(array_filter(array_map([self::class, 'fact'], $before))), 'after' => array_values(array_filter(array_map([self::class, 'fact'],
-            $after))), 'versions' => array_intersect_key($s['versions'], $owners), 'write' => $write, 'verify' => $s['verify']];
+            $after))), 'versions' => array_intersect_key($s['versions'], $owners), 'write' => $write, 'verify' => $s['verify'], 'watch' => $s['watch'] ?? []];
     }
 
     /**
@@ -1407,6 +1444,8 @@ final class RoyalMailBills
         $cols = 'id, tracking_no, reference, channel_code, service_code, manifest_day, manifest_no, weight_g, sales_order';
         $kindOf = static fn (array $r): string => $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
         $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
+        $oddSeen = [];
+        $oddNow = [];
         // The keys' labels and rows, then closed over (DL86 8: no group any more, each key is priced on its own): the key each row has now (a
         // Special Delivery row naming only its sales order finds its manifest through that sales order's labels), the manifests its live
         // allocations' labels are on (the manifest a row leaves is planned with it: the Codex check r1, MEDIUM 6) and those of the bills going,
@@ -1512,6 +1551,13 @@ final class RoyalMailBills
                 $bySales($rowSales);
             }
             ksort($labels);
+            // the labels of an odd service known before any key is worked out: one never names a sales order's manifest (the Codex check r11 H1)
+            $fresh = array_diff_key($labels, $oddSeen);
+            $oddSeen += array_fill_keys(array_keys($fresh), true);
+            $oddNow += self::odd($db, $ctx, $fresh);
+            foreach ($labels as $id => $l) {
+                $labels[$id]['odd'] = $oddNow[$id] ?? null;
+            }
             $more = [];
             $stored = [];
             foreach ($cand as $r) {
@@ -1519,6 +1565,15 @@ final class RoyalMailBills
                     $more[PooledPlanner::key($r, $kindOf($r), $labels, $ctx)] = true;
                     if ($kindOf($r) === 'band' && (int) $r['invoice_id'] !== 0) {
                         $stored[] = $r;
+                    }
+                    // a row naming only its sales order: every manifest that sales order's labels are on is planned with it (the one it leaves when
+                    // its sales order's labels change, whatever its allocations were: the Codex check r11 H2)
+                    if ($kindOf($r) === 'band' && $r['ref_kind'] !== 'manifest' && $r['sales_order'] !== null) {
+                        foreach ($labels as $l) {
+                            if ($l['sales_order'] === $r['sales_order'] && $l['manifest_no'] !== null) {
+                                $more['M|' . (int) $l['manifest_no']] = true;
+                            }
+                        }
                     }
                 }
             }
@@ -1554,11 +1609,13 @@ final class RoyalMailBills
         $days = array_values(array_unique([...array_map(static fn (array $r): string => (string) $r['service_date'], $rows),
             ...array_values(array_filter(array_map(static fn (array $l): string => (string) ($l['manifest_day'] ?? ''), $labels), static fn (string $d): bool => $d !== ''))]));
         $ctx['waiting'] = self::waits($db, $account, $ctx, $days);
-        // the labels of an odd service get no price (DL86 4)
-        $odd = self::odd($db, $ctx, $labels);
-        foreach ($odd as $id => $why) {
-            $labels[$id]['odd'] = $why;
+        // the labels of an odd service get no price (DL86 4); the orders of the CW parcels that left them out are guarded by the write (H5)
+        $odd = array_intersect_key($oddNow, $labels);
+        ksort($odd);
+        foreach ($labels as $id => $l) {
+            $labels[$id]['odd'] = $odd[$id] ?? null;
         }
+        $watch = self::oddOrders($db, $labels, $odd);
         // labels' destinations; a label whose price is on an order now stays on it (sticky)
         // the label's own CW parcel, pinned when a plan first put it on an order (DL74); else a live allocation on an order (labels of before)
         $sticky = [];
@@ -1578,6 +1635,10 @@ final class RoyalMailBills
         ksort($sticky);
         $versions = [];
         $dests = LabelDestinations::resolve($db, $account, $labels, $sticky, $versions);
+        foreach ($watch as $k => $w) {
+            $versions[$k] = isset($versions[$k]) && $versions[$k] !== $w['seen'] ? LabelDestinations::CONFLICT : $w['seen'];
+        }
+        ksort($versions, SORT_STRING);
         $withDest = [];
         foreach ($labels as $id => $l) {
             $withDest[$id] = $l + ['dest' => $dests[$id]];
@@ -1622,7 +1683,8 @@ final class RoyalMailBills
         $waiting = $ctx['waiting'];
         $verify = static fn (Db $db): bool => self::waits($db, $account, $ctx, $days) === $waiting && self::odd($db, $ctx, $labels) === $odd;
         return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'versions' => $versions, 'desired' => $desired,
-            'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading, 'verify' => $verify];
+            'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading, 'verify' => $verify,
+            'watch' => array_values(array_map(static fn (array $w): array => [$w['ch'], $w['ref']], $watch))];
     }
 
     /**
@@ -1687,8 +1749,8 @@ final class RoyalMailBills
             }
         }
         foreach (array_chunk(array_map('strval', array_keys($check)), 500) as $chunk) {
-            foreach ($db->all('SELECT tracking_no, service_code FROM sale_parcel WHERE tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
-                . "AND removed_at IS NULL AND (carrier = 'royal_mail' OR is_manual = 1) AND service_code <> ''", $chunk) as $p) {
+            foreach ($db->all('SELECT p.tracking_no, p.service_code FROM sale_parcel p WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . 'AND p.removed_at IS NULL AND ' . self::RM_PARCEL . " AND p.service_code <> ''", $chunk) as $p) {
                 foreach ($check[strtoupper((string) $p['tracking_no'])] ?? [] as $id) {
                     if (strcasecmp((string) $p['service_code'], (string) $labels[$id]['service_code']) !== 0) {
                         $out[$id] = 'service_differs';
@@ -1697,6 +1759,36 @@ final class RoyalMailBills
             }
         }
         ksort($out);
+        return $out;
+    }
+
+    /**
+     * The orders of the CW parcels that left labels out of a plan (service_differs), each with the snapshot it was read at ("version|updated_at"),
+     * by "channel|lower-case ref": the write holds their guards too, so a correction of their service never commits between the plan's last
+     * check and its commit (the Codex check r11 H5).
+     *
+     * @param array<int, array<string, mixed>> $labels by id
+     * @param array<int, string> $odd odd()
+     * @return array<string, array{ch: int, ref: string, seen: string}>
+     */
+    private static function oddOrders(Db $db, array $labels, array $odd): array
+    {
+        $tracking = [];
+        foreach ($odd as $id => $why) {
+            if ($why === 'service_differs') {
+                $tracking[strtoupper((string) $labels[$id]['tracking_no'])] = true;
+            }
+        }
+        $out = [];
+        foreach (array_chunk(array_map('strval', array_keys($tracking)), 500) as $chunk) {
+            foreach ($db->all('SELECT p.channel_id, p.order_ref, o.snapshot_version, o.updated_at FROM sale_parcel p JOIN sale_order o ON o.channel_id = p.channel_id '
+                . 'AND o.order_ref = p.order_ref WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND p.removed_at IS NULL AND '
+                . self::RM_PARCEL, $chunk) as $p) {
+                $out[(int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref'])] = ['ch' => (int) $p['channel_id'], 'ref' => (string) $p['order_ref'],
+                    'seen' => $p['snapshot_version'] . '|' . $p['updated_at']];
+            }
+        }
+        ksort($out, SORT_STRING);
         return $out;
     }
 

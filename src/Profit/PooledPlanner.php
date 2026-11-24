@@ -27,9 +27,9 @@ namespace CW\Profit;
  *                        the main shop's "not on an order"; no such label: all of it there.
  *  surcharge, return     the main shop's "not on an order" (no parcel named).
  * A label's money goes where its destination says (an order, a shop's "not on an order", a party with no shop, before CW start, held); a label of
- * an odd service (its `odd` set: no service, one CW does not map, another than its CW parcel's) gets no price (DL86 4). A key (a day x product,
- * a manifest, a sales order, a row on its own) waits whole only while a day of it waits (ctx waiting: covered by no report, or the account
- * off: DL86 1). Every row's allocations add up to its net exactly.
+ * an odd service (its `odd` set: no service, one CW does not map, another than its CW parcel's) gets no price and never names a sales order's
+ * manifest (DL86 4, DL87 H1). A row waits while its own service day waits (ctx waiting: covered by no report, or the account off: DL86 1,
+ * DL87 H3); a key prices the rest of its rows. Every row's allocations add up to its net exactly.
  */
 final class PooledPlanner
 {
@@ -68,14 +68,24 @@ final class PooledPlanner
                 array_push($out, ...($why !== null ? self::waitAll($set, $why) : self::flat($set, self::sorted($own), $ctx)));
             } elseif ($type === 'M' || $type === 'S') {
                 // DL86 5, 6: a Special Delivery manifest by its number, a wrong-weight sales order by its labels: each on its own, whatever day
-                // the bill gives; it waits only while a day of it (its rows', its labels') is covered by no report (DL86 1)
+                // the bill gives; a row of it waits while its own day is covered by no report, the others are priced (DL86 1; the Codex check r11
+                // H2, H3: a row on an uncovered day joining or leaving a manifest never holds the manifest's other rows)
                 $id = substr($key, 2);
-                $mine = array_filter($labels, static fn (array $l): bool => in_array($l['service_code'], $services, true)
+                $own = array_filter($priced, static fn (array $l): bool => in_array($l['service_code'], $services, true)
                     && ($type === 'M' ? $l['manifest_no'] !== null && (int) $l['manifest_no'] === (int) $id : $l['sales_order'] === $id));
-                $own = array_filter($mine, static fn (array $l): bool => ($l['odd'] ?? null) === null);
-                $why = self::keyReason($set, $mine, $ctx);
-                array_push($out, ...($why !== null ? self::waitAll($set, $why)
-                    : self::oldRowsBeforeStart($type === 'M' ? self::band($set, self::sorted($own), $ctx) : self::wrongWeight($set, self::sorted($own), $ctx), $ctx)));
+                $go = [];
+                foreach ($set as $r) {
+                    $why = self::dayReason((string) $r['service_date'], $ctx);
+                    if ($why !== null) {
+                        array_push($out, ...self::waitAll([$r], $why));
+                    } else {
+                        $go[] = $r;
+                    }
+                }
+                if ($go !== []) {
+                    array_push($out, ...self::oldRowsBeforeStart($type === 'M' ? self::band($go, self::sorted($own), $ctx) : self::wrongWeight($go, self::sorted($own), $ctx),
+                        $ctx));
+                }
             } else {
                 foreach ($set as $r) {
                     $kind = $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
@@ -141,34 +151,6 @@ final class PooledPlanner
         return $allocs;
     }
 
-    /**
-     * Why a manifest's or a sales order's key waits (DL86 1): the first day of it (its rows' service days, its labels' manifest days) that waits;
-     * null when none does.
-     *
-     * @param list<array<string, mixed>> $rows
-     * @param array<int|string, array<string, mixed>> $labels
-     */
-    private static function keyReason(array $rows, array $labels, array $ctx): ?string
-    {
-        $days = [];
-        foreach ($rows as $r) {
-            $days[(string) $r['service_date']] = true;
-        }
-        foreach ($labels as $l) {
-            if ($l['manifest_day'] !== null) {
-                $days[(string) $l['manifest_day']] = true;
-            }
-        }
-        ksort($days);
-        foreach (array_keys($days) as $d) {
-            $why = self::dayReason((string) $d, $ctx);
-            if ($why !== null) {
-                return $why;
-            }
-        }
-        return null;
-    }
-
     /** Why a day waits (ctx waiting: after the main shop's CW start, covered by no report, or the account off: DL86 1), null when it does not. */
     private static function dayReason(string $day, array $ctx): ?string
     {
@@ -203,13 +185,16 @@ final class PooledPlanner
         return $own;
     }
 
-    /** The one manifest of a sales order's Special Delivery labels; null: none, or two. @param array<int, array<string, mixed>> $labels */
+    /**
+     * The one manifest of a sales order's Special Delivery labels CW can use (a label of an odd service names none: the Codex check r11 H1);
+     * null: none, or two. @param array<int, array<string, mixed>> $labels
+     */
     public static function manifestOf(string $salesOrder, array $labels, array $ctx): ?int
     {
         $services = self::bandServices($ctx);
         $found = [];
         foreach ($labels as $l) {
-            if ($l['sales_order'] === $salesOrder && $l['manifest_no'] !== null && in_array($l['service_code'], $services, true)) {
+            if ($l['sales_order'] === $salesOrder && $l['manifest_no'] !== null && in_array($l['service_code'], $services, true) && ($l['odd'] ?? null) === null) {
                 $found[(int) $l['manifest_no']] = true;
             }
         }

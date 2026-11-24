@@ -808,6 +808,11 @@ final class DeliveryBills
                             $owners[$f['ch'] . '|' . strtolower((string) $f['ref'])] = [(int) $f['ch'], (string) $f['ref']];
                         }
                     }
+                    // a pooled bill's plan names orders it moves no money on but whose CW parcels decided it (RoyalMailBills: the parcels whose
+                    // service left a label out, the Codex check r11 H5): guarded and checked at their snapshot like the others
+                    foreach ($p['watch'] ?? [] as [$ch, $ref]) {
+                        $owners[$ch . '|' . strtolower((string) $ref)] = [(int) $ch, (string) $ref];
+                    }
                     ksort($owners, SORT_STRING);
                     $days = self::orderDays($db, $owners);
                     $names = [];

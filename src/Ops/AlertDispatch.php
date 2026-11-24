@@ -77,8 +77,18 @@ final class AlertDispatch
         }
         $cleared = [];
         $clearedWords = [];
+        // a Royal Mail account whose check could not be read keeps its open alerts: not read is not back to normal (the Codex check r11 M9)
+        $unread = [];
+        foreach ($problems as $p) {
+            if ((string) $p['kind'] === 'rm_check_failed' && is_array($p['data'] ?? null) && ($p['data']['account'] ?? null) !== null) {
+                $unread[(string) $p['data']['account']] = true;
+            }
+        }
         foreach ($state as $key => $row) {
             if (isset($current[$key])) {
+                continue;
+            }
+            if ($unread !== [] && preg_match('/^rm_[a-z_]+:(.+)$/D', (string) $key, $m) === 1 && isset($unread[$m[1]])) {
                 continue;
             }
             if ($row['cleared_at'] === null) {

@@ -195,11 +195,10 @@ final class RoyalMailCodexR11Test extends StockTestCase
         $ef = $this->ef;
         \CW\Tests\Support\HookedStatement::$before = ["UPDATE carrier_invoice SET status = 'live'" => static function () use (&$ran, $ef): void {
             $ran = true;
-            try {
-                // Electrofag's snapshot corrects the parcel's service while the Store holds its guards
+            // Electrofag's snapshot corrects the parcel's service while the Store holds its guards: it can only when the order's guard is free (a
+            // snapshot waits for a held guard, then tries again later: never in this write)
+            if (self::$db->value('SELECT IS_USED_LOCK(?)', [OrderSnapshots::lockName($ef, '3331')]) === null) {
                 self::order($ef, '3331', '9333', ['JV000003331GB' => ['2026-11-12T10:00:00Z', 'TPL48HV']], 2);
-            } catch (\Throwable) {
-                // held by the Store's guard: it tries again later
             }
         }];
         $id = (int) (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'TPL', 1, 254, '943')]))['invoice_id'];

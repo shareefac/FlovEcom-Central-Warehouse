@@ -971,7 +971,10 @@ final class RoyalMailBillsTest extends StockTestCase
 
     // ---- the Codex check r5 (cw_work/runs/rmbills_codex_r5.txt): its HIGHs and MEDIUMs, each shown failing first (rmbills_r6_red.log) ----------
 
-    /** r5 HIGH 2: a Special Delivery manifest and its wrong weight wait for their day as a Tracked day does: a part of its labels never prices it. */
+    /**
+     * r5 HIGH 2, as DL86 1 and DL87 keep it: a row of a Special Delivery manifest waits while its own day is covered by no report (a label always
+     * comes with its day's cover in the app; this test makes one without it); a wrong-weight row of a covered day goes through on its labels.
+     */
     public function testR5ASpecialDeliveryManifestWaitsForItsDay(): void
     {
         $day = '2026-11-10';
@@ -981,7 +984,8 @@ final class RoyalMailBillsTest extends StockTestCase
         RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000311GB', 'SD1', $day, '1361311', $sd)], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'SD1', 2, 2008, 'CLICK AND DROP M2301', '5155500311'),
             RmBill::line('2026-11-11', 'RX1', 1, 275, 'ADJ5155500311RCN Surcharge')]))['invoice_id'];
-        self::assertSame(['held||not_covered' => 2283], self::where($id), 'its day covered by no report: the manifest and its wrong weight wait');
+        self::assertSame(['held||not_covered' => 2008, "order|{$this->vpg}|" => 275], self::where($id),
+            'the manifest\'s row of the 10th (covered by no report) waits; the wrong weight of the 11th is on its sales order\'s label');
         RmFixtures::covered(self::$db, $this->acct['account'], $day, $day);
         RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000312GB', 'SD1', $day, '1361312', $sd)], 'report');
         self::rm()->replan(self::system(), null, 3650);
@@ -1033,8 +1037,9 @@ final class RoyalMailBillsTest extends StockTestCase
     // ---- round 7 (the coordinator's rule DL82 after the Codex check r6): money reaches a shop only when all it depends on is complete -------
 
     /**
-     * DL82 (r6 F2), as DL86 1, 5, 6 keep it: a Special Delivery manifest is priced by its number across its rows and days, and waits whole while a
-     * day of it is covered by no report; a wrong-weight sales order with no label waits for nothing: the main shop's "not on an order" (DL86 6).
+     * DL82 (r6 F2), as DL86 1, 5, 6 and DL87 keep it: a Special Delivery manifest is priced by its number across its rows and days; a row of it
+     * waits while its own day is covered by no report; a wrong-weight sales order with no label waits for nothing: the main shop's "not on an
+     * order" (DL86 6).
      */
     public function testR7ASpecialDeliveryGroupWaitsWholeAcrossItsDays(): void
     {
@@ -1046,13 +1051,13 @@ final class RoyalMailBillsTest extends StockTestCase
                 ['manifest_no' => 2311, 'sales_order' => '5155500411', 'weight_g' => 80])], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-10', 'SD1', 1, 3000, 'CLICK AND DROP M2311', '5155500411'),
             RmBill::line('2026-11-11', 'SD1', 1, 4000, 'CLICK AND DROP M2311', '5155500411'), RmBill::line('2026-11-12', 'RX1', 1, 275, 'ADJ5155500499RCN Surcharge')]))['invoice_id'];
-        self::assertSame(['held||not_covered' => 7000, "shop|{$this->vpg}|" => 275], self::where($id),
-            'the manifest\'s 10th covered by no report: both its rows wait; the sales order of no label: Vape and Go\'s line (DL86 6)');
-        // a label of the manifest on its waiting day: still the whole group waits
+        self::assertSame(['held||not_covered' => 3000, "order|{$this->vpg}|" => 4000, "shop|{$this->vpg}|" => 275], self::where($id),
+            'the manifest\'s row of the 10th (covered by no report) waits alone, its row of the 11th on its label (DL87 H3); the sales order of no label: Vape and Go\'s line (DL86 6)');
+        // a label of the manifest on its waiting day (made without its cover by the test): the row of the 10th still waits
         self::order($this->vpg, '1411', '1361413', '2026-11-10T09:00:00Z', ['AS000000413GB' => '2026-11-10T10:00:00Z']);
         RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000413GB', 'SD1', '2026-11-10', '1361413',
             ['manifest_no' => 2311, 'sales_order' => '5155500411', 'weight_g' => 80])], 'report');
-        self::assertSame(['held||not_covered' => 7000, "shop|{$this->vpg}|" => 275], self::where($id));
+        self::assertSame(['held||not_covered' => 3000, "order|{$this->vpg}|" => 4000, "shop|{$this->vpg}|" => 275], self::where($id));
         // its day covered: the manifest priced on its labels (both rows)
         RmFixtures::covered(self::$db, $this->acct['account'], '2026-11-10', '2026-11-10');
         self::rm()->replan(self::system(), null, 3650);

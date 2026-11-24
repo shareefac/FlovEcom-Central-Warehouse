@@ -211,7 +211,7 @@ final class RoyalMailViews
             $billed = $this->db->one("SELECT COALESCE(SUM(r.qty), 0) AS q, COALESCE(SUM(r.net_pence), 0) AS p, MAX(i.invoice_date) AS last, MIN(i.invoice_date) AS first "
                 . "FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? "
                 . 'WHERE r.service_date = ? AND r.product_code = ?', [(string) $bill['carrier'], (string) $bill['account'], $day, $product]) ?? [];
-            $alloc = $this->db->one("SELECT SUM(a.kind = 'label') AS priced, COALESCE(SUM(CASE WHEN a.kind = 'label' THEN a.pence ELSE 0 END), 0) AS priced_p, "
+            $alloc = $this->db->one("SELECT SUM(a.kind = 'label') AS priced, SUM(a.how = 'waiting') AS waiting, COALESCE(SUM(CASE WHEN a.kind = 'label' THEN a.pence ELSE 0 END), 0) AS priced_p, "
                 . "COALESCE(SUM(CASE WHEN a.kind = 'day_line' THEN a.pence ELSE 0 END), 0) AS line_p FROM carrier_allocation a JOIN carrier_bill_row r ON r.invoice_id = a.invoice_id "
                 . "AND r.row_no = a.row_no JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? "
                 . 'WHERE a.ended_at IS NULL AND r.service_date = ? AND r.product_code = ?', [(string) $bill['carrier'], (string) $bill['account'], $day, $product]) ?? [];
@@ -220,8 +220,10 @@ final class RoyalMailViews
                 [(string) $bill['carrier'], (string) $bill['account'], $first]);
             $closed = $next !== null || DeliveryBills::daysBetween($day, $today) > self::OPEN_DAYS;
             $q = (int) ($billed['q'] ?? 0);
-            $diff = $labels - $q;
-            $look = $closed && abs($diff) > self::LOOK_LABELS && abs($diff) * 100 > self::LOOK_PCT * max($labels, $q);
+            // DL69's closed-day look on the labels Click & Drop has; the day's line in words by the labels priced (a label of an odd service is no
+            // label of the line: DL86 4, the Codex check r11 L10), the labels when the day waits
+            $look = $closed && abs($labels - $q) > self::LOOK_LABELS && abs($labels - $q) * 100 > self::LOOK_PCT * max($labels, $q);
+            $diff = ((int) ($alloc['waiting'] ?? 0) > 0 ? $labels : (int) ($alloc['priced'] ?? 0)) - $q;
             $out[] = ['day' => $day, 'product' => $product, 'labels' => $labels, 'billed' => $q, 'billed_pence' => (int) ($billed['p'] ?? 0),
                 'priced' => (int) ($alloc['priced'] ?? 0), 'priced_pence' => (int) ($alloc['priced_p'] ?? 0), 'line_pence' => (int) ($alloc['line_p'] ?? 0),
                 'difference' => $diff, 'closed' => $closed, 'look' => $look];
