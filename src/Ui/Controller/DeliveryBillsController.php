@@ -138,6 +138,7 @@ final class DeliveryBillsController
             'bill' => $p,
             'where' => $views->checkWhere($p['where']),
             'others' => $views->checkOthers($p['others']),
+            'gone' => $views->checkGone($p['gone'] ?? []),
             'days' => $p['days'],
             'rows' => $p['bill_rows'],
             'minutes' => RoyalMailBills::CHECK_MINUTES,

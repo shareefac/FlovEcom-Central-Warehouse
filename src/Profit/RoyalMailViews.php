@@ -135,12 +135,31 @@ final class RoyalMailViews
         $numbers = [];
         foreach ($others as $k => $m) {
             [$inv, $day, $rest] = array_pad(explode('|', (string) $k, 3), 3, '');
+            $rest = substr($rest, 0, (int) strrpos($rest, '|')); // the sign kept apart in the key (charges and credits never cancel)
             $numbers[(int) $inv] ??= (string) ($this->db->value('SELECT invoice_no FROM carrier_invoice WHERE id = ?', [(int) $inv]) ?? $inv);
             foreach ($this->checkWhere([$rest => (int) $m['in'] - (int) $m['out']]) as $w) {
                 $out[] = ['invoice_no' => $numbers[(int) $inv], 'day' => $day, 'in' => (int) $m['in'], 'out' => (int) $m['out']] + $w;
             }
         }
         usort($out, static fn (array $a, array $b): int => [$a['invoice_no'], $a['day'], $a['group'], $a['name']] <=> [$b['invoice_no'], $b['day'], $b['group'], $b['name']]);
+        return $out;
+    }
+
+    /**
+     * What the bill a correction replaces takes out of the profit (DL83), by day and destination, in checkWhere()'s groups.
+     *
+     * @param array<string, int> $gone RoyalMailBills::preview()['gone']: "day|dest|shop|party|reason|day_line" => pence
+     * @return list<array{day: string, group: string, name: string, reason: ?string, pence: int}>
+     */
+    public function checkGone(array $gone): array
+    {
+        $out = [];
+        foreach ($gone as $k => $pence) {
+            [$day, $rest] = array_pad(explode('|', (string) $k, 2), 2, '');
+            foreach ($this->checkWhere([$rest => (int) $pence]) as $w) {
+                $out[] = ['day' => $day] + $w;
+            }
+        }
         return $out;
     }
 

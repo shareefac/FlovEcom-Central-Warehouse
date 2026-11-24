@@ -283,6 +283,7 @@ CREATE TABLE IF NOT EXISTS carrier_label_pull (
   last_try_at    DATETIME(6)       NULL,
   last_ok_at     DATETIME(6)       NULL,
   last_error     VARCHAR(160)      NULL COMMENT 'what went wrong, in CW''s words (an HTTP status, a code): never an answer of the API, never the key',
+  unread_from    DATE              NULL COMMENT 'the earliest day a pull could not read whole: the next pull starts there at the latest (DL83)',
   PRIMARY KEY (account_id),
   CONSTRAINT fk_carrier_label_pull_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
@@ -295,7 +296,7 @@ CREATE TABLE IF NOT EXISTS carrier_label_pull_day (
   PRIMARY KEY (account_id, day),
   CONSTRAINT fk_carrier_label_pull_day_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='each day a pull of Click & Drop read whole (docs/decisions.md DL80): a day of an account with a key waits until it is here';
+  COMMENT='each day read whole (docs/decisions.md DL80, DL83): by a pull, or recorded by a person for a report-only account; a day waits until it is here';
 
 CREATE TABLE IF NOT EXISTS carrier_bill_row (
   invoice_id    BIGINT UNSIGNED   NOT NULL,
@@ -397,3 +398,12 @@ CREATE TABLE IF NOT EXISTS carrier_pin_due (
   CONSTRAINT fk_carrier_pin_due_invoice FOREIGN KEY (invoice_id) REFERENCES carrier_invoice (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='a bill whose labels are still to be pinned to the CW parcels its write put their price on (docs/decisions.md DL80)';
+
+CREATE TABLE IF NOT EXISTS carrier_replan_due (
+  account_id     SMALLINT UNSIGNED NOT NULL,
+  day            DATE              NOT NULL COMMENT 'a manifest day whose labels changed: every group of it is to be planned again',
+  since          DATETIME(6)       NOT NULL,
+  PRIMARY KEY (account_id, day),
+  CONSTRAINT fk_carrier_replan_due_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='days whose labels changed and whose groups a plan has not taken yet (docs/decisions.md DL83): written with the labels, done by the next plan';

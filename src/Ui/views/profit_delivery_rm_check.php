@@ -111,6 +111,30 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 </div>
 <?php endif; ?>
 
+<?php if ($check['replace'] !== null && $gone !== []): ?>
+<h2><?= $word('DELIVERY', 'rm_check_gone_title') ?></h2>
+<div class="table-wrap">
+<table class="stack rp-table delivery-rm-check-gone">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'state') ?></th>
+      <th scope="col" class="num"><?= $word('DELIVERY', 'rm_moves_out') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($gone as $w): ?>
+    <tr>
+      <th scope="row"><?= $day($w['day']) ?></th>
+      <td data-label="<?= $word('DELIVERY', 'state') ?>"><?= $e($groupText($w)) ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'rm_moves_out') ?>"><?= $e($gbp($w['pence'])) ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
 <h2><?= $word('DELIVERY', 'rm_check_others') ?></h2>
 <?php if ($others === []): ?>
 <p class="hint delivery-rm-check-others-none"><?= $word('DELIVERY', 'rm_check_others_none') ?></p>

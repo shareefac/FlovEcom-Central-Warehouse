@@ -127,13 +127,17 @@ final class ClickAndDropClient
     }
 
     /**
-     * Whether an order's details are whole for its day to count as read (DL82): an order not manifested yet always is (it is read again when it
-     * is); a manifested one needs a manifest time CW reads and a Royal Mail tracking number on every package (or on the order, with no packages).
+     * Whether an order's details are whole for its day to count as read (DL82, DL83): in their shapes (reduce()'s "whole"); an order not
+     * manifested yet then is (it is read again when it is); a manifested one needs a manifest time CW reads and a Royal Mail tracking number on
+     * every package (or on the order, with no packages).
      *
      * @param array<string, mixed> $o a reduce()d order
      */
     public static function complete(array $o): bool
     {
+        if (!($o['whole'] ?? false)) {
+            return false;
+        }
         if (($o['manifestedOn'] ?? null) === null || $o['manifestedOn'] === '') {
             return true;
         }
@@ -151,6 +155,13 @@ final class ClickAndDropClient
             }
         }
         return true;
+    }
+
+    /** The UK day of a manifest time as Click & Drop gives it (null: not a time CW reads). */
+    public static function manifestDay(string $manifestedOn): ?string
+    {
+        $at = self::time($manifestedOn);
+        return $at === null ? null : substr($at, 0, 10);
     }
 
     /**
@@ -296,8 +307,13 @@ final class ClickAndDropClient
         foreach (is_array($o['packages'] ?? null) ? $o['packages'] : [] as $p) {
             $packages[] = ['trackingNumber' => is_array($p) ? $str($p['trackingNumber'] ?? null) : null];
         }
+        // whether the details came in their shapes (DL83: the Codex check r7, H1): the manifest time there (null: not manifested yet), packages a
+        // list of objects when there; an id alone, or packages of another shape, never counts as whole
+        $shape = array_key_exists('manifestedOn', $o) && ($o['manifestedOn'] === null || is_string($o['manifestedOn']))
+            && (!array_key_exists('packages', $o) || (is_array($o['packages']) && array_is_list($o['packages'])
+                && array_filter($o['packages'], static fn (mixed $p): bool => !is_array($p)) === []));
         return ['orderIdentifier' => $o['orderIdentifier'], 'orderReference' => $str($o['orderReference'] ?? null), 'createdOn' => $str($o['createdOn'] ?? null),
-            'manifestedOn' => $str($o['manifestedOn'] ?? null), 'trackingNumber' => $str($o['trackingNumber'] ?? null), 'packages' => $packages];
+            'manifestedOn' => $str($o['manifestedOn'] ?? null), 'trackingNumber' => $str($o['trackingNumber'] ?? null), 'packages' => $packages, 'whole' => $shape];
     }
 
     private static function badAnswer(): CwException

@@ -67,7 +67,11 @@ final class PooledPlanner
                 $so = substr($key, 2);
                 $services = self::bandServices($ctx);
                 $own = array_filter($labels, static fn (array $l): bool => $l['sales_order'] === $so && in_array($l['service_code'], $services, true));
-                array_push($out, ...self::wrongWeight($set, self::sorted($own), $ctx));
+                // its manifests' labels: one naming no sales order and the group is not known whole (DL83)
+                $ms = array_values(array_unique(array_filter(array_map(static fn (array $l): ?int => $l['manifest_no'] === null ? null : (int) $l['manifest_no'], $own))));
+                $unknown = array_filter($labels, static fn (array $l): bool => $l['sales_order'] === null && $l['manifest_no'] !== null
+                    && in_array((int) $l['manifest_no'], $ms, true) && in_array($l['service_code'], $services, true)) !== [];
+                array_push($out, ...($unknown ? self::waitAll($set) : self::wrongWeight($set, self::sorted($own), $ctx)));
             } else {
                 foreach ($set as $r) {
                     $kind = $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
@@ -77,8 +81,10 @@ final class PooledPlanner
                         'band', 'wrong_weight' => 'no_batch',
                         default => 'unknown',
                     };
-                    // a row of no batch on a day whose labels are not all in yet: held until they are (the Codex check r1, HIGH 1; DL71)
-                    $dest = $how === 'no_batch' && self::waiting($r, $ctx) ? self::held('no_report') : self::mainDest($ctx, (string) $r['service_date']);
+                    // a Special Delivery or wrong-weight row whose group CW cannot name (no manifest, its sales order on no label): its group is
+                    // not complete: it waits after the main shop's CW start (DL71, DL83: the Codex check r7, H4)
+                    $dest = $how === 'no_batch' && (self::waiting($r, $ctx) || self::afterStart([$r], $ctx)) ? self::held('no_report')
+                        : self::mainDest($ctx, (string) $r['service_date']);
                     self::push($out, self::alloc($r, 'row', $dest['dest'] === 'held' ? 'no_report' : $how, null, $dest, (int) $r['net']));
                 }
             }
@@ -443,14 +449,31 @@ final class PooledPlanner
      */
     private static function groupWaits(array $rows, array $labels, array $ctx, bool $rowDays): bool
     {
-        if (self::labelsWait($labels, $ctx) || ($rowDays && array_filter($rows, static fn (array $r): bool => self::waiting($r, $ctx)) !== [])) {
-            return true;
+        // a group with a row after the main shop's CW start needs ALL its days complete, the ones on or before the start too (the Codex check r7,
+        // H6; DL83); a group all on or before it is before CW start
+        $after = self::afterStart($rows, $ctx);
+        $set = $after ? ($ctx['incomplete'] ?? $ctx['waiting'] ?? []) : ($ctx['waiting'] ?? []);
+        foreach ($labels as $l) {
+            if (($l['manifest_day'] ?? null) !== null && isset($set[(string) $l['manifest_day']])) {
+                return true;
+            }
         }
-        if ($labels !== [] || !array_key_exists('main_start', $ctx)) {
-            return false;
+        if ($rowDays) {
+            foreach ($rows as $r) {
+                if (isset($set[(string) $r['service_date']])) {
+                    return true;
+                }
+            }
         }
-        $start = $ctx['main_start'];
-        return $start !== null && array_filter($rows, static fn (array $r): bool => (string) $r['service_date'] > (string) $start) !== [];
+        return $labels === [] && $after;
+    }
+
+    /** Whether any of these rows is after the main shop's CW start (ctx main_start; none known: none). @param list<array<string, mixed>> $rows */
+    private static function afterStart(array $rows, array $ctx): bool
+    {
+        $start = $ctx['main_start'] ?? null;
+        return array_key_exists('main_start', $ctx) && $start !== null
+            && array_filter($rows, static fn (array $r): bool => (string) $r['service_date'] > (string) $start) !== [];
     }
 
     /** Every row of a group held whole, waiting for its labels (DL82). @param list<array<string, mixed>> $rows @return list<array<string, mixed>> */

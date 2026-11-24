@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL82; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL83; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20574,6 +20574,30 @@ replacement's check fingerprints the old bill's live allocations too: Store refu
 what moves on the bills live IN and OUT apart (gross), never only the net. (r6 F8) a day a correction drops stays in the check's day table,
 marked "Removed by this correction". ACCEPTED (LOW, not built): (r6 F9) the check of the very bill live shows its live split but its day
 table from a plan; (r6 F10) a busy Store's retry counts its time left in whole seconds and shows whole minutes.
+
+**DL83. The Codex check r7 of 85d913c against DL82 (`cw_work/runs/rmbills_codex_r7.txt`, default model: NO GO, 8 HIGH, 4 MEDIUM).** r6 F2, F4,
+F5, F8 FIXED; the rest closed now, each failing first (`runs/rmbills_r8_red.log`; green `runs/rmbills_r8_green*.log`, `rmbills_r8_unit.log`):
+(H1) an order's details count only in their shapes (`ClickAndDropClient::reduce` "whole": the manifest time there, null meaning not
+manifested yet; packages, when there, a list of objects): an id alone or packages of another shape is not complete. (H2) an incomplete
+order blocks its listing day AND its manifest day (UK); its manifest day not known: its listing day and every later day of the pull. (H3) a
+day a later pull finds incomplete is read no more (its `carrier_label_pull_day` row removed, so `carrier_label_pull_day` is no longer
+append-only) and every group of it planned again; the earliest day not read whole is kept (`carrier_label_pull.unread_from`) and every
+later pull starts there at the latest. (H4) a Special Delivery or wrong-weight row whose group CW cannot name (no manifest, its sales order
+on no label) waits after CW start; a wrong-weight group waits while a label on one of its manifests names no sales order (its membership is
+not known whole). (H5) every label import plans again every group of every manifest day its labels are on, and those days are written DUE
+(`carrier_replan_due`) in the same transaction as the labels: a plan that cannot run now (an order held elsewhere) leaves them due, and the
+next plan of any kind, the nightly first, takes them whatever their age (the 120 days do not apply); until then the money of those groups is
+what it was. (H6) a group with a row after the main shop's CW start needs ALL its days complete, the start-side ones too (`incomplete`);
+only a group all on or before the start is before CW start. So the go-live's first pull reads from 21 Oct (a week before Vape and Go's
+start). (H7) EVERY account needs its days recorded read: a report-only account (no key: Vape Big) has none until the person who exported
+the report records the days it covers whole (`bin/carrier_account.php --account=<number> --report-days=<from>..<to>`, audited, at most
+63 days, refused for an account with a key); a key named later changes no rule. (H8) one key value under two names in the key file is
+refused (no account reads through another's key). (M1) a replacement's check shows what the bill it replaces takes out, by day and
+destination. (M2) the moves on the live bills keep charges and credits apart in each column. (M3) an undo on an account switched off holds
+every group left on its days (no money moves while it is off). (M4) `bin/rm_labels.php --pull` exits 1 when a day was not read whole or the
+plan did not run (the other accounts are read all the same). LEFT: the health alert does not read the pull's state yet (the lead's call).
+The owner's three bills again (`runs/rmbills_realbills_r8.log`): the same split as round 4 to the penny, Special Delivery and wrong weight
+the same, drift 0, the checks clean.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

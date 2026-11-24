@@ -58,6 +58,11 @@ final class CarrierKeys
             }
             $keys[strtolower($m[1])] = $v;
         }
+        // one key under two names (a key copied to another account's name) is refused: no account reads through another's key (the Codex check r7,
+        // H8; DL83). Never says which.
+        if (count(array_unique(array_filter($keys, static fn (string $v): bool => $v !== ''))) < count(array_filter($keys, static fn (string $v): bool => $v !== ''))) {
+            throw new CwException('no_key', "CW's key file {$path} holds one key under two names: each account's key must be its own", 500);
+        }
         $key = trim($keys[$name] ?? '');
         if ($key === '') {
             throw new CwException('no_key', "CW's key file {$path} has no key {$name}", 500);

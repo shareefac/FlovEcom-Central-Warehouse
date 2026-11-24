@@ -65,7 +65,8 @@ final class ClickAndDropClientTest extends TestCase
         $c = $this->client([self::ok(['orders' => [self::order(1), self::order(2)], 'continuationToken' => 'tok/1+=']), self::ok(['orders' => [self::order(3)]])]);
         $orders = $c->orders('2026-11-09T00:00:00', '2026-11-09T23:59:59', 2);
         self::assertSame([1, 2, 3], array_column($orders, 'orderIdentifier'));
-        self::assertSame(['orderIdentifier', 'orderReference', 'createdOn', 'manifestedOn', 'trackingNumber', 'packages'], array_keys($orders[0]));
+        self::assertSame(['orderIdentifier', 'orderReference', 'createdOn', 'manifestedOn', 'trackingNumber', 'packages', 'whole'], array_keys($orders[0]),
+            'and whether they came in their shapes (DL83)');
         self::assertStringNotContainsString('Testy', json_encode($orders, JSON_THROW_ON_ERROR), 'nothing else of an order is kept');
         self::assertCount(2, $this->calls);
         self::assertSame(ClickAndDropClient::BASE . '/orders?startDateTime=2026-11-09T00%3A00%3A00&endDateTime=2026-11-09T23%3A59%3A59&pageSize=2', $this->calls[0]['url']);

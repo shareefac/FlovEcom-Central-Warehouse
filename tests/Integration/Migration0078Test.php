@@ -38,7 +38,7 @@ final class Migration0078Test extends IntegrationTestCase
             'nothing deleted, changed or dropped (only the CHECK the link replaces)');
         foreach ($statements as $st) {
             self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (carrier|delivery_party|carrier_account|carrier_account_party|carrier_channel|carrier_party_rule|'
-                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_label_pull_day|carrier_pin_due|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
+                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_label_pull_day|carrier_pin_due|carrier_replan_due|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
                 . 'carrier_account_party|carrier_channel|carrier_party_rule|carrier_product|carrier_band) |SET @cw_0078_carrier = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) '
                 . 'cw_0078_carrier)/', $st);
         }
@@ -54,6 +54,7 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_bill_check'), 'a check is taken once, and gone a day after it expires (DL79)');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_label_pull_day'), 'a day a later read finds incomplete is read no more (DL83)');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_pin_due'), 'a pin due is done, then gone (DL80)');
+        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_replan_due'), 'a day due is planned, then gone (DL83)');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
@@ -77,7 +78,7 @@ final class Migration0078Test extends IntegrationTestCase
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
         self::assertSame(['carrier', 'carrier_account', 'carrier_account_party', 'carrier_allocation', 'carrier_band', 'carrier_bill_check', 'carrier_bill_row', 'carrier_channel',
-            'carrier_label', 'carrier_label_pull', 'carrier_label_pull_day', 'carrier_party_rule', 'carrier_pin_due', 'carrier_product', 'delivery_party'], $new);
+            'carrier_label', 'carrier_label_pull', 'carrier_label_pull_day', 'carrier_party_rule', 'carrier_pin_due', 'carrier_product', 'carrier_replan_due', 'delivery_party'], $new);
         self::assertSame($before, [$db->all('SELECT * FROM carrier_invoice'), $db->all('SELECT * FROM carrier_invoice_line'), $db->all('SELECT * FROM profit_day')],
             'the DPD bill, its line and the day summary as they were');
         $constraints = static fn (): array => array_map('strval', $db->column("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() "

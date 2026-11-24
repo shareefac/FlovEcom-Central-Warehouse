@@ -15,6 +15,9 @@ declare(strict_types=1);
  *   php bin/carrier_account.php --account=<number> --key-name=<name>
  *        (an account read by report only gets the NAME of its Click & Drop key, once the key is in /etc/cw/carrier_keys.env: from then on its
  *        labels come by the nightly pull and each of its days waits until a pull read it, DL80, DL81)
+ *   php bin/carrier_account.php --account=<number> --report-days=<YYYY-MM-DD>..<YYYY-MM-DD>
+ *        (an account read by report only, no key: the days its Click & Drop report covers WHOLE, recorded by the person who exported it; each
+ *        of its days waits until recorded so: DL83. An account with a key: its pull reads its days; refused)
  *   php bin/carrier_account.php --party=<code> --first-order=<number>
  *        (a shop's first order number in CW, as its labels' references carry it: a label below it that a before-start rule fits is the shop's
  *        before CW start, DL78; 0078 sets Electrofag's, 5457. The nightly re-plan, or bin/match_delivery_bills.php, then plans the last
@@ -35,9 +38,9 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 /** The accounts 0078 seeds by their number (DPD's, the shared Royal Mail account): their number never changes here. */
 const CARRIER_ACCOUNT_SEEDED = ['3012002', '0706703000'];
 
-exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:', 'key-name:'],
+exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:', 'key-name:', 'report-days:'],
     'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>'
-    . ' | --key-name=<name>) | --party=<code> --first-order=<number>',
+    . ' | --key-name=<name> | --report-days=<from>..<to>) | --party=<code> --first-order=<number>',
     static function (Cli $cli, array $opts): int {
         if (array_key_exists('list', $opts)) {
             foreach ($cli->db->all('SELECT a.carrier, a.account_no, a.name, a.state, a.key_name, p.code FROM carrier_account a JOIN delivery_party p ON p.id = a.main_party_id '
@@ -78,6 +81,31 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
 {
     $a = $cli->db->one('SELECT * FROM carrier_account WHERE account_no = ?', [$no]) ?? throw new InvalidArgumentException('no carrier account of that number');
     $caller = Caller::system('carrier_account');
+    if (is_string($opts['report-days'] ?? null)) {
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/D', $opts['report-days'], $m) !== 1 || $m[1] > $m[2]
+            || (new DateTimeImmutable($m[1]))->diff(new DateTimeImmutable($m[2]))->days > 62) {
+            throw new InvalidArgumentException('--report-days=<first day>..<last day> (at most 63 days)');
+        }
+        if ($a['key_name'] !== null) {
+            $cli->error("account {$a['account_no']} has a key: its pull reads its days, never a person");
+            return Cli::PROBLEM;
+        }
+        $days = [];
+        for ($d = $m[1]; $d <= $m[2]; $d = (new DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
+            $days[] = $d;
+        }
+        $now = \CW\Clock::db(\CW\Clock::now());
+        $cli->db->transaction(static function (Db $db) use ($a, $days, $caller, $now, $m): void {
+            foreach ($days as $d) {
+                $db->exec('INSERT IGNORE INTO carrier_label_pull_day (account_id, day, read_at) VALUES (?, ?, ?)', [(int) $a['id'], $d, $now]);
+                $db->exec('INSERT INTO carrier_replan_due (account_id, day, since) VALUES (?, ?, ?) AS n ON DUPLICATE KEY UPDATE since = carrier_replan_due.since',
+                    [(int) $a['id'], $d, $now]);
+            }
+            Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['report_days' => [$m[1], $m[2]]]);
+        });
+        $cli->log("account {$a['account_no']}: " . count($days) . " day(s) recorded read whole by its report ({$m[1]} to {$m[2]}); the next plan (the nightly) takes them");
+        return Cli::OK;
+    }
     if (is_string($opts['key-name'] ?? null)) {
         $name = $opts['key-name'];
         if (preg_match('/^[a-z][a-z0-9_]{1,63}$/D', $name) !== 1) {

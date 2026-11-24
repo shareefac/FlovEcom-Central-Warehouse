@@ -969,7 +969,9 @@ final class RoyalMailBillsTest extends StockTestCase
                 $base = substr((string) $k, 0, (int) strrpos((string) $k, '|')); // charges and credits apart (the Codex check r7, M2): summed here
                 $out[$base] = ($out[$base] ?? 0) + $m['in'] - $m['out'];
             }
-            return array_filter($out, static fn (int $p): bool => $p !== 0);
+            $out = array_filter($out, static fn (int $p): bool => $p !== 0);
+            ksort($out);
+            return $out;
         };
         self::assertSame(0, array_sum($net($c['preview']['others'])), 'B still adds up to its net');
         // the parcel reaches CW before Store: what Store would store is not what was shown: refused, nothing stored
@@ -1425,7 +1427,7 @@ final class RoyalMailBillsTest extends StockTestCase
     {
         self::order($this->vpg, '1531', '1361531', '2026-11-10T09:00:00Z', ['AS000000531GB' => '2026-11-10T10:00:00Z']);
         self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('AS000000531GB', 'SD1', '2026-11-10', '1361531',
-            ['manifest_no' => 2351, 'sales_order' => '5155500531', 'weight_g' => 80])], 'report');
+            ['manifest_no' => 2351, 'sales_order' => '5155500531', 'weight_g' => 80]), RmFixtures::label('JV000000533GB', 'TPL48HV', '2026-11-11', '1361533')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-11', 'SD1', 1, 1004, 'CLICK AND DROP M2351', '5155500531')]))['invoice_id'];
         self::assertSame(["order|{$this->vpg}|" => 1004], self::where($id));
         // a label of no service on the 10th: the 10th is incomplete, the manifest (billed the 11th) waits again, planned by that read

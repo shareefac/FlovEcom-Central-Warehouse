@@ -94,6 +94,12 @@ exit(Cli::main('rm_labels', ['pull', 'report:', 'status', 'account:', 'from:', '
             }
             $cli->log(sprintf('%s: %s to %s: %d orders, %d labels: %d new, %d filled, %d differ; %s allocations changed%s', $a['account_no'], $r['from'], $r['to'],
                 $r['orders'], $r['labels'], $r['added'], $r['filled'], $r['differs'], $r['replanned'] ?? '-', $r['replan_error'] === null ? '' : '; ' . $r['replan_error']));
+            if ($r['unread'] !== [] || $r['replan_error'] !== null) {
+                // a day not read whole, or a plan that could not run: a problem said as one (exit 1), the other accounts read all the same (the
+                // Codex check r7, M4; DL83)
+                $cli->error("{$a['account_no']}: " . count($r['unread']) . ' day(s) not read whole (read again next time)' . ($r['replan_error'] === null ? '' : '; the plan did not run'));
+                $failed++;
+            }
         }
         return $failed === 0 ? Cli::OK : Cli::PROBLEM;
     }, true, true));

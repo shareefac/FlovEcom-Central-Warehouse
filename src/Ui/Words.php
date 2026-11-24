@@ -11195,6 +11195,7 @@ final class Words
         'rm_moves_in' => 'Moves in',
         'rm_moves_out' => 'Moves out',
         'rm_check_removed' => 'Removed by this correction.',
+        'rm_check_gone_title' => 'What the bill it replaces takes out of the profit',
         'rm_check_waiting' => '%s of this bill\'s days wait for their labels from Click & Drop: their money is held until the labels come in.',
         'rm_check_waiting_day' => 'Waiting for its labels',
         'rm_check_retry' => 'Try "Store this bill" again',
