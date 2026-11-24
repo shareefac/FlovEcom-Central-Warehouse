@@ -96,7 +96,7 @@ final class RmFixtures
         $rows = [];
         foreach ($labels as $i => $l) {
             $cells = ['Order number' => 779500.0 + $i, 'Batch number' => 'B1', 'Manifest number' => $l['manifest_no'] === null ? '' : 'M' . $l['manifest_no'],
-                'Channel' => self::CHANNELS[$l['channel_code'] ?? 'api'] ?? 'Somebody else', 'Channel reference' => (string) ($l['reference'] ?? ''),
+                'Channel' => self::CHANNELS[$l['channel_code'] ?? 'api'] ?? 'Somebody else', 'Channel reference' => array_key_exists('reference_cell', $l) ? $l['reference_cell'] : (string) ($l['reference'] ?? ''),
                 'Despatch date' => $serial($l['manifested_at'] ?? null), 'Manifest date' => $serial($l['manifested_at'] ?? null), 'Customer' => 'Testy McTestface',
                 'Company' => '', 'Address line 1' => '1 Imaginary Road', 'Address line 2' => '', 'City' => 'Nowhereton', 'Postcode' => 'ZZ9 9ZZ', 'Country' => 'Neverland',
                 'Weight (kg)' => ($l['weight_g'] ?? 300) / 1000, 'Package size' => 'Parcel', 'Shipping service' => 'x', 'Service code' => (string) ($l['service_code'] ?? ''),
