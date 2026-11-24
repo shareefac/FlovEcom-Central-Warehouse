@@ -20441,3 +20441,46 @@ name twice: EX16).
 **EX20. Profit by product, by shop: the same three after delivery (EX15).** Expenses, Regular costs and Real profit (its profit + delivery
 after its cost - expenses - regular costs) as three columns at the end of each shop's row, for the days chosen, from the same moment of the
 database as the row (a shop with no sale in those days has no row there; Profit > Real profit shows every shop).
+
+**The Codex check r1 of bb5c0a5 (`cw_work/runs/expenses_codex_r1.txt`, saved default model: NO GO, 9 HIGH, 5 MEDIUM). Each shown failing
+first on 008e9ef (bb5c0a5 + the tests: `runs/expenses_r1red.log`), then fixed (EX21-EX26), except M13 (EX27).**
+
+**EX21. A form never takes an upload PHP could not take for "no file" (r1 M12).** UiRequest kept only too large / cut short / none; a missing
+temporary folder, a disk it could not write or an extension that stopped it made the field disappear, so an expense was saved without the PDF
+that was sent, or a change kept the old PDF. Every failure is now kept as a failed upload (every upload screen of CW already refuses one:
+"the file did not arrive"); only "no file chosen" is none.
+
+**EX22. Expense figures only for expenses.view (r1 H10).** profit.view is not LOCKED (the owner may give it on the Roles page); expenses.view
+is. Profit > Real profit draws its expenses, regular costs and real profit lines, and Profit by shop its three columns, only for a person
+holding expenses.view (Finance and the Expenses job); for anyone else the page says those are shown to the people who see the expenses.
+
+**EX23. The audit log keeps no value of an expense (r1 H9).** audit_log is read by audit.view (admin, reviewer, auditor, accountant), which does
+not see the expenses: an expense's, regular cost's, supplier's or type's audit row says who, when, the version and WHICH fields changed,
+never their values (amounts, names, notes, a reason); the values are in expense_history, shown on the row's own page to expenses.view only.
+The invoice file is kept under a neutral name ("expense-invoice.pdf"), so the store's own audit row and listing name nothing; a download is
+named from the expense ("Viking Direct 58812290.pdf").
+
+**EX24. A file an expense named once is the expenses' for good (r1 H11).** The general /ui/files/{id} refuses, without expenses.view, a file of
+kind expense_invoice, a file an expense names now, AND a file any version of an expense named (its history): the same bytes kept first as
+another kind and then replaced on the expense stay closed. (Should the very same bytes also be a supplier's invoice copy, both restrictions
+apply: whoever opens it needs both.)
+
+**EX25. A form refused because someone else changed the row shows what is saved now (r1 H2).** The expense's and the regular cost's page,
+after a refusal for "changed meanwhile", draw the saved figures and their version (what was typed is dropped, the message says so: "make
+your change again"), so pressing Save again can never put old figures over the other person's; after any other refusal they keep what was
+typed AND the version the form was drawn with, so sending it again after someone else's change is refused too.
+
+**EX26. The rest of r1.** H1: a line's last day may not reach the first day of ANY later line of its chain of new amounts that is not deleted,
+through deleted lines too (RegularCosts::nextFrom, a recursive read); EX-I3 checks every two lines of a chain. H3: the seed checks all 16
+lines first and writes them in ONE transaction or none; a line of the same name in the shop with other figures (amount, how often, first or
+last day) refuses the whole run, named, nothing written. H4: the expenses list reads its rows, the regular costs and the tiles in one snapshot
+(ProfitDays::snapshot). H5: a deleted regular cost's page shows no share of a day or of the month. H6: Real profit's first page is "This
+month" through the same choices and limit (reports.sales_max_days) as when chosen. M7: Real profit's expenses and regular costs lines open
+exactly its days and shop (Profit > Expenses and Regular costs take ?from=&to=&shop=: the expenses of those days, each line's share of them
+and their total). M8: the month list starts at the first regular cost too. M14: the nightly EX-I2 compares every field the screens show and
+the profit reads (a delete's reason exactly, the note, a regular cost's name and the line it continues), and the suppliers' and types' rows.
+
+**EX27. Not changed: a stored file whose row rolled back (r1 M13).** The bytes of an upload are put in the store before the commit (FileStore,
+I23: "a row never names content the storage does not hold"); a commit that then fails leaves bytes no row names, in the private store, which
+bin/verify_files.php counts as orphans every night. This is the document store's own design for every file of CW (the files are never in a
+web directory and have no id to be served by); changing it is not this release's.

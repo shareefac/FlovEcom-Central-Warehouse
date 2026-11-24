@@ -63,40 +63,79 @@ exit(Cli::main('seed_regular_costs', ['from:', 'shop:', 'apply'], 'usage: php bi
             $groups[(string) $g['name']] = (int) $g['id'];
         }
         $cli->log(($apply ? 'APPLY' : 'DRY RUN (nothing written; --apply writes)') . ": {$shop['name']}, every week, from {$from}");
-        $add = 0;
-        $there = 0;
+        // Every line checked first; then all of them written in ONE transaction, or none (the Codex check r1, H3): a run refused half way never
+        // leaves some lines in, and a line of the same name in the shop with other figures refuses the whole run (it is never skipped as
+        // "already there" when it is not the same).
+        $plan = [];
+        $refusals = [];
         $week = 0;
+        foreach (SEED_LIST as [$name, $amount, $group, $until]) {
+            $pence = (int) ExpenseMoney::pence($amount);
+            $week += $pence;
+            $line = sprintf('%-20s %12s a week  %-30s from %s%s', $name, ExpenseMoney::gbp($pence), $group, $from, $until === null ? '' : " until {$until}");
+            if (!isset($groups[$group])) {
+                $refusals[] = "{$name}: the group {$group} is not in Settings > Expense types";
+                continue;
+            }
+            if ($until !== null && $until < $from) {
+                $refusals[] = "{$name} ends on {$until}, before the first day {$from}";
+                continue;
+            }
+            $same = $cli->db->all('SELECT id, every, amount_pence, from_day, until_day FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL',
+                [$shop['id'], $name]);
+            if ($same === []) {
+                $plan[] = ['add', $name, $amount, $groups[$group], $until, $line];
+                continue;
+            }
+            $match = array_filter($same, static fn (array $r): bool => (string) $r['every'] === 'week' && (int) $r['amount_pence'] === $pence
+                && (string) $r['from_day'] === $from && ($r['until_day'] === null ? null : (string) $r['until_day']) === $until);
+            if ($match === [] || count($same) > 1) {
+                $r = $same[0];
+                $refusals[] = "{$name} is there already with other figures (line {$r['id']}: " . ExpenseMoney::gbp((int) $r['amount_pence']) . " every {$r['every']} "
+                    . "from {$r['from_day']}" . ($r['until_day'] === null ? '' : " until {$r['until_day']}") . '): change or delete it on Profit > Regular costs first';
+                continue;
+            }
+            $plan[] = ['there', $name, $amount, $groups[$group], $until, $line . ' (line ' . (int) array_values($match)[0]['id'] . ')'];
+        }
+        if ($refusals !== []) {
+            foreach ($refusals as $why) {
+                $cli->error("refused: {$why}");
+            }
+            $cli->error('refused: nothing written');
+            return Cli::PROBLEM;
+        }
+        $add = count(array_filter($plan, static fn (array $p): bool => $p[0] === 'add'));
+        $there = count($plan) - $add;
+        if (!$apply) {
+            foreach ($plan as [$what, , , , , $line]) {
+                $cli->log(($what === 'add' ? 'would add: ' : 'already there: ') . $line);
+            }
+            $cli->log("{$add} to add, {$there} already there; every week in all " . ExpenseMoney::gbp($week));
+            return Cli::OK;
+        }
         $rc = new RegularCosts($cli->db);
         $caller = Caller::system('seed_regular_costs');
-        foreach (SEED_LIST as [$name, $amount, $group, $until]) {
-            $week += (int) ExpenseMoney::pence($amount);
-            if (!isset($groups[$group])) {
-                $cli->error("refused: the group {$group} is not in Settings > Expense types");
-                return Cli::PROBLEM;
-            }
-            $exists = $cli->db->value('SELECT id FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL LIMIT 1', [$shop['id'], $name]);
-            $line = sprintf('%-20s %12s a week  %-30s from %s%s', $name, ExpenseMoney::gbp((int) ExpenseMoney::pence($amount)), $group, $from,
-                $until === null ? '' : " until {$until}");
-            if ($exists !== null) {
-                $there++;
-                $cli->log("already there (line {$exists}): {$line}");
-                continue;
-            }
-            $add++;
-            if (!$apply) {
-                $cli->log("would add: {$line}");
-                continue;
-            }
-            try {
-                $id = $rc->add($caller, ['name' => $name, 'shop' => (int) $shop['id'], 'type' => $groups[$group], 'every' => 'week', 'amount' => $amount, 'from' => $from,
-                    'until' => $until, 'note' => 'The owner\'s weekly list (no invoice), 24 Nov 2026']);
-            } catch (CwException $e) {
-                $cli->error("refused: {$name}: {$e->getMessage()}");
-                return Cli::PROBLEM;
-            }
-            $cli->log("added (line {$id}): {$line}");
+        try {
+            $done = $cli->db->transaction(static function () use ($plan, $rc, $caller, $shop, $from): array {
+                $out = [];
+                foreach ($plan as [$what, $name, $amount, $type, $until, $line]) {
+                    if ($what === 'add') {
+                        $id = $rc->add($caller, ['name' => $name, 'shop' => (int) $shop['id'], 'type' => $type, 'every' => 'week', 'amount' => $amount, 'from' => $from,
+                            'until' => $until, 'note' => 'The owner\'s weekly list (no invoice), 24 Nov 2026']);
+                        $out[] = "added (line {$id}): {$line}";
+                    } else {
+                        $out[] = "already there: {$line}";
+                    }
+                }
+                return $out;
+            });
+        } catch (CwException $e) {
+            $cli->error("refused: {$e->getMessage()}: nothing written");
+            return Cli::PROBLEM;
         }
-        $cli->log($apply ? "{$add} added, {$there} already there; every week in all " . ExpenseMoney::gbp($week)
-            : "{$add} to add, {$there} already there; every week in all " . ExpenseMoney::gbp($week));
+        foreach ($done as $l) {
+            $cli->log($l);
+        }
+        $cli->log("{$add} added, {$there} already there; every week in all " . ExpenseMoney::gbp($week));
         return Cli::OK;
     }, true, true));

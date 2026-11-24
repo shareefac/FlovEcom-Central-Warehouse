@@ -115,8 +115,9 @@ final class RegularCosts
             $type = $this->group($db, $in['type'] ?? null, (int) $row['type_id']);
             $until = self::until($in['until'] ?? null, (string) $row['from_day']);
             $note = self::note($in['note'] ?? null);
-            // A line continued by a new amount ends before that line starts: never two amounts on one day (EX7).
-            $next = $db->value('SELECT MIN(from_day) FROM regular_cost WHERE replaces_id = ? AND deleted_at IS NULL', [$id]);
+            // A line continued by a new amount ends before the first later line of its chain that is not deleted starts, a deleted line in
+            // between too (the Codex check r1, H1): never two amounts on one day (EX7, EX19).
+            $next = self::nextFrom($db, $id);
             if ($next !== null && ($until === null || $until >= (string) $next)) {
                 throw new CwException('overlaps', 'a new amount follows this line from ' . (string) $next . ': its last day is before that day', 422, ['field' => 'until',
                     'next' => (string) $next]);
@@ -147,6 +148,15 @@ final class RegularCosts
                 . 'updated_at = ? WHERE id = ?', [$now, $caller->staffUserId, $caller->actor, $why, $version, $caller->staffUserId, $caller->actor, $now, $id]);
             ExpenseHistory::record($db, $caller, 'regular_cost', $id, $version, 'delete', $before, self::state($db, $id), $why);
         });
+    }
+
+    /** The first day of the earliest line that continues $id down its chain of new amounts (through deleted lines) and is not deleted, or null. */
+    public static function nextFrom(Db $db, int $id): ?string
+    {
+        $v = $db->value('WITH RECURSIVE d (id, from_day, gone) AS (SELECT id, from_day, deleted_at IS NOT NULL FROM regular_cost WHERE replaces_id = ? '
+            . 'UNION ALL SELECT r.id, r.from_day, r.deleted_at IS NOT NULL FROM regular_cost r JOIN d ON r.replaces_id = d.id) '
+            . 'SELECT MIN(from_day) FROM d WHERE gone = 0', [$id]);
+        return $v === null ? null : (string) $v;
     }
 
     /** @return array<string, int|string|null> the tracked state of a line (its history keeps it), with its shop's and group's names */

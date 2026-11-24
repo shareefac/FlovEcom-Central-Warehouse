@@ -44,8 +44,10 @@ final class FilesController
         }
         // An expense's invoice (0079, docs/decisions.md EX9) only for those who see the expenses (expenses.view), whatever else the file is:
         // kept as one, or named by an expense (the same bytes kept first as something else are one row of that first kind).
+        // An expense named it once, also before its file was replaced (its history keeps it): the expenses' for good (the Codex check r1, H11).
         if (!$me->can(\CW\Expenses\ExpenseAccess::PERM_VIEW) && ($kind === \CW\Expenses\ExpenseFiles::KIND
-            || $ctx->db->value('SELECT 1 FROM expense WHERE file_id = ? LIMIT 1', [$id]) !== null)) {
+            || $ctx->db->value('SELECT 1 FROM expense WHERE file_id = ? LIMIT 1', [$id]) !== null
+            || $ctx->db->value("SELECT 1 FROM expense_history WHERE subject = 'expense' AND JSON_CONTAINS(state, CAST(? AS JSON), '$.file_id') LIMIT 1", [(string) $id]) !== null)) {
             return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_expenses', Words::whoCan(\CW\Expenses\ExpenseAccess::PERM_VIEW)));
         }
         $file = $ctx->files()->read($id);

@@ -42,7 +42,7 @@ $deleted = $x['deleted_at'] !== null;
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
   <form class="record expense-form" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="seen" value="<?= $e((string) $x['version']) ?>">
+    <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <div class="expense-main">
       <fieldset class="shop-pick">
         <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
@@ -68,7 +68,7 @@ $deleted = $x['deleted_at'] !== null;
   <summary><?= $word('EXPENSES', 'delete_title') ?></summary>
   <form class="record" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/delete') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="seen" value="<?= $e((string) $x['version']) ?>">
+    <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <p><?= $word('EXPENSES', 'delete_text') ?></p>
     <label><?= $word('EXPENSES', 'delete_reason') ?>
       <input type="text" name="reason" value="" minlength="3" maxlength="500" required>

@@ -24,8 +24,6 @@ $deleted = $r['deleted_at'] !== null;
     <tr><th scope="row"><?= $word('REGULAR', 'group') ?></th><td><?= $e((string) $r['grp']) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'every') ?></th><td><?= $e($X['every_' . (string) $r['every']]) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'amount') ?></th><td class="num"><?= $e($amountText) ?></td></tr>
-    <tr><th scope="row"><?= $word('REGULAR', 'a_day') ?></th><td class="num"><?= $say('REGULAR', 'about_a_day', $gbp($perDay)) ?></td></tr>
-    <tr><th scope="row"><?= $say('REGULAR', 'this_month', $monthName) ?></th><td class="num"><?= $e($gbp($thisMonth)) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'from') ?></th><td><?= $day($r['from_day']) ?></td></tr>
     <tr><th scope="row"><?= $word('REGULAR', 'until') ?></th><td><?php if ($r['until_day'] === null): ?><?= $word('EXPENSES', 'no_end') ?><?php else: ?><?= $day($r['until_day']) ?><?php endif; ?></td></tr>
 <?php if ($r['replaces_id'] !== null): ?>
@@ -40,13 +38,23 @@ $deleted = $r['deleted_at'] !== null;
   </tbody>
 </table>
 </div>
+<?php if (!$deleted): ?>
+<div class="table-wrap">
+<table class="stack rp-table regular-share">
+  <tbody>
+    <tr><th scope="row"><?= $word('REGULAR', 'a_day') ?></th><td class="num"><?= $say('REGULAR', 'about_a_day', $gbp($perDay)) ?></td></tr>
+    <tr><th scope="row"><?= $say('REGULAR', 'this_month', $monthName) ?></th><td class="num"><?= $e($gbp($thisMonth)) ?></td></tr>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
 <?php if ($canEdit): ?>
 <?php if ($r['until_day'] === null || (string) $r['until_day'] > (string) $r['from_day']): ?>
 <details class="fold regular-amount" id="amount"<?php if ($form === 'amount'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'new_amount_title') ?></summary>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/amount') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="seen" value="<?= $e((string) $r['version']) ?>">
+    <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <p><?= $word('REGULAR', 'new_amount_text') ?></p>
     <fieldset>
       <label><?= $word('REGULAR', 'new_amount') ?>
@@ -64,7 +72,7 @@ $deleted = $r['deleted_at'] !== null;
   <summary><?= $word('REGULAR', 'details_title') ?></summary>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/change') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="seen" value="<?= $e((string) $r['version']) ?>">
+    <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <fieldset>
       <label><?= $word('REGULAR', 'name') ?>
         <input type="text" name="name" value="<?= $e((string) $t['name']) ?>" maxlength="100" required<?= $bad('name') ?>>
@@ -90,7 +98,7 @@ $deleted = $r['deleted_at'] !== null;
   <summary><?= $word('REGULAR', 'delete_title') ?></summary>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/delete') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="seen" value="<?= $e((string) $r['version']) ?>">
+    <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <p><?= $word('REGULAR', 'delete_text') ?></p>
     <label><?= $word('EXPENSES', 'delete_reason') ?>
       <input type="text" name="reason" value="" minlength="3" maxlength="500" required>

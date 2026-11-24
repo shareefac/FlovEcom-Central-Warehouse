@@ -14,11 +14,19 @@ $lines = [
     ['real_regular', 'regular', 'regular'],
     ['real_profit', 'real', null],
 ];
+if (!$canExpenses) {
+    // Without expenses.view (profit.view given on the Roles page to a job that does not see the expenses: the Codex check r1, H10) the lines
+    // of the expenses, the regular costs and the real profit are not drawn.
+    $lines = array_values(array_filter($lines, static fn (array $l): bool => !in_array($l[0], ['real_expenses', 'real_regular', 'real_profit'], true)));
+}
 $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete']) !== [];
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_real'], intro: 'profit_real', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_real'])) ?>
 <?= $partial('profit_options', ['period' => $period, 'periods' => $periods, 'from' => $from, 'to' => $to, 'stores' => $stores, 'storeId' => $storeId, 'warn' => $warn]) ?>
-<p class="muted"><?= $say('PROFIT', 'real_days', \CW\Ui\Html::day($from), \CW\Ui\Html::day($to)) ?> <?= $word('PROFIT', 'real_note') ?></p>
+<p class="muted real-days"><?= $say('PROFIT', 'real_days', \CW\Ui\Html::day($from), \CW\Ui\Html::day($to)) ?> <?= $word('PROFIT', 'real_note') ?></p>
+<?php if (!$canExpenses): ?>
+<p class="note" role="status"><?= $word('PROFIT', 'real_no_expenses') ?></p>
+<?php endif; ?>
 <?php if ($incomplete): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'real_incomplete') ?></p>
 <?php endif; ?>
@@ -37,7 +45,7 @@ $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete'
     <tr class="<?= $key === 'real_profit' ? 'rp-total' : ($key === 'real_fees' ? 'off' : '') ?>">
       <th scope="row"><?= $word('PROFIT', $key) ?></th>
 <?php foreach ($shops as $s): ?>
-<?php $href = $link === null || ($link === 'expenses' || $link === 'regular') && !$canExpenses ? null : ($links[$s['shop_id']][$link] ?? null); ?>
+<?php $href = $link === null ? null : ($links[$s['shop_id']][$link] ?? null); ?>
       <td class="num" data-label="<?= $e($s['shop']) ?>"><?php if ($href !== null): ?><a href="<?= $e($href) ?>"><?php endif; ?><?= $e($gbp((int) $s[$field])) ?><?php if ($href !== null): ?></a><?php endif; ?></td>
 <?php endforeach; ?>
     </tr>

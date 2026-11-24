@@ -45,9 +45,11 @@ foreach ($sortLinks as $sl) {
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_cost') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_other') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_result') ?></th>
+<?php if ($withExpenses): ?>
       <th scope="col" class="num"><?= $word('PROFIT', 'col_expenses') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'col_regular') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'col_real') ?></th>
+<?php endif; ?>
 <?php endif; ?>
     </tr>
   </thead>
@@ -66,10 +68,12 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($r['f']['delivery_cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($r['f']['delivery_other'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($r['f']['delivery_result'] / 100) ?></td>
+<?php if ($withExpenses): ?>
 <?php $ex = (int) ($expenses[(int) $r['id']] ?? 0); $rg = (int) ($regular[(int) $r['id']] ?? 0); ?>
       <td class="num" data-label="<?= $word('PROFIT', 'col_expenses') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp($ex)) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'col_regular') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp($rg)) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'col_real') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp((int) $r['f']['profit'] + (int) $r['f']['delivery_result'] - $ex - $rg)) ?></td>
+<?php endif; ?>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

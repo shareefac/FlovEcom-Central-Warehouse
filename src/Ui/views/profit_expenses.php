@@ -16,7 +16,7 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
 <?php foreach ($months as $m): ?>
       <option value="<?= $e($m) ?>"<?php if ($month === $m): ?> selected<?php endif; ?>><?= $e($monthName($m)) ?></option>
 <?php endforeach; ?>
-      <option value="all"<?php if ($month === null): ?> selected<?php endif; ?>><?= $word('EXPENSES', 'all_months') ?></option>
+      <option value="all"<?php if ($month === null && $range === null): ?> selected<?php endif; ?>><?= $word('EXPENSES', 'all_months') ?></option>
     </select>
   </label>
   <label><?= $word('EXPENSES', 'shop') ?>
@@ -34,10 +34,13 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
   <button type="submit" class="btn"><?= $word('EXPENSES', 'show') ?></button>
 </form>
 <p class="muted"><a href="/ui/profit/expenses/suppliers"><?= $word('EXPENSES', 'suppliers') ?></a> · <a href="/ui/profit/regular"><?= $word('EXPENSES', 'regular_link') ?></a> · <a href="/ui/reference/expense-types"><?= $word('EXPENSES', 'types_link') ?></a></p>
+<?php if ($range !== null): ?>
+<p class="note" role="status"><?= $say('EXPENSES', 'range_note', \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1])) ?></p>
+<?php endif; ?>
 <?php if ($tiles !== []): ?>
 <section class="doc-progress rp-figs rp-keep expense-figs" aria-label="<?= $word('EXPENSES', 'tiles') ?>">
 <?php foreach ($tiles as $t): ?>
-  <div class="doc-step expense-tile"><p class="doc-step-label"><?= $say('EXPENSES', 'tile', $t['shop'], $monthName((string) $month)) ?></p><p class="doc-step-big"><?= $e($gbp($t['net'])) ?></p><p class="step-sub"><?php if ($t['count'] === 1): ?><?= $say('EXPENSES', 'tile_one', $gbp($t['total'])) ?><?php else: ?><?= $say('EXPENSES', 'tile_many', (string) $t['count'], $gbp($t['total'])) ?><?php endif; ?></p></div>
+  <div class="doc-step expense-tile"><p class="doc-step-label"><?= $say('EXPENSES', 'tile', $t['shop'], $range !== null ? \CW\Ui\Html::day($range[0]) . ' to ' . \CW\Ui\Html::day($range[1]) : $monthName((string) $month)) ?></p><p class="doc-step-big"><?= $e($gbp($t['net'])) ?></p><p class="step-sub"><?php if ($t['count'] === 1): ?><?= $say('EXPENSES', 'tile_one', $gbp($t['total'])) ?><?php else: ?><?= $say('EXPENSES', 'tile_many', (string) $t['count'], $gbp($t['total'])) ?><?php endif; ?></p></div>
 <?php endforeach; ?>
 </section>
 <p class="muted"><?= $word('EXPENSES', 'tile_note') ?></p>
@@ -72,9 +75,9 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
       <td data-label="<?= $word('EXPENSES', 'col_pdf') ?>"><?php if ($r['has_file']): ?><a href="<?= $u('/ui/profit/expenses/' . $r['id'] . '/file') ?>"><?= $word('EXPENSES', 'pdf') ?></a><?php else: ?>-<?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
-<?php if ($g['regular'] > 0 && $month !== null): ?>
+<?php if ($g['regular'] > 0 && ($month !== null || $range !== null)): ?>
     <tr class="expense-regular">
-      <td data-label="<?= $word('EXPENSES', 'col_date') ?>"><?= $e($shortMonth($month)) ?></td>
+      <td data-label="<?= $word('EXPENSES', 'col_date') ?>"><?= $e($range !== null ? (new \DateTimeImmutable($range[0]))->format('j M') . ' - ' . (new \DateTimeImmutable($range[1]))->format('j M') : $shortMonth((string) $month)) ?></td>
       <td data-label="<?= $word('EXPENSES', 'col_supplier') ?>"><a href="/ui/profit/regular"><?= $word('EXPENSES', 'regular_row') ?></a></td>
       <td data-label="<?= $word('EXPENSES', 'col_type') ?>"><?= $chip('off', $X['regular_type']) ?></td>
       <td data-label="<?= $word('EXPENSES', 'col_invoice_no') ?>"><?= $word('EXPENSES', 'regular_by') ?></td>

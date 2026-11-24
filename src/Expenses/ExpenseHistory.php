@@ -42,9 +42,12 @@ final class ExpenseHistory
             . 'VALUES (?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?)',
             [$subject, $id, $version, $action, Idempotency::json($after), $before === null ? null : Idempotency::json($before), $reason, $caller->actor,
                 $caller->staffUserId]);
+        // The audit log says who did what to which row and which fields changed, never their values (amounts, names, notes, a reason): it is
+        // read by audit.view, which does not see the expenses; the values are in expense_history, shown on the row's own page to expenses.view
+        // only (the Codex check r1, H9; docs/decisions.md EX23).
         $entity = self::ENTITY[$subject];
         Audit::write($db, $caller, $entity . '.' . $action, $entity, (string) $id, null,
-            ['version' => $version, 'before' => $before, 'after' => $after] + ($reason === null ? [] : ['reason' => $reason]));
+            ['version' => $version, 'fields' => array_map(static fn (array $d): string => $d[0], self::diff($before, $after))]);
     }
 
     /** A reason of 3 to 500 characters, trimmed (400 bad_reason). */

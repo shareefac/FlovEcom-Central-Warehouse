@@ -40,7 +40,9 @@ final class ExpenseFiles
             if (file_put_contents($tmp, $bytes) !== strlen($bytes)) {
                 throw new CwException('file_store_failed', 'the file could not be copied for storing', 500);
             }
-            $stored = $files->store($caller, $tmp, $name, self::KIND, 'expense invoice');
+            // Kept under a neutral name (the Codex check r1, H9: the store's audit row and its listing are read without expenses.view); a download
+            // is named from the expense itself (ExpensesController::file).
+            $stored = $files->store($caller, $tmp, 'expense-invoice.' . FileStore::EXTENSIONS[$mime][0], self::KIND, null);
         } finally {
             @unlink($tmp);
         }

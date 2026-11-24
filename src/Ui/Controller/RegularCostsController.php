@@ -33,8 +33,22 @@ final class RegularCostsController
         $views = new ExpenseViews($ctx->db);
         $today = ProfitViews::today();
         $n = (string) ($ctx->req->param('notice') ?? '');
-        return $ctx->page('profit_regular', $views->regularList($today) + [
+        // Exact days and a shop (from Real profit's lines, the Codex check r1, M7): each line's share of those days, and their total.
+        [$from, $to] = [(string) ($ctx->req->param('from') ?? ''), (string) ($ctx->req->param('to') ?? '')];
+        $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
+        $shop = \CW\Ui\UiRequest::id($ctx->req->param('shop'));
+        $shop = in_array($shop, array_column($views->shops(), 'id'), true) ? $shop : null;
+        $shares = [];
+        if ($range !== null) {
+            foreach ($views->regularLines($range[0], $range[1], $shop) as $l) {
+                $shares[$l['id']] = $l['share'];
+            }
+        }
+        return $ctx->page('profit_regular', $views->regularList($today, $range === null ? null : $shop) + [
             'canEdit' => $ctx->me()->can(ExpenseAccess::PERM_EDIT),
+            'range' => $range,
+            'shares' => $shares,
+            'shopName' => $shop === null ? null : (string) $ctx->db->value('SELECT name FROM channel WHERE id = ?', [$shop]),
         ], 200, ['title' => Words::MENU['profit_regular'], 'notice' => in_array($n, self::NOTICES, true) ? Words::REGULAR['notice_' . $n] : null]);
     }
 
@@ -71,7 +85,7 @@ final class RegularCostsController
         try {
             $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed);
         } catch (CwException $e) {
-            return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null);
+            return $this->refused($ctx, $id, $e, $typed);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $changed ? 'changed' : 'unchanged']));
     }
@@ -84,7 +98,7 @@ final class RegularCostsController
         try {
             $new = (new RegularCosts($ctx->db))->newAmount($ctx->caller(), $id, self::seen($ctx), $typed['amount'], $typed['from']);
         } catch (CwException $e) {
-            return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null);
+            return $this->refused($ctx, $id, $e, $typed);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $new, ['notice' => 'amount']));
     }
@@ -99,7 +113,7 @@ final class RegularCostsController
             }
             (new RegularCosts($ctx->db))->delete($ctx->caller(), $id, self::seen($ctx), (string) ($ctx->req->field('reason') ?? ''));
         } catch (CwException $e) {
-            return $this->one($ctx, $id, $e->httpStatus, $e, ['form' => 'delete'], null);
+            return $this->refused($ctx, $id, $e, ['form' => 'delete']);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'deleted']));
     }
@@ -136,8 +150,26 @@ final class RegularCostsController
         ], $status, ['title' => Words::REGULAR['new_title']]);
     }
 
-    /** @param array<string, string>|null $typed what a refused form said ('form': which one) */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice): HtmlResponse
+    /**
+     * The line's page after a refused form (the Codex check r1, H2): changed by someone else meanwhile, what is saved NOW and its version (what was
+     * typed is dropped); refused for anything else, what was typed and the version the form was drawn with.
+     *
+     * @param array<string, string> $typed
+     */
+    private function refused(Context $ctx, int $id, CwException $e, array $typed): HtmlResponse
+    {
+        if ($e->errorCode === 'changed_meanwhile') {
+            return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
+        }
+        $s = (string) ($ctx->req->field('seen') ?? '');
+        return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null, preg_match('/^[1-9]\d{0,8}$/D', $s) === 1 ? (int) $s : null);
+    }
+
+    /**
+     * @param array<string, string>|null $typed what a refused form said ('form': which one)
+     * @param int|null $seen the version the forms carry (null: the line's own)
+     */
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
     {
         $r = (new ExpenseViews($ctx->db))->regular($id);
         if ($r === null) {
@@ -165,6 +197,7 @@ final class RegularCostsController
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'amountText' => ExpenseMoney::gbp((int) $r['amount_pence']),
+            'seen' => $seen ?? (int) $r['version'],
         ], $status, ['title' => (string) $r['name'], 'notice' => $notice]);
     }
 }

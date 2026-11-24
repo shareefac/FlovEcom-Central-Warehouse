@@ -10928,6 +10928,7 @@ final class Words
         'real_line' => 'Line',
         'real_hayati' => 'Vape Big\'s partner product (Hayati 4000) is not taken apart here.',
         'real_days' => 'From %s to %s.',
+        'real_no_expenses' => 'The expenses, the regular costs and the real profit are shown to those who see the expenses (Finance and the Expenses job).',
         'col_expenses' => 'Expenses',
         'col_regular' => 'Regular costs',
         'col_real' => 'Real profit',
@@ -11199,6 +11200,7 @@ final class Words
         'every_month' => 'Every month',
         'every_year' => 'Every year',
         'every_week_total' => 'Every week in all',
+        'range_note' => 'The expenses from %s to %s (the days of the profit line you opened).',
         // The suppliers
         'suppliers_title' => 'Expense suppliers',
         'supplier_add' => 'Add a supplier',
@@ -11245,7 +11247,7 @@ final class Words
         'bad_reason' => 'Say in 3 to 500 characters why.',
         'not_sure' => 'Tick the box to say you are sure.',
         'deleted' => 'This was deleted: it is not changed any more.',
-        'changed_meanwhile' => '%s changed this since the page was shown. Reload the page and try again.',
+        'changed_meanwhile' => '%s changed this since the page was shown. Nothing was saved: the page now shows what is saved; make your change again.',
         'bad_name' => 'Type a name of 2 to 100 characters.',
         'bad_every' => 'Choose how often: every week, every month or every year.',
         'bad_amount' => 'Type the amount in pounds and pence, above 0 (for example 207.69).',
@@ -11306,6 +11308,9 @@ final class Words
         'notice_changed' => 'The changes are saved.',
         'notice_unchanged' => 'Nothing was different, so nothing changed.',
         'notice_amount' => 'The new amount is saved: this is its line. The old line ends on the day before.',
+        'period_total' => 'Regular costs of %s from %s to %s: %s (each line\'s share of those days).',
+        'all_lines' => 'Show every line',
+        'share' => 'Share of those days',
         'notice_deleted' => 'The regular cost is deleted.',
     ];
 

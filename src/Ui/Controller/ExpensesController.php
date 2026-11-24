@@ -11,6 +11,7 @@ use CW\Expenses\ExpenseMoney;
 use CW\Expenses\Expenses;
 use CW\Expenses\ExpenseTypes;
 use CW\Expenses\ExpenseViews;
+use CW\Expenses\RegularCostMath;
 use CW\Files\FileStore;
 use CW\Profit\ProfitViews;
 use CW\Ui\Context;
@@ -46,7 +47,10 @@ final class ExpensesController
         $q = trim((string) ($ctx->req->param('q') ?? ''));
         $q = mb_check_encoding($q, 'UTF-8') && mb_strlen($q) <= 64 && preg_match('/[\x00-\x1F\x7F]/', $q) !== 1 ? $q : '';
         $deleted = $ctx->req->param('deleted') === '1';
-        $data = $views->month($month, $shop, $q, $deleted);
+        // Exact days (from Real profit's lines, the Codex check r1, M7): both real days, the first not after the last; else the month.
+        [$from, $to] = [(string) ($ctx->req->param('from') ?? ''), (string) ($ctx->req->param('to') ?? '')];
+        $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
+        $data = $range !== null ? $views->days($range[0], $range[1], $shop, $q, $deleted) : $views->month($month, $shop, $q, $deleted);
         $months = $views->months($today);
         if ($month !== null && !in_array($month, $months, true)) {
             $months[] = $month;
@@ -55,7 +59,8 @@ final class ExpensesController
         $n = (string) ($ctx->req->param('notice') ?? '');
         return $ctx->page('profit_expenses', $data + [
             'months' => $months,
-            'month' => $month,
+            'month' => $range === null ? $month : null,
+            'range' => $range,
             'shops' => $shops,
             'shopId' => $shop,
             'q' => $q,
@@ -105,7 +110,7 @@ final class ExpensesController
             $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file,
                 $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
-            return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null);
+            return $this->refused($ctx, $id, $e, $typed);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['changed'] ? 'changed' : 'unchanged']));
     }
@@ -120,7 +125,7 @@ final class ExpensesController
             }
             (new Expenses($ctx->db))->delete($ctx->caller(), $id, self::seen($ctx), (string) ($ctx->req->field('reason') ?? ''));
         } catch (CwException $e) {
-            return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
+            return $this->refused($ctx, $id, $e, null);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'deleted']));
     }
@@ -128,13 +133,16 @@ final class ExpensesController
     /** GET {id}/file: the invoice PDF or photo, as an attachment of its sniffed type (FilesController::download). */
     public function file(Context $ctx): HtmlResponse
     {
-        $fileId = $ctx->db->value('SELECT file_id FROM expense WHERE id = ?', [$ctx->id()]);
-        if ($fileId === null) {
+        $x = $ctx->db->one('SELECT e.file_id, e.invoice_no, e.invoice_date, s.name AS supplier FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id '
+            . 'WHERE e.id = ?', [$ctx->id()]);
+        if ($x === null || $x['file_id'] === null) {
             return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_file'], [self::PATH, Words::MENU['profit_expenses']]);
         }
-        $file = $ctx->files()->read((int) $fileId);
+        $file = $ctx->files()->read((int) $x['file_id']);
         $mime = (string) $file['meta']['mime'];
-        return FilesController::download($file['bytes'], $mime, FileStore::downloadName((string) $file['meta']['original_name'], $mime));
+        // Named from the expense ("Viking Direct 58812290.pdf"); the store keeps a neutral name (EX23).
+        $name = trim((string) $x['supplier'] . ' ' . ((string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : (string) $x['invoice_date']));
+        return FilesController::download($file['bytes'], $mime, FileStore::downloadName($name . '.' . (FileStore::EXTENSIONS[$mime][0] ?? 'bin'), $mime));
     }
 
     /** GET suppliers: the expenses' own suppliers. */
@@ -239,8 +247,28 @@ final class ExpensesController
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
-    /** @param array<string, mixed>|null $typed what a refused change said */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice): HtmlResponse
+    /**
+     * The expense's page after a refused change or delete (the Codex check r1, H2): changed by someone else meanwhile, the page shows what is
+     * saved NOW and its version (what was typed is dropped: the person makes the change again on the new figures, never sends old ones over the
+     * new); refused for anything else, it keeps what was typed AND the version the form was drawn with, so sending it again after someone
+     * else's change is refused too.
+     *
+     * @param array<string, mixed>|null $typed
+     */
+    private function refused(Context $ctx, int $id, CwException $e, ?array $typed): HtmlResponse
+    {
+        if ($e->errorCode === 'changed_meanwhile') {
+            return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
+        }
+        $s = (string) ($ctx->req->field('seen') ?? '');
+        return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null, preg_match('/^[1-9]\d{0,8}$/D', $s) === 1 ? (int) $s : null);
+    }
+
+    /**
+     * @param array<string, mixed>|null $typed what a refused change said
+     * @param int|null $seen the version the forms carry (null: the expense's own)
+     */
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db);
         $x = $views->expense($id);
@@ -267,6 +295,7 @@ final class ExpensesController
             'sameAsk' => $error?->errorCode === 'same_invoice',
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
+            'seen' => $seen ?? (int) $x['version'],
         ], $status, ['title' => $title, 'notice' => $notice]);
     }
 

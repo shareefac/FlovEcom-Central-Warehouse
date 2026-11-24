@@ -425,10 +425,10 @@ final class ReportsController
      *
      * @return array{0: string, 1: string, 2: string, 3: ?string} period, from, to, a warning in words
      */
-    public static function period(UiRequest $req, string $today, int $max): array
+    public static function period(UiRequest $req, string $today, int $max, string $default = 'last_30'): array
     {
         $t = new \DateTimeImmutable($today);
-        $period = (string) ($req->param('period') ?? 'last_30');
+        $period = (string) ($req->param('period') ?? $default);
         $warn = null;
         if ($period === 'choose') {
             $from = self::date($req->param('from'));

@@ -7,6 +7,9 @@ $R = \CW\Ui\Words::REGULAR;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_regular'], intro: 'profit_regular', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'])) ?>
+<?php if ($range !== null): ?>
+<p class="note regular-period-total" role="status"><?= $say('REGULAR', 'period_total', $shopName ?? \CW\Ui\Words::EXPENSES['all_shops'], \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1]), $gbp(array_sum($shares))) ?> <a href="/ui/profit/regular"><?= $word('REGULAR', 'all_lines') ?></a></p>
+<?php endif; ?>
 <?php if ($groups === []): ?>
 <?= $empty($R['none'], $canEdit ? $R['none_text'] : '', $canEdit ? '/ui/profit/regular/new' : null, $canEdit ? \CW\Ui\Words::NEW['profit_regular'] : null) ?>
 <?php else: ?>
@@ -20,11 +23,14 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
       <th scope="col" class="num"><?= $word('REGULAR', 'amount') ?></th>
       <th scope="col"><?= $word('REGULAR', 'from') ?></th>
       <th scope="col"><?= $word('REGULAR', 'until') ?></th>
+<?php if ($range !== null): ?>
+      <th scope="col" class="num"><?= $word('REGULAR', 'share') ?></th>
+<?php endif; ?>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($groups as $g): ?>
-    <tr class="rp-group"><th scope="rowgroup" colspan="6"><?= $e($g['group']) ?></th></tr>
+    <tr class="rp-group"><th scope="rowgroup" colspan="<?= $range !== null ? 7 : 6 ?>"><?= $e($g['group']) ?></th></tr>
 <?php foreach ($g['rows'] as $r): ?>
     <tr<?php if ($r['ended']): ?> class="off"<?php endif; ?>>
       <td data-label="<?= $word('REGULAR', 'name') ?>"><a href="<?= $u('/ui/profit/regular/' . $r['id']) ?>"><?= $e($r['name']) ?></a></td>
@@ -33,6 +39,9 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
       <td class="num" data-label="<?= $word('REGULAR', 'amount') ?>"><?= $e($gbp($r['amount'])) ?></td>
       <td data-label="<?= $word('REGULAR', 'from') ?>"><?= $day($r['from']) ?></td>
       <td data-label="<?= $word('REGULAR', 'until') ?>"><?php if ($r['until'] === null): ?><?= $word('EXPENSES', 'no_end') ?><?php else: ?><?= $day($r['until']) ?><?php if ($r['ended']): ?> <?= $chip('off', $R['ended_chip']) ?><?php endif; ?><?php endif; ?></td>
+<?php if ($range !== null): ?>
+      <td class="num" data-label="<?= $word('REGULAR', 'share') ?>"><?= $e($gbp($shares[$r['id']] ?? 0)) ?></td>
+<?php endif; ?>
     </tr>
 <?php endforeach; ?>
 <?php endforeach; ?>
@@ -43,6 +52,9 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
       <td class="num" data-label="<?= $word('REGULAR', 'amount') ?>"><?= $e($gbp($today['week'])) ?></td>
       <td data-label="<?= $word('REGULAR', 'from') ?>"></td>
       <td data-label="<?= $word('REGULAR', 'until') ?>"></td>
+<?php if ($range !== null): ?>
+      <td class="num" data-label="<?= $word('REGULAR', 'share') ?>"><?= $e($gbp(array_sum($shares))) ?></td>
+<?php endif; ?>
     </tr>
   </tbody>
 </table>

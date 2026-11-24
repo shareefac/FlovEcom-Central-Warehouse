@@ -84,8 +84,11 @@ final class ExpenseViews
     public function months(string $today): array
     {
         $r = $this->db->one('SELECT MIN(invoice_date) AS lo, MAX(invoice_date) AS hi FROM expense WHERE deleted_at IS NULL') ?? [];
+        // The months of the regular costs too: a month with regular costs only is offered (the Codex check r1, M8).
+        $first = $this->db->value('SELECT MIN(from_day) FROM regular_cost WHERE deleted_at IS NULL');
         $now = substr($today, 0, 7);
         $lo = $r['lo'] === null ? $now : min($now, substr((string) $r['lo'], 0, 7));
+        $lo = $first === null ? $lo : min($lo, substr((string) $first, 0, 7));
         $hi = $r['hi'] === null ? $now : max($now, substr((string) $r['hi'], 0, 7));
         $out = [];
         for ($m = $hi; $m >= $lo && count($out) < 240; $m = self::prevMonth($m)) {
@@ -104,6 +107,23 @@ final class ExpenseViews
     public function month(?string $month, ?int $shop, string $q, bool $deleted): array
     {
         [$from, $to] = $month === null ? [null, null] : self::monthDays($month);
+        return $this->days($from, $to, $shop, $q, $deleted);
+    }
+
+    /**
+     * month() for any days $from..$to (both null: every day), the rows, the regular costs and the tiles from ONE moment of the database (the
+     * Codex check r1, H4: a row moved meanwhile never shows under one shop while the tiles count it in another).
+     *
+     * @return array{groups: list<array<string, mixed>>, tiles: list<array<string, mixed>>, more: bool}
+     */
+    public function days(?string $from, ?string $to, ?int $shop, string $q, bool $deleted): array
+    {
+        return ProfitDays::snapshot($this->db, fn (): array => $this->daysNow($from, $to, $shop, $q, $deleted));
+    }
+
+    /** @return array{groups: list<array<string, mixed>>, tiles: list<array<string, mixed>>, more: bool} */
+    private function daysNow(?string $from, ?string $to, ?int $shop, string $q, bool $deleted): array
+    {
         $where = [];
         $params = [];
         if ($from !== null) {
