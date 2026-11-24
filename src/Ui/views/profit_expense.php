@@ -7,7 +7,6 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
-$bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="true"' : '';
 $deleted = $x['deleted_at'] !== null;
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
@@ -47,10 +46,10 @@ $deleted = $x['deleted_at'] !== null;
       <fieldset class="shop-pick">
         <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
 <?php foreach ($shops as $s): ?>
-        <label class="choice shop-choice"><input type="radio" name="shop" value="<?= $e((string) $s['id']) ?>" required<?php if ((string) $t['shop'] === (string) $s['id']): ?> checked<?php endif; ?><?= $bad('shop') ?>> <?= $e($s['name']) ?></label>
+        <label class="choice shop-choice"><input type="radio" name="shop" value="<?= $e((string) $s['id']) ?>" required<?php if ((string) $t['shop'] === (string) $s['id']): ?> checked<?php endif; ?><?php if ($errorField === 'shop'): ?> aria-invalid="true"<?php endif; ?>> <?= $e($s['name']) ?></label>
 <?php endforeach; ?>
       </fieldset>
-<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'bad' => $bad, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
+<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
 <?php if ($sameAsk): ?>
       <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
 <?php endif; ?>
@@ -63,7 +62,7 @@ $deleted = $x['deleted_at'] !== null;
       <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
       <label><?= $word('EXPENSES', 'change_file') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
-        <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?= $bad('file') ?>>
+        <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
 <?php if ($fileAgain): ?>
       <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>

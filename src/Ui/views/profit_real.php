@@ -42,7 +42,7 @@ $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete'
   </thead>
   <tbody>
 <?php foreach ($lines as [$key, $field, $link]): ?>
-    <tr class="<?= $key === 'real_profit' ? 'rp-total' : ($key === 'real_fees' ? 'off' : '') ?>">
+    <tr<?php if ($key === 'real_profit'): ?> class="rp-total"<?php elseif ($key === 'real_fees'): ?> class="off"<?php endif; ?>>
       <th scope="row"><?= $word('PROFIT', $key) ?></th>
 <?php foreach ($shops as $s): ?>
 <?php $href = $link === null ? null : ($links[$s['shop_id']][$link] ?? null); ?>

@@ -7,7 +7,6 @@ $R = \CW\Ui\Words::REGULAR;
 $X = \CW\Ui\Words::EXPENSES;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
-$bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="true"' : '';
 $deleted = $r['deleted_at'] !== null;
 ?>
 <?= $head((string) $r['name'], intro: 'profit_regular_one', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular']), back: ['/ui/profit/regular', $R['back']]) ?>
@@ -58,10 +57,10 @@ $deleted = $r['deleted_at'] !== null;
     <p><?= $word('REGULAR', 'new_amount_text') ?></p>
     <fieldset>
       <label><?= $word('REGULAR', 'new_amount') ?>
-        <input type="text" name="amount" value="<?= $e((string) $t['amount']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required<?= $bad('amount') ?>>
+        <input type="text" name="amount" value="<?= $e((string) $t['amount']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required<?php if ($errorField === 'amount'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('REGULAR', 'new_from') ?>
-        <input type="date" name="from" value="<?= $e((string) $t['from']) ?>" required<?= $bad('from') ?>>
+        <input type="date" name="from" value="<?= $e((string) $t['from']) ?>" required<?php if ($errorField === 'from'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
     </fieldset>
     <p class="actions"><button type="submit" class="btn primary"><?= $word('REGULAR', 'new_amount_button') ?></button></p>
@@ -75,20 +74,20 @@ $deleted = $r['deleted_at'] !== null;
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <fieldset>
       <label><?= $word('REGULAR', 'name') ?>
-        <input type="text" name="name" value="<?= $e((string) $t['name']) ?>" maxlength="100" required<?= $bad('name') ?>>
+        <input type="text" name="name" value="<?= $e((string) $t['name']) ?>" maxlength="100" required<?php if ($errorField === 'name'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('REGULAR', 'group') ?>
-        <select name="type" required<?= $bad('type') ?>>
+        <select name="type" required<?php if ($errorField === 'type'): ?> aria-invalid="true"<?php endif; ?>>
 <?php foreach ($types as $ty): ?>
           <option value="<?= $e((string) $ty['id']) ?>"<?php if ((string) $t['type'] === (string) $ty['id']): ?> selected<?php endif; ?>><?= $e($ty['name']) ?></option>
 <?php endforeach; ?>
         </select>
       </label>
       <label><?= $word('REGULAR', 'until') ?> <span class="hint"><?= $word('REGULAR', 'until_hint') ?></span>
-        <input type="date" name="until" value="<?= $e((string) $t['until']) ?>"<?= $bad('until') ?>>
+        <input type="date" name="until" value="<?= $e((string) $t['until']) ?>"<?php if ($errorField === 'until'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('EXPENSES', 'note') ?>
-        <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?= $bad('note') ?>>
+        <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?php if ($errorField === 'note'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
     </fieldset>
 <?php if ($sameAsk): ?>

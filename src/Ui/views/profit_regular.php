@@ -30,7 +30,7 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
   </thead>
   <tbody>
 <?php foreach ($groups as $g): ?>
-    <tr class="rp-group"><th scope="rowgroup" colspan="<?= $range !== null ? 7 : 6 ?>"><?= $e($g['group']) ?></th></tr>
+    <tr class="rp-group"><th scope="rowgroup" colspan="<?php if ($range !== null): ?>7<?php else: ?>6<?php endif; ?>"><?= $e($g['group']) ?></th></tr>
 <?php foreach ($g['rows'] as $r): ?>
     <tr<?php if ($r['ended']): ?> class="off"<?php endif; ?>>
       <td data-label="<?= $word('REGULAR', 'name') ?>"><a href="<?= $u('/ui/profit/regular/' . $r['id']) ?>"><?= $e($r['name']) ?></a></td>

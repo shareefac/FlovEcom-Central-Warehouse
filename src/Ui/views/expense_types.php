@@ -54,7 +54,7 @@ $help = $T['help'] . ($lookOnly !== null ? ' ' . \CW\Ui\Words::say('UI', 'look_o
       <tr<?php if (!$ty['is_active']): ?> class="off"<?php endif; ?>>
         <th scope="row"><?= $e($ty['name']) ?></th>
         <td class="num" data-label="<?= $word('EXPENSE_TYPES', 'used') ?>"><?= $n($ty['used']) ?></td>
-        <td data-label="<?= $word('EXPENSE_TYPES', 'status') ?>"><?= $ty['is_active'] ? $chip('done', \CW\Ui\Words::EXPENSES['in_use']) : $chip('off', \CW\Ui\Words::EXPENSES['off_chip']) ?></td>
+        <td data-label="<?= $word('EXPENSE_TYPES', 'status') ?>"><?php if ($ty['is_active']): ?><?= $chip('done', \CW\Ui\Words::EXPENSES['in_use']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::EXPENSES['off_chip']) ?><?php endif; ?></td>
 <?php if ($canEdit): ?>
         <td data-label="<?= $word('EXPENSE_TYPES', 'change') ?>">
           <form class="inline" method="post" action="<?= $u('/ui/reference/expense-types/' . $ty['id'] . '/change') ?>">
@@ -63,7 +63,7 @@ $help = $T['help'] . ($lookOnly !== null ? ' ' . \CW\Ui\Words::say('UI', 'look_o
             <input type="text" name="name" value="<?= $e($ty['name']) ?>" maxlength="64" aria-label="<?= $word('EXPENSE_TYPES', 'name') ?>">
             <input type="text" name="reason" value="" maxlength="500" placeholder="<?= $word('EXPENSE_TYPES', 'why') ?>" aria-label="<?= $word('CONFIG', 'reason') ?>">
             <button type="submit" class="btn" name="do" value="rename"><?= $word('EXPENSES', 'rename') ?></button>
-            <button type="submit" class="btn" name="do" value="<?= $ty['is_active'] ? 'off' : 'on' ?>"><?= $word('EXPENSES', $ty['is_active'] ? 'switch_off' : 'switch_on') ?></button>
+            <?php if ($ty['is_active']): ?><button type="submit" class="btn" name="do" value="off"><?= $word('EXPENSES', 'switch_off') ?></button><?php else: ?><button type="submit" class="btn" name="do" value="on"><?= $word('EXPENSES', 'switch_on') ?></button><?php endif; ?>
           </form>
         </td>
 <?php endif; ?>

@@ -39,7 +39,7 @@ $X = \CW\Ui\Words::EXPENSES;
     <tr<?php if (!$s['is_active']): ?> class="off"<?php endif; ?>>
       <th scope="row"><?= $e($s['name']) ?></th>
       <td class="num" data-label="<?= $word('EXPENSES', 'used') ?>"><?= $n($s['used']) ?></td>
-      <td data-label="<?= $word('EXPENSES', 'status') ?>"><?= $s['is_active'] ? $chip('done', $X['in_use']) : $chip('off', $X['off_chip']) ?></td>
+      <td data-label="<?= $word('EXPENSES', 'status') ?>"><?php if ($s['is_active']): ?><?= $chip('done', $X['in_use']) ?><?php else: ?><?= $chip('off', $X['off_chip']) ?><?php endif; ?></td>
 <?php if ($canEdit): ?>
       <td data-label="<?= $word('EXPENSES', 'change') ?>">
         <form class="inline" method="post" action="<?= $u('/ui/profit/expenses/suppliers/' . $s['id'] . '/change') ?>">
@@ -47,7 +47,7 @@ $X = \CW\Ui\Words::EXPENSES;
           <input type="hidden" name="seen" value="<?= $e((string) $s['version']) ?>">
           <input type="text" name="name" value="<?= $e($s['name']) ?>" maxlength="100" aria-label="<?= $word('EXPENSES', 'supplier_name') ?>">
           <button type="submit" class="btn" name="do" value="rename"><?= $word('EXPENSES', 'rename') ?></button>
-          <button type="submit" class="btn" name="do" value="<?= $s['is_active'] ? 'off' : 'on' ?>"><?= $word('EXPENSES', $s['is_active'] ? 'switch_off' : 'switch_on') ?></button>
+          <?php if ($s['is_active']): ?><button type="submit" class="btn" name="do" value="off"><?= $word('EXPENSES', 'switch_off') ?></button><?php else: ?><button type="submit" class="btn" name="do" value="on"><?= $word('EXPENSES', 'switch_on') ?></button><?php endif; ?>
         </form>
       </td>
 <?php endif; ?>

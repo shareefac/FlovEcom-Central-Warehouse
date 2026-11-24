@@ -5,7 +5,7 @@
 ?>
     <fieldset class="expense-fields">
       <label><?= $word('EXPENSES', 'supplier') ?> <span class="hint"><?= $word('EXPENSES', 'supplier_hint') ?></span>
-        <input type="text" name="supplier" value="<?= $e((string) $t['supplier']) ?>" list="expense-suppliers" maxlength="100" autocomplete="off" required<?= $bad('supplier') ?>>
+        <input type="text" name="supplier" value="<?= $e((string) $t['supplier']) ?>" list="expense-suppliers" maxlength="100" autocomplete="off" required<?php if ($errorField === 'supplier'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <datalist id="expense-suppliers">
 <?php foreach ($suppliers as $s): ?>
@@ -16,7 +16,7 @@
       <label class="choice"><input type="checkbox" name="new_supplier" value="1"<?php if ($t['new_supplier']): ?> checked<?php endif; ?>> <?= $word('EXPENSES', 'new_supplier') ?></label>
 <?php endif; ?>
       <label><?= $word('EXPENSES', 'type') ?> <span class="hint"><?= $word('EXPENSES', 'type_hint') ?></span>
-        <select name="type" required<?= $bad('type') ?>>
+        <select name="type" required<?php if ($errorField === 'type'): ?> aria-invalid="true"<?php endif; ?>>
           <option value=""><?= $word('EXPENSES', 'choose_type') ?></option>
 <?php foreach ($types as $ty): ?>
           <option value="<?= $e((string) $ty['id']) ?>"<?php if ((string) $t['type'] === (string) $ty['id']): ?> selected<?php endif; ?>><?= $e($ty['name']) ?></option>
@@ -24,20 +24,20 @@
         </select>
       </label>
       <label><?= $word('EXPENSES', 'invoice_date') ?>
-        <input type="date" name="invoice_date" value="<?= $e((string) $t['invoice_date']) ?>" required<?= $bad('invoice_date') ?>>
+        <input type="date" name="invoice_date" value="<?= $e((string) $t['invoice_date']) ?>" required<?php if ($errorField === 'invoice_date'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('EXPENSES', 'invoice_no') ?> <span class="hint"><?= $word('EXPENSES', 'invoice_no_hint') ?></span>
-        <input type="text" name="invoice_no" value="<?= $e((string) $t['invoice_no']) ?>" maxlength="64" autocomplete="off"<?= $bad('invoice_no') ?>>
+        <input type="text" name="invoice_no" value="<?= $e((string) $t['invoice_no']) ?>" maxlength="64" autocomplete="off"<?php if ($errorField === 'invoice_no'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('EXPENSES', 'net') ?>
-        <input type="text" name="net" value="<?= $e((string) $t['net']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required data-expense-sum<?= $bad('net') ?>>
+        <input type="text" name="net" value="<?= $e((string) $t['net']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required data-expense-sum<?php if ($errorField === 'net'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
       <label><?= $word('EXPENSES', 'vat') ?> <span class="hint"><?= $word('EXPENSES', 'vat_hint') ?></span>
-        <input type="text" name="vat" value="<?= $e((string) $t['vat']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required data-expense-sum<?= $bad('vat') ?>>
+        <input type="text" name="vat" value="<?= $e((string) $t['vat']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required data-expense-sum<?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
-      <p class="expense-total"><span><?= $word('EXPENSES', 'total') ?></span> <output data-expense-total><?= $net !== null && $vat !== null ? $e(\CW\Expenses\ExpenseMoney::gbp($net + $vat)) : '-' ?></output></p>
+      <p class="expense-total"><span><?= $word('EXPENSES', 'total') ?></span> <output data-expense-total><?php if ($net !== null && $vat !== null): ?><?= $e(\CW\Expenses\ExpenseMoney::gbp($net + $vat)) ?><?php else: ?>-<?php endif; ?></output></p>
       <p class="note expense-dollar"><?= $word('EXPENSES', 'dollar_hint') ?></p>
       <label><?= $word('EXPENSES', 'note') ?>
-        <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500" placeholder="<?= $word('EXPENSES', 'note_placeholder') ?>"<?= $bad('note') ?>>
+        <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500" placeholder="<?= $word('EXPENSES', 'note_placeholder') ?>"<?php if ($errorField === 'note'): ?> aria-invalid="true"<?php endif; ?>>
       </label>
     </fieldset>
